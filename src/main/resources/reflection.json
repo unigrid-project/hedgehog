@@ -1,0 +1,21 @@
+[
+    {
+        "name":"org.jboss.weld.environment.se.Weld",
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "allDeclaredFields" : true,
+    "allPublicFields" : true
+    },{
+        "name":"net.saga.graalvm.weld.test.Application",
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+    },{
+        "name":"org.jboss.weld.environment.se.WeldSEBeanRegistrant",
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+    },{
+        "name":"org.jboss.weld.environment.se.WeldSEProvider",
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+    }
+]
