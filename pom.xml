@@ -19,7 +19,12 @@
         <dependency>
             <groupId>com.oracle.svm</groupId>
             <artifactId>svm</artifactId>
-            <version>GraalVM-1.0.0-rc1</version>
+            <version>GraalVM-1.0.0-rc2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm</groupId>
+            <artifactId>graal-sdk</artifactId>
+            <version>1.0.0-rc2</version>
         </dependency>
         <dependency>
             <groupId>javax.enterprise</groupId>
@@ -59,7 +64,7 @@
                         <manifest>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>net.saga.graalvm.weld.test.Main2</mainClass>
+                            <mainClass>net.saga.graalvm.weld.test.Main</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

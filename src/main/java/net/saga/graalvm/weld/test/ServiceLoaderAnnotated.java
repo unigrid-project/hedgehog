@@ -191,7 +191,7 @@ import java.util.ServiceConfigurationError;
  * @since 1.6
  */
 
-public final class ServiceLoader<S>
+public final class ServiceLoaderAnnotated<S>
     implements Iterable<S>
 {
 
@@ -228,7 +228,7 @@ public final class ServiceLoader<S>
         lookupIterator = new LazyIterator(service, loader);
     }
 
-    private ServiceLoader(Class<S> svc, ClassLoader cl) {
+    private ServiceLoaderAnnotated(Class<S> svc, ClassLoader cl) {
         service = Objects.requireNonNull(svc, "Service interface cannot be null");
         System.out.println("Service " + service);
         loader = (cl == null) ? ClassLoader.getSystemClassLoader() : cl;
@@ -520,10 +520,10 @@ public final class ServiceLoader<S>
      *
      * @return A new service loader
      */
-    public static <S> ServiceLoader<S> load(Class<S> service,
+    public static <S> ServiceLoaderAnnotated<S> load(Class<S> service,
                                             ClassLoader loader)
     {
-        return new ServiceLoader<>(service, loader);
+        return new ServiceLoaderAnnotated<>(service, loader);
     }
 
     /**
@@ -549,10 +549,10 @@ public final class ServiceLoader<S>
      *
      * @return A new service loader
      */
-    public static <S> ServiceLoader<S> load(Class<S> service) {
+    public static <S> ServiceLoaderAnnotated<S> load(Class<S> service) {
         System.out.println("MyServiceLoader");
         ClassLoader cl = Thread.currentThread().getContextClassLoader();
-        return ServiceLoader.load(service, cl);
+        return ServiceLoaderAnnotated.load(service, cl);
     }
 
     /**
@@ -581,14 +581,14 @@ public final class ServiceLoader<S>
      *
      * @return A new service loader
      */
-    public static <S> ServiceLoader<S> loadInstalled(Class<S> service) {
+    public static <S> ServiceLoaderAnnotated<S> loadInstalled(Class<S> service) {
         ClassLoader cl = ClassLoader.getSystemClassLoader();
         ClassLoader prev = null;
         while (cl != null) {
             prev = cl;
             cl = cl.getParent();
         }
-        return ServiceLoader.load(service, prev);
+        return ServiceLoaderAnnotated.load(service, prev);
     }
 
     /**

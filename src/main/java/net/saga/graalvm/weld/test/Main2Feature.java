@@ -7,9 +7,11 @@ package net.saga.graalvm.weld.test;
 
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.jdk.Resources;
-import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import org.graalvm.nativeimage.Feature;
+import org.graalvm.nativeimage.RuntimeReflection;
+import org.jboss.weld.environment.se.Weld;
 
 /**
  *
@@ -23,19 +25,39 @@ public class Main2Feature implements Feature {
         Feature.super.beforeAnalysis(access); 
 
         System.out.println("Registering resources");
-        try (FileInputStream is = new FileInputStream("/home/summers/NetBeansProjects/graalvm-weld-test/src/main/resources/META-INF/services/net.saga.graalvm.weld.test.Application")) {
-            int read = -1;
-            while ((read = is.read()) != -1) {
-                System.out.print((char)read);
-            }
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
-        }
-         try (FileInputStream is = new FileInputStream("/home/summers/NetBeansProjects/graalvm-weld-test/src/main/resources/META-INF/services/net.saga.graalvm.weld.test.Application")) {
+        
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/net.saga.graalvm.weld.test.Application")) {
             Resources.registerResource("META-INF/services/net.saga.graalvm.weld.test.Application", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
+        
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/com.oracle.truffle.api.TruffleRuntimeAccess")) {
+            Resources.registerResource("META-INF/services/com.oracle.truffle.api.TruffleRuntimeAccess", is);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+        
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.se.SeContainerInitializer")) {
+            Resources.registerResource("META-INF/services/javax.enterprise.inject.se.SeContainerInitializer", is);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+        
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.spi.CDIProvider")) {
+            Resources.registerResource("META-INF/services/javax.enterprise.inject.spi.CDIProvider", is);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+        
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.spi.Extension")) {
+            Resources.registerResource("META-INF/services/javax.enterprise.inject.spi.Extension", is);
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
+        }
+        
+        RuntimeReflection.registerForReflectiveInstantiation(Weld.class);
+        
     }
  
     
