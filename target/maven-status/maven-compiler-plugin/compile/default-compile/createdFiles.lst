@@ -1,4 +1,7 @@
-com\huzu\hedgehog\hedgehogd.class
+com\huzu\hedgehog\Wallet.class
+com\huzu\hedgehog\TransactionInput.class
 com\huzu\hedgehog\Block.class
 com\huzu\hedgehog\darkhedgehog.class
+com\huzu\hedgehog\Transaction.class
+com\huzu\hedgehog\TransactionOutput.class
 com\huzu\hedgehog\StringUtil.class
