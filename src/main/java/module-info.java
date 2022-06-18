@@ -1,0 +1,50 @@
+/*
+    Unigrid Hedgehog 
+    Copyright © 2021-2022 The Unigrid Foundation
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+module org.unigrid.hedgehog {
+	requires ch.qos.logback.classic;
+	requires static lombok;
+	requires info.picocli;
+	requires jakarta.cdi;
+	requires jakarta.inject;
+	requires jakarta.interceptor.api;
+	requires jakarta.ws.rs;
+	requires jakarta.annotation;
+	requires com.fasterxml.jackson.databind;
+	requires com.fasterxml.jackson.datatype.jsr310;
+	requires free.port.finder;
+	requires org.apache.commons.lang3;
+	requires org.apache.commons.codec;
+	requires io.netty.buffer;
+	requires io.netty.transport;
+	requires io.netty.codec;
+	requires io.netty.incubator.codec.quic;
+	requires io.netty.incubator.codec.classes.quic;
+	requires io.netty.common;
+	requires io.netty.handler;
+	requires jersey.server;
+	requires jersey.client;
+	requires jersey.container.netty.http;
+	requires jersey.media.json.jackson;
+	requires jersey.common;
+	requires jersey.cdi2.se;
+	requires org.reflections;
+	requires org.slf4j;
+	requires weld.se.core;
+	requires weld.core.impl;
+	requires org.apache.commons.configuration2;
+	requires org.apache.commons.collections4;
+}

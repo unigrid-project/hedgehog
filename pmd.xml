@@ -1,0 +1,105 @@
+<?xml version="1.0"?>
+<ruleset name="hedgehog" xmlns="http://pmd.sourceforge.net/ruleset/2.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	 xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 http://pmd.sourceforge.net/ruleset_2_0_0.xsd"
+	 xsi:noNamespaceSchemaLocation="http://pmd.sourceforge.net/ruleset_2_0_0.xsd">
+	<rule ref="rulesets/internal/all-java.xml">
+		<exclude name="AvoidCatchingGenericException" />
+		<exclude name="AvoidLiteralsInIfCondition" />
+		<exclude name="AvoidSynchronizedAtMethodLevel" />
+		<exclude name="AvoidUsingVolatile" />
+		<exclude name="AtLeastOneConstructor" />
+		<exclude name="BeanMembersShouldSerialize" />
+		<exclude name="CommentRequired" />
+		<exclude name="CommentSize" />
+		<exclude name="GuardLogStatement" />
+		<exclude name="UnnecessaryImport" />
+		<exclude name="ImmutableField" />
+		<exclude name="JUnitAssertionsShouldIncludeMessage" />
+		<exclude name="LawOfDemeter" />
+		<exclude name="LocalVariableCouldBeFinal" />
+		<exclude name="ProperLogger" />
+		<exclude name="LongVariable" />
+		<exclude name="LoosePackageCoupling" />
+		<exclude name="MethodArgumentCouldBeFinal" />
+		<exclude name="OnlyOneReturn" />
+		<exclude name="ShortClassName" />
+		<exclude name="ShortVariable" />
+		<exclude name="SignatureDeclareThrowsException" />
+		<exclude name="SingularField" />
+		<exclude name="TestClassWithoutTestCases" />
+		<exclude name="UnusedPrivateField" />
+		<exclude name="UnusedPrivateMethod" />
+		<exclude name="UseConcurrentHashMap" />
+		<exclude name="UseUtilityClass" />
+		<exclude name="DoNotTerminateVM" />
+		<exclude name="DoNotUseThreads" />
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/ImmutableField">
+		<!-- Project Lombok -->
+		<properties>
+			<property name="violationSuppressXPath" value="../../..[Annotation//Name[@Image='Setter']]"/>
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/LocalVariableCouldBeFinal">
+		<properties>
+			<property name="violationSuppressXPath" value="../../ForStatement"/>
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/ProperLogger">
+		<properties>
+			<property name="violationSuppressXPath" value="../..[Annotation//Name[@Image='Inject']]"/>
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/SignatureDeclareThrowsException">
+		<!-- JUnit tests -->
+		<properties>
+			<property name="violationSuppressXPath" value="../../..[Annotation//Name[@Image='Test']]"/>
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/SingularField">
+		<!-- Project Lombok -->
+		<properties>
+			<property name="violationSuppressXPath" value="..[Annotation//Name[@Image='Getter']]" />
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/TestClassWithoutTestCases">
+		<!-- Support for extending test classes -->
+		<properties>
+			<property name="violationSuppressXPath" value="//Annotation//Name[@Image='Test']"/>
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/UnusedPrivateField">
+		<!-- Project Lombok -->
+		<properties>
+			<property name="violationSuppressXPath" value="../../..[Annotation//Name[(@Image='Getter') or (@Image='Setter') or (@Image='Drone')]]" />
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/UnusedPrivateMethod">
+		<!-- CDI observer -->
+		<properties>
+			<property name="violationSuppressXPath" value="//MethodDeclaration//MarkerAnnotation/Name[@Image='Observes']" />
+		</properties>
+	</rule>
+	<rule ref="rulesets/internal/all-java.xml/UseUtilityClass">
+		<!-- Project Lombok -->
+		<properties>
+			<property name="violationSuppressXPath" value="((../..[Annotation//Name[(@Image='NoArgsConstructor') or (@Image='RequiredArgsConstructor') or (@Image='AllArgsConstructor')]]) and //PrimaryPrefix//Name[@Image='AccessLevel.PRIVATE']) or //PrimaryPrefix//Name[@Image='AccessLevel.PUBLIC'] or //Annotation//Name[(@Image='Getter') or (@Image='Setter')]" />
+		</properties>
+	</rule>
+	<rule ref="category/java/codestyle.xml/ConfusingTernary">
+		<properties>
+			<property name="ignoreElseIf" value="true" />
+		</properties>
+	</rule>
+	<rule ref="category/java/design.xml/SignatureDeclareThrowsException">
+		<properties>
+			<property name="violationSuppressXPath" value="((//MethodDeclaration/../Annotation/MarkerAnnotation/Name[@Image='Override']) or (//MethodDeclaration/../../../../ClassOrInterfaceDeclaration[@Interface=true()]))"/>
+			<property name="IgnoreJUnitCompletely" value="true"/>
+		</properties>
+	</rule>
+	<rule ref="category/java/design.xml/CognitiveComplexity">
+		<properties>
+			<property name="reportLevel" value="10"/>
+		</properties>
+	</rule>
+</ruleset>
