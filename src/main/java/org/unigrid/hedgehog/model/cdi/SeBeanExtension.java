@@ -29,9 +29,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
-import org.glassfish.jersey.inject.cdi.se.bean.BeanHelper;
-import org.glassfish.jersey.inject.cdi.se.injector.JerseyInjectionTarget;
+//import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
+//import org.glassfish.jersey.inject.cdi.se.bean.BeanHelper;
+//import org.glassfish.jersey.inject.cdi.se.injector.JerseyInjectionTarget;
 import org.glassfish.jersey.internal.inject.Binding;
 import org.glassfish.jersey.internal.inject.ClassBinding;
 import org.glassfish.jersey.internal.inject.InjectionResolver;
@@ -43,7 +43,7 @@ import org.jboss.weld.injection.producer.BasicInjectionTarget;
 
 @Slf4j
 public class SeBeanExtension implements Extension {
-	private final List<JerseyInjectionTarget> targets = new ArrayList<>();
+	//private final List<JerseyInjectionTarget> targets = new ArrayList<>();
 
 	public <T> void ignoreManuallyRegisteredComponents(
 		@Observes @WithAnnotations({ Path.class, Provider.class }) ProcessAnnotatedType<T> pat) {

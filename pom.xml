@@ -88,11 +88,31 @@
 			<artifactId>jersey-media-jaxb</artifactId>
 			<version>3.0.4</version>
 		</dependency>
-		<dependency>
+		<!--<dependency>
 			<groupId>org.glassfish.jersey.inject</groupId>
 			<artifactId>jersey-cdi2-se</artifactId>
 			<version>3.0.4</version>
+		</dependency>-->
+		<!--<dependency>
+			<groupId>org.glassfish.jersey.inject</groupId>
+			<artifactId>jersey-cdi2-se</artifactId>
+			<version>3.0.4</version>
+		</dependency>-->
+		<!--<dependency>
+			<groupId>org.glassfish.jersey.ext.cdi</groupId>
+			<artifactId>jersey-cdi1x</artifactId>
+			<version>3.0.4</version>
 		</dependency>
+		<dependency>
+			<groupId>org.glassfish.jersey.ext.cdi</groupId>
+			<artifactId>jersey-cdi1x-servlet</artifactId>
+			<version>3.0.4</version>
+		</dependency>-->
+		<!--<dependency>
+			<groupId>org.glassfish.jersey.ext.cdi</groupId>
+			<artifactId>jersey-weld2-se</artifactId>
+			<version>3.0.4</version>
+		</dependency>-->
 		<dependency>
 			<groupId>org.glassfish.jaxb</groupId>
 			<artifactId>jaxb-runtime</artifactId>

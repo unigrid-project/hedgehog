@@ -20,10 +20,104 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.AfterBeanDiscovery;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.Extension;
-import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
+import jakarta.enterprise.inject.spi.ProcessAnnotatedType;
+import jakarta.enterprise.inject.spi.ProcessInjectionTarget;
+import jakarta.enterprise.inject.spi.WithAnnotations;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.ext.Provider;
+import lombok.extern.slf4j.Slf4j;
+//import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
 
+@Slf4j
 public class JerseyExtension implements Extension {
 	public void registerScope(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
-		abd.addBean(new RequestScopeBean(beanManager));
+		//abd.addBean(new RequestScopeBean(beanManager));
+	}
+
+	public <T> void ignoreManuallyRegisteredComponents(@Observes @WithAnnotations({ Path.class, Provider.class })
+		ProcessAnnotatedType<T> pat) {
+
+		log.atDebug().log("XXX 0 {}", pat);
+		/*System.out.println("ignoreManuallyRegisteredComponents XXXXXXXXXXXXXXXXXXXXXXXXXX ");
+		System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXX " + JerseyInjectionManager.getInjectables());
+
+		if (JerseyInjectionManager.getInjectables() == null) return;
+
+		for (Binding binding : JerseyInjectionManager.getInjectables()) {
+			if (ClassBinding.class.isAssignableFrom(binding.getClass())) {
+				final ClassBinding<?> classBinding = (ClassBinding<?>) binding;
+
+				if (pat.getAnnotatedType().getJavaClass() == classBinding.getService()) {
+					pat.veto();
+					return;
+				}
+			} else if (InstanceBinding.class.isAssignableFrom(binding.getClass())) {
+				final InstanceBinding<?> instanceBinding = (InstanceBinding<?>) binding;
+
+				if (pat.getAnnotatedType().getJavaClass() == instanceBinding.getService().getClass()) {
+					pat.veto();
+					return;
+				}
+			}
+		}*/
+	}
+
+	public <T> void observeInjectionTarget(@Observes ProcessInjectionTarget<T> pit) {
+		log.atDebug().log("XXX A1 {}", pit.getAnnotatedType());
+		log.atDebug().log("XXX A2 {}", pit.getInjectionTarget());
+
+		/*log.atDebug().log("XXXXXX");
+		System.out.println("observeInjectionTarget XXXXXXXXXXXXXXXXXXXXXXXXXX ");
+		System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXX " + JerseyInjectionManager.getInjectables());
+
+		final BasicInjectionTarget<T> it = (BasicInjectionTarget<T>) pit.getInjectionTarget();
+
+		final JerseyInjectionTarget<T> jerseyInjectionTarget = new JerseyInjectionTarget<>(it,
+			pit.getAnnotatedType().getJavaClass()
+		);
+
+		targets.add(jerseyInjectionTarget);
+		pit.setInjectionTarget(jerseyInjectionTarget);*/
+	}
+
+	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
+		log.atDebug().log("XXX B {}", abd);
+
+		
+
+		/*log.atDebug().log("XXXXXX");
+		System.out.println("registerBeans XXXXXXXXXXXXXXXXXXXXXXXXXX ");
+		System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXX " + JerseyInjectionManager.getInjectables());
+		//System.out.println(abd.);
+
+		if (JerseyInjectionManager.getInjectables() == null) return;
+
+		final List<InjectionResolver> injectionResolvers = JerseyInjectionManager.getInjectables().stream()
+			.filter(binding -> InjectionResolverBinding.class.isAssignableFrom(binding.getClass()))
+			.map(InjectionResolverBinding.class::cast)
+			.map(InjectionResolverBinding::getResolver)
+			.collect(Collectors.toList());
+
+		targets.forEach(injectionTarget -> injectionTarget.setInjectionResolvers(injectionResolvers));
+
+		System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXX " + JerseyInjectionManager.getInjectables());
+
+		for (Binding binding : JerseyInjectionManager.getInjectables()) {
+			System.out.println("XXXXXXXXXXXXXXXXXXXXXXXXXX " + binding);
+			if (ClassBinding.class.isAssignableFrom(binding.getClass())) {
+				BeanHelper.registerBean((ClassBinding<?>) binding, abd, injectionResolvers, beanManager);
+
+			} else if (InstanceBinding.class.isAssignableFrom(binding.getClass())) {
+				BeanHelper.registerBean((InstanceBinding<?>) binding, abd, injectionResolvers);
+
+			} else if (SupplierClassBinding.class.isAssignableFrom(binding.getClass())) {
+				BeanHelper.registerSupplier((SupplierClassBinding<?>) binding, abd, injectionResolvers, beanManager);
+
+			} else if (SupplierInstanceBinding.class.isAssignableFrom(binding.getClass())) {
+				BeanHelper.registerSupplier((SupplierInstanceBinding<?>) binding, abd, beanManager);
+			}
+		}
+
+		abd.addBean(new RequestScopeBean(beanManager));*/
 	}
 }

@@ -31,11 +31,7 @@ public abstract class CDIContext implements Runnable {
 	@Override @SneakyThrows
 	public void run() {
 		SeContainerInitializer.newInstance().addExtensions(
-			EagerExtension.class, JerseyExtension.class//, SeBeanExtension.class
-		).addBeanClasses(
-			/*ConfiguredValidator.class, ExecutorServiceProvider.class,
-			JacksonJaxbJsonProvider.class, JsonExceptionMapper.class, RequestScope.class,
-			WadlModelProcessor.class*/
+			EagerExtension.class, JerseyExtension.class
 		).initialize();
 
 		synchronized (this) {

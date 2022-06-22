@@ -40,7 +40,8 @@ module org.unigrid.hedgehog {
 	requires jersey.container.netty.http;
 	requires jersey.media.json.jackson;
 	requires jersey.common;
-	requires jersey.cdi2.se;
+	//requires jersey.cdi1x;
+	//requires jersey.weld2.se;
 	requires org.reflections;
 	requires org.slf4j;
 	requires weld.se.core;
