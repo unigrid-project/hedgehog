@@ -23,10 +23,14 @@ import jakarta.enterprise.inject.spi.Extension;
 import jakarta.enterprise.inject.spi.ProcessAnnotatedType;
 import jakarta.enterprise.inject.spi.ProcessInjectionTarget;
 import jakarta.enterprise.inject.spi.WithAnnotations;
+import jakarta.inject.Singleton;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.ext.Provider;
 import lombok.extern.slf4j.Slf4j;
-//import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
+import org.glassfish.jersey.server.ChunkedResponseWriter;
+import org.glassfish.jersey.server.internal.JsonWithPaddingInterceptor;
+import org.glassfish.jersey.server.internal.MappableExceptionWrapperInterceptor;
+import org.glassfish.jersey.server.internal.monitoring.MonitoringContainerListener;
 
 @Slf4j
 public class JerseyExtension implements Extension {
@@ -80,10 +84,36 @@ public class JerseyExtension implements Extension {
 		pit.setInjectionTarget(jerseyInjectionTarget);*/
 	}
 
-	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
-		log.atDebug().log("XXX B {}", abd);
+	private void registerSimpleSingletons(AfterBeanDiscovery abd, Class<?>... singletons) {
+		for (Class<?> s : singletons) {
+			abd.addBean().types(s).scope(Singleton.class)
+				.produceWith(o -> {
+					try {
+						return s.getDeclaredConstructor().newInstance();
+					} catch(Exception ex) {
+						/* Empty on purpose - we fall through and return an illegal state */
+					}
 
-		
+					throw new IllegalStateException("Unable to register singleton with CDI container.");
+				});
+		}
+	}
+
+	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
+		/*abd.addBean().types(MappableExceptionWrapperInterceptor.class)
+			.scope(Singleton.class)
+			.produceWith(o -> new MappableExceptionWrapperInterceptor());
+
+		abd.addBean().types(MonitoringContainerListener.class)
+			.scope(Singleton.class)
+			.produceWith(o -> new MonitoringContainerListener());*/
+
+		registerSimpleSingletons(abd,
+			ChunkedResponseWriter.class,
+			JsonWithPaddingInterceptor.class,
+			MappableExceptionWrapperInterceptor.class,
+			MonitoringContainerListener.class
+		);
 
 		/*log.atDebug().log("XXXXXX");
 		System.out.println("registerBeans XXXXXXXXXXXXXXXXXXXXXXXXXX ");

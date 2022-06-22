@@ -1,5 +1,4 @@
-275*§1//53q	+
-+--/*
+/*
     Unigrid Hedgehog 
     Copyright © 2021-2022 The Unigrid Foundation
 
@@ -19,21 +18,17 @@ package org.unigrid.hedgehog.model.cdi;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.CDI;
-import jakarta.enterprise.util.AnnotationLiteral;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.glassfish.jersey.internal.inject.Binder;
-//import org.glassfish.jersey.inject.cdi.se.CdiSeInjectionManager;
-//import org.glassfish.jersey.inject.cdi.se.injector.ContextInjectionResolverImpl;
 import org.glassfish.jersey.internal.inject.Binding;
 import org.glassfish.jersey.internal.inject.ClassBinding;
 import org.glassfish.jersey.internal.inject.ForeignDescriptor;
 import org.glassfish.jersey.internal.inject.InjectionManager;
 import org.glassfish.jersey.internal.inject.ServiceHolder;
-import org.jboss.weld.environment.se.Weld;
 
 @Slf4j
 public class JerseyInjectionManager implements InjectionManager {
@@ -62,28 +57,31 @@ public class JerseyInjectionManager implements InjectionManager {
 	public void register(Binder binder) {
 		final BeanManager manager = CDI.current().getBeanManager();
 
-		for (var b : binder.getBindings()) {
+		for (Binding b : binder.getBindings()) {
 			if (b instanceof ClassBinding) {
-				//
-				System.out.println(b.getQualifiers());
-				final Set<Bean<?>> beans = manager.getBeans(b.getImplementationType(), (Annotation[]) b.getQualifiers().toArray());
+				final Set<Bean<?>> beans = manager.getBeans(b.getImplementationType());
 
-				for (Bean<?> bean : beans) {
-					System.out.println(bean.getBeanClass().getName());
+				if (beans.isEmpty()) {
+					log.atError().log("No candidate for {} with scope {} and qualifiers {}",
+						b.getImplementationType(),  b.getScope(), b.getQualifiers()
+					);
+
+					throw new IllegalStateException("No eligible candidate for implementation.");
+				} else if (beans.size() > 1) {
+					log.atError().log("More than one candidate for {} with scope {} and qualifiers {}",
+						b.getImplementationType(),  b.getScope(), b.getQualifiers()
+					);
+
+					throw new IllegalStateException("Conflicting candidates for implementation.");
 				}
-
 			} else {
 				log.atError().log("Binding is of type {}", b);
-				throw new UnsupportedOperationException("Only supports ClassBinding.");
+				throw new IllegalStateException("Only supports ClassBinding.");
 			}
 
-			System.out.println(b.getName());
-			System.out.println(b.getAliases());
-			System.out.println(b.getQualifiers());
-			System.out.println(b.getImplementationType());
-			System.out.println(b.getContracts());
-			System.out.println(b.getScope());
-			System.out.println(b.getRank());
+			log.atDebug().log("{} with scope {} and qualifiers {} is registered",
+				b.getImplementationType(),  b.getScope(), b.getQualifiers()
+			);
 		}
 	}
 
