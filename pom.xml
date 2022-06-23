@@ -65,12 +65,12 @@
 		<dependency>
 			<groupId>org.glassfish.jersey.containers</groupId>
 			<artifactId>jersey-container-netty-http</artifactId>
-			<version>3.0.4</version>
+			<version>3.0.5</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.containers</groupId>
 			<artifactId>jersey-container-jdk-http</artifactId>
-			<version>3.0.4</version>
+			<version>3.0.5</version>
 		</dependency>
 		<dependency>
 			<groupId>io.netty.incubator</groupId>
@@ -81,16 +81,16 @@
 		<dependency>
 			<groupId>org.glassfish.jersey.media</groupId>
 			<artifactId>jersey-media-json-jackson</artifactId>
-			<version>3.0.4</version>
+			<version>3.0.5</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.media</groupId>
 			<artifactId>jersey-media-jaxb</artifactId>
-			<version>3.0.4</version>
+			<version>3.0.5</version>
 		</dependency>
 		<!--<dependency>
-			<groupId>org.glassfish.jersey.inject</groupId>
-			<artifactId>jersey-cdi2-se</artifactId>
+			<groupId>org.glassfish.jersey.incubator</groupId>
+			<artifactId>jersey-cdi-inject-weld</artifactId>
 			<version>3.0.4</version>
 		</dependency>-->
 		<!--<dependency>
