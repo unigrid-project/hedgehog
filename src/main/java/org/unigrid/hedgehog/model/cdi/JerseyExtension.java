@@ -25,16 +25,19 @@ import jakarta.enterprise.inject.spi.Extension;
 import jakarta.enterprise.inject.spi.ProcessAnnotatedType;
 import jakarta.enterprise.inject.spi.ProcessInjectionTarget;
 import jakarta.enterprise.inject.spi.WithAnnotations;
-import jakarta.enterprise.inject.spi.configurator.BeanConfigurator;
 import jakarta.inject.Singleton;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.ext.Provider;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Map;
+import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.glassfish.jersey.internal.inject.ParamConverters.AggregatedProvider;
 import org.glassfish.jersey.server.AsyncContext;
 import org.glassfish.jersey.server.ChunkedResponseWriter;
 import org.glassfish.jersey.server.CloseableService;
@@ -42,7 +45,6 @@ import org.glassfish.jersey.server.ContainerRequest;
 import org.glassfish.jersey.server.internal.JsonWithPaddingInterceptor;
 import org.glassfish.jersey.server.internal.MappableExceptionWrapperInterceptor;
 import org.glassfish.jersey.server.internal.monitoring.MonitoringContainerListener;
-import org.glassfish.jersey.server.internal.process.RequestProcessingConfigurator;
 import org.glassfish.jersey.server.internal.process.RequestProcessingContextReference;
 import org.glassfish.jersey.server.internal.routing.UriRoutingContext;
 
@@ -138,6 +140,18 @@ public class JerseyExtension implements Extension {
 		}
 	}
 
+	@Getter final static Map<Class<?>, Object> instances = MapUtils.EMPTY_SORTED_MAP;
+
+	@SneakyThrows
+	private void registerInternalInstanceFed(AfterBeanDiscovery abd, String... types) {
+		final String parent = "org.glassfish.jersey.server.internal.inject.";
+
+		for (String t : types) {
+			final Class<?> typeClass = Class.forName(parent + t);
+			abd.addBean().types(typeClass).produceWith(o -> instances.get(typeClass));
+		}
+	}
+
 	@SneakyThrows
 	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
 		registerSimple(abd, Singleton.class,
@@ -157,6 +171,13 @@ public class JerseyExtension implements Extension {
 			Pair.of(CloseableService.class, "CloseableServiceFactory"),
 			Pair.of(ContainerRequest.class, "ContainerRequestFactory"),
 			Pair.of(UriRoutingContext.class, "UriRoutingContextFactory")
+		);
+
+		abd.addBean().types(AggregatedProvider.class)
+			.produceWith(o -> new AggregatedProvider((new JerseyInjectionManager())));
+
+		registerInternalInstanceFed(abd, "AsyncResponseValueParamProvider",
+			"MultivaluedParameterExtractorFactory"
 		);
 	}
 

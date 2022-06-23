@@ -30,6 +30,7 @@ import org.glassfish.jersey.internal.inject.Binding;
 import org.glassfish.jersey.internal.inject.ClassBinding;
 import org.glassfish.jersey.internal.inject.ForeignDescriptor;
 import org.glassfish.jersey.internal.inject.InjectionManager;
+import org.glassfish.jersey.internal.inject.InstanceBinding;
 import org.glassfish.jersey.internal.inject.ServiceHolder;
 import org.glassfish.jersey.internal.inject.SupplierClassBinding;
 
@@ -48,10 +49,36 @@ public class JerseyInjectionManager implements InjectionManager {
 
 	@Override
 	public void register(Binding binding) {
-		System.out.println(binding.getImplementationType());
-		System.out.println(binding.getScope());
-		System.out.println(binding.getClass());
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		final BeanManager manager = CDI.current().getBeanManager();
+		final Set<Bean<?>> beans = manager.getBeans(binding.getImplementationType());;
+
+		if (binding instanceof ClassBinding) {
+			log.atDebug().log("Candidate for {} with scope {} and qualifiers {}",
+				binding.getImplementationType(), binding.getScope(), binding.getQualifiers()
+			);
+
+			/*} else if (b instanceof SupplierClassBinding) {
+			final Class<?> type = locateProducableType((SupplierClassBinding) b);
+			beans = manager.getBeans(type);
+
+			log.atDebug().log("Candidate for supplier {} in scope {} for type {}",
+				((SupplierClassBinding) b).getSupplierClass(),
+				((SupplierClassBinding) b).getSupplierScope(), type
+			);*/
+		} else if (binding instanceof InstanceBinding) {
+			System.out.println(((InstanceBinding) binding).getService());
+			System.out.println(((InstanceBinding) binding).getImplementationType());
+			System.out.println(((InstanceBinding) binding).getScope());
+		} else {
+			log.atError().log("Binding is of type {}", binding);
+			throw new IllegalStateException("Binding type not supported by injection manager.");
+		}
+
+		if (beans.isEmpty()) {
+			throw new IllegalStateException("No eligible candidate.");
+		} else if (beans.size() > 1) {
+			throw new IllegalStateException("Conflicting candidates.");
+		}
 	}
 
 	@Override
