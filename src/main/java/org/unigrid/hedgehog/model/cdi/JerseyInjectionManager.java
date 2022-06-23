@@ -22,6 +22,8 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.glassfish.jersey.internal.inject.Binder;
 import org.glassfish.jersey.internal.inject.Binding;
@@ -29,6 +31,7 @@ import org.glassfish.jersey.internal.inject.ClassBinding;
 import org.glassfish.jersey.internal.inject.ForeignDescriptor;
 import org.glassfish.jersey.internal.inject.InjectionManager;
 import org.glassfish.jersey.internal.inject.ServiceHolder;
+import org.glassfish.jersey.internal.inject.SupplierClassBinding;
 
 @Slf4j
 public class JerseyInjectionManager implements InjectionManager {
@@ -44,7 +47,10 @@ public class JerseyInjectionManager implements InjectionManager {
 	}
 
 	@Override
-	public void register(Binding bndng) {
+	public void register(Binding binding) {
+		System.out.println(binding.getImplementationType());
+		System.out.println(binding.getScope());
+		System.out.println(binding.getClass());
 		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
 	}
 
@@ -53,35 +59,41 @@ public class JerseyInjectionManager implements InjectionManager {
 		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
 	}
 
+	@SneakyThrows
+	private Class<?> locateProducableType(SupplierClassBinding binding) {
+		return binding.getSupplierClass().getMethod("get").getReturnType();
+	}
+
 	@Override
 	public void register(Binder binder) {
 		final BeanManager manager = CDI.current().getBeanManager();
+		Set<Bean<?>> beans;
 
 		for (Binding b : binder.getBindings()) {
 			if (b instanceof ClassBinding) {
-				final Set<Bean<?>> beans = manager.getBeans(b.getImplementationType());
+				beans = manager.getBeans(b.getImplementationType());
 
-				if (beans.isEmpty()) {
-					log.atError().log("No candidate for {} with scope {} and qualifiers {}",
-						b.getImplementationType(),  b.getScope(), b.getQualifiers()
-					);
+				log.atDebug().log("Candidate for {} with scope {} and qualifiers {}",
+					b.getImplementationType(), b.getScope(), b.getQualifiers()
+				);
+			} else if (b instanceof SupplierClassBinding) {
+				final Class<?> type = locateProducableType((SupplierClassBinding) b);
+				beans = manager.getBeans(type);
 
-					throw new IllegalStateException("No eligible candidate for implementation.");
-				} else if (beans.size() > 1) {
-					log.atError().log("More than one candidate for {} with scope {} and qualifiers {}",
-						b.getImplementationType(),  b.getScope(), b.getQualifiers()
-					);
-
-					throw new IllegalStateException("Conflicting candidates for implementation.");
-				}
+				log.atDebug().log("Candidate for supplier {} in scope {} for type {}",
+					((SupplierClassBinding) b).getSupplierClass(),
+					((SupplierClassBinding) b).getSupplierScope(), type
+				);
 			} else {
 				log.atError().log("Binding is of type {}", b);
-				throw new IllegalStateException("Only supports ClassBinding.");
+				throw new IllegalStateException("Binding type not supported by injection manager.");
 			}
 
-			log.atDebug().log("{} with scope {} and qualifiers {} is registered",
-				b.getImplementationType(),  b.getScope(), b.getQualifiers()
-			);
+			if (beans.isEmpty()) {
+				throw new IllegalStateException("No eligible candidate.");
+			} else if (beans.size() > 1) {
+				throw new IllegalStateException("Conflicting candidates.");
+			}
 		}
 	}
 
