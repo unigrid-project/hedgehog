@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.AfterBeanDiscovery;
@@ -31,22 +32,58 @@ import jakarta.ws.rs.ext.Provider;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Supplier;
 import lombok.Getter;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.glassfish.jersey.internal.ContextResolverFactory;
+import org.glassfish.jersey.internal.ExceptionMapperFactory;
+import org.glassfish.jersey.internal.JaxrsProviders;
+import org.glassfish.jersey.internal.config.ExternalPropertiesAutoDiscoverable;
 import org.glassfish.jersey.internal.inject.ParamConverters.AggregatedProvider;
+import org.glassfish.jersey.internal.inject.PerLookup;
+import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
+import org.glassfish.jersey.logging.LoggingFeatureAutoDiscoverable;
+import org.glassfish.jersey.message.internal.ByteArrayProvider;
+import org.glassfish.jersey.message.internal.DataSourceProvider;
+import org.glassfish.jersey.message.internal.FileProvider;
+import org.glassfish.jersey.message.internal.FormMultivaluedMapProvider;
+import org.glassfish.jersey.message.internal.FormProvider;
+import org.glassfish.jersey.message.internal.InputStreamProvider;
+import org.glassfish.jersey.message.internal.MessageBodyFactory;
+import org.glassfish.jersey.message.internal.ReaderProvider;
+import org.glassfish.jersey.message.internal.RenderedImageProvider;
+import org.glassfish.jersey.message.internal.SourceProvider.DomSourceReader;
+import org.glassfish.jersey.message.internal.SourceProvider.SaxSourceReader;
+import org.glassfish.jersey.message.internal.SourceProvider.SourceWriter;
+import org.glassfish.jersey.message.internal.SourceProvider.StreamSourceReader;
+import org.glassfish.jersey.message.internal.StreamingOutputProvider;
+import org.glassfish.jersey.netty.httpserver.NettyHttpContainerProvider;
+import org.glassfish.jersey.server.ApplicationHandler;
 import org.glassfish.jersey.server.AsyncContext;
 import org.glassfish.jersey.server.ChunkedResponseWriter;
 import org.glassfish.jersey.server.CloseableService;
 import org.glassfish.jersey.server.ContainerRequest;
+import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.internal.JsonWithPaddingInterceptor;
 import org.glassfish.jersey.server.internal.MappableExceptionWrapperInterceptor;
 import org.glassfish.jersey.server.internal.monitoring.MonitoringContainerListener;
 import org.glassfish.jersey.server.internal.process.RequestProcessingContextReference;
 import org.glassfish.jersey.server.internal.routing.UriRoutingContext;
+import org.glassfish.jersey.server.wadl.WadlFeature;
+import org.glassfish.jersey.server.wadl.internal.WadlApplicationContextImpl;
+import org.glassfish.jersey.server.wadl.internal.WadlResource;
+import org.glassfish.jersey.server.wadl.processor.OptionsMethodProcessor;
+import org.glassfish.jersey.server.wadl.processor.WadlModelProcessor;
+import org.glassfish.jersey.server.wadl.processor.WadlModelProcessor.OptionsHandler;
+import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 @Slf4j
 public class JerseyExtension implements Extension {
@@ -100,12 +137,12 @@ public class JerseyExtension implements Extension {
 		pit.setInjectionTarget(jerseyInjectionTarget);*/
 	}
 
-	private void registerSimple(AfterBeanDiscovery abd, Class<? extends Annotation> scope, Class<?>... singletons) {
-		for (Class<?> s : singletons) {
-			abd.addBean().types(s).scope(scope)
+	private void registerSimple(AfterBeanDiscovery abd, Class<? extends Annotation> scope, Class<?>... entries) {
+		for (Class<?> e : entries) {
+			abd.addBean().types(e).scope(scope)
 				.produceWith(o -> {
 					try {
-						return s.getDeclaredConstructor().newInstance();
+						return e.getDeclaredConstructor().newInstance();
 					} catch(Exception ex) {
 						/* Empty on purpose - we fall through and return an illegal state */
 					}
@@ -140,30 +177,86 @@ public class JerseyExtension implements Extension {
 		}
 	}
 
-	@Getter final static Map<Class<?>, Object> instances = MapUtils.EMPTY_SORTED_MAP;
+	@Getter private final static Map<Class<?>, Object> instances = new HashMap<>();
+	@Getter private final static Map<Class<?>, Supplier<?>> supplierInstances = new HashMap<>();
 
-	@SneakyThrows
 	private void registerInternalInstanceFed(AfterBeanDiscovery abd, String... types) {
-		final String parent = "org.glassfish.jersey.server.internal.inject.";
+		final LinkedList<String> parents = new LinkedList<>(List.of("org.glassfish.jersey.server.",
+			"org.glassfish.jersey.server.internal.",
+			"org.glassfish.jersey.server.internal.inject."
+		));
 
 		for (String t : types) {
-			final Class<?> typeClass = Class.forName(parent + t);
-			abd.addBean().types(typeClass).produceWith(o -> instances.get(typeClass));
+			for (String p : parents) {
+				try {
+					final Class<?> typeClass = Class.forName(p + t);
+					abd.addBean().types(typeClass).produceWith(o -> instances.get(typeClass));
+					break;
+
+				} catch(ClassNotFoundException ex) {
+					if (parents.getLast().equals(p)) {
+						log.atError().log("Unable to find class {}", ex.getMessage());
+						throw new IllegalStateException("Failed to register instance injection.");
+					}
+				}
+			}
 		}
 	}
 
-	@SneakyThrows
-	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
+	private void registerInstanceFed(AfterBeanDiscovery abd, Class<?>... types) {
+		for (Class<?> t : types) {
+			abd.addBean().types(t).produceWith(o -> instances.get(t));
+		}
+	}
+
+	private void registerSupplierInstanceFed(AfterBeanDiscovery abd, Class<?>... types) {
+		for (Class<?> t : types) {
+			abd.addBean().types(t).produceWith(o -> supplierInstances.get(t).get());
+		}
+	}
+
+	public void registerBeans(@Observes AfterBeanDiscovery abd, BeanManager beanManager) throws ClassNotFoundException {
 		registerSimple(abd, Singleton.class,
+			Class.forName("org.glassfish.jersey.message.internal.BasicTypesMessageProvider"),
+			Class.forName("org.glassfish.jersey.message.internal.EnumMessageProvider"),
+			Class.forName("org.glassfish.jersey.message.internal.StringMessageProvider"),
+			ByteArrayProvider.class,
 			ChunkedResponseWriter.class,
+			DataSourceProvider.class,
+			DomSourceReader.class,
+			FileProvider.class,
+			FormProvider.class,
+			FormMultivaluedMapProvider.class,
+			InputStreamProvider.class,
+			ReaderProvider.class,
+			RenderedImageProvider.class,
+			SaxSourceReader.class,
+			StreamSourceReader.class,
+			SourceWriter.class,
+			StreamingOutputProvider.class,
 			JsonWithPaddingInterceptor.class,
 			MappableExceptionWrapperInterceptor.class,
-			MonitoringContainerListener.class
+			MonitoringContainerListener.class,
+			WadlApplicationContextImpl.class,
+			WadlResource.class
+		);
+
+		registerSimple(abd, Dependent.class,
+			ExternalPropertiesAutoDiscoverable.class,
+			LoggingFeatureAutoDiscoverable.class,
+			NettyHttpContainerProvider.class
 		);
 
 		registerSimple(abd, RequestScoped.class,
-			RequestProcessingContextReference.class,
-			Class.forName("org.glassfish.jersey.server.internal.process.SecurityContextInjectee")
+			Class.forName("org.glassfish.jersey.server.internal.process.SecurityContextInjectee"),
+			Class.forName("org.glassfish.jersey.server.wadl.processor.OptionsMethodProcessor$GenericOptionsInflector"),
+			Class.forName("org.glassfish.jersey.server.wadl.processor.OptionsMethodProcessor$PlainTextOptionsInflector"),
+			OptionsHandler.class,
+			RequestProcessingContextReference.class
+		);
+
+		registerSimple(abd, PerLookup.class,
+			JaxrsProviders.class
 		);
 
 		registerRequestProcessingSupplier(abd,
@@ -177,8 +270,40 @@ public class JerseyExtension implements Extension {
 			.produceWith(o -> new AggregatedProvider((new JerseyInjectionManager())));
 
 		registerInternalInstanceFed(abd, "AsyncResponseValueParamProvider",
-			"MultivaluedParameterExtractorFactory"
+			"BeanParamValueParamProvider",
+			"CookieParamValueParamProvider",
+			"DelegatedInjectionValueParamProvider",
+			"EntityParamValueParamProvider",
+			"ExternalRequestScopeConfigurator$1",
+			"FormParamValueParamProvider",
+			"HeaderParamValueParamProvider",
+			"JerseyResourceContext",
+			"MatrixParamValueParamProvider",
+			"MultivaluedParameterExtractorFactory",
+			"PathParamValueParamProvider",
+			"QueryParamValueParamProvider",
+			"ServerExecutorProvidersConfigurator$DefaultBackgroundSchedulerProvider",
+			"ServerExecutorProvidersConfigurator$DefaultManagedAsyncExecutorProvider",
+			"WebTargetValueParamProvider",
+			"ResourceConfig$RuntimeConfig"
 		);
+
+		registerInstanceFed(abd, ApplicationHandler.class,
+			ContextResolverFactory.class,
+			ExceptionMapperFactory.class,
+			JacksonJaxbJsonProvider.class,
+			JsonConfiguration.class,
+			JsonExceptionMapper.class,
+			MessageBodyFactory.class,
+			OptionsMethodProcessor.class,
+			ResourceConfig.class,
+			WadlFeature.class,
+			WadlModelProcessor.class
+		);
+
+		registerSupplierInstanceFed(abd, 
+			ScheduledThreadPoolExecutor.class,
+			ThreadPoolExecutor.class);
 	}
 
 	/*@SneakyThrows

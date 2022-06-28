@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -37,6 +38,7 @@ import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Path("/gridspork")
+@ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 @Slf4j(topic = "org.unigrid.hedgehog.server.rest.GridSporkResource")

@@ -5,7 +5,7 @@
 	</formats>
 	<includeBaseDirectory>false</includeBaseDirectory>
 	<dependencySets>
-		<dependencySet>
+		<!--<dependencySet>
 			<outputDirectory>/</outputDirectory>
 			<useProjectArtifact>true</useProjectArtifact>
 			<unpack>true</unpack>
@@ -18,15 +18,15 @@
 					<exclude>**/org.glassfish.jersey.internal.inject.InjectionManagerFactory</exclude>
 				</excludes>
 			</unpackOptions>
-		</dependencySet>
+		</dependencySet>-->
 		<dependencySet>
 			<outputDirectory>/</outputDirectory>
 			<useProjectArtifact>true</useProjectArtifact>
 			<unpack>true</unpack>
 			<scope>runtime</scope>
-			<excludes>
+			<!--<excludes>
 				<exclude>org.glassfish.jersey.inject:jersey-cdi2-se</exclude>
-			</excludes>
+			</excludes>-->
 		</dependencySet>
 	</dependencySets>
 </assembly>

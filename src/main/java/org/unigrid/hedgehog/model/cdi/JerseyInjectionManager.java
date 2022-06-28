@@ -15,14 +15,17 @@
  */
 package org.unigrid.hedgehog.model.cdi;
 
+import jakarta.enterprise.context.spi.CreationalContext;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.CDI;
+import jakarta.enterprise.inject.spi.Unmanaged;
+import jakarta.enterprise.inject.spi.Unmanaged.UnmanagedInstance;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.glassfish.jersey.internal.inject.Binder;
@@ -30,45 +33,65 @@ import org.glassfish.jersey.internal.inject.Binding;
 import org.glassfish.jersey.internal.inject.ClassBinding;
 import org.glassfish.jersey.internal.inject.ForeignDescriptor;
 import org.glassfish.jersey.internal.inject.InjectionManager;
+import org.glassfish.jersey.internal.inject.InjectionResolverBinding;
 import org.glassfish.jersey.internal.inject.InstanceBinding;
 import org.glassfish.jersey.internal.inject.ServiceHolder;
 import org.glassfish.jersey.internal.inject.SupplierClassBinding;
+import org.glassfish.jersey.internal.inject.SupplierInstanceBinding;
 
 @Slf4j
 public class JerseyInjectionManager implements InjectionManager {
 
 	@Override
 	public void completeRegistration() {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		/* Assume that the CDI context has been initialized previously and elsewhere */
 	}
 
 	@Override
 	public void shutdown() {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public void register(Binding binding) {
 		final BeanManager manager = CDI.current().getBeanManager();
-		final Set<Bean<?>> beans = manager.getBeans(binding.getImplementationType());;
+		Set<Bean<?>> beans = manager.getBeans(binding.getImplementationType());
 
 		if (binding instanceof ClassBinding) {
-			log.atDebug().log("Candidate for {} with scope {} and qualifiers {}",
+			log.atDebug().log("Class binding candidate for {} with scope {} and qualifiers {}",
 				binding.getImplementationType(), binding.getScope(), binding.getQualifiers()
 			);
+		} else if (binding instanceof InjectionResolverBinding) {
+			System.out.println(((InjectionResolverBinding) binding).getResolver().getAnnotation());
+			System.out.println(((InjectionResolverBinding) binding).getImplementationType());
+			return;
+		} else if (binding instanceof InstanceBinding) {
+			log.atDebug().log("Instance binding candidate for {} with scope {}",
+				binding.getImplementationType(), binding.getScope()
+			);
 
-			/*} else if (b instanceof SupplierClassBinding) {
-			final Class<?> type = locateProducableType((SupplierClassBinding) b);
+			JerseyExtension.getInstances().put(binding.getImplementationType(),
+				((InstanceBinding) binding).getService()
+			);
+		} else if (binding instanceof SupplierClassBinding) {
+			final Class<?> type = locateProducableType((SupplierClassBinding) binding);
 			beans = manager.getBeans(type);
 
 			log.atDebug().log("Candidate for supplier {} in scope {} for type {}",
-				((SupplierClassBinding) b).getSupplierClass(),
-				((SupplierClassBinding) b).getSupplierScope(), type
-			);*/
-		} else if (binding instanceof InstanceBinding) {
-			System.out.println(((InstanceBinding) binding).getService());
-			System.out.println(((InstanceBinding) binding).getImplementationType());
-			System.out.println(((InstanceBinding) binding).getScope());
+				((SupplierClassBinding) binding).getSupplierClass(),
+				((SupplierClassBinding) binding).getSupplierScope(), type
+			);
+		} else if (binding instanceof SupplierInstanceBinding) {
+			final Class<?> type = locateProducableType((SupplierInstanceBinding) binding);
+			beans = manager.getBeans(type);
+
+			log.atDebug().log("Supplier instance binding candidate for {} with scope {}",
+				((SupplierInstanceBinding) binding).getSupplier().get().getClass(), binding.getScope()
+			);
+
+			JerseyExtension.getSupplierInstances().put(binding.getImplementationType(),
+				((SupplierInstanceBinding) binding).getSupplier()
+			);
 		} else {
 			log.atError().log("Binding is of type {}", binding);
 			throw new IllegalStateException("Binding type not supported by injection manager.");
@@ -83,7 +106,7 @@ public class JerseyInjectionManager implements InjectionManager {
 
 	@Override
 	public void register(Iterable<Binding> itrbl) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@SneakyThrows
@@ -91,97 +114,107 @@ public class JerseyInjectionManager implements InjectionManager {
 		return binding.getSupplierClass().getMethod("get").getReturnType();
 	}
 
+	@SneakyThrows
+	private Class<?> locateProducableType(SupplierInstanceBinding binding) {
+		return binding.getSupplier().get().getClass();
+	}
+
 	@Override
 	public void register(Binder binder) {
-		final BeanManager manager = CDI.current().getBeanManager();
-		Set<Bean<?>> beans;
-
 		for (Binding b : binder.getBindings()) {
-			if (b instanceof ClassBinding) {
-				beans = manager.getBeans(b.getImplementationType());
-
-				log.atDebug().log("Candidate for {} with scope {} and qualifiers {}",
-					b.getImplementationType(), b.getScope(), b.getQualifiers()
-				);
-			} else if (b instanceof SupplierClassBinding) {
-				final Class<?> type = locateProducableType((SupplierClassBinding) b);
-				beans = manager.getBeans(type);
-
-				log.atDebug().log("Candidate for supplier {} in scope {} for type {}",
-					((SupplierClassBinding) b).getSupplierClass(),
-					((SupplierClassBinding) b).getSupplierScope(), type
-				);
-			} else {
-				log.atError().log("Binding is of type {}", b);
-				throw new IllegalStateException("Binding type not supported by injection manager.");
-			}
-
-			if (beans.isEmpty()) {
-				throw new IllegalStateException("No eligible candidate.");
-			} else if (beans.size() > 1) {
-				throw new IllegalStateException("Conflicting candidates.");
-			}
+			register(b);
 		}
 	}
 
 	@Override
 	public void register(Object o) throws IllegalArgumentException {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public boolean isRegistrable(Class<?> type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		return false;
 	}
 
 	@Override
 	public <T> T create(Class<T> type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public <T> T createAndInitialize(Class<T> type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		final UnmanagedInstance<T> unmanaged = new Unmanaged<>(type).newInstance();
+		return unmanaged.produce().postConstruct().get();
 	}
 
 	@Override
 	public <T> List<ServiceHolder<T>> getAllServiceHolders(Class<T> type, Annotation... antns) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		return Collections.EMPTY_LIST;
+		/* Already registered in the extension */
 	}
 
 	@Override
 	public <T> T getInstance(Class<T> type, Annotation... antns) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		final BeanManager manager = CDI.current().getBeanManager();
+		final Set<Bean<?>> beans = manager.getBeans(type, antns);
+
+		if (beans.isEmpty()) {
+			return null;
+		}
+
+		Bean<?> bean = beans.iterator().next();
+		final CreationalContext<?> ctx = manager.createCreationalContext(bean);
+		return (T) manager.getReference(bean, type, ctx);
 	}
 
 	@Override
 	public <T> T getInstance(Class<T> type, String string) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public <T> T getInstance(Class<T> type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		final BeanManager manager = CDI.current().getBeanManager();
+		final Set<Bean<?>> beans = manager.getBeans(type);
+
+		if (beans.isEmpty()) {
+			return null;
+		}
+
+		Bean<?> bean = beans.iterator().next();
+		final CreationalContext<?> ctx = manager.createCreationalContext(bean);
+		return (T) manager.getReference(bean, type, ctx);
 	}
 
 	@Override
 	public <T> T getInstance(Type type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public Object getInstance(ForeignDescriptor fd) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public ForeignDescriptor createForeignDescriptor(Binding bndng) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override
 	public <T> List<T> getAllInstances(Type type) {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		/*final BeanManager manager = CDI.current().getBeanManager();
+		final List<T> result = new ArrayList<>();
+
+		for (Bean<?> bean : manager.getBeans(type)) {
+			CreationalContext<?> ctx = manager.createCreationalContext(bean);
+			Object reference = manager.getReference(bean, type, ctx);
+			result.add((T) reference);
+		}
+
+		return result;*/
+		return Collections.EMPTY_LIST;
+		/* Already registered in the extension */
 	}
 
 	@Override
