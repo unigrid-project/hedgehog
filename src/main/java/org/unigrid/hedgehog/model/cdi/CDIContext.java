@@ -19,24 +19,12 @@ package org.unigrid.hedgehog.model.cdi;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.se.SeContainerInitializer;
 import lombok.SneakyThrows;
-import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
-import org.glassfish.jersey.process.internal.RequestScope;
-import org.glassfish.jersey.server.internal.inject.ConfiguredValidator;
-import org.glassfish.jersey.server.wadl.processor.WadlModelProcessor;
-import org.glassfish.jersey.spi.ExecutorServiceProvider;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
-import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 public abstract class CDIContext implements Runnable {
 	@Override @SneakyThrows
 	public void run() {
-		SeContainerInitializer.newInstance().addExtensions(
-			EagerExtension.class, JerseyExtension.class//, SeBeanExtension.class
-		).addBeanClasses(
-			/*ConfiguredValidator.class, ExecutorServiceProvider.class,
-			JacksonJaxbJsonProvider.class, JsonExceptionMapper.class, RequestScope.class,
-			WadlModelProcessor.class*/
-		).initialize();
+		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).addBeanClasses().initialize();
 
 		synchronized (this) {
 			wait();

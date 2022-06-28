@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -16,14 +16,19 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
-import jakarta.enterprise.event.Observes;
-import jakarta.enterprise.inject.spi.AfterBeanDiscovery;
-import jakarta.enterprise.inject.spi.BeanManager;
-import jakarta.enterprise.inject.spi.Extension;
-import org.glassfish.jersey.inject.cdi.se.RequestScopeBean;
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.inject.spi.CDI;
+import java.lang.reflect.Field;
+import lombok.SneakyThrows;
 
-public class JerseyExtension implements Extension {
-	public void registerScope(@Observes AfterBeanDiscovery abd, BeanManager beanManager) {
-		abd.addBean(new RequestScopeBean(beanManager));
+public class CDIBridgeResource {
+	@SneakyThrows @PostConstruct
+	private void init() {
+		for (Field f : this.getClass().getDeclaredFields()) {
+			if (f.isAnnotationPresent(CDIBridgeInject.class)) {
+				f.setAccessible(true);
+				f.set(this, CDI.current().select(f.getType()).get());
+			}
+		}
 	}
 }

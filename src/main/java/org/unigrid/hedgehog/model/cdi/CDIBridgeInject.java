@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -16,12 +16,13 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
-import org.glassfish.jersey.internal.inject.InjectionManager;
-import org.glassfish.jersey.internal.inject.InjectionManagerFactory;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-public class JerseyInjectionManagerFactory implements InjectionManagerFactory {
-	@Override
-	public InjectionManager create(Object o) {
-		return (InjectionManager) new JerseyInjectionManager();
-	}
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.FIELD)
+public @interface CDIBridgeInject {
+	/* Empty on purpose */
 }

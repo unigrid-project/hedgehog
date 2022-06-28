@@ -16,8 +16,6 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -28,14 +26,15 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Arrays;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.network.Topology;
 
 @Path("/node")
-@ApplicationScoped
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-public class NodeResource {
-	@Inject
+public class NodeResource extends CDIBridgeResource {
+	@CDIBridgeInject
 	private Topology topology;
 
 	@Path("/add") @POST
