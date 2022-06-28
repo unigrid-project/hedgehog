@@ -10,23 +10,6 @@
 			<useProjectArtifact>true</useProjectArtifact>
 			<unpack>true</unpack>
 			<scope>runtime</scope>
-			<includes>
-				<include>org.glassfish.jersey.inject:jersey-cdi2-se</include>
-			</includes>
-			<unpackOptions>
-				<excludes>
-					<exclude>**/org.glassfish.jersey.internal.inject.InjectionManagerFactory</exclude>
-				</excludes>
-			</unpackOptions>
-		</dependencySet>
-		<dependencySet>
-			<outputDirectory>/</outputDirectory>
-			<useProjectArtifact>true</useProjectArtifact>
-			<unpack>true</unpack>
-			<scope>runtime</scope>
-			<excludes>
-				<exclude>org.glassfish.jersey.inject:jersey-cdi2-se</exclude>
-			</excludes>
 		</dependencySet>
 	</dependencySets>
 </assembly>
