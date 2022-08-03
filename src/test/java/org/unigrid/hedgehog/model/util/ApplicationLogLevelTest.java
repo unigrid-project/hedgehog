@@ -14,15 +14,40 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog;
+package org.unigrid.hedgehog.model.util;
 
+import ch.qos.logback.classic.Level;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.util.logging.Logger;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
 import org.junit.jupiter.api.BeforeAll;
 
-public class HedgehogTest {
+public class ApplicationLogLevelTest {
+	private static ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+	@BeforeAll
+	public static void setup() {
+		output = new ByteArrayOutputStream();
+		//System.setOut(new PrintStream(output));
+	}
+
 	@Property(tries = 5)
-	public boolean should(@ForAll int i) {
-		return i == 1;
+	public boolean shouldFilterLogMessagesByLogLevel(@ForAll @IntRange(max = 5) int logLevel,
+		@ForAll @IntRange(max = 5) int printLevel) {
+
+		final int previousSize = output.size();
+		final Logger logger = Logger.getLogger(ApplicationLogLevelTest.class.getName());
+
+		ApplicationLogLevel.configure(printLevel);
+		//logger.setLevel(logLevel);
+		
+
+		//if (logLevel > 
+		//System.out.println(logLevel + " : " + checkLevel);
+		Level.
+		return true;
 	}
 }
