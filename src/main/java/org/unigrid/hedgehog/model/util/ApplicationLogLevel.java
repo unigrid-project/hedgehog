@@ -19,18 +19,33 @@ package org.unigrid.hedgehog.model.util;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import java.util.Map;
+import java.util.Objects;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.slf4j.LoggerFactory;
 
 public class ApplicationLogLevel {
+	private static final Map<?,?> LEVELS = ArrayUtils.toMap(new Object[][]{
+		{ 0, Level.OFF   }, { 1, Level.ERROR }, { 2, Level.WARN }, { 3, Level.INFO },
+		{ 4, Level.DEBUG }, { 5, Level.TRACE }, { 6, Level.ALL  }
+	});
+
+	public static Level getLevelFromVerbosity(int verbosity) {
+		return verbosity < 6 ? (Level) LEVELS.get(verbosity) : Level.ALL;
+	}
+
+	public static int getVerbosityFromLevel(Level level) throws UnsupportedLogLevelException {
+		final Integer verbosity = (Integer) MapUtils.invertMap(LEVELS).get(level);
+
+		if (Objects.isNull(level)) {
+			throw new UnsupportedLogLevelException(String.format("Can't find verbosity for %s.", level));
+		}
+	
+		return verbosity;
+	}
+
 	public static void configure(int verbosity) {
 		final Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
-
-		final Map<?,?> levels = ArrayUtils.toMap(new Object[][]{
-			{ 0, Level.OFF   }, { 1, Level.ERROR }, { 2, Level.WARN }, { 3, Level.INFO },
-			{ 4, Level.DEBUG }, { 5, Level.TRACE }, { 6, Level.ALL  }
-		});
-
-		root.setLevel(verbosity < 6 ? (Level) levels.get(verbosity) : Level.ALL);
+		root.setLevel(getLevelFromVerbosity(verbosity));
 	}
 }

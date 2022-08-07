@@ -16,38 +16,51 @@
 
 package org.unigrid.hedgehog.model.util;
 
-import ch.qos.logback.classic.Level;
 import java.io.ByteArrayOutputStream;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.PrintStream;
-import java.util.logging.Logger;
+import java.util.Map;
+import lombok.extern.java.Log;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.RandomStringUtils;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 
+@Log
 public class ApplicationLogLevelTest {
+	private static final Map<?,?> LEVELS_UTILS = ArrayUtils.toMap(new Object[][]{
+		{ 0, java.util.logging.Level.OFF     }, { 1, java.util.logging.Level.SEVERE },
+		{ 2, java.util.logging.Level.WARNING }, { 3, java.util.logging.Level.INFO   },
+		{ 4, java.util.logging.Level.FINE    }, { 5, java.util.logging.Level.FINER  },
+		{ 6, java.util.logging.Level.ALL     }
+	});
+
 	private static ByteArrayOutputStream output = new ByteArrayOutputStream();
 
 	@BeforeAll
 	public static void setup() {
-		output = new ByteArrayOutputStream();
-		//System.setOut(new PrintStream(output));
+		System.setOut(new PrintStream(new ByteArrayOutputStream()));
 	}
 
-	@Property(tries = 5)
-	public boolean shouldFilterLogMessagesByLogLevel(@ForAll @IntRange(max = 5) int logLevel,
+	@Property(tries = 10)
+	public boolean shouldOutputLogMessagesByLogLevel(@ForAll @IntRange(max = 5) int logLevel,
 		@ForAll @IntRange(max = 5) int printLevel) {
 
-		final int previousSize = output.size();
-		final Logger logger = Logger.getLogger(ApplicationLogLevelTest.class.getName());
-
 		ApplicationLogLevel.configure(printLevel);
-		//logger.setLevel(logLevel);
-		
 
-		//if (logLevel > 
-		//System.out.println(logLevel + " : " + checkLevel);
-		Level.
-		return true;
+		final int previousSize = output.size();
+		log.log((java.util.logging.Level) LEVELS_UTILS.get(logLevel), RandomStringUtils.randomAscii(8));
+
+		return (previousSize > output.size() && printLevel >= logLevel) || (logLevel == 0 && printLevel == 0);
+	}
+
+	@AfterAll
+	public static void teardown() {
+		output = new ByteArrayOutputStream();
+		System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out)));
 	}
 }
