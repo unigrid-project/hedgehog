@@ -16,51 +16,46 @@
 
 package org.unigrid.hedgehog.model.util;
 
-import java.io.ByteArrayOutputStream;
-import java.io.FileDescriptor;
-import java.io.FileOutputStream;
-import java.io.PrintStream;
-import java.util.Map;
+import ch.qos.logback.classic.jul.JULHelper;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.java.Log;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.RandomStringUtils;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 
 @Log
 public class ApplicationLogLevelTest {
-	private static final Map<?,?> LEVELS_UTILS = ArrayUtils.toMap(new Object[][]{
-		{ 0, java.util.logging.Level.OFF     }, { 1, java.util.logging.Level.SEVERE },
-		{ 2, java.util.logging.Level.WARNING }, { 3, java.util.logging.Level.INFO   },
-		{ 4, java.util.logging.Level.FINE    }, { 5, java.util.logging.Level.FINER  },
-		{ 6, java.util.logging.Level.ALL     }
-	});
+	private static class JunitHandler extends Handler {
+		@Getter @Setter private boolean dirty;
 
-	private static ByteArrayOutputStream output = new ByteArrayOutputStream();
+		@Override
+		public void publish(LogRecord lr) {
+			dirty = true;
+		}
 
-	@BeforeAll
-	public static void setup() {
-		System.setOut(new PrintStream(new ByteArrayOutputStream()));
+		@Override public void flush() { /* Ignored on purpose */ }
+		@Override public void close() throws SecurityException { /* Ignored on purpose */ }
 	}
 
 	@Property(tries = 10)
-	public boolean shouldOutputLogMessagesByLogLevel(@ForAll @IntRange(max = 5) int logLevel,
-		@ForAll @IntRange(max = 5) int printLevel) {
+	public boolean shouldOutputLogMessagesByLogLevel(@ForAll @IntRange(min = 1, max = 5) int logLevel,
+		@ForAll @IntRange(min = 0, max = 6) int messageLevel) {
 
-		ApplicationLogLevel.configure(printLevel);
+		final java.util.logging.Level level = JULHelper.asJULLevel(ApplicationLogLevel.getLevelFromVerbosity(messageLevel));
+		ApplicationLogLevel.configure(logLevel);
 
-		final int previousSize = output.size();
-		log.log((java.util.logging.Level) LEVELS_UTILS.get(logLevel), RandomStringUtils.randomAscii(8));
+		final JunitHandler handler = new JunitHandler();
+		log.addHandler(handler);
+		log.log(level, RandomStringUtils.randomAscii(8));
 
-		return (previousSize > output.size() && printLevel >= logLevel) || (logLevel == 0 && printLevel == 0);
-	}
-
-	@AfterAll
-	public static void teardown() {
-		output = new ByteArrayOutputStream();
-		System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.out)));
+		if (handler.isDirty()) {
+			return messageLevel <= logLevel;
+		} else {
+			return messageLevel > logLevel;
+		}
 	}
 }

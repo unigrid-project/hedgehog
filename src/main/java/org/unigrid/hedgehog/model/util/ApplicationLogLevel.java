@@ -26,8 +26,8 @@ import org.slf4j.LoggerFactory;
 
 public class ApplicationLogLevel {
 	private static final Map<?,?> LEVELS = ArrayUtils.toMap(new Object[][]{
-		{ 0, Level.OFF   }, { 1, Level.ERROR }, { 2, Level.WARN }, { 3, Level.INFO },
-		{ 4, Level.DEBUG }, { 5, Level.TRACE }, { 6, Level.ALL  }
+		{ 0, Level.OFF  }, { 1, Level.ERROR }, { 2, Level.WARN  },
+		{ 3, Level.INFO }, { 4, Level.DEBUG }, { 5, Level.TRACE }
 	});
 
 	public static Level getLevelFromVerbosity(int verbosity) {
