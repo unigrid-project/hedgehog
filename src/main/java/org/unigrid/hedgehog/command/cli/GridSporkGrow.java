@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -20,10 +20,12 @@ import org.unigrid.hedgehog.command.cli.spork.MintSupply;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-grow", subcommands = { MintSupply.class },
-	description = "Grow an already defined spork, expanding it's already defined data section. Previous data is unchanged."
+@Command(name = "gridspork-grow", subcommands = MintSupply.class,
+	description = "Grow an already defined spork, expanding a defined data section. Previous data is unchanged."
 )
 public class GridSporkGrow {
-	@Option(names = { "-k", "--key" }, required = true, description = "Hex representation of private key signing the spork.")
+	@Option(names = { "-k", "--key" }, required = true,
+		description = "Hex representation of private key signing the spork."
+	)
 	private String key;
 }

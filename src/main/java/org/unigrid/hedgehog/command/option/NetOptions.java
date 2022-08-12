@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -13,6 +13,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+
 package org.unigrid.hedgehog.command.option;
 
 import lombok.Getter;

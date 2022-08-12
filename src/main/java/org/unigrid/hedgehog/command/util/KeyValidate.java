@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -31,13 +31,17 @@ import picocli.CommandLine.Option;
 
 @Command(name = "key-validate")
 public class KeyValidate implements Runnable {
-@Getter @Option(names = { "-D", "--data" }, description = "Hex representation of data to verify.", required = true)
+	@Getter @Option(names = { "-D", "--data" }, description = "Hex representation of data to verify.", required = true)
 	private String data;
 
-	@Getter @Option(names = { "-k", "--key" }, required = true, description = "Hex representation of public key to use.")
+	@Getter @Option(names = { "-k", "--key" }, required = true,
+		description = "Hex representation of public key to use."
+	)
 	private String key;
 
-	@Getter @Option(names = { "-s", "--signature" }, required = true, description = "Hex representation of signature to verify.")
+	@Getter @Option(names = { "-s", "--signature" }, required = true,
+		description = "Hex representation of signature to verify."
+	)
 	private String signatureHex;
 
 	@Override
@@ -46,11 +50,10 @@ public class KeyValidate implements Runnable {
 			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
 			System.out.println(signature.verify(Hex.decodeHex(data), Hex.decodeHex(signatureHex)));
 
-		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException | InvalidKeySpecException
-			| NoSuchAlgorithmException | SignatureException ex) {
+		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException
+			| InvalidKeySpecException | NoSuchAlgorithmException | SignatureException ex) {
 
 			System.err.println(String.format("Failed to verify signature: %s", ex));
 		}
-		
 	}
 }

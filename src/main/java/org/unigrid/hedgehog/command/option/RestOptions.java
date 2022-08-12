@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -28,7 +28,7 @@ public class RestOptions {
 		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "localhost"
 	)
 	private static String host;
-	
+
 	@Getter @Option(names = { "-r", "--restport" }, scope = CommandLine.ScopeType.INHERIT,
 		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
 	)

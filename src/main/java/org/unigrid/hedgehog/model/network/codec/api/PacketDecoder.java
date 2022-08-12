@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -15,8 +15,6 @@
  */
 
 package org.unigrid.hedgehog.model.network.codec.api;
-
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public interface PacketDecoder<T> {
 	//Packet.Type getSporkType();

@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -30,7 +30,7 @@ import org.unigrid.hedgehog.model.network.codec.api.EncodableGridSpork;
 
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public abstract class GridSporkEncoder<T extends GridSpork<?,?>> implements Encodable<T>, EncodableGridSpork<T> {
+public abstract class GridSporkEncoder<T extends GridSpork<?, ?>> implements Encodable<T>, EncodableGridSpork<T> {
 	/*
 	    Packet format:
 	    0.............................63.............................127

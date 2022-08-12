@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -16,17 +16,14 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
-import org.unigrid.hedgehog.model.network.codec.chunk.GridSporkEncoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
-import java.util.Map;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork;
 
 @Sharable
 public class PublishSporkEncoder extends MessageToByteEncoder<PublishSpork> {
@@ -35,6 +32,7 @@ public class PublishSporkEncoder extends MessageToByteEncoder<PublishSpork> {
 	public PublishSporkEncoder() {
 		ChunkScanner.scan();
 	}
+
 	/*
 	    Packet format:
 	    0.............................63.............................128

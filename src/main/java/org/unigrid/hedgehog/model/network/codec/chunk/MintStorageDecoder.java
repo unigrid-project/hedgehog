@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -34,7 +34,7 @@ public class MintStorageDecoder<T> extends GridSporkDecoder {
 		final MintStorage.SporkData data = new MintStorage.SporkData();
 		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
 
-		while (in.readableBytes() > 0) {		
+		while (in.readableBytes() > 0) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
 			final int height = in.readInt();
 			final BigDecimal amount = new BigDecimal(ByteBufUtils.readNullTerminatedString(in));

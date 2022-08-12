@@ -1,6 +1,6 @@
 /*
-    Sale Portal
-    Copyright © 2021 The Unigrid Foundation, UGD Software AB
+    Unigrid Hedgehog
+    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is the intelectual property of The Unigrid Foundation and UGD Software AB.
     Any and all redistribution is strictly prohibited. Aavailability in any form outside the

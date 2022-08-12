@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -24,7 +24,7 @@ import picocli.CommandLine.Command;
 @Command(name = "node-list")
 public class NodeList extends RestClientCommand {
 	public NodeList() {
-		super(HttpMethod.GET ,"/node/list");
+		super(HttpMethod.GET, "/node/list");
 	}
 
 	@Override

@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -35,8 +35,10 @@ public class PublishSporkDecoder extends ReplayingDecoder<PublishSpork> implemen
 	@Override
 	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
 		System.out.println("decode");
+
 		if (PublishSpork.Type.get(in.readShort()) == PublishSpork.Type.PUBLISH_SPORK) {
-			
+			/* TODO: Implement later */
+			System.out.println("decode2");
 		} else {
 			in.resetReaderIndex();
 		}

@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -34,7 +34,7 @@ import picocli.CommandLine.Option;
 		"      :   _.:.:.:.:.::.                    © 2021-2022 The Unigrid Foundation",
 		"     /  0  .:.:.:.:.:::                       (A segmented blocktree network)",
 		"    o____._:.oO:.:.oO:'                       Under an addended AGPL3 license",
-		"",
+		""
 	}, subcommands = { CLI.class, Daemon.class, Util.class }
 )
 public class Hedgehog {

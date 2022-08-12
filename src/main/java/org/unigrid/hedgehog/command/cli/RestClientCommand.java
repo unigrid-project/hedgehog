@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -29,15 +29,15 @@ class RestClientCommand<T> implements Runnable {
 	private final String method;
 	private final String location;
 
-	public RestClientCommand(T entity, String method, String location) {
+	RestClientCommand(T entity, String method, String location) {
 		this(method, location);
 		this.entity = entity;
 	}
 
 	@Override
-	public final void run() {
-		try (final RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort())) {
-			switch(method) {
+	public void run() {
+		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort())) {
+			switch (method) {
 				case HttpMethod.GET:
 					get(rest.get(location));
 					break;
@@ -50,7 +50,7 @@ class RestClientCommand<T> implements Runnable {
 					throw new UnsupportedOperationException();
 			}
 
-		} catch(ResponseOddityException ex) {
+		} catch (ResponseOddityException ex) {
 			System.err.println(ex.getMessage());
 		}
 	}

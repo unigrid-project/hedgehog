@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -65,7 +65,7 @@ public class Signature {
 
 		if (privateKeyHex.isPresent()) {
 			final KeySpec privSpec = new ECPrivateKeySpec(new BigInteger(privateKeyHex.get(), 16), params);
-			privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);		
+			privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);
 		}
 
 		if (publicKeyHex.isPresent()) {
@@ -84,7 +84,6 @@ public class Signature {
 
 	public String getPublicKey() {
 		return publicKey.getW().getAffineX().toString(16) + publicKey.getW().getAffineY().toString(16);
-		
 	}
 
 	public byte[] sign(byte[] data) throws InvalidKeyException, NoSuchAlgorithmException, SignatureException {

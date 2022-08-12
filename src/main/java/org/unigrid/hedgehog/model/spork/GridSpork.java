@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -24,7 +24,7 @@ import lombok.Getter;
 import lombok.experimental.Tolerate;
 
 @Data
-public class GridSpork<T, P> { 
+public class GridSpork<T, P> {
 	private Instant timeStamp;
 	private Instant previousTimeStamp;
 	private short flags; /* Put Flag values in here */
@@ -44,10 +44,10 @@ public class GridSpork<T, P> {
 	}
 
 	@AllArgsConstructor
-	public static enum Type {
+	public enum Type {
 		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010), VESTING_STORAGE((short) 1020);
 
-		@Getter short value;
+		@Getter private final short value;
 
 		public static Type get(short value) {
 			switch (value) {
@@ -64,7 +64,7 @@ public class GridSpork<T, P> {
 		type = Type.get(value);
 	}
 
-	public static interface IData {
+	public interface IData {
 		/* Empty on purpose - just here to make generics happy */
 	}
 }

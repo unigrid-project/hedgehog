@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -31,10 +31,14 @@ import picocli.CommandLine.Option;
 
 @Command(name = "key-sign")
 public class KeySign implements Runnable {
-	@Getter @Option(names = { "-D", "--data" }, description = "Hex representation of data to sign.", required = true)
+	@Getter @Option(names = { "-D", "--data" },
+		description = "Hex representation of data to sign.", required = true
+	)
 	private String data;
 
-	@Getter @Option(names = { "-k", "--key" }, required = true, description = "Hex representation of private key to use.")
+	@Getter @Option(names = { "-k", "--key" }, required = true,
+		description = "Hex representation of private key to use."
+	)
 	private String key;
 
 	@Override
@@ -43,11 +47,10 @@ public class KeySign implements Runnable {
 			final Signature signature = new Signature(Optional.of(key), Optional.empty());
 			System.out.println(Hex.encodeHexString(signature.sign(Hex.decodeHex(data))));
 
-		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException | InvalidKeySpecException
-			| NoSuchAlgorithmException | SignatureException ex) {
+		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException
+			| InvalidKeySpecException | NoSuchAlgorithmException | SignatureException ex) {
 
 			System.err.println(String.format("Failed to sign: %s", ex));
 		}
-		
 	}
 }

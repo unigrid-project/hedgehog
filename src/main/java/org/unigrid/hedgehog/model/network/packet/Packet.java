@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -31,12 +31,12 @@ public class Packet {
 	private Type type;
 
 	@AllArgsConstructor
-	public static enum Type {
+	public enum Type {
 		UNDEFINED((short) 0), PING((short) 500),
 		ASK_PEERS((short) 1000), PUBLISH_PEERS((short) 1010),
 		ASK_SPORKS((short) 2000), GROW_SPORK((short) 2010), PUBLISH_SPORK((short) 2020);
 
-		@Getter short value;
+		@Getter private short value;
 
 		public static Type get(short value) {
 			switch (value) {

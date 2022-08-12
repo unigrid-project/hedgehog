@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -27,5 +27,5 @@ import org.apache.commons.configuration2.sync.LockMode;
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ ElementType.METHOD, ElementType.TYPE })
 public @interface Protected {
-  LockMode value() default LockMode.WRITE;
+	LockMode value() default LockMode.WRITE;
 }

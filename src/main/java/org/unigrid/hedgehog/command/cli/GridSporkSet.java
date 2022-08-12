@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -22,7 +22,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-set", subcommands = { MintSupply.class },
+@Command(name = "gridspork-set", subcommands = MintSupply.class,
 	description = "Set an existing spork. Redefines any existing definitions of the spork."
 )
 public class GridSporkSet {

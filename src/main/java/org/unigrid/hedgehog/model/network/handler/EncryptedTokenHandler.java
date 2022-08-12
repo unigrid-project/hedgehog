@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -86,7 +86,7 @@ public class EncryptedTokenHandler implements QuicTokenHandler {
 
 		return true;
 	}
-	
+
 	@Override
 	public int validateToken(ByteBuf token, InetSocketAddress address) {
 		byte[] tmp = ByteBufUtil.getBytes(token);

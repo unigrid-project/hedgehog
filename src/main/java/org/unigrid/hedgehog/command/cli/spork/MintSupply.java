@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -17,7 +17,6 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import org.unigrid.hedgehog.client.RestClient;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import picocli.CommandLine.Command;
 

@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -47,7 +47,9 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
 public class P2PClient {
-	public static void connectAndSend(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
+	public static void connectAndSend(String hostname, int port)
+		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
+
 		@Cleanup("shutdownGracefully")
 		final NioEventLoopGroup group = new NioEventLoopGroup(1);
 
@@ -68,9 +70,7 @@ public class P2PClient {
 			.handler(codec)
 			.bind(0).sync().channel();
 
-/*
-		.streamHandler(
-		*/		
+		/* TODO: What is this? .streamHandler(*/
 
 		final QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
 			.streamHandler(new RegisterQuicHandler(
@@ -93,36 +93,39 @@ public class P2PClient {
 
 			streamChannel.writeAndFlush(
 				Unpooled.copiedBuffer("GET /\r\n", CharsetUtil.ISO_8859_1)).addListener(future -> {
-				if (future.isSuccess()) {
-					System.out.println("success!" + streamChannel);
-				} else {
-					System.out.println("fail!" + streamChannel);
+					if (future.isSuccess()) {
+						System.out.println("success!" + streamChannel);
+					} else {
+						System.out.println("fail!" + streamChannel);
+					}
 				}
-			}).addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();
+			).addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();
 
-			//Thread.sleep(300);
+			// TODO: Probably remove? Thread.sleep(300);
 		}
 	}
 
 	private static QuicStreamChannel getStreamChannel(QuicChannel quicChannel) throws InterruptedException {
 		return quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new ChannelInboundHandlerAdapter() {
-			@Override
-			public void channelRead(ChannelHandlerContext ctx, Object msg) {
-				final ByteBuf byteBuf = (ByteBuf) msg;
-				System.err.println(byteBuf.toString(CharsetUtil.US_ASCII));
-				byteBuf.release();
-			}
-
-			@Override
-			public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
-				if (evt == ChannelInputShutdownReadComplete.INSTANCE) {
-					// Close the connection once the remote peer did send the FIN for this stream.
-					// ((QuicChannel) ctx.channel().parent()).close(true, 0,
-					//         ctx.alloc().directBuffer(16)
-					//                 .writeBytes(new byte[]{'k', 't', 'h', 'x', 'b', 'y', 'e'}));
+				@Override
+				public void channelRead(ChannelHandlerContext ctx, Object msg) {
+					final ByteBuf byteBuf = (ByteBuf) msg;
+					System.err.println(byteBuf.toString(CharsetUtil.US_ASCII));
+					byteBuf.release();
 				}
-			}
-		}).sync().getNow();
+
+				@Override
+				public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
+					if (evt == ChannelInputShutdownReadComplete.INSTANCE) {
+						System.out.println("ChannelInputShutdownReadComplete");
+						// Close the connection once the remote peer did send the FIN for this
+						// ((QuicChannel) ctx.channel().parent()).close(true, 0,
+						//         ctx.alloc().directBuffer(16)
+						//                 .writeBytes(new byte[]{'k', 't', 'h', 'x', 'b',
+						//                             'y', 'e'}));
+					}
+				}
+			}).sync().getNow();
 	}
 }

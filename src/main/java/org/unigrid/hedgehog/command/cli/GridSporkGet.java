@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -19,7 +19,7 @@ package org.unigrid.hedgehog.command.cli;
 import org.unigrid.hedgehog.command.cli.spork.MintSupply;
 import picocli.CommandLine.Command;
 
-@Command(name = "gridspork-get", subcommands = { MintSupply.class })
+@Command(name = "gridspork-get", subcommands = MintSupply.class)
 public class GridSporkGet implements Runnable {
 	@Override
 	public void run() {

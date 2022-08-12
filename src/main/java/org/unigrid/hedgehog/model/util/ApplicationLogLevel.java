@@ -1,5 +1,5 @@
 /*
-    Unigrid Hedgehog 
+    Unigrid Hedgehog
     Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
@@ -25,7 +25,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.slf4j.LoggerFactory;
 
 public class ApplicationLogLevel {
-	private static final Map<?,?> LEVELS = ArrayUtils.toMap(new Object[][]{
+	private static final Map<?, ?> LEVELS = ArrayUtils.toMap(new Object[][]{
 		{ 0, Level.OFF  }, { 1, Level.ERROR }, { 2, Level.WARN  },
 		{ 3, Level.INFO }, { 4, Level.DEBUG }, { 5, Level.TRACE }
 	});
@@ -40,7 +40,7 @@ public class ApplicationLogLevel {
 		if (Objects.isNull(level)) {
 			throw new UnsupportedLogLevelException(String.format("Can't find verbosity for %s.", level));
 		}
-	
+
 		return verbosity;
 	}
 
