@@ -27,6 +27,7 @@ import lombok.Getter;
     [                   << packet specific data >>                 ]
 */
 @Data
+@SuppressWarnings("checkstyle:CyclomaticComplexity") // TODO: Expand more before fixing and removing this
 public class Packet {
 	private Type type;
 
