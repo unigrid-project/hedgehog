@@ -4,4 +4,8 @@
 <suppressions>
 	<suppress-xpath checks="EmptyLineSeparator"
 	                query="//INTERFACE_DEF//METHOD_DEF" />
+	<suppress-xpath checks="Indentation"
+	                query="//PLUS[./STRING_LITERAL]/.." />
+	<suppress-xpath checks="Indentation"
+	                query="//PLUS[./STRING_LITERAL]" />
 </suppressions>
