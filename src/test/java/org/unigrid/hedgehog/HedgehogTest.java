@@ -16,13 +16,69 @@
 
 package org.unigrid.hedgehog;
 
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import org.junit.jupiter.api.BeforeAll;
+import jakarta.enterprise.context.Dependent;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import lombok.Getter;
+import me.alexpanov.net.FreePortFinder;
+import mockit.Expectations;
+import mockit.Mocked;
+import net.jqwik.api.Example;
+import org.jboss.weld.junit5.WeldSetup;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.ServerProducer;
+import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
+import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
+import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.server.rest.RestServer;
 
-public class HedgehogTest {
-	@Property(tries = 5)
-	public boolean should(@ForAll int i) {
-		return i == 1;
+public class HedgehogTest extends BaseMockedWeldTest {
+	@Mocked
+	private NetOptions netOptions;
+
+	@Mocked
+	private RestOptions restOptions;
+
+	@Inject
+	private Instance<P2PServer> server;
+
+	@WeldSetup
+	private List<Class<?>> get() {
+		return Arrays.asList(EncryptedTokenHandler.class, ServerProducer.class, TestServer.class, RandomUUIDProducer.class);
+	}
+
+	@Inject
+	private Instance<TestServer> testServer;
+
+	@Dependent
+	private static class TestServer {
+		@Inject @Getter private P2PServer p2p;
+		@Inject @Getter private RestServer rest;
+	}
+
+	@Example
+	public boolean shouldStartServers() throws InterruptedException {
+		final List<TestServer> nodes = new ArrayList<>();
+
+		for (int i = 0; i < 15; i++) {
+			new Expectations() {{
+				int port = FreePortFinder.findFreeLocalPort();
+
+				netOptions.getHost(); result = "localhost";
+				netOptions.getPort(); result = port;
+				restOptions.getHost(); result = "localhost";
+				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
+			}};
+
+			final TestServer node = testServer.get();
+			nodes.add(node);
+		}
+
+		return true;
 	}
 }

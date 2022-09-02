@@ -43,6 +43,12 @@
 			<version>4.0.3.Final</version>
 		</dependency>
 		<dependency>
+			<groupId>org.jboss.weld</groupId>
+			<artifactId>weld-junit5</artifactId>
+			<version>4.0.0.Final</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<version>1.18.24</version>
@@ -160,6 +166,12 @@
 			<version>0.8.2</version>
 		</dependency>
 		<dependency>
+			<groupId>org.jmockit</groupId>
+			<artifactId>jmockit</artifactId>
+			<version>1.49</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter</artifactId>
 			<version>5.9.0</version>
@@ -196,6 +208,20 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<version>2.22.2</version>
+				<configuration>
+					<argLine>
+						-javaagent:"${settings.localRepository}"/org/jmockit/jmockit/1.49/jmockit-1.49.jar
+						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
+						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
+					</argLine>
+				</configuration>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
