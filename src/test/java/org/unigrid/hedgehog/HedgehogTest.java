@@ -22,15 +22,18 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Example;
+import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.junit5.WeldSetup;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.jqwik.ServerProducer;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
@@ -44,16 +47,19 @@ public class HedgehogTest extends BaseMockedWeldTest {
 	@Mocked
 	private RestOptions restOptions;
 
-	@Inject
-	private Instance<P2PServer> server;
+	@Inject @Instances(15)
+	private List<TestServer> servers;
+
+	//@Inject
+	//private UUID uuId;
+
+	//@Inject @Instances(15)
+	//private TestServer servers;
 
 	@WeldSetup
 	private List<Class<?>> get() {
 		return Arrays.asList(EncryptedTokenHandler.class, ServerProducer.class, TestServer.class, RandomUUIDProducer.class);
 	}
-
-	@Inject
-	private Instance<TestServer> testServer;
 
 	@Dependent
 	private static class TestServer {
@@ -63,9 +69,10 @@ public class HedgehogTest extends BaseMockedWeldTest {
 
 	@Example
 	public boolean shouldStartServers() throws InterruptedException {
-		final List<TestServer> nodes = new ArrayList<>();
+		System.out.println("meme" + new Weld().initialize());
+		//final List<TestServer> nodes = new ArrayList<>();
 
-		for (int i = 0; i < 15; i++) {
+		/*for (TestServer s : servers) {
 			new Expectations() {{
 				int port = FreePortFinder.findFreeLocalPort();
 
@@ -75,10 +82,11 @@ public class HedgehogTest extends BaseMockedWeldTest {
 				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
 			}};
 
-			final TestServer node = testServer.get();
-			nodes.add(node);
-		}
+			//final TestServer node = testServer.get();
+			//nodes.add(node);
+		}*/
 
+		System.out.println(servers);
 		return true;
 	}
 }
