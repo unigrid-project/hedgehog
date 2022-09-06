@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -48,12 +49,12 @@ public class HedgehogTest extends BaseMockedWeldTest {
 	private RestOptions restOptions;
 
 	@Inject @Instances(15)
-	private List<TestServer> servers;
+	private List<Instance<TestServer>> servers;
 
 	//@Inject
 	//private UUID uuId;
 
-	//@Inject @Instances(15)
+	//@Inject 
 	//private TestServer servers;
 
 	@WeldSetup
@@ -61,7 +62,7 @@ public class HedgehogTest extends BaseMockedWeldTest {
 		return Arrays.asList(EncryptedTokenHandler.class, ServerProducer.class, TestServer.class, RandomUUIDProducer.class);
 	}
 
-	@Dependent
+	@ApplicationScoped
 	private static class TestServer {
 		@Inject @Getter private P2PServer p2p;
 		@Inject @Getter private RestServer rest;
@@ -69,22 +70,23 @@ public class HedgehogTest extends BaseMockedWeldTest {
 
 	@Example
 	public boolean shouldStartServers() throws InterruptedException {
-		System.out.println("meme" + new Weld().initialize());
+		//System.out.println("meme" + new Weld().initialize());
 		//final List<TestServer> nodes = new ArrayList<>();
 
-		/*for (TestServer s : servers) {
-			new Expectations() {{
+		for (Instance<TestServer> s : servers) {
+			/*new Expectations() {{
 				int port = FreePortFinder.findFreeLocalPort();
 
 				netOptions.getHost(); result = "localhost";
 				netOptions.getPort(); result = port;
 				restOptions.getHost(); result = "localhost";
 				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
-			}};
+			}};*/
 
 			//final TestServer node = testServer.get();
 			//nodes.add(node);
-		}*/
+			System.out.println(s);
+		}
 
 		System.out.println(servers);
 		return true;

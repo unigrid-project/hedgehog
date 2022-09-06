@@ -26,8 +26,11 @@ import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
@@ -59,71 +62,101 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 		return beans;
 	}
 
-	/*private WeldContainer createWeld(PropertyLifecycleContext context) {
-		if (context.optionalContainerClass().isPresent()) {
-			final Object instance = context.newInstance(context.containerClass());
-			final List<Class<?>> beans = findWeldClasses(instance, context.containerClass());
+	private WeldContainer createWeld(String name, PropertyLifecycleContext context) {
+		final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(), context.containerClass());
 
-			final Weld weld = WeldInitiator.createWeld().addExtension(new EagerExtension())
-				.beanClasses(beans.toArray(new Class<?>[0]));
-
-			return weld.initialize();
-		}
-
-		throw new IllegalStateException("Container class required");
-	}*/
+		return new Weld(name).addExtension(new EagerExtension())
+			.disableDiscovery().beanClasses(weldClasses.toArray(new Class<?>[0]))
+			.initialize();
+	}
 
 	private Type getGenericType(Field f) {
 		return ((ParameterizedType) f.getGenericType()).getActualTypeArguments()[0];
 	}
 
-	private void injectList(Field field, PropertyLifecycleContext context)
-		throws ClassNotFoundException, IllegalAccessException {
+	private boolean getRealClass(Class<?> clazz) throws ClassNotFoundException {
+		
+		/*if (Instance.class.equals(field.getType())) {
+			System.out.println("mmmm pickle pickle");
+		} else {
+			System.out.println("NO PICKLES!!! " + field.getType());
+		}*/
 
-		/* Only inject on the first run or if empty - otherwise we assume everything is already injected */
-		if (Objects.isNull(field.get(context.testInstance()))) {
-			field.set(context.testInstance(), new ArrayList());
+		System.out.println(clazz);
 
-			final List entries = (List) field.get(context.testInstance());
-
-			if (!field.isAnnotationPresent(Instances.class)) {
-				System.out.println("Lists require an instances annotation.");
-				throw new IllegalStateException("Lists require an instances annotation.");
-			}
-
-			for (int i = 0; i < field.getAnnotation(Instances.class).value(); i++) {
-				final String className = context.containerClass().getSimpleName();
-				final Class<?> clazz = Class.forName(getGenericType(field).getTypeName());
-
-				NamedCDIProvider.getNameReference().set(className + i);
-
-				//entries.add(WeldContainer.instance(NamedCDIProvider.getNameReference().get())
-				//	.select(clazz).get());
-				//System.out.println(WeldContainer.instance(className + i));
-				System.out.println("kaka");
-				System.out.println(new Weld());
-				System.out.println("kaka2");
-				//System.out.println(CDI.current());
-				//System.out.println(CDI.current());
-			}
-		}
+		return true;
 	}
 
-	@Override
-	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
-		final String className = context.containerClass().getSimpleName();
+	private Stream<?> forEachListEntry(Field field, PropertyLifecycleContext context, Consumer<Class<?>> consumer) {
+		try {
+			/* Only inject on the first run or if empty - otherwise we assume everything is already injected */
+			if (List.class.equals(field.getType()) && field.isAnnotationPresent(Inject.class)
+				&& Objects.isNull(field.get(context.testInstance()))) {
+
+				if (!field.isAnnotationPresent(Instances.class)) {
+					throw new IllegalStateException("Lists require an instances annotation.");
+				}
+
+				final List entries = (List) field.get(context.testInstance());
+				final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(),
+					context.containerClass()
+				);
+
+				field.set(context.testInstance(), new ArrayList());
+
+				for (int i = 0; i < field.getAnnotation(Instances.class).value(); i++) {
+					final String testClassName = context.containerClass().getSimpleName() + i;
+					NamedCDIProvider.getNameReference().set(testClassName);
+
+					//field
+					//getGenericType(field).
+					//getRealClass(clazz);
+
+					//final WeldContainer container = createWeld(testClassName, context);
+					//System.out.println(clazz.get);
+					consumer.accept(this.getClass());
+				}
+			}
+		} catch(ClassCastException | IllegalAccessException ex) {
+			ex.printStackTrace();
+		}
+
+		return Stream.empty();
+	}
+
+	private Stream<Field> forEachInjectionPoint(PropertyLifecycleContext context, Consumer<Field> plainConsumer) {
+		final List<Field> lists = new ArrayList<>();
 
 		for (Field f : context.testInstance().getClass().getDeclaredFields()) {
 			if (f.isAnnotationPresent(Inject.class)) {
 				f.setAccessible(true);
 
-				try {
-					if (List.class.equals(f.getType())) {
-						injectList(f, context);
-					}
+				if (List.class.equals(f.getType())) {
+					lists.add(f);
+				} else {
+					plainConsumer.accept(f);
+				}
+			}
+		}
+
+		return lists.stream();
+	}
+		
+
+	@Override
+	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
+		final String className = context.containerClass().getSimpleName();
+
+		forEachInjectionPoint(context, f -> {
+			;
+		});
+				
+
+				/*try {
+					injectList(f, context);
 				} catch (ClassNotFoundException | IllegalAccessException ex) {
 					ex.printStackTrace();
-				}
+				}*/
 
 				/*if (Instance.class.equals(f.getType())) {
 					final BeanManager bm = CDI.current().getBeanManager();
@@ -148,8 +181,7 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 						}
 					});
 				}*/
-			}
-		}
+		//}
 
 		return property.execute();
 	}

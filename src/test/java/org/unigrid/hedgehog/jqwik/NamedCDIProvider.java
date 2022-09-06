@@ -1,51 +1,38 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
 package org.unigrid.hedgehog.jqwik;
 
-import jakarta.enterprise.inject.se.SeContainer;
-import jakarta.enterprise.inject.se.SeContainerInitializer;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.enterprise.inject.spi.CDIProvider;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.Getter;
-import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
-import org.jboss.weld.junit5.WeldInitiator;
-import org.unigrid.hedgehog.model.cdi.EagerExtension;
-import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 
 public class NamedCDIProvider implements CDIProvider {
 	@Getter private static final AtomicReference<String> nameReference = new AtomicReference<>();
-	//private final ConcurrentMap<String, WeldContainer> containers = new ConcurrentHashMap<>();
 
 	@Override
 	public CDI<Object> getCDI() {
-		System.out.println("SHITPICKLE! " + nameReference.get());
-
 		if (Objects.isNull(nameReference.get())) {
-			System.out.println("No namespace set for requested CDI instance.");
-			throw new IllegalStateException("No namespace set for requested CDI instance.");
+			throw new IllegalStateException("No namespace set for requested CDI instance");
 		}
 
-		//Weld container = WeldContainer.instance(nameReference.get()).
-		//System.out.println(container);
-
-		//if (Objects.isNull(container)) {
-			System.out.println("shit1");
-			System.out.println(new Weld("shit"));
-			System.out.println(new Weld(nameReference.get()).disableDiscovery());
-			//new Weld(nameReference.get() + "XX").disableDiscovery().initialize();
-			System.out.println("shit2");
-		//}
-
-		System.out.println("shit");
-		return new Weld(nameReference.get()).disableDiscovery().beanClasses(RandomUUIDProducer.class).initialize();
-		//new Weld(nameReference.get() + "AA").disableDiscovery().initialize();
-
-		//final Weld weld = WeldInitiator.createWeld().addExtension(new EagerExtension())
-		//		.beanClasses(beans.toArray(new Class<?>[0]));
-
+		return WeldContainer.instance(nameReference.get());
 	}
 
 	@Override
