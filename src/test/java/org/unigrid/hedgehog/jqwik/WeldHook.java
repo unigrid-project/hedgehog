@@ -16,8 +16,8 @@
 
 package org.unigrid.hedgehog.jqwik;
 
+import com.evolvedbinary.j8fu.function.TriConsumer;
 import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import java.lang.reflect.Field;
@@ -29,19 +29,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
-import java.util.stream.Stream;
+import java.util.function.BiConsumer;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
 import net.jqwik.api.lifecycle.PropertyExecutionResult;
 import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
+import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
-import org.jboss.weld.junit5.WeldInitiator;
 import org.jboss.weld.junit5.WeldSetup;
-import org.unigrid.hedgehog.model.cdi.EagerExtension;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
@@ -62,126 +60,110 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 		return beans;
 	}
 
-	private WeldContainer createWeld(String name, PropertyLifecycleContext context) {
-		final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(), context.containerClass());
+	private WeldContainer createOrGetWeld(String name, PropertyLifecycleContext context) {
+		WeldContainer instance = WeldContainer.instance(name);
 
-		return new Weld(name).addExtension(new EagerExtension())
-			.disableDiscovery().beanClasses(weldClasses.toArray(new Class<?>[0]))
-			.initialize();
+		if (Objects.isNull(instance)) {
+			final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(), context.containerClass());
+
+			instance = new Weld(name)
+				.disableDiscovery().beanClasses(weldClasses.toArray(new Class<?>[0]))
+				.initialize();
+		}
+
+		return instance;
 	}
 
 	private Type getGenericType(Field f) {
 		return ((ParameterizedType) f.getGenericType()).getActualTypeArguments()[0];
 	}
 
-	private boolean getRealClass(Class<?> clazz) throws ClassNotFoundException {
-		
-		/*if (Instance.class.equals(field.getType())) {
-			System.out.println("mmmm pickle pickle");
-		} else {
-			System.out.println("NO PICKLES!!! " + field.getType());
-		}*/
+	private List<Field> forEachInjectionPoint(Type type, Field field, PropertyLifecycleContext context,
+		BiConsumer<Type, Field> consumer) {
 
-		System.out.println(clazz);
-
-		return true;
-	}
-
-	private Stream<?> forEachListEntry(Field field, PropertyLifecycleContext context, Consumer<Class<?>> consumer) {
-		try {
-			/* Only inject on the first run or if empty - otherwise we assume everything is already injected */
-			if (List.class.equals(field.getType()) && field.isAnnotationPresent(Inject.class)
-				&& Objects.isNull(field.get(context.testInstance()))) {
-
-				if (!field.isAnnotationPresent(Instances.class)) {
-					throw new IllegalStateException("Lists require an instances annotation.");
-				}
-
-				final List entries = (List) field.get(context.testInstance());
-				final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(),
-					context.containerClass()
-				);
-
-				field.set(context.testInstance(), new ArrayList());
-
-				for (int i = 0; i < field.getAnnotation(Instances.class).value(); i++) {
-					final String testClassName = context.containerClass().getSimpleName() + i;
-					NamedCDIProvider.getNameReference().set(testClassName);
-
-					//field
-					//getGenericType(field).
-					//getRealClass(clazz);
-
-					//final WeldContainer container = createWeld(testClassName, context);
-					//System.out.println(clazz.get);
-					consumer.accept(this.getClass());
-				}
-			}
-		} catch(ClassCastException | IllegalAccessException ex) {
-			ex.printStackTrace();
-		}
-
-		return Stream.empty();
-	}
-
-	private Stream<Field> forEachInjectionPoint(PropertyLifecycleContext context, Consumer<Field> plainConsumer) {
 		final List<Field> lists = new ArrayList<>();
 
-		for (Field f : context.testInstance().getClass().getDeclaredFields()) {
-			if (f.isAnnotationPresent(Inject.class)) {
-				f.setAccessible(true);
+		if (field.isAnnotationPresent(Inject.class)) {
+			field.setAccessible(true);
 
-				if (List.class.equals(f.getType())) {
-					lists.add(f);
-				} else {
-					plainConsumer.accept(f);
-				}
+			if (List.class.equals(type)) {
+				lists.add(field);
+			} else if (Instance.class.equals(type)) {
+				consumer.accept(getGenericType(field), field);
+			} else {
+				consumer.accept(type, field);
 			}
 		}
 
-		return lists.stream();
+		return lists;
 	}
-		
+
+	private void forEachListInjectionPoint(List<Field> fields, PropertyLifecycleContext context,
+		TriConsumer<List<Object>, Type, Field> consumer) {
+
+		try {
+			for (Field f : fields) {
+				/* Only inject on the first run or if empty - otherwise we assume everything is injected */
+				if (List.class.equals(f.getType()) && f.isAnnotationPresent(Inject.class)
+					&& Objects.isNull(f.get(context.testInstance()))) {
+
+					if (!f.isAnnotationPresent(Instances.class)) {
+						throw new IllegalStateException("Lists require an instances annotation.");
+					}
+
+					final List entries = (List) f.get(context.testInstance());
+					final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(),
+						context.containerClass()
+					);
+
+					final List<Object> instances = new ArrayList();
+					f.set(context.testInstance(), instances);
+
+					for (int i = 0; i < f.getAnnotation(Instances.class).value(); i++) {
+						consumer.accept(instances, getGenericType(f), f);
+					}
+				}
+			}
+		} catch (ClassCastException | IllegalAccessException ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	private Object inject(PropertyLifecycleContext context, Type type, Field field, String containerSuffix) {
+		final String name = context.containerClass().getSimpleName() + containerSuffix;
+		final WeldContainer instance = createOrGetWeld(name, context);
+		NamedCDIProvider.getNameReference().set(name);
+
+		try {
+			final Object obj = instance.select(type).get();
+
+			if (Objects.nonNull(field)) {
+				field.set(context.testInstance(), obj);
+			}
+
+			return obj;
+
+		} catch (IllegalAccessException ex) {
+			ex.printStackTrace();
+			throw new IllegalStateException("Injection failed.");
+		}
+	}
 
 	@Override
 	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
-		final String className = context.containerClass().getSimpleName();
+		final List<Field> fields = Arrays.asList(context.testInstance().getClass().getDeclaredFields());
 
-		forEachInjectionPoint(context, f -> {
-			;
+		fields.stream().forEach(f -> {
+			final List<Field> listFields = forEachInjectionPoint(f.getType(), f, context, (type, field) -> {
+				inject(context, type, field, StringUtils.EMPTY);
+			});
+
+			forEachListInjectionPoint(listFields, context, (instances, type, field) -> {
+				forEachInjectionPoint(type, field, context, (secondaryType, secondaryField) -> {
+					instances.add(inject(context, type, null, Integer.toString(instances.size() + 1)));
+				});
+			});
 		});
-				
-
-				/*try {
-					injectList(f, context);
-				} catch (ClassNotFoundException | IllegalAccessException ex) {
-					ex.printStackTrace();
-				}*/
-
-				/*if (Instance.class.equals(f.getType())) {
-					final BeanManager bm = CDI.current().getBeanManager();
-
-					try {
-						final Class<?> clazz = Class.forName(type.getTypeName());
-						final Instance<?> instance = bm.createInstance().select(clazz);
-
-						f.set(context.testInstance(), instance);
-					} catch (ClassNotFoundException | IllegalAccessException
-						| IllegalArgumentException ex) {
-						ex.printStackTrace();
-					}
-
-					break; *//* Only care about the first generic type */
- /*} else {
-					CDI.current().select(f.getType()).forEach(v -> {
-						try {
-							f.set(context.testInstance(), v);
-						} catch (IllegalAccessException | IllegalArgumentException ex) {
-							ex.printStackTrace();
-						}
-					});
-				}*/
-		//}
 
 		return property.execute();
 	}

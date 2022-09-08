@@ -50,4 +50,5 @@ module org.unigrid.hedgehog {
 	requires org.apache.commons.collections4;
 	requires java.logging;
 	requires jakarta.xml.bind;
+	requires j8fu;
 }

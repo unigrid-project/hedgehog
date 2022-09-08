@@ -166,6 +166,11 @@
 			<version>0.8.2</version>
 		</dependency>
 		<dependency>
+			<groupId>com.evolvedbinary.j8fu</groupId>
+			<artifactId>j8fu</artifactId>
+			<version>1.23.0</version>
+		</dependency>
+		<dependency>
 			<groupId>org.jmockit</groupId>
 			<artifactId>jmockit</artifactId>
 			<version>1.49</version>
