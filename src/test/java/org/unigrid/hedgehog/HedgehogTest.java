@@ -43,8 +43,8 @@ public class HedgehogTest extends BaseMockedWeldTest {
 	@Mocked
 	private RestOptions restOptions;
 
-	@Inject @Instances(100)
-	private List<Instance<TestServer>> servers;
+	@Inject @Instances(15)
+	private List<TestServer> servers;
 
 	@WeldSetup
 	private List<Class<?>> get() {
@@ -61,7 +61,7 @@ public class HedgehogTest extends BaseMockedWeldTest {
 
 	@Example
 	public boolean shouldStartServers() throws InterruptedException {
-		for (Instance<TestServer> s : servers) {
+		for (TestServer s : servers) {
 			new Expectations() {{
 				int port = FreePortFinder.findFreeLocalPort();
 
@@ -71,8 +71,8 @@ public class HedgehogTest extends BaseMockedWeldTest {
 				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
 			}};
 
-			System.out.println(s.get().getP2p());
-			System.out.println(s.get().getRest());
+			System.out.println(s.getP2p());
+			System.out.println(s.getRest());
 		}
 
 		return true;
