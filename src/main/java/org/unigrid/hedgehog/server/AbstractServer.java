@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog.server;
 
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelId;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -23,12 +25,18 @@ import java.net.UnknownHostException;
 import me.alexpanov.net.FreePortFinder;
 import org.apache.commons.lang3.StringUtils;
 
-public class Server {
+public abstract class AbstractServer {
 	protected URL alllocate(String propertyUrl) throws MalformedURLException, UnknownHostException {
 		final URL url = new URL(StringUtils.appendIfMissing(propertyUrl, "/"));
 		final InetAddress address = InetAddress.getByName(url.getHost());
 		final int freePort = FreePortFinder.findFreeLocalPort(url.getPort(), address);
 
 		return new URL(url.getProtocol(), url.getHost(), freePort, url.getFile());
+	}
+
+	protected abstract Channel getChannel();
+
+	public ChannelId getChannelId() {
+		return getChannel().id();
 	}
 }

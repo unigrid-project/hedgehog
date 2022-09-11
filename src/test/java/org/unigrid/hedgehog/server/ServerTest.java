@@ -14,11 +14,12 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog;
+package org.unigrid.hedgehog.server;
 
+import io.netty.channel.ChannelId;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import lombok.Getter;
@@ -36,7 +37,7 @@ import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
-public class HedgehogTest extends BaseMockedWeldTest {
+public class ServerTest extends BaseMockedWeldTest {
 	@Mocked
 	private NetOptions netOptions;
 
@@ -60,7 +61,10 @@ public class HedgehogTest extends BaseMockedWeldTest {
 	}
 
 	@Example
-	public boolean shouldStartServers() throws InterruptedException {
+	public boolean shoulBeAbleTodStartMultipleServers() {
+		final List<ChannelId> p2pChannels = new ArrayList<>();
+		final List<ChannelId> restChannels = new ArrayList<>();
+
 		for (TestServer s : servers) {
 			new Expectations() {{
 				int port = FreePortFinder.findFreeLocalPort();
@@ -71,8 +75,10 @@ public class HedgehogTest extends BaseMockedWeldTest {
 				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
 			}};
 
-			System.out.println(s.getP2p());
-			System.out.println(s.getRest());
+			if (p2pChannels.contains(s.getP2p().getChannelId())
+				|| restChannels.contains(s.getRest().getChannelId())) {
+				return false;
+			}
 		}
 
 		return true;

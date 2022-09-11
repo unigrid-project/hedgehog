@@ -38,10 +38,10 @@ import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
-import org.unigrid.hedgehog.server.Server;
+import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
-public class P2PServer extends Server {
+public class P2PServer extends AbstractServer {
 	private NioEventLoopGroup group;
 	private Channel p2p;
 
@@ -77,6 +77,11 @@ public class P2PServer extends Server {
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())
 			.sync().channel();
+	}
+
+	@Override
+	protected Channel getChannel() {
+		return p2p;
 	}
 
 	@PreDestroy

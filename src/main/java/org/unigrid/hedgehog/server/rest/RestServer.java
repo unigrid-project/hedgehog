@@ -29,10 +29,10 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.cdi.Eager;
-import org.unigrid.hedgehog.server.Server;
+import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
-public class RestServer extends Server {
+public class RestServer extends AbstractServer {
 	private Channel rest;
 
 	/* Does not need to be close()'d manually - in fact, doing so messes up Weld */
@@ -60,5 +60,10 @@ public class RestServer extends Server {
 		rest = NettyHttpContainerProvider.createServer(alllocate(url).toURI(),
 			getResourceConfig(), context, false
 		);
+	}
+
+	@Override
+	protected Channel getChannel() {
+		return rest;
 	}
 }
