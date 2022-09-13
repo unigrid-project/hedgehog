@@ -37,6 +37,9 @@ import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
+@WeldSetup({EncryptedTokenHandler.class, P2PServer.class, RandomUUIDProducer.class,
+	RestServer.class, ServerTest.TestServer.class
+})
 public class ServerTest extends BaseMockedWeldTest {
 	@Mocked
 	private NetOptions netOptions;
@@ -47,15 +50,8 @@ public class ServerTest extends BaseMockedWeldTest {
 	@Inject @Instances(15)
 	private List<TestServer> servers;
 
-	@WeldSetup
-	private List<Class<?>> get() {
-		return Arrays.asList(EncryptedTokenHandler.class, P2PServer.class, RandomUUIDProducer.class,
-			RestServer.class, TestServer.class
-		);
-	}
-
 	@ApplicationScoped
-	private static class TestServer {
+	public static class TestServer {
 		@Inject @Getter private P2PServer p2p;
 		@Inject @Getter private RestServer rest;
 	}

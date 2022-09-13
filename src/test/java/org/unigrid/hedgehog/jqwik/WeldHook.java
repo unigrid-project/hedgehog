@@ -21,8 +21,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
 import jakarta.inject.Inject;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -43,17 +41,10 @@ import org.jboss.weld.environment.se.WeldContainer;
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
 		final List<Class<?>> beans = new ArrayList<>();
+		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
 
-		for (Method m : clazz.getDeclaredMethods()) {
-			if (m.isAnnotationPresent(WeldSetup.class)) {
-				m.setAccessible(true);
-
-				try {
-					beans.addAll((List<Class<?>>) m.invoke(instance));
-				} catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
-					ex.printStackTrace(); /* Shouldn't happen */
-				}
-			}
+		if (Objects.nonNull(weldSetup)) {
+			beans.addAll(List.of(weldSetup.value()));
 		}
 
 		return beans;

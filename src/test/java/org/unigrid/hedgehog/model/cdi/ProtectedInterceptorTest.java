@@ -27,16 +27,17 @@ import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Example;
-import org.jboss.weld.junit5.WeldSetup;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
+@WeldSetup(ProtectedInterceptor.class)
 public class ServerTest extends BaseMockedWeldTest {
 	@Mocked
 	private NetOptions netOptions;
@@ -47,7 +48,6 @@ public class ServerTest extends BaseMockedWeldTest {
 	@Inject @Instances(15)
 	private List<TestServer> servers;
 
-	@WeldSetup
 	private List<Class<?>> get() {
 		return Arrays.asList(EncryptedTokenHandler.class, P2PServer.class, RandomUUIDProducer.class,
 			RestServer.class, TestServer.class
