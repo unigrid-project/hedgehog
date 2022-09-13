@@ -43,12 +43,6 @@
 			<version>4.0.3.Final</version>
 		</dependency>
 		<dependency>
-			<groupId>org.jboss.weld</groupId>
-			<artifactId>weld-junit5</artifactId>
-			<version>4.0.0.Final</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<version>1.18.24</version>
@@ -177,27 +171,9 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>org.junit.jupiter</groupId>
-			<artifactId>junit-jupiter</artifactId>
-			<version>5.9.0</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.junit.platform</groupId>
-			<artifactId>junit-platform-suite</artifactId>
-			<version>1.9.0</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>net.jqwik</groupId>
 			<artifactId>jqwik</artifactId>
 			<version>1.6.5</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>com.ginsberg</groupId>
-			<artifactId>junit5-system-exit</artifactId>
-			<version>1.1.2</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -220,6 +196,8 @@
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl

@@ -39,7 +39,6 @@ import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
-import org.jboss.weld.junit5.WeldSetup;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
