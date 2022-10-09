@@ -14,7 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server;
+package org.unigrid.hedgehog.model.cdi;
 
 import io.netty.channel.ChannelId;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -22,64 +22,53 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import lombok.Data;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.Positive;
+import net.jqwik.api.constraints.ShortRange;
+import org.apache.commons.configuration2.sync.LockMode;
+import static org.awaitility.Awaitility.*;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
-import org.unigrid.hedgehog.jqwik.Instances;
-import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
-import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
-import org.unigrid.hedgehog.server.rest.RestServer;
 
-@WeldSetup(ProtectedInterceptor.class)
-public class ServerTest extends BaseMockedWeldTest {
-	@Mocked
-	private NetOptions netOptions;
-
-	@Mocked
-	private RestOptions restOptions;
-
-	@Inject @Instances(15)
-	private List<TestServer> servers;
-
-	private List<Class<?>> get() {
-		return Arrays.asList(EncryptedTokenHandler.class, P2PServer.class, RandomUUIDProducer.class,
-			RestServer.class, TestServer.class
-		);
-	}
-
+@WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class, ProtectedInterceptor.class })
+public class ProtectedInterceptorTest extends BaseMockedWeldTest {
+	@Data
 	@ApplicationScoped
-	private static class TestServer {
-		@Inject @Getter private P2PServer p2p;
-		@Inject @Getter private RestServer rest;
+	public static class LockModeProtected {
+		final AtomicInteger invocations = new AtomicInteger();
+
+		@Protected(LockMode.READ) void readProtect() { invocations.incrementAndGet(); };
+		@Protected(LockMode.WRITE) void writeProtect() { invocations.incrementAndGet(); };
 	}
 
-	@Example
-	public boolean shoulBeAbleTodStartMultipleServers() {
-		final List<ChannelId> p2pChannels = new ArrayList<>();
-		final List<ChannelId> restChannels = new ArrayList<>();
+	@Inject
+	private LockModeProtected lockModeProtected;
 
-		for (TestServer s : servers) {
-			new Expectations() {{
-				int port = FreePortFinder.findFreeLocalPort();
-
-				netOptions.getHost(); result = "localhost";
-				netOptions.getPort(); result = port;
-				restOptions.getHost(); result = "localhost";
-				restOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
-			}};
-
-			if (p2pChannels.contains(s.getP2p().getChannelId())
-				|| restChannels.contains(s.getRest().getChannelId())) {
-				return false;
+	@Property(tries = 30)
+	public boolean shoulBeAbleToProtectMethods(@ForAll @ShortRange short locks, @ForAll LockMode mode) {
+		new Thread(() -> {
+			for (int i = 0; i < locks; i++) {
+				lockModeProtected.writeProtect();
 			}
+		}).start();
+
+		if (locks > 0) {
+			await().until(() -> lockModeProtected.getInvocations().get() > 0);
 		}
+
+		lockModeProtected.writeProtect();
+
+		System.out.println("SHIT");
+
+
 
 		return true;
 	}

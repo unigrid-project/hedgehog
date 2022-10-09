@@ -207,9 +207,12 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
 					</argLine>
 				</configuration>
 			</plugin>

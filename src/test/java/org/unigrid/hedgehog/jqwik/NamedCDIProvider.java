@@ -20,19 +20,18 @@ import jakarta.enterprise.inject.spi.CDI;
 import jakarta.enterprise.inject.spi.CDIProvider;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import lombok.Getter;
 import org.jboss.weld.environment.se.WeldContainer;
 
 public class NamedCDIProvider implements CDIProvider {
-	@Getter private static final AtomicReference<String> nameReference = new AtomicReference<>();
+	public static final AtomicReference<String> NAME_REFERENCE = new AtomicReference<>();
 
 	@Override
 	public CDI<Object> getCDI() {
-		if (Objects.isNull(nameReference.get())) {
+		if (Objects.isNull(NAME_REFERENCE.get())) {
 			throw new IllegalStateException("No namespace set for requested CDI instance");
 		}
 
-		return WeldContainer.instance(nameReference.get());
+		return WeldContainer.instance(NAME_REFERENCE.get());
 	}
 
 	@Override

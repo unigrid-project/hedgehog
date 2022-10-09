@@ -18,14 +18,23 @@ package org.unigrid.hedgehog.jqwik;
 
 import mockit.integration.TestRunnerDecorator;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
+import net.jqwik.api.lifecycle.AroundContainerHook;
+import net.jqwik.api.lifecycle.ContainerLifecycleContext;
 import net.jqwik.api.lifecycle.PropertyExecutionResult;
 import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 
-public class MockitHook extends TestRunnerDecorator implements AroundPropertyHook {
+public class MockitHook extends TestRunnerDecorator implements AroundPropertyHook, AroundContainerHook {
 	@Override
 	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
 		handleMockFieldsForWholeTestClass(context.testInstance());
-		return property.execute();
+		final PropertyExecutionResult result = property.execute();
+		prepareForNextTest();
+		return result;
+	}
+
+	@Override
+	public void afterContainer(ContainerLifecycleContext context) {
+		cleanUpAllMocks();
 	}
 }

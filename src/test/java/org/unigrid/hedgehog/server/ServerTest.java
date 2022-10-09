@@ -20,7 +20,6 @@ import io.netty.channel.ChannelId;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
@@ -37,9 +36,7 @@ import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
-@WeldSetup({EncryptedTokenHandler.class, P2PServer.class, RandomUUIDProducer.class,
-	RestServer.class, ServerTest.TestServer.class
-})
+@WeldSetup(ServerTest.TestServer.class)
 public class ServerTest extends BaseMockedWeldTest {
 	@Mocked
 	private NetOptions netOptions;
