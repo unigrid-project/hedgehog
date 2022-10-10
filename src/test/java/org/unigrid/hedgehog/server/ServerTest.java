@@ -31,8 +31,6 @@ import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
-import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
-import org.unigrid.hedgehog.model.producer.RandomUUIDProducer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
