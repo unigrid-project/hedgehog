@@ -25,30 +25,33 @@ import org.apache.commons.configuration2.sync.LockMode;
 
 @Interceptor @Protected
 public class ProtectedInterceptor {
-	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+	private Lock getLockAnnotation(InvocationContext ctx) {
+		Lock lockAnnotation = ctx.getMethod().getAnnotation(Lock.class);
+
+		if (lockAnnotation == null) {
+			lockAnnotation = ctx.getTarget().getClass().getAnnotation(Lock.class);
+		}
+
+		return lockAnnotation;
+	}
 
 	@AroundInvoke
 	public Object protect(InvocationContext ctx) throws Exception {
-		Protected annotation = ctx.getMethod().getAnnotation(Protected.class);
-
-		if (annotation == null) {
-			annotation = ctx.getTarget().getClass().getAnnotation(Protected.class);
-		}
-
+		final Lock lockAnnotation = getLockAnnotation(ctx);
 		Object returnValue = null;
 
-		if (LockMode.WRITE.equals(annotation.value())) {
+
+		if (LockMode.WRITE.equals(lockAnnotation.value())) {
 			@Cleanup("unlock") final ReentrantReadWriteLock.WriteLock handler = lock.writeLock();
 
 			handler.lock();
 			returnValue = ctx.proceed();
-			handler.unlock();
 		} else {
 			@Cleanup("unlock") final ReentrantReadWriteLock.ReadLock handler = lock.readLock();
-
 			handler.lock();
 			returnValue = ctx.proceed();
-			handler.unlock();
 		}
 
 		return returnValue;

@@ -16,60 +16,104 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
-import io.netty.channel.ChannelId;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Data;
-import lombok.Getter;
-import me.alexpanov.net.FreePortFinder;
-import mockit.Expectations;
-import mockit.Mocked;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import net.jqwik.api.constraints.Positive;
-import net.jqwik.api.constraints.ShortRange;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import org.apache.commons.configuration2.sync.LockMode;
+import org.awaitility.Awaitility;
 import static org.awaitility.Awaitility.*;
+import static org.hamcrest.Matchers.*;
+import static org.hamcrest.MatcherAssert.*;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
+import org.unigrid.hedgehog.model.function.VoidFunctionE;
 
-@WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class, ProtectedInterceptor.class })
+@WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class })
 public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 	@Data
 	@ApplicationScoped
 	public static class LockModeProtected {
-		final AtomicInteger invocations = new AtomicInteger();
+		@SneakyThrows @Protected @Lock(LockMode.READ)
+		void readProtect(VoidFunctionE function) {
+			function.apply();
+		};
 
-		@Protected(LockMode.READ) void readProtect() { invocations.incrementAndGet(); };
-		@Protected(LockMode.WRITE) void writeProtect() { invocations.incrementAndGet(); };
+		@SneakyThrows @Protected @Lock(LockMode.WRITE)
+		void writeProtect(VoidFunctionE function) {
+			function.apply();
+		};
 	}
 
 	@Inject
 	private LockModeProtected lockModeProtected;
 
-	@Property(tries = 30)
-	public boolean shoulBeAbleToProtectMethods(@ForAll @ShortRange short locks, @ForAll LockMode mode) {
+	@BeforeContainer
+	private static void before() {
+		Awaitility.setDefaultPollInterval(5, TimeUnit.MILLISECONDS);
+		Awaitility.setDefaultPollDelay(5, TimeUnit.MILLISECONDS);
+	}
+
+	@Example
+	public void shoulBeAbleToWriteProtectMethods() throws InterruptedException {
+		final AtomicInteger counter = new AtomicInteger();
+
 		new Thread(() -> {
-			for (int i = 0; i < locks; i++) {
-				lockModeProtected.writeProtect();
-			}
+			lockModeProtected.writeProtect(() -> {
+				counter.incrementAndGet();
+				Thread.sleep(50);
+
+				/* 1, because we should not have been able to lock from the main thread */
+				assertThat(counter.get(), is(1));
+				counter.incrementAndGet();
+			});
 		}).start();
 
-		if (locks > 0) {
-			await().until(() -> lockModeProtected.getInvocations().get() > 0);
-		}
+		/* Make sure the above thread has started and is locking */
+		await().untilAtomic(counter, is(1));
 
-		lockModeProtected.writeProtect();
+		lockModeProtected.writeProtect(() -> {
+			counter.incrementAndGet();
+		});
 
-		System.out.println("SHIT");
+		await().untilAtomic(counter, is(3));
+	}
 
+	@Example
+	public void shoulBeAbleToReadProtectMethods() throws InterruptedException {
+		final AtomicInteger counter = new AtomicInteger();
 
+		new Thread(() -> {
+			lockModeProtected.writeProtect(() -> {
+				counter.incrementAndGet();
+				Thread.sleep(50);
 
-		return true;
+				/* 1, because we should not have been able to lock from the main thread */
+				assertThat(counter.get(), is(1));
+				counter.incrementAndGet();
+			});
+
+			lockModeProtected.readProtect(() -> {
+				Thread.sleep(50);
+
+				/* 3, because the read lock below should have passed */
+				assertThat(counter.get(), is(3));
+				counter.incrementAndGet();
+			});
+		}).start();
+
+		/* Make sure the above thread has started and is locking */
+		await().untilAtomic(counter, is(1));
+
+		lockModeProtected.readProtect(() -> {
+			counter.incrementAndGet();
+			Thread.sleep(50);
+		});
+
+		await().untilAtomic(counter, is(4));
 	}
 }

@@ -39,6 +39,7 @@ import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
@@ -61,6 +62,7 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 			instance = new Weld(name)
 				.enableDiscovery()
 				.beanClasses(weldClasses.toArray(new Class<?>[0]))
+				.interceptors(ProtectedInterceptor.class)
 				.initialize();
 		}
 

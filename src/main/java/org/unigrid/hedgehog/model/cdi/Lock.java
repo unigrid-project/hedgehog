@@ -23,9 +23,8 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import org.apache.commons.configuration2.sync.LockMode;
 
-@InterceptorBinding
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ ElementType.METHOD, ElementType.TYPE })
-public @interface Protected {
-	/* Empty on purpose */
+public @interface Lock {
+	LockMode value() default LockMode.READ;
 }
