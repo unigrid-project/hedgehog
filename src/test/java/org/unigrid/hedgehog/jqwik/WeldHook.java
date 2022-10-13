@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import lombok.Data;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
@@ -40,6 +41,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
+import org.unigrid.hedgehog.model.util.Reflection;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
@@ -146,9 +148,11 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 
 	@Override
 	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
-		final List<Field> fields = Arrays.asList(context.testInstance().getClass().getDeclaredFields());
+		final Set<Field> fields = Reflection.getDeclaredFieldsWithParents(context.testInstance().getClass());
+		System.out.println(fields.size());
 
 		fields.stream().forEach(f -> {
+			System.out.println(f);
 			final List<Field> listFields = forEachInjectionPoint(f.getType(), f, context, (type, field) -> {
 				inject(context, type, field, StringUtils.EMPTY);
 			});

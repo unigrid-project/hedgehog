@@ -19,6 +19,15 @@ package org.unigrid.hedgehog.model.util;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -51,5 +60,17 @@ public class Reflection {
 
 		final long offset = (long) staticFieldOffset.invoke(unsafe, loggerField);
 		putObjectVolatile.invoke(unsafe, loggerClass, offset, null);
+	}
+
+	public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
+		final Set<Field> fields = new HashSet<>();
+
+		if (Objects.isNull(clazz.getSuperclass())) {
+			fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+		} else {
+			fields.addAll(getDeclaredFieldsWithParents(clazz.getSuperclass()));
+		}
+
+		return fields;
 	}
 }
