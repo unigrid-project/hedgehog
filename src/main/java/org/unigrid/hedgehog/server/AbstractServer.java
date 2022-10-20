@@ -19,6 +19,7 @@ package org.unigrid.hedgehog.server;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelId;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
@@ -35,6 +36,14 @@ public abstract class AbstractServer {
 	}
 
 	protected abstract Channel getChannel();
+
+	public String getHostName() {
+		return ((InetSocketAddress) getChannel().localAddress()).getHostName();
+	}
+
+	public int getPort() {
+		return ((InetSocketAddress) getChannel().localAddress()).getPort();
+	}
 
 	public ChannelId getChannelId() {
 		return getChannel().id();
