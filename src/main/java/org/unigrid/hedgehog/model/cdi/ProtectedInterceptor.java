@@ -42,7 +42,6 @@ public class ProtectedInterceptor {
 		final Lock lockAnnotation = getLockAnnotation(ctx);
 		Object returnValue = null;
 
-
 		if (LockMode.WRITE.equals(lockAnnotation.value())) {
 			@Cleanup("unlock") final ReentrantReadWriteLock.WriteLock handler = lock.writeLock();
 

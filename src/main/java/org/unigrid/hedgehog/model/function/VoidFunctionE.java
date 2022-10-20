@@ -18,5 +18,5 @@ package org.unigrid.hedgehog.model.function;
 
 @FunctionalInterface
 public interface VoidFunctionE<E extends Exception> {
-    void apply() throws E;
+	void apply() throws E;
 }

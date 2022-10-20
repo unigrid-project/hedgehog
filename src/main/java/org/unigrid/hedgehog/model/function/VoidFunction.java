@@ -18,5 +18,5 @@ package org.unigrid.hedgehog.model.function;
 
 @FunctionalInterface
 public interface VoidFunction {
-    void apply();
+	void apply();
 }
