@@ -149,7 +149,6 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 		final Set<Field> fields = Reflection.getDeclaredFieldsWithParents(context.testInstance().getClass());
 
 		fields.stream().forEach(f -> {
-			System.out.println(f);
 			final List<Field> listFields = forEachInjectionPoint(f.getType(), f, context, (type, field) -> {
 				inject(context, type, field, StringUtils.EMPTY);
 			});

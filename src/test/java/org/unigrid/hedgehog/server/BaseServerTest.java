@@ -20,12 +20,17 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
 import lombok.Getter;
+import me.alexpanov.net.FreePortFinder;
+import mockit.Expectations;
 import mockit.Mocked;
+import net.jqwik.api.lifecycle.BeforeProperty;
+import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
@@ -44,5 +49,22 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	public static class TestServer {
 		@Inject @Getter private P2PServer p2p;
 		@Inject @Getter private RestServer rest;
+	}
+
+	@BeforeTry
+	public void before() {
+		for (TestServer s : servers) {
+			new Expectations() {{
+				int port = FreePortFinder.findFreeLocalPort();
+
+				NetOptions.getHost(); result = "localhost";
+				NetOptions.getPort(); result = port;
+				RestOptions.getHost(); result = "localhost";
+				RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
+			}};
+
+			CDIUtil.instantiate(s.getP2p());
+			CDIUtil.instantiate(s.getRest());
+		}
 	}
 }

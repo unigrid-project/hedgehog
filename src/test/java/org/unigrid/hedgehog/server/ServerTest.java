@@ -16,24 +16,23 @@
 
 package org.unigrid.hedgehog.server;
 
-import me.alexpanov.net.FreePortFinder;
-import mockit.Expectations;
+import java.util.HashSet;
+import java.util.Set;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
 
 public class ServerTest extends BaseServerTest {
 	@Example
-	public boolean shoulBeAbleTodStartMultipleServers() {
-		for (TestServer s : servers) {
-			new Expectations() {{
-				int port = FreePortFinder.findFreeLocalPort();
+	public boolean shoulBeAbleTodStartMultipleIndependentServers() {
+		final Set<Integer> ports = new HashSet<>();
 
-				NetOptions.getHost(); result = "localhost";
-				NetOptions.getPort(); result = port;
-				RestOptions.getHost(); result = "localhost";
-				RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
-			}};
+		for (TestServer s : servers) {
+			final int p = s.getP2p().getPort();
+
+			if (ports.contains(p)) {
+				return false;
+			}
+
+			ports.add(p);
 		}
 
 		return true;
