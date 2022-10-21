@@ -16,8 +16,15 @@
 
 package org.unigrid.hedgehog.model.network.packet;
 
-public class Ping extends Packet {
-	public Ping() {
-		setType(Type.PING);
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = false)
+public class PingRequest extends Packet {
+	private long nanoRequestTime;
+
+	public PingRequest() {
+		setType(Type.PING_REQUEST);
 	}
 }

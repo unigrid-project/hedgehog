@@ -33,15 +33,17 @@ public class Packet {
 
 	@AllArgsConstructor
 	public enum Type {
-		UNDEFINED((short) 0), PING((short) 500),
+		UNDEFINED((short) 0),
+		PING_REQUEST((short) 500), PING_RESPONSE((short) 510),
 		ASK_PEERS((short) 1000), PUBLISH_PEERS((short) 1010),
 		ASK_SPORKS((short) 2000), GROW_SPORK((short) 2010), PUBLISH_SPORK((short) 2020);
 
-		@Getter private short value;
+		@Getter private final short value;
 
 		public static Type get(short value) {
 			switch (value) {
-				case 500: return PING;
+				case 500: return PING_REQUEST;
+				case 510: return PING_RESPONSE;
 				case 1000: return ASK_PEERS;
 				case 1010: return PUBLISH_PEERS;
 				case 2000: return ASK_SPORKS;
