@@ -41,9 +41,7 @@ public abstract class GridSporkEncoder<T extends GridSpork<?, ?>> implements Enc
 	    [                    << spork delta data >>                    ]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out)
-		throws Exception {
-
+	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception {
 		out.writeShort(spork.getType().getValue());
 		out.writeShort(spork.getFlags());
 		out.writeZero(12 /* 96 bits */);

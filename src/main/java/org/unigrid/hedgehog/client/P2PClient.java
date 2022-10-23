@@ -91,7 +91,7 @@ public class P2PClient {
 
 			streamChannel.writeAndFlush(new PublishSpork()).sync();
 
-			streamChannel.writeAndFlush(
+			/*streamChannel.writeAndFlush(
 				Unpooled.copiedBuffer("GET /\r\n", CharsetUtil.ISO_8859_1)).addListener(future -> {
 					if (future.isSuccess()) {
 						System.out.println("success!" + streamChannel);
@@ -99,7 +99,7 @@ public class P2PClient {
 						System.out.println("fail!" + streamChannel);
 					}
 				}
-			).addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();
+			).addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();*/
 
 			// TODO: Probably remove? Thread.sleep(300);
 		}

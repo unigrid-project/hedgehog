@@ -18,10 +18,13 @@ package org.unigrid.hedgehog.server;
 
 import java.util.HashSet;
 import java.util.Set;
+import net.jqwik.api.Disabled;
 import net.jqwik.api.Example;
+import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 public class ServerTest extends BaseServerTest {
-	@Example
+	@Example @Disabled
 	public boolean shoulBeAbleTodStartMultipleIndependentServers() {
 		final Set<Integer> ports = new HashSet<>();
 
@@ -36,5 +39,17 @@ public class ServerTest extends BaseServerTest {
 		}
 
 		return true;
+	}
+
+	@Example
+	public void shoulBeAbleToDistributePeers() throws Exception {
+		P2PServer from = servers.get(0).getP2p();
+		P2PServer to = servers.get(1).getP2p();
+
+		try {
+		P2PClient.connectAndSend(to.getHostName(), to.getPort());
+		} catch (NullPointerException ex) {
+			ex.printStackTrace();
+		}
 	}
 }

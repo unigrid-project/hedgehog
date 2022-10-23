@@ -16,12 +16,17 @@
 
 package org.unigrid.hedgehog.model.network.packet;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
+@Builder
+@AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
-public class PingResponse extends PingRequest {
+public class PingResponse extends Packet {
+	private long nanoRequestTime;
 	private long nanoResponseTime;
 
 	public PingResponse() {

@@ -42,7 +42,7 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	@Mocked
 	protected RestOptions restOptions;
 
-	@Inject @Instances(15)
+	@Inject @Instances(5)
 	protected List<TestServer> servers;
 
 	@ApplicationScoped
