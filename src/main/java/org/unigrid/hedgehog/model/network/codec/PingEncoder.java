@@ -17,38 +17,27 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
-import lombok.Cleanup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
-import org.unigrid.hedgehog.model.network.packet.PingRequest;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
-public class PingRequestEncoder extends MessageToByteEncoder<PingRequest> {
-	//final Map<GridSpork.Type, GridSporkEncoder> encoders;
-
-	public PingRequestEncoder() {
-		ChunkScanner.scan();
-	}
-
+public class PingEncoder extends MessageToByteEncoder<Ping> {
 	/*
 	    Packet format:
 	    0.............................63.............................128
-	    [ type ][resrvd][ packet size  ][          reserved            ]
             [      nano request time       ][          reserved            ]
 	*/
 	@Override
-	protected void encode(ChannelHandlerContext ctx, PingRequest pingRequest, ByteBuf out) throws Exception {
-		System.out.println("encode ping");
-		System.out.println(pingRequest);
+	protected void encode(ChannelHandlerContext ctx, Ping pingRequest, ByteBuf out) throws Exception {
+		System.out.println("encode ping: " + ctx.channel().toString());
+		//System.out.println(pingRequest);
 
-		@Cleanup("release")
-		final ByteBuf data = Unpooled.buffer();
-		data.writeLong(pingRequest.getNanoRequestTime());
-		out.writeZero(12 /* 96 bits */);
+		//@Cleanup("release")
+		//final ByteBuf data = Unpooled.buffer();
+		out.writeLong(pingRequest.getNanoTime());
+		out.writeZero(8 /* 64 bits */);
 
 		//publishSpork.getGridSpork().getType()
 	}

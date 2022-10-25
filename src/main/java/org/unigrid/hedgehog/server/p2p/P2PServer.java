@@ -33,6 +33,8 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.codec.PingDecoder;
+import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.BasicChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
@@ -64,11 +66,11 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.streamHandler(new RegisterQuicHandler(
-				new PublishSporkEncoder(),
-				new PublishSporkDecoder(),
+				new PingEncoder(), new PingDecoder(),
+				new PublishSporkEncoder(), new PublishSporkDecoder(),
 				new BasicChannelHandler()
-			)).build();
-
+			))
+			.build();
 
 		channel = new Bootstrap().group(new NioEventLoopGroup(Network.COMMUNICATION_THREADS))
 			.channel(NioDatagramChannel.class)

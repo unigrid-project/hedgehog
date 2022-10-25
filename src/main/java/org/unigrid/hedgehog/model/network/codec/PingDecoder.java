@@ -14,22 +14,28 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+package org.unigrid.hedgehog.model.network.codec;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.ReplayingDecoder;
+import java.util.List;
+import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
-public class PingResponse extends Packet {
-	private long nanoRequestTime;
-	private long nanoResponseTime;
+public class PingDecoder extends ReplayingDecoder<Ping> implements PacketDecoder<Ping> {
+	/*
+	    Packet format:
+	    0.............................63.............................128
+            [      nano request time       ][          reserved            ]
+	*/
+	@Override
+	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+		final Ping pingRequest = new Ping();
 
-	public PingResponse() {
-		setType(Type.PING_RESPONSE);
+		System.out.println("decode ping");
+		pingRequest.setNanoTime(in.readLong());
+		in.skipBytes(8);
+		out.add(pingRequest);
 	}
 }

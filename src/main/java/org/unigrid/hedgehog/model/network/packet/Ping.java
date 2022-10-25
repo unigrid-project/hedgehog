@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.network.packet;
 
+import java.io.Serializable;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,10 +26,11 @@ import lombok.EqualsAndHashCode;
 @Builder
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
-public class PingRequest extends Packet {
-	private long nanoRequestTime;
+public class Ping extends Packet implements Serializable {
+	private boolean response;
+	@Builder.Default private long nanoTime = System.nanoTime();
 
-	public PingRequest() {
-		setType(Type.PING_REQUEST);
+	public Ping() {
+		setType(Type.PING);
 	}
 }

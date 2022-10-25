@@ -21,6 +21,7 @@ import java.util.Set;
 import net.jqwik.api.Disabled;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 public class ServerTest extends BaseServerTest {
@@ -47,8 +48,13 @@ public class ServerTest extends BaseServerTest {
 		P2PServer to = servers.get(1).getP2p();
 
 		try {
-		P2PClient.connectAndSend(to.getHostName(), to.getPort());
-		} catch (NullPointerException ex) {
+			final P2PClient client = new P2PClient(to.getHostName(), to.getPort());
+			client.send(Ping.builder().build()).sync();
+			for (int i = 0; i < 5; i++) {
+			Thread.sleep(500);
+			}
+			client.close();
+		} catch (Exception ex) {
 			ex.printStackTrace();
 		}
 	}

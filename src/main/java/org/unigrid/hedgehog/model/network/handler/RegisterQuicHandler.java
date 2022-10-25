@@ -31,5 +31,4 @@ public class RegisterQuicHandler extends ChannelInitializer<QuicStreamChannel> {
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
 		channel.pipeline().addLast(handlers);
 	}
-
 }
