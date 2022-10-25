@@ -43,7 +43,7 @@ import org.unigrid.hedgehog.server.AbstractServer;
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
 	private NioEventLoopGroup group;
-	private Channel p2p;
+	private Channel channel;
 
 	@Inject
 	private EncryptedTokenHandler encryptedTokenHandler;
@@ -69,10 +69,8 @@ public class P2PServer extends AbstractServer {
 				new BasicChannelHandler()
 			)).build();
 
-		final Bootstrap bootstrap = new Bootstrap();
-		group = new NioEventLoopGroup(1);
 
-		p2p = bootstrap.group(group)
+		channel = new Bootstrap().group(new NioEventLoopGroup(Network.COMMUNICATION_THREADS))
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())
@@ -81,12 +79,12 @@ public class P2PServer extends AbstractServer {
 
 	@Override
 	protected Channel getChannel() {
-		return p2p;
+		return channel;
 	}
 
 	@PreDestroy
 	private void destroy() {
-		p2p.close();
+		channel.close();
 		group.shutdownGracefully();
 	}
 }

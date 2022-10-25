@@ -47,11 +47,10 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
 public class P2PClient {
+	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
 	public static void connectAndSend(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
 
-		@Cleanup("shutdownGracefully")
-		final NioEventLoopGroup group = new NioEventLoopGroup(1);
 
 		//final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
@@ -64,8 +63,7 @@ public class P2PClient {
 			.sslContext(context)
 			.build();
 
-		final Bootstrap bootstrap = new Bootstrap();
-		final Channel channel = bootstrap.group(group)
+		final Channel channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(0).sync().channel();

@@ -28,6 +28,7 @@ public class Network {
 		"localhost"
 	};
 
+	public static final int COMMUNICATION_THREADS = 16;
 	public static final int MAX_DATA_SIZE = 1024 * 1024 * 8;
 	public static final int MAX_STREAMS = 64;
 
