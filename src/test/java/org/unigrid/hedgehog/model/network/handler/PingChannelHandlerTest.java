@@ -14,27 +14,31 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server;
+package org.unigrid.hedgehog.model.network.handler;
 
-import java.util.HashSet;
-import java.util.Set;
-import net.jqwik.api.Example;
+import java.util.Objects;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.constraints.Positive;
+import net.jqwik.api.Property;
+import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.packet.Ping;
+import org.unigrid.hedgehog.server.BaseServerTest;
 
-public class ServerTest extends BaseServerTest {
-	@Example
-	public boolean shoulBeAbleTodStartMultipleIndependentServers() {
-		final Set<Integer> ports = new HashSet<>();
+public class PingChannelHandlerTest extends BaseServerTest {
+	@Property(tries = 15)
+	public void shoulBeAbleToPingNetwork(@ForAll @Positive byte pingsPerServer) throws Exception {
+		for (TestServer server : servers) {
+			final String host = server.getP2p().getHostName();
+			final int port = server.getP2p().getPort();
+			final P2PClient client = new P2PClient(host, port);
 
-		for (TestServer s : servers) {
-			final int p = s.getP2p().getPort();
-
-			if (ports.contains(p)) {
-				return false;
+			for (int i = 0; i < pingsPerServer; i++) {
+				client.send(Ping.builder().build()).sync();
 			}
 
-			ports.add(p);
+			if (Objects.nonNull(client)) {
+				client.close();
+			}
 		}
-
-		return true;
 	}
 }
