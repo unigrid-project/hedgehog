@@ -34,7 +34,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 
 public class PingChannelHandlerTest extends BaseServerTest {
-	@Property(tries = 15)
+	@Property(tries = 10)
 	public void shoulBeAbleToPingNetwork(@ForAll @Positive byte pingsPerServer) throws Exception {
 		final AtomicInteger actualInvocations = new AtomicInteger();
 		int expectedInvocations = 0;
