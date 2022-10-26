@@ -26,16 +26,17 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 public class PingDecoder extends ReplayingDecoder<Ping> implements PacketDecoder<Ping> {
 	/*
 	    Packet format:
-	    0.............................63.............................128
-            [      nano request time       ][          reserved            ]
+	    0................................................................63
+            [                        nano request time                       ]
+	    [r][                          reserved                           ]
 	*/
 	@Override
 	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		final Ping pingRequest = new Ping();
+		final Ping ping = new Ping();
 
-		System.out.println("decode ping");
-		pingRequest.setNanoTime(in.readLong());
-		in.skipBytes(8);
-		out.add(pingRequest);
+		ping.setNanoTime(in.readLong());
+		ping.setResponse((in.readByte() & 0x01) == 0x01);
+		in.skipBytes(7 /* 56 bits */);
+		out.add(ping);
 	}
 }

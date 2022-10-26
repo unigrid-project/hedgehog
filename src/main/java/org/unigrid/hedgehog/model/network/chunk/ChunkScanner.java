@@ -29,7 +29,7 @@ public class ChunkScanner {
 		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
 
 		classes.forEach((clazz) -> {
-			System.out.println(clazz);
+			//System.out.println(clazz);
 		});
 	}
 }

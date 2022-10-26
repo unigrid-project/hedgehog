@@ -17,15 +17,17 @@
 package org.unigrid.hedgehog.server;
 
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
-import net.jqwik.api.Disabled;
+import net.jqwik.api.ForAll;
 import net.jqwik.api.Example;
+import net.jqwik.api.constraints.Positive;
+import net.jqwik.api.Property;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.packet.Ping;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 public class ServerTest extends BaseServerTest {
-	@Example @Disabled
+	@Example
 	public boolean shoulBeAbleTodStartMultipleIndependentServers() {
 		final Set<Integer> ports = new HashSet<>();
 
@@ -42,20 +44,20 @@ public class ServerTest extends BaseServerTest {
 		return true;
 	}
 
-	@Example
-	public void shoulBeAbleToDistributePeers() throws Exception {
-		P2PServer from = servers.get(0).getP2p();
-		P2PServer to = servers.get(1).getP2p();
+	@Property(tries = 15)
+	public void shoulBeAbleToPingNetwork(@ForAll @Positive byte pingsPerServer) throws Exception {
+		for (TestServer server : servers) {
+			final String host = server.getP2p().getHostName();
+			final int port = server.getP2p().getPort();
+			final P2PClient client = new P2PClient(host, port);
 
-		try {
-			final P2PClient client = new P2PClient(to.getHostName(), to.getPort());
-			client.send(Ping.builder().build()).sync();
-			for (int i = 0; i < 5; i++) {
-			Thread.sleep(500);
+			for (int i = 0; i < pingsPerServer; i++) {
+				client.send(Ping.builder().build()).sync();
 			}
-			client.close();
-		} catch (Exception ex) {
-			ex.printStackTrace();
+
+			if (Objects.nonNull(client)) {
+				client.close();
+			}
 		}
 	}
 }

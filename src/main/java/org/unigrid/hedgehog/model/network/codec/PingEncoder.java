@@ -26,19 +26,14 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 public class PingEncoder extends MessageToByteEncoder<Ping> {
 	/*
 	    Packet format:
-	    0.............................63.............................128
-            [      nano request time       ][          reserved            ]
+	    0................................................................63
+            [                        nano request time                       ]
+	    [r][                          reserved                           ]
 	*/
 	@Override
-	protected void encode(ChannelHandlerContext ctx, Ping pingRequest, ByteBuf out) throws Exception {
-		System.out.println("encode ping: " + ctx.channel().toString());
-		//System.out.println(pingRequest);
-
-		//@Cleanup("release")
-		//final ByteBuf data = Unpooled.buffer();
-		out.writeLong(pingRequest.getNanoTime());
-		out.writeZero(8 /* 64 bits */);
-
-		//publishSpork.getGridSpork().getType()
+	protected void encode(ChannelHandlerContext ctx, Ping ping, ByteBuf out) throws Exception {
+		out.writeLong(ping.getNanoTime());
+		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
+		out.writeZero(7 /* 56 bits */);
 	}
 }

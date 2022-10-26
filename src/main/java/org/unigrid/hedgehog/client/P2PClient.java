@@ -32,7 +32,7 @@ import io.netty.incubator.codec.quic.QuicStreamType;
 import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
-import org.unigrid.hedgehog.model.network.handler.BasicChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import java.security.NoSuchAlgorithmException;
 import lombok.Getter;
@@ -46,7 +46,7 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public class P2PClient {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	@Getter private QuicStreamChannel quicStreamChannel;
+	@Getter private final QuicStreamChannel quicStreamChannel;
 
 	public P2PClient(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
@@ -79,7 +79,7 @@ public class P2PClient {
 		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL, new RegisterQuicHandler(
 			new PingEncoder(), new PingDecoder(),
 			new PublishSporkEncoder(), new PublishSporkDecoder(),
-			new BasicChannelHandler()
+			new PingChannelHandler()
 		)).sync().getNow();
 	}
 
