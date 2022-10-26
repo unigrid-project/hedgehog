@@ -17,6 +17,8 @@
 package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,6 +29,8 @@ import lombok.EqualsAndHashCode;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class Ping extends Packet implements Serializable {
+	public final static Duration HEARTBEAT = Duration.of(10, ChronoUnit.MINUTES);
+
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();
 
