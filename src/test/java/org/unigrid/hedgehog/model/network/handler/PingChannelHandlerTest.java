@@ -16,8 +16,13 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.ChannelHandlerContext;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.SneakyThrows;
+import mockit.Mocked;
+import mockit.Tested;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.Property;
@@ -26,7 +31,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.BaseServerTest;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.*;
 
 public class PingChannelHandlerTest extends BaseServerTest {
 	@Property(tries = 15)
@@ -53,6 +58,17 @@ public class PingChannelHandlerTest extends BaseServerTest {
 			}
 		}
 
-		await().untilAtomic(actualInvocations, equalTo(expectedInvocations));
+		await().untilAtomic(actualInvocations, is(expectedInvocations));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context, @Tested PingChannelHandler handler) {
+		final Ping ping = Ping.builder().build();
+		assertThat(ping.getNanoTime(), not(0));
+		assertThat(ping.isResponse(), is(false));
+
+		handler.typedChannelRead(context, ping);
+		assertThat(ping.isResponse(), is(true));
 	}
 }
