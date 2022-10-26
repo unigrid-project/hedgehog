@@ -18,17 +18,17 @@ package org.unigrid.hedgehog.model.network;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import lombok.Data;
 
 @Data
 @ApplicationScoped
 public class Topology {
-	private List<Node> nodes;
+	private Set<Node> nodes;
 
 	@PostConstruct
 	private void init() {
-		nodes = new ArrayList<>();
+		nodes = new HashSet<>();
 	}
 }

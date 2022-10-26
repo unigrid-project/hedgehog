@@ -17,15 +17,18 @@
 package org.unigrid.hedgehog.model.network;
 
 import java.net.InetAddress;
-import java.time.Duration;
+import java.time.Instant;
+import lombok.Builder;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Data
-@RequiredArgsConstructor
+@Builder
 public class Node {
-	private final InetAddress address;
+	private InetAddress address;
 	private String[] protocols;
 	private int version;
-	private Duration ping;
+	private Ping ping;
+	private Instant lastPingTime;
+	@Builder.Default private boolean connected = true;
 }
