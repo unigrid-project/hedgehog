@@ -26,9 +26,9 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 public class PingDecoder extends ReplayingDecoder<Ping> implements PacketDecoder<Ping> {
 	/*
 	    Packet format:
-	    0................................................................63
-            [                        nano request time                       ]
-	    [r][                          reserved                           ]
+	    0..............................................................63
+            [                       nano request time                      ]
+	    R[                           reserved                          ]
 	*/
 	@Override
 	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {

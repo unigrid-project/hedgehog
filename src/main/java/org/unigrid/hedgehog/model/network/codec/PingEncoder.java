@@ -26,9 +26,9 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 public class PingEncoder extends MessageToByteEncoder<Ping> {
 	/*
 	    Packet format:
-	    0................................................................63
-            [                        nano request time                       ]
-	    [r][                          reserved                           ]
+	    0..............................................................63
+            [                       nano request time                      ]
+	    R[                           reserved                          ]
 	*/
 	@Override
 	protected void encode(ChannelHandlerContext ctx, Ping ping, ByteBuf out) throws Exception {
