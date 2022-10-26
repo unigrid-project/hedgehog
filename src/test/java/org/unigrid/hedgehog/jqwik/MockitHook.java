@@ -16,18 +16,32 @@
 
 package org.unigrid.hedgehog.jqwik;
 
+import java.lang.reflect.Method;
+import java.util.Optional;
 import mockit.integration.TestRunnerDecorator;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.AroundContainerHook;
+import net.jqwik.api.lifecycle.ResolveParameterHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
+import net.jqwik.api.lifecycle.LifecycleContext;
+import net.jqwik.api.lifecycle.Lifespan;
+import net.jqwik.api.lifecycle.ParameterResolutionContext;
 import net.jqwik.api.lifecycle.PropertyExecutionResult;
 import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
+import net.jqwik.api.lifecycle.Store;
 
-public class MockitHook extends TestRunnerDecorator implements AroundPropertyHook, AroundContainerHook {
+public class MockitHook extends TestRunnerDecorator implements AroundPropertyHook, AroundContainerHook, ResolveParameterHook {
+	private final static String STORE_NAME = MockitHook.class.getSimpleName();
+
 	@Override
 	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {
+		Store.create(STORE_NAME, Lifespan.PROPERTY, () -> {
+			return context.testInstance();
+		});
+
 		handleMockFieldsForWholeTestClass(context.testInstance());
+
 		final PropertyExecutionResult result = property.execute();
 		prepareForNextTest();
 		return result;
@@ -36,5 +50,26 @@ public class MockitHook extends TestRunnerDecorator implements AroundPropertyHoo
 	@Override
 	public void afterContainer(ContainerLifecycleContext context) {
 		cleanUpAllMocks();
+	}
+
+	@Override
+	public Optional<ParameterSupplier> resolve(ParameterResolutionContext prc, LifecycleContext lc) {
+		//Store.get(STORE_NAME + prc.optionalMethod().get().getName()).get();
+
+		if (prc.optionalMethod().isPresent()) {
+			final Method method = prc.optionalMethod().get();
+
+			final Object[] instances = Store.getOrCreate(STORE_NAME + method.getName(),
+				Lifespan.PROPERTY, () -> {
+
+				return createInstancesForAnnotatedParameters(
+					Store.get(STORE_NAME).get(), method, null
+				);
+			}).get();
+
+			return Optional.of(o -> instances[prc.index()]);
+		}
+
+		return Optional.empty();
 	}
 }
