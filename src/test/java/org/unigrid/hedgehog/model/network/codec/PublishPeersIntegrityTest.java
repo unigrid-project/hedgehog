@@ -49,7 +49,7 @@ public class PublishPeersIntegrityTest extends BaseMockedWeldTest {
 	}
 
 	@Provide
-	public Arbitrary<PublishPeers> publishPeers(@ForAll @Positive byte nodes) throws UnknownHostException {
+	public Arbitrary<PublishPeers> providePublishPeers(@ForAll @Positive byte nodes) throws UnknownHostException {
 		final PublishPeers pp = PublishPeers.builder().build();
 
 		for (int i = 0; i < nodes; i++) {
@@ -62,7 +62,9 @@ public class PublishPeersIntegrityTest extends BaseMockedWeldTest {
 
 	@Property
 	@SneakyThrows
-	public void shouldMatch(@ForAll("publishPeers") PublishPeers publishPeers, @Mocked ChannelHandlerContext context) {
+	public void shouldMatch(@ForAll("providePublishPeers") PublishPeers publishPeers,
+		@Mocked ChannelHandlerContext context) {
+
 		final List<Object> out = new ArrayList<>();
 		final PublishPeersDecoder decoder = new PublishPeersDecoder();
 		final PublishPeersEncoder encoder = new PublishPeersEncoder();
