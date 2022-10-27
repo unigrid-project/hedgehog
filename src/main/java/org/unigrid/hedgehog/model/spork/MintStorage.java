@@ -16,16 +16,31 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.ToString;
 import org.unigrid.hedgehog.model.Address;
 
@@ -38,6 +53,7 @@ public class MintStorage extends GridSpork<MintStorage.SporkData, MintStorage.Sp
 
 	@Data
 	public static class SporkData implements IData {
+		@JsonSerialize(keyUsing = Location.Serializer.class)
 		@JsonDeserialize(keyUsing = Location.Deserializer.class)
 		private Map<Location, BigDecimal> mints;
 
@@ -49,12 +65,31 @@ public class MintStorage extends GridSpork<MintStorage.SporkData, MintStorage.Sp
 			public static class Deserializer extends KeyDeserializer {
 				@Override
 				public Location deserializeKey(String key, DeserializationContext ctxt) throws IOException {
-					final String[] compoundKey = key.split(":");
+					final String[] compoundKey = key.split("/");
 
 					return new Location(new Address(compoundKey[0]),
 						Integer.parseInt(compoundKey[1])
 					);
 				}
+			}
+			
+			public static class Serializer extends  StdKeySerializers.StringKeySerializer {
+
+				@Override
+				public void serialize(Object value, JsonGenerator g, SerializerProvider provider) throws IOException {
+					Location location = (Location)value;
+					g.writeFieldName(location.address.getWif() + "/" + location.height);
+				}
+
+				
+				/*@SneakyThrows
+				@Override
+				public void serialize(Location value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+					final ObjectMapper mapper = JsonMapper.builder()
+						.disable(JsonWriteFeature.QUOTE_FIELD_NAMES.mappedFeature())
+						.build();
+					gen.writeFieldName(mapper.writeValueAsString(node.textValue()));//value.address.getWif() + "/" + value.height));
+				}*/
 			}
 		}
 	}

@@ -215,7 +215,9 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
-					</argLine>
+                                                --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=com.fasterxml.jackson.databind
+                                                --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=com.fasterxml.jackson.databind
+                                        </argLine>
 				</configuration>
 			</plugin>
 			<plugin>

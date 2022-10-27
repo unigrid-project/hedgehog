@@ -25,6 +25,7 @@ module org.unigrid.hedgehog {
 	requires jakarta.annotation;
 	requires com.fasterxml.jackson.databind;
 	requires com.fasterxml.jackson.datatype.jsr310;
+	requires com.fasterxml.jackson.core;
 	requires free.port.finder;
 	requires org.apache.commons.lang3;
 	requires org.apache.commons.codec;
