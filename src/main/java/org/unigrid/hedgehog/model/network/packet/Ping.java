@@ -29,7 +29,7 @@ import lombok.EqualsAndHashCode;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class Ping extends Packet implements Serializable {
-	public final static Duration HEARTBEAT = Duration.of(10, ChronoUnit.MINUTES);
+	public static final Duration HEARTBEAT = Duration.of(10, ChronoUnit.MINUTES);
 
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();
