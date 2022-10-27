@@ -14,26 +14,36 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.model.network.packet;
 
-import java.net.InetAddress;
-import java.time.Instant;
+import java.io.Serializable;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import org.unigrid.hedgehog.model.network.packet.Ping;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 @Data
 @Builder
-public class Node {
-	private InetAddress address;
-	private Ping ping;
-	private Instant lastPingTime;
-	@Builder.Default private boolean connected = true;
-	@Builder.Default private Details details = new Details();
+@AllArgsConstructor
+@EqualsAndHashCode(callSuper = false)
+public class AskNodeDetails extends Packet implements Serializable {
+	@Builder.Default private boolean protocol = true;
+	@Builder.Default private boolean version = true;
 
-	@Data
-	private static class Details {
-		private String[] protocols;
-		private int version;
+	public AskNodeDetails() {
+		setType(Type.ASK_NODE_DETAILS);
+	}
+
+	@RequiredArgsConstructor
+	public enum Flags {
+		PROTOCOL(0x01), VERSION(0x02);
+
+		@Getter private final int mask;
+
+		public boolean isSet(int flags) {
+			return (flags & mask) == mask;
+		}
 	}
 }

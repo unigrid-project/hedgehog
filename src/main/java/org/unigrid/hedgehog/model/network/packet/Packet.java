@@ -36,6 +36,7 @@ public class Packet {
 		UNDEFINED((short) 0),
 		PING((short) 500),
 		ASK_PEERS((short) 1000), PUBLISH_PEERS((short) 1010),
+		ASK_NODE_DETAILS((short) 1100), PUBLISH_NODE_DETAILS((short) 1110),
 		ASK_SPORKS((short) 2000), GROW_SPORK((short) 2010), PUBLISH_SPORK((short) 2020);
 
 		@Getter private final short value;
@@ -45,6 +46,8 @@ public class Packet {
 				case 500: return PING;
 				case 1000: return ASK_PEERS;
 				case 1010: return PUBLISH_PEERS;
+				case 1100: return ASK_NODE_DETAILS;
+				case 1110: return PUBLISH_NODE_DETAILS;
 				case 2000: return ASK_SPORKS;
 				case 2010: return GROW_SPORK;
 				case 2020: return PUBLISH_SPORK;

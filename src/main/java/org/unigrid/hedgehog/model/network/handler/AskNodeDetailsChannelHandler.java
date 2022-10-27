@@ -14,26 +14,20 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.model.network.handler;
 
-import java.net.InetAddress;
-import java.time.Instant;
-import lombok.Builder;
-import lombok.Data;
-import org.unigrid.hedgehog.model.network.packet.Ping;
+import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelHandlerContext;
+import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 
-@Data
-@Builder
-public class Node {
-	private InetAddress address;
-	private Ping ping;
-	private Instant lastPingTime;
-	@Builder.Default private boolean connected = true;
-	@Builder.Default private Details details = new Details();
+@Sharable
+public class AskNodeDetailsChannelHandler extends AbstractInboundHandler<AskNodeDetails> {
+	public AskNodeDetailsChannelHandler() {
+		super(AskNodeDetails.class);
+	}
 
-	@Data
-	private static class Details {
-		private String[] protocols;
-		private int version;
+	@Override
+	public void typedChannelRead(ChannelHandlerContext context, AskNodeDetails askNodeDetails) throws Exception {
+		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 	}
 }
