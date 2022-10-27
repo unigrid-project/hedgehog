@@ -17,51 +17,37 @@
 package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-import org.unigrid.hedgehog.model.network.util.*;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import java.math.BigDecimal;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.SneakyThrows;
-import net.jqwik.api.constraints.AlphaChars;
-import net.jqwik.api.constraints.NotBlank;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.Address;
 import net.jqwik.api.Example;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
 
 public class MintStorageTest {
-	
 	@Example
 	@SneakyThrows
 	public void shouldSerialize() {
-		MintStorage mint = new MintStorage();
-		
-		MintStorage.SporkData data = new MintStorage.SporkData();
-		
-		mint.setData(data);
-		
-		Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
-		
+		final MintStorage storage = new MintStorage();
+		final MintStorage.SporkData data = new MintStorage.SporkData();
+		final Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
+
+		storage.setData(data);
 		data.setMints(mints);
 		
 		for (int i = 0; i < 10; i++) {
-			mints.put(new MintStorage.SporkData.Location(new Address("osidwahfoöuesih" + i), 1000 * i * 42)
-				, new BigDecimal(i));
-	
+			final Address address = new Address("osidwahfoöuesih" + i);
+			mints.put(new MintStorage.SporkData.Location(address, 1000 * i * 42), new BigDecimal(i));
 		}
-		
-		ObjectMapper mapper = new ObjectMapper();
-		System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mint));
-		
-		//System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(mints));
+
+		final ObjectMapper mapper = new ObjectMapper();
+		final String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(storage);
+
+		/* An assertion failure down here should not really be able to happen. When JSON processing fails, it will
+		   usually output a JsonProcessingException rather than returning null. */
+
+		assertThat(json, not(null));
 	}
 }
