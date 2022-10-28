@@ -14,27 +14,11 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec;
+package org.unigrid.hedgehog.model.network.codec.api;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
-import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Sharable
-public class PingEncoder extends MessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
-	/*
-	    Packet format:
-	    0..............................................................63
-            [                       nano request time                      ]
-	    R[                           reserved                          ]
-	*/
-	@Override
-	public void encode(ChannelHandlerContext ctx, Ping ping, ByteBuf out) throws Exception {
-		out.writeLong(ping.getNanoTime());
-		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
-		out.writeZero(7 /* 56 bits */);
-	}
+public interface PacketEncoder<T> {
+	void encode(ChannelHandlerContext ctx, T entity, ByteBuf out) throws Exception;
 }

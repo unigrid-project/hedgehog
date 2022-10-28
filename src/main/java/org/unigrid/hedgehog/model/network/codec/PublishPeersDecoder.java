@@ -27,7 +27,7 @@ import org.unigrid.hedgehog.model.network.packet.AskPeers;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
-public class PublishPeersDecoder extends ReplayingDecoder<AskPeers> implements PacketDecoder<AskPeers> {
+public class PublishPeersDecoder extends ReplayingDecoder<PublishPeers> implements PacketDecoder<PublishPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
@@ -36,7 +36,7 @@ public class PublishPeersDecoder extends ReplayingDecoder<AskPeers> implements P
 	    [    host address                                          ...0]
 	*/
 	@Override
-	protected void decode(ChannelHandlerContext context, ByteBuf in, List<Object> out) throws Exception {
+	public void decode(ChannelHandlerContext context, ByteBuf in, List<Object> out) throws Exception {
 		final PublishPeers publishPeers = PublishPeers.builder().build();
 		final int numPeers = in.readShort();
 

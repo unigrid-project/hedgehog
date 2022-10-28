@@ -30,7 +30,7 @@ public class AskPeersDecoder extends ReplayingDecoder<AskPeers> implements Packe
 	    [    amount    ][                  reserved                    ]
 	*/
 	@Override
-	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
 		final AskPeers askPeers = new AskPeers();
 
 		askPeers.setAmount(in.readShort());

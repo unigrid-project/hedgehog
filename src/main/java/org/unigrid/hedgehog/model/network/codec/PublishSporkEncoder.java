@@ -23,10 +23,11 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
+import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
 @Sharable
-public class PublishSporkEncoder extends MessageToByteEncoder<PublishSpork> {
+public class PublishSporkEncoder extends MessageToByteEncoder<PublishSpork> implements PacketEncoder<PublishSpork> {
 	//final Map<GridSpork.Type, GridSporkEncoder> encoders;
 
 	public PublishSporkEncoder() {
@@ -41,7 +42,7 @@ public class PublishSporkEncoder extends MessageToByteEncoder<PublishSpork> {
 	    [<<                       spork data                         >>]
 	*/
 	@Override
-	protected void encode(ChannelHandlerContext ctx, PublishSpork publishSpork, ByteBuf out) throws Exception {
+	public void encode(ChannelHandlerContext ctx, PublishSpork publishSpork, ByteBuf out) throws Exception {
 		System.out.println("encode");
 		System.out.println(publishSpork);
 

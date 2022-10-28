@@ -21,11 +21,12 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 @Sharable
-public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> {
+public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> implements PacketEncoder<PublishPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
@@ -34,7 +35,7 @@ public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> {
 	    [    host address                                          ...0]
 	*/
 	@Override
-	protected void encode(ChannelHandlerContext context, PublishPeers publishPeers, ByteBuf out) throws Exception {
+	public void encode(ChannelHandlerContext context, PublishPeers publishPeers, ByteBuf out) throws Exception {
 		out.writeShort(publishPeers.getNodes().size());
 		out.writeZero(6 /* 48 bytes */);
 

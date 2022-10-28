@@ -17,24 +17,24 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
+import java.util.ArrayList;
+import java.util.List;
+import org.unigrid.hedgehog.jqwik.*;
+import mockit.Mocked;
+import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Sharable
-public class PingEncoder extends MessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
-	/*
-	    Packet format:
-	    0..............................................................63
-            [                       nano request time                      ]
-	    R[                           reserved                          ]
-	*/
-	@Override
-	public void encode(ChannelHandlerContext ctx, Ping ping, ByteBuf out) throws Exception {
-		out.writeLong(ping.getNanoTime());
-		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
-		out.writeZero(7 /* 56 bits */);
+public class BaseCodecTest<T> extends BaseMockedWeldTest {
+	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
+		@Mocked ChannelHandlerContext context) throws Exception {
+
+		final List<Object> out = new ArrayList<>();
+		final ByteBuf encodedData = Unpooled.buffer();
+
+		encoder.encode(context, entity, encodedData);
+		decoder.decode(context, encodedData, out);
+		return (T) out.get(0);
 	}
 }

@@ -20,17 +20,18 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
 
 @Sharable
-public class AskPeersEncoder extends MessageToByteEncoder<AskPeers> {
+public class AskPeersEncoder extends MessageToByteEncoder<AskPeers> implements PacketEncoder<AskPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
 	    [    amount    ][                  reserved                    ]
 	*/
 	@Override
-	protected void encode(ChannelHandlerContext ctx, AskPeers askPeers, ByteBuf out) throws Exception {
+	public void encode(ChannelHandlerContext ctx, AskPeers askPeers, ByteBuf out) throws Exception {
 		out.writeShort(askPeers.getAmount());
 		out.writeZero(6 /* 48 bits */);
 	}

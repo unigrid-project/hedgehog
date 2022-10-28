@@ -31,7 +31,7 @@ public class PingDecoder extends ReplayingDecoder<Ping> implements PacketDecoder
 	    R[                           reserved                          ]
 	*/
 	@Override
-	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
 		final Ping ping = new Ping();
 
 		ping.setNanoTime(in.readLong());

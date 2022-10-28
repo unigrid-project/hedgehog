@@ -33,7 +33,7 @@ public class PublishSporkDecoder extends ReplayingDecoder<PublishSpork> implemen
 	    [<<                       spork data                         >>]
 	*/
 	@Override
-	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
 		System.out.println("decode");
 
 		if (PublishSpork.Type.get(in.readShort()) == PublishSpork.Type.PUBLISH_SPORK) {

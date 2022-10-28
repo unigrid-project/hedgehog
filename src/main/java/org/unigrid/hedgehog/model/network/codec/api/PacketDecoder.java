@@ -16,6 +16,10 @@
 
 package org.unigrid.hedgehog.model.network.codec.api;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import java.util.List;
+
 public interface PacketDecoder<T> {
-	//Packet.Type getSporkType();
+	void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception;
 }

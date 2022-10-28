@@ -16,13 +16,9 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.List;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
@@ -33,11 +29,10 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
-public class PublishPeersIntegrityTest extends BaseMockedWeldTest {
+public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 	private String ip() {
 		final int ip[] = new int[4];
 
@@ -65,13 +60,10 @@ public class PublishPeersIntegrityTest extends BaseMockedWeldTest {
 	public void shouldMatch(@ForAll("providePublishPeers") PublishPeers publishPeers,
 		@Mocked ChannelHandlerContext context) {
 
-		final List<Object> out = new ArrayList<>();
-		final PublishPeersDecoder decoder = new PublishPeersDecoder();
-		final PublishPeersEncoder encoder = new PublishPeersEncoder();
-		final ByteBuf encodedData = Unpooled.buffer();
+		final PublishPeers resultingPublishPeers = encodeDecode(publishPeers,
+			new PublishPeersEncoder(), new PublishPeersDecoder(), context
+		);
 
-		encoder.encode(context, publishPeers, encodedData);
-		decoder.decode(context, encodedData, out);
-		assertThat(out.get(0), is(publishPeers));
+		assertThat(resultingPublishPeers, is(publishPeers));
 	}
 }

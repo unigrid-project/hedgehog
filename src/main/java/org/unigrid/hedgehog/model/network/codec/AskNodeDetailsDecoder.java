@@ -30,7 +30,7 @@ public class AskNodeDetailsDecoder extends ReplayingDecoder<AskNodeDetails> impl
 	    PV[                         reserved                           ]
 	*/
 	@Override
-	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
 		final AskNodeDetails askNodeDetails = new AskNodeDetails();
 		final int flags = in.readByte();
 
