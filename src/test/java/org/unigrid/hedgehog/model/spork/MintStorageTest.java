@@ -23,6 +23,7 @@ import java.util.Map;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Address;
 import net.jqwik.api.Example;
+import org.apache.commons.lang3.RandomStringUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 
@@ -36,9 +37,9 @@ public class MintStorageTest {
 
 		storage.setData(data);
 		data.setMints(mints);
-		
+
 		for (int i = 0; i < 10; i++) {
-			final Address address = new Address("osidwahfoöuesih" + i);
+			final Address address = new Address(RandomStringUtils.randomAlphabetic(32) + i);
 			mints.put(new MintStorage.SporkData.Location(address, 1000 * i * 42), new BigDecimal(i));
 		}
 
@@ -48,6 +49,6 @@ public class MintStorageTest {
 		/* An assertion failure down here should not really be able to happen. When JSON processing fails, it will
 		   usually output a JsonProcessingException rather than returning null. */
 
-		assertThat(json, not(null));
+		assertThat(json, notNullValue());
 	}
 }
