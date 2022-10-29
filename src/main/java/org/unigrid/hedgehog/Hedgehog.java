@@ -21,19 +21,20 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
+import org.unigrid.hedgehog.model.VersionProvider;
 import org.unigrid.hedgehog.model.util.ApplicationLogLevel;
 import org.unigrid.hedgehog.model.util.Reflection;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "hedgehog", mixinStandardHelpOptions = true, version = "Unigrid Hedgehog 0.0.1-SNAPSHOT",
+@Command(name = "hedgehog", mixinStandardHelpOptions = true, versionProvider = VersionProvider.class,
 	scope = CommandLine.ScopeType.INHERIT, header = {
 		"",
-		"       .:.:.:.:.:.:.:.                       Unigrid Hedghehog 0.0.1-SNAPSHOT",
-		"      :   _.:.:.:.:.::.                    © 2021-2022 The Unigrid Foundation",
-		"     /  0  .:.:.:.:.:::                       (A segmented blocktree network)",
-		"    o____._:.oO:.:.oO:'                       Under an addended AGPL3 license",
+		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
+		"    :   _.:.:.:.:.::.     © 2021-2022 The Unigrid Foundation, UGD Software AB",
+		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
+		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""
 	}, subcommands = { CLI.class, Daemon.class, Util.class }
 )
