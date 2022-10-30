@@ -61,7 +61,7 @@ public class MintStorage extends GridSpork<MintStorage.SporkData, MintStorage.Sp
 					);
 				}
 			}
-			
+
 			public static class Serializer extends  StdKeySerializers.StringKeySerializer {
 				@Override
 				public void serialize(Object value, JsonGenerator generator, SerializerProvider provider)

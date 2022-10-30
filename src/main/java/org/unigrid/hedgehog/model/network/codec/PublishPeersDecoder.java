@@ -23,7 +23,6 @@ import java.net.InetAddress;
 import java.util.List;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.AskPeers;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
