@@ -41,6 +41,11 @@ public class Signature {
 	private static final String SIGNATURE_NAME = "SHA512WithECDSA";
 	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
 
+	public static final int PRIVATE_KEY_SIZE = 520;
+	public static final int PRIVATE_KEY_HEX_SIZE = 65;
+	public static final int PUBLIC_KEY_SIZE = 1042;
+	public static final int PUBLIC_KEY_HEX_SIZE = 131;
+
 	private ECPrivateKey privateKey;
 	private ECPublicKey publicKey;
 
@@ -48,12 +53,23 @@ public class Signature {
 		final ECGenParameterSpec ec = new ECGenParameterSpec(EC_SEC_NAME);
 		final KeyPairGenerator generator = KeyPairGenerator.getInstance(KEYPAIR_NAME);
 
-		generator.initialize(ec, new SecureRandom());
+		while (true) {
+			generator.initialize(ec, new SecureRandom());
 
-		final KeyPair keypair = generator.generateKeyPair();
+			final KeyPair keypair = generator.generateKeyPair();
+			publicKey = (ECPublicKey) keypair.getPublic();
+			privateKey = (ECPrivateKey) keypair.getPrivate();
 
-		publicKey = (ECPublicKey) keypair.getPublic();
-		privateKey = (ECPrivateKey) keypair.getPrivate();
+			final int xPubLength = publicKey.getW().getAffineX().bitLength();
+			final int yPubLength = publicKey.getW().getAffineY().bitLength();
+			final int privLength = privateKey.getS().bitLength();
+
+			/* We require a public key size of 1042 bits and a private key of 520 bits */
+			if (xPubLength == PUBLIC_KEY_SIZE / 2 && yPubLength == PUBLIC_KEY_SIZE / 2
+				&& privLength == PRIVATE_KEY_SIZE) {
+				break;
+			}
+		}
 	}
 
 	public Signature(Optional<String> privateKeyHex, Optional<String> publicKeyHex)
@@ -64,6 +80,13 @@ public class Signature {
 		final ECParameterSpec params = privateKey.getParams();
 
 		if (privateKeyHex.isPresent()) {
+			if (privateKeyHex.get().length() / 2 != PRIVATE_KEY_HEX_SIZE) {
+				throw new IllegalArgumentException(
+					String.format("Private key is required to be %d bytes, but was %d bytes",
+					PRIVATE_KEY_HEX_SIZE, privateKeyHex.get().length() / 2)
+				);
+			}
+
 			final KeySpec privSpec = new ECPrivateKeySpec(new BigInteger(privateKeyHex.get(), 16), params);
 			privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);
 		}
@@ -75,6 +98,16 @@ public class Signature {
 			final KeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), params);
 
 			publicKey = (ECPublicKey) factory.generatePublic(pubSpec);
+
+			final int xPubLength = publicKey.getW().getAffineX().bitLength();
+			final int yPubLength = publicKey.getW().getAffineY().bitLength();
+
+			if (publicKeyHex.get().length() / 2 != PUBLIC_KEY_HEX_SIZE) {
+				throw new IllegalArgumentException(
+					String.format("Public key is required to be %d bytes, but was %d bytes",
+					PUBLIC_KEY_HEX_SIZE, publicKeyHex.get().length() / 2)
+				);
+			}
 		}
 	}
 
