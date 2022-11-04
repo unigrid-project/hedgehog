@@ -16,16 +16,40 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.util.AttributeKey;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
+	public static final int MAGIC = 0xBABE;
+	public static final AttributeKey<Integer> PACKET_SIZE_KEY = AttributeKey.valueOf("PACKET_SIZE");
+
 	/*
 	    Packet format:
-	    0.............................63.............................127
-	    [ type ][resrvd][ packet size  ][          reserved            ]
-	    [                   << packet specific data >>                 ]
+	    0..............................................................63
+	    [    0xBABE    ][     type     ][         packet size          ]
+	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		super(Integer.MAX_VALUE, 4, 4, -16, 0);
+		super(Network.MAX_DATA_SIZE, 4, 4, 0, 8);
+	}
+
+	@Override
+	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final int magic = in.readUnsignedShort();
+
+		if (MAGIC == magic) {
+			/* Tell the pipeline what packet to handle next */
+			ctx.channel().attr(Packet.KEY).set(Packet.Type.get(in.readShort()));
+			ctx.channel().attr(PACKET_SIZE_KEY).set(in.readInt());
+
+			in.resetReaderIndex();
+			return super.decode(ctx, in);
+		}
+
+		throw new InvalidFrameMagicNumberException();
 	}
 }
