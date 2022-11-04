@@ -22,6 +22,7 @@ import io.netty.handler.codec.ReplayingDecoder;
 import java.util.List;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public class AskPeersDecoder extends ReplayingDecoder<AskPeers> implements PacketDecoder<AskPeers> {
 	/*
@@ -36,5 +37,10 @@ public class AskPeersDecoder extends ReplayingDecoder<AskPeers> implements Packe
 		askPeers.setAmount(in.readShort());
 		in.skipBytes(6 /* 48 bits */);
 		out.add(askPeers);
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.ASK_PEERS;
 	}
 }

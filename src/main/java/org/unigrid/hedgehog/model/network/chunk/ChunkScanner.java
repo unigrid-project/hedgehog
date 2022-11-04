@@ -16,20 +16,42 @@
 
 package org.unigrid.hedgehog.model.network.chunk;
 
+import java.util.Map;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.tuple.Pair;
 import org.reflections.Reflections;
+import org.unigrid.hedgehog.model.collection.OptionalMap;
 import org.unigrid.hedgehog.model.network.codec.chunk.GridSporkDecoder;
+import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
+@Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChunkScanner {
-	public static void scan() {
+	public static <K,V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
 		final String packageName = GridSporkDecoder.class.getPackageName();
 		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
 
-		classes.forEach((clazz) -> {
-			//System.out.println(clazz);
-		});
+		final Set<Class<?>> filteredClasses = classes.stream().filter(clazz -> {
+			final Chunk chunk = clazz.getAnnotation(Chunk.class);
+			return chunk.type() == chunkType && chunk.group() == chunkGroup;
+		}).collect(Collectors.toSet());
+
+		final Map<K, V> chunks = (Map<K, V>)filteredClasses.stream().map(x -> {
+			try {
+				final TypedCodec<K> instance = (TypedCodec<K>) x.getDeclaredConstructor().newInstance();
+				return Pair.of(instance.getCodecType(), instance);
+			} catch (Exception ex) {
+				Logger.getLogger(ChunkScanner.class.getName()).log(Level.SEVERE, null, ex);
+				throw new IllegalStateException("Unable to instantiate chunk converter.", ex);
+			}
+		}).collect(Collectors.toMap(p -> p.getLeft(), p -> p.getRight()));
+
+		return new OptionalMap(chunks);
 	}
 }

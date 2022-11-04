@@ -37,6 +37,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import java.security.NoSuchAlgorithmException;
 import lombok.Getter;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
@@ -77,6 +78,7 @@ public class P2PClient {
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL, new RegisterQuicHandler(
+			new FrameDecoder(),
 			new PingEncoder(), new PingDecoder(),
 			new PublishSporkEncoder(), new PublishSporkDecoder(),
 			new PingChannelHandler()

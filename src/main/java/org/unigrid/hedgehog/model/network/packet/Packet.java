@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.network.packet;
 
+import io.netty.util.AttributeKey;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
@@ -29,6 +30,7 @@ import lombok.Getter;
 @Data
 @SuppressWarnings("checkstyle:CyclomaticComplexity") // TODO: Expand more before fixing and removing this
 public class Packet {
+	public static final AttributeKey<Type> KEY = AttributeKey.valueOf(Packet.class.getSimpleName());
 	private Type type;
 
 	@AllArgsConstructor

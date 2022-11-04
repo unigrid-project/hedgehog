@@ -16,12 +16,6 @@
 
 package org.unigrid.hedgehog.model.network.codec.api;
 
-import io.netty.buffer.ByteBuf;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-
-public interface DecodableGridSpork {
-	GridSpork createInstance();
-	void decodeData(GridSpork spork, ByteBuf in) throws Exception;
-	void decodePreviousData(GridSpork spork, ByteBuf in) throws Exception;
-	GridSpork.Type getSporkType();
+public interface TypedCodec<T> {
+	T getCodecType();
 }

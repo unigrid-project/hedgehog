@@ -17,24 +17,36 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
-public class PingEncoder extends MessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
+public class PingEncoder extends AbstractMessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
 	/*
 	    Packet format:
+	    R = Response flag ON/OFF
 	    0..............................................................63
+	    [                       << Frame Header >>                     ]
             [                       nano request time                      ]
 	    R[                           reserved                          ]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, Ping ping, ByteBuf out) throws Exception {
+	public ByteBuf encode(ChannelHandlerContext ctx, Ping ping) throws Exception {
+		final ByteBuf out = Unpooled.buffer();
+
 		out.writeLong(ping.getNanoTime());
 		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
 		out.writeZero(7 /* 56 bits */);
+		return out;
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.PING;
 	}
 }

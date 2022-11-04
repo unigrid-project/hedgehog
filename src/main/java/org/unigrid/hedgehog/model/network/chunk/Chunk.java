@@ -25,5 +25,5 @@ import java.lang.annotation.RetentionPolicy;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Chunk {
 	ChunkGroup group() default ChunkGroup.DEFAULT;
-	ChunkType chunkType();
+	ChunkType type();
 }

@@ -17,14 +17,42 @@
 package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
-@Chunk(chunkType = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageEncoder extends GridSporkEncoder<MintStorage> {
+@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
+public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage> {
+	/*@Override
+	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception {
+		out.writeShort(spork.getType().getValue());
+		out.writeShort(spork.getFlags());
+		out.writeZero(4 32 bits);
+		//out.writeLong(spork.getTimeStamp().getEpochSecond());
+		//out.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
+		//out.writeZero(8 64 bits);
+
+		@Cleanup("release")
+		final ByteBuf data = Unpooled.buffer();
+		encodeData(spork, data);
+
+		@Cleanup("release")
+		final ByteBuf previousData = Unpooled.buffer();
+		encodePreviousData(spork, previousData);
+
+		out.writeInt(data.writerIndex());
+		out.writeInt(previousData.writerIndex());
+		out.writeBytes(data);
+		out.writeBytes(previousData);
+
+		log.atTrace().log(() -> ByteBufUtil.hexDump(out));
+	}*/
 	private void encodeData(MintStorage.SporkData data, MintStorage spork, ByteBuf in) throws Exception {
 		data.getMints().forEach((location, amount) -> {
 			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), in);
@@ -34,12 +62,12 @@ public class MintStorageEncoder extends GridSporkEncoder<MintStorage> {
 	}
 
 	@Override
-	public void encodeData(MintStorage spork, ByteBuf in) throws Exception {
-		encodeData(spork.getData(), spork, in);
+	public void encodeChunk(ChannelHandlerContext ctx, MintStorage spork, ByteBuf out) throws Exception {
+		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
 	}
 
 	@Override
-	public void encodePreviousData(MintStorage spork, ByteBuf in) throws Exception {
-		encodeData(spork.getPreviousData(), spork, in);
+	public GridSpork.Type getCodecType() {
+		return GridSpork.Type.MINT_STORAGE;
 	}
 }

@@ -22,6 +22,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Sharable
 public class AskPeersEncoder extends MessageToByteEncoder<AskPeers> implements PacketEncoder<AskPeers> {
@@ -34,5 +35,10 @@ public class AskPeersEncoder extends MessageToByteEncoder<AskPeers> implements P
 	public void encode(ChannelHandlerContext ctx, AskPeers askPeers, ByteBuf out) throws Exception {
 		out.writeShort(askPeers.getAmount());
 		out.writeZero(6 /* 48 bits */);
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.ASK_PEERS;
 	}
 }

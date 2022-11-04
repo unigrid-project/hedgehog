@@ -17,5 +17,5 @@
 package org.unigrid.hedgehog.model.network.chunk;
 
 public enum ChunkGroup {
-	DEFAULT, GRIDSPORK, UTILITY
+	DEFAULT, GRIDSPORK
 }

@@ -17,31 +17,28 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import lombok.Cleanup;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Sharable
-public class AskNodeDetailsEncoder extends MessageToByteEncoder<AskNodeDetails> implements PacketEncoder<AskNodeDetails> {
-	/*
-	    Packet format:
-	    0..............................................................63
-	    PV[                         reserved                           ]
-	*/
-	@Override
-	public void encode(ChannelHandlerContext ctx, AskNodeDetails askNodeDetails, ByteBuf out) throws Exception {
-		int flags = askNodeDetails.isProtocol() ? AskNodeDetails.Flags.PROTOCOL.getMask() : 0x00;
-		flags |= askNodeDetails.isVersion() ? AskNodeDetails.Flags.VERSION.getMask() : 0x00;
-
-		out.writeByte(flags);
-		out.writeZero(7 /* 56 bits */);
+public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncoder<T> implements PacketEncoder<T> {
+	private void writeFrameHeader(ChannelHandlerContext ctx, ByteBuf out, int len) throws Exception {
+		out.writeShort(FrameDecoder.MAGIC);
+		out.writeShort(getCodecType().getValue());
+		out.writeInt(len);
 	}
 
 	@Override
-	public Packet.Type getCodecType() {
-		return Packet.Type.ASK_NODE_DETAILS;
+	public final void encode(ChannelHandlerContext ctx, T in, ByteBuf out) throws Exception {
+		@Cleanup("release")
+		final ByteBuf data = encode(ctx, in);
+
+		writeFrameHeader(ctx, out, data.writerIndex());
+		out.writeBytes(data);	
 	}
+
+	public abstract ByteBuf encode(ChannelHandlerContext ctx, T in) throws Exception;
+	public abstract Packet.Type getCodecType();
 }

@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.util.List;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
@@ -54,5 +55,10 @@ public class PublishPeersDecoder extends ReplayingDecoder<PublishPeers> implemen
 		}
 
 		out.add(publishPeers);
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.PUBLISH_PEERS;
 	}
 }

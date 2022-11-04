@@ -18,52 +18,67 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.ReplayingDecoder;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.unigrid.hedgehog.model.network.codec.api.Decodable;
+import org.unigrid.hedgehog.model.collection.OptionalMap;
+import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
+import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.network.codec.api.DecodableGridSpork;
+import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.packet.PublishPeers;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-public abstract class GridSporkDecoder implements Decodable, DecodableGridSpork {
+public abstract class GridSporkDecoder<T extends Packet> extends ReplayingDecoder<T> implements ChunkDecoder<GridSpork> {
+	private final OptionalMap<GridSpork.Type, ChunkDecoder> decoders;
+
+	protected GridSporkDecoder() {
+		decoders = ChunkScanner.scan(ChunkType.DECODER, ChunkGroup.GRIDSPORK);
+	}
+
 	/*
 	    Packet format:
-	    0.............................63.............................127
-            [ type ][flags ][                reserved                      ]
-	    [           timestamp          ][     previous timpestamp      ]
-	    [           reserved           ][  data size   ][  delta size  ]
+	    0..............................................................63
+	    [     type     ][    flags     ][           reserved           ]
+            [                           timestamp                          ]
+	    [                      previous timpestamp                     ]
+	    [                           reserved                           ]
+	    [                        size spork data                       ]
 	    [                       << spork data >>                       ]
+	    [                     size spork delta data                    ]
 	    [                    << spork delta data >>                    ]
+	    [     size     ][             signature (size long)          >>]
 	*/
 	@Override
-	public Optional<? extends GridSpork> decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		if (getSporkType() == GridSpork.Type.get(in.readShort())) {
-			final GridSpork spork = createInstance();
+	public Optional<GridSpork> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
+		final Optional<ChunkDecoder> cd = decoders.getOptional(type);
+		System.out.println(cd + " [d] " + type);
 
-			spork.setType(getSporkType());
-			spork.setFlags((short) in.readShort());
-			in.skipBytes(12);
+		if (cd.isPresent()) {
+			final GridSpork<?, ?> gridSpork = GridSpork.create(type);
 
-			spork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
-			spork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
-			in.skipBytes(8);
+			gridSpork.setFlags(in.readShort());
+			in.skipBytes(4 /* 32 bits */);
+			gridSpork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			gridSpork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			in.skipBytes(8 /* 64 bits */);
 
-			final int dataSize = in.readInt();
-			final int deltaSize = in.readInt();
+			/* TODO: Do the chunk here */
 
-			if (dataSize + deltaSize == in.readableBytes()) {
-				decodeData(spork, in);
-				decodePreviousData(spork, in);
+			//gridSpork.setSignatureData(signatureData);
 
-				return Optional.of(spork);
-			} else {
-				System.err.println("Spork data/delta size does not equal the amount of pending bytes.");
-			}
+			return Optional.of(gridSpork);
 		}
 
-		in.resetReaderIndex();
+		//in.clear();
 		return Optional.empty();
 	}
 }

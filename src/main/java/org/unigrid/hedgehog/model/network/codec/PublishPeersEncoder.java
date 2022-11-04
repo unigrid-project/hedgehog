@@ -22,6 +22,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
@@ -46,5 +47,10 @@ public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> impl
 				b.writeShort(n.getProtocols().length);
 			});*/
 		}
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.PUBLISH_PEERS;
 	}
 }

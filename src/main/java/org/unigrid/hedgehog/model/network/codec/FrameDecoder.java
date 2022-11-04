@@ -39,6 +39,7 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 	@Override
 	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		in.markReaderIndex();
 		final int magic = in.readUnsignedShort();
 
 		if (MAGIC == magic) {

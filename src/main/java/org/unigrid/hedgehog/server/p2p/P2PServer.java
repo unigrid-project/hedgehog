@@ -33,6 +33,7 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
@@ -40,6 +41,7 @@ import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
@@ -66,9 +68,10 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.streamHandler(new RegisterQuicHandler(
+				new FrameDecoder(),
 				new PingEncoder(), new PingDecoder(),
 				new PublishSporkEncoder(), new PublishSporkDecoder(),
-				new PingChannelHandler()
+				new PingChannelHandler(), new PublishSporkChannelHandler()
 			))
 			.build();
 

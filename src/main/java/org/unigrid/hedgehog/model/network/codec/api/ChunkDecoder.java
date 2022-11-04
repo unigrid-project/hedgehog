@@ -18,7 +18,8 @@ package org.unigrid.hedgehog.model.network.codec.api;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.Optional;
 
-public interface Encodable<T> {
-	void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception;
+public interface ChunkDecoder<T> {
+	Optional<T> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
 }

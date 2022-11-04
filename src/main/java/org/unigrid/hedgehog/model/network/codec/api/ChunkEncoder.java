@@ -17,8 +17,8 @@
 package org.unigrid.hedgehog.model.network.codec.api;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
 
-public interface EncodableGridSpork<T> {
-	void encodeData(T spork, ByteBuf in) throws Exception;
-	void encodePreviousData(T spork, ByteBuf in) throws Exception;
+public interface ChunkEncoder<T> {
+	void encodeChunk(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception;
 }

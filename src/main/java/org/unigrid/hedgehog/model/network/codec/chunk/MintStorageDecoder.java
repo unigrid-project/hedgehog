@@ -17,19 +17,59 @@
 package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
-@Chunk(chunkType = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageDecoder<T> extends GridSporkDecoder {
+@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
+public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintStorage> {
+	/*@Override
+	public Optional<? extends GridSpork> decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final GridSpork<?, ?> gridSpork = GridSpork.create(GridSpork.Type.get(in.readShort()));
 
+		gridSpork.setFlags(in.readShort());
+
+		in.skipBytes(4  32 bits );
+
+		//if (getSporkType() == GridSpork.Type.get(in.readShort())) {
+			final GridSpork spork = createInstance();
+
+			spork.setType(getSporkType());
+			spork.setFlags((short) in.readShort());
+			in.skipBytes(12);
+
+			spork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			spork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			in.skipBytes(8);
+
+			final int dataSize = in.readInt();
+			final int deltaSize = in.readInt();
+
+			if (dataSize + deltaSize == in.readableBytes()) {
+				decodeData(spork, in);
+				decodePreviousData(spork, in);
+
+				return Optional.of(spork);
+			} else {
+				System.err.println("Spork data/delta size does not equal the amount of pending bytes.");
+			}
+		}
+
+		//in.resetReaderIndex();
+		//return Optional.empty();
+
+		return Optional.of(gridSpork);
+	}*/
 	private MintStorage.SporkData getDecodedData(ByteBuf in) throws Exception {
 		final MintStorage.SporkData data = new MintStorage.SporkData();
 		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
@@ -47,22 +87,12 @@ public class MintStorageDecoder<T> extends GridSporkDecoder {
 	}
 
 	@Override
-	public MintStorage createInstance() {
-		return new MintStorage();
+	public Optional<MintStorage> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
 	}
 
 	@Override
-	public void decodeData(GridSpork spork, ByteBuf in) throws Exception {
-		spork.setData(getDecodedData(in));
-	}
-
-	@Override
-	public void decodePreviousData(GridSpork spork, ByteBuf in) throws Exception {
-		spork.setPreviousData(getDecodedData(in)); /* TODO: Add support for DELTA */
-	}
-
-	@Override
-	public GridSpork.Type getSporkType() {
+	public GridSpork.Type getCodecType() {
 		return GridSpork.Type.MINT_STORAGE;
 	}
 }

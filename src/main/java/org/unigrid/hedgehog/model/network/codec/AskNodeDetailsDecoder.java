@@ -22,6 +22,7 @@ import io.netty.handler.codec.ReplayingDecoder;
 import java.util.List;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public class AskNodeDetailsDecoder extends ReplayingDecoder<AskNodeDetails> implements PacketDecoder<AskNodeDetails> {
 	/*
@@ -38,5 +39,10 @@ public class AskNodeDetailsDecoder extends ReplayingDecoder<AskNodeDetails> impl
 		askNodeDetails.setVersion(AskNodeDetails.Flags.VERSION.isSet(flags));
 		in.skipBytes(7 /* 56 bits */);
 		out.add(askNodeDetails);
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.ASK_NODE_DETAILS;
 	}
 }

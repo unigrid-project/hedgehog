@@ -17,14 +17,17 @@
 package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 
 @Data
+@Builder
+@AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class PublishSpork extends Packet implements Serializable {
-	private byte[] signatureData;
 	private GridSpork<?, ?> gridSpork;
 
 	public PublishSpork() {

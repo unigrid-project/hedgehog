@@ -19,7 +19,8 @@ package org.unigrid.hedgehog.model.network.codec.api;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.List;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
-public interface PacketDecoder<T> {
+public interface PacketDecoder<T> extends TypedCodec<Packet.Type> {
 	void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception;
 }

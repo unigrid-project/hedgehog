@@ -14,13 +14,21 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+package org.unigrid.hedgehog.model.network.handler;
 
-import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
-public interface Decodable<T extends GridSpork> {
-	Optional<T> decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
+@Sharable
+public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSpork> {
+	public PublishSporkChannelHandler() {
+		super(PublishSpork.class);
+	}
+
+	@Override
+	public void typedChannelRead(ChannelHandlerContext context, PublishSpork publishSpork) throws Exception {
+		System.out.println("SKSKSKSKSKS");
+		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+	}
 }

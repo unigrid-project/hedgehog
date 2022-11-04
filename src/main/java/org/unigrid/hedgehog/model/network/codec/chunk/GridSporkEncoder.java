@@ -17,51 +17,69 @@
 package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import lombok.AccessLevel;
+import io.netty.handler.codec.MessageToByteEncoder;
+import java.util.Optional;
 import lombok.Cleanup;
-import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.codec.api.Encodable;
+import org.unigrid.hedgehog.model.collection.OptionalMap;
+import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
+import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.network.codec.api.EncodableGridSpork;
+import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
 
 @Slf4j
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-public abstract class GridSporkEncoder<T extends GridSpork<?, ?>> implements Encodable<T>, EncodableGridSpork<T> {
+public abstract class GridSporkEncoder<T extends Packet> extends MessageToByteEncoder<T> implements ChunkEncoder<GridSpork> {
+	private final OptionalMap<GridSpork.Type, ChunkEncoder> encoders;
+
+	protected GridSporkEncoder() {
+		encoders = ChunkScanner.scan(ChunkType.ENCODER, ChunkGroup.GRIDSPORK);
+	}
+
 	/*
 	    Packet format:
-	    0.............................63.............................127
-            [ type ][flags ][                reserved                      ]
-	    [           timestamp          ][     previous timpestamp      ]
-	    [           reserved           ][  data size   ][  delta size  ]
+	    0..............................................................63
+	    [     type     ][    flags     ][           reserved           ]
+            [                           timestamp                          ]
+	    [                      previous timpestamp                     ]
+	    [                           reserved                           ]
+	    [                        size spork data                       ]
 	    [                       << spork data >>                       ]
+	    [                     size spork delta data                    ]
 	    [                    << spork delta data >>                    ]
+	    [     size     ][             signature (size long)          >>]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception {
-		out.writeShort(spork.getType().getValue());
-		out.writeShort(spork.getFlags());
-		out.writeZero(12 /* 96 bits */);
-		out.writeLong(spork.getTimeStamp().getEpochSecond());
-		out.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
-		out.writeZero(8 /* 64 bits */);
+	public void encodeChunk(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
+		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
+		System.out.println(ce + " [e] " + spork.getType());
 
-		@Cleanup("release")
-		final ByteBuf data = Unpooled.buffer();
-		encodeData(spork, data);
+		if (ce.isPresent()) {
+			System.out.println("true");
+			out.writeShort(FrameDecoder.MAGIC);
+			out.writeShort(Packet.Type.PUBLISH_SPORK.getValue());
 
-		@Cleanup("release")
-		final ByteBuf previousData = Unpooled.buffer();
-		encodePreviousData(spork, previousData);
+			@Cleanup("release")
+			final ByteBuf data = Unpooled.buffer();
 
-		out.writeInt(data.writerIndex());
-		out.writeInt(previousData.writerIndex());
-		out.writeBytes(data);
-		out.writeBytes(previousData);
+			data.writeShort(spork.getType().getValue());
+			data.writeShort(spork.getFlags());
+			data.writeZero(4 /* 32 bits */);
+			data.writeLong(spork.getTimeStamp().getEpochSecond());
+			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
+			data.writeZero(8 /* 64 bits */);
 
-		log.atTrace().log(() -> ByteBufUtil.hexDump(out));
+			out.writeInt(data.writerIndex());
+			out.writeBytes(data);
+
+			//ce.get().encodeChunk(ctx, spork, out);
+		} else {
+			System.out.println("false");
+			//out.clear();
+		}
 	}
 }

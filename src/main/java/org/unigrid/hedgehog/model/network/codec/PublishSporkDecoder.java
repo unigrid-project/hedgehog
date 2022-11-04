@@ -18,12 +18,14 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ReplayingDecoder;
 import java.util.List;
+import lombok.NoArgsConstructor;
+import static org.unigrid.hedgehog.model.network.codec.FrameDecoder.PACKET_SIZE_KEY;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
-public class PublishSporkDecoder extends ReplayingDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
+public class PublishSporkDecoder extends AbstractReplayingDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
 	/*
 	    Packet format:
 	    0.............................63.............................128
@@ -33,14 +35,21 @@ public class PublishSporkDecoder extends ReplayingDecoder<PublishSpork> implemen
 	    [<<                       spork data                         >>]
 	*/
 	@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		System.out.println("decode");
+	public PublishSpork typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		System.out.println("psd");
+		System.out.println(ctx.channel().attr(Packet.KEY).get());
+		System.out.println(ctx.channel().attr(PACKET_SIZE_KEY).get());
+		return null;
+	}
 
-		if (PublishSpork.Type.get(in.readShort()) == PublishSpork.Type.PUBLISH_SPORK) {
-			/* TODO: Implement later */
-			System.out.println("decode2");
-		} else {
-			in.resetReaderIndex();
-		}
+	@Override
+	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+		System.out.println("psd");
+		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+	}
+
+	@Override
+	public Packet.Type getCodecType() {
+		return Packet.Type.PUBLISH_SPORK;
 	}
 }

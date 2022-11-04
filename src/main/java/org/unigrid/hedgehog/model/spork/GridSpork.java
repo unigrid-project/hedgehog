@@ -35,6 +35,8 @@ public class GridSpork<T, P> {
 	private T data;
 	private P previousData; /* Flag.DELTA controls the content */
 
+	private byte[] signatureData;
+
 	@AllArgsConstructor
 	public enum Flag {
 		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
@@ -66,5 +68,14 @@ public class GridSpork<T, P> {
 
 	public interface IData {
 		/* Empty on purpose - just here to make generics happy */
+	}
+
+	public static GridSpork<?, ?> create(Type type) {
+		switch (type) {
+			case MINT_STORAGE: return new MintStorage();
+			case MINT_SUPPLY: return new MintSupply();
+			case VESTING_STORAGE: return new VestingStorage();
+			default: throw new IllegalArgumentException("Unknown spork type supplied");
+		}
 	}
 }
