@@ -17,9 +17,10 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
@@ -27,16 +28,19 @@ import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 @Sharable
-public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> implements PacketEncoder<PublishPeers> {
+public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPeers> implements PacketEncoder<PublishPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [ n = num peers  ][                  reserved                  ]
 	    [ <nodes>                                                  ...n]
 	    [    host address                                          ...0]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext context, PublishPeers publishPeers, ByteBuf out) throws Exception {
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishPeers publishPeers) throws Exception {
+		final ByteBuf out = Unpooled.buffer();
+
 		out.writeShort(publishPeers.getNodes().size());
 		out.writeZero(6 /* 48 bytes */);
 
@@ -47,6 +51,8 @@ public class PublishPeersEncoder extends MessageToByteEncoder<PublishPeers> impl
 				b.writeShort(n.getProtocols().length);
 			});*/
 		}
+
+		return Optional.of(out);
 	}
 
 	@Override

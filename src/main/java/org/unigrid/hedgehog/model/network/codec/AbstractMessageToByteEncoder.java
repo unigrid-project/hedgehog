@@ -19,7 +19,7 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
-import lombok.Cleanup;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
@@ -32,13 +32,15 @@ public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncod
 
 	@Override
 	public final void encode(ChannelHandlerContext ctx, T in, ByteBuf out) throws Exception {
-		@Cleanup("release")
-		final ByteBuf data = encode(ctx, in);
+		final Optional<ByteBuf> data = encode(ctx, in);
 
-		writeFrameHeader(ctx, out, data.writerIndex());
-		out.writeBytes(data);	
+		if (data.isPresent()) {
+			writeFrameHeader(ctx, out, data.get().writerIndex());
+			out.writeBytes(data.get());
+			data.get().release();
+		}
 	}
 
-	public abstract ByteBuf encode(ChannelHandlerContext ctx, T in) throws Exception;
+	public abstract Optional<ByteBuf> encode(ChannelHandlerContext ctx, T in) throws Exception;
 	public abstract Packet.Type getCodecType();
 }

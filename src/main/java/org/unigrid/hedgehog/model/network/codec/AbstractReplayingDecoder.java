@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
 import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
@@ -36,16 +37,14 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 		if (TypedCodec.class.isAssignableFrom(getClass())) {
 			final TypedCodec<Packet.Type> object = (TypedCodec<Packet.Type>) this;
 
-			System.out.println("type: " + type);
 			if (object.getCodecType() == type) {
 				super.callDecode(ctx, in, out);
 				forward = false;
 			}
 		}
 
+		/* Should we forward this packet on to the next decoder? */
 		if (forward) {
-			System.out.println("forward!!");
-			/* Should we forward this packet on to the next decoder? */
 			in.resetReaderIndex();
 			ctx.fireChannelRead(in);
 		}
@@ -53,9 +52,12 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 
 	@Override
 	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		System.out.println("decode");
-		out.add(typedDecode(ctx, in));
+		final Optional<T> entity = typedDecode(ctx, in);
+
+		if (entity.isPresent()) {
+			out.add(entity.get());
+		}
 	}
 
-	public abstract T typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
+	public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
 }

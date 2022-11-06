@@ -18,25 +18,25 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ReplayingDecoder;
 import java.net.InetAddress;
-import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
-public class PublishPeersDecoder extends ReplayingDecoder<PublishPeers> implements PacketDecoder<PublishPeers> {
+public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> implements PacketDecoder<PublishPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [ n = num peers  ][                  reserved                  ]
 	    [ <nodes>                                                  ...n]
 	    [    host address                                          ...0]
 	*/
 	@Override
-	public void decode(ChannelHandlerContext context, ByteBuf in, List<Object> out) throws Exception {
+	public Optional<PublishPeers> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final PublishPeers publishPeers = PublishPeers.builder().build();
 		final int numPeers = in.readShort();
 
@@ -54,7 +54,7 @@ public class PublishPeersDecoder extends ReplayingDecoder<PublishPeers> implemen
 			n.setProtocols(protocols);*/
 		}
 
-		out.add(publishPeers);
+		return Optional.of(publishPeers);
 	}
 
 	@Override

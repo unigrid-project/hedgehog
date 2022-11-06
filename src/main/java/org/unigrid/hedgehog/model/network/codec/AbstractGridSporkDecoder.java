@@ -14,30 +14,27 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
+import java.time.Instant;
 import java.util.Optional;
-import lombok.Cleanup;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 
-@Slf4j
-public abstract class GridSporkEncoder<T extends Packet> extends MessageToByteEncoder<T> implements ChunkEncoder<GridSpork> {
-	private final OptionalMap<GridSpork.Type, ChunkEncoder> encoders;
+public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T>
+	implements ChunkDecoder<GridSpork> {
 
-	protected GridSporkEncoder() {
-		encoders = ChunkScanner.scan(ChunkType.ENCODER, ChunkGroup.GRIDSPORK);
+	private final OptionalMap<GridSpork.Type, ChunkDecoder> decoders;
+
+	protected AbstractGridSporkDecoder() {
+		decoders = ChunkScanner.scan(ChunkType.DECODER, ChunkGroup.GRIDSPORK);
 	}
 
 	/*
@@ -54,32 +51,28 @@ public abstract class GridSporkEncoder<T extends Packet> extends MessageToByteEn
 	    [     size     ][             signature (size long)          >>]
 	*/
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
-		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
-		System.out.println(ce + " [e] " + spork.getType());
+	public Optional<GridSpork> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
+		final Optional<ChunkDecoder> cd = decoders.getOptional(type);
+		System.out.println(cd + " [d] " + type);
 
-		if (ce.isPresent()) {
-			System.out.println("true");
-			out.writeShort(FrameDecoder.MAGIC);
-			out.writeShort(Packet.Type.PUBLISH_SPORK.getValue());
+		if (cd.isPresent()) {
+			final GridSpork<?, ?> gridSpork = GridSpork.create(type);
 
-			@Cleanup("release")
-			final ByteBuf data = Unpooled.buffer();
+			gridSpork.setFlags(in.readShort());
+			in.skipBytes(4 /* 32 bits */);
+			gridSpork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			gridSpork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			in.skipBytes(8 /* 64 bits */);
 
-			data.writeShort(spork.getType().getValue());
-			data.writeShort(spork.getFlags());
-			data.writeZero(4 /* 32 bits */);
-			data.writeLong(spork.getTimeStamp().getEpochSecond());
-			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
-			data.writeZero(8 /* 64 bits */);
+			/* TODO: Do the chunk here */
 
-			out.writeInt(data.writerIndex());
-			out.writeBytes(data);
+			//gridSpork.setSignatureData(signatureData);
 
-			//ce.get().encodeChunk(ctx, spork, out);
-		} else {
-			System.out.println("false");
-			//out.clear();
+			return Optional.of(gridSpork);
 		}
+
+		//in.clear();
+		return Optional.empty();
 	}
 }

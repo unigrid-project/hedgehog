@@ -18,6 +18,6 @@ package org.unigrid.hedgehog.model.network.codec;
 
 public class InvalidFrameMagicNumberException extends Exception {
 	public InvalidFrameMagicNumberException() {
-		super("Invalid frame magic number in frame");
+		super("Invalid magic number in frame");
 	}
 }

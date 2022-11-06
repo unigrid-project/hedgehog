@@ -20,25 +20,28 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
 import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-public class AskNodeDetailsDecoder extends ReplayingDecoder<AskNodeDetails> implements PacketDecoder<AskNodeDetails> {
+public class AskNodeDetailsDecoder extends AbstractReplayingDecoder<AskNodeDetails> implements PacketDecoder<AskNodeDetails> {
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    PV[                         reserved                           ]
 	*/
 	@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public Optional<AskNodeDetails> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final AskNodeDetails askNodeDetails = new AskNodeDetails();
 		final int flags = in.readByte();
 
 		askNodeDetails.setProtocol(AskNodeDetails.Flags.PROTOCOL.isSet(flags));
 		askNodeDetails.setVersion(AskNodeDetails.Flags.VERSION.isSet(flags));
 		in.skipBytes(7 /* 56 bits */);
-		out.add(askNodeDetails);
+
+		return Optional.of(askNodeDetails);
 	}
 
 	@Override

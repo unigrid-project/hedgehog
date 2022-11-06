@@ -18,10 +18,7 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ByteToMessageDecoder;
-import io.netty.handler.codec.ReplayingDecoder;
-import io.netty.util.ReferenceCountUtil;
-import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
@@ -31,27 +28,19 @@ public class PingDecoder extends AbstractReplayingDecoder<Ping> implements Packe
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
             [                       nano request time                      ]
 	    R[                           reserved                          ]
 	*/
-	/*@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-	}*/
-
 	@Override
-	public Ping typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		System.out.println("pingDecode");
+	public Optional<Ping> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final Ping ping = new Ping();
 
-		//ping.setNanoTime(in.readLong());
-		//ping.setResponse((in.readByte() & 0x01) == 0x01);
-		//in.skipBytes(7 /* 56 bits */);
-		//out.add(PublishSpork.builder().build());
-		//ctx.fireChannelRead(in);
-		//ctx.channel()
-		//ctx.fireChannelRead(in);
-		//ReferenceCountUtil.release(in);
-		return ping;
+		ping.setNanoTime(in.readLong());
+		ping.setResponse((in.readByte() & 0x01) == 0x01);
+		in.skipBytes(7 /* 56 bits */);
+
+		return Optional.of(ping);
 	}
 
 	@Override

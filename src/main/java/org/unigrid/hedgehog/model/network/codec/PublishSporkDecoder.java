@@ -18,34 +18,28 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.List;
-import lombok.NoArgsConstructor;
-import static org.unigrid.hedgehog.model.network.codec.FrameDecoder.PACKET_SIZE_KEY;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 
-public class PublishSporkDecoder extends AbstractReplayingDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
+public class PublishSporkDecoder extends AbstractGridSporkDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
 	/*
 	    Packet format:
 	    0.............................63.............................128
-	    [ type ][resrvd][ packet size  ][          reserved            ]
-            [ size ][ signature (size long)                              >>]
-	    [ size ][ public key (size long)                             >>]
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [<<                       spork data                         >>]
 	*/
 	@Override
-	public PublishSpork typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		System.out.println("psd");
-		System.out.println(ctx.channel().attr(Packet.KEY).get());
-		System.out.println(ctx.channel().attr(PACKET_SIZE_KEY).get());
-		return null;
-	}
+	public Optional<PublishSpork> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final Optional<GridSpork> gridSpoork = decodeChunk(ctx, in);
 
-	@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		System.out.println("psd");
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		if (gridSpoork.isPresent()) {
+			return Optional.of(PublishSpork.builder().gridSpork(gridSpoork.get()).build());
+		}
+
+		return Optional.empty();
 	}
 
 	@Override

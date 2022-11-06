@@ -20,39 +20,24 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
-import lombok.Cleanup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
-import static org.unigrid.hedgehog.model.network.codec.FrameDecoder.PACKET_SIZE_KEY;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.codec.chunk.GridSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork;
 
 @Sharable
-public class PublishSporkEncoder extends GridSporkEncoder<PublishSpork> implements PacketEncoder<PublishSpork> {
+public class PublishSporkEncoder extends AbstractGridSporkEncoder<PublishSpork> implements PacketEncoder<PublishSpork> {
 	/*
 	    Packet format:
 	    0.............................63.............................128
-	    [ type ][resrvd][ packet size  ][          reserved            ]
-            [ size ][ signature (size long)                              >>]
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [<<                       spork data                         >>]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, PublishSpork publishSpork, ByteBuf out) throws Exception {
-		System.out.println("encode");
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
+		final ByteBuf out = Unpooled.buffer();
 		encodeChunk(ctx, publishSpork.getGridSpork(), out);
-		
-		//System.out.println("encode");
-		//System.out.println(publishSpork);
-
-		//@Cleanup("release")
-		//final ByteBuf data = Unpooled.buffer();
-		//data.writeShort(publishSpork.getSignatureData().length);
-		//data.writeBytes(publishSpork.getSignatureData());
-
-		//publishSpork.getGridSpork().getType()
+		return Optional.of(out);
 	}
 
 	@Override

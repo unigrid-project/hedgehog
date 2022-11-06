@@ -17,31 +17,40 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Sharable
-public class AskNodeDetailsEncoder extends MessageToByteEncoder<AskNodeDetails> implements PacketEncoder<AskNodeDetails> {
+public class AskNodeDetailsEncoder extends AbstractMessageToByteEncoder<AskNodeDetails>
+	implements PacketEncoder<AskNodeDetails> {
+
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    PV[                         reserved                           ]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, AskNodeDetails askNodeDetails, ByteBuf out) throws Exception {
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, AskNodeDetails askNodeDetails) throws Exception {
+		final ByteBuf out = Unpooled.buffer();
 		int flags = askNodeDetails.isProtocol() ? AskNodeDetails.Flags.PROTOCOL.getMask() : 0x00;
 		flags |= askNodeDetails.isVersion() ? AskNodeDetails.Flags.VERSION.getMask() : 0x00;
 
 		out.writeByte(flags);
 		out.writeZero(7 /* 56 bits */);
+
+		return Optional.of(out);
 	}
 
 	@Override
 	public Packet.Type getCodecType() {
 		return Packet.Type.ASK_NODE_DETAILS;
 	}
+
+
 }

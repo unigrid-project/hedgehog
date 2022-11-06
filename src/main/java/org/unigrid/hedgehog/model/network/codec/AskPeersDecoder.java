@@ -18,25 +18,26 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ReplayingDecoder;
-import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-public class AskPeersDecoder extends ReplayingDecoder<AskPeers> implements PacketDecoder<AskPeers> {
+public class AskPeersDecoder extends AbstractReplayingDecoder<AskPeers> implements PacketDecoder<AskPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [    amount    ][                  reserved                    ]
 	*/
 	@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+	public Optional<AskPeers> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final AskPeers askPeers = new AskPeers();
 
 		askPeers.setAmount(in.readShort());
 		in.skipBytes(6 /* 48 bits */);
-		out.add(askPeers);
+
+		return Optional.of(askPeers);
 	}
 
 	@Override

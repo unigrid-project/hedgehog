@@ -30,10 +30,13 @@ public class BaseCodecTest<T> extends BaseMockedWeldTest {
 	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
 		@Mocked ChannelHandlerContext context) throws Exception {
 
-		final List<Object> out = new ArrayList<>();
-		final ByteBuf encodedData = Unpooled.buffer();
-
+		ByteBuf encodedData = Unpooled.buffer();
 		encoder.encode(context, entity, encodedData);
+
+		final FrameDecoder frameDecoder = new FrameDecoder();
+		encodedData = (ByteBuf) frameDecoder.decode(context, encodedData);
+
+		final List<Object> out = new ArrayList<>();
 		decoder.decode(context, encodedData, out);
 		return (T) out.get(0);
 	}

@@ -17,24 +17,30 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToByteEncoder;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Sharable
-public class AskPeersEncoder extends MessageToByteEncoder<AskPeers> implements PacketEncoder<AskPeers> {
+public class AskPeersEncoder extends AbstractMessageToByteEncoder<AskPeers> implements PacketEncoder<AskPeers> {
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [    amount    ][                  reserved                    ]
 	*/
 	@Override
-	public void encode(ChannelHandlerContext ctx, AskPeers askPeers, ByteBuf out) throws Exception {
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, AskPeers askPeers) throws Exception {
+		final ByteBuf out = Unpooled.buffer();
+
 		out.writeShort(askPeers.getAmount());
 		out.writeZero(6 /* 48 bits */);
+
+		return Optional.of(out);
 	}
 
 	@Override
