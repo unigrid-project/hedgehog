@@ -28,7 +28,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class PublishSpork extends Packet implements Serializable {
-	private GridSpork<?, ?> gridSpork;
+	private GridSpork gridSpork;
 
 	public PublishSpork() {
 		setType(Type.PUBLISH_SPORK);

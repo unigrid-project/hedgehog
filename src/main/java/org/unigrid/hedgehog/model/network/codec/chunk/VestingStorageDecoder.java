@@ -27,13 +27,13 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage> {
+public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage.SporkData> {
 	private VestingStorage.SporkData getDecodedData(ByteBuf in) throws Exception {
 		return null;
 	}
 
 	@Override
-	public Optional<VestingStorage> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		return Optional.empty();
 	}
 

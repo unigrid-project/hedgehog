@@ -25,16 +25,17 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
-public class VestingStorage extends GridSpork<VestingStorage.SporkData, VestingStorage.SporkData> {
+public class VestingStorage extends GridSpork {
 	public VestingStorage() {
 		setType(Type.VESTING_STORAGE);
 	}
 
 	@Data
-	public static class SporkData implements IData {
+	public static class SporkData implements ChunkData {
 		private Map<Address, Vesting> vestingAddresses;
 
 		@Data @AllArgsConstructor @NoArgsConstructor

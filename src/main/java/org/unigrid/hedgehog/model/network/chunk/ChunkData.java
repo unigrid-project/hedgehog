@@ -12,26 +12,10 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
-package org.unigrid.hedgehog.model.spork;
+package org.unigrid.hedgehog.model.network.chunk;
 
-import java.math.BigDecimal;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
-
-@Data @ToString(callSuper = true)
-@EqualsAndHashCode(callSuper = false)
-public class MintSupply extends GridSpork {
-	public MintSupply() {
-		setType(Type.MINT_SUPPLY);
-		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
-	}
-
-	@Data
-	public static class SporkData implements ChunkData {
-		private BigDecimal maxSupply;
-	}
+public interface ChunkData {
+	/* Empty on purpose */
 }

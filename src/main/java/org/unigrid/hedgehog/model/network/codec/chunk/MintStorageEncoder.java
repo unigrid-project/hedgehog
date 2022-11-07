@@ -22,11 +22,12 @@ import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage> {
+public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage.SporkData> {
 	/*@Override
 	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception {
 		out.writeShort(spork.getType().getValue());
@@ -49,19 +50,19 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 		out.writeBytes(data);
 		out.writeBytes(previousData);
 
-		log.atTrace().log(() -> ByteBufUtil.hexDump(out));
+		log.atTrace().log(() -> ByteBufUtil.hexDump(out));<
 	}*/
-	private void encodeData(MintStorage.SporkData data, MintStorage mintStorage, ByteBuf in) throws Exception {
-		/*data.getMints().forEach((location, amount) -> {
-			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), in);
-			in.writeInt(location.getHeight());
-			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), in);
-		});*/
-	}
 
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintStorage mintStorage, ByteBuf out) throws Exception {
-		throw new UnsupportedOperationException("Not supported yet.");
+	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {
+		out.writeMedium(data.getMints().size());
+		out.writeZero(5 /* 40 bits */);
+
+		data.getMints().forEach((location, amount) -> {
+			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), out);
+			out.writeInt(location.getHeight());
+			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), out);
+		});
 	}
 
 	@Override

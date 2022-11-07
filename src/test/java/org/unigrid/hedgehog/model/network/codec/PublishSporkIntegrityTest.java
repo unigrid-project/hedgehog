@@ -17,7 +17,11 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.channel.ChannelHandlerContext;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
@@ -25,24 +29,60 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.Size;
+import org.apache.commons.lang3.RandomStringUtils;
+import org.apache.commons.lang3.RandomUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
+	private ChunkData chunkData(GridSpork.Type gridSporkType) {
+		switch (gridSporkType) {
+			case MINT_STORAGE:
+				final MintStorage.SporkData data = new MintStorage.SporkData();
+				final Map<Location, BigDecimal> mints = new HashMap<>();
+				final int size = RandomUtils.nextInt(0, 50);
+
+				for (int i = 0; i < size; i++) {
+					final Address address = Address.builder()
+						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
+
+					final Location location = Location.builder()
+						.address(address).height(RandomUtils.nextInt()).build();
+
+					mints.put(location, BigDecimal.valueOf(RandomUtils.nextInt()));
+				}
+
+				data.setMints(mints);
+				return data;
+
+			case MINT_SUPPLY:
+			case VESTING_STORAGE:
+		}
+
+		return null;
+	}
+
 	@Provide
 	public Arbitrary<?> providePublishSpork(@ForAll GridSpork.Type gridSporkType, @ForAll short flags,
-		/*@ForAll @NotEmpty byte[] signature,*/ @ForAll Instant previousTime) {
+		@ForAll @Size(min = 50, max = 60) byte[] signature, @ForAll Instant previousTime) {
 
 		try {
-			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.VESTING_STORAGE);
+			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
 
 			gridSpork.setFlags(flags);
 			gridSpork.setTimeStamp(Instant.now());
 			gridSpork.setPreviousTimeStamp(previousTime);
-			//gridSpork.setSignatureData(signature);
+			gridSpork.setSignatureData(signature);
+			gridSpork.setData(chunkData(GridSpork.Type.MINT_STORAGE));
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
+
 		} catch (IllegalArgumentException ex) {
 			assertThat(gridSporkType, is(GridSpork.Type.UNDEFINED));
 		}
@@ -55,7 +95,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	public void shouldMatch(@ForAll("providePublishSpork") PublishSpork publishSpork,
 		@Mocked ChannelHandlerContext context) {
 
-		if (publishSpork != null) {
+		if (Objects.nonNull(publishSpork)) {
 			final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
 				new PublishSporkEncoder(), new PublishSporkDecoder(), context
 			);

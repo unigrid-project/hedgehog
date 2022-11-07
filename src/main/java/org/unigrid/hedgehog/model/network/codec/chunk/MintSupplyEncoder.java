@@ -26,12 +26,14 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply> {
-	private void encodeData(MintSupply.SporkData data, MintSupply mintSupply, ByteBuf in) throws Exception {
+public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply.SporkData> {
+	private void encodeData(MintSupply.SporkData data, ByteBuf in) throws Exception {
 	}
 
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintSupply mintSupply, ByteBuf out) throws Exception {
+	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out)
+		throws Exception {
+
 		throw new UnsupportedOperationException("Not supported yet.");
 	}
 

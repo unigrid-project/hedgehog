@@ -33,7 +33,7 @@ public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPee
 	    Packet format:
 	    0..............................................................63
 	    [                << Frame Header (FrameDecoder) >>             ]
-	    [ n = num peers  ][                  reserved                  ]
+	    [ n= num peers ][                   reserved                   ]
 	    [ <nodes>                                                  ...n]
 	    [    host address                                          ...0]
 	*/

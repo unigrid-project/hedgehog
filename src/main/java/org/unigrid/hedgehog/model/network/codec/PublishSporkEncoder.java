@@ -36,7 +36,7 @@ public class PublishSporkEncoder extends AbstractGridSporkEncoder<PublishSpork> 
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
-		encodeChunk(ctx, publishSpork.getGridSpork(), out);
+		encodeGridSpork(ctx, publishSpork.getGridSpork(), out);
 		return Optional.of(out);
 	}
 

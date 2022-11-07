@@ -22,9 +22,10 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Tolerate;
+import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
-public class GridSpork<T, P> {
+public class GridSpork {
 	private Instant timeStamp;
 	private Instant previousTimeStamp;
 	private short flags; /* Put Flag values in here */
@@ -32,8 +33,8 @@ public class GridSpork<T, P> {
 	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
 	private Type type;
 
-	private T data;
-	private P previousData; /* Flag.DELTA controls the content */
+	private ChunkData data;
+	private ChunkData previousData; /* Flag.DELTA controls the content */
 
 	private byte[] signatureData;
 
@@ -66,11 +67,7 @@ public class GridSpork<T, P> {
 		type = Type.get(value);
 	}
 
-	public interface IData {
-		/* Empty on purpose - just here to make generics happy */
-	}
-
-	public static GridSpork<?, ?> create(Type type) {
+	public static GridSpork create(Type type) {
 		switch (type) {
 			case MINT_STORAGE: return new MintStorage();
 			case MINT_SUPPLY: return new MintSupply();

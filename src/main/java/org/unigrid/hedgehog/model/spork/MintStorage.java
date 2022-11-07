@@ -27,26 +27,28 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.Map;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
-public class MintStorage extends GridSpork<MintStorage.SporkData, MintStorage.SporkData> {
+public class MintStorage extends GridSpork {
 	public MintStorage() {
 		setType(Type.MINT_STORAGE);
 	}
 
 	@Data
-	public static class SporkData implements IData {
+	public static class SporkData implements ChunkData {
 		@JsonSerialize(keyUsing = Location.Serializer.class)
 		@JsonDeserialize(keyUsing = Location.Deserializer.class)
 		private Map<Location, BigDecimal> mints;
 
-		@Data @AllArgsConstructor @NoArgsConstructor
+		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Location {
 			private Address address;
 			private int height;

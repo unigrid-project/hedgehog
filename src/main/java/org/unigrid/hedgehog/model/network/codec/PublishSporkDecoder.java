@@ -33,7 +33,7 @@ public class PublishSporkDecoder extends AbstractGridSporkDecoder<PublishSpork> 
 	*/
 	@Override
 	public Optional<PublishSpork> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final Optional<GridSpork> gridSpoork = decodeChunk(ctx, in);
+		final Optional<GridSpork> gridSpoork = decodeGridSpork(ctx, in);
 
 		if (gridSpoork.isPresent()) {
 			return Optional.of(PublishSpork.builder().gridSpork(gridSpoork.get()).build());

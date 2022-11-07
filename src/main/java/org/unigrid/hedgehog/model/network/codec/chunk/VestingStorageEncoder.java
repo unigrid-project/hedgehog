@@ -26,12 +26,12 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<VestingStorage> {
-	private void encodeData(VestingStorage.SporkData data, VestingStorage vestingStorage, ByteBuf in) throws Exception {
+public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<VestingStorage.SporkData> {
+	private void encodeData(VestingStorage.SporkData data, ByteBuf in) throws Exception {
 	}
 
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, VestingStorage vestingStorage, ByteBuf out) throws Exception {
+	public void encodeChunk(ChannelHandlerContext ctx, VestingStorage.SporkData data, ByteBuf out) throws Exception {
 		throw new UnsupportedOperationException("Not supported yet.");
 	}
 

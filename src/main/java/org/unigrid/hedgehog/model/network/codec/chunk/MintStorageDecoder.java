@@ -31,47 +31,21 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintStorage> {
-	/*@Override
-	public Optional<? extends GridSpork> decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final GridSpork<?, ?> gridSpork = GridSpork.create(GridSpork.Type.get(in.readShort()));
-
-		gridSpork.setFlags(in.readShort());
-
-		in.skipBytes(4  32 bits );
-
-		//if (getSporkType() == GridSpork.Type.get(in.readShort())) {
-			final GridSpork spork = createInstance();
-
-			spork.setType(getSporkType());
-			spork.setFlags((short) in.readShort());
-			in.skipBytes(12);
-
-			spork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
-			spork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
-			in.skipBytes(8);
-
-			final int dataSize = in.readInt();
-			final int deltaSize = in.readInt();
-
-			if (dataSize + deltaSize == in.readableBytes()) {
-				decodeData(spork, in);
-				decodePreviousData(spork, in);
-
-				return Optional.of(spork);
-			} else {
-				System.err.println("Spork data/delta size does not equal the amount of pending bytes.");
-			}
-		}
-
-		//in.resetReaderIndex();
-		//return Optional.empty();
-
-		return Optional.of(gridSpork);
-	}*/
-	private MintStorage.SporkData getDecodedData(ByteBuf in) throws Exception {
+public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder {
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [     n= num mints     ][               reserved               ]
+	    [ <address (0-term)>,<height:32bit>,<amount (0-term)>      ...n]
+	*/
+	@Override
+	public Optional<MintStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final MintStorage.SporkData data = new MintStorage.SporkData();
 		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
+		final int entries = in.readMedium();
+
+		in.skipBytes(5 /* 40 bits */);
 
 		while (in.readableBytes() > 0) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
@@ -81,12 +55,11 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 			mints.put(new MintStorage.SporkData.Location(address, height), amount);
 		}
 
-		data.setMints(mints);
-		return data;
-	}
+		if (entries == mints.size()) {
+			data.setMints(mints);
+			return Optional.of(data);
+		}
 
-	@Override
-	public Optional<MintStorage> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		return Optional.empty();
 	}
 

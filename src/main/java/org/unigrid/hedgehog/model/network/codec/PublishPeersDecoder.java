@@ -31,7 +31,7 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 	    Packet format:
 	    0..............................................................63
 	    [                << Frame Header (FrameDecoder) >>             ]
-	    [ n = num peers  ][                  reserved                  ]
+	    [ n= num peers ][                   reserved                   ]
 	    [ <nodes>                                                  ...n]
 	    [    host address                                          ...0]
 	*/

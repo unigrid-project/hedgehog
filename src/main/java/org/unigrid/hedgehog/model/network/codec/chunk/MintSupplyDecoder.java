@@ -27,13 +27,13 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply> {
+public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
 	private MintSupply.SporkData getDecodedData(ByteBuf in) throws Exception {
 		return null;
 	}
 
 	@Override
-	public Optional<MintSupply> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		return Optional.empty();
 	}
 

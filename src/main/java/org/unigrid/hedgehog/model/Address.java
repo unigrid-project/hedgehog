@@ -17,10 +17,11 @@
 package org.unigrid.hedgehog.model;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Data @NoArgsConstructor @AllArgsConstructor
+@Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class Address {
 	private String wif;
 }

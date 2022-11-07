@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
+import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
@@ -31,8 +32,7 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 
 @Slf4j
-public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T>
-	implements ChunkDecoder<GridSpork> {
+public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T> {
 
 	private final OptionalMap<GridSpork.Type, ChunkDecoder> decoders;
 
@@ -48,20 +48,17 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
             [                           timestamp                          ]
 	    [                      previous timpestamp                     ]
 	    [                           reserved                           ]
-	    [                        size spork data                       ]
 	    [                       << spork data >>                       ]
-	    [                     size spork delta data                    ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
 	*/
-	@Override
-	public Optional<GridSpork> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+	public Optional<GridSpork> decodeGridSpork(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
 		final Optional<ChunkDecoder> cd = decoders.getOptional(type);
 
 		if (cd.isPresent()) {
 			log.atTrace().log("decoding spork chunk of type {}", type);
-			final GridSpork<?, ?> gridSpork = GridSpork.create(type);
+			final GridSpork gridSpork = GridSpork.create(type);
 
 			gridSpork.setFlags(in.readShort());
 			in.skipBytes(4 /* 32 bits */);
@@ -69,7 +66,7 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			gridSpork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
 			in.skipBytes(8 /* 64 bits */);
 
-			/* TODO: Do the chunk here */
+			gridSpork.setData((ChunkData) cd.get().decodeChunk(ctx, in).get());
 
 			//gridSpork.setSignatureData(signatureData);
 			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(in));

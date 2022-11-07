@@ -32,8 +32,7 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
 
 @Slf4j
-public abstract class AbstractGridSporkEncoder<T extends Packet> extends AbstractMessageToByteEncoder<T>
-	implements ChunkEncoder<GridSpork> {
+public abstract class AbstractGridSporkEncoder<T extends Packet> extends AbstractMessageToByteEncoder<T> {
 
 	private final OptionalMap<GridSpork.Type, ChunkEncoder> encoders;
 
@@ -49,14 +48,11 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
             [                           timestamp                          ]
 	    [                      previous timpestamp                     ]
 	    [                           reserved                           ]
-	    [                        size spork data                       ]
 	    [                       << spork data >>                       ]
-	    [                     size spork delta data                    ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
 	*/
-	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
+	public void encodeGridSpork(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
 		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
 
 		log.atTrace().log("encoding spork chunk of type {}", spork.getType());
@@ -72,9 +68,8 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
 			data.writeZero(8 /* 64 bits */);
 
-			//out.writeInt(data.writerIndex());
 			out.writeBytes(data);
-			//ce.get().encodeChunk(ctx, spork, out);
+			ce.get().encodeChunk(ctx, spork.getData(), out);
 
 			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
 		}
