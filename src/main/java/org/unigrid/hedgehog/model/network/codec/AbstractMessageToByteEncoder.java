@@ -30,6 +30,8 @@ public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncod
 		out.writeInt(len);
 	}
 
+	public abstract Optional<ByteBuf> encode(ChannelHandlerContext ctx, T in) throws Exception;
+
 	@Override
 	public final void encode(ChannelHandlerContext ctx, T in, ByteBuf out) throws Exception {
 		final Optional<ByteBuf> data = encode(ctx, in);
@@ -41,6 +43,5 @@ public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncod
 		}
 	}
 
-	public abstract Optional<ByteBuf> encode(ChannelHandlerContext ctx, T in) throws Exception;
 	@Override public abstract Packet.Type getCodecType();
 }

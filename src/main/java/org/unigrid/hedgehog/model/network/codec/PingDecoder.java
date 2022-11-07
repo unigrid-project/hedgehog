@@ -22,7 +22,6 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
 public class PingDecoder extends AbstractReplayingDecoder<Ping> implements PacketDecoder<Ping> {
 	/*

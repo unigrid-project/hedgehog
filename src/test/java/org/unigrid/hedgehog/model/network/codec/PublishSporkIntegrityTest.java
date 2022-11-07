@@ -36,7 +36,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		/*@ForAll @NotEmpty byte[] signature,*/ @ForAll Instant previousTime) {
 
 		try {
-			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.VESTING_STORAGE);
 
 			gridSpork.setFlags(flags);
 			gridSpork.setTimeStamp(Instant.now());
@@ -56,7 +56,6 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		@Mocked ChannelHandlerContext context) {
 
 		if (publishSpork != null) {
-			System.out.println(publishSpork.getGridSpork().getType());
 			final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
 				new PublishSporkEncoder(), new PublishSporkDecoder(), context
 			);

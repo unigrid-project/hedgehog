@@ -18,14 +18,14 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ReplayingDecoder;
-import java.util.List;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-public class AskNodeDetailsDecoder extends AbstractReplayingDecoder<AskNodeDetails> implements PacketDecoder<AskNodeDetails> {
+public class AskNodeDetailsDecoder extends AbstractReplayingDecoder<AskNodeDetails>
+	implements PacketDecoder<AskNodeDetails> {
+
 	/*
 	    Packet format:
 	    0..............................................................63

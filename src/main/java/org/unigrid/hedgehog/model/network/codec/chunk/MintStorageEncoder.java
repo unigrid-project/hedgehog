@@ -51,7 +51,7 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 
 		log.atTrace().log(() -> ByteBufUtil.hexDump(out));
 	}*/
-	private void encodeData(MintStorage.SporkData data, MintStorage spork, ByteBuf in) throws Exception {
+	private void encodeData(MintStorage.SporkData data, MintStorage mintStorage, ByteBuf in) throws Exception {
 		/*data.getMints().forEach((location, amount) -> {
 			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), in);
 			in.writeInt(location.getHeight());
@@ -60,8 +60,8 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 	}
 
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintStorage spork, ByteBuf out) throws Exception {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+	public void encodeChunk(ChannelHandlerContext ctx, MintStorage mintStorage, ByteBuf out) throws Exception {
+		throw new UnsupportedOperationException("Not supported yet.");
 	}
 
 	@Override

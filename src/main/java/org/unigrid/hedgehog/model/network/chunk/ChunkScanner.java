@@ -32,7 +32,7 @@ import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChunkScanner {
-	public static <K,V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
+	public static <K, V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
 		final String packageName = TypedCodec.class.getPackageName();
 		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
 
@@ -41,7 +41,7 @@ public class ChunkScanner {
 			return chunk.type() == chunkType && chunk.group() == chunkGroup;
 		}).collect(Collectors.toSet());
 
-		final Map<K, V> chunks = (Map<K, V>)filteredClasses.stream().map(x -> {
+		final Map<K, V> chunks = (Map<K, V>) filteredClasses.stream().map(x -> {
 			try {
 				final TypedCodec<K> instance = (TypedCodec<K>) x.getDeclaredConstructor().newInstance();
 				return Pair.of(instance.getCodecType(), instance);

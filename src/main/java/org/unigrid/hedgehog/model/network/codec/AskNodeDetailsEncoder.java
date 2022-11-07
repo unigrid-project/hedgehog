@@ -51,6 +51,4 @@ public class AskNodeDetailsEncoder extends AbstractMessageToByteEncoder<AskNodeD
 	public Packet.Type getCodecType() {
 		return Packet.Type.ASK_NODE_DETAILS;
 	}
-
-
 }
