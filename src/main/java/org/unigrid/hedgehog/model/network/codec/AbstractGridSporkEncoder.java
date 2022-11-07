@@ -17,6 +17,7 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
@@ -57,13 +58,10 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
 		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
-		System.out.println(ce + " [e] " + spork.getType());
+
+		log.atTrace().log("encoding spork chunk of type {}", spork.getType());
 
 		if (ce.isPresent()) {
-			System.out.println("true");
-			out.writeShort(FrameDecoder.MAGIC);
-			out.writeShort(Packet.Type.PUBLISH_SPORK.getValue());
-
 			@Cleanup("release")
 			final ByteBuf data = Unpooled.buffer();
 
@@ -74,13 +72,11 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
 			data.writeZero(8 /* 64 bits */);
 
-			out.writeInt(data.writerIndex());
+			//out.writeInt(data.writerIndex());
 			out.writeBytes(data);
-
 			//ce.get().encodeChunk(ctx, spork, out);
-		} else {
-			System.out.println("false");
-			//out.clear();
+
+			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
 		}
 	}
 }

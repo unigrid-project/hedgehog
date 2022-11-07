@@ -29,7 +29,6 @@ import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
 public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintStorage> {
@@ -88,7 +87,7 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 
 	@Override
 	public Optional<MintStorage> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
+		return Optional.empty();
 	}
 
 	@Override

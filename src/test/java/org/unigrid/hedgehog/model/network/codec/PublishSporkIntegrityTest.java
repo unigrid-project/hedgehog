@@ -22,7 +22,6 @@ import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.constraints.NotEmpty;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -37,13 +36,12 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		/*@ForAll @NotEmpty byte[] signature,*/ @ForAll Instant previousTime) {
 
 		try {
-			final GridSpork gridSpork = GridSpork.create(gridSporkType);
+			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
 
 			gridSpork.setFlags(flags);
 			gridSpork.setTimeStamp(Instant.now());
 			gridSpork.setPreviousTimeStamp(previousTime);
 			//gridSpork.setSignatureData(signature);
-
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 		} catch (IllegalArgumentException ex) {
 			assertThat(gridSporkType, is(GridSpork.Type.UNDEFINED));

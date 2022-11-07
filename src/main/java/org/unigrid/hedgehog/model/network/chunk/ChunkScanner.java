@@ -27,14 +27,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.reflections.Reflections;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.codec.AbstractGridSporkDecoder;
-import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
+import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
 
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChunkScanner {
 	public static <K,V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
-		final String packageName = AbstractGridSporkDecoder.class.getPackageName();
+		final String packageName = TypedCodec.class.getPackageName();
 		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
 
 		final Set<Class<?>> filteredClasses = classes.stream().filter(clazz -> {

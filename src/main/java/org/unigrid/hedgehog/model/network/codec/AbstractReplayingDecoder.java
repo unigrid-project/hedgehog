@@ -19,19 +19,20 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
+import io.netty.util.Attribute;
 import java.util.List;
 import java.util.Optional;
-import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
+@Slf4j
 public abstract class AbstractReplayingDecoder<T extends Packet> extends ReplayingDecoder<T> {
 	@Override
 	protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
 		in.markReaderIndex();
 
-		final TypedCodec<Packet.Type> object2 = (TypedCodec<Packet.Type>) this;
 		final Packet.Type type = ctx.channel().attr(Packet.KEY).get();
-		final int size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY).get();
 		boolean forward = true;
 
 		if (TypedCodec.class.isAssignableFrom(getClass())) {
@@ -52,11 +53,14 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 
 	@Override
 	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+		final Attribute<Integer> size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY);
 		final Optional<T> entity = typedDecode(ctx, in);
 
 		if (entity.isPresent()) {
 			out.add(entity.get());
 		}
+
+		// TODO: Verify size
 	}
 
 	public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;

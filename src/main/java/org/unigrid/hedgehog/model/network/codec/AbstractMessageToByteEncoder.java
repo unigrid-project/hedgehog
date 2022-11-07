@@ -42,5 +42,5 @@ public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncod
 	}
 
 	public abstract Optional<ByteBuf> encode(ChannelHandlerContext ctx, T in) throws Exception;
-	public abstract Packet.Type getCodecType();
+	@Override public abstract Packet.Type getCodecType();
 }

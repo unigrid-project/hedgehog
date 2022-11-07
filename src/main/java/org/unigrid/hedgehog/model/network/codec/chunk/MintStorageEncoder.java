@@ -22,10 +22,8 @@ import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.network.codec.api.TypedCodec;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
 public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage> {
@@ -54,11 +52,11 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 		log.atTrace().log(() -> ByteBufUtil.hexDump(out));
 	}*/
 	private void encodeData(MintStorage.SporkData data, MintStorage spork, ByteBuf in) throws Exception {
-		data.getMints().forEach((location, amount) -> {
+		/*data.getMints().forEach((location, amount) -> {
 			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), in);
 			in.writeInt(location.getHeight());
 			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), in);
-		});
+		});*/
 	}
 
 	@Override

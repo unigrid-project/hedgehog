@@ -14,7 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+package org.unigrid.hedgehog.model.network.codec.chunk;
 
 public interface TypedCodec<T> {
 	T getCodecType();

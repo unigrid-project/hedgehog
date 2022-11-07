@@ -17,9 +17,11 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import java.time.Instant;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
@@ -28,6 +30,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 
+@Slf4j
 public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T>
 	implements ChunkDecoder<GridSpork> {
 
@@ -40,6 +43,7 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	/*
 	    Packet format:
 	    0..............................................................63
+	    [                << Frame Header (FrameDecoder) >>             ]
 	    [     type     ][    flags     ][           reserved           ]
             [                           timestamp                          ]
 	    [                      previous timpestamp                     ]
@@ -54,9 +58,9 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	public Optional<GridSpork> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
 		final Optional<ChunkDecoder> cd = decoders.getOptional(type);
-		System.out.println(cd + " [d] " + type);
 
 		if (cd.isPresent()) {
+			log.atTrace().log("decoding spork chunk of type {}", type);
 			final GridSpork<?, ?> gridSpork = GridSpork.create(type);
 
 			gridSpork.setFlags(in.readShort());
@@ -68,11 +72,12 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			/* TODO: Do the chunk here */
 
 			//gridSpork.setSignatureData(signatureData);
+			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(in));
 
 			return Optional.of(gridSpork);
 		}
 
-		//in.clear();
+		log.atError().log("Unable to handle spork chunk of type {}", type);
 		return Optional.empty();
 	}
 }
