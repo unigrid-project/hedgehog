@@ -83,11 +83,11 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
 		try {
-			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.VESTING_STORAGE);
 			gridSpork.setTimeStamp(time);
 			gridSpork.setPreviousTimeStamp(previousTime);
 			//gridSpork.setSignatureData(signature);
-			gridSpork.setData(chunkData(GridSpork.Type.MINT_STORAGE));
+			gridSpork.setData(chunkData(GridSpork.Type.VESTING_STORAGE));
 
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 

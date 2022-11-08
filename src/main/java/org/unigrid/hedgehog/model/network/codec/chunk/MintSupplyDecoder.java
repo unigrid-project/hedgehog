@@ -18,23 +18,29 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.math.BigDecimal;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
 public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
-	private MintSupply.SporkData getDecodedData(ByteBuf in) throws Exception {
-		return null;
-	}
-
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [ <max supply (0-term)>                                    ...n]
+	*/
 	@Override
 	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		return Optional.empty();
+		final MintSupply.SporkData data = new MintSupply.SporkData();
+		data.setMaxSupply(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
+		return Optional.of(data);
 	}
 
 	@Override

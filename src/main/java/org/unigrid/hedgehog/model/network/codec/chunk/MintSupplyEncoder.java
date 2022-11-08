@@ -22,19 +22,21 @@ import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
 public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply.SporkData> {
-	private void encodeData(MintSupply.SporkData data, ByteBuf in) throws Exception {
-	}
-
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [ <max supply (0-term)>                                    ...n]
+	*/
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out)
-		throws Exception {
-
-		throw new UnsupportedOperationException("Not supported yet.");
+	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out) throws Exception {
+		ByteBufUtils.writeNullTerminatedString(data.getMaxSupply().toPlainString(), out);
 	}
 
 	@Override
