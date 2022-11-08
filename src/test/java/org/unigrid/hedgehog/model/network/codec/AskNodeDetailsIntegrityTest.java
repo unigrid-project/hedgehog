@@ -25,13 +25,15 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static com.shazam.shazamcrest.matcher.Matchers.*;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public class AskNodeDetailsIntegrityTest extends BaseCodecTest<AskNodeDetails> {
 	@Provide
 	public Arbitrary<AskNodeDetails> provideAskNodeDetails(@ForAll boolean protocol, @ForAll boolean version) {
 		final AskNodeDetails askNodeDetails = AskNodeDetails.builder().protocol(protocol).version(version).build();
+		askNodeDetails.setType(Packet.Type.ASK_NODE_DETAILS);
 		return Arbitraries.of(askNodeDetails);
 	}
 
@@ -44,6 +46,6 @@ public class AskNodeDetailsIntegrityTest extends BaseCodecTest<AskNodeDetails> {
 			new AskNodeDetailsEncoder(), new AskNodeDetailsDecoder(), context
 		);
 
-		assertThat(resultingAskNodeDetails, is(askNodeDetails));
+		assertThat(resultingAskNodeDetails, sameBeanAs(askNodeDetails));
 	}
 }

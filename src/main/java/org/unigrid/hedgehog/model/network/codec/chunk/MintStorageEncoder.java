@@ -28,31 +28,13 @@ import org.unigrid.hedgehog.model.spork.MintStorage;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
 public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage.SporkData> {
-	/*@Override
-	public void encode(ChannelHandlerContext ctx, T spork, ByteBuf out) throws Exception {
-		out.writeShort(spork.getType().getValue());
-		out.writeShort(spork.getFlags());
-		out.writeZero(4 32 bits);
-		//out.writeLong(spork.getTimeStamp().getEpochSecond());
-		//out.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
-		//out.writeZero(8 64 bits);
-
-		@Cleanup("release")
-		final ByteBuf data = Unpooled.buffer();
-		encodeData(spork, data);
-
-		@Cleanup("release")
-		final ByteBuf previousData = Unpooled.buffer();
-		encodePreviousData(spork, previousData);
-
-		out.writeInt(data.writerIndex());
-		out.writeInt(previousData.writerIndex());
-		out.writeBytes(data);
-		out.writeBytes(previousData);
-
-		log.atTrace().log(() -> ByteBufUtil.hexDump(out));<
-	}*/
-
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [     n= num mints     ][               reserved               ]
+	    [ <address (0-term)>,<height:32bit>,<amount (0-term)>      ...n]
+	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {
 		out.writeMedium(data.getMints().size());

@@ -28,7 +28,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static com.shazam.shazamcrest.matcher.Matchers.*;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
@@ -64,6 +64,6 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 			new PublishPeersEncoder(), new PublishPeersDecoder(), context
 		);
 
-		assertThat(resultingPublishPeers, is(publishPeers));
+		assertThat(resultingPublishPeers, sameBeanAs(publishPeers));
 	}
 }

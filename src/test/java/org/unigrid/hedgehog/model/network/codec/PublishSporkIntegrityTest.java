@@ -30,21 +30,24 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.constraints.ShortRange;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static com.shazam.shazamcrest.matcher.Matchers.*;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.MintSupply;
 
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	private ChunkData chunkData(GridSpork.Type gridSporkType) {
 		switch (gridSporkType) {
-			case MINT_STORAGE:
+			case MINT_STORAGE: {
 				final MintStorage.SporkData data = new MintStorage.SporkData();
 				final Map<Location, BigDecimal> mints = new HashMap<>();
 				final int size = RandomUtils.nextInt(0, 50);
@@ -62,25 +65,30 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 				data.setMints(mints);
 				return data;
 
-			case MINT_SUPPLY:
-			case VESTING_STORAGE:
+			} case MINT_SUPPLY: {
+				final MintSupply.SporkData data = new MintSupply.SporkData();
+				data.setMaxSupply(BigDecimal.valueOf(RandomUtils.nextInt()));
+				return data;
+
+			} case VESTING_STORAGE: {
+			}
 		}
 
 		return null;
 	}
 
 	@Provide
-	public Arbitrary<?> providePublishSpork(@ForAll GridSpork.Type gridSporkType, @ForAll short flags,
-		@ForAll @Size(min = 50, max = 60) byte[] signature, @ForAll Instant previousTime) {
+	public Arbitrary<?> providePublishSpork(@ForAll GridSpork.Type gridSporkType,
+		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
+		@ForAll Instant time, @ForAll Instant previousTime) {
 
 		try {
 			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
-
-			gridSpork.setFlags(flags);
-			gridSpork.setTimeStamp(Instant.now());
+			gridSpork.setTimeStamp(time);
 			gridSpork.setPreviousTimeStamp(previousTime);
-			gridSpork.setSignatureData(signature);
+			//gridSpork.setSignatureData(signature);
 			gridSpork.setData(chunkData(GridSpork.Type.MINT_STORAGE));
+
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 
 		} catch (IllegalArgumentException ex) {
@@ -100,7 +108,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 				new PublishSporkEncoder(), new PublishSporkDecoder(), context
 			);
 
-			assertThat(resultingPublishSpork, is(publishSpork));
+			assertThat(resultingPublishSpork, sameBeanAs(publishSpork));
 		}
 	}
 }

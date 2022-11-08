@@ -26,13 +26,15 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static com.shazam.shazamcrest.matcher.Matchers.*;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 public class PingIntegrityTest extends BaseCodecTest<Ping> {
 	@Provide
 	public Arbitrary<Ping> providePing(@ForAll boolean response, @ForAll @Positive int nanoTime) {
 		final Ping ping = Ping.builder().nanoTime(nanoTime).response(response).build();
+		ping.setType(Packet.Type.PING);
 		return Arbitraries.of(ping);
 	}
 
@@ -40,6 +42,6 @@ public class PingIntegrityTest extends BaseCodecTest<Ping> {
 	@SneakyThrows
 	public void shouldMatch(@ForAll("providePing") Ping ping, @Mocked ChannelHandlerContext context) {
 		final Ping resultingPing = encodeDecode(ping, new PingEncoder(), new PingDecoder(), context);
-		assertThat(resultingPing, is(ping));
+		assertThat(resultingPing, sameBeanAs(ping));
 	}
 }
