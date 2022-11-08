@@ -33,7 +33,8 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
 	    [     n= num mints     ][               reserved               ]
-	    [ <address (0-term)>,<height:32bit>,<amount (0-term)>      ...n]
+	   n[                     << address (0-term) >>                   ]
+	    [            height            ][   << amount (0-term) >>  ...n]
 	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {

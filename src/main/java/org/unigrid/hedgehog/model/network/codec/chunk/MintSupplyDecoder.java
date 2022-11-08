@@ -34,7 +34,7 @@ public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecod
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [ <max supply (0-term)>                                    ...n]
+	   n[ <max supply (0-term)>                                    ...n]
 	*/
 	@Override
 	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {

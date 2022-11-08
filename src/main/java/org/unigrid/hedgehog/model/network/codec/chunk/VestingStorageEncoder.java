@@ -22,17 +22,33 @@ import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
 public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<VestingStorage.SporkData> {
-	private void encodeData(VestingStorage.SporkData data, ByteBuf in) throws Exception {
-	}
-
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [     n= num mints     ][               reserved               ]
+	   n[                     << address (0-term) >>                   ]
+	    [                     vesting start (seconds)                  ]
+	    [                    vesting duration (seconds)                ]
+	    [                          vesting parts                   ...n]
+	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, VestingStorage.SporkData data, ByteBuf out) throws Exception {
-		throw new UnsupportedOperationException("Not supported yet.");
+		out.writeMedium(data.getVestingAddresses().size());
+		out.writeZero(5 /* 40 bits */);
+
+		data.getVestingAddresses().forEach((address, vesting) -> {
+			ByteBufUtils.writeNullTerminatedString(address.getWif(), out);
+			out.writeLong(vesting.getStart().getEpochSecond());
+			out.writeLong(vesting.getDuration().getSeconds());
+			out.writeInt(vesting.getParts());
+		});
 	}
 
 	@Override

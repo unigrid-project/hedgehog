@@ -36,6 +36,7 @@ import org.apache.commons.lang3.RandomUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import java.time.Duration;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -43,14 +44,17 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.VestingStorage;
+import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	private ChunkData chunkData(GridSpork.Type gridSporkType) {
+		final int size = RandomUtils.nextInt(0, 50);
+
 		switch (gridSporkType) {
 			case MINT_STORAGE: {
 				final MintStorage.SporkData data = new MintStorage.SporkData();
 				final Map<Location, BigDecimal> mints = new HashMap<>();
-				final int size = RandomUtils.nextInt(0, 50);
 
 				for (int i = 0; i < size; i++) {
 					final Address address = Address.builder()
@@ -71,10 +75,27 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 				return data;
 
 			} case VESTING_STORAGE: {
+				final VestingStorage.SporkData data = new VestingStorage.SporkData();
+				final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
+
+				for (int i = 0; i < size; i++) {
+					final Address address = Address.builder()
+						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
+
+					final Vesting vesting = Vesting.builder()
+						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
+						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
+						.parts(RandomUtils.nextInt(5, 100)).build();
+
+					vests.put(address, vesting);
+				}
+
+				data.setVestingAddresses(vests);
+				return data;
 			}
 		}
 
-		return null;
+		throw new IllegalArgumentException("Unsupported chunk type");
 	}
 
 	@Provide
@@ -83,11 +104,11 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
 		try {
-			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.VESTING_STORAGE);
+			final GridSpork gridSpork = GridSpork.create(gridSporkType);
 			gridSpork.setTimeStamp(time);
 			gridSpork.setPreviousTimeStamp(previousTime);
 			//gridSpork.setSignatureData(signature);
-			gridSpork.setData(chunkData(GridSpork.Type.VESTING_STORAGE));
+			gridSpork.setData(chunkData(gridSporkType));
 
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 

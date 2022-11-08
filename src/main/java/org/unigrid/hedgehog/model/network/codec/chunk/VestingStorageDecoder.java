@@ -18,22 +18,55 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.Optional;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
 public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage.SporkData> {
-	private VestingStorage.SporkData getDecodedData(ByteBuf in) throws Exception {
-		return null;
-	}
-
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	    [     n= num mints     ][               reserved               ]
+	   n[                     << address (0-term) >>                   ]
+	    [                     vesting start (seconds)                  ]
+	    [                    vesting duration (seconds)                ]
+	    [                          vesting parts                   ...n]
+	*/
 	@Override
 	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final VestingStorage.SporkData data = new VestingStorage.SporkData();
+		final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
+		final int entries = in.readMedium();
+
+		in.skipBytes(5 /* 40 bits */);
+
+		while (in.readableBytes() > 0) {
+			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
+			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
+
+			vesting.setStart(Instant.ofEpochSecond(in.readLong()));
+			vesting.setDuration(Duration.ofSeconds(in.readLong()));
+			vesting.setParts(in.readInt());
+
+			vests.put(address, vesting);
+		}
+
+		if (entries == vests.size()) {
+			data.setVestingAddresses(vests);
+			return Optional.of(data);
+		}
+
 		return Optional.empty();
 	}
 

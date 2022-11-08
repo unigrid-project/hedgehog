@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
@@ -38,7 +39,7 @@ public class VestingStorage extends GridSpork {
 	public static class SporkData implements ChunkData {
 		private Map<Address, Vesting> vestingAddresses;
 
-		@Data @AllArgsConstructor @NoArgsConstructor
+		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting {
 			private Instant start;
 			private Duration duration;

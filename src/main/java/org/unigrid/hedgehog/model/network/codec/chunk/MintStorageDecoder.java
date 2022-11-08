@@ -37,7 +37,8 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
 	    [     n= num mints     ][               reserved               ]
-	    [ <address (0-term)>,<height:32bit>,<amount (0-term)>      ...n]
+	   n[                     << address (0-term) >>                   ]
+	    [            height            ][   << amount (0-term) >>  ...n]
 	*/
 	@Override
 	public Optional<MintStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
