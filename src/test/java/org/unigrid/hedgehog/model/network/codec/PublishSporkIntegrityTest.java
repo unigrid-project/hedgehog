@@ -99,7 +99,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	}
 
 	@Provide
-	public Arbitrary<?> providePublishSpork(@ForAll GridSpork.Type gridSporkType,
+	public Arbitrary<PublishSpork> providePublishSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
@@ -107,8 +107,9 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 			final GridSpork gridSpork = GridSpork.create(gridSporkType);
 			gridSpork.setTimeStamp(time);
 			gridSpork.setPreviousTimeStamp(previousTime);
-			//gridSpork.setSignatureData(signature);
 			gridSpork.setData(chunkData(gridSporkType));
+			gridSpork.setPreviousData(chunkData(gridSporkType));
+			//gridSpork.setSignatureData(signature);
 
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 
@@ -116,7 +117,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 			assertThat(gridSporkType, is(GridSpork.Type.UNDEFINED));
 		}
 
-		return Arbitraries.nothing();
+		return Arbitraries.just(null);
 	}
 
 	@Property

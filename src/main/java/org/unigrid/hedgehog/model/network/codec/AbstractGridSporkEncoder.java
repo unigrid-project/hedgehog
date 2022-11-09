@@ -68,8 +68,10 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
 			data.writeZero(8 /* 64 bits */);
 
+			ce.get().encodeChunk(ctx, spork.getData(), data);
+			ce.get().encodeChunk(ctx, spork.getPreviousData(), data);
+
 			out.writeBytes(data);
-			ce.get().encodeChunk(ctx, spork.getData(), out);
 
 			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
 		}

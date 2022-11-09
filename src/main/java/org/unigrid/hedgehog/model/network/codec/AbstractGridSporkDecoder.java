@@ -67,6 +67,7 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			in.skipBytes(8 /* 64 bits */);
 
 			gridSpork.setData((ChunkData) cd.get().decodeChunk(ctx, in).get());
+			gridSpork.setPreviousData((ChunkData) cd.get().decodeChunk(ctx, in).get());
 
 			//gridSpork.setSignatureData(signatureData);
 			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(in));
