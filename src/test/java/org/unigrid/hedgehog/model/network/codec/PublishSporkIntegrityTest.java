@@ -109,7 +109,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 			gridSpork.setPreviousTimeStamp(previousTime);
 			gridSpork.setData(chunkData(gridSporkType));
 			gridSpork.setPreviousData(chunkData(gridSporkType));
-			//gridSpork.setSignatureData(signature);
+			gridSpork.setSignatureData(signature);
 
 			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
 
