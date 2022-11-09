@@ -165,6 +165,11 @@
 			<version>1.23.0</version>
 		</dependency>
 		<dependency>
+			<groupId>net.harawata</groupId>
+			<artifactId>appdirs</artifactId>
+			<version>1.2.1</version>
+		</dependency>
+		<dependency>
 			<groupId>org.jmockit</groupId>
 			<artifactId>jmockit</artifactId>
 			<version>1.49</version>

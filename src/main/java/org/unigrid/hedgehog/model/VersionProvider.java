@@ -19,6 +19,7 @@ package org.unigrid.hedgehog.model;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Properties;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import picocli.CommandLine.IVersionProvider;
@@ -28,13 +29,14 @@ public class VersionProvider implements IVersionProvider {
 	public static final String VERSION_PROPERTY_NAME = "HEDGEHOG_VERSION";
 	public static final String VERSION_PAD_PROPERTY_NAME = "HEDGEHOG_VERSION_PAD";
 	private static final int VERSION_PAD_WIDTH = 42;
-	private static final String DEFAULT_NAME = "Unigrid Hedgehog";
+	private static final String DEFAULT_AUTHOR = "Unigrid";
+	private static final String DEFAULT_NAME = "Hedgehog";
 	private static final String DEFAULT_VERSION = "0.0.0-BASTARD";
 
 	@Override
 	public String[] getVersion() throws Exception {
 		final Properties properties = new Properties();
-		String name = DEFAULT_NAME;
+		String name = String.format("%s %s", DEFAULT_AUTHOR, DEFAULT_NAME);
 		String version  = DEFAULT_VERSION;
 
 		try {
@@ -56,5 +58,27 @@ public class VersionProvider implements IVersionProvider {
 		);
 
 		return new String[] { completeVersion };
+	}
+
+	public static String getAtIndex(int i) throws Exception {
+		return new VersionProvider().getVersion()[0].split(" ")[i];
+	}
+
+	@SneakyThrows
+	public static String getAuthor() {
+		try {
+			return getAtIndex(0);
+		} catch(IndexOutOfBoundsException ex) {
+			return DEFAULT_AUTHOR;
+		}
+	}
+
+	@SneakyThrows
+	public static String getName() {
+		try {
+			return getAtIndex(1);
+		} catch(IndexOutOfBoundsException ex) {
+			return DEFAULT_NAME;
+		}
 	}
 }
