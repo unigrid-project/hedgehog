@@ -20,10 +20,15 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
+import net.jqwik.api.lifecycle.BeforeContainer;
+import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = WeldHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BaseMockedWeldTest {
-	/* Empty on purpose */
+	@BeforeContainer
+	private static void before() {
+		new ApplicationDirectoryMockUp();
+	}
 }

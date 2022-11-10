@@ -43,11 +43,11 @@ public class ApplicationDirectory {
 		return Paths.get(AppDirsFactory.getInstance().getUserConfigDir(name, null, author, true));
 	}
 
-	public Path getUserLogDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserLogDir(name, null, author));
-	}
-
 	public Path getUserDataDir() {
 		return Paths.get(AppDirsFactory.getInstance().getUserDataDir(name, null, author, true));
+	}
+
+	public Path getUserLogDir() {
+		return Paths.get(AppDirsFactory.getInstance().getUserLogDir(name, null, author));
 	}
 }

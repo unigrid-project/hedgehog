@@ -68,7 +68,7 @@ public class VersionProvider implements IVersionProvider {
 	public static String getAuthor() {
 		try {
 			return getAtIndex(0);
-		} catch(IndexOutOfBoundsException ex) {
+		} catch (IndexOutOfBoundsException ex) {
 			return DEFAULT_AUTHOR;
 		}
 	}
@@ -77,7 +77,7 @@ public class VersionProvider implements IVersionProvider {
 	public static String getName() {
 		try {
 			return getAtIndex(1);
-		} catch(IndexOutOfBoundsException ex) {
+		} catch (IndexOutOfBoundsException ex) {
 			return DEFAULT_NAME;
 		}
 	}

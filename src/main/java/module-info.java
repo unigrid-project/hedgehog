@@ -51,4 +51,5 @@ module org.unigrid.hedgehog {
 	requires java.logging;
 	requires jakarta.xml.bind;
 	requires j8fu;
+	requires net.harawata.appdirs;
 }

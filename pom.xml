@@ -224,6 +224,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
@@ -232,6 +233,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.packet=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
