@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog.model.network.chunk;
 
-public interface ChunkData {
+import java.io.Serializable;
+
+public interface ChunkData extends Serializable {
 	/* Empty on purpose */
 }

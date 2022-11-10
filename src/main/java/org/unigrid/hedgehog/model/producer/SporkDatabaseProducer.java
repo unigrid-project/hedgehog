@@ -20,14 +20,10 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -45,16 +41,10 @@ public class SporkDatabaseProducer {
 	private SporkDatabase produce() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
+			sporkDatabase = SporkDatabase.load(path());
 
-			@Cleanup final InputStream stream = Files.newInputStream(path(),
-				StandardOpenOption.CREATE, StandardOpenOption.READ
-			);
-
-			sporkDatabase = SerializationUtils.deserialize(stream);
-
-		} catch (Exception ex) {
+		} catch (IOException ex) {
 			sporkDatabase = SporkDatabase.builder().build();
-
 			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
 			log.atTrace().log(() -> ex.toString());
 		}
@@ -66,12 +56,7 @@ public class SporkDatabaseProducer {
 	private void destroy() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
-
-			@Cleanup final OutputStream stream = Files.newOutputStream(path(),
-				StandardOpenOption.CREATE, StandardOpenOption.WRITE
-			);
-
-			SerializationUtils.serialize(sporkDatabase, stream);
+			SporkDatabase.persist(path(), sporkDatabase);
 
 		} catch (Exception ex) {
 			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());

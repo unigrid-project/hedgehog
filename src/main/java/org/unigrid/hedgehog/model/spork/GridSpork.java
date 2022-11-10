@@ -17,6 +17,7 @@
 package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serializable;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -25,7 +26,7 @@ import lombok.experimental.Tolerate;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
-public class GridSpork {
+public class GridSpork implements Serializable {
 	private Instant timeStamp;
 	private Instant previousTimeStamp;
 	private short flags; /* Put Flag values in here */

@@ -16,14 +16,23 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.Serializable;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Cleanup;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.SerializationUtils;
 
-@Data
-@Builder
+@Slf4j
+@Data @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class SporkDatabase implements Serializable {
@@ -32,4 +41,17 @@ public class SporkDatabase implements Serializable {
 	private MintStorage mintStorage;
 	private MintSupply mintSupply;
 	private VestingStorage vestingStorage;
+
+	public static SporkDatabase load(Path path) throws IOException {
+		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
+		return SerializationUtils.deserialize(stream);
+	}
+
+	public static void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
+		@Cleanup final OutputStream stream = Files.newOutputStream(path,
+			StandardOpenOption.CREATE, StandardOpenOption.WRITE
+		);
+
+		SerializationUtils.serialize(sporkDatabase, stream);
+	}
 }

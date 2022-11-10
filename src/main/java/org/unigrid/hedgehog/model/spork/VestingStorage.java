@@ -41,7 +41,7 @@ public class VestingStorage extends GridSpork implements Serializable {
 		private Map<Address, Vesting> vestingAddresses;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Vesting {
+		public static class Vesting implements Serializable {
 			private Instant start;
 			private Duration duration;
 			private int parts;

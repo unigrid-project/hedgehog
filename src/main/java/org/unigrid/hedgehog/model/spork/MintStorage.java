@@ -50,7 +50,7 @@ public class MintStorage extends GridSpork implements Serializable {
 		private Map<Location, BigDecimal> mints;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Location {
+		public static class Location implements Serializable {
 			private Address address;
 			private int height;
 
