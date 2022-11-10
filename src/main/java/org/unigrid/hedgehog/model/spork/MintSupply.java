@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -24,7 +25,7 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
-public class MintSupply extends GridSpork {
+public class MintSupply extends GridSpork implements Serializable {
 	public MintSupply() {
 		setType(Type.MINT_SUPPLY);
 		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));

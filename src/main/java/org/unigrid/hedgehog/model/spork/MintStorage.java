@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
 import java.io.IOException;
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -37,7 +38,7 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
-public class MintStorage extends GridSpork {
+public class MintStorage extends GridSpork implements Serializable {
 	public MintStorage() {
 		setType(Type.MINT_STORAGE);
 	}

@@ -12,39 +12,24 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
-import lombok.ToString;
-import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
-@Data @ToString(callSuper = true)
-@EqualsAndHashCode(callSuper = false)
-public class VestingStorage extends GridSpork implements Serializable {
-	public VestingStorage() {
-		setType(Type.VESTING_STORAGE);
-	}
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class SporkDatabase implements Serializable {
+	public static final String SPORK_DB_FILE = "spork.db";
 
-	@Data
-	public static class SporkData implements ChunkData {
-		private Map<Address, Vesting> vestingAddresses;
-
-		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Vesting {
-			private Instant start;
-			private Duration duration;
-			private int parts;
-		}
-	}
+	private MintStorage mintStorage;
+	private MintSupply mintSupply;
+	private VestingStorage vestingStorage;
 }
