@@ -30,9 +30,9 @@ public class ApplicationDirectoryMockUp extends MockUp<ApplicationDirectory> {
 
 	@SneakyThrows
 	public ApplicationDirectoryMockUp() {
-		userConfigDir = Files.createTempDirectory(RandomStringUtils.randomAlphabetic(8));
-		userDataDir = Files.createTempDirectory(RandomStringUtils.randomAlphabetic(10));
-		userLogDir = Files.createTempDirectory(RandomStringUtils.randomAlphabetic(12));
+		userConfigDir = Files.createTempDirectory("hhg-config-");
+		userDataDir = Files.createTempDirectory("hhg-data-");
+		userLogDir = Files.createTempDirectory("hhg.logs-");
 	}
 
 	@Mock
