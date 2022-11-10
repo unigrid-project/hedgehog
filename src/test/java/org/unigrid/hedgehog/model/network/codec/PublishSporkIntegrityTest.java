@@ -17,115 +17,39 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 import lombok.SneakyThrows;
 import mockit.Mocked;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.ShortRange;
-import org.apache.commons.lang3.RandomStringUtils;
-import org.apache.commons.lang3.RandomUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
-import java.time.Duration;
-import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
-import org.unigrid.hedgehog.model.spork.MintSupply;
-import org.unigrid.hedgehog.model.spork.VestingStorage;
-import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
+import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
-	private ChunkData chunkData(GridSpork.Type gridSporkType) {
-		final int size = RandomUtils.nextInt(0, 50);
-
-		switch (gridSporkType) {
-			case MINT_STORAGE: {
-				final MintStorage.SporkData data = new MintStorage.SporkData();
-				final Map<Location, BigDecimal> mints = new HashMap<>();
-
-				for (int i = 0; i < size; i++) {
-					final Address address = Address.builder()
-						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
-
-					final Location location = Location.builder()
-						.address(address).height(RandomUtils.nextInt()).build();
-
-					mints.put(location, BigDecimal.valueOf(RandomUtils.nextInt()));
-				}
-
-				data.setMints(mints);
-				return data;
-
-			} case MINT_SUPPLY: {
-				final MintSupply.SporkData data = new MintSupply.SporkData();
-				data.setMaxSupply(BigDecimal.valueOf(RandomUtils.nextInt()));
-				return data;
-
-			} case VESTING_STORAGE: {
-				final VestingStorage.SporkData data = new VestingStorage.SporkData();
-				final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
-
-				for (int i = 0; i < size; i++) {
-					final Address address = Address.builder()
-						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
-
-					final Vesting vesting = Vesting.builder()
-						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
-						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
-						.parts(RandomUtils.nextInt(5, 100)).build();
-
-					vests.put(address, vesting);
-				}
-
-				data.setVestingAddresses(vests);
-				return data;
-			}
-		}
-
-		throw new IllegalArgumentException("Unsupported chunk type");
-	}
+	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
 	@Provide
-	public Arbitrary<PublishSpork> providePublishSpork(@ForAll GridSpork.Type gridSporkType,
+	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
-		try {
-			final GridSpork gridSpork = GridSpork.create(gridSporkType);
-			gridSpork.setTimeStamp(time);
-			gridSpork.setPreviousTimeStamp(previousTime);
-			gridSpork.setData(chunkData(gridSporkType));
-			gridSpork.setPreviousData(chunkData(gridSporkType));
-			gridSpork.setSignatureData(signature);
-
-			return Arbitraries.of(PublishSpork.builder().gridSpork(gridSpork).build());
-
-		} catch (IllegalArgumentException ex) {
-			assertThat(gridSporkType, is(GridSpork.Type.UNDEFINED));
-		}
-
-		return Arbitraries.just(null);
+		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
 
 	@Property
 	@SneakyThrows
-	public void shouldMatch(@ForAll("providePublishSpork") PublishSpork publishSpork,
-		@Mocked ChannelHandlerContext context) {
+	public void shouldMatch(@ForAll("provideGridSpork") GridSpork gridSpork, @Mocked ChannelHandlerContext context) {
+		if (Objects.nonNull(gridSpork)) {
+			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-		if (Objects.nonNull(publishSpork)) {
 			final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
 				new PublishSporkEncoder(), new PublishSporkDecoder(), context
 			);
