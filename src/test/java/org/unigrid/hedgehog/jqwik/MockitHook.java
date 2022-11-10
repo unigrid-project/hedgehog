@@ -31,8 +31,10 @@ import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import net.jqwik.api.lifecycle.Store;
 
-public class MockitHook extends TestRunnerDecorator implements AroundPropertyHook, AroundContainerHook, ResolveParameterHook {
-	private final static String STORE_NAME = MockitHook.class.getSimpleName();
+public class MockitHook extends TestRunnerDecorator
+	implements AroundPropertyHook, AroundContainerHook, ResolveParameterHook {
+
+	private static final String STORE_NAME = MockitHook.class.getSimpleName();
 
 	@Override
 	public PropertyExecutionResult aroundProperty(PropertyLifecycleContext context, PropertyExecutor property) {

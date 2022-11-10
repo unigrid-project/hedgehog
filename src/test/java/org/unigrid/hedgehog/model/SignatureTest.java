@@ -61,9 +61,9 @@ public class SignatureTest extends BaseMockedWeldTest {
 			final Signature signatureSigner = new Signature(
 				Optional.of(Hex.encodeHexString(privateKey)), Optional.empty()
 			);
-		} catch(InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			return false;
-		} catch(IllegalArgumentException ex) {
+		} catch (IllegalArgumentException ex) {
 			return privateKey.length != Signature.PRIVATE_KEY_HEX_SIZE;
 		}
 
@@ -76,12 +76,12 @@ public class SignatureTest extends BaseMockedWeldTest {
 			final Signature signatureSigner = new Signature(Optional.empty(),
 				Optional.of(Hex.encodeHexString(publicKey))
 			);
-		} catch(InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			return false;
-		} catch(IllegalArgumentException ex) {
+		} catch (IllegalArgumentException ex) {
 			return publicKey.length != Signature.PUBLIC_KEY_HEX_SIZE;
 		} catch (RuntimeException ex) {
-			return true; /* Seems to happen when we have weird input values in the public key, so lets ignore it */
+			return true; /* Happens when we have weird input values in the public key, so lets ignore it */
 		}
 
 		return publicKey.length == Signature.PUBLIC_KEY_HEX_SIZE;

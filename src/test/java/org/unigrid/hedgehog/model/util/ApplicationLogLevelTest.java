@@ -45,7 +45,10 @@ public class ApplicationLogLevelTest {
 	public boolean shouldOutputLogMessagesByLogLevel(@ForAll @IntRange(min = 1, max = 5) int logLevel,
 		@ForAll @IntRange(min = 0, max = 6) int messageLevel) {
 
-		final java.util.logging.Level level = JULHelper.asJULLevel(ApplicationLogLevel.getLevelFromVerbosity(messageLevel));
+		final java.util.logging.Level level = JULHelper.asJULLevel(
+			ApplicationLogLevel.getLevelFromVerbosity(messageLevel)
+		);
+
 		ApplicationLogLevel.configure(logLevel);
 
 		final JunitHandler handler = new JunitHandler();

@@ -18,7 +18,6 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Mocked;
@@ -64,7 +63,9 @@ public class PingChannelHandlerTest extends BaseServerTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context, @Tested PingChannelHandler handler) {
+	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
+		@Tested PingChannelHandler handler) {
+
 		final Ping ping = Ping.builder().build();
 		assertThat(ping.getNanoTime(), not(0));
 		assertThat(ping.isResponse(), is(false));

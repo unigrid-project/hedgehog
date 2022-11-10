@@ -20,7 +20,6 @@ import java.util.Objects;
 import net.jqwik.api.configurators.ArbitraryConfiguratorBase;
 import net.jqwik.api.domains.DomainContextBase;
 import net.jqwik.api.Arbitrary;
-import org.unigrid.hedgehog.jqwik.NotNull;
 
 public class SuiteDomain extends DomainContextBase {
 	public static class NotNullConfigurator extends ArbitraryConfiguratorBase {

@@ -41,12 +41,12 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		@SneakyThrows @Protected @Lock(LockMode.READ)
 		void readProtect(VoidFunctionE function) {
 			function.apply();
-		};
+		}
 
 		@SneakyThrows @Protected @Lock(LockMode.WRITE)
 		void writeProtect(VoidFunctionE function) {
 			function.apply();
-		};
+		}
 	}
 
 	@Inject

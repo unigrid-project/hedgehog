@@ -25,8 +25,8 @@ import picocli.CommandLine;
 public class HedgehogTest {
 	@Example
 	public void shouldRetainHeaderWidth() {
-		final String header[] = new CommandLine(Hedgehog.class).getCommandSpec().usageMessage().header();
-		long headersWithSameWidth = Arrays.stream(header).filter( a -> a.length() == header[1].length()).count();
+		final String[] header = new CommandLine(Hedgehog.class).getCommandSpec().usageMessage().header();
+		long headersWithSameWidth = Arrays.stream(header).filter(a -> a.length() == header[1].length()).count();
 
 		assertThat("The help header does not retain the same width on all lines",
 			(int) headersWithSameWidth, is(header.length - 2)
