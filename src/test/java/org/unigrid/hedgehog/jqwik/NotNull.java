@@ -16,22 +16,13 @@
 
 package org.unigrid.hedgehog.jqwik;
 
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
-import net.jqwik.api.domains.Domain;
-import net.jqwik.api.domains.DomainContext;
-import net.jqwik.api.lifecycle.AddLifecycleHook;
-import net.jqwik.api.lifecycle.PropagationMode;
-import net.jqwik.api.lifecycle.BeforeContainer;
-import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-@Domain(DomainContext.Global.class)
-@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-@AddLifecycleHook(value = WeldHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class BaseMockedWeldTest {
-	@BeforeContainer
-	private static void before() {
-		new ApplicationDirectoryMockUp();
-	}
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ ElementType.ANNOTATION_TYPE, ElementType.PARAMETER, ElementType.TYPE_USE })
+public @interface NotNull {
+	/* Empty on purpose */
 }

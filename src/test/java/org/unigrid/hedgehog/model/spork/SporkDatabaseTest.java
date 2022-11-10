@@ -21,7 +21,6 @@ import jakarta.inject.Inject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Objects;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -29,9 +28,12 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.domains.Domain;
 import static org.hamcrest.MatcherAssert.assertThat;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
+import org.unigrid.hedgehog.jqwik.SuiteDomain;
 
 public class SporkDatabaseTest extends BaseMockedWeldTest {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -59,32 +61,30 @@ public class SporkDatabaseTest extends BaseMockedWeldTest {
 		}
 	}
 
-	@Property
 	@SneakyThrows
-	public void shouldRetainIntegrity(@ForAll("provideGridSpork") GridSpork gridSpork) {
+	@Property(tries = 300)
+	@Domain(SuiteDomain.class)
+	public void shouldRetainIntegrity(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) {
 		Files.createDirectories(applicationDirectory.getUserDataDir());
 
 		final Path path = Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 		final SporkDatabase sporkDatabase = db(path);
-		System.out.println(path);
 
-		if (Objects.nonNull(gridSpork)) {
-			switch (gridSpork.getType()) {
-				case MINT_STORAGE:
-					sporkDatabase.setMintStorage((MintStorage) gridSpork);
-					break;
+		switch (gridSpork.getType()) {
+			case MINT_STORAGE:
+				sporkDatabase.setMintStorage((MintStorage) gridSpork);
+				break;
 
-				case MINT_SUPPLY:
-					sporkDatabase.setMintSupply((MintSupply) gridSpork);
-					break;
+			case MINT_SUPPLY:
+				sporkDatabase.setMintSupply((MintSupply) gridSpork);
+				break;
 
-				case VESTING_STORAGE:
-					sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
-			}
-
-			SporkDatabase.persist(path, sporkDatabase);
-			final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
-			assertThat(deserializedSporkDatabase, sameBeanAs(sporkDatabase));
+			case VESTING_STORAGE:
+				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
 		}
+
+		SporkDatabase.persist(path, sporkDatabase);
+		final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
+		assertThat(deserializedSporkDatabase, sameBeanAs(sporkDatabase));
 	}
 }

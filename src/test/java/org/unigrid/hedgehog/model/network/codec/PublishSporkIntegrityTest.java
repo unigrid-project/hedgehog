@@ -18,7 +18,6 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.channel.ChannelHandlerContext;
 import java.time.Instant;
-import java.util.Objects;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitrary;
@@ -27,8 +26,11 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.ShortRange;
+import net.jqwik.api.domains.Domain;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
@@ -44,17 +46,18 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
 
-	@Property
 	@SneakyThrows
-	public void shouldMatch(@ForAll("provideGridSpork") GridSpork gridSpork, @Mocked ChannelHandlerContext context) {
-		if (Objects.nonNull(gridSpork)) {
-			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+	@Property(tries = 300)
+	@Domain(SuiteDomain.class)
+	public void shouldMatch(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork,
+		@Mocked ChannelHandlerContext context) {
 
-			final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
-				new PublishSporkEncoder(), new PublishSporkDecoder(), context
-			);
+		final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			assertThat(resultingPublishSpork, sameBeanAs(publishSpork));
-		}
+		final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
+			new PublishSporkEncoder(), new PublishSporkDecoder(), context
+		);
+
+		assertThat(resultingPublishSpork, sameBeanAs(publishSpork));
 	}
 }

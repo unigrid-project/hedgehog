@@ -16,22 +16,16 @@
 
 package org.unigrid.hedgehog.jqwik;
 
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
-import net.jqwik.api.domains.Domain;
-import net.jqwik.api.domains.DomainContext;
-import net.jqwik.api.lifecycle.AddLifecycleHook;
-import net.jqwik.api.lifecycle.PropagationMode;
-import net.jqwik.api.lifecycle.BeforeContainer;
-import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
+import java.util.Objects;
+import net.jqwik.api.configurators.ArbitraryConfiguratorBase;
+import net.jqwik.api.domains.DomainContextBase;
+import net.jqwik.api.Arbitrary;
+import org.unigrid.hedgehog.jqwik.NotNull;
 
-@Domain(DomainContext.Global.class)
-@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-@AddLifecycleHook(value = WeldHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class BaseMockedWeldTest {
-	@BeforeContainer
-	private static void before() {
-		new ApplicationDirectoryMockUp();
+public class SuiteDomain extends DomainContextBase {
+	public static class NotNullConfigurator extends ArbitraryConfiguratorBase {
+		public <T> Arbitrary<T> configure(Arbitrary<T> arbitrary, NotNull notNull) {
+			return arbitrary.filter(obj -> Objects.nonNull(obj));
+		}
 	}
 }
