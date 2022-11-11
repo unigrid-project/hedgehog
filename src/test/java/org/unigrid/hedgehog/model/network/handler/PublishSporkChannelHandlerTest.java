@@ -19,15 +19,37 @@ package org.unigrid.hedgehog.model.network.handler;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.jqwik.api.Example;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.ShortRange;
+import net.jqwik.api.constraints.Size;
+import net.jqwik.api.domains.Domain;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.jqwik.NotNull;
+import org.unigrid.hedgehog.jqwik.SuiteDomain;
 import org.unigrid.hedgehog.server.BaseServerTest;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
 
 public class PublishSporkChannelHandlerTest extends BaseServerTest {
-	@Example
-	public void shoulBeAbleToPingNetwork() throws Exception {
+	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
+
+	@Provide
+	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
+		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
+		@ForAll Instant time, @ForAll Instant previousTime) {
+
+		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
+	}
+
+	@Property(tries = 5)
+	@Domain(SuiteDomain.class)
+	public void shoulBeAbleToPublishSpork(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 		final AtomicInteger actualInvocations = new AtomicInteger();
 		//int expectedInvocations = 0;
 
@@ -35,24 +57,14 @@ public class PublishSporkChannelHandlerTest extends BaseServerTest {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 			final P2PClient client = new P2PClient(host, port);
-			final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
 			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			gridSpork.setTimeStamp(Instant.now());
-			gridSpork.setPreviousTimeStamp(Instant.now());
-
 			client.send(publishSpork).addListener(outcome -> {
-				/*assertThat(outcome.isSuccess(), equalTo(true));
-				actualInvocations.incrementAndGet();*/
-				System.out.println("outcome1: " + outcome);
-				System.out.println("outcome2: " + outcome.get());
+				assertThat(outcome.isSuccess(), equalTo(true));
+				//actualInvocations.incrementAndGet();*/
 			});
 
-			Thread.sleep(500);
-
-			if (Objects.nonNull(client)) {
-				client.close();
-			}
+			client.close();
 		}
 
 		//await().untilAtomic(actualInvocations, is(expectedInvocations));
