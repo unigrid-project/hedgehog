@@ -27,7 +27,7 @@ import me.alexpanov.net.FreePortFinder;
 import org.apache.commons.lang3.StringUtils;
 
 public abstract class AbstractServer {
-	protected URL alllocate(String propertyUrl) throws MalformedURLException, UnknownHostException {
+	protected URL allocate(String propertyUrl) throws MalformedURLException, UnknownHostException {
 		final URL url = new URL(StringUtils.appendIfMissing(propertyUrl, "/"));
 		final InetAddress address = InetAddress.getByName(url.getHost());
 		final int freePort = FreePortFinder.findFreeLocalPort(url.getPort(), address);

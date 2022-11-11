@@ -57,7 +57,7 @@ public class RestServer extends AbstractServer {
 			certificate.certificate(), certificate.privateKey()
 		).build();
 
-		rest = NettyHttpContainerProvider.createServer(alllocate(url).toURI(),
+		rest = NettyHttpContainerProvider.createServer(allocate(url).toURI(),
 			getResourceConfig(), context, false
 		);
 	}
