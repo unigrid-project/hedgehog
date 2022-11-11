@@ -13,18 +13,16 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import mockit.Tested;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.constraints.Positive;
+import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.packet.Ping;
@@ -35,7 +33,7 @@ import static org.hamcrest.Matchers.*;
 
 public class PingChannelHandlerTest extends BaseServerTest {
 	@Property(tries = 10)
-	public void shoulBeAbleToPingNetwork(@ForAll @Positive byte pingsPerServer) throws Exception {
+	public void shoulBeAbleToPingNetwork(@ForAll @ByteRange(min = 2, max = 5) byte pingsPerServer) throws Exception {
 		final AtomicInteger actualInvocations = new AtomicInteger();
 		int expectedInvocations = 0;
 
@@ -53,9 +51,7 @@ public class PingChannelHandlerTest extends BaseServerTest {
 				expectedInvocations++;
 			}
 
-			if (Objects.nonNull(client)) {
-				client.close();
-			}
+			client.close();
 		}
 
 		await().untilAtomic(actualInvocations, is(expectedInvocations));
