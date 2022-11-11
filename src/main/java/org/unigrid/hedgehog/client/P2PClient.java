@@ -41,6 +41,7 @@ import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import lombok.Getter;
+import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
@@ -100,8 +101,9 @@ public class P2PClient {
 		return quicStreamChannel.writeAndFlush(packet);
 	}
 
+	@SneakyThrows
 	public void close() {
-		quicStreamChannel.disconnect();
+		quicStreamChannel.disconnect().sync();
 		group.shutdownGracefully();
 	}
 }
