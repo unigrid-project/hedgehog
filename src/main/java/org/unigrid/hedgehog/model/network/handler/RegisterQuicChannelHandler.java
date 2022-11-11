@@ -19,16 +19,18 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import java.util.List;
+import java.util.function.Supplier;
 
-public class RegisterQuicHandler extends ChannelInitializer<QuicStreamChannel> {
-	private final ChannelHandler[] handlers;
+public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamChannel> {
+	private final Supplier<List<ChannelHandler>> handlersCreator;
 
-	public RegisterQuicHandler(ChannelHandler... handlers) {
-		this.handlers = handlers;
+	public RegisterQuicChannelHandler(Supplier<List<ChannelHandler>> handlerCreator) {
+		this.handlersCreator = handlerCreator;
 	}
 
 	@Override
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
-		channel.pipeline().addLast(handlers);
+		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
 	}
 }

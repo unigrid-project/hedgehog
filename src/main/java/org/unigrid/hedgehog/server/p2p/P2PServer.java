@@ -21,14 +21,19 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.Arrays;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
@@ -37,7 +42,7 @@ import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
+import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
@@ -46,7 +51,7 @@ import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
-	private NioEventLoopGroup group;
+	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
 	private Channel channel;
 
 	@Inject
@@ -54,8 +59,9 @@ public class P2PServer extends AbstractServer {
 
 	@PostConstruct @SneakyThrows
 	private void init() {
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 
+		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
 			.applicationProtocols(Network.PROTOCOLS).build();
@@ -67,15 +73,16 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.streamHandler(new RegisterQuicHandler(
-				new FrameDecoder(),
-				new PingEncoder(), new PingDecoder(),
-				new PublishSporkEncoder(), new PublishSporkDecoder(),
-				new PingChannelHandler(), new PublishSporkChannelHandler()
-			))
-			.build();
+			.streamHandler(new RegisterQuicChannelHandler(() -> {
+				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+					new FrameDecoder(),
+					new PingEncoder(), new PingDecoder(),
+					new PublishSporkEncoder(), new PublishSporkDecoder(),
+					new PingChannelHandler(), new PublishSporkChannelHandler()
+				);
+			})).build();
 
-		channel = new Bootstrap().group(new NioEventLoopGroup(Network.COMMUNICATION_THREADS))
+		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())

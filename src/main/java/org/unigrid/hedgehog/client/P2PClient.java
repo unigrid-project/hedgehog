@@ -23,6 +23,8 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
 import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicClientCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
@@ -34,13 +36,16 @@ import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import lombok.Getter;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicHandler;
+import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
@@ -51,6 +56,8 @@ public class P2PClient {
 
 	public P2PClient(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
+
+		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -77,11 +84,15 @@ public class P2PClient {
 			.get();
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
-		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL, new RegisterQuicHandler(
-			new FrameDecoder(),
-			new PingEncoder(), new PingDecoder(),
-			new PublishSporkEncoder(), new PublishSporkDecoder(),
-			new PingChannelHandler()
+		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+			new RegisterQuicChannelHandler(() -> {
+				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+					new FrameDecoder(),
+					new PingEncoder(), new PingDecoder(),
+					new PublishSporkEncoder(), new PublishSporkDecoder(),
+					new PingChannelHandler()
+				);
+			}
 		)).sync().getNow();
 	}
 

@@ -210,6 +210,7 @@
 				<configuration>
 					<argLine>
 						-javaagent:"${settings.localRepository}"/org/jmockit/jmockit/1.49/jmockit-1.49.jar
+						-Dorg.jboss.netty.debug=true
 						-Dcoverage-classes=loaded
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
