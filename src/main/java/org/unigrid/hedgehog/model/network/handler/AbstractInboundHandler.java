@@ -18,6 +18,7 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.util.ReferenceCountUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -34,10 +35,20 @@ public abstract class AbstractInboundHandler<T extends Packet> extends ChannelIn
 
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object obj) throws Exception {
-		if (clazz.isInstance(obj)) {
-			typedChannelRead(ctx, (T) obj);
-		} else {
-			super.channelRead(ctx, obj);
+		boolean release = true;
+
+		try {
+			if (clazz.isInstance(obj)) {
+				typedChannelRead(ctx, (T) obj);
+			} else {
+				release = false;
+				ctx.fireChannelRead(obj);
+			}
+		} finally {
+			if (release) {
+				//TODO: Do we actually need to do this?
+				ReferenceCountUtil.release(obj);
+			}
 		}
 	}
 
