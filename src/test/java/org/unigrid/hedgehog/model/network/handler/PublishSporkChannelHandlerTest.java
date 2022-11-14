@@ -17,7 +17,7 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import java.time.Instant;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -29,15 +29,17 @@ import net.jqwik.api.domains.Domain;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
-import org.unigrid.hedgehog.server.BaseServerTest;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.server.BaseServerChannelTest;
 
-public class PublishSporkChannelHandlerTest extends BaseServerTest {
+public class PublishSporkChannelHandlerTest extends BaseServerChannelTest<PublishSpork, PublishSporkChannelHandler> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
+
+	public PublishSporkChannelHandlerTest() {
+		super(PublishSporkChannelHandler.class);
+	}
 
 	@Provide
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
@@ -50,8 +52,17 @@ public class PublishSporkChannelHandlerTest extends BaseServerTest {
 	@Property(tries = 5)
 	@Domain(SuiteDomain.class)
 	public void shoulBeAbleToPublishSpork(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
-		final AtomicInteger actualInvocations = new AtomicInteger();
-		//int expectedInvocations = 0;
+		final AtomicInteger invocations = new AtomicInteger();
+		int expectedInvocations = 0;
+
+		setChannelCallback(Optional.of((ctx, spork) -> {
+			/* Only count triggers on the server-side  */
+			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
+				invocations.incrementAndGet();
+			}
+
+			invocations.incrementAndGet();
+		}));
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
@@ -59,14 +70,13 @@ public class PublishSporkChannelHandlerTest extends BaseServerTest {
 			final P2PClient client = new P2PClient(host, port);
 			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			client.send(publishSpork).addListener(outcome -> {
-				assertThat(outcome.isSuccess(), equalTo(true));
-				//actualInvocations.incrementAndGet();*/
-			});
+			client.send(publishSpork);
+			expectedInvocations++;
 
-			client.close();
+			//await().untilAtomic(invocations, is(expectedInvocations));
+			//client.close();
 		}
 
-		//await().untilAtomic(actualInvocations, is(expectedInvocations));
+		//await().untilAtomic(invocations, is(expectedInvocations));
 	}
 }

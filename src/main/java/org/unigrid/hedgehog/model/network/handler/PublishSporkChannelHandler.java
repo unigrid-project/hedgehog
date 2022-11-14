@@ -28,7 +28,6 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		System.out.println("SKSKSKSKSKS");
 		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 	}
 }

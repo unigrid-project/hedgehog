@@ -13,9 +13,11 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Mocked;
@@ -26,16 +28,27 @@ import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.packet.Ping;
-import org.unigrid.hedgehog.server.BaseServerTest;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.server.BaseServerChannelTest;
 
-public class PingChannelHandlerTest extends BaseServerTest {
-	@Property(tries = 10)
+public class PingChannelHandlerTest extends BaseServerChannelTest<Ping, PingChannelHandler> {
+	public PingChannelHandlerTest() {
+		super(PingChannelHandler.class);
+	}
+
+	@Property
 	public void shoulBeAbleToPingNetwork(@ForAll @ByteRange(min = 2, max = 5) byte pingsPerServer) throws Exception {
-		final AtomicInteger actualInvocations = new AtomicInteger();
+		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
+
+		setChannelCallback(Optional.of((ctx, ping) -> {
+			/* Only count triggers on the server-side  */
+			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
+				invocations.incrementAndGet();
+			}
+		}));
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
@@ -43,18 +56,15 @@ public class PingChannelHandlerTest extends BaseServerTest {
 			final P2PClient client = new P2PClient(host, port);
 
 			for (int i = 0; i < pingsPerServer; i++) {
-				client.send(Ping.builder().build()).addListener(outcome -> {
-					assertThat(outcome.isSuccess(), equalTo(true));
-					actualInvocations.incrementAndGet();
-				});
-
+				client.send(Ping.builder().build());
 				expectedInvocations++;
 			}
 
+			await().untilAtomic(invocations, is(expectedInvocations));
 			client.close();
 		}
 
-		await().untilAtomic(actualInvocations, is(expectedInvocations));
+		await().untilAtomic(invocations, is(expectedInvocations));
 	}
 
 	@Example
