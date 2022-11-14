@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog;
 
+import java.io.OutputStream;
+import java.io.PrintStream;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.Daemon;
@@ -52,8 +54,13 @@ public class Hedgehog {
 
 	@SneakyThrows
 	public static void main(String[] args) {
+		final PrintStream stdout = System.out;
+		System.setOut(new PrintStream(OutputStream.nullOutputStream()));
+
 		Reflection.resetIllegalAccessLogger(); /* Try to get rid of the "illegal reflective access..." nags */
 		ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
+
+		System.setOut(stdout);
 		System.exit(new CommandLine(Hedgehog.class).execute(args));
 	}
 }
