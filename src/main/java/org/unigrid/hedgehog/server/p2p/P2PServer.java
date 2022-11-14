@@ -90,7 +90,7 @@ public class P2PServer extends AbstractServer {
 	}
 
 	@Override
-	protected Channel getChannel() {
+	public Channel getChannel() {
 		return channel;
 	}
 

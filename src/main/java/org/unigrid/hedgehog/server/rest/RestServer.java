@@ -63,7 +63,7 @@ public class RestServer extends AbstractServer {
 	}
 
 	@Override
-	protected Channel getChannel() {
+	public Channel getChannel() {
 		return rest;
 	}
 }

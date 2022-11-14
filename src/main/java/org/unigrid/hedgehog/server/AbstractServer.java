@@ -35,7 +35,7 @@ public abstract class AbstractServer {
 		return new URL(url.getProtocol(), url.getHost(), freePort, url.getFile());
 	}
 
-	protected abstract Channel getChannel();
+	public abstract Channel getChannel();
 
 	public String getHostName() {
 		return ((InetSocketAddress) getChannel().localAddress()).getHostName();

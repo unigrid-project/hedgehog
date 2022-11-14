@@ -231,6 +231,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.packet=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=ALL-UNNAMED
