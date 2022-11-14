@@ -34,6 +34,7 @@ import net.jqwik.api.lifecycle.Store;
 public class MockitHook extends TestRunnerDecorator
 	implements AroundPropertyHook, AroundContainerHook, ResolveParameterHook {
 
+	private static final int AROUND_PROPERTY_PROXIMITY = -15;
 	private static final String STORE_NAME = MockitHook.class.getSimpleName();
 
 	@Override
@@ -56,8 +57,6 @@ public class MockitHook extends TestRunnerDecorator
 
 	@Override
 	public Optional<ParameterSupplier> resolve(ParameterResolutionContext prc, LifecycleContext lc) {
-		//Store.get(STORE_NAME + prc.optionalMethod().get().getName()).get();
-
 		if (prc.optionalMethod().isPresent()) {
 			final Method method = prc.optionalMethod().get();
 
@@ -73,5 +72,10 @@ public class MockitHook extends TestRunnerDecorator
 		}
 
 		return Optional.empty();
+	}
+
+	@Override
+	public int aroundPropertyProximity() {
+		return AROUND_PROPERTY_PROXIMITY;
 	}
 }
