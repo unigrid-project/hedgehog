@@ -60,7 +60,7 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 			out.add(entity.get());
 		}
 
-		// TODO: Verify size
+		// TODO: Verify size with PACKET_SIZE_KEY
 	}
 
 	public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;

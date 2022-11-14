@@ -93,8 +93,7 @@ public class P2PClient {
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler()
 				);
-			}
-		)).sync().getNow();
+			}, RegisterQuicChannelHandler.Type.CLIENT)).sync().getNow();
 	}
 
 	public ChannelFuture send(Packet packet) {

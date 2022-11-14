@@ -16,21 +16,32 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
 import java.util.List;
 import java.util.function.Supplier;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamChannel> {
+	public static final AttributeKey<Type> CHANNEL_TYPE_KEY = AttributeKey.valueOf("CHANNEL_TYPE");
 	private final Supplier<List<ChannelHandler>> handlersCreator;
+	private final Type type;
 
-	public RegisterQuicChannelHandler(Supplier<List<ChannelHandler>> handlerCreator) {
-		this.handlersCreator = handlerCreator;
+	public enum Type {
+		CLIENT, SERVER;
+
+		public boolean is(Channel channel) {
+			return this.equals(channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).get());
+		}
 	}
 
 	@Override
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
+		channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).set(type);
 		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
 	}
 }

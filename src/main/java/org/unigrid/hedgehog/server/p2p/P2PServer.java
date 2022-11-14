@@ -80,7 +80,7 @@ public class P2PServer extends AbstractServer {
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler()
 				);
-			})).build();
+			}, RegisterQuicChannelHandler.Type.SERVER)).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
