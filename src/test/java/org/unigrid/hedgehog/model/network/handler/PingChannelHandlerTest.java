@@ -32,6 +32,7 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.server.BaseServerChannelTest;
+import org.unigrid.hedgehog.server.TestServer;
 
 public class PingChannelHandlerTest extends BaseServerChannelTest<Ping, PingChannelHandler> {
 	public PingChannelHandlerTest() {
