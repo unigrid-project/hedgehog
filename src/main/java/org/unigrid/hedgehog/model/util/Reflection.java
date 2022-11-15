@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog.model.util;
 
+import jakarta.ws.rs.core.Application;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -72,5 +74,15 @@ public class Reflection {
 		}
 
 		return fields;
+	}
+
+	public static Constructor<?> getConstructor(String name, Class<?>... classes)
+		throws ClassNotFoundException, NoSuchMethodException {
+
+		final Class<?> clazz = Class.forName(name);
+		final Constructor<?> constructor = clazz.getDeclaredConstructor(classes);
+
+		constructor.setAccessible(true);
+		return constructor;
 	}
 }
