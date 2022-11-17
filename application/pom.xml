@@ -239,6 +239,12 @@
 			<version>2.11.0</version>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>io.findify</groupId>
+			<artifactId>s3mock_2.13</artifactId>
+			<version>0.2.6</version>
+			<scope>test</scope>
+		</dependency>
 		<!-- Great library for analyzing modules
 		<dependency>
 			<groupId>org.burningwave</groupId>
