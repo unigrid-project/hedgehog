@@ -265,7 +265,7 @@
 			<plugin>
 				<groupId>org.apache.geronimo.arthur</groupId>
 				<artifactId>arthur-maven-plugin</artifactId>
-				<version>1.0.4</version>
+				<version>1.0.5</version>
 				<configuration>
 					<main>org.unigrid.hedgehog.HedgehogCLI</main>
 					<graalVersion>22.0.0.2</graalVersion>
