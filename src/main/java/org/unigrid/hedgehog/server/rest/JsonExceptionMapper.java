@@ -30,7 +30,6 @@ public class JsonExceptionMapper implements ExceptionMapper<JsonMappingException
 		ObjectNode json = new ObjectMapper().createObjectNode();
 		json.put("error", exception.getMessage());
 
-		System.out.println("SHIIUIIT");
 		return Response.status(Response.Status.BAD_REQUEST).entity(json.toPrettyString()).build();
 	}
 

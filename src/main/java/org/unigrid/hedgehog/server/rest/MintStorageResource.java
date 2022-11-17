@@ -18,7 +18,9 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -27,18 +29,32 @@ import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-public class GridSporkResource extends CDIBridgeResource {
+public class MintStorageResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	@GET
-	public Response list() {
+	@Path("/get/mint-storage/{key}") @GET
+	public Response get() {
+		System.out.println("get()");
+		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	}
+
+	@Path("/grow/mint-storage/{key}") @POST
+	public Response grow(MintStorage.SporkData data, @PathParam("key") String key) {
+		System.out.println("grow()");
+		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	}
+
+	@Path("/set/mint-storage/{key}") @POST
+	public Response set(MintStorage.SporkData data, @PathParam("key") String key) {
+		System.out.println("set()");
 		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
 	}
 }

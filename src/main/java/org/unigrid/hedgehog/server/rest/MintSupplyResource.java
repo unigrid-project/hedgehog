@@ -18,27 +18,58 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import java.util.ArrayList;
 import java.util.Arrays;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-public class GridSporkResource extends CDIBridgeResource {
+public class MintSupplyResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	@GET
-	public Response list() {
+	@Path("/get/mint-supply/{key}") @GET
+	public Response get() {
+		System.out.println("get()");
 		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	}
+
+	@Path("/grow/mint-supply/{key}") @POST
+	public Response grow(MintStorage.SporkData data, @PathParam("key") String key) {
+		System.out.println("grow()");
+		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	}
+
+	@SneakyThrows
+	@Path("/set/mint-supply/{key}") @POST
+	public Response set(MintSupply.SporkData data, @PathParam("key") String key) {
+		System.out.println("mint-supply set()");
+		log.debug(data.toString());
+
+		if (ObjectUtils.isNotEmpty(data.getMaxSupply())) {
+			return Response.ok().build();
+			//final byte[] maxSupply = data.getMaxSupply().toPlainString().getBytes(CharsetUtil.ISO_8859_1);
+			//final Signature signature = new Signature(Optional.of(key), Optional.empty());
+
+			//System.out.println(p2pServer);
+		}
+
+		return Response.status(Status.BAD_REQUEST.getStatusCode(), "Missing 'maxSupply'").build();
 	}
 }

@@ -14,38 +14,30 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server;
+package org.unigrid.hedgehog.server.rest;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import lombok.Getter;
-import me.alexpanov.net.FreePortFinder;
-import mockit.Expectations;
+import mockit.Mocked;
+import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
-import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
-import org.unigrid.hedgehog.server.rest.RestServer;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.WeldSetup;
+import org.unigrid.hedgehog.server.TestServer;
 
-@ApplicationScoped
-public class TestServer {
-	@Inject @Getter
-	private P2PServer p2p;
+@WeldSetup(TestServer.class)
+public class BaseRestClientTest extends BaseMockedWeldTest {
+	@Mocked
+	protected NetOptions netOptions;
 
-	@Inject @Getter
-	private RestServer rest;
+	@Mocked
+	protected RestOptions restOptions;
 
-	public static void mockProperties(TestServer server) {
-		new Expectations() {{
-			int port = FreePortFinder.findFreeLocalPort();
+	@Inject
+	protected TestServer server;
 
-			NetOptions.getHost(); result = "localhost";
-			NetOptions.getPort(); result = port;
-			RestOptions.getHost(); result = "localhost";
-			RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
-		}};
-
-		CDIUtil.instantiate(server.getP2p());
-		CDIUtil.instantiate(server.getRest());
+	@BeforeTry
+	public void before() {
+		TestServer.mockProperties(server);
 	}
 }

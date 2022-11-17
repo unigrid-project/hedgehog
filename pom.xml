@@ -199,7 +199,12 @@
 			<version>4.2.0</version>
 			<scope>test</scope>
 		</dependency>
-
+		<!-- Great library for analyzing modules
+		<dependency>
+			<groupId>org.burningwave</groupId>
+			<artifactId>core</artifactId>
+			<version>12.62.0</version>
+		</dependency> -->
 	</dependencies>
 	<build>
 		<plugins>
@@ -218,11 +223,13 @@
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=com.fasterxml.jackson.databind
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=com.fasterxml.jackson.databind
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog=info.picocli
+						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
