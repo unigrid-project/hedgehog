@@ -44,8 +44,6 @@ public class Daemon extends CDIContext implements Runnable {
 
 	@Override
 	protected void start(@Observes ContainerInitialized event) {
-		//System.out.println(p2pServer);
-		//System.out.println(restServer);
 		/* No need to do anything here, at the moment */
 	}
 }
