@@ -16,7 +16,6 @@
 
 package org.unigrid.hedgehog.model.util;
 
-import jakarta.ws.rs.core.Application;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
