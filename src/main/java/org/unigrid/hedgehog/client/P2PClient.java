@@ -36,13 +36,20 @@ import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.util.concurrent.Future;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.SneakyThrows;
+import org.apache.commons.collections4.BidiMap;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -104,5 +111,24 @@ public class P2PClient {
 	public void close() {
 		quicStreamChannel.disconnect().sync();
 		group.shutdownGracefully();
+
+	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
+		if (node.getChannel().isPresent()) {
+			final ChannelFuture out = node.getChannel().get().writeAndFlush(packet);
+
+			out.addListener(f -> {
+				consumer.ifPresent(c -> {
+					c.accept(node, f);
+				});
+			});
+		}
+	}
+
+	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
+		for (Node node : topology.getNodes().values()) {
+			node.getChannel().ifPresent(channel -> {
+				send(packet, node, consumer);
+			});
+		}
 	}
 }
