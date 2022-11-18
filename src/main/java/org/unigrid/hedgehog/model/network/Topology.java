@@ -16,19 +16,20 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.Channel;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import java.util.HashSet;
-import java.util.Set;
 import lombok.Data;
+import org.apache.commons.collections4.BidiMap;
+import org.apache.commons.collections4.bidimap.DualHashBidiMap;
 
 @Data
 @ApplicationScoped
 public class Topology {
-	private Set<Node> nodes;
+	private BidiMap<Channel, Node> nodes;
 
 	@PostConstruct
 	private void init() {
-		nodes = new HashSet<>();
+		nodes = new DualHashBidiMap<>();
 	}
 }

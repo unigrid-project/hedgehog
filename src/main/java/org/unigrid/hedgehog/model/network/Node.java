@@ -16,8 +16,10 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.Channel;
 import java.net.InetAddress;
 import java.time.Instant;
+import java.util.Optional;
 import lombok.Builder;
 import lombok.Data;
 import org.unigrid.hedgehog.model.network.packet.Ping;
@@ -26,6 +28,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 @Builder
 public class Node {
 	private InetAddress address;
+	private Optional<Channel> channel;
 	private Ping ping;
 	private Instant lastPingTime;
 	@Builder.Default private boolean connected = true;
