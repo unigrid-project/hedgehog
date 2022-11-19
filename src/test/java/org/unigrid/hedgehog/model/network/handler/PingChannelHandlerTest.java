@@ -62,7 +62,7 @@ public class PingChannelHandlerTest extends BaseServerChannelTest<Ping, PingChan
 			}
 
 			await().untilAtomic(invocations, is(expectedInvocations));
-			client.close();
+			client.closeDirty();
 		}
 
 		await().untilAtomic(invocations, is(expectedInvocations));

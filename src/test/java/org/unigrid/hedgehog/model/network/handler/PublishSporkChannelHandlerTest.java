@@ -75,7 +75,7 @@ public class PublishSporkChannelHandlerTest extends BaseServerChannelTest<Publis
 			expectedInvocations++;
 
 			//await().untilAtomic(invocations, is(expectedInvocations));
-			//client.close();
+			client.closeDirty();
 		}
 
 		//await().untilAtomic(invocations, is(expectedInvocations));

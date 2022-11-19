@@ -116,6 +116,17 @@ public class P2PClient {
 		}
 	}
 
+	@SneakyThrows
+	public void closeDirty() {
+		if (!quicStreamChannel.isShutdown()) {
+			quicStreamChannel.shutdown();
+		}
+
+		if (!group.isShuttingDown()) {
+			group.shutdownGracefully();
+		}
+	}
+
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
 		if (node.getChannel().isPresent()) {
 			final ChannelFuture out = node.getChannel().get().writeAndFlush(packet);
