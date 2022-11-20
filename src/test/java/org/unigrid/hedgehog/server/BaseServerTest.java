@@ -19,6 +19,11 @@ package org.unigrid.hedgehog.server;
 import jakarta.inject.Inject;
 import java.util.List;
 import mockit.Mocked;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -28,14 +33,23 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 
 @WeldSetup(TestServer.class)
 public class BaseServerTest extends BaseMockedWeldTest {
+	private static final int NUM_SERVERS = 10;
+
 	@Mocked
 	protected NetOptions netOptions;
 
 	@Mocked
 	protected RestOptions restOptions;
 
-	@Inject @Instances(10)
+	@Inject @Instances(NUM_SERVERS)
 	protected List<TestServer> servers;
+
+	@Provide
+	public Arbitrary<List<TestServer>> provideTestServers(@ForAll @IntRange(min = 0, max = NUM_SERVERS - 1) int from,
+		@ForAll @IntRange(min = 1, max = NUM_SERVERS) int num) {
+
+		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS - 1)));
+	}
 
 	@BeforeTry
 	public void before() {
