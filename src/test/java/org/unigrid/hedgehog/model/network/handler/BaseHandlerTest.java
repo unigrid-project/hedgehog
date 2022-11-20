@@ -14,7 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server;
+package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -31,9 +31,10 @@ import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.unigrid.hedgehog.model.network.handler.AbstractInboundHandler;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.server.BaseServerTest;
 
 @RequiredArgsConstructor
-public class BaseServerChannelTest<T extends Packet, H> extends BaseServerTest {
+public class BaseHandlerTest<T extends Packet, H> extends BaseServerTest {
 	private final Class<H> channelType;
 	@Getter @Setter private Optional<BiConsumer<ChannelHandlerContext, T>> channelCallback = Optional.empty();
 
@@ -47,10 +48,12 @@ public class BaseServerChannelTest<T extends Packet, H> extends BaseServerTest {
 				invocation.proceed(ctx, obj);
 
 				/* ... then we execute the callback */
-				for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
-					if (entry.getValue().getClass().equals(channelType)) {
-						if (channelCallback.isPresent()) {
-							channelCallback.get().accept(ctx, (T) obj);
+				if (channelType.equals(invocation.getInvokedInstance().getClass())) {
+					for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
+						if (entry.getValue().getClass().equals(channelType)) {
+							if (channelCallback.isPresent()) {
+								channelCallback.get().accept(ctx, (T) obj);
+							}
 						}
 					}
 				}

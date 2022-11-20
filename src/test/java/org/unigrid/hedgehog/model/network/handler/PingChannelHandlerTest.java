@@ -31,10 +31,9 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.server.BaseServerChannelTest;
 import org.unigrid.hedgehog.server.TestServer;
 
-public class PingChannelHandlerTest extends BaseServerChannelTest<Ping, PingChannelHandler> {
+public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHandler> {
 	public PingChannelHandlerTest() {
 		super(PingChannelHandler.class);
 	}

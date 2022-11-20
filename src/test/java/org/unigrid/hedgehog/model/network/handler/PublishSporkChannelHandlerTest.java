@@ -32,10 +32,9 @@ import org.unigrid.hedgehog.jqwik.SuiteDomain;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
-import org.unigrid.hedgehog.server.BaseServerChannelTest;
 import org.unigrid.hedgehog.server.TestServer;
 
-public class PublishSporkChannelHandlerTest extends BaseServerChannelTest<PublishSpork, PublishSporkChannelHandler> {
+public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
 	public PublishSporkChannelHandlerTest() {
