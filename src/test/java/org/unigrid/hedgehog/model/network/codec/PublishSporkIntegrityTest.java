@@ -47,7 +47,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	}
 
 	@SneakyThrows
-	@Property(tries = 300)
+	@Property(tries = 200)
 	@Domain(SuiteDomain.class)
 	public void shouldMatch(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork,
 		@Mocked ChannelHandlerContext context) {
