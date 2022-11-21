@@ -257,6 +257,23 @@
 				</executions>
 			</plugin>
 			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>build-helper-maven-plugin</artifactId>
+				<version>3.0.0</version>
+				<executions>
+					<execution>
+						<id>get-cpu-count</id>
+						<goals>
+							<goal>cpu-count</goal>
+						</goals>
+						<configuration>
+							<cpuCount>system.numcores</cpuCount>
+							<factor>0.3</factor>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<version>3.0.0-M7</version>
@@ -299,6 +316,9 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 					</argLine>
+					<trimStackTrace>false</trimStackTrace>
+					<reuseForks>false</reuseForks>
+					<forkCount>${system.numcores}</forkCount>
 				</configuration>
 			</plugin>
 			<plugin>
