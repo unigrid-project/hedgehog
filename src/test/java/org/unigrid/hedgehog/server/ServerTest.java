@@ -17,12 +17,14 @@
 package org.unigrid.hedgehog.server;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import net.jqwik.api.Example;
+import net.jqwik.api.Property;
+import net.jqwik.api.ForAll;
 
 public class ServerTest extends BaseServerTest {
-	@Example
-	public boolean shoulBeAbleTodStartMultipleIndependentServers() {
+	@Property(tries = 5)
+	public boolean shoulBeAbleTodStartMultipleIndependentServers(@ForAll("provideTestServers") List<TestServer> servers) {
 		final Set<Integer> ports = new HashSet<>();
 
 		for (TestServer s : servers) {

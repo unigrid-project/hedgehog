@@ -17,7 +17,9 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Mocked;
@@ -38,8 +40,10 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 		super(PingChannelHandler.class);
 	}
 
-	@Property
-	public void shoulBeAbleToPingNetwork(@ForAll @ByteRange(min = 2, max = 5) byte pingsPerServer) throws Exception {
+	@Property(tries = 50)
+	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
+		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer) throws Exception {
+
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
 

@@ -42,7 +42,7 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	protected RestOptions restOptions;
 
 	@Inject @Instances(NUM_SERVERS)
-	protected List<TestServer> servers;
+	private List<TestServer> servers;
 
 	@Provide
 	public Arbitrary<List<TestServer>> provideTestServers(@ForAll @IntRange(min = 0, max = NUM_SERVERS - 1) int from,

@@ -62,7 +62,7 @@ public class SporkDatabaseTest extends BaseMockedWeldTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 300)
+	@Property(tries = 200)
 	@Domain(SuiteDomain.class)
 	public void shouldRetainIntegrity(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) {
 		Files.createDirectories(applicationDirectory.getUserDataDir());

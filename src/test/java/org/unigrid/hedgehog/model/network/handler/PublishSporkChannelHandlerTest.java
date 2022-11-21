@@ -17,6 +17,7 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.Arbitrary;
@@ -33,6 +34,8 @@ import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 import org.unigrid.hedgehog.server.TestServer;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.*;
 
 public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -49,9 +52,11 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
 
-	@Property(tries = 5)
+	@Property(tries = 50)
 	@Domain(SuiteDomain.class)
-	public void shoulBeAbleToPublishSpork(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
+	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
+		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
+
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
 
@@ -60,8 +65,6 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
-
-			invocations.incrementAndGet();
 		}));
 
 		for (TestServer server : servers) {
@@ -73,7 +76,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			client.send(publishSpork);
 			expectedInvocations++;
 
-			//await().untilAtomic(invocations, is(expectedInvocations));
+			await().untilAtomic(invocations, is(expectedInvocations));
 			client.closeDirty();
 		}
 
