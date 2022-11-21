@@ -10,6 +10,7 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.source>11</maven.compiler.source>
 		<maven.compiler.target>11</maven.compiler.target>
+		<surefireArgLine />
 	</properties>
 	<dependencies>
 		<dependency>
@@ -199,6 +200,13 @@
 			<version>4.2.0</version>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.jacoco</groupId>
+			<artifactId>org.jacoco.agent</artifactId>
+			<classifier>runtime</classifier>
+			<version>0.8.8</version>
+			<scope>test</scope>
+		</dependency>
 		<!-- Great library for analyzing modules
 		<dependency>
 			<groupId>org.burningwave</groupId>
@@ -209,14 +217,54 @@
 	<build>
 		<plugins>
 			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>0.8.8</version>
+				<executions>
+					<execution>
+						<id>pre-unit-test</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+						<configuration>
+							<destFile>${project.basedir}/target/jacoco.exec</destFile>
+							<propertyName>surefireArgLine</propertyName>
+							<append>true</append>
+						</configuration>
+					</execution>
+					<execution>
+						<id>pre-invoker-test</id>
+						<phase>pre-integration-test</phase>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+						<configuration>
+							<destFile>${project.basedir}/target/jacoco.exec</destFile>
+							<propertyName>invoker.mavenOpts</propertyName>
+							<append>true</append>
+						</configuration>
+					</execution>
+					<execution>
+						<id>default-report</id>
+						<goals>
+							<goal>report</goal>
+						</goals>
+						<configuration>
+							<dataFile>${project.basedir}/target/jacoco.exec</dataFile>
+							<outputDirectory>${project.basedir}/target/jacoco-results/</outputDirectory>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
-				<version>2.22.2</version>
+				<version>3.0.0-M7</version>
 				<configuration>
 					<argLine>
+						@{surefireArgLine}
 						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
 						-Dorg.jboss.netty.debug=true
-						-Dcoverage-classes=loaded
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=info.picocli
