@@ -1,0 +1,71 @@
+               GNU AFFERO GENERAL PUBLIC LICENSE ADDENDUM
+                             21 November 2022
+
+ Copyright (C) 2021-2022 The Unigrid Foundation, UGD Software AB
+<http://www.unigrid.org/>. Everyone is permitted to copy and distribute
+verbatim copies of this license document, but changing it is not allowed.
+
+  This addendum to the GNU Affero General Public License incorporates
+the terms and conditions of that license, supplemented by the additional
+permissions listed below.
+
+  The terms in this addendum, contradictory or otherwise, take precedence
+over the terms in the original license.
+
+  0. Additional Definitions.
+
+  As used herein, "this addendum" refers to this license addendum of the
+GNU Affero General Public License for this software.
+
+  As used herein, "this code" refers to any .java or .xml files as
+distributed by this software, as well as any binary distributions of the
+software.
+
+  As used herein, "Unigrid website" refers to any links to web resources
+associated with the Unigrid Foundation and UGD Software AB. Examples
+include [http://www.unigrid.org] and [https://unigrid.org].
+
+  As used herein, "this network" refers to the physical Hedgehog network as
+a running entity and as defined by The Unigrid Foundation and UGD Software
+AB.
+
+  As used herein, "CLI header" refers to the license and header information
+displayed in this code and when the application is started with "--help"
+or "-h".
+
+1. Attribution Terms.
+
+  As allowed by section 7b of the original GNU Affero General Public License,
+this addendum complements the additional terms with the following conditions;
+
+   a) It is prohibited to use this software to run a seperate network,
+   private, public or otherwise, that communicates independently from this
+   network.
+
+   b) This code and CLI header must clearly and visibly attribute The Unigrid
+   Foundation and UGD Software AB.
+
+   c) Any mention of The Unigrid Foundation, UGD Software AB or links to any
+   Unigrid website may not be removed from the code itself or any of the
+   accompanying documents.
+
+   d) You may not use any non-direct or direct means to purposely hide
+   references to the website of The Unigrid Foundation or UGD Software AB.
+
+   e) The conditions described in 1a, 1b, 1c and 1d of this document can be
+   exempted if a written permission is received from an official
+   representative or from one of the boards of The Unigrid Foundation or
+   UGD Software AB.
+
+   f) Anybody contributing code or other work in the form of pull requests,
+   git commits or any other means to the official Hedgehog repository
+   [https://github.com/unigrid-project/hedgehog] agrees to grant The Unigrid
+   Foundation and UGD Software AB shared copyright for that contributed work
+   and to accept the license terms of this software as outlined by the
+   original GNU Affero General Public License and this addendum.
+
+   g) Any work contributed to this repository by a contributor as described
+   in section f of this document that is under a license as outlined by
+   section 11 of the original GNU Affero General Public License, grants The
+   Unigrid Foundation and UGD Software AB a perpetual sublicense to
+   indefinetly use that contribution in this code. 
