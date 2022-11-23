@@ -12,6 +12,44 @@
 		<maven.compiler.target>11</maven.compiler.target>
 		<surefireArgLine />
 	</properties>
+	<profiles>
+		<profile>
+			<id>Linux</id>
+			<activation><os><name>Linux</name></os></activation>
+			<dependencies>
+				<dependency>
+					<groupId>io.netty.incubator</groupId>
+					<artifactId>netty-incubator-codec-native-quic</artifactId>
+					<version>0.0.33.Final</version>
+					<classifier>linux-x86_64</classifier>
+				</dependency>
+			</dependencies>
+		</profile>
+		<profile>
+			<id>Windows</id>
+			<activation><os><family>Windows</family></os></activation>
+			<dependencies>
+				<dependency>
+					<groupId>io.netty.incubator</groupId>
+					<artifactId>netty-incubator-codec-native-quic</artifactId>
+					<version>0.0.33.Final</version>
+					<classifier>windows-x86_64</classifier>
+				</dependency>
+			</dependencies>
+		</profile>
+		<profile>
+			<id>MacOS</id>
+			<activation><os><family>MacOS</family></os></activation>
+			<dependencies>
+				<dependency>
+					<groupId>io.netty.incubator</groupId>
+					<artifactId>netty-incubator-codec-native-quic</artifactId>
+					<version>0.0.33.Final</version>
+					<classifier>osx-x86_64</classifier>
+				</dependency>
+			</dependencies>
+		</profile>
+	</profiles>
 	<dependencies>
 		<dependency>
 			<groupId>info.picocli</groupId>
@@ -72,12 +110,6 @@
 			<groupId>org.glassfish.jersey.containers</groupId>
 			<artifactId>jersey-container-jdk-http</artifactId>
 			<version>3.0.5</version>
-		</dependency>
-		<dependency>
-			<groupId>io.netty.incubator</groupId>
-			<artifactId>netty-incubator-codec-native-quic</artifactId>
-			<version>0.0.33.Final</version>
-			<classifier>linux-x86_64</classifier>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.media</groupId>
