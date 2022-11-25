@@ -26,6 +26,9 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import java.util.Optional;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.apache.commons.lang3.tuple.Pair;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.network.packet.Packet;
@@ -42,9 +45,11 @@ public class PingIntegrityTest extends BaseCodecTest<Ping> {
 	@Property
 	@SneakyThrows
 	public void shouldMatch(@ForAll("providePing") Ping ping, @Mocked ChannelHandlerContext context) {
-		final Ping resultingPing = encodeDecode(ping, new PingEncoder(), new PingDecoder(), context);
+		final Optional<Pair<MutableInt, MutableInt>> sizes = getSizeHolder();
+		final Ping resultingPing = encodeDecode(ping, new PingEncoder(), new PingDecoder(), context, sizes);
 
 		assertThat(resultingPing, sameBeanAs(ping));
 		assertThat(resultingPing, equalTo(ping));
+		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
 	}
 }

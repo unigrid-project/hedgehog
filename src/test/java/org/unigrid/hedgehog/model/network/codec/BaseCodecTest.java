@@ -21,14 +21,27 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.jqwik.*;
 import mockit.Mocked;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.apache.commons.lang3.tuple.Pair;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 
 public class BaseCodecTest<T> extends BaseMockedWeldTest {
+	protected Optional<Pair<MutableInt, MutableInt>> getSizeHolder() {
+		return Optional.of(Pair.of(new MutableInt(), new MutableInt()));
+	}
+
 	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
-		@Mocked ChannelHandlerContext context) throws Exception {
+		ChannelHandlerContext context) throws Exception {
+
+		return encodeDecode(entity, encoder, decoder, context, Optional.empty());
+	}
+
+	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
+		ChannelHandlerContext context, Optional<Pair<MutableInt, MutableInt>> sizes) throws Exception {
 
 		ByteBuf encodedData = Unpooled.buffer();
 		encoder.encode(context, entity, encodedData);
@@ -38,6 +51,12 @@ public class BaseCodecTest<T> extends BaseMockedWeldTest {
 
 		final List<Object> out = new ArrayList<>();
 		decoder.decode(context, encodedData, out);
+
+		if (sizes.isPresent()) {
+			sizes.get().getLeft().setValue(encodedData.writerIndex());
+			sizes.get().getRight().setValue(encodedData.readerIndex());
+		}
+
 		return (T) out.get(0);
 	}
 }

@@ -31,6 +31,9 @@ import static com.shazam.shazamcrest.matcher.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import java.net.InetSocketAddress;
+import java.util.Optional;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.apache.commons.lang3.tuple.Pair;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
@@ -65,11 +68,14 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 	public void shouldMatch(@ForAll("providePublishPeers") PublishPeers publishPeers,
 		@Mocked ChannelHandlerContext context) {
 
+		final Optional<Pair<MutableInt, MutableInt>> sizes = getSizeHolder();
+
 		final PublishPeers resultingPublishPeers = encodeDecode(publishPeers,
-			new PublishPeersEncoder(), new PublishPeersDecoder(), context
+			new PublishPeersEncoder(), new PublishPeersDecoder(), context, sizes
 		);
 
 		assertThat(resultingPublishPeers, sameBeanAs(publishPeers));
 		assertThat(resultingPublishPeers, equalTo(publishPeers));
+		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
 	}
 }

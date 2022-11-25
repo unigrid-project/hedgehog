@@ -25,6 +25,9 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import java.util.Optional;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.apache.commons.lang3.tuple.Pair;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
@@ -43,11 +46,14 @@ public class AskNodeDetailsIntegrityTest extends BaseCodecTest<AskNodeDetails> {
 	public void shouldMatch(@ForAll("provideAskNodeDetails") AskNodeDetails askNodeDetails,
 		@Mocked ChannelHandlerContext context) {
 
+		final Optional<Pair<MutableInt, MutableInt>> sizes = getSizeHolder();
+
 		final AskNodeDetails resultingAskNodeDetails = encodeDecode(askNodeDetails,
-			new AskNodeDetailsEncoder(), new AskNodeDetailsDecoder(), context
+			new AskNodeDetailsEncoder(), new AskNodeDetailsDecoder(), context, sizes
 		);
 
 		assertThat(resultingAskNodeDetails, sameBeanAs(askNodeDetails));
 		assertThat(resultingAskNodeDetails, equalTo(askNodeDetails));
+		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
 	}
 }

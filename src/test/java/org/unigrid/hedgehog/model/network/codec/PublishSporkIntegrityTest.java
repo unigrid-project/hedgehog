@@ -28,6 +28,9 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.domains.Domain;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import java.util.Optional;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.apache.commons.lang3.tuple.Pair;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
@@ -54,12 +57,14 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		@Mocked ChannelHandlerContext context) {
 
 		final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+		final Optional<Pair<MutableInt, MutableInt>> sizes = getSizeHolder();
 
 		final PublishSpork resultingPublishSpork = encodeDecode(publishSpork,
-			new PublishSporkEncoder(), new PublishSporkDecoder(), context
+			new PublishSporkEncoder(), new PublishSporkDecoder(), context, sizes
 		);
 
 		assertThat(resultingPublishSpork, sameBeanAs(publishSpork));
 		assertThat(resultingPublishSpork, equalTo(publishSpork));
+		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
 	}
 }
