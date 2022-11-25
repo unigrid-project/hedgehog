@@ -17,18 +17,19 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.channel.ChannelHandlerContext;
-import java.net.InetAddress;
 import java.net.UnknownHostException;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import java.net.InetSocketAddress;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
@@ -44,11 +45,14 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 	}
 
 	@Provide
-	public Arbitrary<PublishPeers> providePublishPeers(@ForAll @Positive byte nodes) throws UnknownHostException {
+	public Arbitrary<PublishPeers> providePublishPeers(@ForAll @Positive byte nodes,
+		@ForAll @IntRange(min = 4097, max = 65535) int port) throws UnknownHostException {
+
 		final PublishPeers pp = PublishPeers.builder().build();
 
 		for (int i = 0; i < nodes; i++) {
-			final Node node = Node.builder().address(InetAddress.getByName(ip())).build();
+			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(ip(), port);
+			final Node node = Node.builder().address(socketAddress).build();
 			pp.getNodes().add(node);
 		}
 

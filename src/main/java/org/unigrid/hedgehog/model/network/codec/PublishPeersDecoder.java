@@ -19,6 +19,7 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
@@ -33,6 +34,7 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 	    [                << Frame Header (FrameDecoder) >>             ]
 	    [ n= num peers ][                   reserved                   ]
 	    [ <nodes>                                                  ...n]
+	    [     port     ][                   reserved                   ]
 	    [    host address                                          ...0]
 	*/
 	@Override
@@ -43,15 +45,15 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 		in.skipBytes(6 /* 48 bytes */);
 
 		for (int i = 0; i < numPeers; i++) {
+			final int port = in.readUnsignedShort();
+
+			in.skipBytes(6 /* 48 bytes */);
+
 			final String hostAddress = ByteBufUtils.readNullTerminatedString(in);
-			final Node node = Node.builder().address(InetAddress.getByName(hostAddress)).build();
+			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(hostAddress, port);
+			final Node node = Node.builder().address(socketAddress).build();
 
 			publishPeers.getNodes().add(node);
-
-			/*final String[] protocols = ByteBufUtils.readNullTerminatedStringArray(in, b -> {
-				return b.readShort();
-			});
-			n.setProtocols(protocols);*/
 		}
 
 		return Optional.of(publishPeers);

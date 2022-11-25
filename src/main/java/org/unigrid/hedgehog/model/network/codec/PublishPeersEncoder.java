@@ -35,6 +35,7 @@ public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPee
 	    [                << Frame Header (FrameDecoder) >>             ]
 	    [ n= num peers ][                   reserved                   ]
 	    [ <nodes>                                                  ...n]
+	    [     port     ][                   reserved                   ]
 	    [    host address                                          ...0]
 	*/
 	@Override
@@ -45,11 +46,9 @@ public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPee
 		out.writeZero(6 /* 48 bytes */);
 
 		for (Node n : publishPeers.getNodes()) {
-			ByteBufUtils.writeNullTerminatedString(n.getAddress().getHostAddress(), out);
-
-			/*ByteBufUtils.writeNullTerminatedStringArray(n.getProtocols(), out, b -> {
-				b.writeShort(n.getProtocols().length);
-			});*/
+			out.writeShort(n.getAddress().getPort());
+			out.writeZero(6 /* 48 bytes */);
+			ByteBufUtils.writeNullTerminatedString(n.getAddress().getHostName(), out);
 		}
 
 		return Optional.of(out);

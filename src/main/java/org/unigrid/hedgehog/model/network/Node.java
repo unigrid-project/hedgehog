@@ -17,7 +17,7 @@
 package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
-import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.Builder;
@@ -27,7 +27,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 @Data
 @Builder
 public class Node {
-	private InetAddress address;
+	private InetSocketAddress address;
 	private Optional<Channel> channel;
 	private Ping ping;
 	private Instant lastPingTime;
@@ -35,7 +35,7 @@ public class Node {
 	@Builder.Default private Details details = new Details();
 
 	@Data
-	private static class Details {
+	public static class Details {
 		private String[] protocols;
 		private int version;
 	}
