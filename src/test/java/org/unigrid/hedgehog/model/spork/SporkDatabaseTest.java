@@ -16,7 +16,6 @@
 
 package org.unigrid.hedgehog.model.spork;
 
-import static com.shazam.shazamcrest.matcher.Matchers.sameBeanAs;
 import jakarta.inject.Inject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +28,9 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.domains.Domain;
-import static org.hamcrest.MatcherAssert.assertThat;
+import static com.shazam.shazamcrest.matcher.Matchers.*;
+import static org.hamcrest.MatcherAssert.*;
+import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
@@ -85,6 +86,8 @@ public class SporkDatabaseTest extends BaseMockedWeldTest {
 
 		SporkDatabase.persist(path, sporkDatabase);
 		final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
+
 		assertThat(deserializedSporkDatabase, sameBeanAs(sporkDatabase));
+		assertThat(deserializedSporkDatabase, equalTo(sporkDatabase));
 	}
 }

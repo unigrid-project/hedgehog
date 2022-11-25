@@ -24,8 +24,9 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import static org.hamcrest.MatcherAssert.*;
+import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
@@ -47,5 +48,6 @@ public class AskNodeDetailsIntegrityTest extends BaseCodecTest<AskNodeDetails> {
 		);
 
 		assertThat(resultingAskNodeDetails, sameBeanAs(askNodeDetails));
+		assertThat(resultingAskNodeDetails, equalTo(askNodeDetails));
 	}
 }

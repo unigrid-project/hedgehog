@@ -27,8 +27,9 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.domains.Domain;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
+import static org.hamcrest.MatcherAssert.*;
+import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -59,5 +60,6 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		);
 
 		assertThat(resultingPublishSpork, sameBeanAs(publishSpork));
+		assertThat(resultingPublishSpork, equalTo(publishSpork));
 	}
 }
