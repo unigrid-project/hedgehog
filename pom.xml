@@ -23,6 +23,11 @@
 					<version>0.0.33.Final</version>
 					<classifier>linux-x86_64</classifier>
 				</dependency>
+				<dependency>
+					<groupId>org.lmdbjava</groupId>
+					<artifactId>lmdbjava-native-linux-x86_64</artifactId>
+					<version>0.9.29-1</version>
+				</dependency>
 			</dependencies>
 		</profile>
 		<profile>
@@ -35,6 +40,11 @@
 					<version>0.0.33.Final</version>
 					<classifier>windows-x86_64</classifier>
 				</dependency>
+				<dependency>
+					<groupId>org.lmdbjava</groupId>
+					<artifactId>lmdbjava-native-windows-x86_64</artifactId>
+					<version>0.9.29-1</version>
+				</dependency>
 			</dependencies>
 		</profile>
 		<profile>
@@ -46,6 +56,11 @@
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
 					<version>0.0.33.Final</version>
 					<classifier>osx-x86_64</classifier>
+				</dependency>
+				<dependency>
+					<groupId>org.lmdbjava</groupId>
+					<artifactId>lmdbjava-native-osx-x86_64</artifactId>
+					<version>0.9.29-1</version>
 				</dependency>
 			</dependencies>
 		</profile>
@@ -182,11 +197,6 @@
 			<artifactId>chronicle-map</artifactId>
 			<version>3.23ea1</version>
 		</dependency>-->
-		<dependency>
-			<groupId>org.lmdbjava</groupId>
-			<artifactId>lmdbjava-native-linux-x86_64</artifactId>
-			<version>0.9.29-1</version>
-		</dependency>
 		<dependency>
 			<groupId>org.lmdbjava</groupId>
 			<artifactId>lmdbjava</artifactId>
