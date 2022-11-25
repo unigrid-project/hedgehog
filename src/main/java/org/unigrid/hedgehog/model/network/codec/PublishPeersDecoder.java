@@ -18,7 +18,6 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
