@@ -16,41 +16,57 @@
 
 package org.unigrid.hedgehog.model.network.schedule;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void> {
+	public static final int PERIOD_MS = 75;
+	public static final int WAIT_TIME_MS = 1000;
+	public static final double TOLERANCE = 0.05; /* 5% */
+
 	public PingScheduleTest() {
-		super(300, TimeUnit.MILLISECONDS, PingSchedule.class);
+		super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);
 	}
 
-	final AtomicInteger shit = new AtomicInteger();
+	@Property(tries = 5)
+	public void shoulBeAbleToSchedulePing(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
+		final AtomicInteger invocations = new AtomicInteger();
+		final List<P2PClient> clients = new ArrayList<>();
 
-	@Property(tries = 3)
-	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer) throws Exception {
+		for (TestServer server : servers) {
+			final String host = server.getP2p().getHostName();
+			final int port = server.getP2p().getPort();
 
-		//final AtomicInteger invocations = new AtomicInteger();
-		//int expectedInvocations = 0;
-
-		setScheduleCallback(Optional.of(channel -> {
-			System.out.println("its scheduling!!!");
-		}));
-
-		if (servers.size() > 0 ) {
-			final String host = servers.get(0).getP2p().getHostName();
-			final int port = servers.get(0).getP2p().getPort();
-			final P2PClient client = new P2PClient(host, port);
+			clients.add(new P2PClient(host, port));
 		}
 
-		Thread.sleep(3000);
+		setScheduleCallback(Optional.of(channel -> {
+			/* Only count scheduling in one directon */
+			if (RegisterQuicChannelHandler.Type.CLIENT.is(channel)) {
+				invocations.incrementAndGet();
+			}
+		}));
+
+		Thread.sleep(WAIT_TIME_MS);
+		setScheduleCallback(Optional.empty());
+
+		for (P2PClient client : clients) {
+			client.close();
+		}
+
+		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
+		final double toleranceAmount = Math.ceil(expectedInvocations * TOLERANCE);
+		assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
 	}
 }
