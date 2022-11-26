@@ -58,12 +58,16 @@ public class RestServer extends AbstractServer {
 	@Getter private Channel channel;
 
 	private ResourceConfig getResourceConfig() {
-		final ResourceConfig config = new ResourceConfig(GridSporkResource.class);
+		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
+			MintStorageResource.class,
+			MintSupplyResource.class,
+			NodeResource.class,
+			VestingStorageResource.class
+		);
 
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
-		config.packages(RestServer.class.getPackageName());
 
 		return config;
 	}
