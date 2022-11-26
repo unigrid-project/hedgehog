@@ -14,25 +14,16 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+package org.unigrid.hedgehog.jqwik;
 
-import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
+import mockit.Invocation;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
-public class Ping extends Packet implements Serializable {
-	public static final int HEARTBEAT_MINUTES = 10;
-
-	private boolean response;
-	@Builder.Default private long nanoTime = System.nanoTime();
-
-	public Ping() {
-		setType(Type.PING);
+public class MockOn {
+	public static <T, R> R instance(Class<T> clazz, Invocation invocation, R value) {
+		if (clazz.equals(invocation.getInvokedInstance().getClass())) {
+			return value;
+		} else {
+			return invocation.proceed();
+		}
 	}
 }

@@ -22,14 +22,21 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
 @RequiredArgsConstructor
 public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamChannel> {
 	public static final AttributeKey<Type> CHANNEL_TYPE_KEY = AttributeKey.valueOf("CHANNEL_TYPE");
 	private final Supplier<List<ChannelHandler>> handlersCreator;
+	private final Supplier<List<Schedulable>> schedulersCreator;
 	private final Type type;
+
+	public RegisterQuicChannelHandler(Supplier<List<ChannelHandler>> handlersCreator, Type type) {
+		this(handlersCreator, null, type);
+	}
 
 	public enum Type {
 		CLIENT, SERVER;
@@ -43,5 +50,19 @@ public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamCha
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
 		channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).set(type);
 		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
+
+		if (Objects.nonNull(schedulersCreator.get())) {
+			schedulersCreator.get().forEach(s -> {
+
+				/* Netty schedulers just support Callable<A>, so in order to support something like a
+				Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
+
+				if (Objects.nonNull(s.getConsumer())) {
+					channel.eventLoop().scheduleAtFixedRate(() -> {
+						s.getConsumer().accept(channel);
+					}, s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
+				}
+			});
+		}
 	}
 }

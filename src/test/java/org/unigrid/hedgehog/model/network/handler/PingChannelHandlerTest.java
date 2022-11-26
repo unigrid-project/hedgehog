@@ -19,7 +19,6 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Mocked;
@@ -33,6 +32,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHandler> {
@@ -42,7 +42,8 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 
 	@Property(tries = 50)
 	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer) throws Exception {
+		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
+		@Mocked PingSchedule pingSchedule) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;

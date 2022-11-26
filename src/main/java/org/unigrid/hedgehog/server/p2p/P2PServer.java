@@ -47,6 +47,7 @@ import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
@@ -79,6 +80,10 @@ public class P2PServer extends AbstractServer {
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler()
+				);
+			}, () -> {
+				return Arrays.asList(
+					new PingSchedule()
 				);
 			}, RegisterQuicChannelHandler.Type.SERVER)).build();
 

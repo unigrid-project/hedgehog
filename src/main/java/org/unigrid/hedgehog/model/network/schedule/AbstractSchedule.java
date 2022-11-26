@@ -14,25 +14,21 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+package org.unigrid.hedgehog.model.network.schedule;
 
-import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import io.netty.channel.Channel;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.RequiredArgsConstructor;
 
 @Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
-public class Ping extends Packet implements Serializable {
-	public static final int HEARTBEAT_MINUTES = 10;
+@RequiredArgsConstructor
+public abstract class AbstractSchedule implements Schedulable {
+	private final int period;
+	private final TimeUnit timeUnit;
+	private final boolean executeOnCreation;
 
-	private boolean response;
-	@Builder.Default private long nanoTime = System.nanoTime();
-
-	public Ping() {
-		setType(Type.PING);
-	}
+	@Override
+	public abstract Consumer<Channel> getConsumer();
 }

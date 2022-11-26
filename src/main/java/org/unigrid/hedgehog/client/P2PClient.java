@@ -55,6 +55,7 @@ import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 
 public class P2PClient {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
@@ -97,6 +98,10 @@ public class P2PClient {
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler()
+				);
+			}, () -> {
+				return Arrays.asList(
+					new PingSchedule()
 				);
 			}, RegisterQuicChannelHandler.Type.CLIENT)).sync().getNow();
 	}

@@ -34,8 +34,8 @@ import org.unigrid.hedgehog.server.BaseServerTest;
 
 @RequiredArgsConstructor
 public class BaseHandlerTest<T extends Packet, H> extends BaseServerTest {
-	private final Class<H> channelType;
 	@Getter @Setter private Optional<BiConsumer<ChannelHandlerContext, T>> channelCallback = Optional.empty();
+	private final Class<H> channelType;
 
 	@BeforeProperty
 	private void mockBefore() {
