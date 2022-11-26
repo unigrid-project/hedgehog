@@ -18,9 +18,11 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Future;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -58,9 +60,13 @@ public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamCha
 				Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
 
 				if (Objects.nonNull(s.getConsumer())) {
-					channel.eventLoop().scheduleAtFixedRate(() -> {
+					final Future<?> future = channel.eventLoop().scheduleAtFixedRate(() -> {
 						s.getConsumer().accept(channel);
 					}, s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
+
+					channel.closeFuture().addListener(f -> {
+						future.cancel(true);
+					});
 				}
 			});
 		}
