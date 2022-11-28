@@ -64,7 +64,8 @@ public class StorageObject {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">Copy Object</a>
 	 */
 	@Path("/{bucket}/{key}") @PUT
-	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String bucket, @PathParam("key") String key) {
+	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String bucket, 
+		@PathParam("key") String key) {
 		// request header should contain 'x-amz-copy-source'
 		return Response.ok().entity(new CopyObjectResult()).build();
 	}
@@ -81,8 +82,8 @@ public class StorageObject {
 	}
 
 	/**
-	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the latest version
-	 * of the object
+	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the
+	 * latest version of the object
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */

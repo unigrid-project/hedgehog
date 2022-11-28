@@ -17,13 +17,25 @@
 package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import java.util.List;
+import lombok.AccessLevel;
+import lombok.Getter;
 
 @XmlRootElement
 public class ListAllMyBucketsResult {
-	@XmlElement
-	public Bucket[] buckets;
+	@Getter(AccessLevel.PROTECTED)
+	@XmlElementWrapper(name = "buckets")
+	@XmlElement(name = "bucket")
+	private List<Bucket> buckets;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public Owner owner;
+	private Owner owner;
+	
+	public ListAllMyBucketsResult(List<Bucket> buckets, Owner owner) {
+		this.buckets = buckets;
+		this.owner = owner;
+	}
 }

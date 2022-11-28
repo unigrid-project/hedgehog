@@ -27,14 +27,33 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
+import org.unigrid.hedgehog.model.s3.entity.Bucket;
+import org.unigrid.hedgehog.model.s3.entity.Owner;
+import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Path("/bucket")
-@Consumes(MediaType.APPLICATION_XML)
-public class Bucket {
-	Signature signature;
+public class StorageBucket {
+	@Getter(AccessLevel.PROTECTED)
+	private Signature signature;
+
+	public ArrayList buckets = new ArrayList(
+		Arrays.asList(
+			new Bucket(new Date(), "test0"),
+			new Bucket(new Date(), "test1"),
+			new Bucket(new Date(), "test2")
+		)
+	);
 
 	/**
 	 * Creates a new S3 bucket
@@ -42,9 +61,19 @@ public class Bucket {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html">Create Bucket</a>
 	 */
 	@Path("/{bucket}") @PUT
-	public Response create(@Context UriInfo uri, @PathParam("bucket") String bucket, CreateBucketConfiguration createBucketConfiguration) {
-		//System.out.println(uri.getRequestUri())
-		//uri.getRequestUri().toASCIIString().split(".")[0];
+	@Consumes(MediaType.APPLICATION_XML)
+	public Response create(@Context UriInfo uri, @PathParam("bucket") String bucket,
+		CreateBucketConfiguration createBucketConfiguration) {
+		System.out.println("URI " + uri.getRequestUri());
+
+		String bucketName = uri.getRequestUri().toASCIIString().split(".")[0];
+		System.out.println("Name from uri " + bucketName);
+
+		System.out.println("Bucket name " + bucket);
+
+		Bucket createdBucket = new Bucket(new Date(), bucketName);
+		System.out.println("Bucket object " + createdBucket.toString());
+
 		return Response.ok().header("Location", "shit").build();
 	}
 
@@ -56,7 +85,10 @@ public class Bucket {
 	@Path("/list") @GET
 	@Produces(MediaType.APPLICATION_XML)
 	public Response list() {
-		return Response.ok().entity(new ListAllMyBucketsResult()).build();
+		System.out.println("LIIIIIIIIIIIIIIIIIIIST");
+		Owner owner = new Owner("Degen", "11111");
+
+		return Response.ok().entity(new ListAllMyBucketsResult(buckets, owner)).build();
 	}
 
 	/**
@@ -66,6 +98,11 @@ public class Bucket {
 	 */
 	@Path("/delete/{bucket}") @DELETE
 	public Response delete(@PathParam("bucket") String bucket) {
-		return Response.ok().header("No content", "success").build();
+		System.out.println("Bucket name " + bucket);
+		buckets.remove(0);
+
+		System.out.println("Buckets size " + buckets.size());
+
+		return Response.ok().header("No content", "DElete success").build();
 	}
 }

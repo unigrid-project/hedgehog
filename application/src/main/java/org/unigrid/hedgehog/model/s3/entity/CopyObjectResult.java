@@ -19,25 +19,33 @@ package org.unigrid.hedgehog.model.s3.entity;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.security.Timestamp;
+import lombok.AccessLevel;
+import lombok.Getter;
 
 @XmlRootElement
 public class CopyObjectResult {
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String eTag;
+	private String eTag;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public Timestamp lastModified;
+	private Timestamp lastModified;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String checksumCRC32;
+	private String checksumCRC32;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String checksumCRC32C;
+	private String checksumCRC32C;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String checksumSHA1;
+	private String checksumSHA1;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String checksumSHA256;
+	private String checksumSHA256;
 
 }
