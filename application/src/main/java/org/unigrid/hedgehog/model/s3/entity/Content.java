@@ -18,24 +18,32 @@ package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import lombok.AccessLevel;
+import lombok.Getter;
 
 @XmlRootElement
 public class Content {
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String key;
+	private String key;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String lastModified;
+	private String lastModified;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String eTag;
+	private String eTag;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public int size;
+	private int size;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public String storageClass;
+	private String storageClass;
 
+	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	public Owner owner;
+	private Owner owner;
 }
