@@ -29,7 +29,8 @@ import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -40,20 +41,21 @@ public class VestingStorageResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	@Path("/get/vesting-storage/{key}") @GET
-	public Response get() {
-		System.out.println("MOOOH");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	@CDIBridgeInject
+	private SporkDatabase sporkDatabase;
+
+	@Path("/vesting-storage") @GET
+	public Response list() {
+		return Response.ok().entity(sporkDatabase.getVestingStorage()).build();
 	}
 
-	@Path("/grow/vesting-storage/{key}") @POST
-	public Response grow(MintStorage.SporkData data, @PathParam("key") String key) {
-		System.out.println("MOOOH");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	@Path("/vesting-storage/{address}") @GET
+	public Response get(@PathParam("address") String address) {
+		return Response.ok().entity(sporkDatabase.getVestingStorage()).build();
 	}
 
-	@Path("/set/vesting-storage/{key}") @POST
-	public Response set(MintStorage.SporkData data, @PathParam("key") String key) {
+	@Path("/vesting-storage") @POST
+	public Response grow(VestingStorage.SporkData data) {
 		System.out.println("MOOOH");
 		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
 	}

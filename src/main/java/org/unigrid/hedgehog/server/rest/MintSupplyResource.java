@@ -27,13 +27,12 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.util.ArrayList;
 import java.util.Arrays;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -44,21 +43,17 @@ public class MintSupplyResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	@Path("/get/mint-supply/{key}") @GET
-	public Response get() {
-		System.out.println("get()");
+	@CDIBridgeInject
+	private SporkDatabase sporkDatabase;
+
+	@Path("/mint-supply") @GET
+	public Response list() {
+		System.out.println("list()");
 		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
 	}
 
-	@Path("/grow/mint-supply/{key}") @POST
-	public Response grow(MintStorage.SporkData data, @PathParam("key") String key) {
-		System.out.println("grow()");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
-	}
-
-	@SneakyThrows
-	@Path("/set/mint-supply/{key}") @POST
-	public Response set(MintSupply.SporkData data, @PathParam("key") String key) {
+	@Path("/mint-supply") @POST
+	public Response set(MintSupply.SporkData data) {
 		System.out.println("mint-supply set()");
 		log.debug(data.toString());
 

@@ -12,37 +12,21 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
-import java.util.Arrays;
-import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
+import lombok.SneakyThrows;
+import net.jqwik.api.Example;
+import org.unigrid.hedgehog.client.RestClient;
 
-@Slf4j
-@Path("/gridspork")
-@Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
-public class GridSporkResource extends CDIBridgeResource {
-	@CDIBridgeInject
-	private P2PServer p2pServer;
+public class VestingStorageResourceTest extends BaseRestClientTest {
+	@Example
+	@SneakyThrows
+	public void shoulBeAbleToSetVestingStorageSpork(){
+		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort());
 
-	@CDIBridgeInject
-	private SporkDatabase sporkDatabase;
-
-	@GET
-	public Response list() {
-		return Response.ok().entity(sporkDatabase).build();
+		client.get("/gridspork");
+		client.close();
 	}
 }

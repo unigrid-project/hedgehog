@@ -16,20 +16,19 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import java.util.ArrayList;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
-public class VestingStorageTest extends BaseRestClientTest {
+public class GridSporkResourceTest extends BaseRestClientTest {
 	@Example
 	@SneakyThrows
-	public void shoulBeAbleToSetVestingStorageSpork(){
-		System.out.println(server);
-		System.out.println(server.getRest().getPort());
+	public void shouldBeAbleToListSporkDatabase(){
 		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort());
-		//Thread.sleep(20000);
 
-		client.get("/gridspork");
+		System.out.println(client.get("/gridspork").readEntity(SporkDatabase.class));
 		client.close();
 	}
 }
