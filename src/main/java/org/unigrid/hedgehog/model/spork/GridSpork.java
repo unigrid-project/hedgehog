@@ -63,6 +63,14 @@ public class GridSpork implements Serializable {
 		}
 	}
 
+	public <T extends ChunkData> T getData() {
+		return (T) data;
+	}
+
+	public <T extends ChunkData> T getPreviousData() {
+		return (T) previousData;
+	}
+
 	@Tolerate
 	public void setType(short value) {
 		type = Type.get(value);

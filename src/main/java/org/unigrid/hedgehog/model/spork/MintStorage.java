@@ -65,7 +65,7 @@ public class MintStorage extends GridSpork implements Serializable {
 				}
 			}
 
-			public static class Serializer extends  StdKeySerializers.StringKeySerializer {
+			public static class Serializer extends StdKeySerializers.StringKeySerializer {
 				@Override
 				public void serialize(Object value, JsonGenerator generator, SerializerProvider provider)
 					throws IOException {
