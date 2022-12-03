@@ -16,7 +16,6 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import java.util.ArrayList;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.client.RestClient;
