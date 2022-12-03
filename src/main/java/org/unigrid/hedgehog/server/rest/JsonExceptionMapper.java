@@ -22,13 +22,28 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Provider
 public class JsonExceptionMapper implements ExceptionMapper<JsonMappingException> {
 	@Override
 	public Response toResponse(JsonMappingException exception) {
-		ObjectNode json = new ObjectMapper().createObjectNode();
+		final ObjectNode json = new ObjectMapper().createObjectNode();
+		final StringWriter exceptionMessage = new StringWriter();
+
 		json.put("error", exception.getMessage());
+
+		log.atWarn().log(() -> {
+			exception.printStackTrace(new PrintWriter(exceptionMessage));
+
+			return String.format("Failed to map JSON, %s, %s",
+				exception.getMessage(),
+				exceptionMessage
+			);
+		});
 
 		return Response.status(Response.Status.BAD_REQUEST).entity(json.toPrettyString()).build();
 	}
