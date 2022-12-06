@@ -23,6 +23,8 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -31,7 +33,7 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 @ApplicationScoped
 public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
-	@Inject private SporkDatabase sporkDatabase;
+	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
 
 	private Path path() {
 		return Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
@@ -39,24 +41,26 @@ public class SporkDatabaseProducer {
 
 	@Produces
 	private SporkDatabase produce() {
-		try {
-			Files.createDirectories(applicationDirectory.getUserDataDir());
-			sporkDatabase = SporkDatabase.load(path());
+		if (Objects.isNull(sporkDatabase.get())) {
+			try {
+				Files.createDirectories(applicationDirectory.getUserDataDir());
+				sporkDatabase.set(SporkDatabase.load(path()));
 
-		} catch (IOException ex) {
-			sporkDatabase = SporkDatabase.builder().build();
-			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
-			log.atTrace().log(() -> ex.toString());
+			} catch (IOException ex) {
+				sporkDatabase.set(SporkDatabase.builder().build());
+				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
+				log.atTrace().log(() -> ex.toString());
+			}
 		}
 
-		return sporkDatabase;
+		return sporkDatabase.get();
 	}
 
 	@PreDestroy
 	private void destroy() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
-			SporkDatabase.persist(path(), sporkDatabase);
+			SporkDatabase.persist(path(), sporkDatabase.get());
 
 		} catch (Exception ex) {
 			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
