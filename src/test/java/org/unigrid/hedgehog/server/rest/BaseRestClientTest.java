@@ -18,11 +18,13 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
 import mockit.Mocked;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
+import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 import org.unigrid.hedgehog.server.TestServer;
 
 @WeldSetup(TestServer.class)
@@ -35,6 +37,11 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	@Inject
 	protected TestServer server;
+
+	@BeforeContainer
+	private static void beforeContainer() {
+		new ApplicationDirectoryMockUp();
+	}
 
 	@BeforeTry
 	public void before() {

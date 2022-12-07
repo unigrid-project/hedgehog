@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.commons.lang3.RandomStringUtils;
 
 public class ApplicationDirectoryMockUp extends MockUp<ApplicationDirectory> {
 	private final Path userConfigDir;

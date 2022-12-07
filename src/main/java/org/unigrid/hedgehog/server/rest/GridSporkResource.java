@@ -25,7 +25,7 @@ import jakarta.ws.rs.core.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
@@ -38,10 +38,10 @@ public class GridSporkResource extends CDIBridgeResource {
 	private P2PServer p2pServer;
 
 	@CDIBridgeInject
-	private SporkDatabaseInfo sporkDatabaseInfo;
+	private SporkDatabase sporkDatabase;
 
 	@GET
 	public Response list() {
-		return Response.ok().entity(CDIUtil.unproxy(sporkDatabaseInfo)).build();
+		return Response.ok().entity(new SporkDatabaseInfo(sporkDatabase)).build();
 	}
 }
