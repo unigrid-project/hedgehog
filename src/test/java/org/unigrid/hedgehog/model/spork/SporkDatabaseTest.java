@@ -19,48 +19,20 @@ package org.unigrid.hedgehog.model.spork;
 import jakarta.inject.Inject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import lombok.SneakyThrows;
-import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.constraints.ShortRange;
-import net.jqwik.api.constraints.Size;
 import net.jqwik.api.domains.Domain;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
 
-public class SporkDatabaseTest extends BaseMockedWeldTest {
-	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
-
+public class SporkDatabaseTest extends BaseSporkDatabaseTest {
 	@Inject
 	private ApplicationDirectory applicationDirectory;
-
-	@Inject
-	private SporkDatabase managedSporkDatabase;
-
-	@Provide
-	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
-		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
-		@ForAll Instant time, @ForAll Instant previousTime) {
-
-		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
-	}
-
-	@SneakyThrows
-	private SporkDatabase db(Path path) {
-		if (Files.exists(path)) {
-			return SporkDatabase.load(path);
-		} else {
-			return SporkDatabase.builder().build();
-		}
-	}
 
 	@SneakyThrows
 	@Property(tries = 200)
@@ -71,19 +43,7 @@ public class SporkDatabaseTest extends BaseMockedWeldTest {
 		final Path path = Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 		final SporkDatabase sporkDatabase = db(path);
 
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				sporkDatabase.setMintStorage((MintStorage) gridSpork);
-				break;
-
-			case MINT_SUPPLY:
-				sporkDatabase.setMintSupply((MintSupply) gridSpork);
-				break;
-
-			case VESTING_STORAGE:
-				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
-		}
-
+		set(sporkDatabase, gridSpork);
 		SporkDatabase.persist(path, sporkDatabase);
 		final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
 

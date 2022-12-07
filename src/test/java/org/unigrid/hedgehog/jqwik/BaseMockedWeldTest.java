@@ -31,7 +31,7 @@ import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BaseMockedWeldTest {
 	@BeforeContainer
-	private static void before() {
+	private static void beforeContainer() {
 		new ApplicationDirectoryMockUp();
 	}
 }
