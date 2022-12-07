@@ -21,10 +21,12 @@ import org.unigrid.hedgehog.model.function.VoidFunctionE;
 
 @Slf4j
 public class ExceptionUtil {
-	public static <E extends Exception> void swallow(VoidFunctionE function, Class<? extends Exception> ...exceptions) throws E {
+	public static <E extends Exception> void swallow(VoidFunctionE function,
+		Class<? extends Exception>... exceptions) throws E {
+
 		try {
 			function.apply();
-		} catch(Exception ex) {
+		} catch (Exception ex) {
 			for (Class<?> e : exceptions) {
 				if (e.isInstance(ex)) {
 					log.atTrace().log("Swallowed exception {}", ex.getMessage());
