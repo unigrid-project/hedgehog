@@ -37,7 +37,7 @@ public class GridSpork implements Serializable {
 	private ChunkData data;
 	private ChunkData previousData; /* Flag.DELTA controls the content */
 
-	private byte[] signatureData;
+	@Getter private byte[] signature;
 
 	@AllArgsConstructor
 	public enum Flag {

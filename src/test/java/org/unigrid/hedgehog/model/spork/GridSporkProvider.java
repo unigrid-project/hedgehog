@@ -93,7 +93,7 @@ public class GridSporkProvider {
 			gridSpork.setPreviousTimeStamp(previousTime);
 			gridSpork.setData(chunkData(gridSporkType));
 			gridSpork.setPreviousData(chunkData(gridSporkType));
-			gridSpork.setSignatureData(signature);
+			gridSpork.setSignature(signature);
 
 			return Arbitraries.of(gridSpork);
 

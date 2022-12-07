@@ -71,8 +71,8 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			ce.get().encodeChunk(ctx, spork.getData(), data);
 			ce.get().encodeChunk(ctx, spork.getPreviousData(), data);
 
-			data.writeShort(spork.getSignatureData().length);
-			data.writeBytes(spork.getSignatureData());
+			data.writeShort(spork.getSignature().length);
+			data.writeBytes(spork.getSignature());
 			out.writeBytes(data);
 
 			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
