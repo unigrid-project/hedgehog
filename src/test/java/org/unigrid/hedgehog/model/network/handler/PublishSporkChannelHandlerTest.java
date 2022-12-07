@@ -80,6 +80,6 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			client.closeDirty();
 		}
 
-		//await().untilAtomic(invocations, is(expectedInvocations));
+		await().untilAtomic(invocations, is(expectedInvocations));
 	}
 }
