@@ -18,8 +18,21 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.CDI;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import static org.unigrid.hedgehog.model.spork.GridSpork.Type.*;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
+@Slf4j
 @Sharable
 public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSpork> {
 	public PublishSporkChannelHandler() {
@@ -28,6 +41,34 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+		final Instance<SporkDatabase> db = CDI.current().select(SporkDatabase.class);
+		final GridSpork newSpork = publishSpork.getGridSpork();
+
+		if (db.isUnsatisfied()) {
+			throw new IllegalStateException("Unable to locate spork database bean.");
+		}
+
+		final Map<Type, GridSpork> entries = Map.of(MINT_STORAGE, db.get().getMintStorage(),
+			MINT_SUPPLY, db.get().getMintSupply(),
+			VESTING_STORAGE, db.get().getVestingStorage()
+		);
+
+		final GridSpork oldSpork = entries.get(newSpork.getType());
+
+		if (Objects.isNull(oldSpork)) {
+			log.atError().log("Received unsupported spork type - ignoring.");
+			return; /* Bail out on unsupported type */
+		}
+
+		if (oldSpork.isOlderThan(newSpork) && newSpork.isValidSignature()) {
+			db.get().set(newSpork);
+
+			final Instance<Topology> topology = CDI.current().select(Topology.class);
+
+			if (topology.isResolvable()) {
+				// TODO: Handle errors better rather than sending Optional.empty()
+				P2PClient.sendAll(publishSpork, topology.get(), Optional.empty());
+			}
+		}
 	}
 }

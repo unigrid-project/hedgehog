@@ -30,6 +30,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 @Slf4j
 @Data @Builder
@@ -53,5 +54,23 @@ public class SporkDatabase implements Serializable {
 		);
 
 		SerializationUtils.serialize(sporkDatabase, stream);
+	}
+
+	public GridSpork get(Type gridSporkType) {
+		switch (gridSporkType) {
+			case MINT_STORAGE: return mintStorage;
+			case MINT_SUPPLY: return mintSupply;
+			case VESTING_STORAGE: return vestingStorage;
+			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
+		}
+	}
+
+	public void set(GridSpork gridSpork) {
+		switch (gridSpork.getType()) {
+			case MINT_STORAGE: mintStorage = (MintStorage) gridSpork;
+			case MINT_SUPPLY: mintSupply = (MintSupply) gridSpork;
+			case VESTING_STORAGE: vestingStorage = (VestingStorage) gridSpork;
+			default: throw new IllegalArgumentException("Unsupported spork type sent to database");
+		}
 	}
 }

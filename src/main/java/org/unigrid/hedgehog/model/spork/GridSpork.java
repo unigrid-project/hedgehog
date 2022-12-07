@@ -19,14 +19,21 @@ package org.unigrid.hedgehog.model.spork;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.Objects;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Tolerate;
+import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.SerializationUtils;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.Signable;
+import org.unigrid.hedgehog.model.Signature;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
-public class GridSpork implements Serializable {
+public class GridSpork implements Serializable, Signable {
 	private Instant timeStamp;
 	private Instant previousTimeStamp;
 	private short flags; /* Put Flag values in here */
@@ -83,5 +90,33 @@ public class GridSpork implements Serializable {
 			case VESTING_STORAGE: return new VestingStorage();
 			default: throw new IllegalArgumentException("Unknown spork type supplied");
 		}
+	}
+
+	public boolean isOlderThan(GridSpork otherSpork) {
+		return Objects.isNull(timeStamp) || timeStamp.isBefore(otherSpork.getTimeStamp());
+	}
+
+	@Override
+	public byte[] getSignable() {
+		final byte[] s1 = SerializationUtils.serialize(timeStamp);
+		final byte[] s2 = SerializationUtils.serialize(previousTimeStamp);
+		final byte[] s3 = SerializationUtils.serialize(flags);
+		final byte[] s4 = SerializationUtils.serialize(type);
+		final byte[] s5 = SerializationUtils.serialize(data);
+		final byte[] s6 = SerializationUtils.serialize(previousData);
+
+		return ArrayUtils.toPrimitive(Stream.of(s1, s2, s3, s4, s5, s6)
+			.flatMap(Stream::of).toArray(Byte[]::new)
+		);
+	}
+
+	public boolean isValidSignature() {
+		for (String key : Network.KEYS) {
+			if (Signature.verify(this, key)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
