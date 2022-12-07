@@ -35,6 +35,7 @@ import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
 import java.util.Optional;
+import lombok.SneakyThrows;
 
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
@@ -135,5 +136,11 @@ public class Signature {
 		signature.initVerify(publicKey);
 		signature.update(data);
 		return signature.verify(signatureData);
+	}
+
+	@SneakyThrows
+	public static boolean verify(Signable signable, String key) {
+		final Signature signature = new Signature(Optional.empty(), Optional.of(key));
+		return signature.verify(signable.getSignable(), signable.getSignature());
 	}
 }
