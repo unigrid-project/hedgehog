@@ -249,6 +249,12 @@
 			<version>0.8.8</version>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>commons-io</groupId>
+			<artifactId>commons-io</artifactId>
+			<version>2.11.0</version>
+			<scope>test</scope>
+		</dependency>
 		<!-- Great library for analyzing modules
 		<dependency>
 			<groupId>org.burningwave</groupId>
