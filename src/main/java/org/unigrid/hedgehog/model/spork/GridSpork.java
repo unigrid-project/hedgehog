@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.Serializable;
 import java.time.Instant;
@@ -92,11 +93,21 @@ public class GridSpork implements Serializable, Signable {
 		}
 	}
 
-	public boolean isOlderThan(GridSpork otherSpork) {
-		return Objects.isNull(timeStamp) || timeStamp.isBefore(otherSpork.getTimeStamp());
+	@JsonIgnore
+	public boolean isNewerThan(GridSpork otherSpork) {
+		if (Objects.isNull(otherSpork) || Objects.isNull(otherSpork.timeStamp)) {
+			return Objects.nonNull(timeStamp);
+		}
+
+		if (Objects.isNull(timeStamp)) {
+			return !(Objects.nonNull(otherSpork) && Objects.nonNull(otherSpork.timeStamp));
+		}
+
+		return timeStamp.isAfter(otherSpork.timeStamp);
 	}
 
 	@Override
+	@JsonIgnore
 	public byte[] getSignable() {
 		final byte[] s1 = SerializationUtils.serialize(timeStamp);
 		final byte[] s2 = SerializationUtils.serialize(previousTimeStamp);
@@ -110,6 +121,7 @@ public class GridSpork implements Serializable, Signable {
 		);
 	}
 
+	@JsonIgnore
 	public boolean isValidSignature() {
 		for (String key : Network.KEYS) {
 			if (Signature.verify(this, key)) {
