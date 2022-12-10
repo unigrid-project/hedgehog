@@ -24,8 +24,10 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Address;
 import net.jqwik.api.Example;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.apache.commons.lang3.RandomUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.jqwik.TestFileOutput;
 
 public class MintStorageTest {
 	@Example
@@ -35,6 +37,7 @@ public class MintStorageTest {
 		final MintStorage.SporkData data = new MintStorage.SporkData();
 		final Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
 
+		storage.setSignature(RandomUtils.nextBytes(16));
 		storage.setData(data);
 		data.setMints(mints);
 
@@ -50,5 +53,6 @@ public class MintStorageTest {
 		   usually output a JsonProcessingException rather than returning null. */
 
 		assertThat(json, notNullValue());
+		TestFileOutput.output(json);
 	}
 }
