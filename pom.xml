@@ -368,6 +368,9 @@
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>
 					<forkCount>${system.numcores}</forkCount>
+					<systemPropertyVariables>
+						<testoutput.target>${project.build.directory}</testoutput.target>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 			<plugin>
