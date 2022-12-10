@@ -48,7 +48,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			throw new IllegalStateException("Unable to locate spork database bean.");
 		}
 
-		final Map<Type, GridSpork> entries = Map.of(MINT_STORAGE, db.get().getMintStorage(),
+		final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.get().getMintStorage(),
 			MINT_SUPPLY, db.get().getMintSupply(),
 			VESTING_STORAGE, db.get().getVestingStorage()
 		);
