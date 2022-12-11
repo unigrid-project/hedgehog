@@ -18,15 +18,15 @@ package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Tolerate;
-import org.apache.commons.lang3.ArrayUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.Signable;
@@ -109,16 +109,16 @@ public class GridSpork implements Serializable, Signable {
 	@Override
 	@JsonIgnore
 	public byte[] getSignable() {
-		final byte[] s1 = SerializationUtils.serialize(timeStamp);
-		final byte[] s2 = SerializationUtils.serialize(previousTimeStamp);
-		final byte[] s3 = SerializationUtils.serialize(flags);
-		final byte[] s4 = SerializationUtils.serialize(type);
-		final byte[] s5 = SerializationUtils.serialize(data);
-		final byte[] s6 = SerializationUtils.serialize(previousData);
+		final ByteArrayOutputStream stream = new ByteArrayOutputStream();
 
-		return ArrayUtils.toPrimitive(Stream.of(s1, s2, s3, s4, s5, s6)
-			.flatMap(Stream::of).toArray(Byte[]::new)
-		);
+		stream.writeBytes(SerializationUtils.serialize(timeStamp));
+		stream.writeBytes(SerializationUtils.serialize(previousTimeStamp));
+		stream.writeBytes(SerializationUtils.serialize(flags));
+		stream.writeBytes(SerializationUtils.serialize(type));
+		stream.writeBytes(SerializationUtils.serialize(data));
+		stream.writeBytes(SerializationUtils.serialize(previousData));
+
+		return stream.toByteArray();
 	}
 
 	@JsonIgnore
