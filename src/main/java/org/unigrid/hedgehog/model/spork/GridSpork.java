@@ -20,6 +20,11 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
+import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.util.Objects;
 import lombok.AllArgsConstructor;
@@ -28,12 +33,14 @@ import lombok.Getter;
 import lombok.experimental.Tolerate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.Signable;
 import org.unigrid.hedgehog.model.Signature;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
+@Slf4j
 public class GridSpork implements Serializable, Signable {
 	private Instant timeStamp;
 	private Instant previousTimeStamp;
@@ -123,10 +130,16 @@ public class GridSpork implements Serializable, Signable {
 
 	@JsonIgnore
 	public boolean isValidSignature() {
-		for (String key : Network.KEYS) {
-			if (Signature.verify(this, key)) {
-				return true;
+		try {
+			for (String key : Network.KEYS) {
+				if (Signature.verify(this, key)) {
+					return true;
+				}
 			}
+		} catch (InvalidAlgorithmParameterException | InvalidKeyException | InvalidKeySpecException
+			| NoSuchAlgorithmException | SignatureException ex) {
+
+			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
 		}
 
 		return false;

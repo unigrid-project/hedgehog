@@ -35,7 +35,6 @@ import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
 import java.util.Optional;
-import lombok.SneakyThrows;
 
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
@@ -128,8 +127,8 @@ public class Signature {
 		return signature.sign();
 	}
 
-	public boolean verify(byte[] data, byte[] signatureData)
-		throws InvalidKeyException, InvalidKeySpecException, NoSuchAlgorithmException, SignatureException {
+	public boolean verify(byte[] data, byte[] signatureData) throws InvalidKeyException, InvalidKeySpecException,
+		NoSuchAlgorithmException, SignatureException {
 
 		final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
 
@@ -138,8 +137,9 @@ public class Signature {
 		return signature.verify(signatureData);
 	}
 
-	@SneakyThrows
-	public static boolean verify(Signable signable, String key) {
+	public static boolean verify(Signable signable, String key) throws InvalidAlgorithmParameterException,
+		InvalidKeySpecException, InvalidKeyException, NoSuchAlgorithmException, SignatureException {
+
 		final Signature signature = new Signature(Optional.empty(), Optional.of(key));
 		return signature.verify(signable.getSignable(), signable.getSignature());
 	}
