@@ -21,10 +21,10 @@ import io.netty.channel.ChannelHandlerContext;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -55,12 +55,12 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 		final GridSpork oldSpork = entries.get(newSpork.getType());
 
-		if (Objects.isNull(oldSpork)) {
+		if (!entries.containsKey(newSpork.getType())) {
 			log.atError().log("Received unsupported spork type - ignoring.");
 			return; /* Bail out on unsupported type */
 		}
 
-		if (oldSpork.isOlderThan(newSpork) && newSpork.isValidSignature()) {
+		if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
 			db.get().set(newSpork);
 
 			final Instance<Topology> topology = CDI.current().select(Topology.class);
