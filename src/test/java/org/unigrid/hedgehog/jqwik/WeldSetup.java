@@ -27,4 +27,6 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface WeldSetup {
 	Class<?>[] value();
+	Class<?>[] extensions() default { /* Just an empty array */ };
+	boolean scan() default true;
 }

@@ -46,6 +46,7 @@ module org.unigrid.hedgehog {
 	requires weld.se.core;
 	requires weld.core.impl;
 	requires weld.environment.common;
+	requires weld.spi;
 	requires org.apache.commons.configuration2;
 	requires org.apache.commons.collections4;
 	requires java.logging;

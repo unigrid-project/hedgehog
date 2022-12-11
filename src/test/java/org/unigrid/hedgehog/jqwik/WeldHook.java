@@ -19,16 +19,21 @@ package org.unigrid.hedgehog.jqwik;
 import com.evolvedbinary.j8fu.function.TriConsumer;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
+import jakarta.enterprise.inject.spi.Extension;
 import jakarta.inject.Inject;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
@@ -42,12 +47,24 @@ import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.util.Reflection;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
-	private List<Class<?>> findWeldClasses(Object instance, Class<?> clazz) {
+	private boolean findScan(Class<?> clazz) {
+		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
+
+		if (Objects.nonNull(weldSetup)) {
+			return weldSetup.scan();
+		}
+
+		return true;
+	}
+
+	private <T extends Collection> List<Class<?>> findWeldClasses(Object instance, Class<?> clazz,
+		Function<WeldSetup, T> supplier) {
+
 		final Set<Class<?>> beans = new HashSet<>();
 		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
 
 		if (Objects.nonNull(weldSetup)) {
-			beans.addAll(List.of(weldSetup.value()));
+			beans.addAll(supplier.apply(weldSetup));
 		}
 
 		return new ArrayList<>(beans);
@@ -57,13 +74,35 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 		WeldContainer instance = WeldContainer.instance(name);
 
 		if (Objects.isNull(instance)) {
-			final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(), context.containerClass());
+			final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(),
+				context.containerClass(), w -> List.of(w.value())
+			);
 
-			instance = new Weld(name)
-				.enableDiscovery()
-				.beanClasses(weldClasses.toArray(new Class<?>[0]))
-				.interceptors(ProtectedInterceptor.class)
-				.initialize();
+			final List<Extension> extensionClasses = findWeldClasses(context.testInstance(),
+				context.containerClass(), w -> List.of(w.extensions())
+			).stream().map(c -> {
+				try {
+					return (Extension) c.getDeclaredConstructor().newInstance();
+				} catch (IllegalAccessException | InstantiationException | InvocationTargetException
+					| NoSuchMethodException ex) {
+
+					throw new IllegalArgumentException("Unable to instantiate extension type", ex);
+				}
+			}).collect(Collectors.toList());
+
+			final Weld weldInitializer = new Weld(name)
+					.beanClasses(weldClasses.toArray(new Class<?>[0]))
+					.extensions(extensionClasses.toArray(new Extension[0]));
+
+			if (findScan(context.containerClass())) {
+				instance = weldInitializer.enableDiscovery()
+					.interceptors(ProtectedInterceptor.class)
+					.initialize();
+			} else {
+				instance = weldInitializer.disableDiscovery()
+					.disableDiscovery()
+					.initialize();
+			}
 		}
 
 		return instance;
@@ -106,9 +145,8 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 						throw new IllegalStateException("Lists require an instances annotation.");
 					}
 
-					final List entries = (List) f.get(context.testInstance());
 					final List<Class<?>> weldClasses = findWeldClasses(context.testInstance(),
-						context.containerClass()
+						context.containerClass(), w -> List.of(w.value())
 					);
 
 					final List<Object> instances = new ArrayList();
