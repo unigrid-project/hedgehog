@@ -32,4 +32,8 @@ public class Topology {
 	private void init() {
 		nodes = new DualHashBidiMap<>();
 	}
+
+	public void addNode(Channel channel, Node node) {
+		nodes.put(channel, node);
+	}
 }
