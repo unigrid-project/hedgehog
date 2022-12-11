@@ -20,12 +20,15 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
@@ -42,6 +45,15 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 
 	public PublishSporkChannelHandlerTest() {
 		super(PublishSporkChannelHandler.class);
+	}
+
+	@BeforeProperty
+	private void mockBeforePublishSpork() {
+		new MockUp<GridSpork>() {
+			@Mock public boolean isValidSignature() {
+				return true;
+			}
+		};
 	}
 
 	@Provide
