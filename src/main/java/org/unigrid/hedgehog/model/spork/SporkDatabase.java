@@ -67,10 +67,20 @@ public class SporkDatabase implements Serializable {
 
 	public void set(GridSpork gridSpork) {
 		switch (gridSpork.getType()) {
-			case MINT_STORAGE: mintStorage = (MintStorage) gridSpork;
-			case MINT_SUPPLY: mintSupply = (MintSupply) gridSpork;
-			case VESTING_STORAGE: vestingStorage = (VestingStorage) gridSpork;
-			default: throw new IllegalArgumentException("Unsupported spork type sent to database");
+			case MINT_STORAGE:
+				mintStorage = (MintStorage) gridSpork;
+				break;
+
+			case MINT_SUPPLY:
+				mintSupply = (MintSupply) gridSpork;
+				break;
+
+			case VESTING_STORAGE:
+				vestingStorage = (VestingStorage) gridSpork;
+				break;
+
+			default:
+				throw new IllegalArgumentException("Unsupported spork type sent to database");
 		}
 	}
 }
