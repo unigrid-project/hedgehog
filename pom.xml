@@ -188,6 +188,12 @@
 			<version>4.2.0</version>
 			<scope>test</scope>
 		</dependency>
+                <dependency>
+                        <groupId>org.openjdk.jmh</groupId>
+                        <artifactId>jmh-core</artifactId>
+                        <version>1.36</version>
+                        <scope>test</scope>
+                </dependency>
 
 	</dependencies>
 	<build>
@@ -320,6 +326,11 @@
 				<artifactId>maven-project-info-reports-plugin</artifactId>
 				<version>3.3.0</version>
 			</plugin>
+                        <plugin>
+                                <groupId>pw.krejci</groupId>
+                                <artifactId>jmh-maven-plugin</artifactId>
+                                <version>0.2.2</version>
+                        </plugin>
 		</plugins>
 	</build>
 	<reporting>
