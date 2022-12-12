@@ -30,15 +30,16 @@ import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 import org.unigrid.hedgehog.server.TestServer;
-import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.*;
 
 public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -74,7 +75,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
 			/* Only count triggers on the server-side  */
-			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
+			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
 		}));

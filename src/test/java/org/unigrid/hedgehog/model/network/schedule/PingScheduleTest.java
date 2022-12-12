@@ -26,7 +26,7 @@ import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
+import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.TestServer;
 
@@ -53,7 +53,7 @@ public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void>
 
 		setScheduleCallback(Optional.of(channel -> {
 			/* Only count scheduling in one directon */
-			if (RegisterQuicChannelHandler.Type.CLIENT.is(channel)) {
+			if (RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
 				invocations.incrementAndGet();
 			}
 		}));

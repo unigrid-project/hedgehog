@@ -41,12 +41,12 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
-import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
+import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
@@ -74,7 +74,7 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.streamHandler(new RegisterQuicChannelHandler(() -> {
+			.streamHandler(new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new PingEncoder(), new PingDecoder(),
@@ -85,7 +85,7 @@ public class P2PServer extends AbstractServer {
 				return Arrays.asList(
 					new PingSchedule()
 				);
-			}, RegisterQuicChannelHandler.Type.SERVER)).build();
+			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)

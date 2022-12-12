@@ -14,7 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.handler;
+package org.unigrid.hedgehog.model.network.initializer;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -29,13 +29,13 @@ import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
 @RequiredArgsConstructor
-public class RegisterQuicChannelHandler extends ChannelInitializer<QuicStreamChannel> {
+public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStreamChannel> {
 	public static final AttributeKey<Type> CHANNEL_TYPE_KEY = AttributeKey.valueOf("CHANNEL_TYPE");
 	private final Supplier<List<ChannelHandler>> handlersCreator;
 	private final Supplier<List<Schedulable>> schedulersCreator;
 	private final Type type;
 
-	public RegisterQuicChannelHandler(Supplier<List<ChannelHandler>> handlersCreator, Type type) {
+	public RegisterQuicChannelInitializer(Supplier<List<ChannelHandler>> handlersCreator, Type type) {
 		this(handlersCreator, null, type);
 	}
 

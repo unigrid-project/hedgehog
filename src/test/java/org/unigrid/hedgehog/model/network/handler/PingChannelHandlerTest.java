@@ -27,11 +27,12 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
-import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.packet.Ping;
+import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
@@ -50,7 +51,7 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 
 		setChannelCallback(Optional.of((ctx, ping) -> {
 			/* Only count triggers on the server-side  */
-			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
+			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
 		}));
