@@ -72,9 +72,9 @@
 			<version>22.3.0</version>
 		</dependency>
 		<dependency>
-			<groupId>com.formkiq</groupId>
-			<artifactId>graalvm-annotations</artifactId>
-			<version>1.1.0</version>
+			<groupId>org.apache.geronimo.arthur</groupId>
+			<artifactId>arthur-api</artifactId>
+			<version>1.0.5</version>
 		</dependency>
 		<dependency>
 			<groupId>info.picocli</groupId>
@@ -398,11 +398,6 @@
 							<version>1.18.24</version>
 						</path>
 						<path>
-							<groupId>com.formkiq</groupId>
-							<artifactId>graalvm-annotations-processor</artifactId>
-							<version>1.2.0</version>
-						</path>
-						<path>
 							<groupId>info.picocli</groupId>
 							<artifactId>picocli-codegen</artifactId>
 							<version>4.7.0</version>
@@ -423,11 +418,11 @@
 					</initializeAtBuildTime>
 					<printClassInitialization>true</printClassInitialization>
 					<reflectionConfigurationFiles>
-						<reflectionConfigurationFiles>${project.build.directory}/classes/META-INF/graal/reflect.json</reflectionConfigurationFiles>
 						<reflectionConfigurationFiles>${project.build.directory}/classes/META-INF/native-image/picocli-generated/reflect-config.json</reflectionConfigurationFiles>
+						<reflectionConfigurationFiles>${project.build.directory}/arthur_workdir/generated_configuration/reflection.arthur.json</reflectionConfigurationFiles>
 					</reflectionConfigurationFiles>
 					<resourcesConfigurationFiles>
-						<resourcesConfigurationFiles>${project.build.directory}/classes/META-INF/graal/resources.json</resourcesConfigurationFiles>
+						<resourcesConfigurationFiles>${project.build.directory}/classes/META-INF/native-image/resources.json</resourcesConfigurationFiles>
 					</resourcesConfigurationFiles>
 				</configuration>
 			</plugin>

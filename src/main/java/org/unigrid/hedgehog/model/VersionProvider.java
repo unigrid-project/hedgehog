@@ -16,17 +16,17 @@
 
 package org.unigrid.hedgehog.model;
 
-import com.formkiq.graalvm.annotations.Reflectable;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Properties;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.geronimo.arthur.api.RegisterClass;
 import picocli.CommandLine.IVersionProvider;
 
 @Slf4j
-@Reflectable
+@RegisterClass(all = true)
 public class VersionProvider implements IVersionProvider {
 	public static final String VERSION_PROPERTY_NAME = "HEDGEHOG_VERSION";
 	public static final String VERSION_PAD_PROPERTY_NAME = "HEDGEHOG_VERSION_PAD";
