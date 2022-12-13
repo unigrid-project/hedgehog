@@ -67,6 +67,16 @@
 	</profiles>
 	<dependencies>
 		<dependency>
+			<groupId>org.graalvm.sdk</groupId>
+			<artifactId>graal-sdk</artifactId>
+			<version>22.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.formkiq</groupId>
+			<artifactId>graalvm-annotations</artifactId>
+			<version>1.1.0</version>
+		</dependency>
+		<dependency>
 			<groupId>info.picocli</groupId>
 			<artifactId>picocli</artifactId>
 			<version>4.7.0</version>
@@ -386,7 +396,17 @@
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok</artifactId>
 							<version>1.18.24</version>
-						</path>                         
+						</path>
+						<path>
+							<groupId>com.formkiq</groupId>
+							<artifactId>graalvm-annotations-processor</artifactId>
+							<version>1.2.0</version>
+						</path>
+						<path>
+							<groupId>info.picocli</groupId>
+							<artifactId>picocli-codegen</artifactId>
+							<version>4.7.0</version>
+						</path>
 					</annotationProcessorPaths>
 				</configuration>
 			</plugin>
@@ -395,11 +415,20 @@
 				<artifactId>arthur-maven-plugin</artifactId>
 				<version>1.0.5</version>
 				<configuration>
-					<main>org.unigrid.hedgehog.HedgehogCLI</main>
-					<graalVersion>22.0.0.2</graalVersion>
+					<main>org.unigrid.hedgehog.Hedgehog</main>
+					<graalVersion>22.3.0</graalVersion>
 					<initializeAtBuildTime>
-						<org.slf4j.LoggerFactory />
+						<initializeAtBuildTime>ch.qos.logback</initializeAtBuildTime>
+						<initializeAtBuildTime>org.slf4j</initializeAtBuildTime>
 					</initializeAtBuildTime>
+					<printClassInitialization>true</printClassInitialization>
+					<reflectionConfigurationFiles>
+						<reflectionConfigurationFiles>${project.build.directory}/classes/META-INF/graal/reflect.json</reflectionConfigurationFiles>
+						<reflectionConfigurationFiles>${project.build.directory}/classes/META-INF/native-image/picocli-generated/reflect-config.json</reflectionConfigurationFiles>
+					</reflectionConfigurationFiles>
+					<resourcesConfigurationFiles>
+						<resourcesConfigurationFiles>${project.build.directory}/classes/META-INF/graal/resources.json</resourcesConfigurationFiles>
+					</resourcesConfigurationFiles>
 				</configuration>
 			</plugin>
 			<plugin>

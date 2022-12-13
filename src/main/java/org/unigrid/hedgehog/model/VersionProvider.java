@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model;
 
+import com.formkiq.graalvm.annotations.Reflectable;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Properties;
@@ -25,6 +26,7 @@ import org.apache.commons.lang3.StringUtils;
 import picocli.CommandLine.IVersionProvider;
 
 @Slf4j
+@Reflectable
 public class VersionProvider implements IVersionProvider {
 	public static final String VERSION_PROPERTY_NAME = "HEDGEHOG_VERSION";
 	public static final String VERSION_PAD_PROPERTY_NAME = "HEDGEHOG_VERSION_PAD";
