@@ -415,6 +415,9 @@
 					<initializeAtBuildTime>
 						<initializeAtBuildTime>ch.qos.logback</initializeAtBuildTime>
 						<initializeAtBuildTime>org.slf4j</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.weld.logging</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.logging</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.weld.environment.logging</initializeAtBuildTime>
 					</initializeAtBuildTime>
 					<printClassInitialization>true</printClassInitialization>
 					<reflectionConfigurationFiles>
