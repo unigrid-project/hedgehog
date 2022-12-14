@@ -20,20 +20,19 @@ import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.List;
-import lombok.AccessLevel;
-import lombok.Getter;
 
 @XmlRootElement
 public class ListAllMyBucketsResult {
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElementWrapper(name = "buckets")
 	@XmlElement(name = "bucket")
 	private List<Bucket> buckets;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private Owner owner;
-	
+
+	public ListAllMyBucketsResult() {
+	}
+
 	public ListAllMyBucketsResult(List<Bucket> buckets, Owner owner) {
 		this.buckets = buckets;
 		this.owner = owner;

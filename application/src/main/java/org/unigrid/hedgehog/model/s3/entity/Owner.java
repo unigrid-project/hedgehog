@@ -18,18 +18,17 @@ package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
-import lombok.AccessLevel;
-import lombok.Getter;
+import java.io.Serializable;
 
 @XmlRootElement
-public class Owner {
-	@Getter(AccessLevel.PROTECTED)
+public class Owner implements Serializable {	
 	@XmlElement
 	private String displayName;
 	
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String ID;
+	
+	public Owner() {}
 	
 	public Owner(String displayName, String id) {
 		this.displayName = displayName;

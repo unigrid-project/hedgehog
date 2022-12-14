@@ -17,35 +17,41 @@
 package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.List;
-import lombok.AccessLevel;
-import lombok.Getter;
 
 @XmlRootElement
 public class ListBucketResult {
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	private String name;
+	public String name;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String prefix;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String marker;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private int maxKeys;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private boolean isTruncated;
 
-	@Getter(AccessLevel.PROTECTED)
-	@XmlElement
+	@XmlElementWrapper(name = "contents")
+	@XmlElement(name = "content")
 	private List<Content> contents;
 
+	public ListBucketResult() {
+	}
+
+	public ListBucketResult(String name, String prefix, String marker, int maxKeys, boolean isTruncated,
+		List<Content> contents) {
+		this.name = name;
+		this.prefix = prefix;
+		this.marker = marker;
+		this.maxKeys = maxKeys;
+		this.isTruncated = isTruncated;
+		this.contents = contents;
+	}
 }

@@ -16,26 +16,22 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
-import jakarta.xml.bind.annotation.XmlAccessType;
-import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.Date;
-import lombok.AccessLevel;
-import lombok.Getter;
 
 @XmlRootElement
-@XmlAccessorType(XmlAccessType.FIELD)
 public class Bucket {
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	private final Date creationDate;
+	public String creationDate;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
-	private final String name;
+	public String name;
 
-	public Bucket(Date creationDate, String name) {
+	public Bucket() {
+	}
+
+	public Bucket(String creationDate, String name) {
 		this.creationDate = creationDate;
 		this.name = name;
 	}

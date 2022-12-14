@@ -18,32 +18,37 @@ package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
-import lombok.AccessLevel;
-import lombok.Getter;
+import java.io.Serializable;
 
 @XmlRootElement
-public class Content {
-	@Getter(AccessLevel.PROTECTED)
+public class Content implements Serializable {
 	@XmlElement
-	private String key;
+	public String key;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String lastModified;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String eTag;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private int size;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private String storageClass;
 
-	@Getter(AccessLevel.PROTECTED)
 	@XmlElement
 	private Owner owner;
+
+	public Content() {
+	}
+	
+	public Content(String key, String lastModified, String eTag, int size, String storageClass, Owner owner) {
+		this.key = key;
+		this.lastModified = lastModified;
+		this.eTag = eTag;
+		this.size = size;
+		this.storageClass = storageClass;
+		this.owner = owner;
+	}
 }
