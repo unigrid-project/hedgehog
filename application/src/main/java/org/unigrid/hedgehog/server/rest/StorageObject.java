@@ -13,7 +13,6 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
@@ -23,27 +22,52 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.core.HttpHeaders;
-import java.util.ArrayList;
-import java.util.Arrays;
-import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
-import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
+import java.io.IOException;
+import java.io.InputStream;
+import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.service.ObjectService;
 
 @Path("/storage-object")
-@Consumes(MediaType.MULTIPART_FORM_DATA)
-public class StorageObject {
-	
+public class StorageObject extends CDIBridgeResource {
+	@CDIBridgeInject
+	private P2PServer p2pServer;
+
+	private Signature signature;
+
+	private final ObjectService objectService = new ObjectService();
+
 	/**
 	 * Adds an object to a bucket
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html">Put Object</a>
 	 */
 	@Path("/{key}") @PUT
-	public Response create(@Context UriInfo uri, @PathParam("key") String key) {
+	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
+	public Response create(@Context UriInfo uri, @PathParam("key") String key, InputStream data) throws IOException {
+		System.out.println("Key: " + key);
+
+		String url = uri.getRequestUri().toASCIIString();
+		System.out.println("URI " + url);
+
+		String bucketName = url.split("\\.")[0];
+		System.out.println("Base from uri " + bucketName);
+
+		boolean isAdded = objectService.put(data);
+
+		if (!isAdded) {
+			String errorMessage = "Request should contain non-empty data";
+			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
+		}
+
 		return Response.ok().header("ETag", "testatsattas").build();
 	}
 
@@ -55,7 +79,7 @@ public class StorageObject {
 	@Path("/list") @GET
 	@Produces(MediaType.APPLICATION_XML)
 	public Response list(@Context UriInfo uri) {
-		return Response.ok().entity(new ListBucketResult()).build();
+		return Response.ok().entity(objectService.getAll()).build();
 	}
 
 	/**
@@ -64,10 +88,21 @@ public class StorageObject {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html">Copy Object</a>
 	 */
 	@Path("/{bucket}/{key}") @PUT
-	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String bucket, 
+	@Produces(MediaType.APPLICATION_XML)
+	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String bucket,
 		@PathParam("key") String key) {
-		// request header should contain 'x-amz-copy-source'
-		return Response.ok().entity(new CopyObjectResult()).build();
+		System.out.println("Bucket: " + bucket);
+		System.out.println("Key: " + key);
+
+		String copySource = httpHeaders.getHeaderString("x-amz-copy-source");
+		System.out.println("HEader: " + copySource);
+
+		if (copySource == null) {
+			String errorMessage = "Request header should contain 'x-amz-copy-source'";
+			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
+		}
+
+		return Response.ok().entity(objectService.copy(bucket, key, copySource)).build();
 	}
 
 	/**
@@ -76,19 +111,39 @@ public class StorageObject {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html">Get Object</a>
 	 */
 	@Path("/{key}") @GET
-	@Produces(MediaType.MULTIPART_FORM_DATA) //should be bytes of object data
-	public Response get(@Context UriInfo uri, @PathParam("key") String key) {
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	@Produces(MediaType.APPLICATION_OCTET_STREAM)
+	public Response get(@Context UriInfo uri, @PathParam("key") String key) throws Exception {
+		System.out.println("Key: " + key);
+
+		byte[] byteArray = objectService.download(key);
+
+		return Response.ok(byteArray, "application/octet-stream").build();
 	}
 
 	/**
-	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the
-	 * latest version of the object
+	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the latest version
+	 * of the object
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */
 	@Path("/{key}") @DELETE
 	public Response delete(@Context UriInfo uri, @PathParam("key") String key) {
-		return Response.status(Response.Status.NO_CONTENT).build();
+		System.out.println("Key: " + key);
+
+		String url = uri.getRequestUri().toASCIIString();
+		System.out.println("URI " + url);
+
+		String bucketName = url.split("\\.")[0];
+		System.out.println("Base from uri " + bucketName);
+
+		boolean isDeleted = objectService.delete(key);
+
+		System.out.println("Has been deleted " + isDeleted);
+
+		if (!isDeleted) {
+			return Response.status(Response.Status.NOT_FOUND).build();
+		}
+
+		return Response.noContent().build();
 	}
 }

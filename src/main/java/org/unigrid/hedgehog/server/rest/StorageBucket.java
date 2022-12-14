@@ -22,59 +22,51 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Signature;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
-import org.unigrid.hedgehog.model.s3.entity.Owner;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.service.BucketService;
 
 @Path("/bucket")
-public class StorageBucket {
-	@Getter(AccessLevel.PROTECTED)
+public class StorageBucket extends CDIBridgeResource {
+	@CDIBridgeInject
+	private P2PServer p2pServer;
+
 	private Signature signature;
 
-	public ArrayList buckets = new ArrayList(
-		Arrays.asList(
-			new Bucket(new Date(), "test0"),
-			new Bucket(new Date(), "test1"),
-			new Bucket(new Date(), "test2")
-		)
-	);
+	private final BucketService bucketService = new BucketService();
 
 	/**
 	 * Creates a new S3 bucket
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html">Create Bucket</a>
 	 */
-	@Path("/{bucket}") @PUT
+	@PUT
 	@Consumes(MediaType.APPLICATION_XML)
-	public Response create(@Context UriInfo uri, @PathParam("bucket") String bucket,
-		CreateBucketConfiguration createBucketConfiguration) {
-		System.out.println("URI " + uri.getRequestUri());
+	public Response create(@Context UriInfo uri, CreateBucketConfiguration bucketConfiguration) {
+		if (bucketConfiguration == null) {
+			String errorMessage = "Request should contain BucketConfiguration file";
+			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();			
+		}
 
-		String bucketName = uri.getRequestUri().toASCIIString().split(".")[0];
-		System.out.println("Name from uri " + bucketName);
+		String url = uri.getRequestUri().toASCIIString();
+		System.out.println("URI " + url);
 
-		System.out.println("Bucket name " + bucket);
+		String bucketName = url.split("\\.")[0];
+		System.out.println("Base from uri " + bucketName);
 
-		Bucket createdBucket = new Bucket(new Date(), bucketName);
+		Bucket createdBucket = bucketService.create("TestBUCKET");
 		System.out.println("Bucket object " + createdBucket.toString());
 
-		return Response.ok().header("Location", "shit").build();
+		return Response.ok().header("Location", bucketName).build();
 	}
 
 	/**
@@ -85,10 +77,7 @@ public class StorageBucket {
 	@Path("/list") @GET
 	@Produces(MediaType.APPLICATION_XML)
 	public Response list() {
-		System.out.println("LIIIIIIIIIIIIIIIIIIIST");
-		Owner owner = new Owner("Degen", "11111");
-
-		return Response.ok().entity(new ListAllMyBucketsResult(buckets, owner)).build();
+		return Response.ok().entity(bucketService.getAll()).build();
 	}
 
 	/**
@@ -96,13 +85,23 @@ public class StorageBucket {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucket.html">Delete Bucket</a>
 	 */
-	@Path("/delete/{bucket}") @DELETE
-	public Response delete(@PathParam("bucket") String bucket) {
-		System.out.println("Bucket name " + bucket);
-		buckets.remove(0);
+	@Path("/delete") @DELETE
+	public Response delete(@Context UriInfo uri) {
 
-		System.out.println("Buckets size " + buckets.size());
+		String url = uri.getRequestUri().toASCIIString();
+		System.out.println("URI " + url);
 
-		return Response.ok().header("No content", "DElete success").build();
+		String bucketName = url.split("\\.")[0];
+		System.out.println("Base from uri " + bucketName);
+
+		boolean isDeleted = bucketService.delete("test1");
+
+		System.out.println("Has been deleted " + isDeleted);
+
+		if (!isDeleted) {
+			return Response.status(Response.Status.NOT_FOUND).build();
+		}
+
+		return Response.noContent().build();
 	}
 }
