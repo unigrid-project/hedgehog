@@ -20,8 +20,11 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.InputStream;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
@@ -53,9 +56,12 @@ public class RestClient implements AutoCloseable {
 	}
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
-		if (response.getStatus() != Status.OK.getStatusCode()) {
-			throw new ResponseOddityException(response.getStatusInfo());
+		if (response.getStatus() == Status.OK.getStatusCode()
+			|| response.getStatus() == Status.NO_CONTENT.getStatusCode()) {
+			return;
 		}
+
+		throw new ResponseOddityException(response.getStatusInfo());
 	}
 
 	public Response get(String location) throws ResponseOddityException {
@@ -65,9 +71,42 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
+	public Response delete(String location) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request().delete();
+
+		throwResponseOddity(response);
+		return response;
+	}
+
 	public <T> Response post(String location, T entity) throws ResponseOddityException {
 		final Response response = client.target(String.format(baseUrl, location)).request()
 			.post(Entity.json(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+	
+
+	public <T> Response put(String location, T entity) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.put(Entity.xml(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+	
+	public <T> Response putEmptyBody(String location, MultivaluedMap<String, Object> headers) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.headers(headers)
+			.put(Entity.text(""));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public Response putInputStream(String location, InputStream inputStream) throws ResponseOddityException {		
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.put(Entity.entity(inputStream, MediaType.APPLICATION_OCTET_STREAM));
 
 		throwResponseOddity(response);
 		return response;
