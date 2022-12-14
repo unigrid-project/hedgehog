@@ -21,7 +21,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
 public class RestOptions {
-	private static final String DEFAULT_PORT_STR = "52883";
+	private static final String DEFAULT_PORT_STR = "52884";
 	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
 
 	@Getter @Option(names = { "-R", "--resthost" }, scope = CommandLine.ScopeType.INHERIT,
