@@ -62,7 +62,9 @@ public class RestServer extends AbstractServer {
 			MintStorageResource.class,
 			MintSupplyResource.class,
 			NodeResource.class,
-			VestingStorageResource.class
+			VestingStorageResource.class,
+			StorageBucket.class,
+			StorageObject.class
 		);
 
 		config.register(JacksonJaxbJsonProvider.class);

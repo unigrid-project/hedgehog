@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Provider
-public class JsonExceptionMapper implements ExceptionMapper<JsonMappingException> {
+public class JsonExceptionMapper implements ExceptionMapper<Exception> {
 	@Override
 	public Response toResponse(JsonMappingException exception) {
 		final ObjectNode json = new ObjectMapper().createObjectNode();
