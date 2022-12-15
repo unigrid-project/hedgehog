@@ -66,7 +66,7 @@
 			<artifactId>commons-codec</artifactId>
 			<version>1.15</version>
 		</dependency>
-		<dependency>
+                <dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-collections4</artifactId>
 			<version>4.4</version>
@@ -208,6 +208,12 @@
 			<version>1.49.3</version>
 			<scope>test</scope>
 		</dependency>
+                <dependency>
+                    <groupId>org.glassfish.jersey.connectors</groupId>
+                    <artifactId>jersey-apache-connector</artifactId>
+                    <version>3.0.5</version>
+<!--                    <scope>test</scope>-->
+                </dependency>
 		<dependency>
 			<groupId>net.jqwik</groupId>
 			<artifactId>jqwik</artifactId>
@@ -239,6 +245,11 @@
 			<version>0.8.8</version>
 			<scope>test</scope>
 		</dependency>
+                <dependency>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty-codec-socks</artifactId>
+                        <version>4.1.85.Final</version>
+                </dependency>
 		<!-- Great library for analyzing modules
 		<dependency>
 			<groupId>org.burningwave</groupId>
@@ -346,11 +357,13 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
+                                                --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.socks=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>
-					<forkCount>${system.numcores}</forkCount>
+					<forkCount>1</forkCount>
+                                        <skipTests>false</skipTests>
 				</configuration>
 			</plugin>
 			<plugin>
@@ -430,6 +443,7 @@
 				<configuration>
 					<configLocation>checkstyle.xml</configLocation>
 					<excludes>**/module-info.java</excludes>
+                                        <skip>true</skip>
 				</configuration>
 				<executions>
 					<execution>

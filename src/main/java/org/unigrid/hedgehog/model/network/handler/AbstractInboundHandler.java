@@ -18,16 +18,24 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
 @RequiredArgsConstructor
-public abstract class AbstractInboundHandler<T extends Packet> extends ChannelInboundHandlerAdapter {
+public abstract class AbstractInboundHandler<T> extends ChannelInboundHandlerAdapter {
+	private final Optional<AttributeKey<Boolean>> filteringAttribute;
 	private final Class<T> clazz;
+	
+	public AbstractInboundHandler(Class<T> clazz){
+		this(Optional.empty(), clazz);
+	}
 
 	/* Special abstraction to clean up the default inbound handler and introduce generic types. Can and
 	   should be expanded to support more of the overridable methods in ChannelInboundHandlerAdapter as the
@@ -37,8 +45,28 @@ public abstract class AbstractInboundHandler<T extends Packet> extends ChannelIn
 	public void channelRead(ChannelHandlerContext ctx, Object obj) throws Exception {
 		boolean release = true;
 
+		final Supplier<Boolean> isAttributeEmptyAndOurClass = () -> filteringAttribute.isEmpty() && clazz.isInstance(obj);
+
+		System.out.println("Getting called: " + filteringAttribute);
+		System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()));
+		System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()).get());
+		System.out.println("Channel " + ctx.channel());
+	
+		final Supplier<Boolean> isAttributeFalseOrNullAndOurClass = () -> {
+			if (filteringAttribute.isPresent()) {
+				
+				final Boolean attribute = ctx.channel().attr( filteringAttribute.get()).get();
+				
+				if (Objects.isNull(attribute) || attribute.equals(false)) {
+					return clazz.isInstance(obj);
+				}
+			}
+	
+			return false;
+		};
+		
 		try {
-			if (clazz.isInstance(obj)) {
+			if (isAttributeEmptyAndOurClass.get() || isAttributeFalseOrNullAndOurClass.get()) {
 				typedChannelRead(ctx, (T) obj);
 			} else {
 				release = false;

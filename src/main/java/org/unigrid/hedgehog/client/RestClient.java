@@ -29,6 +29,8 @@ import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonP
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
+import org.glassfish.jersey.client.JerseyClientBuilder;
+
 public class RestClient implements AutoCloseable {
 	private final Client client;
 	private final String baseUrl;
@@ -44,7 +46,7 @@ public class RestClient implements AutoCloseable {
 		final SSLContext context = SSLContext.getInstance("ssl");
 		context.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), null);
 
-		client = ClientBuilder.newBuilder()
+		client = JerseyClientBuilder.newBuilder()
 			.hostnameVerifier((hostname, session) -> true) /* Accept all hostnames */
 			.sslContext(context)
 			.withConfig(clientConfig).build();

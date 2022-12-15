@@ -52,4 +52,6 @@ module org.unigrid.hedgehog {
 	requires jakarta.xml.bind;
 	requires j8fu;
 	requires net.harawata.appdirs;
+	requires io.netty.codec.socks;
+	
 }
