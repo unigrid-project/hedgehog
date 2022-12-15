@@ -26,6 +26,7 @@ import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Example;
+import org.openjdk.jmh.annotations.Benchmark;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
