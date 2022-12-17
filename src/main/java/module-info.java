@@ -53,4 +53,5 @@ module org.unigrid.hedgehog {
 	requires j8fu;
 	requires mapdb;
 	requires lmdbjava;
+	requires halodb;
 }

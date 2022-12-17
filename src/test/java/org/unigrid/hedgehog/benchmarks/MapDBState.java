@@ -27,7 +27,7 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Benchmark)
 public class MapDBState {
 	
-	public Map<String, String> map;
+	public Map<String, byte[]> map;
 	public DB db;
 	
 	@Setup(Level.Invocation)

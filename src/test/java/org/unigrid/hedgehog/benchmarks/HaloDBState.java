@@ -19,12 +19,37 @@ import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import com.oath.halodb.HaloDB;
+import com.oath.halodb.HaloDBOptions;
+import com.oath.halodb.HaloDBStats;
+import lombok.SneakyThrows;
 
 @State(Scope.Benchmark)
 public class HaloDBState {
 	
+	public HaloDB db;
+	public HaloDBOptions options;
+	public String dir = "halodb";
+
+	@SneakyThrows
 	@Setup(Level.Iteration)
 	public void setup() {
+		options = new HaloDBOptions();
+		options.setMaxFileSize(1024 * 1024 * 1024);
+		options.setMaxTombstoneFileSize(10 * 1024 * 1024);
+		options.setBuildIndexThreads(4);
+		options.setCompactionThresholdPerFile(0.7);
+		options.setCompactionJobRate(50 * 1024 * 1024);
+		options.setNumberOfRecords(100_000_000);
+		options.setCleanUpTombstonesDuringOpen(true);
+		options.setUseMemoryPool(true);
+		options.setCleanUpInMemoryIndexOnClose(true);
+		options.setMemoryPoolChunkSize(2 * 1024 * 1024);
+		options.setFixedKeySize(50);
 		
+		//System.out.println("we are opening the database");
+		//db = HaloDB.open(dir, options);
+		//HaloDBStats stats = db.stats();
+		//System.out.println(stats.toString());
 	}
 }

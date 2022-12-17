@@ -15,14 +15,19 @@
  */
 package org.unigrid.hedgehog.benchmarks;
 
+import com.oath.halodb.HaloDB;
+import com.oath.halodb.HaloDBException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import jnr.ffi.StructLayout;
+import lombok.SneakyThrows;
 import org.apache.commons.collections4.map.PassiveExpiringMap;
 import org.mapdb.DB;
 import org.mapdb.DBMaker;
@@ -41,44 +46,18 @@ import org.openjdk.jmh.annotations.State;
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 public class BenchmarkMapDB {
-
-	/*@Benchmark
-	public void init(BenchmarkData data) {
-		// Create a MapDB database using the default file location
-		DB db = DBMaker.fileDB(System.getProperty("user.home") + "/Documents/mapDB")
-			//.executorEnable()
-			//.fileChannelEnable()
-			.make();
-		// Create a PassiveExpiringMap that expires entries when the map size exceeds 100 entries
-		Map<String, String> map = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).createOrOpen();
-		map = data.expieringMap;
-		// Add some entries to the map
-		
-		// The entries will be automatically flushed to disk
-		db.commit();
-		
-		/*Map<String, String> outputMap = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).open();
-		for (Map.Entry<String, String> entry : outputMap.entrySet()) {
-			System.out.println("Object key = " + entry.getKey());
-			System.out.println("Object val = " + entry.getValue());
-			
-		}*/
-		//db.close();
-		
-		// Later, when you want to load the map from disk:
-	//}
 	
 	@Benchmark
 	public void mapDBLoop(BenchmarkData data, MapDBState db) {
 		db.map = data.expieringMap;
 		for (int i = 0; i < data.intirations; i++) {
 			String key = "";
-			String value = "";
+			byte[] value;
 			try {
 				MessageDigest digest = MessageDigest.getInstance("SHA-256");
 				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
 				key = Base64.getEncoder().encodeToString(hash);
-				value = Base64.getEncoder().encodeToString(hash);
+				value = generateRandomByteArray(data.chunk);;
 			} catch (NoSuchAlgorithmException e) {
 				throw new RuntimeException(e);
 			}
@@ -93,30 +72,40 @@ public class BenchmarkMapDB {
 		db.db.close();
 	}
 	
-	/*@Benchmark
+	@Benchmark
 	public void haloDBLoop(BenchmarkData data, HaloDBState db) {
-		db.map = data.expieringMap;
+
+		try {
+			db.db = HaloDB.open(db.dir, db.options);			
+		} catch (HaloDBException e) {
+			System.out.println(e.getMessage());
+			return;
+		}
 		for (int i = 0; i < data.intirations; i++) {
-			String key = "";
-			String value = "";
 			try {
 				MessageDigest digest = MessageDigest.getInstance("SHA-256");
+				//int rand = (int)(Math.random() * 100);
 				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
-				key = Base64.getEncoder().encodeToString(hash);
-				value = Base64.getEncoder().encodeToString(hash);
+				byte[] key = Base64.getEncoder().encodeToString(hash).getBytes();
+				byte[] value = generateRandomByteArray(data.chunk);
+				try {
+					db.db.put(key, value);
+				} catch (HaloDBException e) {
+					System.out.println("Error on put!");
+					System.out.println(e.getMessage());
+				}
 			} catch (NoSuchAlgorithmException e) {
-				throw new RuntimeException(e);
+				System.out.println(e.getMessage());
 			}
-			db.map.put(key, value);
-		}
-		Map<String, String> outputMap = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).open();
-		for (Map.Entry<String, String> entry : outputMap.entrySet()) {
-			System.out.println("Object key = " + entry.getKey());
-			System.out.println("Object val = " + entry.getValue());
 			
 		}
-		db.db.close();
-	}*/
+		try {
+			db.db.close();			
+		} catch (HaloDBException e) {
+			System.out.println("error on database close!!!!");
+			System.out.println(e.getMessage());
+		}
+	}
 	
 	@Benchmark
 	public void lmdbLoop(BenchmarkData data, LmdbState db) {
@@ -127,7 +116,7 @@ public class BenchmarkMapDB {
 				MessageDigest digest = MessageDigest.getInstance("SHA-256");
 				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
 				key.put(hash).flip();
-				value.put(hash).flip();
+				value.put(generateRandomByteArray(data.chunk)).flip();
 			} catch (NoSuchAlgorithmException e) {
 				throw new RuntimeException(e);
 			}
@@ -139,5 +128,16 @@ public class BenchmarkMapDB {
 			System.out.println("Object val = " + entry.getValue());
 			
 		}*/
+	}
+	
+	public static byte[] generateRandomByteArray(int iteration) {
+		double min = iteration * 0.9;
+		double max = iteration;
+		SecureRandom random = new SecureRandom();
+		
+		int length = (int)ThreadLocalRandom.current().nextDouble(min, max);
+		byte[] bytes = new byte[length];
+		random.nextBytes(bytes);
+		return bytes;
 	}
 }
