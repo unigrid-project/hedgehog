@@ -37,7 +37,7 @@ public class HaloDBState {
 		options = new HaloDBOptions();
 		options.setMaxFileSize(1024 * 1024 * 1024);
 		options.setMaxTombstoneFileSize(10 * 1024 * 1024);
-		options.setBuildIndexThreads(4);
+		options.setBuildIndexThreads(2);
 		options.setCompactionThresholdPerFile(0.7);
 		options.setCompactionJobRate(50 * 1024 * 1024);
 		options.setNumberOfRecords(100_000_000);
