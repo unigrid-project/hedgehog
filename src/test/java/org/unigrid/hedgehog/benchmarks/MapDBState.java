@@ -33,7 +33,7 @@ public class MapDBState {
 	@Setup(Level.Invocation)
 	public void setup() {
 		// Create a MapDB database using the default file location
-		db = DBMaker.fileDB(System.getProperty("user.home") + "/Documents/mapDB")
+		db = DBMaker.fileDB("mapDB")
 			//.executorEnable()
 			//.fileChannelEnable()
 			.make();
