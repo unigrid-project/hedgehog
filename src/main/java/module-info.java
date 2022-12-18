@@ -20,7 +20,7 @@ module org.unigrid.hedgehog {
 	requires info.picocli;
 	requires jakarta.cdi;
 	requires jakarta.inject;
-	requires jakarta.interceptor.api;
+	requires jakarta.interceptor;
 	requires jakarta.ws.rs;
 	requires jakarta.annotation;
 	requires com.fasterxml.jackson.databind;
