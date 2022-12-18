@@ -1,0 +1,10 @@
+[
+  {
+    "type":"agent-extracted",
+    "classes":[
+      { "nameInfo":"org/jboss/weld/generated/proxies/enterprise/event/Event$WeldEvent$Proxy$_$$_Weld$Proxy$", "hash":"5f222ef5c92b63e114d2ff9a1b4e1af5df11805281129bc7bcc7827f0ac503f0" },
+      { "nameInfo":"org/jboss/weld/generated/proxies/enterprise/inject/Instance$Provider$WeldInstance$Proxy$_$$_Weld$Proxy$", "hash":"ac9c171dbc7f78f74e95e71159f61a84759bb5aabb98476aedfc10ce646ab371" }
+    ]
+  }
+]
+

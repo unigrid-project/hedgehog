@@ -1,0 +1,588 @@
+[
+{
+  "name":"ch.qos.logback.classic.Logger"
+},
+{
+  "name":"com.sun.org.apache.xerces.internal.impl.dv.xs.ExtendedSchemaDVFactoryImpl",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"com.sun.org.apache.xerces.internal.impl.dv.xs.SchemaDVFactoryImpl",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"jakarta.annotation.PostConstruct",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.annotation.PreDestroy"
+},
+{
+  "name":"jakarta.annotation.Priority",
+  "queryAllDeclaredMethods":true,
+  "methods":[{"name":"value","parameterTypes":[] }]
+},
+{
+  "name":"jakarta.decorator.Decorator",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.decorator.Delegate",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.enterprise.context.ApplicationScoped",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.context.BeforeDestroyed",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"value","parameterTypes":[] }]
+},
+{
+  "name":"jakarta.enterprise.context.ConversationScoped",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.context.Dependent",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.context.Destroyed",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"value","parameterTypes":[] }]
+},
+{
+  "name":"jakarta.enterprise.context.Initialized",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"value","parameterTypes":[] }]
+},
+{
+  "name":"jakarta.enterprise.context.NormalScope",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.enterprise.context.RequestScoped",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.context.SessionScoped",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.context.control.ActivateRequestContext",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.event.Event",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"jakarta.enterprise.event.Observes",
+  "queryAllDeclaredMethods":true,
+  "methods":[
+    {"name":"during","parameterTypes":[] }, 
+    {"name":"notifyObserver","parameterTypes":[] }
+  ]
+},
+{
+  "name":"jakarta.enterprise.inject.Any",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.inject.Default",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.enterprise.inject.Instance",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"jakarta.enterprise.inject.Produces",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.enterprise.inject.Stereotype",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.enterprise.inject.Vetoed",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.enterprise.inject.spi.Extension",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.inject.Inject",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.inject.Provider",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"jakarta.inject.Qualifier",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.inject.Scope",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.inject.Singleton",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"jakarta.interceptor.AroundConstruct"
+},
+{
+  "name":"jakarta.interceptor.AroundInvoke",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.interceptor.AroundTimeout"
+},
+{
+  "name":"jakarta.interceptor.ExcludeClassInterceptors"
+},
+{
+  "name":"jakarta.interceptor.Interceptor",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.interceptor.InterceptorBinding",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"jakarta.interceptor.Interceptors",
+  "methods":[{"name":"value","parameterTypes":[] }]
+},
+{
+  "name":"java.io.Serializable",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"java.lang.Deprecated",
+  "queryAllDeclaredMethods":true,
+  "methods":[
+    {"name":"forRemoval","parameterTypes":[] }, 
+    {"name":"since","parameterTypes":[] }
+  ]
+},
+{
+  "name":"java.lang.FunctionalInterface",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"java.lang.Object",
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"java.lang.Runnable",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"java.lang.annotation.Annotation",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"java.lang.annotation.Documented",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"java.lang.annotation.Inherited",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"java.lang.annotation.Retention",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"java.lang.annotation.Target",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"java.security.MessageDigestSpi"
+},
+{
+  "name":"java.security.SecureRandomParameters"
+},
+{
+  "name":"jdk.internal.HotSpotIntrinsicCandidate",
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"net.saga.graalvm.weld.test.ABean",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"net.saga.graalvm.weld.test.ABean$Proxy$_$$_WeldClientProxy",
+  "allDeclaredFields":true,
+  "unsafeAllocated":true
+},
+{
+  "name":"net.saga.graalvm.weld.test.Application",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }, 
+    {"name":"init","parameterTypes":[] }, 
+    {"name":"init","parameterTypes":["java.lang.Object"] }
+  ]
+},
+{
+  "name":"net.saga.graalvm.weld.test.Application$Proxy$_$$_WeldClientProxy",
+  "allDeclaredFields":true,
+  "unsafeAllocated":true
+},
+{
+  "name":"net.saga.graalvm.weld.test.BuildTimeLoggerInit"
+},
+{
+  "name":"net.saga.graalvm.weld.test.Logger",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }, 
+    {"name":"info","parameterTypes":["java.lang.String"] }
+  ]
+},
+{
+  "name":"net.saga.graalvm.weld.test.Logger$Proxy$_$$_WeldClientProxy",
+  "allDeclaredFields":true,
+  "unsafeAllocated":true
+},
+{
+  "name":"net.saga.graalvm.weld.test.Main"
+},
+{
+  "name":"net.saga.graalvm.weld.test.Main2"
+},
+{
+  "name":"net.saga.graalvm.weld.test.Main2Feature"
+},
+{
+  "name":"net.saga.graalvm.weld.test.ServiceLoaderAnnotated"
+},
+{
+  "name":"net.saga.graalvm.weld.test.ServiceLoaderAnnotated$1"
+},
+{
+  "name":"net.saga.graalvm.weld.test.ServiceLoaderAnnotated$LazyIterator"
+},
+{
+  "name":"net.saga.graalvm.weld.test.ServiceLoaderAnnotated$LazyIterator$1"
+},
+{
+  "name":"net.saga.graalvm.weld.test.ServiceLoaderAnnotated$LazyIterator$2"
+},
+{
+  "name":"org.apache.log4j.LogManager"
+},
+{
+  "name":"org.apache.logging.log4j.Logger"
+},
+{
+  "name":"org.jboss.logmanager.LogManager"
+},
+{
+  "name":"org.jboss.weld.bean.proxy.ProxyObject",
+  "methods":[
+    {"name":"weld_getHandler","parameterTypes":[] }, 
+    {"name":"weld_setHandler","parameterTypes":["org.jboss.weld.bean.proxy.MethodHandler"] }
+  ]
+},
+{
+  "name":"org.jboss.weld.bean.proxy.UnsafeProxyInstantiator",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"org.jboss.weld.bootstrap.WeldExtension",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }, 
+    {"name":"beforeBeanDiscovery","parameterTypes":["jakarta.enterprise.inject.spi.BeforeBeanDiscovery","jakarta.enterprise.inject.spi.BeanManager"] }
+  ]
+},
+{
+  "name":"org.jboss.weld.bootstrap.api.helpers.RegistrySingletonProvider",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"org.jboss.weld.configuration.spi.ExternalConfiguration"
+},
+{
+  "name":"org.jboss.weld.context.activator.ActivateRequestContext",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.context.bound.Bound",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.context.unbound.Unbound",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.contexts.activator.AbstractActivateRequestContextInterceptor",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true
+},
+{
+  "name":"org.jboss.weld.contexts.activator.ActivateRequestContextInterceptor",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.weld.context.RequestContext","org.jboss.weld.manager.BeanManagerImpl"] }]
+},
+{
+  "name":"org.jboss.weld.contexts.activator.CdiRequestContextActivatorInterceptor",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.weld.context.RequestContext","org.jboss.weld.manager.BeanManagerImpl"] }]
+},
+{
+  "name":"org.jboss.weld.environment.logging.CommonLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.environment.logging.CommonLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.environment.logging.CommonLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.environment.se.WeldSEBeanRegistrant",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }, 
+    {"name":"registerWeldSEBeans","parameterTypes":["jakarta.enterprise.inject.spi.BeforeBeanDiscovery","jakarta.enterprise.inject.spi.BeanManager"] }, 
+    {"name":"registerWeldSEContexts","parameterTypes":["jakarta.enterprise.inject.spi.AfterBeanDiscovery","jakarta.enterprise.inject.spi.BeanManager"] }
+  ]
+},
+{
+  "name":"org.jboss.weld.environment.se.beans.ParametersFactory",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[
+    {"name":"<init>","parameterTypes":[] }, 
+    {"name":"getArgs","parameterTypes":[] }, 
+    {"name":"getArgsAsArray","parameterTypes":[] }
+  ]
+},
+{
+  "name":"org.jboss.weld.environment.se.bindings.Parameters",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.environment.se.contexts.ThreadScoped",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.environment.se.contexts.activators.ActivateThreadScope",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true
+},
+{
+  "name":"org.jboss.weld.environment.se.contexts.activators.ActivateThreadScopeInterceptor",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.weld.environment.se.WeldSEBeanRegistrant"] }]
+},
+{
+  "name":"org.jboss.weld.environment.se.logging.WeldSELogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.environment.se.logging.WeldSELogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.environment.se.logging.WeldSELogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.environment.se.threading.RunnableDecorator",
+  "allDeclaredFields":true,
+  "queryAllDeclaredMethods":true,
+  "queryAllDeclaredConstructors":true,
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.weld.environment.se.WeldSEBeanRegistrant"] }]
+},
+{
+  "name":"org.jboss.weld.events.WeldEvent",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"org.jboss.weld.generated.proxies.enterprise.event.Event$WeldEvent$Proxy$_$$_Weld$Proxy$"
+},
+{
+  "name":"org.jboss.weld.generated.proxies.enterprise.inject.Instance$Provider$WeldInstance$Proxy$_$$_Weld$Proxy$"
+},
+{
+  "name":"org.jboss.weld.inject.WeldInstance",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"org.jboss.weld.interceptor.proxy.LifecycleMixin",
+  "queryAllPublicMethods":true,
+  "methods":[
+    {"name":"lifecycle_mixin_$$_postConstruct","parameterTypes":[] }, 
+    {"name":"lifecycle_mixin_$$_preDestroy","parameterTypes":[] }
+  ]
+},
+{
+  "name":"org.jboss.weld.interceptor.util.proxy.TargetInstanceProxy",
+  "methods":[
+    {"name":"weld_getTargetClass","parameterTypes":[] }, 
+    {"name":"weld_getTargetInstance","parameterTypes":[] }
+  ]
+},
+{
+  "name":"org.jboss.weld.logging.BeanLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.BeanLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.BeanLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.BootstrapLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.BootstrapLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.BootstrapLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.ConfigurationLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.ConfigurationLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.ConfigurationLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.ContextLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.ContextLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.ContextLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.ReflectionLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.ReflectionLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.ReflectionLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.ValidatorLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.ValidatorLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.ValidatorLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.logging.VersionLogger_$logger",
+  "methods":[{"name":"<init>","parameterTypes":["org.jboss.logging.Logger"] }]
+},
+{
+  "name":"org.jboss.weld.logging.VersionLogger_$logger_sv"
+},
+{
+  "name":"org.jboss.weld.logging.VersionLogger_$logger_sv_SE"
+},
+{
+  "name":"org.jboss.weld.proxy.WeldClientProxy",
+  "methods":[{"name":"getMetadata","parameterTypes":[] }]
+},
+{
+  "name":"org.jboss.weld.proxy.WeldConstruct",
+  "queryAllPublicMethods":true
+},
+{
+  "name":"sun.misc.Unsafe",
+  "fields":[{"name":"theUnsafe"}]
+},
+{
+  "name":"sun.reflect.annotation.AnnotationType"
+},
+{
+  "name":"sun.security.provider.NativePRNG",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+},
+{
+  "name":"sun.security.provider.SHA",
+  "methods":[{"name":"<init>","parameterTypes":[] }]
+}
+]

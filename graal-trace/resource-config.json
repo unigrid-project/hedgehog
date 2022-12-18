@@ -1,0 +1,30 @@
+{
+  "resources":{
+  "includes":[
+    {
+      "pattern":"\\QMETA-INF/services/jakarta.enterprise.inject.se.SeContainerInitializer\\E"
+    }, 
+    {
+      "pattern":"\\Qbeans_1_0.xsd\\E"
+    }, 
+    {
+      "pattern":"\\Qbeans_1_1.xsd\\E"
+    }, 
+    {
+      "pattern":"\\Qbeans_2_0.xsd\\E"
+    }, 
+    {
+      "pattern":"\\Qnet/saga/graalvm/weld/test/Main.class\\E"
+    }, 
+    {
+      "pattern":"\\Qweld-build.properties\\E"
+    }, 
+    {
+      "pattern":"\\Qweld_1_1.xsd\\E"
+    }
+  ]},
+  "bundles":[{
+      "name":"com.sun.org.apache.xerces.internal.impl.xpath.regex.message",
+      "locales":[""]
+    }]
+}
