@@ -1,10 +1,164 @@
 [
     {
-        "name":"org.jboss.weld.environment.se.Weld",
+        "name" : "org.jboss.weld.environment.se.Weld",
 
         "allDeclaredMethods" : true,
         "allPublicMethods" : true,
         "allDeclaredFields" : true,
-        "allPublicFields" : true
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.bootstrap.api.helpers.RegistrySingletonProvider",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.VersionLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.BootstrapLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.environment.se.logging.WeldSELogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.environment.logging.CommonLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.ConfigurationLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.InterceptorLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.ReflectionLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.ValidatorLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.BeanLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.event.EventImpl",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.bean.builtin.EventBean",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "jakarta.interceptor.AroundInvoke",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "jakarta.interceptor.AroundTimeout",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "jakarta.annotation.PostConstruct",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "jakarta.annotation.PreDestroy",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "jakarta.interceptor.AroundConstruct",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
     }
 ]

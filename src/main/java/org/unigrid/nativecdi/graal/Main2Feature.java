@@ -3,30 +3,26 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package net.saga.graalvm.weld.test;
+package org.unigrid.nativecdi.graal;
 
 import com.oracle.svm.core.annotate.AutomaticFeature;
-import com.oracle.svm.core.jdk.Resources;
 import java.io.IOException;
 import java.io.InputStream;
-import org.graalvm.nativeimage.Feature;
-import org.graalvm.nativeimage.RuntimeReflection;
+//import com.oracle.svm.core.jdk.Resources;
+import org.graalvm.nativeimage.hosted.Feature;
+import org.graalvm.nativeimage.hosted.RuntimeReflection;
 import org.jboss.weld.environment.se.Weld;
 
-/**
- *
- * @author summers
- */
-@AutomaticFeature
 public class Main2Feature implements Feature {
 
-    @Override
-    public void beforeAnalysis(BeforeAnalysisAccess access) {
-        Feature.super.beforeAnalysis(access); 
+	@Override
+	public void beforeAnalysis(BeforeAnalysisAccess access) {
+		Feature.super.beforeAnalysis(access);
 
-        System.out.println("Registering resources");
-        
-        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/net.saga.graalvm.weld.test.Application")) {
+		System.out.println("Registering resources");
+
+		//DyamicProxySupport
+		/*try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/net.saga.graalvm.weld.test.Application")) {
             Resources.registerResource("META-INF/services/net.saga.graalvm.weld.test.Application", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
@@ -54,12 +50,9 @@ public class Main2Feature implements Feature {
             Resources.registerResource("META-INF/services/javax.enterprise.inject.spi.Extension", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
-        }
-        
-        RuntimeReflection.registerForReflectiveInstantiation(Weld.class);
-        
-    }
- 
-    
-    
+        }*/
+		RuntimeReflection.registerForReflectiveInstantiation(Weld.class);
+
+	}
+
 }
