@@ -348,6 +348,7 @@
                                                         <version>1.36</version>
                                                 </path>
 					</annotationProcessorPaths>
+                                        <jvmArgs>-Xmx1G</jvmArgs>
                                         <!--<outputFile>benchmarks</outputFile>-->
                                 </configuration>
                         </plugin>

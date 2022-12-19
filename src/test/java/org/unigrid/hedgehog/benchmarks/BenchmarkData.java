@@ -15,6 +15,8 @@
  */
 package org.unigrid.hedgehog.benchmarks;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.apache.commons.collections4.map.PassiveExpiringMap;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
@@ -25,30 +27,32 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Benchmark)
 public class BenchmarkData {
 
-	@Param({/*"10", "100",*/ "1000", "10000", "100000"})
+	@Param({/*"10", "100", */"500", "10000", "100000"})
 	public int intirations;
+
+	@Param({ /*"TEN_BYTES", "ONE_KB", */"ONE_MB", "TEN_MB" })
+	public String sizeString;
 	
-	@Param({"10", "1000", "1", "10", "256"})
 	public int chunk;
-	
+
 	public int size = 100;
-	
+
 	public PassiveExpiringMap<String, byte[]> expieringMap;
-	
+
 	@Setup(Level.Iteration)
 	public void setup() {
-		expieringMap = new PassiveExpiringMap<>(size);
-		
-		switch (chunk) {
-			case 1:
-				chunk = 1 * 1024 * 1024;
-				break;
-			case 10:
-				chunk = 10 * 1024 * 1024;
-				break;
-			case 256:
-				chunk = 256 * 1024 * 1024;
-				break;
-		}
+
+		chunk = Size.valueOf(sizeString).getChunk();
+	}
+
+	@AllArgsConstructor
+	public enum Size {
+		TEN_BYTES(10),
+		ONE_KB(1024),
+		ONE_MB(1024 * 1024),
+		TEN_MB(10 * 1024 * 1024);
+
+		@Getter
+		private final int chunk;
 	}
 }

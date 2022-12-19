@@ -41,9 +41,9 @@ public class LmdbState {
 		
 		final File path = new File(System.getProperty("user.dir"));
 		env = create()
-			.setMapSize(10_485_760)
+			.setMapSize(1024 * 1024 * 1024 * 2 - 1)
 			.setMaxDbs(1)
-			.open(path);
+			.open(path, EnvFlags.MDB_NOSYNC);
 		
 		db = env.openDbi(DB_NAME, DbiFlags.MDB_CREATE);
 	}

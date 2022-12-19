@@ -33,12 +33,17 @@ public class MapDBState {
 	@Setup(Level.Invocation)
 	public void setup() {
 		// Create a MapDB database using the default file location
-		db = DBMaker.fileDB("mapDB")
+		db = DBMaker.fileDB("mapDBskit")
+			.fileMmapEnable()
+			.allocateStartSize(1024 * 1024 * 32)
+			.allocateIncrement(1024 * 1024 * 32)
+			//.transactionEnable()
+			.fileMmapPreclearDisable()
 			//.executorEnable()
 			//.fileChannelEnable()
 			.make();
 		// Create a PassiveExpiringMap that expires entries when the map size exceeds 100 entries
-		map = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).createOrOpen();
+		map = db.hashMap("map", Serializer.STRING, Serializer.BYTE_ARRAY).createOrOpen();
 		
 		db.commit();
 	}

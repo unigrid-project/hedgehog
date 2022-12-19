@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -44,24 +45,25 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Benchmark)
 @Fork(value = 1, warmups = 1)
 @BenchmarkMode(Mode.AverageTime)
-@OutputTimeUnit(TimeUnit.NANOSECONDS)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
 public class BenchmarkMapDB {
 	
 	@Benchmark
 	public void mapDBLoop(BenchmarkData data, MapDBState db) {
-		db.map = data.expieringMap;
+		data.expieringMap = new PassiveExpiringMap<>(db.map);
+		byte[] value = generateRandomByteArray(data.chunk);
 		for (int i = 0; i < data.intirations; i++) {
 			String key = "";
-			byte[] value;
+			
 			try {
 				MessageDigest digest = MessageDigest.getInstance("SHA-256");
 				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
 				key = Base64.getEncoder().encodeToString(hash);
-				value = generateRandomByteArray(data.chunk);;
 			} catch (NoSuchAlgorithmException e) {
 				throw new RuntimeException(e);
 			}
-			db.map.put(key, value);
+			data.expieringMap.put(key, Arrays.copyOf(value, value.length));
+			//db.db.commit();
 		}
 		/*Map<String, String> outputMap = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).open();
 		for (Map.Entry<String, String> entry : outputMap.entrySet()) {
@@ -109,17 +111,20 @@ public class BenchmarkMapDB {
 	
 	@Benchmark
 	public void lmdbLoop(BenchmarkData data, LmdbState db) {
+		byte[] tmp = generateRandomByteArray(data.chunk);
+		
 		for (int i = 0; i < data.intirations; i++) {
 			ByteBuffer key = ByteBuffer.allocateDirect(db.env.getMaxKeySize());
-			ByteBuffer value = ByteBuffer.allocateDirect(700);
 			try {
 				MessageDigest digest = MessageDigest.getInstance("SHA-256");
 				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
 				key.put(hash).flip();
-				value.put(generateRandomByteArray(data.chunk)).flip();
 			} catch (NoSuchAlgorithmException e) {
 				throw new RuntimeException(e);
 			}
+			ByteBuffer value = ByteBuffer.allocateDirect(tmp.length);
+			value.put(tmp).flip();
+
 			db.db.put(key, value);
 		}
 		/*Map<String, String> outputMap = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).open();
