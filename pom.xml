@@ -11,13 +11,6 @@
 		<maven.compiler.source>11</maven.compiler.source>
 		<maven.compiler.target>11</maven.compiler.target>
 	</properties>
-        <repositories>
-                <repository>
-                        <id>Yahoo</id>
-                        <name>halodb repo</name>
-                        <url>https://jitpack.io</url>
-                </repository>
-        </repositories>
 	<dependencies>
 		<dependency>
 			<groupId>info.picocli</groupId>
@@ -44,12 +37,6 @@
 			<artifactId>commons-configuration2</artifactId>
 			<version>2.7</version>
 		</dependency>
-                <dependency>
-                        <groupId>org.apache.commons</groupId>
-                        <artifactId>commons-io</artifactId>
-                        <version>2.7</version>
-                        <scope>test</scope>
-                </dependency>
 		<dependency>
 			<groupId>org.jboss.weld.se</groupId>
 			<artifactId>weld-se-core</artifactId>
@@ -212,11 +199,6 @@
                         <groupId>org.mapdb</groupId>
                         <artifactId>mapdb</artifactId>
                         <version>3.0.9</version>
-                </dependency>
-                <dependency>
-                        <groupId>com.github.yahoo</groupId>
-                        <artifactId>halodb</artifactId>
-                        <version>0.5.6</version>
                 </dependency>
 	</dependencies>
 	<build>

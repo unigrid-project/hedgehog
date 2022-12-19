@@ -19,16 +19,16 @@ import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
-import com.oath.halodb.HaloDB;
-import com.oath.halodb.HaloDBOptions;
-import com.oath.halodb.HaloDBStats;
+//import com.oath.halodb.HaloDB;
+//import com.oath.halodb.HaloDBOptions;
+//import com.oath.halodb.HaloDBStats;
 import java.io.File;
 import lombok.SneakyThrows;
 
 @State(Scope.Benchmark)
 public class HaloDBState {
 	
-	public HaloDB db;
+	/*public HaloDB db;
 	public HaloDBOptions options;
 	public String dir = "halodb";
 
@@ -56,5 +56,5 @@ public class HaloDBState {
 		//db = HaloDB.open(dir, options);
 		//HaloDBStats stats = db.stats();
 		//System.out.println(stats.toString());
-	}
+	}*/
 }

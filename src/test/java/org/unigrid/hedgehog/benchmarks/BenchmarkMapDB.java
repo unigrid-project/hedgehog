@@ -15,8 +15,8 @@
  */
 package org.unigrid.hedgehog.benchmarks;
 
-import com.oath.halodb.HaloDB;
-import com.oath.halodb.HaloDBException;
+//import com.oath.halodb.HaloDB;
+//import com.oath.halodb.HaloDBException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
