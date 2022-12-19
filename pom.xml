@@ -44,6 +44,12 @@
 			<artifactId>commons-configuration2</artifactId>
 			<version>2.7</version>
 		</dependency>
+                <dependency>
+                        <groupId>org.apache.commons</groupId>
+                        <artifactId>commons-io</artifactId>
+                        <version>2.7</version>
+                        <scope>test</scope>
+                </dependency>
 		<dependency>
 			<groupId>org.jboss.weld.se</groupId>
 			<artifactId>weld-se-core</artifactId>

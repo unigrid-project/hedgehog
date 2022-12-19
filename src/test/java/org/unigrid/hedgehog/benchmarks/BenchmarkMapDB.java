@@ -72,7 +72,7 @@ public class BenchmarkMapDB {
 		db.db.close();
 	}
 	
-	@Benchmark
+	/*@Benchmark
 	public void haloDBLoop(BenchmarkData data, HaloDBState db) {
 
 		try {
@@ -105,7 +105,7 @@ public class BenchmarkMapDB {
 			System.out.println("error on database close!!!!");
 			System.out.println(e.getMessage());
 		}
-	}
+	}*/
 	
 	@Benchmark
 	public void lmdbLoop(BenchmarkData data, LmdbState db) {

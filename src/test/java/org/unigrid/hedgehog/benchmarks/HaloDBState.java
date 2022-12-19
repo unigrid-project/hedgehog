@@ -22,6 +22,7 @@ import org.openjdk.jmh.annotations.State;
 import com.oath.halodb.HaloDB;
 import com.oath.halodb.HaloDBOptions;
 import com.oath.halodb.HaloDBStats;
+import java.io.File;
 import lombok.SneakyThrows;
 
 @State(Scope.Benchmark)
@@ -34,6 +35,10 @@ public class HaloDBState {
 	@SneakyThrows
 	@Setup(Level.Iteration)
 	public void setup() {
+		File file = new File(dir);
+		if(file.exists()) {
+			
+		}
 		options = new HaloDBOptions();
 		options.setMaxFileSize(1024 * 1024 * 1024);
 		options.setMaxTombstoneFileSize(10 * 1024 * 1024);
