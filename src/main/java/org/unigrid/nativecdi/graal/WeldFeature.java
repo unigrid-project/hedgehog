@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 import jakarta.enterprise.inject.spi.Bean;
+import jakarta.enterprise.inject.spi.CDI;
 import java.util.Arrays;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -43,6 +44,7 @@ import org.jboss.weld.bean.proxy.ClientProxyFactory;
 import org.jboss.weld.bean.proxy.ClientProxyProvider;
 import org.jboss.weld.environment.se.WeldContainer;
 import org.jboss.weld.manager.BeanManagerImpl;
+import org.jboss.weld.manager.api.WeldManager;
 import org.jboss.weld.util.Proxies;
 
 @AutomaticFeature
@@ -51,8 +53,9 @@ public class WeldFeature implements Feature {
 	public void beforeAnalysis(BeforeAnalysisAccess access) {
 		access.registerAsUsed(org.jboss.weld.manager.api.WeldManager.class);
 		access.registerAsUsed(org.jboss.weld.manager.BeanManagerImpl.class);
+		RuntimeReflection.register(WeldManager.class);
 	}
-	
+
 	@Override
 	public void duringSetup(DuringSetupAccess access) {
 		
@@ -64,12 +67,16 @@ public class WeldFeature implements Feature {
 
 		trace(() -> "Weld feature about to iterate: " + beanManagerClass);
 
-		/*access.registerObjectReplacer((obj) -> {
-			if (obj.getClass().getName().contains("Container")) {
+		//SeContainer container = SeContainerInitializer.newInstance().initialize();
+		//System.out.println("xoxo " + ((WeldManager) container.getBeanManager()).getId());
+		//System.out.println("xoxo " + ((WeldContainer) container).getId());
+
+		access.registerObjectReplacer((obj) -> {
+			if (obj.getClass().getName().contains("BeanManagerImpl")) {
 				trace(() -> "found: " + obj.getClass().getName());
 			}
 
-			if (beanManagerClass.isInstance(obj)) {
+			/*if (beanManagerClass.isInstance(obj)) {
 				trace(() -> "replacer: " + obj);
 
 				try {
@@ -95,9 +102,9 @@ public class WeldFeature implements Feature {
 					warn(() -> "Error processing object " + obj);
 					warn(() -> "  " + ex.getClass().getName() + ": " + ex.getMessage());
 				}
-			}
+			}*/
 			return obj;
-		});*/
+		});
 	}
 
 	private void trace(Supplier<String> message) {

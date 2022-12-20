@@ -27,18 +27,20 @@ import com.oracle.svm.core.annotate.InjectAccessors;
 import com.oracle.svm.core.annotate.RecomputeFieldValue;
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
+import jakarta.enterprise.inject.spi.CDI;
 import org.jboss.weld.event.ObserverNotifier;
 import org.jboss.weld.executor.DaemonThreadFactory;
 import org.jboss.weld.util.reflection.ParameterizedTypeImpl;
 
 public class WeldSubstitutions {
-    @TargetClass(className = "org.jboss.weld.environment.se.WeldContainer")
-    static final class WeldContainerSubstitution {
+    /*@TargetClass(className = "org.jboss.weld.bean.proxy.util.WeldDefaultProxyServices")
+    static final class WeldDefaultProxyServicesSub {
 	@Substitute
 	String getId() {
+		System.out.println("pickles are great!");
 		return "hedgehog-main";
 	}
-    }
+    }*/
 
     /*@TargetClass(className = "org.jboss.weld.bootstrap.events.ContainerLifecycleEventPreloader")
     static final class ContainerLifecycleEventPreloaderSubstitution {     
@@ -51,8 +53,7 @@ public class WeldSubstitutions {
 
         @Inject
         @RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset)
-        private final DaemonThreadFactory dtf = new DaemonThreadFactory(new ThreadGroup("weld-preloaders"),
-                                                                        "weld-preloader-");
+        private final DaemonThreadFactory dtf = new DaemonThreadFactory(new ThreadGroup("weld-preloaders"), "weld-preloader-");
 
         @Substitute
         void preloadContainerLifecycleEvent(Class<?> eventRawType, Type... typeParameters) {

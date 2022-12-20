@@ -160,5 +160,32 @@
         "allDeclaredFields" : true,
         "allPublicFields" : true,
 	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.bootstrap.api.helpers.RegistrySingletonProvider",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+	"allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.BeanManagerLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.logging.ContextLogger_$logger",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
     }
 ]

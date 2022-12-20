@@ -91,9 +91,4 @@ public class ProxyBean implements Bean<Object> {
 	public boolean isAlternative() {
 		return false;
 	}
-
-	@Override
-	public boolean isNullable() {
-		return false;
-	}
 }
