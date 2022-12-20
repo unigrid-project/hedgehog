@@ -110,7 +110,7 @@
 				<artifactId>arthur-maven-plugin</artifactId>
 				<version>1.0.5</version>
 				<configuration>
-					<main>net.saga.graalvm.weld.test.Main</main>
+					<main>org.unigrid.nativecdi.Main</main>
 					<graalVersion>22.3.0</graalVersion>
 					<enableAllSecurityServices>false</enableAllSecurityServices>
 					<!--<reflectionConfigurationFiles>
