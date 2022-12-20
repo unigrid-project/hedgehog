@@ -15,7 +15,7 @@
 		<dependency>  
 			<groupId>org.jboss.weld.se</groupId>
 			<artifactId>weld-se-core</artifactId>
-			<version>4.0.2.Final</version>
+			<version>5.1.0.Final</version>
 		</dependency>
 		<dependency>
 			<groupId>org.graalvm.sdk</groupId>
