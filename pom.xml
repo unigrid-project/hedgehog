@@ -135,6 +135,9 @@
 						<customOptions>-H:PredefinedClassesConfigurationFiles=${project.build.directory}/../graal-trace3/predefined-classes-config.json</customOptions>-->
 						<!--<customOptions>-O0</customOptions>-->
 					</customOptions>
+					<resourcesConfigurationFiles>
+					<resourcesConfigurationFiles>${project.build.directory}/classes/resources.json</resourcesConfigurationFiles>
+					</resourcesConfigurationFiles>
 					<!--<printClassInitialization>true</printClassInitialization>-->
 				</configuration>
 			</plugin>

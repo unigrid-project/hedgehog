@@ -1,0 +1,10 @@
+{
+  "resources":{
+  "includes":[
+    {
+      "pattern":"\\QMETA-INF/beans.xml\\E"
+    }
+  ]},
+  "bundles":[
+  ]
+}
