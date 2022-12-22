@@ -38,32 +38,50 @@ import java.util.Arrays;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.SneakyThrows;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.RuntimeReflection;
 import org.jboss.weld.bean.proxy.ClientProxyFactory;
 import org.jboss.weld.bean.proxy.ClientProxyProvider;
+import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.jboss.weld.event.ObserverNotifier;
 import org.jboss.weld.manager.BeanManagerImpl;
 import org.jboss.weld.manager.api.WeldManager;
 import org.jboss.weld.util.Proxies;
+import org.unigrid.nativecdi.Application;
+import org.unigrid.nativecdi.Main;
 
 @AutomaticFeature
 public class WeldFeature implements Feature {
 	@Override
+	@SneakyThrows
 	public void beforeAnalysis(BeforeAnalysisAccess access) {
-		access.registerAsUsed(org.jboss.weld.manager.api.WeldManager.class);
+		//final SeContainer container = Weld.newInstance().initialize();
+		final SeContainerInitializer initializer = SeContainerInitializer.newInstance();
+		initializer.initialize();
+		/*try ( SeContainer container = initializer.disableDiscovery()
+			.addPackages(Main.class)
+			.addBeanClasses(Application.class).initialize()) {
+
+			container.select(Application.class).get().start();
+		}*/
+
+		//RuntimeReflection.register(ObserverNotifier.class);
+		//System.out.println(container.select(Application.class).get());
+		/*access.registerAsUsed(org.jboss.weld.manager.api.WeldManager.class);
 		access.registerAsUsed(org.jboss.weld.manager.BeanManagerImpl.class);
-		RuntimeReflection.register(WeldManager.class);
+		RuntimeReflection.register(WeldManager.class);*/
 	}
 
-	@Override
+	/*@Override
 	public void duringSetup(DuringSetupAccess access) {
 		
 		trace(() -> "Weld feature starting up");
 		final Class<?> beanManagerClass = access.findClassByName("org.jboss.weld.manager.api.WeldManager");
 		//Set<BeanId> processed = new HashSet<>();
 		Set<Set<Type>> processedExplicitProxy = new HashSet<>();
-		List<WeldProxyConfig> weldProxyConfigs = weldProxyConfigurations();
+		//List<WeldProxyConfig> weldProxyConfigs = weldProxyConfigurations();
 
 		trace(() -> "Weld feature about to iterate: " + beanManagerClass);
 
@@ -102,12 +120,12 @@ public class WeldFeature implements Feature {
 					warn(() -> "Error processing object " + obj);
 					warn(() -> "  " + ex.getClass().getName() + ": " + ex.getMessage());
 				}
-			}*/
+			}
 			return obj;
 		});
-	}
+	}*/
 
-	private void trace(Supplier<String> message) {
+	/*private void trace(Supplier<String> message) {
 		System.out.println(message.get());
 	}
 
@@ -178,9 +196,9 @@ public class WeldFeature implements Feature {
 			// now we also need to handle all types
 			beanTypes.forEach(type -> iterateBeans(bm, cpp, bm.getBeans(type)));
 		}
-	}
+	}*/
 
-	static List<WeldProxyConfig> weldProxyConfigurations() {
+	/*static List<WeldProxyConfig> weldProxyConfigurations() {
 		try {
 			URL resource = WeldFeature.class.getClassLoader().getResource("META-INF/native-image/weld-proxies.json");
 			final ObjectMapper mapper = new ObjectMapper();
@@ -190,13 +208,13 @@ public class WeldFeature implements Feature {
 		} catch (IOException e) {
 			throw new IllegalStateException("Failed to get resources", e);
 		}
-	}
+	}*/
 
-	@Data
+	/*@Data
 	public static class WeldProxyConfig {
 		private String beanClass;
 		private String[] interfaces;
-	}
+	}*/
 
 	@Override
 	public boolean isInConfiguration(IsInConfigurationAccess access) {

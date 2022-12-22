@@ -124,7 +124,8 @@
 						<initializeAtBuildTime>org.jboss.weld.bean.proxy.ProxyFactory</initializeAtBuildTime>
 						<initializeAtBuildTime>org.jboss.weld.bean.proxy.GroovyMethodFilter</initializeAtBuildTime>
 						<initializeAtBuildTime>org.jboss.weld.util.collections.ImmutableHashSet</initializeAtBuildTime>
-						<initializeAtBuildTime>org.jboss.weld.Container</initializeAtBuildTime>
+						<!--<initializeAtBuildTime>org.jboss.weld.Container</initializeAtBuildTime>-->
+						<initializeAtBuildTime>org.jboss.logging.JDKLevel</initializeAtBuildTime>
 						<!--<initializeAtBuildTime>org.jboss.weld.logging.BeanManagerLogger</initializeAtBuildTime>-->
 					</initializeAtBuildTime>
 					<!--<dynamicProxyConfigurationFiles>
@@ -136,13 +137,13 @@
 						<customOptions>-H:IncludeResources=".*/META-INF/services/javax.enterprise.inject.spi.Extension"</customOptions>
 						<customOptions>-H:Log=registerResource:3</customOptions>
 						<customOptions>-Dorg.slf4j.simpleLogger.defaultLogLevel=trace</customOptions>
-						<customOptions>--trace-class-initialization=org.jboss.weld.bean.proxy.ProxyFactory</customOptions>
+						<customOptions>--trace-object-instantiation=org.jboss.weld.event.ObserverNotifier$ObserverExceptionHandler$$Lambda$660/0x00000007c113b440</customOptions>
 						<!--<customOptions>-H:ConfigurationFileDirectories=${project.build.directory}/../graal-trace3</customOptions>
 						<customOptions>-H:PredefinedClassesConfigurationFiles=${project.build.directory}/../graal-trace3/predefined-classes-config.json</customOptions>-->
 						<!--<customOptions>-O0</customOptions>-->
 					</customOptions>
 					<resourcesConfigurationFiles>
-					<resourcesConfigurationFiles>${project.build.directory}/classes/resources.json</resourcesConfigurationFiles>
+						<resourcesConfigurationFiles>${project.build.directory}/classes/resources.json</resourcesConfigurationFiles>
 					</resourcesConfigurationFiles>
 					<!--<printClassInitialization>true</printClassInitialization>-->
 				</configuration>

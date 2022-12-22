@@ -5,8 +5,5 @@
 	}, {
 		"beanClass": "org.jboss.weld.bean.builtin.InstanceImpl",
 		"interfaces": ["jakarta.enterprise.inject.Instance"]
-	}, {
-		"beanClass": "org.glassfish.jersey.weld.se.WeldRequestScope",
-		"interfaces": ["org.glassfish.jersey.weld.se.WeldRequestScope"]
 	}
 ]
