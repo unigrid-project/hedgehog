@@ -141,7 +141,8 @@ public class BenchmarkMapDB {
 			} catch (NoSuchAlgorithmException e) {
 				throw new RuntimeException(e);
 			}
-			RandomAccessFile file = new RandomAccessFile(path + key, "rwd");
+			RandomAccessFile file = new RandomAccessFile(path + key, "rw");
+
 			MappedByteBuffer out = file.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, length);
 			out.put(ByteBuffer.wrap(Arrays.copyOf(tmp, tmp.length)));
 			file.close();
@@ -159,6 +160,32 @@ public class BenchmarkMapDB {
 			file.delete();
 		}
 		f.delete();
+	}
+	
+	@Benchmark
+	public void lmdbLoop(BenchmarkData data, LmdbState db) {
+		byte[] tmp = generateRandomByteArray(data.chunk);
+		
+		for (int i = 0; i < data.intirations; i++) {
+			ByteBuffer key = ByteBuffer.allocateDirect(db.env.getMaxKeySize());
+			try {
+				MessageDigest digest = MessageDigest.getInstance("SHA-256");
+				byte[] hash = digest.digest(Integer.toString(i * 32).getBytes(StandardCharsets.UTF_8));
+				key.put(hash).flip();
+			} catch (NoSuchAlgorithmException e) {
+				throw new RuntimeException(e);
+			}
+			ByteBuffer value = ByteBuffer.allocateDirect(tmp.length);
+			value.put(tmp).flip();
+
+			db.db.put(key, value);
+		}
+		/*Map<String, String> outputMap = db.hashMap("map", Serializer.JAVA, Serializer.JAVA).open();
+		for (Map.Entry<String, String> entry : outputMap.entrySet()) {
+			System.out.println("Object key = " + entry.getKey());
+			System.out.println("Object val = " + entry.getValue());
+			
+		}*/
 	}
 
 	public static byte[] generateRandomByteArray(int iteration) {

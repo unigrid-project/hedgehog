@@ -16,9 +16,15 @@
 package org.unigrid.hedgehog.benchmarks;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 import org.eclipse.rdf4j.repository.Repository;
 import org.eclipse.rdf4j.sail.lmdb.LmdbStore;
 import org.eclipse.rdf4j.sail.lmdb.config.LmdbStoreConfig;
+import org.lmdbjava.Dbi;
+import org.lmdbjava.DbiFlags;
+import org.lmdbjava.Env;
+import static org.lmdbjava.Env.create;
+import org.lmdbjava.EnvFlags;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
@@ -31,14 +37,16 @@ public class LmdbState {
 	
 	
 	public final File path = new File(System.getProperty("user.dir"));
-	public Repository repo;
+	public Env<ByteBuffer> env;
+	public Dbi<ByteBuffer> db;
 	
 	@Setup(Level.Iteration)
 	public void setup() {
+		env = create()
+			.setMapSize(1024 * 1024 * 1024 * 2 - 1)
+			.setMaxDbs(1)
+			.open(path, EnvFlags.MDB_NOSYNC, EnvFlags.MDB_MAPASYNC);
 		
-		LmdbStoreConfig config = new LmdbStoreConfig();
-		config.setForceSync(true);
-		config.setAutoGrow(true);
-		
+		db = env.openDbi(dbName, DbiFlags.MDB_CREATE);
 	}
 }
