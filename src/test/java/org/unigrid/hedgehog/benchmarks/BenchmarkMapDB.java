@@ -18,6 +18,7 @@ package org.unigrid.hedgehog.benchmarks;
 //import com.oath.halodb.HaloDB;
 //import com.oath.halodb.HaloDBException;
 import com.github.jsonldjava.shaded.com.google.common.io.Files;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -122,7 +124,9 @@ public class BenchmarkMapDB {
 	@SneakyThrows
 	@Benchmark
 	public void MMFileLoop(BenchmarkData data) {
-		String path = Files.createTempDir().getAbsolutePath() + "/";
+		File f = new File("tmp");
+		f.mkdir();
+		String path = f.getAbsolutePath() + "/";
 		byte[] tmp = generateRandomByteArray(data.chunk);
 		String key = "";
 		ByteBuffer value = ByteBuffer.allocateDirect(data.chunk);
@@ -149,6 +153,12 @@ public class BenchmarkMapDB {
 			System.out.println("Object val = " + entry.getValue());
 			
 		}*/
+		
+		File[] files = f.listFiles();
+		for(File file : files) {
+			file.delete();
+		}
+		f.delete();
 	}
 
 	public static byte[] generateRandomByteArray(int iteration) {
