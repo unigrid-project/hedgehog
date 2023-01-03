@@ -16,12 +16,9 @@
 package org.unigrid.hedgehog.benchmarks;
 
 import java.io.File;
-import java.nio.ByteBuffer;
-import org.lmdbjava.Dbi;
-import org.lmdbjava.DbiFlags;
-import org.lmdbjava.Env;
-import static org.lmdbjava.Env.create;
-import org.lmdbjava.EnvFlags;
+import org.eclipse.rdf4j.repository.Repository;
+import org.eclipse.rdf4j.sail.lmdb.LmdbStore;
+import org.eclipse.rdf4j.sail.lmdb.config.LmdbStoreConfig;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
@@ -29,22 +26,19 @@ import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
 public class LmdbState {
-	private static final String DB_NAME = "hedgehoglmdb";
+	public String dbName = "hedgehoglmdb";
 	//private static final String PATH = System.getProperty("user.dir") + "/Documents/";
 	
-	public Env<ByteBuffer> env;
-	public Dbi<ByteBuffer> db;
 	
+	public final File path = new File(System.getProperty("user.dir"));
+	public Repository repo;
 	
 	@Setup(Level.Iteration)
 	public void setup() {
 		
-		final File path = new File(System.getProperty("user.dir"));
-		env = create()
-			.setMapSize(1024 * 1024 * 1024 * 2 - 1)
-			.setMaxDbs(1)
-			.open(path, EnvFlags.MDB_NOSYNC);
+		LmdbStoreConfig config = new LmdbStoreConfig();
+		config.setForceSync(true);
+		config.setAutoGrow(true);
 		
-		db = env.openDbi(DB_NAME, DbiFlags.MDB_CREATE);
 	}
 }
