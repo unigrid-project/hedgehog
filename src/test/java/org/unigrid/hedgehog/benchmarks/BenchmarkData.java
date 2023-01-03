@@ -27,10 +27,10 @@ import org.openjdk.jmh.annotations.State;
 @State(Scope.Benchmark)
 public class BenchmarkData {
 
-	@Param({/*"10", "100", */"500", /*"10000", "100000"*/})
+	@Param({/*"10", "100", */"1000", /*"10000", "100000"*/})
 	public int intirations;
 
-	@Param({ /*"TEN_BYTES", "ONE_KB", "ONE_MB",*/ "TEN_MB" })
+	@Param({ /*"TEN_BYTES", "ONE_KB",*/ "ONE_MB", /*"TEN_MB"*/ })
 	public String sizeString;
 	
 	public int chunk;
