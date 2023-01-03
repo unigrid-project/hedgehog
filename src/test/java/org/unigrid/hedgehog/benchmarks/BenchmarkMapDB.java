@@ -67,7 +67,7 @@ import org.eclipse.rdf4j.rio.RDFFormat;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 public class BenchmarkMapDB {
 
-	/*@Benchmark
+	@Benchmark
 	public void mapDBLoop(BenchmarkData data, MapDBState db) {
 		data.expieringMap = new PassiveExpiringMap<>(db.map);
 		byte[] value = generateRandomByteArray(data.chunk);
@@ -85,7 +85,7 @@ public class BenchmarkMapDB {
 			//db.db.commit();
 		}
 		db.db.close();
-	}*/
+	}
 
 	/*@Benchmark
 	public void haloDBLoop(BenchmarkData data, HaloDBState db) {
