@@ -32,7 +32,7 @@ import org.jboss.weld.executor.DaemonThreadFactory;
 import org.jboss.weld.util.reflection.ParameterizedTypeImpl;
 
 public class WeldSubstitutions {
-    @TargetClass(className = "org.jboss.weld.event.ObserverNotifier")
+    /*@TargetClass(className = "org.jboss.weld.event.ObserverNotifier")
     public static final class ObserverNotifierSubstitution {
         @Alias
         @InjectAccessors(ForkJoinAccessors.class)
@@ -49,7 +49,7 @@ public class WeldSubstitutions {
         }
     }
    
-    /*@TargetClass(className = "org.jboss.weld.bootstrap.events.ContainerLifecycleEventPreloader")
+    @TargetClass(className = "org.jboss.weld.bootstrap.events.ContainerLifecycleEventPreloader")
     public static final class ContainerLifecycleEventPreloaderSubstitution {
         @Alias
         @RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset, isFinal = true)
@@ -57,17 +57,20 @@ public class WeldSubstitutions {
 
         @Inject
         @RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset)
-        private final DaemonThreadFactory dtf = new DaemonThreadFactory(new ThreadGroup("weld-preloaders"),
-                                                                        "weld-preloader-");
+        private final DaemonThreadFactory dtf = new DaemonThreadFactory(
+		new ThreadGroup("weld-preloaders"), "weld-preloader-"
+	);
+
 	@Alias
         private ObserverNotifier notifier;
 
         @Substitute
         void preloadContainerLifecycleEvent(Class<?> eventRawType, Type... typeParameters) {
+	    notifier.resolveObserverMethods(new ParameterizedTypeImpl(eventRawType, typeParameters, null));
             dtf.newThread(new Runnable() {
                 @Override
                 public void run() {
-                    notifier.resolveObserverMethods(new ParameterizedTypeImpl(eventRawType, typeParameters, null));
+                    notifierx.resolveObserverMethods(new ParameterizedTypeImpl(eventRawType, typeParameters, null));
                 }
             }).start();
         }

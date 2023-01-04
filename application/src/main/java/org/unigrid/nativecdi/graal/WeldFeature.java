@@ -52,14 +52,12 @@ import org.jboss.weld.util.Proxies;
 import org.unigrid.nativecdi.Application;
 import org.unigrid.nativecdi.Main;
 
-@AutomaticFeature
-public class WeldFeature implements Feature {
-	@Override
-	@SneakyThrows
-	public void beforeAnalysis(BeforeAnalysisAccess access) {
+public class WeldFeature {
+	//@Override
+	//public void beforeAnalysis(BeforeAnalysisAccess access) {
 		//final SeContainer container = Weld.newInstance().initialize();
-		final SeContainerInitializer initializer = SeContainerInitializer.newInstance();
-		initializer.initialize();
+		//final SeContainerInitializer initializer = SeContainerInitializer.newInstance();
+		//initializer.initialize();
 		/*try ( SeContainer container = initializer.disableDiscovery()
 			.addPackages(Main.class)
 			.addBeanClasses(Application.class).initialize()) {
@@ -72,7 +70,7 @@ public class WeldFeature implements Feature {
 		/*access.registerAsUsed(org.jboss.weld.manager.api.WeldManager.class);
 		access.registerAsUsed(org.jboss.weld.manager.BeanManagerImpl.class);
 		RuntimeReflection.register(WeldManager.class);*/
-	}
+	//}
 
 	/*@Override
 	public void duringSetup(DuringSetupAccess access) {
@@ -216,8 +214,8 @@ public class WeldFeature implements Feature {
 		private String[] interfaces;
 	}*/
 
-	@Override
+	/*@Override
 	public boolean isInConfiguration(IsInConfigurationAccess access) {
 		return true;
-	}
+	}*/
 }

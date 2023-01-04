@@ -187,5 +187,23 @@
         "allDeclaredFields" : true,
         "allPublicFields" : true,
         "allPublicConstructors": true
+    },
+    {
+        "name" : "org.unigrid.nativecdi.graal.GraalCDIProxyServices$WeldProxyConfig",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
+    },
+    {
+        "name" : "org.unigrid.nativecdi.graal.GraalCDIProxyServices$GraalProxyObject",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
     }
 ]

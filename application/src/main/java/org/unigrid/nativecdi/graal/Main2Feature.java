@@ -8,11 +8,12 @@ package org.unigrid.nativecdi.graal;
 import com.oracle.svm.core.annotate.AutomaticFeature;
 import java.io.IOException;
 import java.io.InputStream;
-//import com.oracle.svm.core.jdk.Resources;
+//import com.oracle.svm.hosted.P;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.RuntimeReflection;
 import org.jboss.weld.environment.se.Weld;
 
+@AutomaticFeature
 public class Main2Feature implements Feature {
 
 	@Override
@@ -33,26 +34,27 @@ public class Main2Feature implements Feature {
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
-        
-        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.se.SeContainerInitializer")) {
-            Resources.registerResource("META-INF/services/javax.enterprise.inject.se.SeContainerInitializer", is);
+        */
+        /*try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/jakarta.enterprise.inject.se.SeContainerInitializer")) {
+            Resources.registerResource("META-INF/services/jakarta.enterprise.inject.se.SeContainerInitializer", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
         
-        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.spi.CDIProvider")) {
-            Resources.registerResource("META-INF/services/javax.enterprise.inject.spi.CDIProvider", is);
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/jakarta.enterprise.inject.spi.CDIProvider")) {
+            Resources.registerResource("META-INF/services/jakarta.enterprise.inject.spi.CDIProvider", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
         
-        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/javax.enterprise.inject.spi.Extension")) {
-            Resources.registerResource("META-INF/services/javax.enterprise.inject.spi.Extension", is);
+        try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/jakarta.enterprise.inject.spi.Extension")) {
+            Resources.registerResource("META-INF/services/jakarta.enterprise.inject.spi.Extension", is);
         } catch (IOException ex) {
             throw new RuntimeException(ex);
-        }*/
-		RuntimeReflection.registerForReflectiveInstantiation(Weld.class);
+        }
 
+	RuntimeReflection.registerForReflectiveInstantiation(Weld.class);
+*/
 	}
 
 }
