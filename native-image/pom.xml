@@ -1,11 +1,16 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<name>Unigrid Hedgehog Native</name>
+	<name>Unigrid Hedgehog Native Image</name>
 	<groupId>org.unigrid.hedgehog</groupId>
 	<artifactId>hedgehog-native</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<packaging>pom</packaging>
+	<packaging>jar</packaging>
+	<parent>
+		<groupId>org.unigrid.hedgehog</groupId>
+		<artifactId>hedgehog-parent</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.source>11</maven.compiler.source>
@@ -22,12 +27,6 @@
 			<groupId>org.apache.geronimo.arthur</groupId>
 			<artifactId>arthur-api</artifactId>
 			<version>1.0.5</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.unigrid.hedgehog</groupId>
-			<artifactId>hedgehog</artifactId>
-			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
 	<build>
@@ -89,6 +88,7 @@
 				<artifactId>arthur-maven-plugin</artifactId>
 				<version>1.0.5</version>
 				<configuration>
+					<main>org.unigrid.hedgehog.nativeimage.NativeImage</main>
 					<graalVersion>22.3.0</graalVersion>
 				</configuration>
 			</plugin>
