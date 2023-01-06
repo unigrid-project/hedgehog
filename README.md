@@ -1,6 +1,5 @@
-<img src="documentation/hedgehog-dark.svg" alt="Hedgehog">
-
 # The Sharded Unigrid Treechain Network
+<img align="right" width="300px" height="auto" src="documentation/hedgehog-logo.png" alt="Hedgehog">
 
 Hedgehog is a high-performant, concurrent peer-to-peer treechain (blockchain) network built on top of [Netty](https://netty.io/) and [Java NIO](https://docs.oracle.com/javase/8/docs/technotes/guides/io/index.html).
 
@@ -36,6 +35,4 @@ While most people will not run Hedgehog manually, it is certainly possible. For 
 Depending on the options passed, Hedgehog will act as a network daemon, client or stand-alone application.
 
 ## Native Image Support
-To get the native image going after changes, you might have to run the GraalVM agent in order to get resources, predefined classes and relfection to work properly. Taking Linux as an example, this can be done with `/home/<your-user-name>/.m2/repository/org/apache/geronimo/arthur/cache/graal/22.3.0/distribution_exploded/bin/java -agentlib:native-image-agent=config-output-dir=./graal-trace/ -jar target/hedgehog-0.0.1-SNAPSHOT-jar-with-dependencies.jar daemon´. This will generate a `graal-trace` directory with everything needed. Just make sure you are standing in the hedgehog directory when you execute the command.
-
-When everything is set up correctly, the native image can be built with ` mvn arthur:native-image`, putting it in the `target/` directory. This goal also downloads the GraalVM distribution and unarchives it into the directory of the previous step. So if you are missing GraalVM and need to run the agent, execute this step first in order to download it.
+Native image support is available via the native-image sub-project. Because of problems with CDI and dependencies being reliant on a full CDI implementation, the native image is not really native, but wraps a JVM and the hedgehog jar into a native version for execution.
