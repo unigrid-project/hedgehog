@@ -24,7 +24,7 @@ import org.jboss.weld.environment.se.events.ContainerInitialized;
 public abstract class CDIContext implements Runnable {
 	@Override @SneakyThrows
 	public void run() {
-		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).addBeanClasses().initialize();
+		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).initialize();
 
 		synchronized (this) {
 			wait();
