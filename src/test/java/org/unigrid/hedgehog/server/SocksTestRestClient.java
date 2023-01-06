@@ -21,25 +21,25 @@ import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 
-public class SocksTest extends BaseMockedWeldTest {
+public class SocksTestRestClient extends BaseMockedWeldTest {
 	@Mocked
 	protected SocksOptions socksOptions;
 	
-//	@Inject
-//	private SocksServer socksServer;
+	@Inject
+	private SocksServer socksServer;
 	
 	@BeforeTry
 	public void before() {
 		new Expectations() {
 			{
 				SocksOptions.getHost(); result = "localhost";
-				SocksOptions.getPort(); result = 1081;//FreePortFinder.findFreeLocalPort();
+				SocksOptions.getPort(); result = FreePortFinder.findFreeLocalPort();
 			}
 		};
 		new MockUp<JerseyClientBuilder>() {
 			@Mock @SneakyThrows public JerseyClientBuilder withConfig(Invocation invocation, Configuration c){
 				System.out.println("Is it mocking?");
-				final SocksConnectionFactory connectionFactory = new SocksConnectionFactory("localhost", 1081);//new SocksConnectionFactory(socksServer.getHostName(), socksServer.getPort());
+				final SocksConnectionFactory connectionFactory = new SocksConnectionFactory(socksServer.getHostName(), socksServer.getPort());
 				final HttpUrlConnectorProvider connectorProvider = new HttpUrlConnectorProvider();
 				connectorProvider.connectionFactory(connectionFactory);
 				
@@ -54,16 +54,15 @@ public class SocksTest extends BaseMockedWeldTest {
 	public void shouldBeAbleToStart(){
 		System.out.println(ClientBuilder.newBuilder());
 		System.out.println("Is this started? SOCKSSSSSSS");
-		//CDIUtil.instantiate(socksServer);
+		CDIUtil.instantiate(socksServer);
 
 		
 		final RestClient client = new RestClient("dog.ceo", 443);
 		
-		//System.out.println(socksServer.getPort());
+		System.out.println("Port: " + socksServer.getPort());
 
 		System.out.println(client.get("/api/breeds/list/all"));
 		client.close();
 		//Thread.sleep(10000);
 	}
 }
-//moram da namestim test kao ranije da stane na pola, a onda probam uz njihov proxy

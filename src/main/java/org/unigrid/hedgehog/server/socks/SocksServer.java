@@ -41,15 +41,12 @@ public class SocksServer extends AbstractServer {
 
 	@SneakyThrows
 	@PostConstruct
-	private void init() {
-		EventLoopGroup bossGroup = new NioEventLoopGroup(COMMUNICATION_THREADS);
-		EventLoopGroup workerGroup = new NioEventLoopGroup();
-		
+	private void init() {		
 		ServerBootstrap b = new ServerBootstrap();
 		b.group(group)
 			.channel(NioServerSocketChannel.class)
 			.handler(new LoggingHandler(LogLevel.INFO))
-			.childHandler(new SocksServerInitializer()); 
+			.childHandler(new SocksServerInitializer(group)); 
 		channel = b.bind(new InetSocketAddress(SocksOptions.getHost(), SocksOptions.getPort())).sync().channel();
 		
 	}

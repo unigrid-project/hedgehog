@@ -43,40 +43,46 @@ public abstract class AbstractInboundHandler<T> extends ChannelInboundHandlerAda
 
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object obj) throws Exception {
-		boolean release = true;
+		//boolean release = true;
 
 		final Supplier<Boolean> isAttributeEmptyAndOurClass = () -> filteringAttribute.isEmpty() && clazz.isInstance(obj);
 
 		System.out.println("Getting called: " + filteringAttribute);
-		System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()));
-		System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()).get());
+		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()));
+		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()).get());
 		System.out.println("Channel " + ctx.channel());
 	
-		final Supplier<Boolean> isAttributeFalseOrNullAndOurClass = () -> {
-			if (filteringAttribute.isPresent()) {
-				
-				final Boolean attribute = ctx.channel().attr( filteringAttribute.get()).get();
-				
-				if (Objects.isNull(attribute) || attribute.equals(false)) {
-					return clazz.isInstance(obj);
-				}
-			}
-	
-			return false;
-		};
+//		final Supplier<Boolean> isAttributeFalseOrNullAndOurClass = () -> {
+//			if (filteringAttribute.isPresent()) {
+//				
+//				final Boolean attribute = ctx.channel().attr( filteringAttribute.get()).get();
+//				
+//				if (Objects.isNull(attribute) || attribute.equals(false)) {
+//					System.out.println("Its hereee");
+//					return clazz.isInstance(obj);
+//				}
+//			}
+//	
+//			return false;
+//		};
 		
 		try {
-			if (isAttributeEmptyAndOurClass.get() || isAttributeFalseOrNullAndOurClass.get()) {
+			System.out.println("Received object of class: " + obj.getClass().getName());
+			
+			if (isAttributeEmptyAndOurClass.get() ||  isAttributeFalseOrNullAndOurClass(ctx, obj)) {
 				typedChannelRead(ctx, (T) obj);
+				System.out.println("Its here");
 			} else {
-				release = false;
+				System.out.println("It`s here now");
+			//	release = false;
 				ctx.fireChannelRead(obj);
-			}
-		} finally {
-			if (release) {
-				//TODO: Do we actually need to do this?
 				ReferenceCountUtil.release(obj);
 			}
+		} finally {
+			//if (release) {
+				//TODO: Do we actually need to do this?
+				//ReferenceCountUtil.release(obj);
+			//}
 		}
 	}
 
@@ -84,6 +90,16 @@ public abstract class AbstractInboundHandler<T> extends ChannelInboundHandlerAda
 	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
 		log.atWarn().log("{}:{}", cause.getMessage(), ExceptionUtils.getStackTrace(cause));
 		ctx.close();
+	}
+	
+	private boolean isAttributeFalseOrNullAndOurClass(ChannelHandlerContext ctx, Object obj) {
+		if (filteringAttribute.isPresent()) {
+			final Boolean attribute = ctx.channel().attr(filteringAttribute.get()).get();
+			if (Objects.isNull(attribute) || attribute.equals(false)) {
+				return clazz.isInstance(obj);
+			}
+		}
+		return false;
 	}
 
 	public abstract void typedChannelRead(ChannelHandlerContext ctx, T obj) throws Exception;

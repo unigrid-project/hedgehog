@@ -18,7 +18,7 @@ public class SocksConnectionFactory implements ConnectionFactory {
 	public SocksConnectionFactory(String hostname, int port) {
 		Authenticator.setDefault(new Authenticator() {
 			protected PasswordAuthentication getPasswordAuthentication() {
-				PasswordAuthentication p = new PasswordAuthentication("xxx", "SHIT".toCharArray());
+				PasswordAuthentication p = new PasswordAuthentication("test", "test".toCharArray());
 				return p;
 			}
 		});
