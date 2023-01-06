@@ -25,17 +25,11 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
-import org.graalvm.nativeimage.ImageInfo;
 
 @Slf4j
 public class Reflection {
 	public static void resetIllegalAccessLogger() throws IllegalAccessException,
 		InvocationTargetException, NoSuchFieldException, NoSuchMethodException {
-
-		if (ImageInfo.inImageCode()) {
-			log.atTrace().log("Native GraalVM runtime detected. Skipping reset of illegal access logger.");
-			return;
-		}
 
 		Class<?> unsafeClass;
 		Class<?> loggerClass;

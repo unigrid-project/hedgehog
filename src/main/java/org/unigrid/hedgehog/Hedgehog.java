@@ -20,10 +20,6 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.geronimo.arthur.api.RegisterClass;
-import org.apache.geronimo.arthur.api.RegisterClasses;
-import org.apache.geronimo.arthur.api.RegisterClasses.Entry;
-import org.jboss.weld.bootstrap.api.helpers.RegistrySingletonProvider;
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
@@ -44,10 +40,6 @@ import picocli.CommandLine.Option;
 		""
 	}, subcommands = { CLI.class, Daemon.class, Util.class }
 )
-@RegisterClasses({
-	@Entry(clazz = RegistrySingletonProvider.class, registration = @RegisterClass(all = true)),
-	@Entry(clazz = org.jboss.weld.logging.VersionLogger.class, registration = @RegisterClass(all = true))
-})
 public class Hedgehog {
 	@Getter
 	private static boolean[] verbose;
