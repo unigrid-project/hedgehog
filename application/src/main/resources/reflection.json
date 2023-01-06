@@ -198,7 +198,34 @@
         "allPublicConstructors": true
     },
     {
-        "name" : "org.unigrid.nativecdi.graal.GraalCDIProxyServices$GraalProxyObject",
+        "name" : "org.jboss.weld.lite.extension.translator.LiteExtensionTranslator",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.event.ObserverNotifier",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.event.ObserverNotifier$1",
+
+        "allDeclaredMethods" : true,
+        "allPublicMethods" : true,
+        "allDeclaredFields" : true,
+        "allPublicFields" : true,
+        "allPublicConstructors": true
+    },
+    {
+        "name" : "org.jboss.weld.event.ObserverNotifier$ObserverExceptionHandler",
 
         "allDeclaredMethods" : true,
         "allPublicMethods" : true,

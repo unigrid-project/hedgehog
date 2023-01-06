@@ -3,6 +3,9 @@
   "includes":[
     {
       "pattern":"\\QMETA-INF/beans.xml\\E"
+    },
+    {
+      "pattern":"\\Qls\\E"
     }
   ]},
   "bundles":[

@@ -11,7 +11,6 @@ import java.io.InputStream;
 //import com.oracle.svm.hosted.P;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.RuntimeReflection;
-import org.jboss.weld.environment.se.Weld;
 
 @AutomaticFeature
 public class Main2Feature implements Feature {
@@ -21,7 +20,7 @@ public class Main2Feature implements Feature {
 		Feature.super.beforeAnalysis(access);
 
 		System.out.println("Registering resources");
-
+		//RuntimeReflection.registerForReflectiveInstantiation(GraalProxyObject.class);
 		//DyamicProxySupport
 		/*try (InputStream is = Main2Feature.class.getClassLoader().getResourceAsStream("META-INF/services/net.saga.graalvm.weld.test.Application")) {
             Resources.registerResource("META-INF/services/net.saga.graalvm.weld.test.Application", is);

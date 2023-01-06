@@ -11,18 +11,17 @@ import java.util.List;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
-import org.jboss.weld.bean.proxy.ClientProxyFactory;
-import org.jboss.weld.bean.proxy.MethodHandler;
-import org.jboss.weld.bean.proxy.ProxyMethodHandler;
-import org.jboss.weld.bean.proxy.ProxyObject;
-import org.jboss.weld.serialization.spi.ProxyServices;
-import org.jboss.weld.util.Proxies;
+import org.graalvm.nativeimage.ImageInfo;
+import org.unigrid.nativecdi.Application;
 
-public class GraalCDIProxyServices implements ProxyServices {
-	private final List<WeldProxyConfig> weldProxyConfigs;
+public class GraalCDIProxyServices /*extends WeldDefaultProxyServices*/ {
+	/*private final List<WeldProxyConfig> weldProxyConfigs;
 	private final String contextId;
 
 	public GraalCDIProxyServices(String contextId) {
+		super();
+		System.out.println(new GraalProxyObject());
+
 		System.out.println("context: " + contextId);
 		this.contextId = contextId;
 
@@ -49,7 +48,11 @@ public class GraalCDIProxyServices implements ProxyServices {
 		System.out.println("len: " + len);
 		System.out.println("bytes: " + classBytes);
 
-		return ProxyServices.super.defineClass(originalClass, className, classBytes, off, len, protectionDomain);
+		if (ImageInfo.inImageCode()) {
+			throw new IllegalStateException("Can't dynamically define classes at runtime under native mode");
+		}
+
+		return super.defineClass(originalClass, className, classBytes, off, len, protectionDomain);
 	}
 
 	@Override
@@ -69,17 +72,29 @@ public class GraalCDIProxyServices implements ProxyServices {
 
 		//return GraalProxyObject.class;
 
-		return GraalCDIProxyServices.class.getClassLoader().loadClass(classBinaryName);
+		if (originalClass.equals(Application.class)) {
+			return GraalProxyObject.class;
+		} else {
+			try {
+				return super.loadClass(originalClass, classBinaryName);
+			} catch (ClassNotFoundException ex) {
+				ex.printStackTrace();
+				System.out.println("SHIT!!");
+			}
+		}
+		return originalClass;
+
+		//return null;
 	}
 
 	@Override
 	public void cleanup() {
 		System.out.println("cleanup!");
+		super.cleanup();
 	}
 
 	public static class GraalProxyObject implements ProxyObject {
 		private MethodHandler handler;
-
 
 		@Override
 		public void weld_setHandler(MethodHandler mh) {
@@ -104,6 +119,5 @@ public class GraalCDIProxyServices implements ProxyServices {
 	public static class WeldProxyConfig {
 		private String beanClass;
 		private String[] interfaces;
-	}
-
+	}*/
 }

@@ -15,7 +15,6 @@ package org.unigrid.nativecdi.graal;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 import com.oracle.svm.core.annotate.Alias;
 import java.lang.reflect.Type;
 import java.util.concurrent.Executor;
@@ -27,12 +26,62 @@ import com.oracle.svm.core.annotate.InjectAccessors;
 import com.oracle.svm.core.annotate.RecomputeFieldValue;
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
+import java.lang.reflect.Field;
 import org.jboss.weld.event.ObserverNotifier;
 import org.jboss.weld.executor.DaemonThreadFactory;
 import org.jboss.weld.util.reflection.ParameterizedTypeImpl;
 
 public class WeldSubstitutions {
-    /*@TargetClass(className = "org.jboss.weld.event.ObserverNotifier")
+
+
+	@TargetClass(className = "org.jboss.weld.bootstrap.events.ContainerLifecycleEventPreloader")
+	static final class ContainerLifecycleEventPreloaderSubstitution {
+		@Alias
+		private ObserverNotifier notifier;
+
+		@Alias
+		@RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset, isFinal = true)
+		private ExecutorService executor;
+
+		@Inject
+		@RecomputeFieldValue(kind = RecomputeFieldValue.Kind.Reset)
+		private final DaemonThreadFactory dtf = new DaemonThreadFactory(new ThreadGroup("weld-preloaders"),
+			"weld-preloader-");
+
+		@Substitute
+		void preloadContainerLifecycleEvent(Class<?> eventRawType, Type... typeParameters) {
+			//dtf.newThread(new Runnable() {
+			//@Override
+			//public void run() {
+			notifier.resolveObserverMethods(new ParameterizedTypeImpl(eventRawType, typeParameters, null));
+			//}
+			//}).start();
+		}
+
+		@Substitute
+		void shutdown() {
+		}
+	}
+
+	@TargetClass(className = "org.jboss.weld.event.ObserverNotifier")
+	static final class ObserverNotifierSubstitution {
+		@Alias
+		@InjectAccessors(ForkJoinAccessors.class)
+		private Executor asyncEventExecutor;
+	}
+
+	public static final class ForkJoinAccessors {
+		public static Executor get(Object object) {
+			return ForkJoinPool.commonPool();
+		}
+		public static void set(Object object, Executor executor) {
+
+		}
+	}
+}
+
+//public class WeldSubstitutions {
+/*@TargetClass(className = "org.jboss.weld.event.ObserverNotifier")
     public static final class ObserverNotifierSubstitution {
         @Alias
         @InjectAccessors(ForkJoinAccessors.class)
@@ -79,4 +128,4 @@ public class WeldSubstitutions {
         void shutdown() {
         }
     }*/
-}
+//}

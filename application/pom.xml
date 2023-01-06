@@ -54,11 +54,21 @@
 			<artifactId>svm</artifactId>
 			<version>22.3.0</version>
 		</dependency>
-		<dependency>
+		<!--<dependency>
 			<groupId>org.apache.geronimo.arthur.knights</groupId>
 			<artifactId>weld-knight</artifactId>
 			<version>1.0.5</version>
+		</dependency>-->
+		<!--<dependency>
+			<groupId>io.quarkus.arc</groupId>
+			<artifactId>arc</artifactId>
+			<version>3.0.0.Alpha2</version>
 		</dependency>
+		<dependency>
+			<groupId>io.quarkus.arc</groupId>
+			<artifactId>arc-processor</artifactId>
+			<version>3.0.0.Alpha2</version>
+		</dependency>-->
 		<!--<dependency>
 			<groupId>io.helidon.integrations.graal</groupId>
 			<artifactId>helidon-graal-native-image-extension</artifactId>
@@ -142,8 +152,15 @@
 						<initializeAtBuildTime>org.jboss.weld.WeldSecurityServices</initializeAtBuildTime>
 						<!--<initializeAtBuildTime>org.jboss.weld.Container</initializeAtBuildTime>-->
 						<initializeAtBuildTime>org.jboss.logging.JDKLevel</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.weld.bootstrap.enablement.ModuleEnablement</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.weld.event.EventImpl</initializeAtBuildTime>
+						<!--<initializeAtBuildTime>org.jboss.weld.event.ObserverNotifier$ObserverExceptionHandler$$Lambda$508/0x00000007c10c6840</initializeAtBuildTime>
+						<initializeAtBuildTime>org.jboss.weld.event.ObserverNotifier$ObserverExceptionHandler$$Lambda$509/0x00000007c10c6840</initializeAtBuildTime>-->
 						<!--<initializeAtBuildTime>org.jboss.weld.logging.BeanManagerLogger</initializeAtBuildTime>-->
 					</initializeAtBuildTime>
+					<initializeAtRunTime>
+						<initializeAtRunTime>org.jboss.weld.event.ObserverNotifier</initializeAtRunTime>
+					</initializeAtRunTime>
 					<!--<dynamicProxyConfigurationFiles>
 						<dynamicProxyConfigurationFiles>${project.build.directory}/classes/proxy.json</dynamicProxyConfigurationFiles>
 					</dynamicProxyConfigurationFiles>-->
@@ -156,6 +173,7 @@
 						<customOptions>-Dorg.slf4j.simpleLogger.defaultLogLevel=trace</customOptions>
 						<customOptions>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED</customOptions>
 						<customOptions>--report-unsupported-elements-at-runtime</customOptions>
+						<customOptions> --trace-class-initialization=org.jboss.weld.event.ObserverNotifier</customOptions>
 
 						<!--<customOptions>-H:ConfigurationFileDirectories=${project.build.directory}/../graal-trace3</customOptions>
 						<customOptions>-H:PredefinedClassesConfigurationFiles=${project.build.directory}/../graal-trace3/predefined-classes-config.json</customOptions>-->
