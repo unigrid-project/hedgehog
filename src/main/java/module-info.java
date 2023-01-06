@@ -23,6 +23,7 @@ module org.unigrid.hedgehog {
 	requires jakarta.interceptor;
 	requires jakarta.ws.rs;
 	requires jakarta.annotation;
+	requires jakarta.el;
 	requires com.fasterxml.jackson.databind;
 	requires com.fasterxml.jackson.datatype.jsr310;
 	requires com.fasterxml.jackson.core;
