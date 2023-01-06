@@ -106,8 +106,12 @@
 			<property name="max" value="6"/>
 		</module>
 		<module name="SuppressionXpathFilter">
+			<property name="file" value="../checkstyle-suppress.xml"/>
+			<property name="optional" value="true"/>
+		</module>
+		<module name="SuppressionXpathFilter">
 			<property name="file" value="checkstyle-suppress.xml"/>
-			<property name="optional" value="false"/>
+			<property name="optional" value="true"/>
 		</module>
 	</module>
 </module>
