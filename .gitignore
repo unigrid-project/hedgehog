@@ -1,5 +1,7 @@
-/reports
+/native-image/reports
 /target
 /nbactions.xml
-/.jqwik-database
+.jqwik-database
 socomo.html
+/application/target/
+/native-image/target/

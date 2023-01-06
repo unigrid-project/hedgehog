@@ -14,29 +14,18 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.jqwik;
 
-import io.netty.channel.Channel;
-import java.net.InetSocketAddress;
-import java.time.Instant;
-import java.util.Optional;
-import lombok.Builder;
-import lombok.Data;
-import org.unigrid.hedgehog.model.network.packet.Ping;
+import net.jqwik.api.Arbitraries;
 
-@Data
-@Builder
-public class Node {
-	private InetSocketAddress address;
-	private Optional<Channel> channel;
-	private Ping ping;
-	private Instant lastPingTime;
-	@Builder.Default private boolean connected = true;
-	@Builder.Default private Details details = new Details();
+public class ArbitraryGenerator {
+	public static String ip() {
+		final int ip[] = new int[4];
 
-	@Data
-	public static class Details {
-		private String[] protocols;
-		private int version;
+		for (int i = 0; i < ip.length; i++) {
+			ip[i] = Arbitraries.integers().between(0, 255).sample();
+		}
+
+		return String.format("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 	}
 }

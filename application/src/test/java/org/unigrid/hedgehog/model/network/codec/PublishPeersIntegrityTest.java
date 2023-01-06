@@ -34,20 +34,11 @@ import java.net.InetSocketAddress;
 import java.util.Optional;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
+import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
 public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
-	private String ip() {
-		final int ip[] = new int[4];
-
-		for (int i = 0; i < ip.length; i++) {
-			ip[i] = Arbitraries.integers().between(0, 255).sample();
-		}
-
-		return String.format("%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
-	}
-
 	@Provide
 	public Arbitrary<PublishPeers> providePublishPeers(@ForAll @Positive byte nodes,
 		@ForAll @IntRange(min = 4097, max = 65535) int port) throws UnknownHostException {
@@ -55,7 +46,8 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		final PublishPeers pp = PublishPeers.builder().build();
 
 		for (int i = 0; i < nodes; i++) {
-			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(ip(), port);
+			final String ip = ArbitraryGenerator.ip();
+			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(ip, port);
 			final Node node = Node.builder().address(socketAddress).build();
 			pp.getNodes().add(node);
 		}

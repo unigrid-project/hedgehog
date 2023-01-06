@@ -14,22 +14,28 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+package org.unigrid.hedgehog.model.network;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.Response;
-import java.util.List;
-import picocli.CommandLine.Command;
+import io.netty.channel.Channel;
+import java.net.InetSocketAddress;
+import java.time.Instant;
+import java.util.Optional;
+import lombok.Builder;
+import lombok.Data;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Command(name = "node-list")
-public class NodeList extends RestClientCommand {
-	public NodeList() {
-		super(HttpMethod.GET, "/node/list");
-	}
+@Data
+@Builder
+public class Node {
+	private InetSocketAddress address;
+	@Builder.Default private Optional<Channel> channel = Optional.empty();
+	@Builder.Default private Details details = new Details();
+	private Instant lastPingTime;
+	@Builder.Default private Optional<Ping> ping = Optional.empty();
 
-	@Override
-	protected void get(Response response) {
-		System.out.println(response.readEntity(List.class));
-
+	@Data
+	public static class Details {
+		private String[] protocols;
+		private int version;
 	}
 }
