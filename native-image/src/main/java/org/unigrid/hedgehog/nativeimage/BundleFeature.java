@@ -17,12 +17,15 @@
 package org.unigrid.hedgehog.nativeimage;
 
 import com.oracle.svm.core.annotate.AutomaticFeature;
+import java.lang.reflect.Executable;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
 
 @AutomaticFeature
 public class BundleFeature implements Feature {
+	private static final String JAVA_HOME = "java.home";
+
 	@Override
 	public boolean isInConfiguration(IsInConfigurationAccess access) {
 		return true;
@@ -30,6 +33,6 @@ public class BundleFeature implements Feature {
 
 	@Override
 	public void duringSetup(DuringSetupAccess access) {
-		System.out.println("Does nothing just now.... But just you wait....");
+		System.out.println(System.getProperty(JAVA_HOME));
 	}
 }
