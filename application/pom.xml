@@ -1,7 +1,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<name>Unigrid Hedgehog Main Application</name>
+	<name>Unigrid Hedgehog</name>
 	<groupId>org.unigrid.hedgehog</groupId>
 	<artifactId>hedgehog</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
@@ -373,6 +373,10 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
+						--add-opens java.base/java.math=ALL-UNNAMED
+						--add-opens java.base/java.net=ALL-UNNAMED
+						--add-opens java.base/java.time=ALL-UNNAMED
+						--add-opens java.base/java.util=ALL-UNNAMED
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>
@@ -404,8 +408,7 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>3.10.1</version>
 				<configuration>
-					<source>11</source>
-					<target>11</target>
+					<release>17</release>
 					<showDeprecation>true</showDeprecation>
 					<annotationProcessorPaths>
 						<path>
