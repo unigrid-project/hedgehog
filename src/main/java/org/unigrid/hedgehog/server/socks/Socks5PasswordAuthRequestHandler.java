@@ -1,36 +1,40 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
 package org.unigrid.hedgehog.server.socks;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.socksx.v5.DefaultSocks5PasswordAuthRequest;
 import io.netty.handler.codec.socksx.v5.DefaultSocks5PasswordAuthResponse;
-import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequest;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthResponse;
 import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthStatus;
-import org.unigrid.hedgehog.model.network.handler.AbstractInboundHandler;
 
+public class Socks5PasswordAuthRequestHandler extends SimpleChannelInboundHandler<DefaultSocks5PasswordAuthRequest> {
+	
+	private static final Logger logger = LoggerFactory.getLogger(Socks5PasswordAuthRequestHandler.class);
 
-public class Socks5PasswordAuthRequestHandler extends AbstractInboundHandler<Socks5PasswordAuthRequest>{
-
-	public Socks5PasswordAuthRequestHandler() {
-		super(Socks5PasswordAuthRequest.class);
-			//Optional.of(IS_AUTHENTICATED_KEY), Socks5PasswordAuthRequest.class);
-			//Optional.empty(), Socks5PasswordAuthRequest.class);
-	}
-
-	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, Socks5PasswordAuthRequest req) throws Exception {
-		System.out.println("Password: " + req.password());
-		if(req.password().equals("test")){
-			System.out.println("typedChannelRead in Socks5PasswordAuthRequestHandler");
-			//ctx.pipeline().addFirst(new Socks5CommandRequestDecoder());
-//			System.out.println("is it autenticated before? " +  ctx.channel().attr(IS_AUTHENTICATED_KEY).get());
-//			ctx.channel().attr(IS_AUTHENTICATED_KEY).set(true);
-//			System.out.println("is it autenticated now? " +  ctx.channel().attr(IS_AUTHENTICATED_KEY).get());
-			ctx.writeAndFlush(new DefaultSocks5PasswordAuthResponse(Socks5PasswordAuthStatus.SUCCESS));
-			System.out.println("Password status SUCCESS");
-		}
-		else{
-			System.out.println("not a pickle");
-			ctx.write(new DefaultSocks5PasswordAuthResponse(Socks5PasswordAuthStatus.FAILURE));
-		}
+	private PasswordAuth passwordAuth;
+	
+	public Socks5PasswordAuthRequestHandler(PasswordAuth passwordAuth) {
+		this.passwordAuth = passwordAuth;
 	}
 	
+	@Override
+	protected void channelRead0(ChannelHandlerContext ctx, DefaultSocks5PasswordAuthRequest msg) throws Exception {
+		logger.debug("Username and password: " + msg.username() + "," + msg.password());
+		if(passwordAuth.auth("test", "test")) {
+			//ProxyChannelTrafficShapingHandler.username(ctx, msg.username());
+			Socks5PasswordAuthResponse passwordAuthResponse = new DefaultSocks5PasswordAuthResponse(Socks5PasswordAuthStatus.SUCCESS);
+			ctx.writeAndFlush(passwordAuthResponse);
+		} else {
+			Socks5PasswordAuthResponse passwordAuthResponse = new DefaultSocks5PasswordAuthResponse(Socks5PasswordAuthStatus.FAILURE);
+			ctx.writeAndFlush(passwordAuthResponse).addListener(ChannelFutureListener.CLOSE);
+		}
+	}
+
 }

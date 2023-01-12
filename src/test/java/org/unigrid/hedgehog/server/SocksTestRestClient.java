@@ -13,13 +13,14 @@ import mockit.Mocked;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
-import org.unigrid.hedgehog.server.socks.SocksServer;
 import net.jqwik.api.Example;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.JerseyClientBuilder;
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.glassfish.jersey.client.HttpUrlConnectorProvider;
+import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.server.socks.SocksServer;
 
 public class SocksTestRestClient extends BaseMockedWeldTest {
 	@Mocked
@@ -39,19 +40,15 @@ public class SocksTestRestClient extends BaseMockedWeldTest {
 		new MockUp<JerseyClientBuilder>() {
 			@Mock @SneakyThrows public JerseyClientBuilder withConfig(Invocation invocation, Configuration c){
 				System.out.println("Is it mocking?");
-				final SocksConnectionFactory connectionFactory = new SocksConnectionFactory(socksServer.getHostName(), socksServer.getPort());
+				final SocksConnectionFactory connectionFactory = new SocksConnectionFactory("localhost", 1081);
 				final HttpUrlConnectorProvider connectorProvider = new HttpUrlConnectorProvider();
 				connectorProvider.connectionFactory(connectionFactory);
-				
-				
-
 				return invocation.proceed(((ClientConfig) c).connectorProvider(connectorProvider));
 			}
 		};
 	}
-	@SneakyThrows
 	@Example
-	public void shouldBeAbleToStart(){
+	public void shouldBeAbleToStart() throws ResponseOddityException{
 		System.out.println(ClientBuilder.newBuilder());
 		System.out.println("Is this started? SOCKSSSSSSS");
 		CDIUtil.instantiate(socksServer);
@@ -59,10 +56,8 @@ public class SocksTestRestClient extends BaseMockedWeldTest {
 		
 		final RestClient client = new RestClient("dog.ceo", 443);
 		
-		System.out.println("Port: " + socksServer.getPort());
 
 		System.out.println(client.get("/api/breeds/list/all"));
 		client.close();
-		//Thread.sleep(10000);
 	}
 }

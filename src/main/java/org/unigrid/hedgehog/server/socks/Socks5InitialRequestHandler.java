@@ -1,37 +1,46 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
 package org.unigrid.hedgehog.server.socks;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.socksx.SocksVersion;
+import io.netty.handler.codec.socksx.v5.DefaultSocks5InitialRequest;
 import io.netty.handler.codec.socksx.v5.DefaultSocks5InitialResponse;
 import io.netty.handler.codec.socksx.v5.Socks5AuthMethod;
-import io.netty.handler.codec.socksx.v5.Socks5InitialRequest;
-import io.netty.util.AttributeKey;
-import io.netty.util.ReferenceCountUtil;
-import org.unigrid.hedgehog.model.network.handler.AbstractInboundHandler;
+import io.netty.handler.codec.socksx.v5.Socks5InitialResponse;
 
+public class Socks5InitialRequestHandler extends SimpleChannelInboundHandler<DefaultSocks5InitialRequest> {
 
-public class Socks5InitialRequestHandler extends AbstractInboundHandler<Socks5InitialRequest>{
-	public static final AttributeKey<Boolean> IS_AUTHENTICATED_KEY = AttributeKey.valueOf("IS_AUTHENTICATED");
+	private static final Logger logger = LoggerFactory.getLogger(Socks5InitialRequestHandler.class);
 	
+	private SocksServer proxyServer;
 	
-	public Socks5InitialRequestHandler() {
-		//Needs to have optional or we get error in the test
-		super( Socks5InitialRequest.class);
-			//Optional.of(IS_AUTHENTICATED_KEY), Socks5InitialRequest.class);
-			//Optional.empty(), Socks5InitialRequest.class);
+	public Socks5InitialRequestHandler(SocksServer proxyServer) {
+		this.proxyServer = proxyServer;
 	}
-
+	
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, Socks5InitialRequest req) throws Exception {
-		System.out.println("Is it called twice?");
-
-		System.out.println("typedChannelRead in Socks5InitialRequestHandler");
-//				System.out.println("is it autenticated before? " +  ctx.channel().attr(IS_AUTHENTICATED_KEY).get());
-//				ctx.channel().attr(IS_AUTHENTICATED_KEY).set(true);
-//				System.out.println("is it autenticated now? " +  ctx.channel().attr(IS_AUTHENTICATED_KEY).get());
-		//ctx.pipeline().addFirst(new Socks5PasswordAuthRequestDecoder());
-		ctx.writeAndFlush(new DefaultSocks5InitialResponse(Socks5AuthMethod.PASSWORD));
-//		ReferenceCountUtil.release(req);
-//		ctx.fireChannelRead(req);
-		
+	protected void channelRead0(ChannelHandlerContext ctx, DefaultSocks5InitialRequest msg) throws Exception {
+		logger.debug("Initializing ss5 connection:  " + msg);
+		if(msg.decoderResult().isFailure()) {
+			logger.debug("Not ss5 protocol");
+			ctx.fireChannelRead(msg);
+		} else {
+			if(msg.version().equals(SocksVersion.SOCKS5)) {
+				if(proxyServer.isAuth()) {
+					Socks5InitialResponse initialResponse = new DefaultSocks5InitialResponse(Socks5AuthMethod.PASSWORD);
+					ctx.writeAndFlush(initialResponse);
+				} else {
+					Socks5InitialResponse initialResponse = new DefaultSocks5InitialResponse(Socks5AuthMethod.NO_AUTH);
+					ctx.writeAndFlush(initialResponse);
+				}
+			}
+		}
 	}
+
 }
