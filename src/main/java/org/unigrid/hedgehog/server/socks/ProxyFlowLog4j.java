@@ -1,3 +1,7 @@
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
 package org.unigrid.hedgehog.server.socks;
 
 import java.net.Inet4Address;
@@ -9,6 +13,7 @@ import java.util.Enumeration;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import io.netty.channel.ChannelHandlerContext;
 
 public class ProxyFlowLog4j implements ProxyFlowLog {
@@ -36,11 +41,7 @@ public class ProxyFlowLog4j implements ProxyFlowLog {
 				(readByte + writeByte));
 	}
 
-	/**
-	 * 获取本机的IP
-	 * 
-	 * @return Ip地址
-	 */
+	
 	private static String getLocalAddress() {
         try {
             for (Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces(); interfaces.hasMoreElements();) {
