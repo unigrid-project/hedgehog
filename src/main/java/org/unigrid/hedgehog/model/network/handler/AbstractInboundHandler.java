@@ -47,7 +47,6 @@ public abstract class AbstractInboundHandler<T> extends ChannelInboundHandlerAda
 
 		final Supplier<Boolean> isAttributeEmptyAndOurClass = () -> filteringAttribute.isEmpty() && clazz.isInstance(obj);
 
-		System.out.println("Getting called: " + filteringAttribute);
 		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()));
 		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()).get());
 		System.out.println("Channel " + ctx.channel());
