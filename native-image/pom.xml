@@ -49,6 +49,11 @@
 			<artifactId>hedgehog</artifactId>
 			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-compress</artifactId>
+			<version>1.22</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>
@@ -145,6 +150,7 @@
 					<classpath>
 						<classpath>${org.graalvm.sdk:graal-sdk:jar}</classpath>
 						<classpath>${project.build.directory}/classes</classpath>
+						<classpath>${org.apache.commons:commons-compress:jar}</classpath>
 					</classpath>
 					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
