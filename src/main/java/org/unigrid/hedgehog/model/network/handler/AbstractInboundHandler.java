@@ -47,41 +47,17 @@ public abstract class AbstractInboundHandler<T> extends ChannelInboundHandlerAda
 
 		final Supplier<Boolean> isAttributeEmptyAndOurClass = () -> filteringAttribute.isEmpty() && clazz.isInstance(obj);
 
-		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()));
-		//System.out.println("ctx: " + ctx.channel().attr(filteringAttribute.get()).get());
-		System.out.println("Channel " + ctx.channel());
-	
-//		final Supplier<Boolean> isAttributeFalseOrNullAndOurClass = () -> {
-//			if (filteringAttribute.isPresent()) {
-//				
-//				final Boolean attribute = ctx.channel().attr( filteringAttribute.get()).get();
-//				
-//				if (Objects.isNull(attribute) || attribute.equals(false)) {
-//					System.out.println("Its hereee");
-//					return clazz.isInstance(obj);
-//				}
-//			}
-//	
-//			return false;
-//		};
-		
 		try {
-			System.out.println("Received object of class: " + obj.getClass().getName());
-			
 			if (isAttributeEmptyAndOurClass.get() ||  isAttributeFalseOrNullAndOurClass(ctx, obj)) {
 				typedChannelRead(ctx, (T) obj);
-				System.out.println("Its here");
 			} else {
-				System.out.println("It`s here now");
-			//	release = false;
 				ctx.fireChannelRead(obj);
 				ReferenceCountUtil.release(obj);
 			}
 		} finally {
-			//if (release) {
-				//TODO: Do we actually need to do this?
-				//ReferenceCountUtil.release(obj);
-			//}
+			//TODO: Do we actually need to do this?
+			//ReferenceCountUtil.release(obj);
+			
 		}
 	}
 

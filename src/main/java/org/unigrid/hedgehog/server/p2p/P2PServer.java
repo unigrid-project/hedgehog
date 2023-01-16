@@ -27,6 +27,7 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import jakarta.annotation.PostConstruct;
@@ -42,7 +43,7 @@ import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.GenericChannelInitializer;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
@@ -73,14 +74,14 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.streamHandler(new RegisterQuicChannelHandler(() -> {
+			.streamHandler(new GenericChannelInitializer<QuicStreamChannel>(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler()
 				);
-			}, RegisterQuicChannelHandler.Type.SERVER)).build();
+			}, GenericChannelInitializer.Type.SERVER)).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)

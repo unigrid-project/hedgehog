@@ -51,7 +51,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
-import org.unigrid.hedgehog.model.network.handler.RegisterQuicChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.GenericChannelInitializer;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
@@ -91,14 +91,14 @@ public class P2PClient {
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-			new RegisterQuicChannelHandler(() -> {
+			new GenericChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PingChannelHandler()
 				);
-			}, RegisterQuicChannelHandler.Type.CLIENT)).sync().getNow();
+			}, GenericChannelInitializer.Type.CLIENT)).sync().getNow();
 	}
 
 	public ChannelFuture send(Packet packet) {

@@ -49,7 +49,7 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 
 		setChannelCallback(Optional.of((ctx, ping) -> {
 			/* Only count triggers on the server-side  */
-			if (RegisterQuicChannelHandler.Type.SERVER.is(ctx.channel())) {
+			if (GenericChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
 		}));
