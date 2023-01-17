@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.model.storage;
 
+import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.io.File;
@@ -27,10 +28,12 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
@@ -56,9 +59,9 @@ public class Storage {
 		String path = mkDir(getFirstByte(key), getSecondByte(key));
 		file = new RandomAccessFile(path + "/" + getHex(key), "rw");
 		FileChannel channel = file.getChannel();
-		ByteBuf buff = encode(blockData);
-		//buff.writeInt(blockData.getAccessed());
-		//buff.writeBytes(blockData.getBuffer());
+		ByteBuf buff = Unpooled.buffer();
+		buff.writeInt(blockData.getAccessed());
+		buff.writeBytes(blockData.getBuffer());
 		MappedByteBuffer out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
 
 		out.put(buff.array());
@@ -97,9 +100,10 @@ public class Storage {
 		} catch (IOException ex) {
 			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 		}
-		buff.setBytes(0, dst);
-
-		return decode(buff);
+		BlockData blockData = new BlockData();
+		blockData.setAccessed(dst.flip().getInt());
+		blockData.setBuffer(buff.setBytes(0, dst));
+		return blockData;
 	}
 
 	public String mkDir(String firstByte, String secondByte) {
@@ -128,28 +132,5 @@ public class Storage {
 
 	public String getHex(String key) {
 		return Hex.encodeHexString(key.getBytes());
-	}
-	
-	public ByteBuf encode(BlockData msg) {
-		ByteBuf buff = Unpooled.buffer();
-		BlockDataEncode encode = new BlockDataEncode();
-		try {
-			encode.encode(ChannelHandlerContext.class(msg), msg, buff);
-		} catch (Exception ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-		}
-		
-		return buff;
-	}
-	
-	public BlockData decode(ByteBuf buff) {
-		List<Object> out = new ArrayList<>();
-		BlockDataDecode decode = new BlockDataDecode();
-		try {
-			decode.decode(ChannelHandlerContext.class.cast(new BlockData()), buff, out);
-		} catch (Exception ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-		}
-		return (BlockData)out.get(0);
 	}
 }

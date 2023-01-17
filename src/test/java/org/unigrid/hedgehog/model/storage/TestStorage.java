@@ -27,6 +27,8 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Arbitraries;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
 
 //@WeldSetup(Storage.class)
 public class TestStorage extends BaseMockedWeldTest {
@@ -46,15 +48,23 @@ public class TestStorage extends BaseMockedWeldTest {
 	}
 	
 	@Example
-	public boolean testGettingStoredOneFile(@ForAll("key") String key, @ForAll("data") byte[] bytes) {
+	public void testGettingStoredOneFile(@ForAll("key") String key, @ForAll("data") byte[] bytes) {
 		Storage storage = new Storage();
 		boolean test = false;
 		BlockData blockData = storage.getFile(key);
 		
-		if(blockData.getAccessed() == 2 && blockData.getBuffer().equals(bytes)) {
+		if(blockData.getAccessed() == 2) {
 			test = true;
+			byte[] arr = blockData.getBuffer().array();
+			for (int i = 0; i < bytes.length - 1; i++) {
+				byte a = arr[i];
+				byte b = bytes[i];
+				if(a != b) {
+					test = false;
+				}
+			}
 		}
-		return test;
+		assert(test);
 	}
 	
 	@Provide
