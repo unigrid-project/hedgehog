@@ -105,6 +105,27 @@ public class Storage {
 		blockData.setBuffer(buff.setBytes(0, dst));
 		return blockData;
 	}
+	
+	public int getAccessed(String path) {
+		try {
+			RandomAccessFile file = new RandomAccessFile(path, "rw");
+		} catch (FileNotFoundException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+		}
+		int num = 0;
+		try {
+			num = file.readInt();
+		} catch (IOException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+		}
+		
+		try {
+			file.close();
+		} catch (IOException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+		}
+		return num;
+	}
 
 	public String mkDir(String firstByte, String secondByte) {
 		Path dataDir = new ApplicationDirectory().getUserDataDir();
