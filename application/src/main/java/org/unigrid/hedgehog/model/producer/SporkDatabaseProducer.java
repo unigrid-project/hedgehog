@@ -26,7 +26,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.ApplicationDirectory;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j

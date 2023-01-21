@@ -14,11 +14,16 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
 */
 
-package org.unigrid.hedgehog.model;
+package org.unigrid.hedgehog.model.producer;
 
-import org.unigrid.hedgehog.common.model.Version;
-import picocli.CommandLine.IVersionProvider;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
-public class VersionProvider extends Version implements IVersionProvider {
-	/* Empty on purpose */
+@ApplicationScoped
+public class ApplicationDirectoryProducer {
+	@Produces
+	private ApplicationDirectory produce() {
+		return ApplicationDirectory.create();
+	}
 }

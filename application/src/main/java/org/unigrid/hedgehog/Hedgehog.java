@@ -34,7 +34,7 @@ import picocli.CommandLine.Option;
 	scope = CommandLine.ScopeType.INHERIT, header = {
 		"",
 		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
-		"    :   _.:.:.:.:.::.     © 2021-2022 The Unigrid Foundation, UGD Software AB",
+		"    :   _.:.:.:.:.::.     © 2021-2023 The Unigrid Foundation, UGD Software AB",
 		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
 		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""

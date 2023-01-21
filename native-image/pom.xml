@@ -50,9 +50,18 @@
 			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-common</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-compress</artifactId>
 			<version>1.22</version>
+		</dependency>
+		<dependency>
+			<groupId>net.harawata</groupId>
+			<artifactId>appdirs</artifactId>
 		</dependency>
 	</dependencies>
 	<build>
@@ -148,9 +157,15 @@
 					<graalVersion>22.3.0.r17</graalVersion>
 					<allowIncompleteClasspath>true</allowIncompleteClasspath>
 					<classpath>
+						<classpath>${org.unigrid.hedgehog:hedgehog-common:jar}</classpath>
 						<classpath>${org.graalvm.sdk:graal-sdk:jar}</classpath>
 						<classpath>${project.build.directory}/classes</classpath>
 						<classpath>${org.apache.commons:commons-compress:jar}</classpath>
+						<classpath>${org.apache.commons:commons-lang3:jar}</classpath>
+						<classpath>${net.harawata:appdirs:jar}</classpath>
+						<classpath>${org.slf4j:slf4j-api:jar}</classpath>
+						<classpath>${ch.qos.logback:logback-core:jar}</classpath>
+						<classpath>${ch.qos.logback:logback-classic:jar}</classpath>
 					</classpath>
 					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
@@ -158,6 +173,7 @@
 					<output>${project.build.directory}/${executable.name}</output>
 					<customOptions>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
+						<customOption>-J--add-exports=org.unigrid.hedgehog.common/org.unigrid.hedgehog.common.model=ALL-UNNAMED</customOption>
 					</customOptions>
 				</configuration>
 				<executions>

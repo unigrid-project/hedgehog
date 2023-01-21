@@ -16,6 +16,11 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.status.StatusBase;
+import ch.qos.logback.core.util.Loader;
+import ch.qos.logback.core.util.StatusPrinter;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -29,7 +34,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
+import org.graalvm.nativeimage.hosted.RuntimeClassInitialization;
 import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
+import org.slf4j.LoggerFactory;
+import org.unigrid.hedgehog.common.model.Version;
 
 public class BundleFeature implements Feature {
 	@Override
@@ -61,7 +69,7 @@ public class BundleFeature implements Feature {
 			return HexFormat.of().formatHex(digest.digest(data));
 		} catch (NoSuchAlgorithmException ex) {
 			ex.printStackTrace();
-			throw new IllegalStateException("SHA-256 not found in JVM, cannot create bundle", ex);
+			throw new IllegalStateException("SHA-1 not found in JVM, cannot create bundle", ex);
 		}
 	}
 
@@ -80,7 +88,22 @@ public class BundleFeature implements Feature {
 			RuntimeResourceAccess.addResource(getClass().getModule(),
 				jlinkArchive.getFileName().toString(), data
 			);
+
+			/* Primarily initializes logback and SL4J */
+
+			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
+			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
+			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
+			RuntimeClassInitialization.initializeAtBuildTime(Logger.class);
+			RuntimeClassInitialization.initializeAtBuildTime(StatusBase.class);
+			RuntimeClassInitialization.initializeAtBuildTime(StatusPrinter.class);
+			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
+
+			final Optional<Module> MAIN_MODULE = ModuleLayer.boot().findModule("org.unigrid.hedgehog");
+			System.out.println(MAIN_MODULE);
+
 		} catch (IllegalStateException | IOException ex) {
+			System.err.println("Failed to bundle required resources for archive");
 			ex.printStackTrace();
 			System.exit(0);
 		}

@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class ApplicationDirectoryMockUp extends MockUp<ApplicationDirectory> {
 	private final Path userConfigDir;

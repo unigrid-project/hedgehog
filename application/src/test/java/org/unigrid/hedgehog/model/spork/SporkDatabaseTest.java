@@ -26,8 +26,8 @@ import net.jqwik.api.domains.Domain;
 import static com.shazam.shazamcrest.matcher.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.NotNull;
-import org.unigrid.hedgehog.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
 
 public class SporkDatabaseTest extends BaseSporkDatabaseTest {

@@ -17,9 +17,9 @@
 package org.unigrid.hedgehog.nativeimage;
 
 import java.io.File;
+import org.unigrid.hedgehog.common.model.Version;
 
 public class NativeImage {
-
 	public static void main(String[] args) throws Exception {
 		System.out.println(NativeImage.class.getResource("/"));
 		System.out.println(NativeImage.class.getResource("hedgehog-native-0.0.1-SNAPSHOT-jlink.zip"));
@@ -31,5 +31,8 @@ public class NativeImage {
 
 		System.out.println(new File("resource:" + NativeProperties.BUNDLED_JLINK_ZIP).exists());
 		System.out.println(new File("" + NativeProperties.BUNDLED_JLINK_ZIP).exists());
+
+		System.out.println("name: " + Version.getName());
+		System.out.println("author: " + Version.getAuthor());
 	}
 }

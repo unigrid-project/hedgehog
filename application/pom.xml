@@ -13,8 +13,6 @@
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.compiler.source>11</maven.compiler.source>
-		<maven.compiler.target>11</maven.compiler.target>
 		<surefireArgLine />
 	</properties>
 	<profiles>
@@ -84,6 +82,11 @@
 	</profiles>
 	<dependencies>
 		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-common</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>org.graalvm.sdk</groupId>
 			<artifactId>graal-sdk</artifactId>
 			<version>22.3.0</version>
@@ -126,7 +129,6 @@
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
-			<version>1.18.24</version>
 		</dependency>
 		<dependency>
 			<groupId>org.reflections</groupId>
@@ -212,12 +214,10 @@
 		<dependency>
 			<groupId>ch.qos.logback</groupId>
 			<artifactId>logback-classic</artifactId>
-			<version>1.3.0-alpha16</version>
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>jul-to-slf4j</artifactId>
-			<version>2.0.0-alpha7</version>
 		</dependency>
 		<!--<dependency>
 			<groupId>net.openhft</groupId>
@@ -237,7 +237,6 @@
 		<dependency>
 			<groupId>net.harawata</groupId>
 			<artifactId>appdirs</artifactId>
-			<version>1.2.1</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.hazendaz.jmockit</groupId>
@@ -344,6 +343,7 @@
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=info.picocli
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=com.fasterxml.jackson.databind
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=com.fasterxml.jackson.databind
+						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=org.unigrid.hedgehog.common
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog=info.picocli
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
@@ -377,6 +377,7 @@
 						--add-opens java.base/java.net=ALL-UNNAMED
 						--add-opens java.base/java.time=ALL-UNNAMED
 						--add-opens java.base/java.util=ALL-UNNAMED
+						--add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>
