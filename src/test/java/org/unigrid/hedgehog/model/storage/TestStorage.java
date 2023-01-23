@@ -29,11 +29,15 @@ import net.jqwik.api.Arbitraries;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.jqwik.WeldSetup;
 
 //@WeldSetup(Storage.class)
 public class TestStorage extends BaseMockedWeldTest {
 	byte[] bytes;
 
+	//@Inject
+	//Storage storage;
+	
 	@Example
 	public void testStoringOneFile(@ForAll("key")String key, @ForAll("data") byte[] bytes) {
 		Storage storage = new Storage();
@@ -44,7 +48,7 @@ public class TestStorage extends BaseMockedWeldTest {
 		blockData.setAccessed(2);
 		blockData.setBuffer(buff);
 		System.out.println(key);
-		storage.store(key ,blockData);
+		storage.store(key, blockData);
 	}
 	
 	@Example

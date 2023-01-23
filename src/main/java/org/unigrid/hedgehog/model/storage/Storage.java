@@ -54,24 +54,40 @@ public class Storage {
 
 	private RandomAccessFile file;
 
-	@SneakyThrows
 	public void store(String key, BlockData blockData) {
 		String path = mkDir(getFirstByte(key), getSecondByte(key));
-		file = new RandomAccessFile(path + "/" + getHex(key), "rw");
+		try {
+			file = new RandomAccessFile(path + "/" + getHex(key), "rwd");
+		} catch (FileNotFoundException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+			System.out.println(ex.getMessage());
+		}
 		FileChannel channel = file.getChannel();
 		ByteBuf buff = Unpooled.buffer();
 		buff.writeInt(blockData.getAccessed());
 		buff.writeBytes(blockData.getBuffer());
-		MappedByteBuffer out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
+		System.out.println(key);
+		MappedByteBuffer out;
+		try {
+			out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
+			out.put(buff.array());
+		} catch (IOException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+				System.out.println(ex.getMessage());
+			}
 
-		out.put(buff.array());
-		file.close();
+		try {
+			file.close();
+		} catch (IOException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
+			System.out.println(ex.getMessage());
+		}
 	}
 
 	public BlockData getFile(String key) {
 
 		ByteBuf buff = Unpooled.buffer();
-		String path = new ApplicationDirectory().getUserDataDir() 
+		String path = new ApplicationDirectory().getUserDataDir()
 			+ "/"
 			+ getFirstByte(key)
 			+ "/"

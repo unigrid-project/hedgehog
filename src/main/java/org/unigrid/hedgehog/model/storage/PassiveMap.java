@@ -34,9 +34,9 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
 	@Inject
 	private Storage storage;
 	
-	private int maxSize = 2 * 1024 * 1024;
+	private int maxSize = 2 * 1024 * 1024 * 1024;
 	
-	private int curretnSize = 0;
+	private int currentSize = 0;
 	
 	private TreeMap<String, BlockData> map;
 	
@@ -49,36 +49,46 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
 		super(map);
 	}
 
-	public Optional<V> getOptional(K key) {
-		final V value = get(key);
-
-		if (get(key) == null) {
-			return Optional.empty();
-		}
-
-		return Optional.of(value);
-	}
-
 	public void put(String key, BlockData blockData) {
+		addToMap(key, blockData);
 		storage.store(key, blockData);
 	}
 	
 	public ByteBuf get(String key) {
+		if(map.containsKey(key)) {
+			map.get(key).setAccessed(map.get(key).getAccessed() + 1);
+			return map.get(key).getBuffer();
+		}
+		
 		BlockData blockData = new BlockData();
 		blockData = storage.getFile(key);
 		blockData.setAccessed(blockData.getAccessed() + 1);
 		return blockData.getBuffer();
 	}
 	
-	private void updateMap(BlockData blockData) {
-		
+	private void updateMap(String key, BlockData data) {
+		currentSize = currentSize + data.getBuffer().array().length;
+		map.put(key, data);
 	}
 	
 	private void addToMap(String key, BlockData data) {
+		if(currentSize < maxSize) {
+			updateMap(key, data);
+			return;
+		}
+		
 		for (Entry<String, BlockData> entry : map.entrySet()) {
 			if(entry.getValue().getAccessed() < data.getAccessed()) {
 				map.put(key, data);
+				removeFromMap();
+				return;
 			}
+		}
+	}
+	
+	private void removeFromMap() {
+		while(currentSize > maxSize) {
+			map.remove(map.firstKey());
 		}
 	}
 	
