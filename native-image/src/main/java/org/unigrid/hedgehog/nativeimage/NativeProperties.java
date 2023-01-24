@@ -17,8 +17,19 @@
 package org.unigrid.hedgehog.nativeimage;
 
 import java.nio.file.Path;
+import org.apache.commons.exec.OS;
 
 public class NativeProperties {
+	public static final String BIN_DIRECTORY = "bin";
+	public static String RUN_SCRIPT;
 	public static Path BUNDLED_JLINK_ZIP;
 	public static String HASH;
+
+	static {
+		if (OS.isFamilyWindows()) {
+			RUN_SCRIPT = "run.bat";
+		} else {
+			RUN_SCRIPT = "run.sh";
+		}
+	}
 }

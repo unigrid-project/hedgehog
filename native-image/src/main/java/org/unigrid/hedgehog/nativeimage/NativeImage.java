@@ -16,23 +16,61 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import java.io.File;
-import org.unigrid.hedgehog.common.model.Version;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.exec.ExecuteWatchdog;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	public static void main(String[] args) throws Exception {
-		System.out.println(NativeImage.class.getResource("/"));
-		System.out.println(NativeImage.class.getResource("hedgehog-native-0.0.1-SNAPSHOT-jlink.zip"));
-		System.out.println(Thread.currentThread().getContextClassLoader().getResource("/"));
-		System.out.println(Thread.currentThread().getContextClassLoader().getResource("."));
-		System.out.println(Thread.currentThread().getContextClassLoader().getResource("hedgehog-native-0.0.1-SNAPSHOT-jlink.zip"));
-		System.out.println(NativeProperties.BUNDLED_JLINK_ZIP);
-		System.out.println(NativeProperties.HASH);
+	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 
-		System.out.println(new File("resource:" + NativeProperties.BUNDLED_JLINK_ZIP).exists());
-		System.out.println(new File("" + NativeProperties.BUNDLED_JLINK_ZIP).exists());
+	private static int start(Path basePath, String[] args) throws ExecuteException, IOException {
+		final Path script = basePath.resolve(Path.of(
+			NativeProperties.BIN_DIRECTORY, NativeProperties.RUN_SCRIPT)
+		);
 
-		System.out.println("name: " + Version.getName());
-		System.out.println("author: " + Version.getAuthor());
+		final CommandLine cmdLine = CommandLine.parse(String.format("%s %s",
+			script.toString(), String.join(" ", args))
+		);
+
+		final DefaultExecutor executor = new DefaultExecutor();
+		executor.setExitValue(0);
+
+		try {
+			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
+			executor.setWatchdog(watchdog);
+			return executor.execute(cmdLine);
+
+		/* error code 2 is just a generic error from PicoCLI that we can ignore */
+		} catch (ExecuteException ex) {
+			if (ex.getExitValue() != 2) {
+				throw ex;
+			}
+
+			return ex.getExitValue();
+		}
+	}
+
+	public static void main(String[] args) throws ExecuteException, IOException {
+		final InputStream archive = Thread.currentThread().getContextClassLoader()
+			.getResourceAsStream(NativeProperties.BUNDLED_JLINK_ZIP.toString());
+
+		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
+		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.HASH));
+
+		if (Files.notExists(jlinkDistribution)) {
+			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
+			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
+		}
+
+		start(jlinkDistribution, args);
 	}
 }

@@ -60,6 +60,11 @@
 			<version>1.22</version>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-exec</artifactId>
+			<version>1.3</version>
+		</dependency>
+		<dependency>
 			<groupId>net.harawata</groupId>
 			<artifactId>appdirs</artifactId>
 		</dependency>
@@ -122,7 +127,7 @@
 				<artifactId>tentackle-jlink-maven-plugin</artifactId>
 				<version>17.12.0.0</version>
 				<configuration>
-					<mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
+					<mainClass>org.unigrid.hedgehog.Hedgehog</mainClass>
 					<stripDebug>true</stripDebug>
 					<excludeModules>jdk.jfr</excludeModules>
 				</configuration>
@@ -162,6 +167,7 @@
 						<classpath>${project.build.directory}/classes</classpath>
 						<classpath>${org.apache.commons:commons-compress:jar}</classpath>
 						<classpath>${org.apache.commons:commons-lang3:jar}</classpath>
+						<classpath>${org.apache.commons:commons-exec:jar}</classpath>
 						<classpath>${net.harawata:appdirs:jar}</classpath>
 						<classpath>${org.slf4j:slf4j-api:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-core:jar}</classpath>

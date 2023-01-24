@@ -16,36 +16,70 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.zip.ZipEntry;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
-import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
+import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 
+@Slf4j
 public class Unzipper {
-	private File create(File destinationDir, ZipEntry zipEntry) throws IOException {
-		File destFile = new File(destinationDir, zipEntry.getName());
+	private static final int PROGRESS_WIDTH = 20;
 
-		String destDirPath = destinationDir.getCanonicalPath();
-		String destFilePath = destFile.getCanonicalPath();
+	private static void printProgress(long position, long size) {
+		final char incompleteCharacter = '░'; // U+2591
+		final char completeCharacter = '█'; // U+2588
+		final int complete = (int) ((float) position / size * PROGRESS_WIDTH);
 
-		if (!destFilePath.startsWith(destDirPath + File.separator)) {
-			throw new IOException("Entry is outside of the target dir: " + zipEntry.getName());
-		}
-
-		return destFile;
+		System.out.print(String.format("\r Unpacking: [%s%s]              \r",
+			StringUtils.repeat(completeCharacter, complete),
+			StringUtils.repeat(incompleteCharacter, PROGRESS_WIDTH - complete)
+		));
 	}
 
-	public static void unzip(byte[] data, Path destination) throws IOException {
+	private static Path normalize(Path destination, ZipArchiveEntry entry) throws IOException {
+		final Path target = destination.resolve(Path.of(NativeProperties.HASH, entry.getName()));
 
-		try (ZipArchiveInputStream archive = new ZipArchiveInputStream(new ByteArrayInputStream(data))) {
-			ZipArchiveEntry entry;
+		/* Verify normalized name target to avoid zip slip vulnerability */
+		if (!target.normalize().startsWith(target)) {
+			throw new IOException("Zip slip detected at: " + entry.getName());
+		}
 
-			while ((entry = archive.getNextZipEntry()) != null) {
-				//Files.createDirectories(, fas)
-			}
+		return target.normalize();
+	}
+
+	public static void unzip(SeekableByteChannel in, Path destination) throws IOException {
+		try (ZipFile archive = new ZipFile(in)) {
+			archive.getEntries().asIterator().forEachRemaining(entry -> {
+				try {
+					final Path path = normalize(destination, entry);
+
+					if (entry.isDirectory()) {
+						Files.createDirectories(path);
+					} else {
+						printProgress(in.position(), in.size());
+						Files.createDirectories(path.getParent());
+						final File file = path.toFile();
+
+						IOUtils.copy(archive.getInputStream(entry), new FileOutputStream(file));
+
+						if (path.getParent().endsWith(NativeProperties.BIN_DIRECTORY)) {
+							file.setExecutable(true);
+						}
+					}
+				} catch (IOException ex) {
+					throw new UncheckedIOException(ex);
+				}
+			});
+
+			System.out.print("\r"); /* Just clear the line */
 		}
 	}
 }

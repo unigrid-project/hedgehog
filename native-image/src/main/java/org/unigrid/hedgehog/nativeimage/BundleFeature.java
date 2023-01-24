@@ -31,6 +31,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import org.apache.commons.exec.OS;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
@@ -89,18 +90,18 @@ public class BundleFeature implements Feature {
 				jlinkArchive.getFileName().toString(), data
 			);
 
-			/* Primarily initializes logback and SL4J */
+			/* Primarily initializes Logback, SL4J & Commons Compress */
 
 			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
 			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Logger.class);
+			RuntimeClassInitialization.initializeAtBuildTime(NativeProperties.class);
+			RuntimeClassInitialization.initializeAtBuildTime(OS.class);
 			RuntimeClassInitialization.initializeAtBuildTime(StatusBase.class);
 			RuntimeClassInitialization.initializeAtBuildTime(StatusPrinter.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
-
-			final Optional<Module> MAIN_MODULE = ModuleLayer.boot().findModule("org.unigrid.hedgehog");
-			System.out.println(MAIN_MODULE);
+			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
