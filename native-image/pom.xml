@@ -173,7 +173,7 @@
 					<output>${project.build.directory}/${executable.name}</output>
 					<customOptions>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
-						<customOption>-J--add-exports=org.unigrid.hedgehog.common/org.unigrid.hedgehog.common.model=ALL-UNNAMED</customOption>
+						<customOption>-H:IncludeResources=application.properties</customOption>
 					</customOptions>
 				</configuration>
 				<executions>
@@ -221,19 +221,10 @@
 		</plugins>
 		<resources>
 			<resource>
-				<directory>src/main/resources-filtered</directory>
+				<directory>../application/src/main/resources-filtered</directory>
 				<filtering>true</filtering>
 			</resource>
-			<resource>
-				<directory>src/main/resources</directory>
-				<filtering>false</filtering>
-			</resource>
 		</resources>
-		<testResources>
-			<testResource>
-				<directory>src/test/resources</directory>
-			</testResource>
-		</testResources>
 	</build>
 	<reporting>
 		<plugins>

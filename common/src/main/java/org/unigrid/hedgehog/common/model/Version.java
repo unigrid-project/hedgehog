@@ -18,7 +18,6 @@ package org.unigrid.hedgehog.common.model;
 
 import java.io.IOException;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Properties;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +32,6 @@ public class Version {
 	private static final String DEFAULT_AUTHOR = "Unigrid";
 	private static final String DEFAULT_NAME = "Hedgehog";
 	private static final String DEFAULT_VERSION = "0.0.0-BASTARD";
-	private static final Optional<Module> MAIN_MODULE = ModuleLayer.boot().findModule("org.unigrid.hedgehog");
 
 	public String[] getVersion() throws Exception {
 		final Properties properties = new Properties();
@@ -41,7 +39,9 @@ public class Version {
 		String version  = DEFAULT_VERSION;
 
 		try {
-			properties.load(MAIN_MODULE.get().getResourceAsStream("/application.properties"));
+			properties.load(Thread.currentThread().getContextClassLoader()
+				.getResourceAsStream("application.properties"));
+
 			name = Objects.requireNonNull(properties.getProperty("project.name"));
 			version = Objects.requireNonNull(properties.getProperty("project.version"));
 		} catch (IOException | NullPointerException ex) {
