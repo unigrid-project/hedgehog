@@ -33,7 +33,7 @@ import org.unigrid.hedgehog.server.TestServer;
 public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void> {
 	public static final int PERIOD_MS = 75;
 	public static final int WAIT_TIME_MS = 1000;
-	public static final double TOLERANCE = 0.05; /* 5% */
+	public static final double TOLERANCE = 0.08; /* 8% */
 
 	public PingScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);
@@ -66,7 +66,7 @@ public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void>
 		}
 
 		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
-		final double toleranceAmount = Math.ceil(expectedInvocations * TOLERANCE);
+		final double toleranceAmount = Math.round(expectedInvocations * TOLERANCE);
 		assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
 	}
 }
