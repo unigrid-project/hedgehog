@@ -11,7 +11,7 @@ cd ..
 bin\java${(modulePath!="")?then(" -p " + modulePath, "")}${(classPath!="")?then(" -cp " + classPath, "")} -m ${mainModule}/${mainClass}
   <#else>
 <#-- classpath application -->
-bin\java -cp ${classPath} ${mainClass}
+bin\java -cp ${classPath} ${mainClass} %*
   </#if>
 <#else>
 #!/bin/sh
@@ -28,6 +28,6 @@ cd "$(dirname "$(dirname "$(readlink -f "$0")")")"
 bin/java${(modulePath!="")?then(" -p " + modulePath, "")}${(classPath!="")?then(" -cp " + classPath, "")} -m ${mainModule}/${mainClass}
   <#else>
 <#-- classpath application -->
-bin/java -cp ${classPath} ${mainClass}
+bin/java -cp ${classPath} ${mainClass} $@
   </#if>
 </#if>
