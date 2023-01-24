@@ -16,39 +16,43 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.io.Serializable;
+import java.time.Instant;
+import lombok.Data;
 
+@Data()
 @XmlRootElement
+@XmlAccessorType(XmlAccessType.FIELD)
 public class Content implements Serializable {
-	@XmlElement
-	public String key;
+	@XmlElement(name = "Key")
+	private String key;
 
-	@XmlElement
-	private String lastModified;
+	@XmlElement(name = "LastModified")
+	@XmlJavaTypeAdapter(InstantAdapter.class)
+	private Instant lastModified;
 
-	@XmlElement
+	@XmlElement(name = "ETag")
 	private String eTag;
 
-	@XmlElement
-	private int size;
+	@XmlElement(name = "Size")
+	private long size;
 
-	@XmlElement
+	@XmlElement(name = "StorageClass")
 	private String storageClass;
-
-	@XmlElement
-	private Owner owner;
 
 	public Content() {
 	}
-	
-	public Content(String key, String lastModified, String eTag, int size, String storageClass, Owner owner) {
+
+	public Content(String key, Instant lastModified, String eTag, long size, String storageClass) {
 		this.key = key;
 		this.lastModified = lastModified;
 		this.eTag = eTag;
 		this.size = size;
 		this.storageClass = storageClass;
-		this.owner = owner;
 	}
 }

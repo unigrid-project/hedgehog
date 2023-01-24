@@ -36,7 +36,7 @@ class RestClientCommand<T> implements Runnable {
 
 	@Override
 	public void run() {
-		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort())) {
+		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true)) {
 			switch (method) {
 				case HttpMethod.GET:
 					get(rest.get(location));

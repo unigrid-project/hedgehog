@@ -16,34 +16,41 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
-import java.security.Timestamp;
+import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import java.time.Instant;
+import lombok.Data;
 
+@Data()
 @XmlRootElement
+@XmlAccessorType(XmlAccessType.FIELD)
 public class CopyObjectResult {
-	@XmlElement
+	@XmlElement(name = "ETag")
 	private String eTag;
 
-	@XmlElement
-	private String lastModified;
+	@XmlElement(name = "LastModified")
+	@XmlJavaTypeAdapter(InstantAdapter.class)
+	private Instant lastModified;
 
-	@XmlElement
+	@XmlElement(name = "ChecksumCRC32")
 	private String checksumCRC32;
 
-	@XmlElement
+	@XmlElement(name = "ChecksumCRC32C")
 	private String checksumCRC32C;
 
-	@XmlElement
+	@XmlElement(name = "ChecksumSHA1")
 	private String checksumSHA1;
 
-	@XmlElement
+	@XmlElement(name = "ChecksumSHA256")
 	private String checksumSHA256;
 
 	public CopyObjectResult() {
 	}
-	
-	public CopyObjectResult(String eTag, String lastModified, String checksumCRC32, String checksumCRC32C,
+
+	public CopyObjectResult(String eTag, Instant lastModified, String checksumCRC32, String checksumCRC32C,
 		String checksumSHA1, String checksumSHA256) {
 		this.eTag = eTag;
 		this.lastModified = lastModified;
@@ -52,5 +59,4 @@ public class CopyObjectResult {
 		this.checksumSHA1 = checksumSHA1;
 		this.checksumSHA256 = checksumSHA256;
 	}
-
 }

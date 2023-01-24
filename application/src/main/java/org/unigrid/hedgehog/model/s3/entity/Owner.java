@@ -16,16 +16,21 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.io.Serializable;
+import lombok.Data;
 
+@Data()
 @XmlRootElement
+@XmlAccessorType(XmlAccessType.FIELD)
 public class Owner implements Serializable {	
-	@XmlElement
+	@XmlElement(name = "DisplayName")
 	private String displayName;
 	
-	@XmlElement
+	@XmlElement(name = "ID")
 	private String ID;
 	
 	public Owner() {}

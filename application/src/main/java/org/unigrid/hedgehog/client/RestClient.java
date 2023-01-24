@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.IOException;
 import java.io.InputStream;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
@@ -37,7 +38,7 @@ public class RestClient implements AutoCloseable {
 	private final String baseUrl;
 
 	@SneakyThrows
-	public RestClient(String host, int port) {
+	public RestClient(String host, int port, boolean isSecure) {
 		final ClientConfig clientConfig = new ClientConfig();
 
 		clientConfig.register(JacksonJaxbJsonProvider.class);
@@ -52,7 +53,11 @@ public class RestClient implements AutoCloseable {
 			.sslContext(context)
 			.withConfig(clientConfig).build();
 
-		baseUrl = String.format("https://%s:%d%%s", host, port);
+		if (isSecure) {
+			baseUrl = String.format("https://%s:%d%%s", host, port);
+		} else {
+			baseUrl = String.format("http://%s:%d%%s", host, port);
+		}
 	}
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
@@ -71,6 +76,10 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
+	public <T> T getEntity(String location, Class<T> clazz) throws ResponseOddityException {
+		return client.target(String.format(baseUrl, location)).request().get(clazz);
+	}
+
 	public Response delete(String location) throws ResponseOddityException {
 		final Response response = client.target(String.format(baseUrl, location)).request().delete();
 
@@ -85,28 +94,35 @@ public class RestClient implements AutoCloseable {
 		throwResponseOddity(response);
 		return response;
 	}
-	
+
+	public Response postInputStream(String location, InputStream inputStream) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.post(Entity.entity(inputStream, MediaType.APPLICATION_OCTET_STREAM));
+
+		throwResponseOddity(response);
+		return response;
+	}
 
 	public <T> Response put(String location, T entity) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.put(Entity.json(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public <T> Response putXml(String location, T entity) throws ResponseOddityException {
 		final Response response = client.target(String.format(baseUrl, location)).request()
 			.put(Entity.xml(entity));
 
 		throwResponseOddity(response);
 		return response;
 	}
-	
-	public <T> Response putEmptyBody(String location, MultivaluedMap<String, Object> headers) throws ResponseOddityException {
+
+	public <T> Response putWithHeaders(String location, MultivaluedMap<String, Object> headers) throws ResponseOddityException {
 		final Response response = client.target(String.format(baseUrl, location)).request()
 			.headers(headers)
 			.put(Entity.text(""));
-
-		throwResponseOddity(response);
-		return response;
-	}
-
-	public Response putInputStream(String location, InputStream inputStream) throws ResponseOddityException {		
-		final Response response = client.target(String.format(baseUrl, location)).request()
-			.put(Entity.entity(inputStream, MediaType.APPLICATION_OCTET_STREAM));
 
 		throwResponseOddity(response);
 		return response;

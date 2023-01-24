@@ -23,8 +23,8 @@ import org.unigrid.hedgehog.client.RestClient;
 public class VestingStorageResourceTest extends BaseRestClientTest {
 	@Example
 	@SneakyThrows
-	public void shoulBeAbleToSetVestingStorageSpork(){
-		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort());
+	public void shoulBeAbleToSetVestingStorageSpork() {
+		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 
 		client.get("/gridspork");
 		client.close();

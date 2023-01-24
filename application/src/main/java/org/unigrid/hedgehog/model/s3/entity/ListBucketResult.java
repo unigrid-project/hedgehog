@@ -16,40 +16,45 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.List;
+import lombok.Data;
 
+@Data()
 @XmlRootElement
+@XmlAccessorType(XmlAccessType.FIELD)
 public class ListBucketResult {
-	@XmlElement
-	public String name;
+	@XmlElement(name = "Name")
+	private String name;
 
-	@XmlElement
+	@XmlElement(name = "Prefix")
 	private String prefix;
 
-	@XmlElement
-	private String marker;
+	@XmlElement(name = "Delimiter")
+	private String delimiter;
 
-	@XmlElement
+	@XmlElement(name = "MaxKeys")
 	private int maxKeys;
 
-	@XmlElement
+	@XmlElement(name = "IsTruncated")
 	private boolean isTruncated;
 
-	@XmlElementWrapper(name = "contents")
-	@XmlElement(name = "content")
+	@XmlElementWrapper(name = "Contents")
+	@XmlElement(name = "Content")
 	private List<Content> contents;
 
 	public ListBucketResult() {
 	}
 
-	public ListBucketResult(String name, String prefix, String marker, int maxKeys, boolean isTruncated,
+	public ListBucketResult(String name, String prefix, String delimiter, int maxKeys, boolean isTruncated,
 		List<Content> contents) {
 		this.name = name;
 		this.prefix = prefix;
-		this.marker = marker;
+		this.delimiter = delimiter;
 		this.maxKeys = maxKeys;
 		this.isTruncated = isTruncated;
 		this.contents = contents;

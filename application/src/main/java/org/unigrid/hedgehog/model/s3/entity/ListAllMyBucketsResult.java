@@ -16,18 +16,24 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import java.io.Serializable;
 import java.util.List;
+import lombok.Data;
 
-@XmlRootElement
-public class ListAllMyBucketsResult {
-	@XmlElementWrapper(name = "buckets")
-	@XmlElement(name = "bucket")
+@Data()
+@XmlRootElement(name = "ListAllMyBucketsResult", namespace = "http://s3.amazonaws.com/doc/2006-03-01")
+@XmlAccessorType(XmlAccessType.FIELD)
+public class ListAllMyBucketsResult implements Serializable {
+	@XmlElementWrapper(name = "Buckets")
+	@XmlElement(name = "Bucket")
 	private List<Bucket> buckets;
 
-	@XmlElement
+	@XmlElement(name = "Owner")
 	private Owner owner;
 
 	public ListAllMyBucketsResult() {
