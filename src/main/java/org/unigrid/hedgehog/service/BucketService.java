@@ -16,37 +16,67 @@
 
 package org.unigrid.hedgehog.service;
 
+import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.Owner;
 
 public class BucketService {
-	public ArrayList<Bucket> buckets = new ArrayList(
-		Arrays.asList(
-			new Bucket(new Date().toString(), "test0"),
-			new Bucket(new Date().toString(), "test1"),
-			new Bucket(new Date().toString(), "test2")
-		)
-	);
+	public final String dataDir = System.getProperty("user.home") + File.separator + "s3data";
 
-	public Owner owner = new Owner("Degen", "11111");
+	public String create(String name) {
+		File customDir;
+		String location = "";
 
-	public ListAllMyBucketsResult getAll() {
-		return new ListAllMyBucketsResult(buckets, owner);
+		try {
+			customDir = new File(dataDir + File.separator + name);
+
+			if (customDir.exists()) {
+				System.out.println(customDir + " already exists");
+			} else if (customDir.mkdirs()) {
+				System.out.println(customDir + " was created");
+			} else {
+				System.out.println(customDir + " was not created");
+			}
+
+			location = customDir.getName();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		return location;
 	}
 
-	public Bucket create(String name) {
-		Bucket bucket = new Bucket(new Date().toString(), name);
-		buckets.add(bucket);
+	public ListAllMyBucketsResult listBuckets() {
+		List<String> directories = Stream.of(new File(dataDir).listFiles())
+			.filter(file -> file.isDirectory())
+			.map(File::getName)
+			.collect(Collectors.toList());
 
-		return bucket;
+		ArrayList<Bucket> buckets = new ArrayList<>();
+
+		for (String directory : directories) {
+			buckets.add(new Bucket(new Date().toInstant(), directory));
+		}
+
+		return new ListAllMyBucketsResult(buckets, new Owner("user", RandomStringUtils.randomNumeric(20)));
 	}
+
 
 	public boolean delete(String bucketName) {
-		return buckets.removeIf(obj -> obj.name.equals(bucketName));
+		File customDir = new File(dataDir + File.separator + bucketName);
+
+		if (!customDir.exists()) {
+			return false;
+		}
+
+		return customDir.delete();
 	}
 
 }

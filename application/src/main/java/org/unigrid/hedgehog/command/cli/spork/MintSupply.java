@@ -34,7 +34,7 @@ public class MintSupply implements Runnable {
 	@Override
 	@SneakyThrows
 	public void run() {
-		final RestClient client = new RestClient(RestOptions.getHost(), RestOptions.getPort());
+		final RestClient client = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true);
 
 		if (spec.parent().userObject() instanceof GridSporkGet) {
 			System.out.println("A");

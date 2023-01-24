@@ -22,16 +22,13 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.UriInfo;
-import org.unigrid.hedgehog.model.Signature;
+import jakarta.ws.rs.core.Response.ResponseBuilder;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
-import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.service.BucketService;
 
@@ -40,33 +37,27 @@ public class StorageBucket extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	private Signature signature;
-
-	private final BucketService bucketService = new BucketService();
+	public BucketService bucketService = new BucketService();
 
 	/**
 	 * Creates a new S3 bucket
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html">Create Bucket</a>
 	 */
-	@PUT
+	@Path("/{bucket}") @PUT
 	@Consumes(MediaType.APPLICATION_XML)
-	public Response create(@Context UriInfo uri, CreateBucketConfiguration bucketConfiguration) {
+	public Response create(@PathParam("bucket") String bucket, CreateBucketConfiguration bucketConfiguration) {
 		if (bucketConfiguration == null) {
 			String errorMessage = "Request should contain BucketConfiguration file";
-			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();			
+			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
 		}
 
-		String url = uri.getRequestUri().toASCIIString();
-		System.out.println("URI " + url);
+		String location = bucketService.create(bucket);
 
-		String bucketName = url.split("\\.")[0];
-		System.out.println("Base from uri " + bucketName);
+		ResponseBuilder builder = Response.ok();
+		builder.header("Location", "/" + location);
 
-		Bucket createdBucket = bucketService.create("TestBUCKET");
-		System.out.println("Bucket object " + createdBucket.toString());
-
-		return Response.ok().header("Location", bucketName).build();
+		return builder.build();
 	}
 
 	/**
@@ -77,7 +68,7 @@ public class StorageBucket extends CDIBridgeResource {
 	@Path("/list") @GET
 	@Produces(MediaType.APPLICATION_XML)
 	public Response list() {
-		return Response.ok().entity(bucketService.getAll()).build();
+		return Response.ok().entity(bucketService.listBuckets()).build();
 	}
 
 	/**
@@ -85,18 +76,9 @@ public class StorageBucket extends CDIBridgeResource {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucket.html">Delete Bucket</a>
 	 */
-	@Path("/delete") @DELETE
-	public Response delete(@Context UriInfo uri) {
-
-		String url = uri.getRequestUri().toASCIIString();
-		System.out.println("URI " + url);
-
-		String bucketName = url.split("\\.")[0];
-		System.out.println("Base from uri " + bucketName);
-
-		boolean isDeleted = bucketService.delete("test1");
-
-		System.out.println("Has been deleted " + isDeleted);
+	@Path("/{bucket}") @DELETE
+	public Response delete(@PathParam("bucket") String bucket) {
+		boolean isDeleted = bucketService.delete(bucket);
 
 		if (!isDeleted) {
 			return Response.status(Response.Status.NOT_FOUND).build();

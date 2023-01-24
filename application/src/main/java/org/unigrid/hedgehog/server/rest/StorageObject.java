@@ -13,26 +13,35 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MultivaluedMap;
 import java.io.IOException;
 import java.io.InputStream;
-import org.unigrid.hedgehog.model.Signature;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
+import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
+import org.unigrid.hedgehog.model.s3.entity.NoSuchBucketException;
+import org.unigrid.hedgehog.model.s3.entity.NoSuchKeyException;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.service.ObjectService;
 
@@ -41,8 +50,6 @@ public class StorageObject extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	private Signature signature;
-
 	private final ObjectService objectService = new ObjectService();
 
 	/**
@@ -50,25 +57,18 @@ public class StorageObject extends CDIBridgeResource {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html">Put Object</a>
 	 */
-	@Path("/{key}") @PUT
+	@Path("/{bucket}/{key}") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
-	public Response create(@Context UriInfo uri, @PathParam("key") String key, InputStream data) throws IOException {
-		System.out.println("Key: " + key);
-
-		String url = uri.getRequestUri().toASCIIString();
-		System.out.println("URI " + url);
-
-		String bucketName = url.split("\\.")[0];
-		System.out.println("Base from uri " + bucketName);
-
-		boolean isAdded = objectService.put(data);
-
-		if (!isAdded) {
-			String errorMessage = "Request should contain non-empty data";
-			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
+	public Response create(@PathParam("bucket") String bucket, @PathParam("key") String key, InputStream data) {
+		try {
+			objectService.put(bucket, key, data);
+		} catch (NoSuchBucketException e) {
+			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (IOException e) {
+			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
 
-		return Response.ok().header("ETag", "testatsattas").build();
+		return Response.ok().build();
 	}
 
 	/**
@@ -76,10 +76,24 @@ public class StorageObject extends CDIBridgeResource {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html">List Objects</a>
 	 */
-	@Path("/list") @GET
+	@Path("/list/{bucket}") @GET
 	@Produces(MediaType.APPLICATION_XML)
-	public Response list(@Context UriInfo uri) {
-		return Response.ok().entity(objectService.getAll()).build();
+	public Response list(@PathParam("bucket") String bucket, @Context UriInfo uriInfo) {
+		MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+
+		Optional<String> prefix = Optional.ofNullable(params.getFirst("prefix")).filter(s -> !s.isEmpty());
+		Optional<String> delimiter = Optional.ofNullable(params.getFirst("delimiter")).filter(s -> !s.isEmpty());
+		Optional<Integer> maxKeys = Optional.ofNullable(params.getFirst("maxkeys")).map(Integer::parseInt);
+
+		ListBucketResult result;
+
+		try {
+			result = objectService.listBucket(bucket, prefix, delimiter, maxKeys);
+		} catch (NoSuchBucketException e) {
+			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		}
+
+		return Response.ok().entity(result).build();
 	}
 
 	/**
@@ -89,20 +103,30 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @PUT
 	@Produces(MediaType.APPLICATION_XML)
-	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String bucket,
-		@PathParam("key") String key) {
-		System.out.println("Bucket: " + bucket);
-		System.out.println("Key: " + key);
-
+	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String destinationBucket,
+		@PathParam("key") String destinationKey) {
 		String copySource = httpHeaders.getHeaderString("x-amz-copy-source");
-		System.out.println("HEader: " + copySource);
 
 		if (copySource == null) {
 			String errorMessage = "Request header should contain 'x-amz-copy-source'";
 			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
 		}
+		
+		String[] parts = copySource.split("/", 2);
+		String sourceBucket = parts[0];
+		String sourceKey = parts.length > 1 ? parts[1] : "";
 
-		return Response.ok().entity(objectService.copy(bucket, key, copySource)).build();
+		CopyObjectResult result;
+
+		try {
+			result = objectService.copy(sourceBucket, sourceKey, destinationBucket, destinationKey);
+		} catch (NoSuchBucketException e) {
+			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (IOException e) {
+			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
+		}
+
+		return Response.ok().entity(result).build();
 	}
 
 	/**
@@ -110,12 +134,18 @@ public class StorageObject extends CDIBridgeResource {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html">Get Object</a>
 	 */
-	@Path("/{key}") @GET
+	@Path("/{bucket}/{key}") @GET
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
-	public Response get(@Context UriInfo uri, @PathParam("key") String key) throws Exception {
-		System.out.println("Key: " + key);
+	public Response get(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+		byte[] byteArray;
 
-		byte[] byteArray = objectService.download(key);
+		try {
+			byteArray = objectService.getObject(bucket, key);
+		} catch (NoSuchBucketException | NoSuchKeyException e) {
+			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (Exception e) {
+			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
+		}
 
 		return Response.ok(byteArray, "application/octet-stream").build();
 	}
@@ -126,22 +156,21 @@ public class StorageObject extends CDIBridgeResource {
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */
-	@Path("/{key}") @DELETE
-	public Response delete(@Context UriInfo uri, @PathParam("key") String key) {
-		System.out.println("Key: " + key);
-
-		String url = uri.getRequestUri().toASCIIString();
-		System.out.println("URI " + url);
-
-		String bucketName = url.split("\\.")[0];
-		System.out.println("Base from uri " + bucketName);
-
-		boolean isDeleted = objectService.delete(key);
-
-		System.out.println("Has been deleted " + isDeleted);
+	@Path("/{bucket}/{key}") @DELETE
+	public Response delete(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+		boolean isDeleted;
+		
+		try {
+			isDeleted = objectService.delete(bucket, key);
+		} catch (NoSuchKeyException e) {
+			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (Exception e) {
+			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
+		}
 
 		if (!isDeleted) {
-			return Response.status(Response.Status.NOT_FOUND).build();
+			return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+				.entity("Deletion has failed").build();
 		}
 
 		return Response.noContent().build();

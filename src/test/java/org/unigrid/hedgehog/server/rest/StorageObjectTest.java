@@ -28,81 +28,88 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
+import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
+import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
 
 public class StorageObjectTest extends BaseRestClientTest {
+	S3Mock api;
 	RestClient client;
 
-	S3Mock api;
+	String bucket = "testBucket";
+	String key = "testObject";
+	String copy = "copied";
+	final int MAX_KEYS = 10000;
 
 	@BeforeTry
 	public void beforeTry() {
-		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort());
-
 		api = new S3Mock.Builder().withPort(8001).withInMemoryBackend().build();
 		api.start();
+		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 	}
 
 	@AfterTry
 	public void after() {
-		client.close();
 		api.shutdown();
+		client.close();
 	}
 
 	@Example
 	@SneakyThrows
 	public void shouldCreateObject() {
-		InputStream inputStream = new ByteArrayInputStream("Hello, World!".getBytes());
-		Response response = client.putInputStream("/storage-object/testOBJECT", inputStream);
+		final RestClient clientMock = new RestClient(server.getRest().getHostName(), 8001, false);
 
-		assertThat(response.getStatus(), equalTo(200));
-		assertThat(response.getHeaderString("ETag"), notNullValue());
+		CreateBucketConfiguration config = new CreateBucketConfiguration("TestConfig");
+
+		clientMock.putXml("/" + bucket, config);
+		client.putXml("/bucket/" + bucket, config);
+
+		InputStream inputStream = new ByteArrayInputStream("Hello, World!".getBytes());
+		InputStream inputStream2 = new ByteArrayInputStream("Hello, World!".getBytes());
+
+		Response mockResponse = clientMock.postInputStream("/" + bucket + "/" + key, inputStream);
+		Response response = client.postInputStream("/storage-object/" + bucket + "/" + key, inputStream2);
+
+		assertThat(response.getStatus(), equalTo(mockResponse.getStatus()));
+
+		clientMock.close();
 	}
 
 	@Example
 	@SneakyThrows
-	public void shouldContainInputStream() {
+	public void shouldHaveInputStream() {
 		try {
-			client.put("/bucket", null);
+			client.post("/storage-object/" + bucket + "/" + key, "");
 		} catch (Exception e) {
-			assertThat(e, isA(IllegalStateException.class));
+			assertThat(e, isA(ResponseOddityException.class));
 		}
 	}
 
 	@Example
 	@SneakyThrows
-	public void shouldListAndReturnXML() {
-		Response response = client.get("/storage-object/list");
+	public void shouldListObjects() {
+		ListBucketResult response = client.getEntity("/storage-object/list/" + bucket, ListBucketResult.class);
 
-		String entity = response.readEntity(String.class);
-
-		assertThat(response.getStatus(), equalTo(200));
-		assertThat(response.getLength(), greaterThan(0));
-
-		assertThat(entity, containsString("name"));
-		assertThat(entity, containsString("prefix"));
-		assertThat(entity, containsString("marker"));
-		assertThat(entity, containsString("maxKeys"));
-		assertThat(entity, containsString("isTruncated"));
-		assertThat(entity, containsString("contents"));
+		assertThat(response.getName(), equalTo(bucket));
+		assertThat(response.getDelimiter(), equalTo(""));
+		assertThat(response.getPrefix(), equalTo(""));
+		assertThat(response.getMaxKeys(), equalTo(MAX_KEYS));
 	}
 
 	@Example
 	@SneakyThrows
 	public void shouldCopyAndReturnXML() {
 		MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
-		headers.add("x-amz-copy-source", "value1");
+		headers.add("x-amz-copy-source", "/" + bucket + "/" + key);
 
-		Response response = client.putEmptyBody("/storage-object/testBukcet/testObjecyt", headers);
-
-		String entity = response.readEntity(String.class);
+		Response response = client.putWithHeaders("/storage-object/" + bucket + "/" + copy, headers);
+		CopyObjectResult result = response.readEntity(CopyObjectResult.class);
 
 		assertThat(response.getStatus(), equalTo(200));
-		assertThat(response.getLength(), greaterThan(0));
-
-		assertThat(entity, containsString("eTag"));
-		assertThat(entity, containsString("lastModified"));
-
+		assertThat(result.getETag(), is(notNullValue()));
+		assertThat(result.getLastModified().toString(), is(notNullValue()));
 	}
 
 	@Example
@@ -111,7 +118,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 		MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
 
 		try {
-			client.putEmptyBody("/storage-object/testBukcet/testObjecyt", headers);
+			client.putWithHeaders("/storage-object/testBukcet/testObjecyt", headers);
 		} catch (Exception e) {
 			assertThat(e.getMessage(), containsString("400 Bad Request"));
 		}
@@ -120,16 +127,28 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@SneakyThrows
 	public void shouldReturnData() {
-		Response response = client.get("/storage-object/key1");
+		Response response = client.get("/storage-object/" + bucket + "/" + key);
 
 		assertThat(response.getStatus(), equalTo(200));
+		// file should not be empty
 		assertThat(response.getLength(), greaterThan(0));
 	}
 
 	@Example
 	@SneakyThrows
+	public void shouldExist() {
+		try {
+			client.get("/storage-object/" + bucket + "/testtest");
+		} catch (Exception e) {
+			assertThat(e, isA(ResponseOddityException.class));
+			assertThat(e.getMessage(), containsString("404 Not Found"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldReturnNoContent() {
-		Response response = client.delete("/storage-object/key2");
+		Response response = client.delete("/storage-object/" + bucket + "/" + copy);
 
 		assertThat(response.getLength(), equalTo(-1));
 		assertThat(response.getStatus(), equalTo(204));
