@@ -20,10 +20,10 @@ __Features slated for 2023:__
 - GPU workloads
 
 __Secondary goals:__
-- Replacement of the network and consensus chain in the [legacy daemon](https://github.com/unigrid-project/daemon), including complete migration to Hedgehog.
+- Replacement of the network and consensus chain in the [legacy daemon](https://github.com/unigrid-project/daemon), including complete or partial migration to Hedgehog. We are currently investigating different options for the network and what direction makes the most sense for the Unigrid network out of a go-to-market perspective.
 
 ## For developers that want to build Hedgehog
-Hedgehog requires Java 11+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
+Hedgehog requires Java 17+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
 
 > mvn clean install
 
@@ -36,3 +36,5 @@ Depending on the options passed, Hedgehog will act as a network daemon, client o
 
 ## Native Image Support
 Native image support is available via the native-image sub-project. Because of problems with CDI and dependencies being reliant on a full CDI implementation, the native image is not really native, but wraps a JVM and the hedgehog jar into a native version for execution.
+
+To build the native image, execute `mvn package` inside the native-image module/project. Depending on the operating system, this will generate an executable `hedgehog.exe` or `hedgehog.bin` fille inside the  `native-image/target/`.
