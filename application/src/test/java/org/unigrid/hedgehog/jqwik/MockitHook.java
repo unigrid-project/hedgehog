@@ -34,7 +34,7 @@ import net.jqwik.api.lifecycle.Store;
 public class MockitHook extends TestRunnerDecorator
 	implements AroundPropertyHook, AroundContainerHook, ResolveParameterHook {
 
-	private static final int AROUND_PROPERTY_PROXIMITY = -15;
+	private static final int AROUND_PROPERTY_PROXIMITY = -20;
 	private static final String STORE_NAME = MockitHook.class.getSimpleName();
 
 	@Override

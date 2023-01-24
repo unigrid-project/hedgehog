@@ -47,6 +47,8 @@ import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.util.Reflection;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
+	private static final int AROUND_PROPERTY_PROXIMITY = -15;
+
 	private boolean findScan(Class<?> clazz) {
 		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
 
@@ -59,7 +61,6 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 
 	private <T extends Collection> List<Class<?>> findWeldClasses(Object instance, Class<?> clazz,
 		Function<WeldSetup, T> supplier) {
-
 		final Set<Class<?>> beans = new HashSet<>();
 		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
 
@@ -91,8 +92,8 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 			}).collect(Collectors.toList());
 
 			final Weld weldInitializer = new Weld(name)
-					.beanClasses(weldClasses.toArray(new Class<?>[0]))
-					.extensions(extensionClasses.toArray(new Extension[0]));
+				.beanClasses(weldClasses.toArray(new Class<?>[0]))
+				.extensions(extensionClasses.toArray(new Extension[0]));
 
 			if (findScan(context.containerClass())) {
 				instance = weldInitializer.enableDiscovery()
@@ -204,5 +205,10 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	@Override
 	public void beforeContainer(ContainerLifecycleContext context) {
 		CDI.setCDIProvider(new NamedCDIProvider());
+	}
+
+	@Override
+	public int aroundPropertyProximity() {
+		return AROUND_PROPERTY_PROXIMITY;
 	}
 }
