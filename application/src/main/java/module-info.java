@@ -55,6 +55,5 @@ module org.unigrid.hedgehog {
 	requires j8fu;
 	requires net.harawata.appdirs;
 	requires org.graalvm.sdk;
-	requires org.apache.geronimo.arthur.api;
 	requires org.unigrid.hedgehog.common;
 }
