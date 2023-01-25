@@ -32,15 +32,17 @@ import org.apache.commons.lang3.StringUtils;
 @Slf4j
 public class Unzipper {
 	private static final int PROGRESS_WIDTH = 20;
+	private static final int PROGRESS_CLEARANCE = 15;
 
 	private static void printProgress(long position, long size) {
 		final char incompleteCharacter = '░'; // U+2591
 		final char completeCharacter = '█'; // U+2588
 		final int complete = (int) ((float) position / size * PROGRESS_WIDTH);
 
-		System.out.print(String.format("\r Unpacking: [%s%s]              \r",
+		System.out.print(String.format("\r Unpacking: [%s%s]%s\r",
 			StringUtils.repeat(completeCharacter, complete),
-			StringUtils.repeat(incompleteCharacter, PROGRESS_WIDTH - complete)
+			StringUtils.repeat(incompleteCharacter, PROGRESS_WIDTH - complete),
+			StringUtils.repeat(" ", PROGRESS_CLEARANCE)
 		));
 	}
 
@@ -79,7 +81,10 @@ public class Unzipper {
 				}
 			});
 
-			System.out.print("\r"); /* Just clear the line */
+			/* Just clear the line */
+			System.out.print(String.format("\r%s\r",
+				StringUtils.repeat(" ", PROGRESS_WIDTH + PROGRESS_CLEARANCE))
+			);
 		}
 	}
 }
