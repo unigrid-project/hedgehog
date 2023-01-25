@@ -27,6 +27,7 @@ import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.exec.ExecuteWatchdog;
+import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
@@ -77,11 +78,11 @@ public class NativeImage {
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
 		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.HASH));
 
-		if (Files.notExists(jlinkDistribution)) {
+		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
 			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
 		}
 
-		start(jlinkDistribution, args);
+		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
 	}
 }
