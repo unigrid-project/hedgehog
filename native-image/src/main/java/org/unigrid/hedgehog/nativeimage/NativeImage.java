@@ -31,8 +31,9 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
 	public static final long WATCHDOG_TIMEOUT_MS = 60000;
+	public static final long ERROR_26_WAIT_MS = 50;
 
-	private static int start(Path basePath, String[] args) throws ExecuteException, IOException {
+	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
 		final Path script = basePath.resolve(Path.of(
 			NativeProperties.BIN_DIRECTORY, NativeProperties.RUN_SCRIPT)
 		);
@@ -44,22 +45,32 @@ public class NativeImage {
 		final DefaultExecutor executor = new DefaultExecutor();
 		executor.setExitValue(0);
 
-		try {
-			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
-			executor.setWatchdog(watchdog);
-			return executor.execute(cmdLine);
+		/* We retry untill some unrecoverable error is detected */
+		while(true) {
+			try {
+				final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
+				executor.setWatchdog(watchdog);
+				return executor.execute(cmdLine);
 
-		/* error code 2 is just a generic error from PicoCLI that we can ignore */
-		} catch (ExecuteException ex) {
-			if (ex.getExitValue() != 2) {
-				throw ex;
+			/* error code 2 is just a generic error from PicoCLI that we can ignore */
+			} catch (ExecuteException ex) {
+				if (ex.getExitValue() != 2) {
+					throw ex;
+				}
+
+				return ex.getExitValue();
+			} catch(IOException ex) {
+				/* Error 26 is "Text file busy", which can happen during rapid turnarounds */
+				if (ex.getMessage().contains("error=26")) {
+					Thread.sleep(ERROR_26_WAIT_MS);
+				} else {
+					throw ex;
+				}
 			}
-
-			return ex.getExitValue();
 		}
 	}
 
-	public static void main(String[] args) throws ExecuteException, IOException {
+	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.BUNDLED_JLINK_ZIP.toString());
 
