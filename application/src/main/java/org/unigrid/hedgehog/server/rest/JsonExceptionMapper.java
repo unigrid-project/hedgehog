@@ -12,7 +12,7 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.server.rest;
 
@@ -28,7 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Provider
-public class JsonExceptionMapper implements ExceptionMapper<Exception> {
+public class JsonExceptionMapper implements ExceptionMapper<JsonMappingException> {
 	@Override
 	public Response toResponse(JsonMappingException exception) {
 		final ObjectNode json = new ObjectMapper().createObjectNode();

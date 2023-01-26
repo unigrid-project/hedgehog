@@ -38,7 +38,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@Example
 	@SneakyThrows
 	public void shouldBeAbleToGetGridSporkOverview() {
-		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort());
+		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 		final Instant now = Instant.now();
 
 		SporkDatabaseInfo info = client.get("/gridspork").readEntity(SporkDatabaseInfo.class);
