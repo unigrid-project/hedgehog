@@ -94,7 +94,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 		assertThat(deleteResponse.getLength(), equalTo(mockDeleteResponse.getLength()));
 		assertThat(deleteResponse.getStatus(), equalTo(mockDeleteResponse.getStatus()));
-		
+
 		for (int i = 0; i < allBuckets.size(); i++) {
 			final TestBucket testBucket = new TestBucket();
 
@@ -110,7 +110,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 	@Property(tries = 5)
 	@SneakyThrows
-	public void shouldBe1(@ForAll("provideBuckets") List<TestBucket> testBuckets) {
+	public void shouldHaveTheSameBuckets(@ForAll("provideBuckets") List<TestBucket> testBuckets) {
 		for (TestBucket ts : testBuckets) {
 			assertThat(ts.bucket.getName(), is(equalTo(ts.mockBucket.getName())));
 		}
@@ -118,7 +118,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldBe2() {
+	public void shouldContainFile() {
 		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 
 		try {
@@ -132,7 +132,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldBe3() {
+	public void shouldFailToDelete() {
 		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 
 		try {

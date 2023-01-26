@@ -17,11 +17,7 @@
 package org.unigrid.hedgehog.service;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -72,19 +68,15 @@ public class BucketService {
 		return new ListAllMyBucketsResult(buckets, new Owner("user", RandomStringUtils.randomNumeric(20)));
 	}
 
-	public boolean delete(String bucketName) throws IOException {
+
+	public boolean delete(String bucketName) {
 		File customDir = new File(dataDir + File.separator + bucketName);
 
 		if (!customDir.exists()) {
 			return false;
 		}
 
-		Files.walk(customDir.toPath())
-			.sorted(Comparator.reverseOrder())
-			.map(Path::toFile)
-			.forEach(File::delete);
-
-		return true;
+		return customDir.delete();
 	}
 
 }
