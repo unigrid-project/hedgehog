@@ -32,10 +32,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
@@ -111,7 +108,7 @@ public class StorageObject extends CDIBridgeResource {
 			String errorMessage = "Request header should contain 'x-amz-copy-source'";
 			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
 		}
-		
+
 		String[] parts = copySource.split("/", 2);
 		String sourceBucket = parts[0];
 		String sourceKey = parts.length > 1 ? parts[1] : "";
@@ -151,15 +148,15 @@ public class StorageObject extends CDIBridgeResource {
 	}
 
 	/**
-	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the latest version
-	 * of the object
+	 * Removes the null version (if there is one) of an object and inserts a delete marker, which becomes the latest
+	 * version of the object
 	 *
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */
 	@Path("/{bucket}/{key}") @DELETE
 	public Response delete(@PathParam("bucket") String bucket, @PathParam("key") String key) {
 		boolean isDeleted;
-		
+
 		try {
 			isDeleted = objectService.delete(bucket, key);
 		} catch (NoSuchKeyException e) {

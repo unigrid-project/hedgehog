@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -38,7 +38,7 @@ public class StorageBucket extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	public BucketService bucketService = new BucketService();
+	private BucketService bucketService = new BucketService();
 
 	/**
 	 * Creates a new S3 bucket

@@ -25,15 +25,15 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Data()
+@Data
 @XmlRootElement
 @NoArgsConstructor
 @AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
-public class Owner implements Serializable {	
+public class Owner implements Serializable {
 	@XmlElement(name = "DisplayName")
 	private String displayName;
-	
+
 	@XmlElement(name = "ID")
-	private String ID;
+	private String id;
 }

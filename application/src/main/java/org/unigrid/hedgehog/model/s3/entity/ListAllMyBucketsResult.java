@@ -27,7 +27,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-@Data()
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 @XmlRootElement(name = "ListAllMyBucketsResult", namespace = "http://s3.amazonaws.com/doc/2006-03-01")

@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -29,6 +29,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import lombok.Data;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.model.s3.entity.Content;
 import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
@@ -36,9 +37,10 @@ import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchBucketException;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchKeyException;
 
+@Data
 public class ObjectService {
-	public String dataDir = System.getProperty("user.home") + File.separator + "s3data";
 	public static final int MAX_KEYS = 10000;
+	private String dataDir = System.getProperty("user.home") + File.separator + "s3data";
 
 	public void put(String bucket, String key, InputStream data) throws IOException, NoSuchBucketException {
 		File bucketFile = new File(dataDir + File.separator + bucket);
@@ -72,7 +74,7 @@ public class ObjectService {
 
 		List<Content> files = bucketFiles.stream()
 			.map(f -> {
-				try ( FileInputStream stream = new FileInputStream(f)) {
+				try (FileInputStream stream = new FileInputStream(f)) {
 					String checksum = DigestUtils.md5Hex(stream);
 
 					return new Content(fromOs(f.toString())

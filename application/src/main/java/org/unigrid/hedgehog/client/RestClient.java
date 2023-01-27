@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -24,7 +24,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import java.io.IOException;
 import java.io.InputStream;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
@@ -119,7 +118,9 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
-	public <T> Response putWithHeaders(String location, MultivaluedMap<String, Object> headers) throws ResponseOddityException {
+	public <T> Response putWithHeaders(String location, MultivaluedMap<String, Object> headers)
+		throws ResponseOddityException {
+
 		final Response response = client.target(String.format(baseUrl, location)).request()
 			.headers(headers)
 			.put(Entity.text(""));

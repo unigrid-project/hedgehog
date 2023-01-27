@@ -19,12 +19,14 @@ package org.unigrid.hedgehog.model.s3.entity;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.NoArgsConstructor;
 
+@Data
 @XmlRootElement
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateBucketConfiguration {
 	@XmlElement
-	public String locationConstraint;
+	private String locationConstraint;
 }

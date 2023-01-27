@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -26,13 +26,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import lombok.Data;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.Owner;
 
+@Data
 public class BucketService {
-	public final String dataDir = System.getProperty("user.home") + File.separator + "s3data";
+	private final String dataDir = System.getProperty("user.home") + File.separator + "s3data";
 
 	public String create(String name) {
 		File customDir;
