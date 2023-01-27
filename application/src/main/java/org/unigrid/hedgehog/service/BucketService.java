@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog.service;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -28,21 +30,28 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.Data;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.Owner;
 
 @Data
+@ApplicationScoped
 public class BucketService {
-	private final String dataDir = System.getProperty("user.home") + File.separator + "s3data";
+	@Inject
+	private ApplicationDirectory applicationDirectory;
+
+	private Path dataDir;
+
+	private void init() {
+		dataDir = applicationDirectory.getUserDataDir().resolve("s3data");
+	}
 
 	public String create(String name) {
-		File customDir;
+		final File customDir = dataDir.resolve(name).toFile();
 		String location = "";
 
 		try {
-			customDir = new File(dataDir + File.separator + name);
-
 			if (customDir.exists()) {
 				System.out.println(customDir + " already exists");
 			} else if (customDir.mkdirs()) {
@@ -60,12 +69,12 @@ public class BucketService {
 	}
 
 	public ListAllMyBucketsResult listBuckets() {
-		List<String> directories = Stream.of(new File(dataDir).listFiles())
+		List<String> directories = Stream.of(dataDir.toFile().listFiles())
 			.filter(file -> file.isDirectory())
 			.map(File::getName)
 			.collect(Collectors.toList());
 
-		ArrayList<Bucket> buckets = new ArrayList<>();
+		final ArrayList<Bucket> buckets = new ArrayList<>();
 
 		for (String directory : directories) {
 			buckets.add(new Bucket(new Date().toInstant(), directory));
@@ -75,7 +84,7 @@ public class BucketService {
 	}
 
 	public boolean delete(String bucketName) throws IOException {
-		File customDir = new File(dataDir + File.separator + bucketName);
+		final File customDir = dataDir.resolve(bucketName).toFile();
 
 		if (!customDir.exists()) {
 			return false;

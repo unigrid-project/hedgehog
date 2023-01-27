@@ -38,7 +38,8 @@ public class StorageBucket extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
 
-	private BucketService bucketService = new BucketService();
+	@CDIBridgeInject
+	private BucketService bucketService;
 
 	/**
 	 * Creates a new S3 bucket

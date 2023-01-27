@@ -16,12 +16,15 @@
 
 package org.unigrid.hedgehog.service;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,6 +34,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.Data;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.s3.entity.Content;
 import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
 import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
@@ -38,71 +42,75 @@ import org.unigrid.hedgehog.model.s3.entity.NoSuchBucketException;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchKeyException;
 
 @Data
+@ApplicationScoped
 public class ObjectService {
-	public static final int MAX_KEYS = 10000;
-	private String dataDir = System.getProperty("user.home") + File.separator + "s3data";
+	public static final int MAX_KEYS = 10000; /* TODO: Do we even want to set a maximum? */
+
+	@Inject
+	private ApplicationDirectory applicationDirectory;
+
+	private Path dataDir;
+
+	private void init() {
+		dataDir = applicationDirectory.getUserDataDir().resolve("s3data");
+	}
 
 	public void put(String bucket, String key, InputStream data) throws IOException, NoSuchBucketException {
-		File bucketFile = new File(dataDir + File.separator + bucket);
+		final File bucketFile = dataDir.resolve(bucket).toFile();
 
 		if (!bucketFile.exists()) {
 			throw new NoSuchBucketException("No such bucket");
 		}
 
-		File file = new File(dataDir + File.separator + bucket + File.separator + key);
+		final File file = Path.of(dataDir.toString(), bucket, key).toFile();
 		Files.copy(data, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
 	}
 
 	public ListBucketResult listBucket(String bucket, Optional<String> prefix, Optional<String> delimiter,
 		Optional<Integer> maxkeys) throws NoSuchBucketException {
-		File bucketFile = new File(dataDir + File.separator + bucket);
+
+		final File bucketFile = dataDir.resolve(bucket).toFile();
 
 		if (!bucketFile.exists()) {
 			throw new NoSuchBucketException(bucket);
 		}
 
-		String prefixNoLeadingSlash = prefix.orElse("").replaceFirst("^/+", "");
-		String bucketFileString = fromOs(bucketFile.toString());
-		List<File> bucketFiles = Arrays.stream(bucketFile.listFiles())
-			.filter(f -> {
-				String fString = fromOs(f.toString())
-					.substring(bucketFileString.length())
-					.replaceFirst("^/+", "");
-				return fString.startsWith(prefixNoLeadingSlash) && !f.isDirectory();
-			})
-			.collect(Collectors.toList());
+		final String prefixNoLeadingSlash = prefix.orElse("").replaceFirst("^/+", "");
+		final String bucketFileString = fromOs(bucketFile.toString());
 
-		List<Content> files = bucketFiles.stream()
-			.map(f -> {
-				try (FileInputStream stream = new FileInputStream(f)) {
-					String checksum = DigestUtils.md5Hex(stream);
+		final List<File> bucketFiles = Arrays.stream(bucketFile.listFiles()).filter(f -> {
+			String fString = fromOs(f.toString())
+				.substring(bucketFileString.length())
+				.replaceFirst("^/+", "");
+			return fString.startsWith(prefixNoLeadingSlash) && !f.isDirectory();
+		}).collect(Collectors.toList());
 
-					return new Content(fromOs(f.toString())
-						.substring(bucketFileString.length() + 1).replaceFirst("^/+", ""),
-						new Date().toInstant(),
-						checksum,
-						Files.size(f.toPath()),
-						"STANDARD");
-				} catch (IOException e) {
-					throw new RuntimeException(e);
-				}
-			})
-			.collect(Collectors.toList());
+		final List<Content> files = bucketFiles.stream().map(f -> {
+			try (FileInputStream stream = new FileInputStream(f)) {
+				String checksum = DigestUtils.md5Hex(stream);
 
-		List<String> commonPrefixes = normalizeDelimiter(delimiter).map(del -> {
-			return files.stream()
-				.map(f -> commonPrefix(f.getKey(), prefixNoLeadingSlash, del).orElse(""))
-				.distinct()
-				.sorted()
-				.collect(Collectors.toList());
+				return new Content(fromOs(f.toString())
+					.substring(bucketFileString.length() + 1).replaceFirst("^/+", ""),
+					new Date().toInstant(),
+					checksum,
+					Files.size(f.toPath()),
+					"STANDARD");
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}).collect(Collectors.toList());
+
+		final List<String> commonPrefixes = normalizeDelimiter(delimiter).map(del -> {
+			return files.stream().map(f -> commonPrefix(f.getKey(), prefixNoLeadingSlash, del)
+				.orElse("")).distinct().sorted().collect(Collectors.toList());
 		}).orElse(Collections.emptyList());
 
-		List<Content> filteredFiles = files.stream().filter(f -> {
+		final List<Content> filteredFiles = files.stream().filter(f -> {
 			return commonPrefixes.stream().noneMatch(p -> f.getKey().startsWith(p));
 		}).sorted((f1, f2) -> f1.getKey().compareTo(f2.getKey())).collect(Collectors.toList());
 
-		int count = maxkeys.orElse(MAX_KEYS);
-		List<Content> content = filteredFiles.subList(0, Math.min(filteredFiles.size(), count));
+		final int count = maxkeys.orElse(MAX_KEYS);
+		final List<Content> content = filteredFiles.subList(0, Math.min(filteredFiles.size(), count));
 
 		return new ListBucketResult(bucket, prefix.orElse(""), delimiter.orElse(""),
 			count, filteredFiles.size() > count, content);
@@ -110,9 +118,11 @@ public class ObjectService {
 
 	private Optional<String> commonPrefix(String dir, String p, String d) {
 		int pos = dir.indexOf(d, p.length());
+
 		if (pos == -1) {
 			return Optional.empty();
 		}
+
 		return Optional.of(p + dir.substring(p.length(), pos) + d);
 	}
 
@@ -126,35 +136,41 @@ public class ObjectService {
 
 	public CopyObjectResult copy(String sourceBucket, String sourceKey, String destinationBucket, String destinationKey)
 		throws NoSuchBucketException, IOException {
-		File sourceBucketFile = new File(dataDir + File.separator + sourceBucket);
-		File destBucketFile = new File(dataDir + File.separator + destinationBucket);
+
+		final File sourceBucketFile = dataDir.resolve(sourceBucket).toFile();
+		final File destBucketFile = dataDir.resolve(destinationBucket).toFile();
 
 		if (!sourceBucketFile.exists()) {
 			throw new NoSuchBucketException("No such bucket: " + sourceBucket);
 		}
+
 		if (!destBucketFile.exists()) {
 			throw new NoSuchBucketException("No such bucket: " + destinationBucket);
 		}
 
-		File sourceFile = new File(dataDir + File.separator + sourceBucket + File.separator + sourceKey);
-		File destFile = new File(dataDir + File.separator + destinationBucket + File.separator + destinationKey);
+		final File sourceFile = Path.of(dataDir.toString(), sourceBucket, sourceKey).toFile();
+		final File destFile = Path.of(dataDir.toString(), destinationBucket, destinationKey).toFile();
 
 		Files.copy(sourceFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		String checksum = DigestUtils.md5Hex(new FileInputStream(destFile));
+		final String checksum = DigestUtils.md5Hex(new FileInputStream(destFile));
 
-		return new CopyObjectResult(checksum, Instant.now(), "", "", "", "");
+		return new CopyObjectResult(checksum, Instant.now(),
+			"", "", "", ""
+		);
 	}
 
 	public byte[] getObject(String bucket, String key) throws Exception {
-		File sourceBucketFile = new File(dataDir + File.separator + bucket);
-		File sourceFile = new File(dataDir + File.separator + bucket + File.separator + key);
+		final File sourceBucketFile = dataDir.resolve(bucket).toFile();
+		final File sourceFile = Path.of(dataDir.toString(), bucket, key).toFile();
 
 		if (!sourceBucketFile.exists()) {
 			throw new NoSuchBucketException("No such bucket: " + sourceBucketFile);
 		}
+
 		if (!sourceFile.exists()) {
 			throw new NoSuchKeyException("No such key: " + sourceFile);
 		}
+
 		if (sourceFile.isDirectory()) {
 			throw new NoSuchKeyException("No such key: " + sourceFile);
 		}
@@ -163,11 +179,12 @@ public class ObjectService {
 	}
 
 	public boolean delete(String bucket, String key) throws NoSuchKeyException {
-		File file = new File(dataDir + File.separator + bucket + File.separator + key);
+		final File file = Path.of(dataDir.toString(), bucket, key).toFile();
 
 		if (!file.exists()) {
 			throw new NoSuchKeyException("No such key: " + file);
 		}
+
 		if (!file.isDirectory()) {
 			return file.delete();
 		}
