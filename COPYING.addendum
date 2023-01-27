@@ -1,7 +1,7 @@
                GNU AFFERO GENERAL PUBLIC LICENSE ADDENDUM
-                             21 November 2022
+                             27 January 2023
 
- Copyright (C) 2021-2022 The Unigrid Foundation, UGD Software AB
+ Copyright (C) 2021-2023 The Unigrid Foundation, UGD Software AB
 <http://www.unigrid.org/>. Everyone is permitted to copy and distribute
 verbatim copies of this license document, but changing it is not allowed.
 
@@ -33,7 +33,7 @@ AB.
 displayed in this code and when the application is started with "--help"
 or "-h".
 
-1. Attribution Terms.
+  1. Attribution Terms.
 
   As allowed by section 7b of the original GNU Affero General Public License,
 this addendum complements the additional terms with the following conditions;
@@ -65,7 +65,55 @@ this addendum complements the additional terms with the following conditions;
    original GNU Affero General Public License and this addendum.
 
    g) Any work contributed to this repository by a contributor as described
-   in section f of this document that is under a license as outlined by
-   section 11 of the original GNU Affero General Public License, grants The
-   Unigrid Foundation and UGD Software AB a perpetual sublicense to
-   indefinetly use that contribution in this code. 
+   in section f of this document that is under a license or patent as
+   outlined by section 11 of the original GNU Affero General Public License,
+   grants The Unigrid Foundation and UGD Software AB a perpetual sublicense
+   or subpatent to indefinetly use that contribution in this code. The
+   contributor also ensures that they are the current owner of that license
+   or patent.
+
+                     END OF TERMS AND CONDITIONS
+
+                  How to Apply These Terms to Forks
+
+  If you develop a new program based on this source code, you have to
+make sure that this license is included, allowing the source code and
+application to be redistributed and changed under these terms.
+
+  To do so, attach the following notices to the program.  It is safest
+to attach them to the start of each source file to most effectively
+state the exclusion of warranty; and each file should have at least
+the "copyright" line and a pointer to where the full notice is found.
+
+    Unigrid Hedgehog
+    Copyright © <year> The Unigrid Foundation, UGD Software AB
+    Copyright © <year> <Additional author name>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the addended GNU Affero General Public License as
+    published by the The Unigrid Foundation and the Free Software
+    Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
+    General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public
+    License with this program. If not, see <http://www.gnu.org/licenses/>
+    and <https://github.com/unigrid-project/hedgehog>.
+
+Also add information on how to contact you by electronic and paper mail.
+
+  If your software can interact with users remotely through a computer
+network, you should also make sure that it provides a way for users to
+get its source.  For example, if your program is a web application, its
+interface could display a "Source" link that leads users to an archive
+of the code.  There are many ways you could offer source, and different
+solutions will be better for different programs; see section 13 for the
+specific requirements.
+
+  You should also get your employer (if you work as a programmer) or school,
+if any, to sign a "copyright disclaimer" for the program, if necessary.
+For more information on this, and how to apply and follow the GNU AGPL, see
+<https://www.gnu.org/licenses/>.
