@@ -13,24 +13,12 @@
 	You should have received an addended copy of the GNU Affero General Public License with this program.
 	If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/janus-java>.
  */
+
 package org.unigrid.hedgehog.model.storage;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
+public interface StorageTranscoder {
 
-@Data
-public class BlockData {
-	
-	public BlockData() {
-		
-	}
-	
-	@Getter @Setter
-	public int accessed;
-	
-	@Getter @Setter
-	public ByteBuf buffer;
+	String encode(byte[] bytes);
+
+	byte[] decode(byte[] bytes);
 }

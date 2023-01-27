@@ -13,25 +13,33 @@
 	You should have received an addended copy of the GNU Affero General Public License with this program.
 	If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/janus-java>.
  */
-
 package org.unigrid.hedgehog.model.storage;
 
-import io.netty.buffer.ByteBuf;
+import java.util.Date;
+import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
 
+@AllArgsConstructor
 @Data
-public class BlockData  implements AccessedSorting{
-	
-	public BlockData() {
+public class WeigthedKey implements WeigthedKeyInterface<String, Integer>{
 
+	private String key;
+	
+	private Integer weigth;
+	
+	private int accessed;
+	
+	private int size;
+	
+	private Date date;
+	
+	public Integer getWeigth() {
+		double x = size * (Math.log(Math.pow(accessed, 70)));
+		
+		return (int) x;
 	}
-
-	@Getter @Setter
-	public int accessed;
 	
-	@Getter @Setter
-	public ByteBuf buffer;
-	
+	private void decay() {
+		
+	}
 }

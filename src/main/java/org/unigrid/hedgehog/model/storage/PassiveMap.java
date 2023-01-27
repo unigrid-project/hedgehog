@@ -16,42 +16,56 @@
 package org.unigrid.hedgehog.model.storage;
 
 import io.netty.buffer.ByteBuf;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import java.io.File;
-import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.Date;
 import java.util.TreeMap;
+import org.apache.commons.codec.binary.Base32;
 import org.apache.commons.collections4.map.AbstractMapDecorator;
-import org.apache.commons.collections4.map.PassiveExpiringMap;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 
-@ApplicationScoped
-public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
+public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements StorageTranscoder{
 
-	@Inject
+	//@Inject
 	private Storage storage;
 	
-	private int maxSize = 2 * 1024 * 1024 * 1024;
+	private long maxSize = 2 * 1024 * 1024 * 1024 - 1;
 	
-	private int currentSize = 0;
+	private long currentSize = 0;
 	
-	private TreeMap<String, BlockData> map;
-	
-	private void init() {
-		//Find all local files and read the accesed number from them and build the map
+	final private TreeMap<WeigthedKeyInterface<String, Integer>, BlockData> map =
+		new TreeMap<WeigthedKeyInterface<String, Integer>, BlockData>((k1, k2) -> {
+			System.out.println(k1.getClass());
+			System.out.println(k2.getClass());
+			if(k1.getWeigth()>= k2.getWeigth()){
+				return 1;
+			}
+			return 0; 
+		});;
+
+	public PassiveMap() {
+		super();
+		
+		storage = new Storage();
 		populateMap();
 	}
-
-	public PassiveMap(PassiveExpiringMap<K, V> map) {
-		super(map);
+	
+	public int size() {
+		return map.size();
 	}
 
-	public void put(String key, BlockData blockData) {
-		addToMap(key, blockData);
-		storage.store(key, blockData);
+	public WeigthedKeyInterface put(String key, BlockData blockData) {
+		WeigthedKey weigthedKey = new WeigthedKey(key,
+							0,
+							blockData.getAccessed(), blockData.getBuffer().capacity(),
+							new Date());
+		
+		addToMap(weigthedKey.getKey(), blockData);
+		String s = (String) weigthedKey.getKey();
+		byte[] bytes = s.getBytes();
+		String byteKey = encode(bytes);
+		storage.store(byteKey, blockData);
+		
+		return weigthedKey;
 	}
 	
 	public ByteBuf get(String key) {
@@ -60,26 +74,40 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
 			return map.get(key).getBuffer();
 		}
 		
-		BlockData blockData = new BlockData();
-		blockData = storage.getFile(key);
+		
+		String byteKey = encode(key.getBytes());
+		BlockData blockData = storage.getFile(byteKey);
 		blockData.setAccessed(blockData.getAccessed() + 1);
 		return blockData.getBuffer();
 	}
 	
-	private void updateMap(String key, BlockData data) {
+	public BlockData getBlock(String key) {
+		if(map.containsKey(key)) {
+			map.get(key).setAccessed(map.get(key).getAccessed() + 1);
+			return map.get(key);
+		}
+		BlockData blockData = storage.getFile(encode(key.getBytes()));
+		blockData.setAccessed(blockData.getAccessed() + 1);
+		return blockData;
+	}
+	
+	private void updateMap(WeigthedKeyInterface key, BlockData data) {
 		currentSize = currentSize + data.getBuffer().array().length;
 		map.put(key, data);
 	}
 	
 	private void addToMap(String key, BlockData data) {
+		
+		WeigthedKey weigthedKey = new WeigthedKey(key, 0, data.accessed, data.getBuffer().capacity(), new Date());
 		if(currentSize < maxSize) {
-			updateMap(key, data);
+			System.out.println("adding this to the map");
+			updateMap(weigthedKey, data);
 			return;
 		}
-		
-		for (Entry<String, BlockData> entry : map.entrySet()) {
+		System.out.println("what is happening");
+		for (Entry<WeigthedKeyInterface<String, Integer>, BlockData> entry : map.entrySet()) {
 			if(entry.getValue().getAccessed() < data.getAccessed()) {
-				map.put(key, data);
+				map.put(weigthedKey, data);
 				removeFromMap();
 				return;
 			}
@@ -87,18 +115,13 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
 	}
 	
 	private void removeFromMap() {
-		while(currentSize > maxSize) {
+		while(currentSize < maxSize) {
 			map.remove(map.firstKey());
 		}
 	}
 	
 	private void populateMap() {
-		map = new TreeMap((k1, k2) -> {
-			if(map.get(k1).getAccessed() > map.get(k2).getAccessed()){
-				return 1;
-			}
-			return 0; 
-		});
+		System.out.println(map);
 		ApplicationDirectory appDir = new ApplicationDirectory();
 		
 		File dir = appDir.getUserDataDir().toFile();
@@ -109,5 +132,34 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> {
 			}
 		}
 	}
+
+	@Override
+	public String encode(byte[] bytes) {
+		Base32 base32 = new Base32();
+		return base32.encodeToString(bytes);
+	}
+
+	@Override
+	public byte[] decode(byte[] bytes) {
+		Base32 base = new Base32();
+		return base.decode(bytes);
+	}
 	
+	/*
+	private static class ValueCompare implements Comparator {
+
+		private Map _data;
+		
+		public ValueCompare(Map data) {
+			super();
+			_data = data;
+		}
+		
+		@Override
+		public int compare(Object o1, Object o2) {
+			int i1 = (int) _data.get(o1).getAccessed();
+		}
+		
+	}
+	*/
 }

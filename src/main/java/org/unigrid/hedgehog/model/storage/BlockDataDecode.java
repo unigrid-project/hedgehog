@@ -24,10 +24,10 @@ public class BlockDataDecode extends ReplayingDecoder<BlockData> {
 
 	@Override
 	protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		BlockData blockData = new BlockData();
+		/*BlockData blockData = new BlockData();
 		blockData.setAccessed(in.readInt());
 		in.readBytes(blockData.buffer);
-		out.add(blockData);
+		out.add(blockData);*/
 	}
 	
 }

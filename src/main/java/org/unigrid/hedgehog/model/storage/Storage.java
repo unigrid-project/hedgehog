@@ -13,71 +13,44 @@
 	You should have received an addended copy of the GNU Affero General Public License with this program.
 	If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/janus-java>.
  */
-
 package org.unigrid.hedgehog.model.storage;
 
-import io.netty.bootstrap.Bootstrap;
-import io.netty.bootstrap.ServerBootstrap;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.serialization.CompatibleObjectEncoder;
-import jakarta.inject.Inject;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.commons.codec.binary.Hex;
 
-
+@ApplicationScoped
 public class Storage {
-
-	private RandomAccessFile file;
 
 	public void store(String key, BlockData blockData) {
 		String path = mkDir(getFirstByte(key), getSecondByte(key));
+		RandomAccessFile file;
 		try {
-			file = new RandomAccessFile(path + "/" + getHex(key), "rwd");
+			file = new RandomAccessFile(path + "/" + key, "rwd");
+			FileChannel channel = file.getChannel();
+			ByteBuf buff = Unpooled.buffer();
+			buff.writeInt(blockData.getAccessed());
+			buff.writeBytes(blockData.getBuffer());
+			System.out.println(key);
+			MappedByteBuffer out;
+			out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
+			out.put(buff.array());
+			file.close();
 		} catch (FileNotFoundException ex) {
 			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 			System.out.println(ex.getMessage());
-		}
-		FileChannel channel = file.getChannel();
-		ByteBuf buff = Unpooled.buffer();
-		buff.writeInt(blockData.getAccessed());
-		buff.writeBytes(blockData.getBuffer());
-		System.out.println(key);
-		MappedByteBuffer out;
-		try {
-			out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
-			out.put(buff.array());
-		} catch (IOException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-				System.out.println(ex.getMessage());
-			}
-
-		try {
-			file.close();
 		} catch (IOException ex) {
 			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 			System.out.println(ex.getMessage());
@@ -93,7 +66,7 @@ public class Storage {
 			+ "/"
 			+ getSecondByte(key)
 			+ "/"
-			+ getHex(key);
+			+ key;
 
 		RandomAccessFile file;
 		try {
@@ -104,12 +77,12 @@ public class Storage {
 		}
 		ByteBuffer dst;
 		try {
-			dst = ByteBuffer.allocate((int)file.length());
+			dst = ByteBuffer.allocate((int) file.length());
 		} catch (IOException ex) {
 			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 			return null;
 		}
-		
+
 		FileChannel channel = file.getChannel();
 		try {
 			channel.read(dst);
@@ -121,25 +94,20 @@ public class Storage {
 		blockData.setBuffer(buff.setBytes(0, dst));
 		return blockData;
 	}
-	
+
 	public int getAccessed(String path) {
-		try {
-			RandomAccessFile file = new RandomAccessFile(path, "rw");
-		} catch (FileNotFoundException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-		}
+		RandomAccessFile file;
 		int num = 0;
 		try {
+			file = new RandomAccessFile(path, "rw");
 			num = file.readInt();
+			file.close();
+		} catch (FileNotFoundException ex) {
+			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 		} catch (IOException ex) {
 			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
 		}
 		
-		try {
-			file.close();
-		} catch (IOException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-		}
 		return num;
 	}
 
@@ -148,9 +116,13 @@ public class Storage {
 		File first = new File(dataDir.toString() + "/" + firstByte);
 		File second = new File(first + "/" + secondByte);
 
-		if(!first.exists()) {
+		if (!first.exists()) {
 			first.mkdir();
-			if(!second.exists()) {
+			if (!second.exists()) {
+				second.mkdir();
+			}
+		} else {
+			if (!second.exists()) {
 				second.mkdir();
 			}
 		}
