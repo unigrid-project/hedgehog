@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -22,10 +22,14 @@ import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.time.Instant;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data()
 @XmlRootElement
+@NoArgsConstructor
+@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class CopyObjectResult {
 	@XmlElement(name = "ETag")
@@ -46,17 +50,4 @@ public class CopyObjectResult {
 
 	@XmlElement(name = "ChecksumSHA256")
 	private String checksumSHA256;
-
-	public CopyObjectResult() {
-	}
-
-	public CopyObjectResult(String eTag, Instant lastModified, String checksumCRC32, String checksumCRC32C,
-		String checksumSHA1, String checksumSHA256) {
-		this.eTag = eTag;
-		this.lastModified = lastModified;
-		this.checksumCRC32 = checksumCRC32;
-		this.checksumCRC32C = checksumCRC32C;
-		this.checksumSHA1 = checksumSHA1;
-		this.checksumSHA256 = checksumSHA256;
-	}
 }

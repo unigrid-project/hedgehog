@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -23,9 +23,13 @@ import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.io.Serializable;
 import java.util.List;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data()
+@NoArgsConstructor
+@AllArgsConstructor
 @XmlRootElement(name = "ListAllMyBucketsResult", namespace = "http://s3.amazonaws.com/doc/2006-03-01")
 @XmlAccessorType(XmlAccessType.FIELD)
 public class ListAllMyBucketsResult implements Serializable {
@@ -35,12 +39,4 @@ public class ListAllMyBucketsResult implements Serializable {
 
 	@XmlElement(name = "Owner")
 	private Owner owner;
-
-	public ListAllMyBucketsResult() {
-	}
-
-	public ListAllMyBucketsResult(List<Bucket> buckets, Owner owner) {
-		this.buckets = buckets;
-		this.owner = owner;
-	}
 }

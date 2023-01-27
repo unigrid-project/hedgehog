@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -22,10 +22,14 @@ import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlElementWrapper;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.util.List;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data()
 @XmlRootElement
+@NoArgsConstructor
+@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class ListBucketResult {
 	@XmlElement(name = "Name")
@@ -46,17 +50,4 @@ public class ListBucketResult {
 	@XmlElementWrapper(name = "Contents")
 	@XmlElement(name = "Content")
 	private List<Content> contents;
-
-	public ListBucketResult() {
-	}
-
-	public ListBucketResult(String name, String prefix, String delimiter, int maxKeys, boolean isTruncated,
-		List<Content> contents) {
-		this.name = name;
-		this.prefix = prefix;
-		this.delimiter = delimiter;
-		this.maxKeys = maxKeys;
-		this.isTruncated = isTruncated;
-		this.contents = contents;
-	}
 }

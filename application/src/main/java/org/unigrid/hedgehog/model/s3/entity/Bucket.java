@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -23,10 +23,14 @@ import jakarta.xml.bind.annotation.XmlRootElement;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.io.Serializable;
 import java.time.Instant;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data()
 @XmlRootElement
+@NoArgsConstructor
+@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Bucket implements Serializable {
 	@XmlElement(name = "CreationDate")
@@ -35,12 +39,4 @@ public class Bucket implements Serializable {
 
 	@XmlElement(name = "Name")
 	private String name;
-
-	public Bucket() {
-	}
-
-	public Bucket(Instant creationDate, String name) {
-		this.creationDate = creationDate;
-		this.name = name;
-	}		
 }

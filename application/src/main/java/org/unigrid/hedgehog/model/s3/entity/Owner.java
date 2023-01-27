@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -21,10 +21,14 @@ import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import java.io.Serializable;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data()
 @XmlRootElement
+@NoArgsConstructor
+@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Owner implements Serializable {	
 	@XmlElement(name = "DisplayName")
@@ -32,11 +36,4 @@ public class Owner implements Serializable {
 	
 	@XmlElement(name = "ID")
 	private String ID;
-	
-	public Owner() {}
-	
-	public Owner(String displayName, String id) {
-		this.displayName = displayName;
-		this.ID = id;
-	}
 }

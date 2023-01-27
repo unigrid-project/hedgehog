@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -18,16 +18,13 @@ package org.unigrid.hedgehog.model.s3.entity;
 
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
 
 @XmlRootElement
+@NoArgsConstructor
+@AllArgsConstructor
 public class CreateBucketConfiguration {
 	@XmlElement
 	public String locationConstraint;
-
-	public CreateBucketConfiguration() {
-	}
-
-	public CreateBucketConfiguration(String locationConstraint) {
-		this.locationConstraint = locationConstraint;
-	}
 }
