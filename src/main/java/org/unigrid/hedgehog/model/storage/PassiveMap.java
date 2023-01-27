@@ -32,14 +32,13 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 	
 	private long currentSize = 0;
 	
-	final private TreeMap<WeigthedKeyInterface<String, Integer>, BlockData> map =
-		new TreeMap<WeigthedKeyInterface<String, Integer>, BlockData>((k1, k2) -> {
-			System.out.println(k1.getClass());
-			System.out.println(k2.getClass());
-			if(k1.getWeigth()>= k2.getWeigth()){
+	final private TreeMap<WeigthedKeyInterface<String, Double>, BlockData> map =
+		new TreeMap<WeigthedKeyInterface<String, Double>, BlockData>((k1, k2) -> {
+			System.out.println(k1.getWeigth() + " || " + k2.getWeigth());
+			if(k1.getWeigth()>= k2.getWeigth() || currentSize < maxSize){
 				return 1;
 			}
-			return 0; 
+			return 0;
 		});;
 
 	public PassiveMap() {
@@ -53,9 +52,9 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 		return map.size();
 	}
 
-	public WeigthedKeyInterface put(String key, BlockData blockData) {
+	public WeigthedKey put(String key, BlockData blockData) {
 		WeigthedKey weigthedKey = new WeigthedKey(key,
-							0,
+							0.0,
 							blockData.getAccessed(), blockData.getBuffer().capacity(),
 							new Date());
 		
@@ -98,14 +97,14 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 	
 	private void addToMap(String key, BlockData data) {
 		
-		WeigthedKey weigthedKey = new WeigthedKey(key, 0, data.accessed, data.getBuffer().capacity(), new Date());
+		WeigthedKey weigthedKey = new WeigthedKey(key, 0.0, data.accessed, data.getBuffer().capacity(), new Date());
 		if(currentSize < maxSize) {
 			System.out.println("adding this to the map");
 			updateMap(weigthedKey, data);
 			return;
 		}
 		System.out.println("what is happening");
-		for (Entry<WeigthedKeyInterface<String, Integer>, BlockData> entry : map.entrySet()) {
+		for (Entry<WeigthedKeyInterface<String, Double>, BlockData> entry : map.entrySet()) {
 			if(entry.getValue().getAccessed() < data.getAccessed()) {
 				map.put(weigthedKey, data);
 				removeFromMap();

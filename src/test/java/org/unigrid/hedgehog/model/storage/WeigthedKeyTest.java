@@ -16,31 +16,31 @@
 package org.unigrid.hedgehog.model.storage;
 
 import java.util.Date;
-import lombok.AllArgsConstructor;
-import lombok.Data;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Provide;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
 
-@AllArgsConstructor
-@Data
-public class WeigthedKey implements WeigthedKeyInterface<String, Double>{
-
-	private String key;
+public class WeigthedKeyTest extends BaseMockedWeldTest {
 	
-	private Double weigth;
-	
-	private int accessed;
-	
-	private int size;
-	
-	private Date date;
-	
-	public Double getWeigth() {
-		decay();
-		double accessedDouble = accessed + 1.001;
-		return size * (Math.log(Math.pow(accessedDouble, 70)));
+	@Property
+	public void testWeigthSystem(@ForAll("accessed")int accessed, @ForAll("size") int size) {
+		WeigthedKey key = new WeigthedKey("laskdfnoi3eräpawos3", 0.0, accessed, size, new Date());
 		
+		System.out.println(accessed + " || " + size + " || " + key.getWeigth());
+		
+		assert(key.getWeigth() > 0.0);
 	}
 	
-	private void decay() {
-		
+	@Provide
+	Arbitrary<Integer> accessed() {
+		return Arbitraries.of(0, 1, 123, 2, 1542, 53120, 19);
+	}
+	
+	@Provide
+	Arbitrary<Integer> size() {
+		return Arbitraries.of(1024, 120, 1024 * 1024 * 50, 1024 * 1024 * 1, 1024 * 1024 * 256 - 1, 1024 * 1024 * 60);
 	}
 }

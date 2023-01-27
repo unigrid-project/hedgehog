@@ -17,11 +17,14 @@ package org.unigrid.hedgehog.model.storage;
 
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import net.jqwik.api.Example;
+import net.jqwik.api.Property;
+import net.jqwik.api.lifecycle.BeforeProperty;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,6 +38,9 @@ import org.unigrid.hedgehog.model.Signature;
 
 public class PassiveMapTest extends BaseMockedWeldTest {
 
+	PassiveMap map;
+	List<String> keys;
+	
 	@Example
 	public void testPutAndGetInMap(@ForAll("key") String key, @ForAll("data") byte[] data) {
 		PassiveMap map = new PassiveMap();
@@ -75,6 +81,27 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 
 		assert (map.size() < 500);
 
+	}
+	
+	@Property
+	public void testMultiplePutAndGet() {
+		
+		byte[] byteKey = RandomUtils.nextBytes(64);
+		String key = Hex.encodeHexString(byteKey);
+		keys.add(key);
+		
+		byte[] data = generateRandomByteArray(RandomUtils.nextInt(1, 1024 * 1024 * 256));
+		ByteBuf buff = Unpooled.copiedBuffer(data);
+		BlockData blockData = new BlockData();
+		blockData.setBuffer(buff);
+
+		map.put(key, blockData);
+	}
+	
+	@BeforeProperty
+	public void init() {
+		map = new PassiveMap();
+		keys = new ArrayList();
 	}
 
 	@Provide
