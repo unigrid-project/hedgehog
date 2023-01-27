@@ -36,7 +36,7 @@ public class NativeImage {
 
 	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
 		final Path script = basePath.resolve(Path.of(
-			NativeProperties.BIN_DIRECTORY, NativeProperties.RUN_SCRIPT)
+			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
 		);
 
 		final CommandLine cmdLine = CommandLine.parse(String.format("%s %s",
@@ -47,7 +47,7 @@ public class NativeImage {
 		executor.setExitValue(0);
 
 		/* We retry untill some unrecoverable error is detected */
-		while(true) {
+		while (true) {
 			try {
 				final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
 				executor.setWatchdog(watchdog);
@@ -60,7 +60,7 @@ public class NativeImage {
 				}
 
 				return ex.getExitValue();
-			} catch(IOException ex) {
+			} catch (IOException ex) {
 				/* Error 26 is "Text file busy", which can happen during rapid turnarounds */
 				if (ex.getMessage().contains("error=26")) {
 					Thread.sleep(ERROR_26_WAIT_MS);
@@ -73,10 +73,10 @@ public class NativeImage {
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
-			.getResourceAsStream(NativeProperties.BUNDLED_JLINK_ZIP.toString());
+			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
 
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
-		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.HASH));
+		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
 
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
