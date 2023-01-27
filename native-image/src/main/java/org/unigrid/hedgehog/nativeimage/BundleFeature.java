@@ -76,15 +76,13 @@ public class BundleFeature implements Feature {
 
 	@Override
 	public void duringSetup(DuringSetupAccess access) {
-		final NativeProperties properties = new NativeProperties();
-
 		try {
 			final Path jlinkArchive = findJlinkArchive();
 			System.out.println(String.format("Including JLink image at '%s'", jlinkArchive));
 			final byte[] data = Files.readAllBytes(jlinkArchive);
 
-			properties.BUNDLED_JLINK_ZIP = jlinkArchive.getFileName();
-			properties.HASH = hash(data);
+			NativeProperties.setBundledJlinkZip(jlinkArchive.getFileName());
+			NativeProperties.setHash(hash(data));
 
 			RuntimeResourceAccess.addResource(getClass().getModule(),
 				jlinkArchive.getFileName().toString(), data

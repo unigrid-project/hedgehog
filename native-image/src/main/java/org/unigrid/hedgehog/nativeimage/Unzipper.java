@@ -47,7 +47,7 @@ public class Unzipper {
 	}
 
 	private static Path normalize(Path destination, ZipArchiveEntry entry) throws IOException {
-		final Path target = destination.resolve(Path.of(NativeProperties.HASH, entry.getName()));
+		final Path target = destination.resolve(Path.of(NativeProperties.getHash(), entry.getName()));
 
 		/* Verify normalized name target to avoid zip slip vulnerability */
 		if (!target.normalize().startsWith(target)) {

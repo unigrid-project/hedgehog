@@ -17,19 +17,22 @@
 package org.unigrid.hedgehog.nativeimage;
 
 import java.nio.file.Path;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.exec.OS;
 
 public class NativeProperties {
 	public static final String BIN_DIRECTORY = "bin";
-	public static String RUN_SCRIPT;
-	public static Path BUNDLED_JLINK_ZIP;
-	public static String HASH;
+
+	@Getter @Setter private static String runScript;
+	@Getter @Setter private static Path bundledJlinkZip;
+	@Getter @Setter private static String hash;
 
 	static {
 		if (OS.isFamilyWindows()) {
-			RUN_SCRIPT = "run.bat";
+			runScript = "run.bat";
 		} else {
-			RUN_SCRIPT = "run.sh";
+			runScript = "run.sh";
 		}
 	}
 }
