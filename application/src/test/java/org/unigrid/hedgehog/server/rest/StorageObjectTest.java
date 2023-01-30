@@ -60,7 +60,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldCreateObject() {
+	public void shouldBe1() {
 		final RestClient clientMock = new RestClient(server.getRest().getHostName(), 8001, false);
 
 		CreateBucketConfiguration config = new CreateBucketConfiguration("TestConfig");
@@ -81,7 +81,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldHaveInputStream() {
+	public void shouldBe2() {
 		try {
 			client.post("/storage-object/" + bucket + "/" + key, "");
 		} catch (Exception e) {
@@ -92,7 +92,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldListObjects() {
+	public void shouldBe3() {
 		ListBucketResult response = client.getEntity("/storage-object/list/" + bucket, ListBucketResult.class);
 
 		assertThat(response.getName(), equalTo(bucket));
@@ -104,7 +104,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldCopyAndReturnXML() {
+	public void shouldBe4() {
 		MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
 		headers.add("x-amz-copy-source", "/" + bucket + "/" + key);
 
@@ -118,7 +118,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldContainHeader() {
+	public void shouldBe5() {
 		MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
 
 		try {
@@ -131,7 +131,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldReturnData() {
+	public void shouldBe6() {
 		Response response = client.get("/storage-object/" + bucket + "/" + key);
 
 		assertThat(response.getStatus(), equalTo(200));
@@ -142,7 +142,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldExist() {
+	public void shouldBe7() {
 		try {
 			client.get("/storage-object/" + bucket + "/testtest");
 		} catch (Exception e) {
@@ -154,10 +154,12 @@ public class StorageObjectTest extends BaseRestClientTest {
 	@Example
 	@Disabled
 	@SneakyThrows
-	public void shouldReturnNoContent() {
+	public void shouldBe8() {
 		Response response = client.delete("/storage-object/" + bucket + "/" + copy);
 
 		assertThat(response.getLength(), equalTo(-1));
 		assertThat(response.getStatus(), equalTo(204));
+
+		client.delete("/bucket/" + bucket);
 	}
 }
