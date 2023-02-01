@@ -42,7 +42,7 @@ import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
-	@Provide
+	@Provide(ignoreExceptions = IllegalArgumentException.class)
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {

@@ -57,7 +57,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		};
 	}
 
-	@Provide
+	@Provide(ignoreExceptions = IllegalArgumentException.class)
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {

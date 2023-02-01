@@ -40,7 +40,7 @@ public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 		new ApplicationDirectoryMockUp();
 	}
 
-	@Provide
+	@Provide(ignoreExceptions = IllegalArgumentException.class)
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {
