@@ -21,14 +21,11 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.status.StatusBase;
 import ch.qos.logback.core.util.Loader;
 import ch.qos.logback.core.util.StatusPrinter;
-import com.sun.jna.Callback;
-import com.sun.jna.CallbackReference;
-import com.sun.jna.LastErrorException;
-import com.sun.jna.Native;
+import com.oracle.svm.core.jdk.NativeLibrarySupport;
+import com.oracle.svm.core.jdk.PlatformNativeLibrarySupport;
+import com.oracle.svm.hosted.FeatureImpl;
+import com.oracle.svm.hosted.c.NativeLibraries;
 import com.sun.jna.NativeLibrary;
-import com.sun.jna.Platform;
-import com.sun.jna.Structure;
-import com.sun.jna.platform.win32.Shell32Util;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -39,15 +36,11 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
-import lombok.SneakyThrows;
-import net.harawata.appdirs.impl.ShellFolderResolver;
 import org.apache.commons.exec.OS;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
 import org.graalvm.nativeimage.hosted.RuntimeClassInitialization;
-import org.graalvm.nativeimage.hosted.RuntimeReflection;
-import org.graalvm.nativeimage.hosted.RuntimeJNIAccess;
 import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.Version;
@@ -118,20 +111,25 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
-			//RuntimeClassInitialization.initializeAtBuildTime(Native.class);
-			//RuntimeClassInitialization.initializeAtBuildTime(Platform.class);
-			//RuntimeClassInitialization.initializeAtBuildTime(NativeLibrary.class);
-			//RuntimeClassInitialization.initializeAtBuildTime(Callback.class);
-			//RuntimeClassInitialization.initializeAtBuildTime(Structure.class);
-
-			RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna");
-			RuntimeClassInitialization.initializeAtBuildTime("net.harawata.appdirs");
-			RuntimeClassInitialization.initializeAtBuildTime("net.harawata.appdirs.impl");
-			
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
 			ex.printStackTrace();
 			System.exit(0);
+		}
+	}
+
+	@Override
+	public void beforeAnalysis(BeforeAnalysisAccess access) {
+		if (OS.isFamilyWindows()) {
+			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
+			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("jnidispatch");
+			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
+			nativeLibraries.addStaticJniLibrary("jnidispatch");
+
+			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
+			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 		}
 	}
 }

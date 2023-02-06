@@ -32,6 +32,9 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
+	static {
+		System.loadLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+	}
 	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 	public static final long ERROR_26_WAIT_MS = 50;
 
@@ -73,21 +76,17 @@ public class NativeImage {
 	}
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		System.out.println("start");
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
-		System.out.println("start");
 
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
-		System.out.println("start");
 		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
-		System.out.println("start");
 
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
 			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
 		}
-		System.out.println("we are starting hedgehog!!");
+
 		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
 	}
 }
