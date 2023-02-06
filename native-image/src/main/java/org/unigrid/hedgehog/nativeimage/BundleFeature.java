@@ -21,6 +21,14 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.status.StatusBase;
 import ch.qos.logback.core.util.Loader;
 import ch.qos.logback.core.util.StatusPrinter;
+import com.sun.jna.Callback;
+import com.sun.jna.CallbackReference;
+import com.sun.jna.LastErrorException;
+import com.sun.jna.Native;
+import com.sun.jna.NativeLibrary;
+import com.sun.jna.Platform;
+import com.sun.jna.Structure;
+import com.sun.jna.platform.win32.Shell32Util;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -31,11 +39,15 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import lombok.SneakyThrows;
+import net.harawata.appdirs.impl.ShellFolderResolver;
 import org.apache.commons.exec.OS;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
 import org.graalvm.nativeimage.hosted.RuntimeClassInitialization;
+import org.graalvm.nativeimage.hosted.RuntimeReflection;
+import org.graalvm.nativeimage.hosted.RuntimeJNIAccess;
 import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.Version;
@@ -47,7 +59,10 @@ public class BundleFeature implements Feature {
 	}
 
 	private Path findJlinkArchive() throws IOException {
-		final String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+		String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+		if(OS.isFamilyWindows() && location.startsWith("/")) {
+			location = location.substring(1);
+		}
 		final Path targetDirectory = Paths.get(location).getParent();
 		final AtomicReference<Optional<Path>> archive = new AtomicReference(Optional.empty());
 
@@ -89,7 +104,9 @@ public class BundleFeature implements Feature {
 			);
 
 			/* Primarily initializes Logback, SL4J & Commons Compress */
-
+			
+			NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			
 			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
 			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
@@ -101,6 +118,16 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
+			//RuntimeClassInitialization.initializeAtBuildTime(Native.class);
+			//RuntimeClassInitialization.initializeAtBuildTime(Platform.class);
+			//RuntimeClassInitialization.initializeAtBuildTime(NativeLibrary.class);
+			//RuntimeClassInitialization.initializeAtBuildTime(Callback.class);
+			//RuntimeClassInitialization.initializeAtBuildTime(Structure.class);
+
+			RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna");
+			RuntimeClassInitialization.initializeAtBuildTime("net.harawata.appdirs");
+			RuntimeClassInitialization.initializeAtBuildTime("net.harawata.appdirs.impl");
+			
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
 			ex.printStackTrace();

@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.exec.CommandLine;
@@ -72,17 +73,21 @@ public class NativeImage {
 	}
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
+		System.out.println("start");
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
+		System.out.println("start");
 
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
+		System.out.println("start");
 		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
+		System.out.println("start");
 
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
 			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
 		}
-
+		System.out.println("we are starting hedgehog!!");
 		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
 	}
 }
