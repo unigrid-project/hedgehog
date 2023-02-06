@@ -37,6 +37,29 @@
                                 <localNative>${unzipLocation}\graalvm-ce-java17-22.3.0\bin\native-image.cmd</localNative>
                                 <windowsDependecies>com.sun.jna.platform.win32</windowsDependecies>
 			</properties>
+			<build>
+				<pluginManagement>
+					<plugins>
+						<plugin>
+							<groupId>com.googlecode.maven-download-plugin</groupId>
+							<artifactId>download-maven-plugin</artifactId>
+							<executions>
+								<execution>
+									<phase>process-resources</phase>
+									<goals>
+										<goal>wget</goal>
+									</goals>
+									<configuration>
+										<url>${url}</url>
+										<outputFileName>${downloadName}</outputFileName>
+										<outputDirectory>${downloadLocation}</outputDirectory>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+					</plugins>
+				</pluginManagement>
+			</build>
 		</profile>
 		<profile>
 			<id>MacOS</id>
@@ -50,6 +73,11 @@
 		<dependency>
 			<groupId>org.graalvm.sdk</groupId>
 			<artifactId>graal-sdk</artifactId>
+			<version>22.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.graalvm.nativeimage</groupId>
+			<artifactId>svm</artifactId>
 			<version>22.3.0</version>
 		</dependency>
 		<dependency>
@@ -171,48 +199,35 @@
 					</execution>
 				</executions>
 			</plugin>
-                        <plugin>
-                            <groupId>com.googlecode.maven-download-plugin</groupId>
-                            <artifactId>download-maven-plugin</artifactId>
-                            <version>1.6.8</version>
-                            <executions>
-                                <execution>
-                                    <phase>process-resources</phase>
-                                    <goals>
-                                        <goal>wget</goal>
-                                    </goals>
-                                    <configuration>
-                                        <url>${url}</url>
-                                        <outputFileName>${downloadName}</outputFileName>
-                                        <outputDirectory>${downloadLocation}</outputDirectory>
-                                    </configuration>
-                                </execution>
-                            </executions>
-                        </plugin>
-                        <plugin>
-                            <groupId>org.apache.maven.plugins</groupId>
-                            <artifactId>maven-antrun-plugin</artifactId>
-                            <version>3.1.0</version>
-                            <executions>
-                                <execution>
-                                    <id>default-cli</id>
-                                    <phase>package</phase>
-                                    <goals>
-                                        <goal>run</goal>
-                                    </goals>
-                                    <configuration>
-                                        <target>                                  
-                                            <unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
-                                            <!--<exec executable="cmd">
-                                                <arg value="/c"/>
-                                                <arg value="${localInstaller}"/>
-                                                <arg value="install native-image"/>
-                                            </exec>-->
-                                        </target>
-                                    </configuration>
-                                </execution>
-                            </executions>
-                        </plugin>
+			<plugin>
+				<groupId>com.googlecode.maven-download-plugin</groupId>
+				<artifactId>download-maven-plugin</artifactId>
+				<version>1.6.8</version>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-antrun-plugin</artifactId>
+				<version>3.1.0</version>
+				<executions>
+					<execution>
+						<id>default-cli</id>
+						<phase>package</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<target>
+								<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
+								<!--<exec executable="cmd">
+								    <arg value="/c"/>
+								    <arg value="${localInstaller}"/>
+								    <arg value="install native-image"/>
+								</exec>-->
+							</target>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
                         <plugin>
                             <groupId>org.codehaus.mojo</groupId>
                             <artifactId>exec-maven-plugin</artifactId>
@@ -249,33 +264,33 @@
 						<classpath>${org.slf4j:slf4j-api:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-core:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-classic:jar}</classpath>
-                                               <classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
-                                               <classpath>${net.java.dev.jna:jna:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna:jar}</classpath>
 					</classpath>
-                                        <includeNatives>true</includeNatives>
-                                        <addAllCharsets>true</addAllCharsets>
-                                        <!--<printClassInitialization>true</printClassInitialization>-->
-                                        <otherFiles>
+					<includeNatives>true</includeNatives>
+					<addAllCharsets>true</addAllCharsets>
+					<!--<printClassInitialization>true</printClassInitialization>-->
+					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
 					</otherFiles>
 					<output>${project.build.directory}/${executable.name}</output>
-                                        <reflectionConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/reflect-config.json</reflectionConfigurationFiles>
-                                        <resourcesConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/resource-config.json</resourcesConfigurationFiles>
-                                        <customOptions>
-                                                <customOption>-g</customOption>
-                                                <customOption>-O0</customOption>
-                                                <customOption>-Djna.debug_load=true</customOption>
-                                                <customOption>-Djna.debug_load.jna=true</customOption>
+					<reflectionConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/reflect-config.json</reflectionConfigurationFiles>
+					<resourcesConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/resource-config.json</resourcesConfigurationFiles>
+					<customOptions>
+						<customOption>-g</customOption>
+						<customOption>-O0</customOption>
+						<customOption>-Djna.debug_load=true</customOption>
+						<customOption>-Djna.debug_load.jna=true</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
-                                                <customOption>--trace-class-initialization=com.sun.jna.CallbackReference$AttachOptions</customOption>
+						<customOption>--trace-class-initialization=com.sun.jna.CallbackReference$AttachOptions</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
                                                 
-                                                <customOption>-H:+JNI</customOption>
-                                                <customOption>-H:JNIConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/jni-config.json</customOption>
-                                                <customOption>-H:DynamicProxyConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/proxy-config.json</customOption>
+						<customOption>-H:+JNI</customOption>
+						<customOption>-H:JNIConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/jni-config.json</customOption>
+						<customOption>-H:DynamicProxyConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/proxy-config.json</customOption>
 					
-                                        </customOptions>
-                                        <nativeImage>${localNative}</nativeImage>
+					</customOptions>
+					<nativeImage>${localNative}</nativeImage>
 				</configuration>
 				<executions>
 					<execution>
@@ -303,7 +318,6 @@
 			<plugin>
 				<groupId>pl.gdela</groupId>
 				<artifactId>socomo-maven</artifactId>
-				<version>2.3.1</version>
 				<dependencies>
 					<dependency>
 						<groupId>org.ow2.asm</groupId>
