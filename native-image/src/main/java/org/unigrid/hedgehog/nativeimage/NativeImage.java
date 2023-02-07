@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import com.sun.jna.NativeLibrary;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
@@ -77,6 +78,9 @@ public class NativeImage {
 	}
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
+		NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+		System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
+
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
 

@@ -102,8 +102,6 @@ public class BundleFeature implements Feature {
 
 			/* Primarily initializes Logback, SL4J & Commons Compress */
 			
-			NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-			
 			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
 			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
@@ -116,6 +114,10 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
 			if (OS.isFamilyWindows()) {
+				System.out.println("Windows detected...");
+				NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
+
 				Shell32Util.getFolderPath(ShlObj.CSIDL_APPDATA);
 				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_RoamingAppData);
 				Shell32Util.getFolderPath(ShlObj.CSIDL_LOCAL_APPDATA);
@@ -136,16 +138,16 @@ public class BundleFeature implements Feature {
 
 	@Override
 	public void beforeAnalysis(BeforeAnalysisAccess access) {
-		/*if (OS.isFamilyWindows()) {
+		if (OS.isFamilyWindows()) {
 			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("jnidispatch");
 			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
 			nativeLibraries.addStaticJniLibrary("jnidispatch");
 
-			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-		}*/
+			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");*/
+		}
 	}
 }
