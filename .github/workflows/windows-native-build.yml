@@ -26,3 +26,8 @@ jobs:
         cache: maven
     - name: Build with Maven
       run: mvn package
+    - name: Output artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Windows Native Binary
+        path: native-image/target/hedgehog.exe
