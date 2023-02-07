@@ -279,6 +279,10 @@
 					<customOptions>
 						<customOption>-g</customOption>
 						<customOption>-O0</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED</customOption>
 						<customOption>-Djna.debug_load=true</customOption>
 						<customOption>-Djna.debug_load.jna=true</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
