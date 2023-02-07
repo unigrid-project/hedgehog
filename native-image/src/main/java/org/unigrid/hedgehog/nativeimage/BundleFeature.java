@@ -117,6 +117,7 @@ public class BundleFeature implements Feature {
 				System.out.println("Windows detected...");
 				NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
+				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_open"));
 
 				Shell32Util.getFolderPath(ShlObj.CSIDL_APPDATA);
 				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_RoamingAppData);
@@ -139,15 +140,15 @@ public class BundleFeature implements Feature {
 	@Override
 	public void beforeAnalysis(BeforeAnalysisAccess access) {
 		if (OS.isFamilyWindows()) {
-			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
+			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("jnidispatch");
 			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries.addStaticJniLibrary("jnidispatch");
+			nativeLibraries.addStaticJniLibrary("jnidispatch");*/
 
-			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");*/
+			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 		}
 	}
 }

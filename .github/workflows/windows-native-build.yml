@@ -31,3 +31,5 @@ jobs:
       with:
         name: Windows Native Binary
         path: native-image/target/hedgehog.exe
+    - name: Run Binary
+      run: native-image/target/hedgehog.exe
