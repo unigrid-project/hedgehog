@@ -26,6 +26,10 @@ import com.oracle.svm.core.jdk.PlatformNativeLibrarySupport;
 import com.oracle.svm.hosted.FeatureImpl;
 import com.oracle.svm.hosted.c.NativeLibraries;
 import com.sun.jna.NativeLibrary;
+import com.sun.jna.Platform;
+import com.sun.jna.platform.win32.KnownFolders;
+import com.sun.jna.platform.win32.Shell32Util;
+import com.sun.jna.platform.win32.ShlObj;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -111,6 +115,18 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
+			if (OS.isFamilyWindows()) {
+				Shell32Util.getFolderPath(ShlObj.CSIDL_APPDATA);
+				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_RoamingAppData);
+				Shell32Util.getFolderPath(ShlObj.CSIDL_LOCAL_APPDATA);
+				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_LocalAppData);
+				Shell32Util.getFolderPath(ShlObj.CSIDL_COMMON_APPDATA);
+				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_ProgramData);
+
+				RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna.platform.win32");
+				RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna");
+			}
+
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
 			ex.printStackTrace();
@@ -120,7 +136,7 @@ public class BundleFeature implements Feature {
 
 	@Override
 	public void beforeAnalysis(BeforeAnalysisAccess access) {
-		if (OS.isFamilyWindows()) {
+		/*if (OS.isFamilyWindows()) {
 			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("jnidispatch");
 			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
@@ -130,6 +146,6 @@ public class BundleFeature implements Feature {
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
 			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-		}
+		}*/
 	}
 }

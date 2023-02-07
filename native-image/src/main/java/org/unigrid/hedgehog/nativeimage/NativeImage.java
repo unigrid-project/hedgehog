@@ -32,9 +32,10 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	static {
+	/*static {
 		System.loadLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-	}
+	}*/
+
 	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 	public static final long ERROR_26_WAIT_MS = 50;
 

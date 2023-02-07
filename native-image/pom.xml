@@ -267,6 +267,10 @@
 						<classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
 						<classpath>${net.java.dev.jna:jna:jar}</classpath>
 					</classpath>
+					<initializeAtBuildTime>
+						<initializeAtBuildTime>com.sun.jna.platform.win32.Guid$GUID</initializeAtBuildTime>
+						<initializeAtBuildTime>com.sun.jna.platform.win32.WinNT$HRESULT</initializeAtBuildTime>
+					</initializeAtBuildTime>
 					<includeNatives>true</includeNatives>
 					<addAllCharsets>true</addAllCharsets>
 					<!--<printClassInitialization>true</printClassInitialization>-->
