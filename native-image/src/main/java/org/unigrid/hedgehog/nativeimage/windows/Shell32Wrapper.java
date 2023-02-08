@@ -16,31 +16,31 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
-import lombok.Cleanup;
 import org.graalvm.nativeimage.c.function.CFunction;
 import org.graalvm.nativeimage.c.function.CFunction.Transition;
 import org.graalvm.nativeimage.c.function.CLibrary;
-import org.graalvm.nativeimage.c.type.VoidPointer;
 import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.nativeimage.c.type.CTypeConversion;
+import org.graalvm.nativeimage.c.type.VoidPointer;
+import org.graalvm.word.PointerBase;
 import org.graalvm.word.WordFactory;
 
 @CLibrary("shell32")
 public class Shell32Wrapper {
 	@CFunction(transition = Transition.NO_TRANSITION)
-	public static native int SHGetKnownFolderPath(VoidPointer rfid, int dwFlags, VoidPointer hToken, CCharPointer ppszPath);
+	public static native int SHGetKnownFolderPath(PointerBase rfid, int dwFlags, VoidPointer hToken, CCharPointer ppszPath);
 
-	public static String GetKnownFolderPath(VoidPointer ptr) throws WindowsException {
+	public static String GetKnownFolderPath(PointerBase ptr) throws WindowsException {
+		final byte[] path = new byte[260 /* MAX_PATH */];
+
 		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST1");
-		@Cleanup final CTypeConversion.CCharPointerHolder path = CTypeConversion.toCBytes(new byte[260 /* MAX_PATH */]);
+		final int result = SHGetKnownFolderPath(ptr, 0, WordFactory.nullPointer(), CTypeConversion.toCBytes(path).get());
 		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST2");
-		final int result = SHGetKnownFolderPath(ptr, 0, WordFactory.nullPointer(), path.get());
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST3");
 		if (result != 0) {
-			System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST4");
+			System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST3");
 			throw new WindowsException(result);
 		}
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST5");
-		return CTypeConversion.toJavaString(path.get());
+		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST4");
+		return String.valueOf(path);
 	}
 }

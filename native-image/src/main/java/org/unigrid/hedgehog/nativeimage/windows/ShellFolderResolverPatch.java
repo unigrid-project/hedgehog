@@ -25,12 +25,12 @@ import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
-import org.graalvm.nativeimage.c.type.VoidPointer;
+import org.graalvm.word.PointerBase;
 
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
 	public static class ConvertFolderId {
-		private static VoidPointer toVoidPointer(FolderId folderId) {
+		private static PointerBase toPointer(FolderId folderId) {
 			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL2");
 			switch (folderId) {
 				case APPDATA:
@@ -52,7 +52,7 @@ public final class ShellFolderResolverPatch {
 	public String resolveFolder(FolderId folderId) {
 		try {
 			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL1");
-			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toVoidPointer(folderId));
+			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toPointer(folderId));
 		} catch (WindowsException ex) {
 			throw new AppDirsException("SHGetKnownFolderPath() returns an error: " + ex.getErrorCode());
 		}

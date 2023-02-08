@@ -49,7 +49,7 @@ public class BundleFeature implements Feature {
 	private Path findJlinkArchive() throws IOException {
 		String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
 
-		if(OS.isFamilyWindows() && location.startsWith("/")) {
+		if (OS.isFamilyWindows() && location.startsWith("/")) {
 			location = location.substring(1);
 		}
 
@@ -94,7 +94,7 @@ public class BundleFeature implements Feature {
 			);
 
 			/* Primarily initializes Logback, SL4J & Commons Compress */
-			
+
 			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
 			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);

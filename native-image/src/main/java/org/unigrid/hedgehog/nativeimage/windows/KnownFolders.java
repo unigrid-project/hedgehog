@@ -19,7 +19,7 @@ package org.unigrid.hedgehog.nativeimage.windows;
 import java.util.List;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.constant.CConstant;
-import org.graalvm.nativeimage.c.type.VoidPointer;
+import org.graalvm.word.PointerBase;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.Header;
 
 @CContext(Header.class)
@@ -32,11 +32,11 @@ public class KnownFolders {
 	}
 
 	@CConstant("&FOLDERID_LocalAppData")
-	public static native VoidPointer folderLocalAppData();
+	public static native PointerBase folderLocalAppData();
 
 	@CConstant("&FOLDERID_ProgramData")
-	public static native VoidPointer folderProgramData();
+	public static native PointerBase folderProgramData();
 
 	@CConstant("&FOLDERID_RoamingAppData")
-	public static native VoidPointer folderRoamingAppData();
+	public static native PointerBase folderRoamingAppData();
 }
