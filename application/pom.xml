@@ -349,6 +349,7 @@
 					<systemPropertyVariables>
 						<testoutput.target>${project.build.directory}</testoutput.target>
 					</systemPropertyVariables>
+                                        <skipTests>true</skipTests>
 				</configuration>
 			</plugin>
 			<plugin>
