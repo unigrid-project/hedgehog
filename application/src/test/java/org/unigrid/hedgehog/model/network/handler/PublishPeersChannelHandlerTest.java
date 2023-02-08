@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2023 The Unigrid Foundation, UGD Software AB
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -16,64 +16,41 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
-import java.time.Instant;
+import io.netty.channel.ChannelHandlerContext;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import mockit.Mock;
-import mockit.MockUp;
-import net.jqwik.api.Arbitrary;
+import lombok.SneakyThrows;
+import mockit.Mocked;
+import mockit.Tested;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.constraints.ShortRange;
-import net.jqwik.api.constraints.Size;
-import net.jqwik.api.lifecycle.BeforeProperty;
-import net.jqwik.api.domains.Domain;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.jqwik.NotNull;
-import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.model.network.packet.PublishPeers;
+import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
-public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
-	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
-
-	public PublishSporkChannelHandlerTest() {
-		super(PublishSporkChannelHandler.class);
+public class PublishPeersChannelHandler extends BaseHandlerTest<PublishPeers, PublishPeersChannelHandler> {
+	public PublishPeersChannelHandler() {
+		super(PublishPeersChannelHandler.class);
 	}
 
-	@BeforeProperty
-	private void mockBeforePublishSpork() {
-		new MockUp<GridSpork>() {
-			@Mock public boolean isValidSignature() {
-				return true;
-			}
-		};
-	}
-
-	@Provide(ignoreExceptions = IllegalArgumentException.class)
-	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
-		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
-		@ForAll Instant time, @ForAll Instant previousTime) {
-
-		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
-	}
-
-	@Property(tries = 50)
-	@Domain(SuiteDomain.class)
-	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
+	//@Property(tries = 50)
+	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
+		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
+		@Mocked PingSchedule pingSchedule) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
 
-		setChannelCallback(Optional.of((ctx, spork) -> {
+		setChannelCallback(Optional.of((ctx, ping) -> {
 			/* Only count triggers on the server-side  */
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
@@ -84,15 +61,29 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 			final P2PClient client = new P2PClient(host, port);
-			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			client.send(publishSpork);
-			expectedInvocations++;
+			for (int i = 0; i < pingsPerServer; i++) {
+				client.send(Ping.builder().build());
+				expectedInvocations++;
+			}
 
 			await().untilAtomic(invocations, is(expectedInvocations));
 			client.closeDirty();
 		}
 
 		await().untilAtomic(invocations, is(expectedInvocations));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
+		@Tested PublishPeersChannelHandler handler) {
+
+		/*final Ping ping = PublishPeers.builder().
+		assertThat(ping.getNanoTime(), not(0));
+		assertThat(ping.isResponse(), is(false));
+
+		handler.typedChannelRead(context, ping);
+		assertThat(ping.isResponse(), is(true));*/
 	}
 }

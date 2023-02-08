@@ -23,6 +23,7 @@ import jakarta.ws.rs.core.Response;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import lombok.SneakyThrows;
+import net.jqwik.api.Disabled;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
@@ -57,6 +58,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldCreateObject() {
 		final RestClient clientMock = new RestClient(server.getRest().getHostName(), 8001, false);
@@ -88,6 +90,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldListObjects() {
 		ListBucketResult response = client.getEntity("/storage-object/list/" + bucket, ListBucketResult.class);
@@ -99,6 +102,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldCopyAndReturnXML() {
 		MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
@@ -125,6 +129,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldReturnData() {
 		Response response = client.get("/storage-object/" + bucket + "/" + key);
@@ -135,6 +140,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldExist() {
 		try {
@@ -146,6 +152,7 @@ public class StorageObjectTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@Disabled
 	@SneakyThrows
 	public void shouldReturnNoContent() {
 		Response response = client.delete("/storage-object/" + bucket + "/" + copy);

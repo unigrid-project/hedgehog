@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -84,23 +85,16 @@ public class GridSporkProvider {
 	}
 
 	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
-		Instant time, Instant previousTime) {
+		Instant time, Instant previousTime) throws IllegalArgumentException {
 
-		try {
-			final GridSpork gridSpork = GridSpork.create(gridSporkType);
+		final GridSpork gridSpork = GridSpork.create(gridSporkType);
 
-			gridSpork.setTimeStamp(time);
-			gridSpork.setPreviousTimeStamp(previousTime);
-			gridSpork.setData(chunkData(gridSporkType));
-			gridSpork.setPreviousData(chunkData(gridSporkType));
-			gridSpork.setSignature(signature);
+		gridSpork.setTimeStamp(time);
+		gridSpork.setPreviousTimeStamp(previousTime);
+		gridSpork.setData(chunkData(gridSporkType));
+		gridSpork.setPreviousData(chunkData(gridSporkType));
+		gridSpork.setSignature(signature);
 
-			return Arbitraries.of(gridSpork);
-
-		} catch (IllegalArgumentException ex) {
-			assertThat(gridSporkType, is(GridSpork.Type.UNDEFINED));
-		}
-
-		return Arbitraries.just(null);
+		return Arbitraries.of(gridSpork);
 	}
 }

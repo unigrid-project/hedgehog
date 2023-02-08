@@ -16,6 +16,7 @@
 
 package org.unigrid.hedgehog.service;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.File;
@@ -43,6 +44,7 @@ public class BucketService {
 
 	private Path dataDir;
 
+	@PostConstruct
 	private void init() {
 		dataDir = applicationDirectory.getUserDataDir().resolve("s3data");
 	}
