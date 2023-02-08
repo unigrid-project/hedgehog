@@ -268,6 +268,9 @@
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
+						<customOptions>-g</customOptions>
+						<customOptions>-O0</customOptions>
+						<customOptions>-H:+SourceLevelDebug</customOptions>
 					</customOptions>
 					<nativeImage>${localNative}</nativeImage>
 				</configuration>

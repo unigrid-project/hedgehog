@@ -30,6 +30,7 @@ import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.lang3.ArrayUtils;
+import org.graalvm.polyglot.Context;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
@@ -78,8 +79,10 @@ public class NativeImage {
 	}
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		//NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-		//System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
+		System.out.println("Hello polyglot world Java!");
+		Context context = Context.create();
+		System.out.println(context.getEngine().getLanguages());
+		context.eval("js", "print('Hello polyglot world JavaScript!');");
 
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());

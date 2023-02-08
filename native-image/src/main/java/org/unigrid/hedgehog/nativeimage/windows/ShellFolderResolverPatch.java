@@ -18,19 +18,18 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
-import com.sun.jna.platform.win32.Guid.GUID;
 import net.harawata.appdirs.AppDirsException;
 import net.harawata.appdirs.impl.ShellFolderResolver;
 import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
-import org.graalvm.word.PointerBase;
+import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
 
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
 	public static class ConvertFolderId {
-		private static PointerBase toPointer(FolderId folderId) {
+		private static GUID toPointer(FolderId folderId) {
 			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL2");
 			switch (folderId) {
 				case APPDATA:
@@ -58,10 +57,10 @@ public final class ShellFolderResolverPatch {
 		}
 	}
 
-	@Substitute
+	/*@Substitute
 	private GUID convertFolderIdToGuid(FolderId folderId) {
 		throw new IllegalStateException("No longer supported.");
-	}
+	}*/
 
 	@Substitute
 	protected int convertFolderIdToCsidl(FolderId folderId) {
