@@ -21,15 +21,6 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.status.StatusBase;
 import ch.qos.logback.core.util.Loader;
 import ch.qos.logback.core.util.StatusPrinter;
-import com.oracle.svm.core.jdk.NativeLibrarySupport;
-import com.oracle.svm.core.jdk.PlatformNativeLibrarySupport;
-import com.oracle.svm.hosted.FeatureImpl;
-import com.oracle.svm.hosted.c.NativeLibraries;
-import com.sun.jna.NativeLibrary;
-import com.sun.jna.Platform;
-import com.sun.jna.platform.win32.KnownFolders;
-import com.sun.jna.platform.win32.Shell32Util;
-import com.sun.jna.platform.win32.ShlObj;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -115,42 +106,10 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
-			if (OS.isFamilyWindows()) {
-				/*System.out.println("Windows detected...");
-				NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
-				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_open"));
-
-				Shell32Util.getFolderPath(ShlObj.CSIDL_APPDATA);
-				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_RoamingAppData);
-				Shell32Util.getFolderPath(ShlObj.CSIDL_LOCAL_APPDATA);
-				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_LocalAppData);
-				Shell32Util.getFolderPath(ShlObj.CSIDL_COMMON_APPDATA);
-				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_ProgramData);*/
-
-				//RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna.platform.win32");
-				//RuntimeClassInitialization.initializeAtRunTime("com.sun.jna");
-			}
-
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
 			ex.printStackTrace();
 			System.exit(0);
-		}
-	}
-
-	@Override
-	public void beforeAnalysis(BeforeAnalysisAccess access) {
-		if (OS.isFamilyWindows()) {
-			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("jnidispatch");
-			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("jnidispatch");
-			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries.addStaticJniLibrary("jnidispatch");*/
-
-			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");*/
 		}
 	}
 }

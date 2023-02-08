@@ -104,16 +104,6 @@
 			<groupId>net.harawata</groupId>
 			<artifactId>appdirs</artifactId>
 		</dependency>
-                <dependency>
-                    <groupId>net.java.dev.jna</groupId>
-                    <artifactId>jna</artifactId>
-                    <version>5.8.0</version>
-                </dependency>
-                <dependency>
-                    <groupId>net.java.dev.jna</groupId>
-                    <artifactId>jna-platform</artifactId>
-                    <version>5.8.0</version>
-                </dependency>
 	</dependencies>
 	<build>
 		<plugins>
@@ -267,36 +257,17 @@
 						<classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
 						<classpath>${net.java.dev.jna:jna:jar}</classpath>
 					</classpath>
-					<initializeAtBuildTime>
-						<initializeAtBuildTime>com.sun.jna.platform.win32.Guid$GUID</initializeAtBuildTime>
-						<initializeAtBuildTime>com.sun.jna.platform.win32.WinNT$HRESULT</initializeAtBuildTime>
-					</initializeAtBuildTime>
-					<includeNatives>true</includeNatives>
-					<addAllCharsets>true</addAllCharsets>
-					<!--<printClassInitialization>true</printClassInitialization>-->
 					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
 					</otherFiles>
 					<output>${project.build.directory}/${executable.name}</output>
-					<reflectionConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/reflect-config.json</reflectionConfigurationFiles>
-					<resourcesConfigurationFiles>${basedir}/src/main/resources/META-INF/native-image/resource-config.json</resourcesConfigurationFiles>
 					<customOptions>
-						<customOption>-g</customOption>
-						<customOption>-O0</customOption>
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED</customOption>
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED</customOption>
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED</customOption>
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED</customOption>
-						<customOption>-Djna.debug_load=true</customOption>
-						<customOption>-Djna.debug_load.jna=true</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
-						<customOption>--trace-class-initialization=com.sun.jna.Platform</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
-
-						<customOption>-H:+JNI</customOption>
-						<customOption>-H:JNIConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/jni-config.json</customOption>
-						<customOption>-H:DynamicProxyConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/proxy-config.json</customOption>
-					
 					</customOptions>
 					<nativeImage>${localNative}</nativeImage>
 				</configuration>
