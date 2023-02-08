@@ -57,9 +57,11 @@ public class BundleFeature implements Feature {
 
 	private Path findJlinkArchive() throws IOException {
 		String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+
 		if(OS.isFamilyWindows() && location.startsWith("/")) {
 			location = location.substring(1);
 		}
+
 		final Path targetDirectory = Paths.get(location).getParent();
 		final AtomicReference<Optional<Path>> archive = new AtomicReference(Optional.empty());
 
@@ -114,7 +116,7 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 
 			if (OS.isFamilyWindows()) {
-				System.out.println("Windows detected...");
+				/*System.out.println("Windows detected...");
 				NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
 				System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_open"));
@@ -124,10 +126,10 @@ public class BundleFeature implements Feature {
 				Shell32Util.getFolderPath(ShlObj.CSIDL_LOCAL_APPDATA);
 				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_LocalAppData);
 				Shell32Util.getFolderPath(ShlObj.CSIDL_COMMON_APPDATA);
-				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_ProgramData);
+				Shell32Util.getKnownFolderPath( KnownFolders.FOLDERID_ProgramData);*/
 
-				RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna.platform.win32");
-				RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna");
+				//RuntimeClassInitialization.initializeAtBuildTime("com.sun.jna.platform.win32");
+				//RuntimeClassInitialization.initializeAtRunTime("com.sun.jna");
 			}
 
 		} catch (IllegalStateException | IOException ex) {
@@ -145,10 +147,10 @@ public class BundleFeature implements Feature {
 			NativeLibraries nativeLibraries = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
 			nativeLibraries.addStaticJniLibrary("jnidispatch");*/
 
-			NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			/*NativeLibrarySupport.singleton().preregisterUninitializedBuiltinLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			PlatformNativeLibrarySupport.singleton().addBuiltinPkgNativePrefix("/com/sun/jna/win32-x86-64/jnidispatch.dll");
 			NativeLibraries nativeLibraries2 = ((FeatureImpl.BeforeAnalysisAccessImpl) access).getNativeLibraries();
-			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+			nativeLibraries2.addStaticJniLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");*/
 		}
 	}
 }

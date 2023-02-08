@@ -290,9 +290,9 @@
 						<customOption>-Djna.debug_load=true</customOption>
 						<customOption>-Djna.debug_load.jna=true</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
-						<customOption>--trace-class-initialization=com.sun.jna.CallbackReference$AttachOptions</customOption>
+						<customOption>--trace-class-initialization=com.sun.jna.Platform</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
-                                                
+
 						<customOption>-H:+JNI</customOption>
 						<customOption>-H:JNIConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/jni-config.json</customOption>
 						<customOption>-H:DynamicProxyConfigurationFiles=${basedir}/src/main/resources/META-INF/native-image/proxy-config.json</customOption>

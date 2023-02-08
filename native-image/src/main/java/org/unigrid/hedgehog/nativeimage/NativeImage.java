@@ -78,8 +78,8 @@ public class NativeImage {
 	}
 
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-		System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
+		//NativeLibrary nl = NativeLibrary.getInstance("/com/sun/jna/win32-x86-64/jnidispatch.dll");
+		//System.out.println("Invoke function: " + nl.getFunction("Java_com_sun_jna_Native_invokeInt"));
 
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
