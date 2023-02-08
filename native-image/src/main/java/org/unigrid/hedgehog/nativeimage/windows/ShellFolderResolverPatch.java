@@ -31,12 +31,16 @@ import org.graalvm.nativeimage.c.type.VoidPointer;
 public final class ShellFolderResolverPatch {
 	public static class ConvertFolderId {
 		private static VoidPointer toVoidPointer(FolderId folderId) {
+			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL2");
 			switch (folderId) {
 				case APPDATA:
+					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL3");
 					return KnownFolders.folderRoamingAppData();
 				case LOCAL_APPDATA:
+					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL4");
 					return KnownFolders.folderLocalAppData();
 				case COMMON_APPDATA:
+					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL5");
 					return KnownFolders.folderProgramData();
 				default:
 					throw new AppDirsException("Unknown folder ID " + folderId + " was specified.");
@@ -47,6 +51,7 @@ public final class ShellFolderResolverPatch {
 	@Substitute
 	public String resolveFolder(FolderId folderId) {
 		try {
+			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL1");
 			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toVoidPointer(folderId));
 		} catch (WindowsException ex) {
 			throw new AppDirsException("SHGetKnownFolderPath() returns an error: " + ex.getErrorCode());

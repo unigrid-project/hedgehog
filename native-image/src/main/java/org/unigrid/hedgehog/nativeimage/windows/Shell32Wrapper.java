@@ -31,13 +31,16 @@ public class Shell32Wrapper {
 	public static native int SHGetKnownFolderPath(VoidPointer rfid, int dwFlags, VoidPointer hToken, CCharPointer ppszPath);
 
 	public static String GetKnownFolderPath(VoidPointer ptr) throws WindowsException {
+		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST1");
 		@Cleanup final CTypeConversion.CCharPointerHolder path = CTypeConversion.toCBytes(new byte[260 /* MAX_PATH */]);
+		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST2");
 		final int result = SHGetKnownFolderPath(ptr, 0, WordFactory.nullPointer(), path.get());
-
+		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST3");
 		if (result != 0) {
+			System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST4");
 			throw new WindowsException(result);
 		}
-
+		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST5");
 		return CTypeConversion.toJavaString(path.get());
 	}
 }

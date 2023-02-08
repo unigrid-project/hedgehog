@@ -16,7 +16,6 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
-import java.util.Collections;
 import java.util.List;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.constant.CConstant;
@@ -28,16 +27,16 @@ public class KnownFolders {
 	static class Header implements CContext.Directives {
 		@Override
 		public List<String> getHeaderFiles() {
-			return Collections.singletonList("knownfolders.h");
+			return List.of("<basetyps.h>", "<initguid.h>", "<knownfolders.h>");
 		}
 	}
 
-	@CConstant("FOLDERID_LocalAppData")
+	@CConstant("&FOLDERID_LocalAppData")
 	public static native VoidPointer folderLocalAppData();
 
-	@CConstant("FOLDERID_ProgramData")
+	@CConstant("&FOLDERID_ProgramData")
 	public static native VoidPointer folderProgramData();
 
-	@CConstant("FOLDERID_RoamingAppData")
+	@CConstant("&FOLDERID_RoamingAppData")
 	public static native VoidPointer folderRoamingAppData();
 }
