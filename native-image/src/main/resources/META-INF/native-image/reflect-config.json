@@ -1,196 +1,67 @@
 [
   {
-    "condition": {
-      "typeReachable": "com.sun.jna.CallbackReference"
-    },
-    "name": "com.sun.jna.CallbackProxy",
-    "methods": [
-      {
-        "name": "callback",
-        "parameterTypes": [
-          "java.lang.Object[]"
-        ]
-      }
+    "name" : "com.sun.jna.CallbackReference",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+  },
+  {
+    "name" : "com.sun.jna.Klass",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+  },
+  {
+    "name" : "com.sun.jna.Native",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
+  },
+  {
+    "name" : "com.sun.jna.Structure",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "memory", "allowWrite" : true },
+      { "name" : "typeInfo" }
+    ],
+    "methods" : [
+      { "name" : "newInstance", "parameterTypes" : ["java.lang.Class","com.sun.jna.Pointer"] },
+      { "name" : "newInstance", "parameterTypes" : ["java.lang.Class", "long"] },
+      { "name" : "newInstance", "parameterTypes" : ["java.lang.Class"] }
     ]
   },
   {
-    "condition": {
-      "typeReachable": "com.sun.jna.Library$Handler"
-    },
-    "name": "java.lang.Object",
-    "methods": [
-      {
-        "name": "equals",
-        "parameterTypes": [
-          "java.lang.Object"
-        ]
-      },
-      {
-        "name": "hashCode",
-        "parameterTypes": []
-      },
-      {
-        "name": "toString",
-        "parameterTypes": []
-      }
-    ]
+    "name" : "com.sun.jna.NativeLong",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
   },
   {
-    "condition": {
-      "typeReachable": "com.sun.jna.NativeLibrary"
-    },
-    "name": "java.lang.Throwable",
-    "methods": [
-      {
-        "name": "addSuppressed",
-        "parameterTypes": [
-          "java.lang.Throwable"
-        ]
-      }
-    ]
+    "name" : "com.sun.jna.ptr.PointerByReference",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
   },
   {
-    "condition": {
-      "typeReachable": "com.sun.jna.internal.ReflectionUtils"
-    },
-    "name": "java.lang.invoke.MethodHandle",
-    "methods": [
-      {
-        "name": "bindTo",
-        "parameterTypes": [
-          "java.lang.Object"
-        ]
-      },
-      {
-        "name": "invokeWithArguments",
-        "parameterTypes": [
-          "java.lang.Object[]"
-        ]
-      }
-    ]
+    "name" : "com.sun.jna.ptr.IntByReference",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
   },
   {
-    "condition": {
-      "typeReachable": "com.sun.jna.internal.ReflectionUtils"
-    },
-    "name": "java.lang.invoke.MethodHandles",
-    "methods": [
-      {
-        "name": "lookup",
-        "parameterTypes": []
-      },
-      {
-        "name": "privateLookupIn",
-        "parameterTypes": [
-          "java.lang.Class",
-          "java.lang.invoke.MethodHandles$Lookup"
-        ]
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.internal.ReflectionUtils"
-    },
-    "name": "java.lang.invoke.MethodHandles$Lookup",
-    "methods": [
-      {
-        "name": "findSpecial",
-        "parameterTypes": [
-          "java.lang.Class",
-          "java.lang.String",
-          "java.lang.invoke.MethodType",
-          "java.lang.Class"
-        ]
-      },
-      {
-        "name": "in",
-        "parameterTypes": [
-          "java.lang.Class"
-        ]
-      },
-      {
-        "name": "unreflectSpecial",
-        "parameterTypes": [
-          "java.lang.reflect.Method",
-          "java.lang.Class"
-        ]
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.internal.ReflectionUtils"
-    },
-    "name": "java.lang.invoke.MethodType",
-    "methods": [
-      {
-        "name": "methodType",
-        "parameterTypes": [
-          "java.lang.Class",
-          "java.lang.Class[]"
-        ]
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.VarArgsChecker"
-    },
-    "name": "java.lang.reflect.Method",
-    "methods": [
-      {
-        "name": "isVarArgs",
-        "parameterTypes": []
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.internal.ReflectionUtils"
-    },
-    "name": "java.lang.reflect.Method",
-    "methods": [
-      {
-        "name": "isDefault",
-        "parameterTypes": []
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.Platform"
-    },
-    "name": "java.nio.Buffer"
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.Native"
-    },
-    "name": "java.security.SecureRandomParameters"
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.Native"
-    },
-    "name": "sun.security.provider.NativePRNG",
-    "methods": [
-      {
-        "name": "<init>",
-        "parameterTypes": []
-      }
-    ]
-  },
-  {
-    "condition": {
-      "typeReachable": "com.sun.jna.Native"
-    },
-    "name": "sun.security.provider.SHA",
-    "methods": [
-      {
-        "name": "<init>",
-        "parameterTypes": []
-      }
-    ]
+    "name" : "java.util.Base64$Decoder",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true
   }
 ]
