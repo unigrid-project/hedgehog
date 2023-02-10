@@ -74,16 +74,16 @@ public class PublishPeersChannelHandler extends BaseHandlerTest<PublishPeers, Pu
 		await().untilAtomic(invocations, is(expectedInvocations));
 	}
 
-	@Example
-	@SneakyThrows
-	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
-		@Tested PublishPeersChannelHandler handler) {
-
-		final Ping ping = PublishPeers.builder().
-		assertThat(ping.getNanoTime(), not(0));
-		assertThat(ping.isResponse(), is(false));
-
-		handler.typedChannelRead(context, ping);
-		assertThat(ping.isResponse(), is(true));
-	}
+//	@Example	
+//	@SneakyThrows
+//	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
+//		@Tested PublishPeersChannelHandler handler) {
+//
+//		final Ping ping = PublishPeers.builder().
+//		assertThat(ping.getNanoTime(), not(0));
+//		assertThat(ping.isResponse(), is(false));
+//
+//		handler.typedChannelRead(context, ping);
+//		assertThat(ping.isResponse(), is(true));
+//	}
 }

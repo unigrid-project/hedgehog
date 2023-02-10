@@ -19,19 +19,16 @@ package org.unigrid.hedgehog.service;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.Optional;
 import lombok.Data;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.filesystem.VirtualAbstractPath;
+import org.unigrid.hedgehog.filesystem.VirtualDirectory;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 import org.unigrid.hedgehog.model.s3.entity.Owner;
@@ -42,62 +39,50 @@ public class BucketService {
 	@Inject
 	private ApplicationDirectory applicationDirectory;
 
-	private Path dataDir;
+	private VirtualDirectory dataDir;
 
 	@PostConstruct
 	private void init() {
-		dataDir = applicationDirectory.getUserDataDir().resolve("s3data");
+		dataDir = new VirtualDirectory<>("/", "s3data", () -> applicationDirectory.getUserDataDir().toString());
 	}
 
 	public String create(String name) {
-		final File customDir = dataDir.resolve(name).toFile();
+		if (dataDir.contains(name)) {
+			System.out.println(name + " already exists");
+		} else {
+			dataDir.addChild(new VirtualDirectory<>("/", name, () -> dataDir.getRootPathSupplier().get().toString()));
+			System.out.println(name + " was created");
+		}
+
+		Optional<VirtualAbstractPath> bucket = dataDir.find(name);
+
 		String location = "";
-
-		try {
-			if (customDir.exists()) {
-				System.out.println(customDir + " already exists");
-			} else if (customDir.mkdirs()) {
-				System.out.println(customDir + " was created");
-			} else {
-				System.out.println(customDir + " was not created");
-			}
-
-			location = customDir.getName();
-		} catch (Exception e) {
-			e.printStackTrace();
+		if (bucket.isPresent()) {
+			location = bucket.get().getPath().toString() + "/" + name;
 		}
 
 		return location;
 	}
 
 	public ListAllMyBucketsResult listBuckets() {
-		List<String> directories = Stream.of(dataDir.toFile().listFiles())
-			.filter(file -> file.isDirectory())
-			.map(File::getName)
-			.collect(Collectors.toList());
-
 		final ArrayList<Bucket> buckets = new ArrayList<>();
 
-		for (String directory : directories) {
-			buckets.add(new Bucket(new Date().toInstant(), directory));
+		for (VirtualAbstractPath mp : (List<VirtualAbstractPath>) dataDir.getChildren()) {
+			buckets.add(new Bucket(new Date().toInstant(), mp.getName()));
 		}
 
 		return new ListAllMyBucketsResult(buckets, new Owner("user", RandomStringUtils.randomNumeric(20)));
 	}
 
 	public boolean delete(String bucketName) throws IOException {
-		final File customDir = dataDir.resolve(bucketName).toFile();
+		Optional<VirtualAbstractPath> customDir = dataDir.find(bucketName);
 
-		if (!customDir.exists()) {
-			return false;
+		if (dataDir.contains(bucketName) && customDir.isPresent()) {
+			dataDir.deleteChild(bucketName);
+			return true;
 		}
 
-		Files.walk(customDir.toPath())
-			.sorted(Comparator.reverseOrder())
-			.map(Path::toFile)
-			.forEach(File::delete);
-
-		return true;
+		return false;
 	}
 
 }

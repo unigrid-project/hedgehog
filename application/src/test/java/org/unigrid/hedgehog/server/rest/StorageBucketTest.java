@@ -97,7 +97,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 		for (int i = 0; i < allBuckets.size(); i++) {
 			final TestBucket testBucket = new TestBucket();
-
 			testBucket.setBucket(allBuckets.get(i));
 			testBucket.setMockBucket(allMockBuckets.get(i));
 			testBuckets.add(testBucket);
