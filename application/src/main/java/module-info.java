@@ -56,6 +56,8 @@ module org.unigrid.hedgehog {
 	requires net.harawata.appdirs;
 	requires org.graalvm.sdk;
 	requires org.unigrid.hedgehog.common;
+	requires it.unimi.dsi.fastutil;
+	requires org.apache.commons.io;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
 }
