@@ -24,23 +24,26 @@ import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
+import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_LOCAL_APP_DATA;
+import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_PROGRAM_DATA;
+import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_ROAMING_APP_DATA;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
 
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
 	public static class ConvertFolderId {
-		private static GUID toPointer(FolderId folderId) {
+		private static GUID toGUID(FolderId folderId) {
 			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL2");
 			switch (folderId) {
 				case APPDATA:
 					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL3");
-					return KnownFolders.folderRoamingAppData();
+					return KnownFolders.getFolder(FOLDERID_ROAMING_APP_DATA);
 				case LOCAL_APPDATA:
 					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL4");
-					return KnownFolders.folderLocalAppData();
+					return KnownFolders.getFolder(FOLDERID_LOCAL_APP_DATA);
 				case COMMON_APPDATA:
 					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL5");
-					return KnownFolders.folderProgramData();
+					return KnownFolders.getFolder(FOLDERID_PROGRAM_DATA);
 				default:
 					throw new AppDirsException("Unknown folder ID " + folderId + " was specified.");
 			}
@@ -51,7 +54,7 @@ public final class ShellFolderResolverPatch {
 	public String resolveFolder(FolderId folderId) {
 		try {
 			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL1");
-			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toPointer(folderId));
+			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toGUID(folderId));
 		} catch (WindowsException ex) {
 			throw new AppDirsException("SHGetKnownFolderPath() returns an error: " + ex.getErrorCode());
 		}

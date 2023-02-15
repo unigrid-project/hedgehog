@@ -271,6 +271,7 @@
 						<customOptions>-g</customOptions>
 						<customOptions>-O0</customOptions>
 						<customOptions>-H:+SourceLevelDebug</customOptions>
+						<customOptions>--verbose</customOptions>
 					</customOptions>
 					<nativeImage>${localNative}</nativeImage>
 				</configuration>

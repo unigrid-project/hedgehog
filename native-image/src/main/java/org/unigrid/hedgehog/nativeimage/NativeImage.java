@@ -16,7 +16,10 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import com.sun.jna.Library;
+import com.sun.jna.Native;
 import com.sun.jna.NativeLibrary;
+import com.sun.jna.Platform;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
@@ -78,11 +81,17 @@ public class NativeImage {
 		}
 	}
 
+	interface Shell32 extends Library {
+		Shell32 INSTANCE = Native.load(Shell32.class);
+
+		void printf(String format, Object... args);
+	}
+
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		System.out.println("Hello polyglot world Java!");
-		Context context = Context.create();
-		System.out.println(context.getEngine().getLanguages());
-		context.eval("js", "print('Hello polyglot world JavaScript!');");
+	        //CLibrary INSTANCE = Native.load(Platform.isWindows() ? "msvcrt" : "c", CLibrary.class);
+
+
+
 
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());

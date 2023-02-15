@@ -16,23 +16,36 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
+import org.bouncycastle.util.encoders.Hex;
+import org.graalvm.nativeimage.PinnedObject;
 import org.graalvm.nativeimage.StackValue;
+import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.constant.CConstant;
 import org.graalvm.nativeimage.c.function.CLibrary;
 import org.graalvm.nativeimage.c.struct.CField;
 import org.graalvm.nativeimage.c.struct.CPointerTo;
 import org.graalvm.nativeimage.c.struct.CStruct;
+import org.graalvm.nativeimage.c.struct.SizeOf;
 import org.graalvm.nativeimage.c.type.CCharPointer;
+import org.graalvm.nativeimage.c.type.CCharPointerPointer;
+import org.graalvm.nativeimage.c.type.CTypeConversion;
+import org.graalvm.nativeimage.c.type.CTypeConversion.CCharPointerHolder;
+import org.graalvm.word.Pointer;
 import org.graalvm.word.PointerBase;
+import org.graalvm.word.UnsignedWord;
+import org.graalvm.word.WordFactory;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.Header;
 
-@CLibrary("shell32")
 @CContext(Header.class)
 public class KnownFolders {
-	static class Header implements CContext.Directives {
+	public static class Header implements CContext.Directives {
 		@Override
 		public List<String> getHeaderFiles() {
 			return List.of("<windows.h>", "<knownfolders.h>", "<shlobj.h>");
@@ -51,7 +64,7 @@ public class KnownFolders {
 		}
 	}
 
-	@CStruct("GUID")
+	@CStruct(value = "GUID", isIncomplete = true)
 	public interface GUID extends PointerBase {
 		@CField("Data1") int getData1();
 		@CField("Data1") void setData1(int data);
@@ -62,101 +75,49 @@ public class KnownFolders {
 		@CField("Data4") CCharPointer data4();
 	}
 
-	@CStruct("GUID")
-	public interface GUID2 extends PointerBase {
-		@CField("Data1") int getData1();
-		@CField("Data1") void setData1(int data);
-		@CField("Data2") short getData2();
-		@CField("Data2") void setData2(short data);
-		@CField("Data3") short getData3();
-		@CField("Data3") void setData3(short data);
-		@CField("Data4") CCharPointer data4();
-	}
-
-	@CPointerTo(GUID2.class)
+	/*@CPointerTo(GUID.class)
 	public interface GUIDPointer extends PointerBase {
-		GUID2 read();
-		void write(GUID2 guid);
-	}
+		GUID read();
+		void write(GUID guid);
+	}*/
 
-	/* {F1B32785-6FBA-4FCF-9D55-7B8E7F157091} */
-	public static GUID folderLocalAppData() {
-		final GUID guid = StackValue.get(GUID.class);
+	public static final String FOLDERID_LOCAL_APP_DATA = "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}";
+	public static final String FOLDERID_PROGRAM_DATA = "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}";
+	public static final String FOLDERID_ROAMING_APP_DATA = "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}";
 
-		guid.setData1(0xf1b32785);
-		guid.setData2((short) 0x6fba);
-		guid.setData3((short) 0x4fcf);
+	public static final String FOLDERID_LOCAL_APP_DATA_HEX = "F1B327856FBA4FCF9D557B8E7F157091";
+	public static final String FOLDERID_PROGRAM_DATA_HEX = "62AB5D82FDC14DC3A9DD070D1D495D97";
+	public static final String FOLDERID_ROAMING_APP_DATA_HEX = "3EB685DB65F94CF6A03AE3EF65729F3D";
 
-		guid.data4().addressOf(0).write((byte) 0x9d);
-		guid.data4().addressOf(1).write((byte) 0x55);
-		guid.data4().addressOf(2).write((byte) 0x7b);
-		guid.data4().addressOf(3).write((byte) 0x8e);
-		guid.data4().addressOf(4).write((byte) 0x7f);
-		guid.data4().addressOf(5).write((byte) 0x15);
-		guid.data4().addressOf(6).write((byte) 0x70);
-		guid.data4().addressOf(7).write((byte) 0x91);
+	public static GUID getFolder(String folder) {
+		//final GUID guid = StackValue.get(32); 
+		//final GUID guid = PinnedObject.create(folder)
 
-		return guid;
-	}
+		final GUID guid = UnmanagedMemory.calloc(32);
+		final CCharPointer guidString = UnmanagedMemory.calloc(256);
 
-	/* {62AB5D82-FDC1-4DC3-A9DD-070D1D495D97} */
-	public static GUID folderProgramData() {
-		final GUID guid = StackValue.get(GUID.class);
+		System.out.println("folder: " + folder);
+		System.out.println("predata1: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData1())));
+		System.out.println("predata2: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData2())));
+		System.out.println("predata3: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData3())));
 
-		guid.setData1(0x62ab5d82);
-		guid.setData2((short) 0xfdc1);
-		guid.setData3((short) 0x4dc3);
+		int i = 0;
+		
+		final UnsignedWord count = CTypeConversion.toCString(folder, StandardCharsets.UTF_16LE, guidString, WordFactory.unsigned(256));
+		System.out.println("count: " + count.rawValue());
+		System.out.println("native[0]: " + guidString.read(0));
+		System.out.println("native[10]: " + guidString.read(10));
+		System.out.println("native[30]: " + guidString.read(10));
+		System.out.println("native[37]: " + guidString.read(37));
+		System.out.println("native[38]: " + guidString.read(38));
+		System.out.println("native[70]: " + guidString.read(70));
+		System.out.println("native[120]: " + guidString.read(120));
+		i = Ole32Wrapper.IIDFromString(guidString, guid);
+		System.out.println("return: " + i);
 
-		guid.data4().addressOf(0).write((byte) 0xa9);
-		guid.data4().addressOf(1).write((byte) 0xdd);
-		guid.data4().addressOf(2).write((byte) 0x07);
-		guid.data4().addressOf(3).write((byte) 0x0d);
-		guid.data4().addressOf(4).write((byte) 0x1d);
-		guid.data4().addressOf(5).write((byte) 0x49);
-		guid.data4().addressOf(6).write((byte) 0x5d);
-		guid.data4().addressOf(7).write((byte) 0x97);
-
-		return guid;
-	}
-
-	@CConstant("&FOLDERID_RoamingAppData")
-	public static native GUIDPointer folderRoamingAppData2();
-
-	/* {3EB685DB-65F9-4CF6-A03A-E3EF65729F3D} */
-	public static GUID folderRoamingAppData() {
-		System.out.println("XX0");
-		System.out.println(folderRoamingAppData2().rawValue());
-		System.out.println("XX0.1");
-		System.out.println(folderRoamingAppData2().read().getData1());
-		System.out.println("XX1");
-		final GUID guid = StackValue.get(GUID.class);
-		System.out.println("XX2");
-		guid.setData1(0x3eb685db);
-		System.out.println("XX3");
-		guid.setData2((short) 0x65f9);
-		guid.setData3((short) 0x4cf6);
-		System.out.println("XX4");
-		System.out.println(guid.data4().rawValue());
-		System.out.println("XX4.1");
-		System.out.println(guid.data4().addressOf(0).rawValue());
-		System.out.println("XX4.2");
-		System.out.println(guid.data4().addressOf(1).rawValue());
-		System.out.println("XX4.3");
-		System.out.println(guid.data4().addressOf(2).rawValue());
-
-		guid.data4().addressOf(0).write((byte) 0xa0);
-		System.out.println("XX5");
-		guid.data4().addressOf(1).write((byte) 0x3a);
-		System.out.println("XX6");
-		guid.data4().addressOf(2).write((byte) 0xe3);
-		System.out.println("XX7");
-		guid.data4().addressOf(3).write((byte) 0xef);
-		guid.data4().addressOf(4).write((byte) 0x65);
-		guid.data4().addressOf(5).write((byte) 0x72);
-		guid.data4().addressOf(6).write((byte) 0x9f);
-		guid.data4().addressOf(7).write((byte) 0x3d);
-		System.out.println("XX8");
-
+		System.out.println("data1: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData1())));
+		System.out.println("data2: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData2())));
+		System.out.println("data3: " + HexFormat.fromHexDigits(Integer.toHexString(guid.getData3())));
 		return guid;
 	}
 }

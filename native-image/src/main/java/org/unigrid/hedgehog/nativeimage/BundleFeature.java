@@ -21,6 +21,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.core.status.StatusBase;
 import ch.qos.logback.core.util.Loader;
 import ch.qos.logback.core.util.StatusPrinter;
+import com.oracle.svm.core.jni.JNIRuntimeAccess;
+import com.sun.jna.platform.win32.Shell32;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
