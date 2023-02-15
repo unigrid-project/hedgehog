@@ -21,7 +21,7 @@ import lombok.Data;
 
 @AllArgsConstructor
 @Data
-public class WeigthedKey implements WeigthedKeyInterface<String, Double>{
+public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Comparable<WeigthedKeyInterface<String, Double>>{
 
 	private String key;
 	
@@ -42,5 +42,10 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>{
 	
 	private void decay() {
 		
+	}
+
+	@Override
+	public int compareTo(WeigthedKeyInterface<String, Double> other) {
+		return Double.compare(this.getWeigth(), other.getWeigth());
 	}
 }

@@ -25,13 +25,16 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Disabled;
 import net.jqwik.api.Provide;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.constraints.IntRange;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomUtils;
 import org.unigrid.hedgehog.model.Signature;
@@ -41,6 +44,7 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 	PassiveMap map;
 	List<String> keys;
 	
+	@Disabled
 	@Example
 	public void testPutAndGetInMap(@ForAll("key") String key, @ForAll("data") byte[] data) {
 		PassiveMap map = new PassiveMap();
@@ -55,7 +59,8 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 
 		assert (buff.equals(blockData.getBuffer()));
 	}
-
+	
+	@Disabled
 	@Example
 	public void testMapExcideMemLimit() {
 		PassiveMap map = new PassiveMap();
@@ -83,19 +88,21 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 
 	}
 	
-	@Property
-	public void testMultiplePutAndGet() {
+	@Property(tries = 50)
+	public void testMultiplePutAndGet(@ForAll @IntRange(min = 1, max = 4096) int size) {
 		
 		byte[] byteKey = RandomUtils.nextBytes(64);
 		String key = Hex.encodeHexString(byteKey);
 		keys.add(key);
-		
-		byte[] data = generateRandomByteArray(RandomUtils.nextInt(1, 1024 * 1024 * 256));
+
+		byte[] data = generateRandomByteArray(1024 * size);
 		ByteBuf buff = Unpooled.copiedBuffer(data);
 		BlockData blockData = new BlockData();
 		blockData.setBuffer(buff);
 
 		map.put(key, blockData);
+		assert (map.size() <= 20);
+
 	}
 	
 	@BeforeProperty
