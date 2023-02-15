@@ -178,6 +178,7 @@
 					</otherFiles>
 					<output>${project.build.directory}/${executable.name}</output>
 					<customOptions>
+                                                <customOptio>-H:+StaticExecutableWithDynamicLibC</customOptio>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
 					</customOptions>
