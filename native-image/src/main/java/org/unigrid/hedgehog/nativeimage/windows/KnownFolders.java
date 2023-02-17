@@ -18,6 +18,8 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.harawata.appdirs.impl.WindowsAppDirs;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
@@ -41,12 +43,11 @@ public class KnownFolders {
 		/* We don't really care about the content, so lets leave it empty! */
 	}
 
-	@Data
 	@RequiredArgsConstructor
 	public static class GUIDHolder implements AutoCloseable {
 		private static final int SIZE = 32;
-		private final GUID guid = UnmanagedMemory.calloc(SIZE);
-		private final String identifier;
+		@Getter private final GUID guid = UnmanagedMemory.calloc(SIZE);
+		@Getter private final String identifier;
 
 		@Override
 		public void close() {
