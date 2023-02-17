@@ -42,7 +42,7 @@ public class Shell32Wrapper {
 		}
 	}
 
-	private static int length(CCharPointer utf16String) {
+	private static int lengthUtf16(CCharPointer utf16String) {
 		final byte[] last = { 0x42, 0x42 }; /* As long as we don't start at zero, these numbers don't matter */
 
 		for (int i = 0; i < Integer.MAX_VALUE; i++) {
@@ -65,7 +65,7 @@ public class Shell32Wrapper {
 			throw new WindowsException("Unable to find Windows path with SHGetKnownFolderPath()", result);
 		}
 
-		final int pathLength = length(location.read());
+		final int pathLength = lengthUtf16(location.read());
 
 		final String folderPath = CTypeConversion.toJavaString(location.read(),
 			WordFactory.unsigned(pathLength), StandardCharsets.UTF_16LE
