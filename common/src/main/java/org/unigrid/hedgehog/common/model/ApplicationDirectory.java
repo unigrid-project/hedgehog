@@ -33,7 +33,7 @@ public class ApplicationDirectory {
 	}
 
 	public Path getUserDataDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserDataDir(name, "-", author, true));
+		return Paths.get(AppDirsFactory.getInstance().getUserDataDir(name, null, author, true));
 	}
 
 	public Path getUserLogDir() {
