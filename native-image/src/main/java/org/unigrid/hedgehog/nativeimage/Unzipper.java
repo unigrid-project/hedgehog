@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.exec.OS;
 import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
@@ -35,9 +36,17 @@ public class Unzipper {
 	private static final int PROGRESS_CLEARANCE = 15;
 
 	private static void printProgress(long position, long size) {
-		final char incompleteCharacter = '░'; // U+2591
-		final char completeCharacter = '█'; // U+2588
 		final int complete = (int) ((float) position / size * PROGRESS_WIDTH);
+		char incompleteCharacter;
+		char completeCharacter;
+
+		if (OS.isFamilyWindows()) {
+			incompleteCharacter = ' ';
+			completeCharacter = '#';
+		} else {
+			incompleteCharacter = '░'; // U+2591
+			completeCharacter = '█'; // U+2588
+		}
 
 		System.out.print(String.format("\r Unpacking: [%s%s]%s\r",
 			StringUtils.repeat(completeCharacter, complete),
