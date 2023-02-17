@@ -16,11 +16,14 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.function.CFunction;
 import org.graalvm.nativeimage.c.function.CLibrary;
+import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.nativeimage.c.type.CCharPointerPointer;
 import org.graalvm.nativeimage.c.type.CTypeConversion;
 import org.graalvm.nativeimage.c.type.VoidPointer;
@@ -39,6 +42,21 @@ public class Shell32Wrapper {
 		}
 	}
 
+	private static int length(CCharPointer utf16String) {
+		final byte[] last = { 0x42, 0x42 }; /* As long as we don't start at zero, these numbers don't matter */
+
+		for (int i = 0; i < Integer.MAX_VALUE; i++) {
+			last[i % 2] = utf16String.read(i);
+
+			/* End of string detected */
+			if (Arrays.equals(last, new byte[] {0x00, 0x00})) {
+				return i / 2 - 2;
+			}
+		}
+
+		return -1; /* Shouldn't really be able to happen */
+	}
+
 	public static String getKnownFolderPath(GUID guid) throws WindowsException {
 	        final CCharPointerPointer location = UnmanagedMemory.calloc(8); /* 64 bit */
 		final int result = SHGetKnownFolderPath(guid, 0, WordFactory.nullPointer(), location);
@@ -47,7 +65,12 @@ public class Shell32Wrapper {
 			throw new WindowsException("Unable to find Windows path with SHGetKnownFolderPath()", result);
 		}
 
-		final String folderPath = String.valueOf(CTypeConversion.toJavaString(location.read(0)));
+		final int pathLength = length(location.read());
+
+		final String folderPath = CTypeConversion.toJavaString(location.read(),
+			WordFactory.unsigned(pathLength), StandardCharsets.UTF_16LE
+		);
+
 		UnmanagedMemory.free(location);
 		return folderPath;
 	}

@@ -16,10 +16,6 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import com.sun.jna.Library;
-import com.sun.jna.Native;
-import com.sun.jna.NativeLibrary;
-import com.sun.jna.Platform;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
@@ -33,14 +29,9 @@ import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
 import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.lang3.ArrayUtils;
-import org.graalvm.polyglot.Context;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	/*static {
-		System.loadLibrary("/com/sun/jna/win32-x86-64/jnidispatch.dll");
-	}*/
-
 	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 	public static final long ERROR_26_WAIT_MS = 50;
 
@@ -81,18 +72,7 @@ public class NativeImage {
 		}
 	}
 
-	interface Shell32 extends Library {
-		Shell32 INSTANCE = Native.load(Shell32.class);
-
-		void printf(String format, Object... args);
-	}
-
 	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-	        //CLibrary INSTANCE = Native.load(Platform.isWindows() ? "msvcrt" : "c", CLibrary.class);
-
-
-
-
 		final InputStream archive = Thread.currentThread().getContextClassLoader()
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
 
