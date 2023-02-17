@@ -16,13 +16,16 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 @Data
-@AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class WindowsException extends Exception {
 	private final int errorCode;
+
+	public WindowsException(String message, int errorCode) {
+		super(message);
+		this.errorCode = errorCode;
+	}
 }

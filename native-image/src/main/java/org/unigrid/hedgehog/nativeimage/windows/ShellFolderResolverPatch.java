@@ -18,52 +18,30 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
+import java.util.Objects;
 import net.harawata.appdirs.AppDirsException;
 import net.harawata.appdirs.impl.ShellFolderResolver;
 import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
-import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_LOCAL_APP_DATA;
-import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_PROGRAM_DATA;
-import static org.unigrid.hedgehog.nativeimage.windows.KnownFolders.FOLDERID_ROAMING_APP_DATA;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
+import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUIDHolder;
 
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
-	public static class ConvertFolderId {
-		private static GUID toGUID(FolderId folderId) {
-			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL2");
-			switch (folderId) {
-				case APPDATA:
-					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL3");
-					return KnownFolders.getFolder(FOLDERID_ROAMING_APP_DATA);
-				case LOCAL_APPDATA:
-					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL4");
-					return KnownFolders.getFolder(FOLDERID_LOCAL_APP_DATA);
-				case COMMON_APPDATA:
-					System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL5");
-					return KnownFolders.getFolder(FOLDERID_PROGRAM_DATA);
-				default:
-					throw new AppDirsException("Unknown folder ID " + folderId + " was specified.");
-			}
-		}
-	}
-
 	@Substitute
 	public String resolveFolder(FolderId folderId) {
-		try {
-			System.out.println("SHEEEEEEEEEEEEEEEEEEEEEELL1");
-			return Shell32Wrapper.GetKnownFolderPath(ConvertFolderId.toGUID(folderId));
+		final String identifier = KnownFolders.GUID_MAPPINGS.get(folderId);
+
+		if (Objects.isNull(identifier)) {
+			throw new AppDirsException("Unmapped folder ID " + folderId + " was specified.");
+		}
+
+		try (GUIDHolder holder = new GUIDHolder(identifier)) {
+			final GUID guid = Ole32Wrapper.getFolder(holder);
+			return Shell32Wrapper.getKnownFolderPath(guid);
 		} catch (WindowsException ex) {
-			throw new AppDirsException("SHGetKnownFolderPath() returns an error: " + ex.getErrorCode());
+			throw new AppDirsException(ex.getMessage());
 		}
 	}
-
-	/*@Substitute
-	private GUID convertFolderIdToGuid(FolderId folderId) {
-		throw new IllegalStateException("No longer supported.");
-	}*/
 
 	@Substitute
 	protected int convertFolderIdToCsidl(FolderId folderId) {

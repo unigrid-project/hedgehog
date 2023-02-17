@@ -16,57 +16,44 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
-import java.util.HexFormat;
-import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
-import org.graalvm.nativeimage.StackValue;
+import java.util.List;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.function.CFunction;
-import org.graalvm.nativeimage.c.function.CFunction.Transition;
 import org.graalvm.nativeimage.c.function.CLibrary;
-import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.nativeimage.c.type.CCharPointerPointer;
 import org.graalvm.nativeimage.c.type.CTypeConversion;
 import org.graalvm.nativeimage.c.type.VoidPointer;
-import org.graalvm.word.LocationIdentity;
-import org.graalvm.word.Pointer;
 import org.graalvm.word.PointerBase;
 import org.graalvm.word.WordFactory;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
-//import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
+import org.unigrid.hedgehog.nativeimage.windows.Shell32Wrapper.Header;
 
 @CLibrary("shell32")
-@CContext(KnownFolders.Header.class)
+@CContext(Header.class)
 public class Shell32Wrapper {
-	@CFunction(transition = Transition.TO_NATIVE)
-	public static native int SHGetKnownFolderPath(PointerBase rfid, int dwFlags, VoidPointer hToken, CCharPointerPointer ppszPath);
-
-	public static String GetKnownFolderPath(GUID guid) throws WindowsException {
-		//final byte[] path = new byte[260 /* MAX_PATH */];
-	        CCharPointerPointer location = StackValue.get(CCharPointerPointer.class);
-
-
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST0");
-
-		//System.out.println("[KF1]: " + guid.rawValue());
-		//System.out.println("[KF2]: " + guid.getData1());
-		//System.out.println("[KF3]: " + guid.getData2());
-		//System.out.println("[KF4]: " + guid.getData3());
-		//System.out.println("[KF2]: " + KnownFolders.folderProgramData().getData2());
-		//System.out.println("[KF3]: " + KnownFolders.folderProgramData().getData3());
-		//System.out.println("[KF4]: " + KnownFolders.folderProgramData().getData4());
-
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST1");
-
-		final byte[] bytes = HexFormat.of().parseHex(KnownFolders.FOLDERID_PROGRAM_DATA_HEX);
-
-		final int result = SHGetKnownFolderPath(CTypeConversion.toCBytes(bytes).get(), 0, WordFactory.nullPointer(), location);
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST2");
-		if (result != 0) {
-			System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST3");
-			throw new WindowsException(result);
+	public static class Header implements CContext.Directives {
+		@Override
+		public List<String> getHeaderFiles() {
+			return List.of("<windows.h>", "<knownfolders.h>", "<shlobj.h>");
 		}
-		System.out.println("TEEEEEEEEEEEEEEEEEEEEEEEEEEST4");
-		return String.valueOf(CTypeConversion.toJavaString(location.read(0)));
 	}
+
+	public static String getKnownFolderPath(GUID guid) throws WindowsException {
+	        final CCharPointerPointer location = UnmanagedMemory.calloc(8); /* 64 bit */
+		final int result = SHGetKnownFolderPath(guid, 0, WordFactory.nullPointer(), location);
+
+		if (result != 0) {
+			throw new WindowsException("Unable to find Windows path with SHGetKnownFolderPath()", result);
+		}
+
+		final String folderPath = String.valueOf(CTypeConversion.toJavaString(location.read(0)));
+		UnmanagedMemory.free(location);
+		return folderPath;
+	}
+
+	@CFunction(transition = CFunction.Transition.TO_NATIVE)
+	private static native int SHGetKnownFolderPath(PointerBase rfid, int dwFlags,
+		VoidPointer hToken, CCharPointerPointer ppszPath
+	);
 }
