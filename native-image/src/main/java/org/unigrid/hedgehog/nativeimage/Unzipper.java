@@ -36,7 +36,7 @@ public class Unzipper {
 	private static final int PROGRESS_CLEARANCE = 15;
 
 	private static void printProgress(long position, long size) {
-		final int complete = (int) ((float) position / size * PROGRESS_WIDTH);
+		final int complete = (int) ((float) (position < 0 ? 0 : position) / size * PROGRESS_WIDTH);
 		char incompleteCharacter;
 		char completeCharacter;
 
