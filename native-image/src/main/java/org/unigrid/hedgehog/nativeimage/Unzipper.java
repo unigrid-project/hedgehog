@@ -16,9 +16,11 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
@@ -78,8 +80,11 @@ public class Unzipper {
 						printProgress(in.position(), in.size());
 						Files.createDirectories(path.getParent());
 						final File file = path.toFile();
+						final OutputStream out = new BufferedOutputStream(new FileOutputStream(file));
 
-						IOUtils.copy(archive.getInputStream(entry), new FileOutputStream(file));
+						IOUtils.copy(archive.getInputStream(entry), out);
+						out.flush();
+						IOUtils.closeQuietly(out);
 
 						if (path.getParent().endsWith(NativeProperties.BIN_DIRECTORY)) {
 							file.setExecutable(true);
