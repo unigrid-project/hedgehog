@@ -37,8 +37,8 @@ import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
-public class PublishPeersChannelHandler extends BaseHandlerTest<PublishPeers, PublishPeersChannelHandler> {
-	public PublishPeersChannelHandler() {
+public class PublishPeersChannelHandlerTest extends BaseHandlerTest<PublishPeers, PublishPeersChannelHandler> {
+	public PublishPeersChannelHandlerTest() {
 		super(PublishPeersChannelHandler.class);
 	}
 
