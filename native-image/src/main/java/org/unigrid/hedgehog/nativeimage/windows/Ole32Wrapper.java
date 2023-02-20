@@ -18,6 +18,8 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.function.CFunction;
@@ -30,6 +32,7 @@ import org.unigrid.hedgehog.nativeimage.windows.Ole32Wrapper.Header;
 
 @CLibrary("ole32")
 @CContext(Header.class)
+@Platforms(Platform.WINDOWS.class)
 public class Ole32Wrapper {
 	private static final int TEMPORARY_GUID_ALLOCATION_SIZE = 128;
 
