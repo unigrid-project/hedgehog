@@ -17,19 +17,20 @@
 package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.harawata.appdirs.impl.WindowsAppDirs;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
 import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
 import org.graalvm.word.PointerBase;
 
+@Platforms(Platform.WINDOWS.class)
 @CContext(Shell32Wrapper.Header.class)
 public class KnownFolders {
 	public static final Map<WindowsAppDirs.FolderId, String> GUID_MAPPINGS = Map.of(

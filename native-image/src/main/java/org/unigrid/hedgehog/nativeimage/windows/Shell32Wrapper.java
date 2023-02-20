@@ -19,6 +19,8 @@ package org.unigrid.hedgehog.nativeimage.windows;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.function.CFunction;
@@ -34,6 +36,7 @@ import org.unigrid.hedgehog.nativeimage.windows.Shell32Wrapper.Header;
 
 @CLibrary("shell32")
 @CContext(Header.class)
+@Platforms(Platform.WINDOWS.class)
 public class Shell32Wrapper {
 	public static class Header implements CContext.Directives {
 		@Override

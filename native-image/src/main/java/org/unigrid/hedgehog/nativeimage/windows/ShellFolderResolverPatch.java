@@ -22,9 +22,12 @@ import java.util.Objects;
 import net.harawata.appdirs.AppDirsException;
 import net.harawata.appdirs.impl.ShellFolderResolver;
 import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
+import org.graalvm.nativeimage.Platform;
+import org.graalvm.nativeimage.Platforms;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUIDHolder;
 
+@Platforms(Platform.WINDOWS.class)
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
 	@Substitute

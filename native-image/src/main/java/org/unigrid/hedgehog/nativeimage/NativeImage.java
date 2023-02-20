@@ -79,9 +79,6 @@ public class NativeImage {
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
 		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
 
-		System.out.println("applicationDir: " + applicationDirectory.getUserDataDir());
-		System.out.println("jlinkDistribution: " + jlinkDistribution.toString());
-
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
 			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
