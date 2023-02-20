@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.exec.CommandLine;
@@ -77,6 +78,9 @@ public class NativeImage {
 
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
 		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
+
+		System.out.println("applicationDir: " + applicationDirectory.getUserDataDir());
+		System.out.println("jlinkDistribution: " + jlinkDistribution.toString());
 
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));

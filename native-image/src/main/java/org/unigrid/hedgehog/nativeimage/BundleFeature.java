@@ -47,7 +47,12 @@ public class BundleFeature implements Feature {
 	}
 
 	private Path findJlinkArchive() throws IOException {
-		final String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+		String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+
+		if (OS.isFamilyWindows() && location.startsWith("/")) {
+			location = location.substring(1);
+		}
+
 		final Path targetDirectory = Paths.get(location).getParent();
 		final AtomicReference<Optional<Path>> archive = new AtomicReference(Optional.empty());
 

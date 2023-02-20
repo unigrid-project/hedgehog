@@ -16,6 +16,8 @@
 
 package org.unigrid.hedgehog.model.s3.entity;
 
+import jakarta.xml.bind.annotation.XmlAccessType;
+import jakarta.xml.bind.annotation.XmlAccessorType;
 import jakarta.xml.bind.annotation.XmlElement;
 import jakarta.xml.bind.annotation.XmlRootElement;
 import lombok.AllArgsConstructor;
@@ -26,6 +28,7 @@ import lombok.NoArgsConstructor;
 @XmlRootElement
 @NoArgsConstructor
 @AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
 public class CreateBucketConfiguration {
 	@XmlElement
 	private String locationConstraint;
