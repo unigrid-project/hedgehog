@@ -14,25 +14,18 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.nativeimage;
+package org.unigrid.hedgehog.nativeimage.windows;
 
-import java.nio.file.Path;
-import lombok.Getter;
-import lombok.Setter;
-import org.apache.commons.exec.OS;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
-public class NativeProperties {
-	public static final String BIN_DIRECTORY = "bin";
+@Data
+@EqualsAndHashCode(callSuper = false)
+public class WindowsException extends Exception {
+	private final int errorCode;
 
-	@Getter @Setter private static String runScript;
-	@Getter @Setter private static Path bundledJlinkZip;
-	@Getter @Setter private static String hash;
-
-	static {
-		if (OS.isFamilyWindows()) {
-			runScript = "run.cmd";
-		} else {
-			runScript = "run.sh";
-		}
+	public WindowsException(String message, int errorCode) {
+		super(message);
+		this.errorCode = errorCode;
 	}
 }

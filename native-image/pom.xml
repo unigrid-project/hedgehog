@@ -27,8 +27,39 @@
 			<id>Windows</id>
 			<activation><os><family>Windows</family></os></activation>
 			<properties>
-				<executable.name>hedgehog.exe</executable.name>
+				<executable.name>hedgehog</executable.name>
+                                <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-22.3.0/graalvm-ce-java17-windows-amd64-22.3.0.zip</url>
+                                <platform>windows</platform>
+                                <unzipLocation>${basedir}\target\unziped</unzipLocation>
+                                <downloadName>graal.zip</downloadName>
+                                <downloadLocation>${basedir}\target\download/</downloadLocation>
+                                <localInstaller>${unzipLocation}\graalvm-ce-java17-22.3.0\bin\gu.cmd</localInstaller>
+                                <localNative>${unzipLocation}\graalvm-ce-java17-22.3.0\bin\native-image.cmd</localNative>
+                                <windowsDependecies>com.sun.jna.platform.win32</windowsDependecies>
 			</properties>
+			<build>
+				<pluginManagement>
+					<plugins>
+						<plugin>
+							<groupId>com.googlecode.maven-download-plugin</groupId>
+							<artifactId>download-maven-plugin</artifactId>
+							<executions>
+								<execution>
+									<phase>process-resources</phase>
+									<goals>
+										<goal>wget</goal>
+									</goals>
+									<configuration>
+										<url>${url}</url>
+										<outputFileName>${downloadName}</outputFileName>
+										<outputDirectory>${downloadLocation}</outputDirectory>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+					</plugins>
+				</pluginManagement>
+			</build>
 		</profile>
 		<profile>
 			<id>MacOS</id>
@@ -42,6 +73,11 @@
 		<dependency>
 			<groupId>org.graalvm.sdk</groupId>
 			<artifactId>graal-sdk</artifactId>
+			<version>22.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.graalvm.nativeimage</groupId>
+			<artifactId>svm</artifactId>
 			<version>22.3.0</version>
 		</dependency>
 		<dependency>
@@ -154,6 +190,52 @@
 				</executions>
 			</plugin>
 			<plugin>
+				<groupId>com.googlecode.maven-download-plugin</groupId>
+				<artifactId>download-maven-plugin</artifactId>
+				<version>1.6.8</version>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-antrun-plugin</artifactId>
+				<version>3.1.0</version>
+				<executions>
+					<execution>
+						<id>default-cli</id>
+						<phase>package</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<target>
+								<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
+								<!--<exec executable="cmd">
+								    <arg value="/c"/>
+								    <arg value="${localInstaller}"/>
+								    <arg value="install native-image"/>
+								</exec>-->
+							</target>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+                        <plugin>
+                            <groupId>org.codehaus.mojo</groupId>
+                            <artifactId>exec-maven-plugin</artifactId>
+                            <version>3.1.0</version>
+                            <executions>
+                                <execution>
+                                    <phase>package</phase>
+                                    <goals>
+                                        <goal>exec</goal>
+                                    </goals>
+                                    <configuration>
+                                        <executable>${localInstaller}</executable>
+                                        <commandlineArgs>install native-image</commandlineArgs>
+                                    </configuration>
+                                </execution>
+                            </executions>
+                        </plugin>
+			<plugin>
 				<groupId>org.apache.geronimo.arthur</groupId>
 				<artifactId>arthur-maven-plugin</artifactId>
 				<version>1.0.5</version>
@@ -172,15 +254,26 @@
 						<classpath>${org.slf4j:slf4j-api:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-core:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-classic:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna:jar}</classpath>
 					</classpath>
 					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
 					</otherFiles>
 					<output>${project.build.directory}/${executable.name}</output>
 					<customOptions>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED</customOption>
+						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
+						<customOptions>-g</customOptions>
+						<customOptions>-O0</customOptions>
+						<customOptions>-H:+SourceLevelDebug</customOptions>
+						<customOptions>--verbose</customOptions>
 					</customOptions>
+					<nativeImage>${localNative}</nativeImage>
 				</configuration>
 				<executions>
 					<execution>
@@ -208,7 +301,6 @@
 			<plugin>
 				<groupId>pl.gdela</groupId>
 				<artifactId>socomo-maven</artifactId>
-				<version>2.3.1</version>
 				<dependencies>
 					<dependency>
 						<groupId>org.ow2.asm</groupId>
