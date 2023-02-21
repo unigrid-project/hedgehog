@@ -41,8 +41,8 @@
 			</dependencies>
 		</profile>
 		<profile>
-			<id>MacOS</id>
-			<activation><os><family>MacOS</family></os></activation>
+			<id>Mac OS</id>
+			<activation><os><family>Mac</family></os></activation>
 			<dependencies>
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
