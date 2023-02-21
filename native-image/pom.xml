@@ -258,6 +258,8 @@
 						<classpath>${org.slf4j:slf4j-api:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-core:jar}</classpath>
 						<classpath>${ch.qos.logback:logback-classic:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna-platform:jar}</classpath>
+						<classpath>${net.java.dev.jna:jna:jar}</classpath>
 					</classpath>
 					<otherFiles>
 						<otherFile>${project.build.directory}/${project.artifactId}-${project.version}-jlink.zip</otherFile>
