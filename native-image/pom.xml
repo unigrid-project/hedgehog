@@ -36,7 +36,6 @@
                                 <downloadLocation>${basedir}\target\download/</downloadLocation>
                                 <localInstaller>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\gu.cmd</localInstaller>
                                 <localNative>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\native-image.cmd</localNative>
-                                <windowsDependecies>com.sun.jna.platform.win32</windowsDependecies>
 			</properties>
 			<build>
 				<pluginManagement>
@@ -98,9 +97,11 @@
 		</profile>
 		<profile>
 			<id>MacOS</id>
-			<activation><os><family>MacOS</family></os></activation>
+			<activation><os><family>Mac</family></os></activation>
 			<properties>
 				<executable.name>hedgehog.bin</executable.name>
+				<arthur.graalPlatform>macos64x</arthur.graalPlatform>
+				<arthur.graalDownloadUrl>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-darwin-amd64-${graal.version}.tar.gz</arthur.graalDownloadUrl>
 			</properties>
 		</profile>
 	</profiles>
