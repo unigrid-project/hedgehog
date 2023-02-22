@@ -100,9 +100,84 @@
 			<activation><os><family>Mac</family></os></activation>
 			<properties>
 				<executable.name>hedgehog.bin</executable.name>
-				<arthur.graalPlatform>macos64x</arthur.graalPlatform>
-				<arthur.graalDownloadUrl>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-darwin-amd64-${graal.version}.tar.gz</arthur.graalDownloadUrl>
+                                <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-darwin-amd64-${graal.version}.tar.gz</url>
+                                <platform>macosx64</platform>
+                                <untarLocation>${basedir}/target/untarred</untarLocation>
+                                <downloadName>graal.tar.gz</downloadName>
+                                <downloadLocation>${basedir}/target/download/</downloadLocation>
+                                <localInstaller>${basedir}/target/untarred/graalvm-ce-java17-${graal.version}/Contents/Home/bin/gu</localInstaller>
+                                <localNative>${basedir}/target/untarred/graalvm-ce-java17-${graal.version}/Contents/Home/bin/native-image</localNative>
 			</properties>
+			<build>
+				<pluginManagement>
+					<plugins>
+						<plugin>
+							<groupId>com.googlecode.maven-download-plugin</groupId>
+							<artifactId>download-maven-plugin</artifactId>
+							<executions>
+								<execution>
+									<phase>process-resources</phase>
+									<goals>
+										<goal>wget</goal>
+									</goals>
+									<configuration>
+										<url>${url}</url>
+										<outputFileName>${downloadName}</outputFileName>
+										<outputDirectory>${downloadLocation}</outputDirectory>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+						<plugin>
+							<groupId>org.apache.maven.plugins</groupId>
+							<artifactId>maven-antrun-plugin</artifactId>
+							<executions>
+								<execution>
+									<id>untar</id>
+									<phase>process-resources</phase>
+									<goals>
+										<goal>run</goal>
+									</goals>
+									<configuration>
+										<target>
+											<untar compression="gzip" src="${downloadLocation}${downloadName}" dest="${untarLocation}" />
+										</target>
+									</configuration>
+								</execution>
+								<execution>
+									<id>chmod</id>
+									<phase>package</phase>
+									<goals>
+										<goal>run</goal>
+									</goals>
+									<configuration>
+										<target>
+											<chmod file="${localInstaller}" perm="755" />
+											<chmod file="${local}" perm="755" />
+										</target>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+						<plugin>
+							<groupId>org.codehaus.mojo</groupId>
+							<artifactId>exec-maven-plugin</artifactId>
+							<executions>
+								<execution>
+									<phase>package</phase>
+									<goals>
+										<goal>exec</goal>
+									</goals>
+									<configuration>
+										<executable>${localInstaller}</executable>
+										<commandlineArgs>install native-image</commandlineArgs>
+									</configuration>
+								</execution>
+							</executions>
+						</plugin>
+					</plugins>
+				</pluginManagement>
+			</build>
 		</profile>
 	</profiles>
 	<dependencies>
