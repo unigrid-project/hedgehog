@@ -18,38 +18,44 @@ package org.unigrid.hedgehog.model.storage;
 import java.util.Date;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 @AllArgsConstructor
 @Data
-public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Comparable<WeigthedKeyInterface<String, Double>>{
+public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Comparable<WeigthedKeyInterface<String, Double>> {
 
 	private String key;
-	
+
 	private Double weigth;
-	
+
 	private int accessed;
-	
+
 	private int size;
-	
+
 	private Date date;
-	
+
 	public Double getWeigth() {
 		decay();
 		double accessedDouble = accessed + 1.001;
-		return size * (Math.log(Math.pow(accessedDouble, 70)));
-		
+		weigth = size * (Math.log(Math.pow(accessedDouble, 70)));
+		return weigth;
+
 	}
-	
+
 	private void decay() {
-		
+
 	}
 
 	@Override
 	public int compareTo(WeigthedKeyInterface<String, Double> other) {
 		return Double.compare(this.getWeigth(), other.getWeigth());
 	}
-	
-	//Do hashCode
+
+	@Override
+	public int hashCode() {
+		return new HashCodeBuilder(7,31).append(key).toHashCode();
+	}
+
 	@Override
 	public boolean equals(Object o) {
 
@@ -60,7 +66,7 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Compar
 		WeigthedKey key = (WeigthedKey) o;
 		return this.getKey().equals(key.getKey());
 	}
-	
+
 	public void increassesAccessed() {
 		accessed++;
 	}
