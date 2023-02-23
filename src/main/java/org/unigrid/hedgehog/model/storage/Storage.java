@@ -68,6 +68,7 @@ public class Storage {
 			+ "/"
 			+ key;
 
+		System.out.println(path);
 		RandomAccessFile file;
 		try {
 			file = new RandomAccessFile(path, "rw");
@@ -91,6 +92,8 @@ public class Storage {
 		}
 		BlockData blockData = new BlockData();
 		blockData.setAccessed(dst.flip().getInt());
+		dst.flip();
+		System.out.println("Size of remaning buffer = " + dst.array().length);
 		blockData.setBuffer(buff.setBytes(0, dst));
 		return blockData;
 	}

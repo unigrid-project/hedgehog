@@ -48,4 +48,20 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Compar
 	public int compareTo(WeigthedKeyInterface<String, Double> other) {
 		return Double.compare(this.getWeigth(), other.getWeigth());
 	}
+	
+	//Do hashCode
+	@Override
+	public boolean equals(Object o) {
+
+		if (!(o instanceof WeigthedKey)) {
+			return false;
+		}
+
+		WeigthedKey key = (WeigthedKey) o;
+		return this.getKey().equals(key.getKey());
+	}
+	
+	public void increassesAccessed() {
+		accessed++;
+	}
 }

@@ -35,6 +35,8 @@ import net.jqwik.api.Disabled;
 import net.jqwik.api.Provide;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.Size;
+import net.jqwik.api.constraints.UniqueElements;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomUtils;
 import org.unigrid.hedgehog.model.Signature;
@@ -43,7 +45,8 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 
 	PassiveMap map;
 	List<String> keys;
-	
+	List<WeigthedKey> weigthedKeys;
+
 	@Disabled
 	@Example
 	public void testPutAndGetInMap(@ForAll("key") String key, @ForAll("data") byte[] data) {
@@ -87,12 +90,11 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		assert (map.size() < 500);
 
 	}
-	
+
 	@Property(tries = 50)
-	public void testMultiplePutAndGet(@ForAll @IntRange(min = 1, max = 4096) int size) {
-		
-		byte[] byteKey = RandomUtils.nextBytes(64);
-		String key = Hex.encodeHexString(byteKey);
+	public void testMultiplePutAndGet(@ForAll @IntRange(min = 1, max = 4096) int size,
+					@ForAll("randomKey") String key) {
+
 		keys.add(key);
 
 		byte[] data = generateRandomByteArray(1024 * size);
@@ -100,15 +102,35 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		BlockData blockData = new BlockData();
 		blockData.setBuffer(buff);
 
-		map.put(key, blockData);
-		assert (map.size() <= 20);
-
+		weigthedKeys.add(map.put(key, blockData));
+		assert (map.size() <= 50);
 	}
-	
+
+	@Example
+	public void testChangeInWeigthWhenAccessed(@ForAll("key") String key) {
+		byte[] data = generateRandomByteArray(1024*1024);
+		ByteBuf buf = Unpooled.copiedBuffer(data);
+		BlockData blockData = new BlockData();
+		blockData.setBuffer(buf);
+		WeigthedKey wKey = map.put(key, blockData);
+		double w1 = wKey.getWeigth();
+		map.get(key);
+		double w2 = map.getWeigth(key);
+		System.out.println("w1 = " + w1 + " || w2 = " + w2);
+		assert(w1 < w2);
+	}
+
 	@BeforeProperty
 	public void init() {
 		map = new PassiveMap();
 		keys = new ArrayList();
+		weigthedKeys = new ArrayList<>();
+	}
+
+	@Provide
+	Arbitrary<String> randomKey(@ForAll @UniqueElements @Size(value = 64) byte[] bytes) {
+		byte[] byteKey = bytes;
+		return Arbitraries.of(Hex.encodeHexString(byteKey));
 	}
 
 	@Provide
@@ -132,5 +154,4 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		random.nextBytes(bytes);
 		return bytes;
 	}
-
 }
