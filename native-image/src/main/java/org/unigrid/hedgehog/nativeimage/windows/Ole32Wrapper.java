@@ -51,6 +51,7 @@ public class Ole32Wrapper {
 		);
 
 		final int status = Ole32Wrapper.IIDFromString(guidString, holder.getGuid());
+		UnmanagedMemory.free(guidString);
 
 		if (status != 0) {
 			throw new WindowsException(String.format("Failed to find GUID for %s",
