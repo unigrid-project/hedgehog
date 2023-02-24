@@ -16,22 +16,14 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
+    - name: Setup GraalVM
+      uses: ayltai/setup-graalvm@v1
+      with:
+        java-version: 17
+        graalvm-version: 22.3.0
+        native-image: true
     - name: Build with Maven
-      run: |
-        echo "/Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/Home/bin/" >> $GITHUB_PATH
-        echo "GRAALVM_HOME=/Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/Home/" >> $GITHUB_ENV
-        mvn package
-    - name: Misc
-      if: always()
-      run: |
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/Home/
-        ls -l /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/Home/bin/
-        /Users/runner/work/hedgehog/hedgehog/native-image/target/untarred/graalvm-ce-java17-22.3.0/Contents/Home/bin/gu
-        gu
+      run: mvn package
     - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
