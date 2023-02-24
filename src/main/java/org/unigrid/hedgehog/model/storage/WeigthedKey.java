@@ -15,7 +15,9 @@
  */
 package org.unigrid.hedgehog.model.storage;
 
+import java.util.Calendar;
 import java.util.Date;
+import java.util.Locale;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
@@ -32,7 +34,9 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Compar
 
 	private int size;
 
-	private Date date;
+	private Date lastAccesed;
+	
+	static final private int TIME_DELAY = 5 * 60 * 1000;
 
 	public Double getWeigth() {
 		decay();
@@ -43,7 +47,13 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Compar
 	}
 
 	private void decay() {
-
+		Date now = new Date();
+		
+		long diff = now.getTime() - lastAccesed.getTime();
+		if (diff < TIME_DELAY) {
+			accessed = accessed - 1 < 0 ? 0 : accessed - 1;
+			lastAccesed = new Date();
+		}
 	}
 
 	@Override
