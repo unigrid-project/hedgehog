@@ -38,28 +38,24 @@ public class NativeImage {
 			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
 		);
 
-		final CommandLine cmdLine = CommandLine.parse(String.format("%s %s",
-			script.toString(), String.join(" ", args))
-		);
+		final CommandLine cmdLine = new CommandLine(script.toString());
+		cmdLine.addArguments(args);
 
 		final DefaultExecutor executor = new DefaultExecutor();
 		executor.setExitValue(0);
 
-		/* We retry untill some unrecoverable error is detected */
-		while (true) {
-			try {
-				final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
-				executor.setWatchdog(watchdog);
-				return executor.execute(cmdLine);
+		try {
+			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
+			executor.setWatchdog(watchdog);
+			return executor.execute(cmdLine);
 
-			/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
-			} catch (ExecuteException ex) {
-				if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
-					throw ex;
-				}
-
-				return ex.getExitValue();
+		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
+		} catch (ExecuteException ex) {
+			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
+				throw ex;
 			}
+
+			return ex.getExitValue();
 		}
 	}
 
