@@ -35,7 +35,7 @@
                                 <downloadName>graal.zip</downloadName>
                                 <downloadLocation>${basedir}\target\download/</downloadLocation>
                                 <localInstaller>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\gu.cmd</localInstaller>
-                                <localNative>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\native-image.cmd</localNative>
+				<arthur.nativeImage>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\native-image.cmd</arthur.nativeImage>
 			</properties>
 			<build>
 				<pluginManagement>
@@ -102,7 +102,7 @@
 			<properties>
 				<executable.name>hedgehog.bin</executable.name>
                                 <platform>macosx64</platform>
-				<localNative>native-image</localNative>
+				<arthur.nativeImage>native-image</arthur.nativeImage>
 				<arthur.buildStaticImage>false</arthur.buildStaticImage>
 			</properties>
 		</profile>
@@ -276,7 +276,6 @@
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
 					</customOptions>
-					<nativeImage>${localNative}</nativeImage>
 				</configuration>
 				<executions>
 					<execution>
