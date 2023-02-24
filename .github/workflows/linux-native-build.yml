@@ -23,3 +23,5 @@ jobs:
       with:
         name: Linux Native Binary
         path: native-image/target/hedgehog.bin
+    - name: Run Binary
+      run: native-image/target/hedgehog.bin
