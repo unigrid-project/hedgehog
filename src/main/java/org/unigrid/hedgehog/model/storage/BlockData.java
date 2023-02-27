@@ -22,8 +22,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 @Data
-public class BlockData implements AccessedSorting, Comparable<BlockData>{
-	
+public class BlockData implements AccessedSorting, Comparable<BlockData> {
+
 	public BlockData() {
 
 	}
@@ -32,23 +32,20 @@ public class BlockData implements AccessedSorting, Comparable<BlockData>{
 
 	private int size;
 
-	@Getter @Setter
+	@Getter
+	@Setter
 	public int accessed;
-	
-	@Getter @Setter
+
+	@Getter
+	@Setter
 	public ByteBuf buffer;
-	
+
 	public Double getWeigth() {
-		decay();
 		double accessedDouble = accessed + 1.001;
 		return size * (Math.log(Math.pow(accessedDouble, 70)));
-		
+
 	}
-	
-		private void decay() {
-		
-	}
-	
+
 	@Override
 	public int compareTo(BlockData other) {
 		return Double.compare(this.getWeigth(), other.getWeigth());

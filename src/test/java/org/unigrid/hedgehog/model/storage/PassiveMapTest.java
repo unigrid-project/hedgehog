@@ -21,17 +21,12 @@ import net.jqwik.api.Property;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Disabled;
 import net.jqwik.api.Provide;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.IntRange;
@@ -39,7 +34,6 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.UniqueElements;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomUtils;
-import org.unigrid.hedgehog.model.Signature;
 
 public class PassiveMapTest extends BaseMockedWeldTest {
 

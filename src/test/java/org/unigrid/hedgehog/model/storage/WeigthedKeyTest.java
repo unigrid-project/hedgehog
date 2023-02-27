@@ -13,6 +13,7 @@
 	You should have received an addended copy of the GNU Affero General Public License with this program.
 	If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/janus-java>.
  */
+
 package org.unigrid.hedgehog.model.storage;
 
 import java.util.Date;
@@ -22,23 +23,36 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Provide;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Example;
 
 public class WeigthedKeyTest extends BaseMockedWeldTest {
-	
+
 	@Property
-	public void testWeigthSystem(@ForAll("accessed")int accessed, @ForAll("size") int size) {
+	public void testWeigthSystem(@ForAll("accessed") int accessed, @ForAll("size") int size) {
 		WeigthedKey key = new WeigthedKey("laskdfnoi3eräpawos3", 0.0, accessed, size, new Date());
-		
+
 		System.out.println(accessed + " || " + size + " || " + key.getWeigth());
-		
-		assert(key.getWeigth() > 0.0);
+
+		assert (key.getWeigth() > 0.0);
 	}
-	
+
+	@Example
+	public void testDecayFunction() {
+		WeigthedKey key = new WeigthedKey("laskdfnoi3eräpawos3", 0.0, 3, 1024 * 1024, new Date());
+		double w1 = key.getWeigth();
+		Date date = new Date();
+		date.setTime(date.getTime() - (1000 * 60 * 6));
+		key.setLastAccesed(date);
+		double w2 = key.getWeigth();
+		System.out.println("w1 = " + w1 + " || w2 = " + w2);
+		assert (w1 > w2);
+	}
+
 	@Provide
 	Arbitrary<Integer> accessed() {
 		return Arbitraries.of(0, 1, 123, 2, 1542, 53120, 19);
 	}
-	
+
 	@Provide
 	Arbitrary<Integer> size() {
 		return Arbitraries.of(1024, 120, 1024 * 1024 * 50, 1024 * 1024 * 1, 1024 * 1024 * 256 - 1, 1024 * 1024 * 60);
