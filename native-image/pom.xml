@@ -22,6 +22,7 @@
 			<activation><os><name>Linux</name></os></activation>
 			<properties>
 				<executable.name>hedgehog.bin</executable.name>
+				<extraNativeOption>-H:+StaticExecutableWithDynamicLibC</extraNativeOption>
 			</properties>
 		</profile>
 		<profile>
@@ -29,6 +30,7 @@
 			<activation><os><family>Windows</family></os></activation>
 			<properties>
 				<executable.name>hedgehog</executable.name>
+				<extraNativeOption>-DNOP=true</extraNativeOption>
                                 <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-windows-amd64-${graal.version}.zip</url>
                                 <platform>windows</platform>
                                 <unzipLocation>${basedir}\target\unziped</unzipLocation>
@@ -101,6 +103,7 @@
 			<activation><os><family>Mac</family></os></activation>
 			<properties>
 				<executable.name>hedgehog.bin</executable.name>
+				<extraNativeOption>-DNOP=true</extraNativeOption>
                                 <platform>macosx64</platform>
 				<arthur.nativeImage>native-image</arthur.nativeImage>
 				<arthur.buildStaticImage>false</arthur.buildStaticImage>
@@ -275,6 +278,7 @@
 						<customOption>--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED</customOption>
 						<customOption>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</customOption>
 						<customOption>-H:IncludeResources=application.properties</customOption>
+						<customOption>${extraNativeOption}</customOption>
 					</customOptions>
 				</configuration>
 				<executions>
