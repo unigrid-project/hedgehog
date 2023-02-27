@@ -17,13 +17,17 @@ package org.unigrid.hedgehog.model.storage;
 
 import io.netty.buffer.ByteBuf;
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.apache.commons.codec.binary.Base32;
 import org.apache.commons.collections4.map.AbstractMapDecorator;
 import org.unigrid.hedgehog.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.collection.SortedList;
 
 public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements StorageTranscoder {
 
@@ -33,30 +37,9 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 
 	private long currentSize = 0;
 
-	//final private TreeMap<WeigthedKeyInterface<String, Double>, BlockData> map = 
-	//new TreeMap<WeigthedKeyInterface<String, Double>, BlockData>();
 	private HashMap<String, BlockData> map = new HashMap();
 
 	private SortedList<WeigthedKey> sortedList = new SortedList();
-
-	private static class SortedList<E extends Comparable<? super E>> extends ArrayList<E> {
-
-		@Override
-		public boolean add(E e) {
-			if (super.size() == 0) {
-				super.add(e);
-				return true;
-			}
-			int index = Collections.binarySearch(this, e);
-			System.out.println("insert index = " + index);
-			if (index < 0) {
-				index = Math.abs(index);
-				index--;
-			}
-			super.add(index, e);
-			return true;
-		}
-	}
 
 	public PassiveMap() {
 		super();
@@ -69,22 +52,19 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 		return map.size();
 	}
 
-	public WeigthedKey put(String key, BlockData blockData) {
-		WeigthedKey weigthedKey = new WeigthedKey(key,
-			0.0,
-			blockData.getAccessed(),
-			blockData.getBuffer().capacity(),
-			new Date());
+	public boolean put(String key, BlockData blockData) {
 
-		addToMap(weigthedKey.getKey(), blockData);
-		String s = (String) weigthedKey.getKey();
-		byte[] bytes = s.getBytes();
+		addToMap(key, blockData);
+		byte[] bytes = key.getBytes();
 		String byteKey = encode(bytes);
-		storage.store(byteKey, blockData);
+		try {
+			storage.store(byteKey, blockData);
+		} catch (IOException ex) {
+			Logger.getLogger(PassiveMap.class.getName()).log(Level.SEVERE, null, ex);
+			return false;
+		}
 
-		System.out.println("Current amount of data in map = " + currentSize / (1024 * 1024));
-
-		return weigthedKey;
+		return true;
 	}
 
 	public ByteBuf get(String key) {
@@ -103,10 +83,14 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 			return map.get(key).getBuffer();
 		}
 		String byteKey = encode(key.getBytes());
-		BlockData blockData = storage.getFile(byteKey);
+		BlockData blockData = new BlockData();
+		try {
+			blockData = storage.getFile(byteKey);
+		} catch (IOException ex) {
+			Logger.getLogger(PassiveMap.class.getName()).log(Level.SEVERE, null, ex);
+		}
 		blockData.setAccessed(blockData.getAccessed() + 1);
 		addToMap(key, blockData);
-		//sortedList.get(sortedList.indexOf(key)).increassesAccessed();
 
 		return blockData.getBuffer();
 	}
@@ -115,18 +99,6 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 		sortedList.remove(key);
 		sortedList.add(key);
 	}
-
-	/*public BlockData getBlock(String key) {
-		if (map.containsKey(key)) {
-			map.get(key).setAccessed(map.get(key).getAccessed() + 1);
-			return map.get(key);
-		}
-
-		BlockData blockData = storage.getFile(encode(key.getBytes()));
-		blockData.setAccessed(blockData.getAccessed() + 1);
-
-		return blockData;
-	}*/
 
 	public WeigthedKeyInterface lastKey() {
 		return sortedList.get(sortedList.size());
@@ -156,7 +128,8 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 			0,
 			0,
 			new Date());
-		WeigthedKey wKey = sortedList.get(sortedList.indexOf(weigthedKey));
+		int index = sortedList.indexOf(weigthedKey);
+		WeigthedKey wKey = sortedList.get(index);
 		return wKey.getWeigth();
 	}
 
@@ -164,7 +137,7 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 		while (currentSize > maxSize) {
 			WeigthedKey key = sortedList.get(0);
 			sortedList.remove(0);
-			currentSize = currentSize - map.get(key).getBuffer().array().length;
+			currentSize = currentSize - map.get(key.getKey()).getBuffer().array().length;
 			map.remove(key.getKey());
 		}
 	}
@@ -177,8 +150,11 @@ public class PassiveMap<K, V> extends AbstractMapDecorator<K, V> implements Stor
 		for (File dir2 : dir.listFiles()) {
 			for (File dir3 : dir2.listFiles()) {
 				for (File file : dir3.listFiles()) {
-					//storage.getAccessed(file.getAbsolutePath());
-					addToMap(file.getName(), storage.getFile(file.getName()));	
+					try {	
+						addToMap(file.getName(), storage.getFile(file.getName()));
+					} catch (IOException ex) {
+						Logger.getLogger(PassiveMap.class.getName()).log(Level.SEVERE, null, ex);
+					}
 				}
 			}
 		}

@@ -50,9 +50,11 @@ public class WeigthedKey implements WeigthedKeyInterface<String, Double>, Compar
 		Date now = new Date();
 		
 		long diff = now.getTime() - lastAccesed.getTime();
-		if (diff < TIME_DELAY) {
+		int counter = (int) diff / TIME_DELAY;
+		while (counter > 0) {
 			accessed = accessed - 1 < 0 ? 0 : accessed - 1;
 			lastAccesed = new Date();
+			counter--;
 		}
 	}
 

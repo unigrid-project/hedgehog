@@ -15,8 +15,6 @@
  */
 package org.unigrid.hedgehog.model.storage;
 
-import io.netty.buffer.ByteBuf;
-
 public interface AccessedSorting {
 	
 	int getAccessed();

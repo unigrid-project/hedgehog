@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.security.SecureRandom;
 import java.util.concurrent.ThreadLocalRandom;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Provide;
@@ -35,6 +36,7 @@ public class TestStorage extends BaseMockedWeldTest {
 	//Storage storage;
 	
 	@Example
+	@SneakyThrows
 	public void testStoringOneFile(@ForAll("key")String key, @ForAll("data") byte[] bytes) {
 		Storage storage = new Storage();
 		ByteBuf buff = Unpooled.buffer();
@@ -48,6 +50,7 @@ public class TestStorage extends BaseMockedWeldTest {
 	}
 	
 	@Example
+	@SneakyThrows
 	public void testGettingStoredOneFile(@ForAll("key") String key, @ForAll("data") byte[] bytes) {
 		Storage storage = new Storage();
 		boolean test = false;

@@ -47,7 +47,6 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 	List<String> keys;
 	List<WeigthedKey> weigthedKeys;
 
-	@Disabled
 	@Example
 	public void testPutAndGetInMap(@ForAll("key") String key, @ForAll("data") byte[] data) {
 		PassiveMap map = new PassiveMap();
@@ -63,7 +62,6 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		assert (buff.equals(blockData.getBuffer()));
 	}
 	
-	@Disabled
 	@Example
 	public void testMapExcideMemLimit() {
 		PassiveMap map = new PassiveMap();
@@ -102,7 +100,7 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		BlockData blockData = new BlockData();
 		blockData.setBuffer(buff);
 
-		weigthedKeys.add(map.put(key, blockData));
+		map.put(key, blockData);
 		assert (map.size() <= 50);
 	}
 
@@ -112,8 +110,8 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 		ByteBuf buf = Unpooled.copiedBuffer(data);
 		BlockData blockData = new BlockData();
 		blockData.setBuffer(buf);
-		WeigthedKey wKey = map.put(key, blockData);
-		double w1 = wKey.getWeigth();
+		map.put(key, blockData);
+		double w1 = map.getWeigth(key);
 		map.get(key);
 		double w2 = map.getWeigth(key);
 		System.out.println("w1 = " + w1 + " || w2 = " + w2);
@@ -124,7 +122,6 @@ public class PassiveMapTest extends BaseMockedWeldTest {
 	public void init() {
 		map = new PassiveMap();
 		keys = new ArrayList();
-		weigthedKeys = new ArrayList<>();
 	}
 
 	@Provide

@@ -34,66 +34,29 @@ import org.apache.commons.codec.binary.Hex;
 @ApplicationScoped
 public class Storage {
 
-	public void store(String key, BlockData blockData) {
+	public void store(String key, BlockData blockData) throws FileNotFoundException, IOException {
 		String path = mkDir(getFirstByte(key), getSecondByte(key));
-		RandomAccessFile file;
-		try {
-			file = new RandomAccessFile(path + "/" + key, "rwd");
-			FileChannel channel = file.getChannel();
-			ByteBuf buff = Unpooled.buffer();
-			buff.writeInt(blockData.getAccessed());
-			buff.writeBytes(blockData.getBuffer());
-			System.out.println(key);
-			MappedByteBuffer out;
-			out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
-			out.put(buff.array());
-			file.close();
-		} catch (FileNotFoundException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-			System.out.println(ex.getMessage());
-		} catch (IOException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-			System.out.println(ex.getMessage());
-		}
+		RandomAccessFile file = new RandomAccessFile(path + "/" + key, "rwd");
+		FileChannel channel = file.getChannel();
+		ByteBuf buff = Unpooled.buffer();
+		buff.writeInt(blockData.getAccessed());
+		buff.writeBytes(blockData.getBuffer());
+		System.out.println(key);
+		MappedByteBuffer out = channel.map(FileChannel.MapMode.READ_WRITE, 0, buff.array().length);
+		out.put(buff.array());
+		file.close();
 	}
 
-	public BlockData getFile(String key) {
+	public BlockData getFile(String key) throws FileNotFoundException, IOException {
 
 		ByteBuf buff = Unpooled.buffer();
-		String path = new ApplicationDirectory().getUserDataDir()
-			+ "/"
-			+ getFirstByte(key)
-			+ "/"
-			+ getSecondByte(key)
-			+ "/"
-			+ key;
-
-		System.out.println(path);
-		RandomAccessFile file;
-		try {
-			file = new RandomAccessFile(path, "rw");
-		} catch (FileNotFoundException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-			return null;
-		}
-		ByteBuffer dst;
-		try {
-			dst = ByteBuffer.allocate((int) file.length());
-		} catch (IOException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-			return null;
-		}
-
+		RandomAccessFile file = new RandomAccessFile(getPath(key), "rw");
+		ByteBuffer dst = ByteBuffer.allocate((int) file.length());
 		FileChannel channel = file.getChannel();
-		try {
-			channel.read(dst);
-		} catch (IOException ex) {
-			Logger.getLogger(Storage.class.getName()).log(Level.SEVERE, null, ex);
-		}
+		channel.read(dst);
 		BlockData blockData = new BlockData();
 		blockData.setAccessed(dst.flip().getInt());
 		dst.flip();
-		System.out.println("Size of remaning buffer = " + dst.array().length);
 		blockData.setBuffer(buff.setBytes(0, dst));
 		return blockData;
 	}
@@ -130,6 +93,16 @@ public class Storage {
 			}
 		}
 		return second.getAbsolutePath();
+	}
+	
+	private String getPath(String in) {
+		return new ApplicationDirectory().getUserDataDir()
+			+ "/"
+			+ getFirstByte(in)
+			+ "/"
+			+ getSecondByte(in)
+			+ "/"
+			+ in;
 	}
 
 	public String getFirstByte(String key) {
