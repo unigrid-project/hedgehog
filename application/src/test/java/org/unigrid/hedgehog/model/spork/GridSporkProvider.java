@@ -21,13 +21,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
@@ -86,6 +83,11 @@ public class GridSporkProvider {
 
 	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
 		Instant time, Instant previousTime) throws IllegalArgumentException {
+
+		/* Limit amount of failures with "UNDEFINED" during data set generation by jqwik */
+		if (gridSporkType == GridSpork.Type.UNDEFINED && signature.length > 52) {
+			gridSporkType = GridSpork.Type.MINT_STORAGE;
+		}
 
 		final GridSpork gridSpork = GridSpork.create(gridSporkType);
 
