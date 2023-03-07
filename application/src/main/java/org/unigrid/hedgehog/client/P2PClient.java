@@ -39,18 +39,14 @@ import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-import io.netty.util.concurrent.Future;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
-import java.util.Optional;
-import java.util.function.BiConsumer;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Network;
-import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -59,10 +55,11 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
-public class P2PClient {
+public class P2PClient implements Connection {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	@Getter private final QuicStreamChannel quicStreamChannel;
+	@Getter private final QuicStreamChannel channel;
 
 	public P2PClient(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
@@ -82,19 +79,19 @@ public class P2PClient {
 			.sslContext(context)
 			.build();
 
-		final Channel channel = new Bootstrap().group(group)
+		final Channel channelBootstrap = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(0).sync().channel();
 
-		final QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
+		final QuicChannel quicChannel = QuicChannel.newBootstrap(channelBootstrap)
 			.streamHandler(new ChannelInboundHandlerAdapter())
 			.remoteAddress(new InetSocketAddress(hostname, port))
 			.connect()
 			.get();
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
-		quicStreamChannel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+		channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
@@ -104,19 +101,20 @@ public class P2PClient {
 				);
 			}, () -> {
 				return Arrays.asList(
-					new PingSchedule()
+					new PingSchedule(),
+					new PublishPeersSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.CLIENT)).sync().getNow();
 	}
 
 	public ChannelFuture send(Packet packet) {
-		return quicStreamChannel.writeAndFlush(packet);
+		return channel.writeAndFlush(packet);
 	}
 
 	@SneakyThrows
 	public void close() {
-		if (!quicStreamChannel.isShutdown()) {
-			quicStreamChannel.shutdown().sync();
+		if (!channel.isShutdown()) {
+			channel.shutdown().sync();
 		}
 
 		if (!group.isShuttingDown()) {
@@ -126,32 +124,12 @@ public class P2PClient {
 
 	@SneakyThrows
 	public void closeDirty() {
-		if (!quicStreamChannel.isShutdown()) {
-			quicStreamChannel.shutdown();
+		if (!channel.isShutdown()) {
+			channel.shutdown();
 		}
 
 		if (!group.isShuttingDown()) {
 			group.shutdownGracefully();
-		}
-	}
-
-	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
-		if (node.getChannel().isPresent()) {
-			final ChannelFuture out = node.getChannel().get().writeAndFlush(packet);
-
-			out.addListener(f -> {
-				consumer.ifPresent(c -> {
-					c.accept(node, f);
-				});
-			});
-		}
-	}
-
-	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
-		for (Node node : topology.getNodes().values()) {
-			node.getChannel().ifPresent(channel -> {
-				send(packet, node, consumer);
-			});
 		}
 	}
 }

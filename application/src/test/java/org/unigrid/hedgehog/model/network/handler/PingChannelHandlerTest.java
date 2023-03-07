@@ -34,6 +34,7 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -62,15 +63,15 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
-			final P2PClient client = new P2PClient(host, port);
+			final Connection connection = new P2PClient(host, port);
 
 			for (int i = 0; i < pingsPerServer; i++) {
-				client.send(Ping.builder().build());
+				connection.send(Ping.builder().build());
 				expectedInvocations++;
 			}
 
 			await().untilAtomic(invocations, is(expectedInvocations));
-			client.closeDirty();
+			connection.closeDirty();
 		}
 
 		await().untilAtomic(invocations, is(expectedInvocations));

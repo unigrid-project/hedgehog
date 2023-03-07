@@ -38,6 +38,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
@@ -72,13 +73,13 @@ public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSched
 		@ForAll("provideNodes") List<Node> nodes) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
-		final List<P2PClient> clients = new ArrayList<>();
+		final List<Connection> connections = new ArrayList<>();
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 
-			clients.add(new P2PClient(host, port));
+			connections.add(new P2PClient(host, port));
 		}
 
 		setScheduleCallback(Optional.of(channel -> {
@@ -91,8 +92,8 @@ public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSched
 		Thread.sleep(WAIT_TIME_MS);
 		setScheduleCallback(Optional.empty());
 
-		for (P2PClient client : clients) {
-			client.close();
+		for (Connection connection : connections) {
+			connection.close();
 		}
 
 		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();

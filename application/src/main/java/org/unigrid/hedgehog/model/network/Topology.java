@@ -19,24 +19,52 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import io.netty.channel.Channel;
+import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import lombok.Data;
-import org.apache.commons.collections4.BidiMap;
-import org.apache.commons.collections4.bidimap.DualHashBidiMap;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import org.apache.commons.configuration2.sync.LockMode;
+import org.unigrid.hedgehog.model.cdi.Lock;
+import org.unigrid.hedgehog.model.cdi.Protected;
+import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Data
 @ApplicationScoped
 public class Topology {
-	private BidiMap<Channel, Node> nodes;
+	private HashSet<Node> nodes;
 
 	@PostConstruct
 	private void init() {
-		nodes = new DualHashBidiMap<>();
+		nodes = new HashSet<>();
 	}
 
-	public void addNode(Channel channel, Node node) {
-		nodes.put(channel, node);
+	@Protected @Lock(LockMode.READ)
+	public void forEach(Consumer<Node> consumer) {
+		nodes.forEach(consumer);
+	}
+
+	public Set<Node> cloneNodes() {
+		return new HashSet(nodes);
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public boolean containsNode(Node node) {
+		return nodes.contains(node);
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public void addNode(Node node) {
+		nodes.add(node);
+	}
+
+	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
+		topology.forEach(node -> {
+			if (node.getConnection().isPresent()) {
+				Node.send(packet, node, consumer);
+			}
+		});
 	}
 }
