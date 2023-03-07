@@ -38,6 +38,7 @@ import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -86,14 +87,14 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
-			final P2PClient client = new P2PClient(host, port);
+			final Connection connection = new P2PClient(host, port);
 			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			client.send(publishSpork);
+			connection.send(publishSpork);
 			expectedInvocations++;
 
 			await().untilAtomic(invocations, is(expectedInvocations));
-			client.closeDirty();
+			connection.closeDirty();
 		}
 
 		await().untilAtomic(invocations, is(expectedInvocations));

@@ -26,7 +26,6 @@ import jakarta.enterprise.inject.spi.CDI;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -70,7 +69,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 			if (topology.isResolvable()) {
 				// TODO: Handle errors better rather than sending Optional.empty()
-				P2PClient.sendAll(publishSpork, topology.get(), Optional.empty());
+				Topology.sendAll(publishSpork, topology.get(), Optional.empty());
 			}
 		}
 	}

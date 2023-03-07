@@ -21,40 +21,11 @@ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
-import io.netty.util.concurrent.Future;
-import java.net.InetSocketAddress;
-import java.time.Instant;
-import java.util.Optional;
-import java.util.function.BiConsumer;
-import lombok.Builder;
-import lombok.Data;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Data
-@Builder
-public class Node {
-	private InetSocketAddress address;
-	@Builder.Default private Optional<Connection> connection = Optional.empty();
-	@Builder.Default private Details details = new Details();
-	private Instant lastPingTime;
-	@Builder.Default private Optional<Ping> ping = Optional.empty();
-
-	@Data
-	public static class Details {
-		private String[] protocols;
-		private int version;
-	}
-
-	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
-		if (node.getConnection().isPresent()) {
-			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
-
-			out.addListener(f -> {
-				consumer.ifPresent(c -> {
-					c.accept(node, f);
-				});
-			});
-		}
-	}
+public interface Connection {
+	Channel getChannel();
+	ChannelFuture send(Packet packet);
+	void close();
+	void closeDirty();
 }
