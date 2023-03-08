@@ -31,6 +31,7 @@ public class AskNodeDetailsChannelHandler extends AbstractInboundHandler<AskNode
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext context, AskNodeDetails askNodeDetails) throws Exception {
+		//TODO: Implement me
 		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 	}
 }

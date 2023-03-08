@@ -22,12 +22,11 @@ package org.unigrid.hedgehog.model.network.schedule;
 import io.netty.channel.Channel;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.apache.commons.collections4.BidiMap;
-import org.apache.commons.collections4.bidimap.DualHashBidiMap;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
@@ -45,10 +44,8 @@ public class PublishPeersSchedule extends AbstractSchedule implements Schedulabl
 			final Instance<Topology> topology = CDI.current().select(Topology.class);
 
 			if (topology.isResolvable()) {
-				final BidiMap<Channel, Node> nodesToSend = new DualHashBidiMap(topology.get().getNodes());
-
-				nodesToSend.remove(channel); /* We don't need to send the receiver to itself */
-				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend.values()));
+				final Set<Node> nodesToSend = topology.get().cloneNodes();
+				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend));
 			}
 		};
 	}

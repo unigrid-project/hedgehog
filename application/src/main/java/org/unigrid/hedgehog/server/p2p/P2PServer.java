@@ -51,6 +51,7 @@ import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
@@ -86,7 +87,8 @@ public class P2PServer extends AbstractServer {
 				);
 			}, () -> {
 				return Arrays.asList(
-					new PingSchedule()
+					new PingSchedule(),
+					new PublishPeersSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 
