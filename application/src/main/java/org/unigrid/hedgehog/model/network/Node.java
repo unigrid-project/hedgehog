@@ -19,7 +19,6 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
 import java.net.InetSocketAddress;
@@ -28,13 +27,14 @@ import java.util.Optional;
 import java.util.function.BiConsumer;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Data
 @Builder
 public class Node {
-	private InetSocketAddress address;
+	@EqualsAndHashCode.Include private InetSocketAddress address;
 	@Builder.Default private Optional<Connection> connection = Optional.empty();
 	@Builder.Default private Details details = new Details();
 	private Instant lastPingTime;
