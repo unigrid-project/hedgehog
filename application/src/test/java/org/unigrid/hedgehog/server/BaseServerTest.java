@@ -36,7 +36,7 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 
 @WeldSetup(TestServer.class)
 public class BaseServerTest extends BaseMockedWeldTest {
-	private static final int NUM_SERVERS = 10;
+	private static final int NUM_SERVERS = 20;
 
 	@Mocked
 	protected NetOptions netOptions;
