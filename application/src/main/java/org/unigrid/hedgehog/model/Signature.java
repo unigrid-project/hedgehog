@@ -122,28 +122,42 @@ public class Signature {
 		return publicKey.getW().getAffineX().toString(16) + publicKey.getW().getAffineY().toString(16);
 	}
 
-	public byte[] sign(byte[] data) throws InvalidKeyException, NoSuchAlgorithmException, SignatureException {
-		final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
+	public byte[] sign(byte[] data) throws SigningException {
+		try {
+			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
 
-		signature.initSign(privateKey);
-		signature.update(data);
-		return signature.sign();
+			signature.initSign(privateKey);
+			signature.update(data);
+			return signature.sign();
+
+		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
+			throw new SigningException("Failed to sign data", ex);
+		}
 	}
 
-	public boolean verify(byte[] data, byte[] signatureData) throws InvalidKeyException, InvalidKeySpecException,
-		NoSuchAlgorithmException, SignatureException {
+	public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {
+		try {
+			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
 
-		final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
+			signature.initVerify(publicKey);
+			signature.update(data);
+			return signature.verify(signatureData);
 
-		signature.initVerify(publicKey);
-		signature.update(data);
-		return signature.verify(signatureData);
+		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
+			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
+				+ "with public key '%s'", publicKey), ex);
+		}
 	}
 
-	public static boolean verify(Signable signable, String key) throws InvalidAlgorithmParameterException,
-		InvalidKeySpecException, InvalidKeyException, NoSuchAlgorithmException, SignatureException {
+	public static boolean verify(Signable signable, String key) throws VerifySignatureException {
+		try {
+			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
+			return signature.verify(signable.getSignable(), signable.getSignature());
 
-		final Signature signature = new Signature(Optional.empty(), Optional.of(key));
-		return signature.verify(signable.getSignable(), signable.getSignature());
+		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+			throw new VerifySignatureException(String.format("Failed to create signature "
+				+ "with public key '%s'", key), ex
+			);
+		}
 	}
 }

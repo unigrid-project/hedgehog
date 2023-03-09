@@ -24,12 +24,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
 import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
@@ -37,9 +36,11 @@ import lombok.experimental.Tolerate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.NetworkKey;
 import org.unigrid.hedgehog.model.Signable;
 import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.SigningException;
+import org.unigrid.hedgehog.model.VerifySignatureException;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
@@ -54,7 +55,6 @@ public class GridSpork implements Serializable, Signable {
 
 	private ChunkData data;
 	private ChunkData previousData; /* Flag.DELTA controls the content */
-
 	@Getter private byte[] signature;
 
 	@AllArgsConstructor
@@ -131,17 +131,29 @@ public class GridSpork implements Serializable, Signable {
 		return stream.toByteArray();
 	}
 
+	@Override
+	public void sign(String privateKeyHex) throws SigningException {
+		try {
+			final Signature signature = new Signature(Optional.of(privateKeyHex),
+				Optional.empty()
+			);
+
+			this.signature = signature.sign(getSignable());
+
+		} catch(InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+			throw new SigningException("Failed to sign spork with given private key", ex);
+		}
+	}
+
 	@JsonIgnore
 	public boolean isValidSignature() {
 		try {
-			for (String key : Network.KEYS) {
+			for (String key : NetworkKey.KEYS) {
 				if (Signature.verify(this, key)) {
 					return true;
 				}
 			}
-		} catch (InvalidAlgorithmParameterException | InvalidKeyException | InvalidKeySpecException
-			| NoSuchAlgorithmException | SignatureException ex) {
-
+		} catch (VerifySignatureException ex) {
 			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
 		}
 

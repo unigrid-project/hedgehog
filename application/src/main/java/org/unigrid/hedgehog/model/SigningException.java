@@ -19,20 +19,8 @@
 
 package org.unigrid.hedgehog.model;
 
-public class Network {
-	public static final int VERSION = 100100;
-
-	public static final String[] PROTOCOLS = {
-		"hedgehog/0.0.1",
-		"gridspork/0.0.1"
-	};
-
-	public static final String[] SEEDS = {
-		"localhost"
-	};
-
-	public static final int COMMUNICATION_THREADS = 16;
-	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
-
-	public static final int MAX_STREAMS = 64;
+public class SigningException extends Exception {
+	public SigningException(String msg, Throwable cause) {
+		super(msg, cause);
+	}
 }

@@ -29,6 +29,8 @@ import lombok.Getter;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.SigningException;
+import org.unigrid.hedgehog.model.VerifySignatureException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -53,8 +55,8 @@ public class KeyValidate implements Runnable {
 			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
 			System.out.println(signature.verify(Hex.decodeHex(data), Hex.decodeHex(signatureHex)));
 
-		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException
-			| InvalidKeySpecException | NoSuchAlgorithmException | SignatureException ex) {
+		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeySpecException
+			| NoSuchAlgorithmException | VerifySignatureException ex) {
 
 			System.err.println(String.format("Failed to verify signature: %s", ex));
 		}
