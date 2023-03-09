@@ -22,5 +22,6 @@ package org.unigrid.hedgehog.model;
 public interface Signable {
 	byte[] getSignable();
 	byte[] getSignature();
+	void sign(String privateKeyHex) throws SigningException;
 	boolean isValidSignature();
 }
