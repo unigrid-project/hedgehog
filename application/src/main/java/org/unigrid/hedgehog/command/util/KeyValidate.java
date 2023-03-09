@@ -20,17 +20,14 @@
 package org.unigrid.hedgehog.command.util;
 
 import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Optional;
 import lombok.Getter;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.Signature;
-import org.unigrid.hedgehog.model.SigningException;
-import org.unigrid.hedgehog.model.VerifySignatureException;
+import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
