@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.command.util;
 
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
-import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import picocli.CommandLine.Command;
 
 @Command(name = "key-generate")

@@ -36,11 +36,11 @@ import lombok.experimental.Tolerate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.unigrid.hedgehog.model.NetworkKey;
-import org.unigrid.hedgehog.model.Signable;
-import org.unigrid.hedgehog.model.Signature;
-import org.unigrid.hedgehog.model.SigningException;
-import org.unigrid.hedgehog.model.VerifySignatureException;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.Signable;
+import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data

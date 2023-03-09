@@ -17,7 +17,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model;
+package org.unigrid.hedgehog.model.crypto;
 
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
