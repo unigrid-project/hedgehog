@@ -28,6 +28,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.InputStream;
+import java.util.List;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
@@ -63,12 +64,13 @@ public class RestClient implements AutoCloseable {
 	}
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
-		if (response.getStatus() == Status.OK.getStatusCode()
-			|| response.getStatus() == Status.NO_CONTENT.getStatusCode()) {
-			return;
-		}
+		final List<Status> status = List.of(Status.OK,  Status.NO_CONTENT,
+			Status.NOT_FOUND, Status.UNAUTHORIZED
+		);
 
-		throw new ResponseOddityException(response.getStatusInfo());
+		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
+			throw new ResponseOddityException(response.getStatusInfo());
+		}
 	}
 
 	public Response get(String location) throws ResponseOddityException {
@@ -121,7 +123,18 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
-	public <T> Response putWithHeaders(String location, MultivaluedMap<String, Object> headers)
+	public <T> Response putWithHeaders(String location, T entity, MultivaluedMap<String, Object> headers)
+		throws ResponseOddityException {
+
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.headers(headers)
+			.put(Entity.json(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public Response putWithHeaders(String location, MultivaluedMap<String, Object> headers)
 		throws ResponseOddityException {
 
 		final Response response = client.target(String.format(baseUrl, location)).request()
