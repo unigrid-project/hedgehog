@@ -148,7 +148,7 @@ public class GridSpork implements Serializable, Signable {
 	@JsonIgnore
 	public boolean isValidSignature() {
 		try {
-			for (String key : NetworkKey.KEYS) {
+			for (String key : NetworkKey.getPublicKeys()) {
 				if (Signature.verify(this, key)) {
 					return true;
 				}
