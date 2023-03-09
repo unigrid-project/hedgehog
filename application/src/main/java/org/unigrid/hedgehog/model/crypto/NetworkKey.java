@@ -101,7 +101,9 @@ public class NetworkKey {
 
 				this.signature = signature.sign(signable);
 
-			} catch(InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException  ex) {
+			} catch(InvalidAlgorithmParameterException | IllegalArgumentException | InvalidKeySpecException
+				| NoSuchAlgorithmException  ex) {
+
 				throw new SigningException("Failed to prepare random signable data", ex);
 			}
 		}
