@@ -32,7 +32,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 
 @Slf4j
 public class NetworkKey {
-	public static final String[] KEYS = {
+	private static final String[] KEYS = {
 		"1c133daf1f85987771847f8ddfce77ff16a52abc48569a2e83fd85704c4fdfb4686def3c0b0b51dc57dd9885"
 		+ "1579b90f62e817d8a8cd448cf5e852ad065b834059018b26142ac78815758eb4c0f8641b9bae185291a1b7e4"
 		+ "25d467f0d2ff6cd5580684afdd347737b2e94ef7a86dd1885aa07222e8a2ecd633dabbf3c94725699fabf1",
@@ -45,6 +45,10 @@ public class NetworkKey {
 		+ "94d02cf079ba3aa260526b4f01d680bb3d73bb01846185f49b7f5c6e91f3491a36dd5148be5403d294c078cb"
 		+ "88a78d624b970bece17b1e23a049337e1859d72b260595b66ab73d5f8c76626be13c89e4f0c893c42171d3"
 	};
+
+	public static String[] getPublicKeys() {
+		return KEYS;
+	}
 
 	public static boolean isTrusted(String privateKey) {
 		try {
@@ -74,7 +78,7 @@ public class NetworkKey {
 		@Override
 		public boolean isValidSignature() {
 			try {
-				for (String key : NetworkKey.KEYS) {
+				for (String key : getPublicKeys()) {
 					if (Signature.verify(this, key)) {
 						return true;
 					}
