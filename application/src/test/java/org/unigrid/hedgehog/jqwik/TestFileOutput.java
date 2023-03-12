@@ -19,16 +19,20 @@
 
 package org.unigrid.hedgehog.jqwik;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import org.apache.commons.io.FileUtils;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 
 public class TestFileOutput {
 	@SneakyThrows
-	public static <T> void output(String data) {
+	public static void output(String data) {
 		final StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
 		final String buildDirectory = System.getProperty("testoutput.target");
 
@@ -44,5 +48,16 @@ public class TestFileOutput {
 
 			FileUtils.writeStringToFile(path.toFile(), data, StandardCharsets.UTF_8, false);
 		}
+	}
+
+	public static <T> void outputJson(T object) throws JsonProcessingException {
+		final ObjectMapper mapper = new ObjectMapper();
+		final String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
+
+		/* An assertion failure down here should not really be able to happen. When JSON processing fails, it will
+		   usually output a JsonProcessingException rather than returning null (at least it should). */
+
+		assertThat(json, notNullValue());
+		TestFileOutput.output(json);
 	}
 }
