@@ -20,14 +20,24 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
+import java.util.function.Supplier;
+import lombok.SneakyThrows;
+import mockit.Mock;
 import mockit.Mocked;
+import mockit.MockUp;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
+import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.server.TestServer;
 
 @WeldSetup(TestServer.class)
@@ -44,6 +54,26 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	@BeforeContainer
 	private static void beforeContainer() {
 		new ApplicationDirectoryMockUp();
+	}
+
+	@Provide
+	@SneakyThrows
+	public Arbitrary<Signature> provideSignature() {
+		return Arbitraries.create(new Supplier<Signature>() {
+			@Override
+			@SneakyThrows
+			public Signature get() {
+				final Signature signature = new Signature();
+
+				new MockUp<NetworkKey>() {
+					@Mock public /* static */ String[] getPublicKeys() {
+						return new String[] { signature.getPublicKey() };
+					}
+				};
+
+				return signature;
+			}
+		});
 	}
 
 	@BeforeProperty
