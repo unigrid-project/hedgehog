@@ -46,6 +46,7 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting implements Serializable {
+			private BigDecimal amount;
 
 			@JsonFormat(shape=JsonFormat.Shape.STRING)
 			private Instant start;
