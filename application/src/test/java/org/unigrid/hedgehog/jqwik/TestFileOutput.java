@@ -25,10 +25,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
+import net.jqwik.api.lifecycle.Lifespan;
 import org.apache.commons.io.FileUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
+import net.jqwik.api.lifecycle.Store;
 
 public class TestFileOutput {
 	private static final String BUILD_DIRECTORY = System.getProperty("testoutput.target");
@@ -37,11 +40,11 @@ public class TestFileOutput {
 	@SneakyThrows
 	public static void output(String data) {
 		final StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
-		final String buildDirectory = System.getProperty("testoutput.target");
 
-		final Optional<StackTraceElement> element = walker
-			.walk(frames -> frames.map(StackWalker.StackFrame::toStackTraceElement).skip(1)
-			.findFirst()
+		final Optional<StackTraceElement> element = walker.walk(frames ->
+			frames.map(StackWalker.StackFrame::toStackTraceElement).filter(e -> {
+				return !e.getClassName().endsWith(TestFileOutput.class.getSimpleName());
+			}).findFirst()
 		);
 
 		if (Objects.nonNull(BUILD_DIRECTORY) && element.isPresent()) {
@@ -50,13 +53,29 @@ public class TestFileOutput {
 				element.get().getMethodName())
 			);
 
-			FileUtils.writeStringToFile(path.toFile(), data, StandardCharsets.UTF_8, false);
+			/* Uses thje jqwik lifecycle system to not append to file on first run */
+
+			final Store<AtomicInteger> invocations = Store.getOrCreate(path, Lifespan.RUN, () -> {
+				return new AtomicInteger(0);
+			});
+
+			FileUtils.writeStringToFile(path.toFile(), data.concat("\n"), StandardCharsets.UTF_8,
+				invocations.get().intValue() > 0
+			);
+
+			invocations.get().incrementAndGet();
 		}
 	}
 
 	public static <T> void outputJson(T object) throws JsonProcessingException {
 		final ObjectMapper mapper = new ObjectMapper();
-		final String json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
+		String json;
+
+		if (object instanceof String s) {
+			json = mapper.readTree(s).toPrettyString();
+		} else {
+			json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
+		}
 
 		/* An assertion failure down here should not really be able to happen. When JSON processing fails, it will
 		   usually output a JsonProcessingException rather than returning null (at least it should). */
