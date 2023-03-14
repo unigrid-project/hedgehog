@@ -31,6 +31,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 
 public class TestFileOutput {
+	private static final String BUILD_DIRECTORY = System.getProperty("testoutput.target");
+	private static final String REPORT_DIRECTORY = "surefire-output";
+
 	@SneakyThrows
 	public static void output(String data) {
 		final StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
@@ -41,9 +44,10 @@ public class TestFileOutput {
 			.findFirst()
 		);
 
-		if (Objects.nonNull(buildDirectory) && element.isPresent()) {
-			final Path path = Path.of(buildDirectory, "surefire-output",
-				String.format("%s.%s.txt", element.get().getClassName(), element.get().getMethodName())
+		if (Objects.nonNull(BUILD_DIRECTORY) && element.isPresent()) {
+			final Path path = Path.of(BUILD_DIRECTORY, REPORT_DIRECTORY,
+				String.format("%s.%s.txt", element.get().getClassName(),
+				element.get().getMethodName())
 			);
 
 			FileUtils.writeStringToFile(path.toFile(), data, StandardCharsets.UTF_8, false);
