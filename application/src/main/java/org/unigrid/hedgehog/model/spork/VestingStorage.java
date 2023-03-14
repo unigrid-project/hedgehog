@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
@@ -45,8 +46,13 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting implements Serializable {
+
+			@JsonFormat(shape=JsonFormat.Shape.STRING)
 			private Instant start;
+
+			@JsonFormat(shape=JsonFormat.Shape.STRING)
 			private Duration duration;
+
 			private int parts;
 		}
 	}
