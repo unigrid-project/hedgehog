@@ -164,4 +164,15 @@ public class GridSpork implements Serializable, Signable {
 
 		return false;
 	}
+
+	/**
+	* Archives the spork by copying {@link #data} and {@link #timeStamp} to {@link #previousData}
+	* and {@link #previousTimeStamp}. This should typically be done right before the spork is
+	* populated with new values. This method will also update the current timeStamp to `{@code Instant.now()}.
+	*/
+	public void archive() {
+		previousTimeStamp = SerializationUtils.clone(timeStamp);
+		previousData = SerializationUtils.clone(data);
+		timeStamp = Instant.now();
+	}
 }
