@@ -21,8 +21,10 @@ package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -38,6 +40,10 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 public class VestingStorage extends GridSpork implements Serializable {
 	public VestingStorage() {
 		setType(Type.VESTING_STORAGE);
+
+		final VestingStorage.SporkData data = new VestingStorage.SporkData();
+		data.setVestingAddresses(new HashMap<>());
+		setData(data);
 	}
 
 	@Data
