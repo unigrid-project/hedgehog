@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.ByteArrayOutputStream;
@@ -46,8 +47,12 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data
 @Slf4j
 public class GridSpork implements Serializable, Signable {
+	@JsonFormat(shape=JsonFormat.Shape.STRING)
 	private Instant timeStamp;
+
+	@JsonFormat(shape=JsonFormat.Shape.STRING)
 	private Instant previousTimeStamp;
+
 	private short flags; /* Put Flag values in here */
 
 	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
