@@ -61,7 +61,7 @@ public class NetworkKeyTest extends BaseMockedWeldTest {
 	}
 
 	@Property(tries = 10)
-	public void randomPublicKeysShouldBeInvalid(@ForAll @Size(Signature.PRIVATE_KEY_HEX_SIZE) byte[] privateKey) {
+	public void randomPublicKeysShouldBeInvalid(@ForAll @Size(65) byte[] privateKey) {
 		assertThat(NetworkKey.isTrusted(Hex.encodeHexString(privateKey)), is(false));
 	}
 }
