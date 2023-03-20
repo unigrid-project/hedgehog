@@ -339,6 +339,7 @@
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=org.apache.commons.lang3
 						--add-opens java.base/java.lang=ALL-UNNAMED
 						--add-opens java.base/java.math=ALL-UNNAMED
 						--add-opens java.base/java.net=ALL-UNNAMED
