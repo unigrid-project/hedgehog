@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.reflect.MethodUtils;
 
 @Slf4j
 public class Reflection {
@@ -86,5 +87,11 @@ public class Reflection {
 
 		constructor.setAccessible(true);
 		return constructor;
+	}
+
+	public static <T, I> T invoke(I instance, String name, Object... arguments)
+		throws ClassNotFoundException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
+
+		return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
 	}
 }

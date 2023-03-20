@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -52,6 +53,14 @@ public class SporkDatabaseProducer {
 			} catch (IOException ex) {
 				sporkDatabase.set(SporkDatabase.builder().build());
 				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
+				log.atTrace().log(() -> ex.toString());
+			} catch (ClassCastException | SerializationException ex) {
+				sporkDatabase.set(SporkDatabase.builder().build());
+
+				log.atWarn().log("Database serialization incompatibility, defaulting to fresh"
+					+ " spork database: {}", ex.getMessage()
+				);
+
 				log.atTrace().log(() -> ex.toString());
 			}
 		}
