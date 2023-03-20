@@ -73,6 +73,7 @@ public class RestServer extends AbstractServer {
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
+		config.register(InternalServerErrorMapper.class);
 
 		return config;
 	}

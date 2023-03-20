@@ -30,7 +30,6 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Example;
-import net.jqwik.api.Disabled;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.Size;
@@ -98,7 +97,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 
 		assertThat(deleteResponse.getLength(), equalTo(mockDeleteResponse.getLength()));
 		assertThat(deleteResponse.getStatus(), equalTo(mockDeleteResponse.getStatus()));
-		
+
 		for (int i = 0; i < allBuckets.size(); i++) {
 			final TestBucket testBucket = new TestBucket();
 
@@ -112,7 +111,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 		return Arbitraries.shuffle(testBuckets);
 	}
 
-	@Disabled
 	@Property(tries = 5)
 	@SneakyThrows
 	public void shouldBe1(@ForAll("provideBuckets") List<TestBucket> testBuckets) {
@@ -122,7 +120,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 	}
 
 	@Example
-	@Disabled
 	@SneakyThrows
 	public void shouldBe2() {
 		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
@@ -137,7 +134,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 	}
 
 	@Example
-	@Disabled
 	@SneakyThrows
 	public void shouldBe3() {
 		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
