@@ -30,7 +30,6 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
