@@ -30,12 +30,10 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
@@ -84,36 +82,21 @@ public class VestingStorageResource extends CDIBridgeResource {
 		@HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			VestingStorage vs = sporkDatabase.getVestingStorage();
-
-			if (Objects.isNull(vs)) {
-				vs = new VestingStorage();
-			} else {
-				vs = SerializationUtils.clone(vs);
-			}
+			final VestingStorage vs = ResourceHelper.getNewOrClonedSporkSection(
+				() -> sporkDatabase.getVestingStorage(),
+				() -> new VestingStorage()
+			);
 
 			final VestingStorage.SporkData data = vs.getData();
-			boolean isUpdate = false;
 			final Vesting oldVesting = data.getVestingAddresses().get(Address.builder().wif(address).build());
+			final boolean isUpdate = Objects.nonNull(oldVesting);
 
 			vs.archive();
-			isUpdate = Objects.nonNull(oldVesting);
 			data.getVestingAddresses().put(Address.builder().wif(address).build(), vesting);
 
-			try {
-				vs.sign(privateKey);
-			} catch (SigningException ex) {
-				/* As we clone() the vesting storage, returning here results in a database NOP */
-				return Response.status(Response.Status.UNAUTHORIZED).entity(ex).build();
-			}
-
-			sporkDatabase.setVestingStorage(vs);
-
-			if (isUpdate) {
-				return Response.noContent().build();
-			}
-
-			return Response.ok().build();
+			return ResourceHelper.commitAndSign(vs, privateKey, sporkDatabase, isUpdate, signable -> {
+				sporkDatabase.setVestingStorage(signable);
+			});
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

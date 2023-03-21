@@ -21,18 +21,22 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.POST;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.math.BigDecimal;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
@@ -49,13 +53,41 @@ public class MintStorageResource extends CDIBridgeResource {
 
 	@Path("/mint-storage") @GET
 	public Response list() {
-		System.out.println("list()");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+		final MintStorage ms = sporkDatabase.getMintStorage();
+
+		if (Objects.isNull(ms)) {
+			return Response.noContent().build();
+		}
+
+		return Response.ok().entity(sporkDatabase.getMintStorage()).build();
 	}
 
-	@Path("/mint-storage/{address}") @POST
-	public Response grow(@PathParam("address") String address, MintStorage.SporkData data) {
-		System.out.println("grow()");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	@Path("/mint-storage/{address}/{height}") @PUT
+	public Response grow(@PathParam("address") String address, @PathParam("height") int height, BigDecimal mintAmount,
+		@HeaderParam("privateKey") String privateKey) {
+
+		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
+			final MintStorage ms = ResourceHelper.getNewOrClonedSporkSection(
+				() -> sporkDatabase.getMintStorage(),
+				() -> new MintStorage()
+			);
+
+			final Location location = Location.builder()
+				.address(Address.builder().wif(address).build())
+				.height(height).build();
+
+			final MintStorage.SporkData data = ms.getData();
+			final BigDecimal oldMintAmount = data.getMints().get(location);
+			final boolean isUpdate = Objects.nonNull(oldMintAmount);
+
+			ms.archive();
+			data.getMints().put(location, mintAmount);
+
+			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, isUpdate, signable -> {
+				sporkDatabase.setMintStorage(signable);
+			});
+		}
+
+		return Response.status(Response.Status.UNAUTHORIZED).build();
 	}
 }
