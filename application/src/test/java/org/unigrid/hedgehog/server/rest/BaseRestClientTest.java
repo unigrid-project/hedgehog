@@ -30,6 +30,9 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
+import net.jqwik.api.lifecycle.BeforeTry;
+import net.jqwik.api.lifecycle.AfterTry;
+import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -49,6 +52,8 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	@Inject
 	protected TestServer server;
+
+	protected RestClient client;
 
 	@BeforeContainer
 	private static void beforeContainer() {
@@ -78,5 +83,15 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	@BeforeProperty
 	public void before() {
 		TestServer.mockProperties(server);
+	}
+
+	@BeforeTry
+	public void beforeTry() {
+		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
+	}
+
+	@AfterTry
+	public void afterTry() {
+		client.close();
 	}
 }

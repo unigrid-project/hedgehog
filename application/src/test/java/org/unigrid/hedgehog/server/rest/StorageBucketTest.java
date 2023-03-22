@@ -71,7 +71,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 		@Size(min = 1, max = 10) List<@NotBlank @AlphaChars String> bucketNames,
 		@ForAll @NotBlank @AlphaChars String configurationName) throws ResponseOddityException {
 
-		final RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 		final RestClient clientMock = new RestClient(server.getRest().getHostName(), 8001, false);
 
 		final CreateBucketConfiguration config = new CreateBucketConfiguration(configurationName);
@@ -107,7 +106,6 @@ public class StorageBucketTest extends BaseRestClientTest {
 			testBuckets.add(testBucket);
 		}
 
-		client.close();
 		clientMock.close();
 		return Arbitraries.shuffle(testBuckets);
 	}
