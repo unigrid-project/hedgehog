@@ -40,7 +40,6 @@ import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
 
 public class StorageObjectTest extends BaseRestClientTest {
 	S3Mock api;
-	RestClient client;
 
 	String bucket = "testBucket";
 	String key = "testObject";
@@ -51,13 +50,11 @@ public class StorageObjectTest extends BaseRestClientTest {
 	public void beforeTry() {
 		api = new S3Mock.Builder().withPort(8001).withInMemoryBackend().build();
 		api.start();
-		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 	}
 
 	@AfterTry
 	public void after() {
 		api.shutdown();
-		client.close();
 	}
 
 	@Example

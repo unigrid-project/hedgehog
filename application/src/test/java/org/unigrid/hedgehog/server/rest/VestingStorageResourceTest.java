@@ -41,7 +41,6 @@ import net.jqwik.time.api.constraints.DurationRange;
 import net.jqwik.time.api.constraints.InstantRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
@@ -63,10 +62,6 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 
 		Status expectedStatusFromPut;
 
-		final RestClient client = new RestClient(server.getRest().getHostName(),
-			server.getRest().getPort(), true
-		);
-
 		if (Status.fromStatusCode(client.get("/gridspork/vesting-storage/"+ address).getStatus()) != Status.OK) {
 			expectedStatusFromPut = Status.OK;
 		} else {
@@ -82,6 +77,5 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 		);
 
 		TestFileOutput.outputJson(client.getEntity("/gridspork/vesting-storage/" + address, String.class));
-		client.close();
 	}
 }
