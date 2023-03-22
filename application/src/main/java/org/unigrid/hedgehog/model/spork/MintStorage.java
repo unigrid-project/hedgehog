@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -44,6 +45,10 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 public class MintStorage extends GridSpork implements Serializable {
 	public MintStorage() {
 		setType(Type.MINT_STORAGE);
+
+		final MintStorage.SporkData data = new MintStorage.SporkData();
+		data.setMints(new HashMap<>());
+		setData(data);
 	}
 
 	@Data
