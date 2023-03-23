@@ -62,6 +62,26 @@ public class MintStorageResource extends CDIBridgeResource {
 		return Response.ok().entity(sporkDatabase.getMintStorage()).build();
 	}
 
+	@Path("/mint-storage/{address}/{height}") @GET
+	public Response get(@PathParam("address") String address, @PathParam("height") int height) {
+		if (Objects.isNull(sporkDatabase.getMintStorage())) {
+			return Response.noContent().build();
+		}
+
+		final Location location = Location.builder()
+			.address(Address.builder().wif(address).build())
+			.height(height).build();
+
+		final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();
+		final BigDecimal mintAmount = data.getMints().get(location);
+
+		if (Objects.isNull(mintAmount)) {
+			return Response.status(Response.Status.NOT_FOUND).build();
+		}
+
+		return Response.ok().entity(mintAmount).build();
+	}
+
 	@Path("/mint-storage/{address}/{height}") @PUT
 	public Response grow(@PathParam("address") String address, @PathParam("height") int height, BigDecimal mintAmount,
 		@HeaderParam("privateKey") String privateKey) {
