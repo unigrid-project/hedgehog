@@ -47,13 +47,13 @@ public class StorageObjectTest extends BaseRestClientTest {
 	final int MAX_KEYS = 10000;
 
 	@BeforeTry
-	public void beforeTry() {
+	public void beforeApiTry() {
 		api = new S3Mock.Builder().withPort(8001).withInMemoryBackend().build();
 		api.start();
 	}
 
 	@AfterTry
-	public void after() {
+	public void afterApiTry() {
 		api.shutdown();
 	}
 
