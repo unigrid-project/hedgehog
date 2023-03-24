@@ -78,6 +78,7 @@ public class Shell32Wrapper {
 		return folderPath;
 	}
 
+	@SuppressWarnings("checkstyle:MethodName")
 	@CFunction(transition = CFunction.Transition.TO_NATIVE)
 	private static native int SHGetKnownFolderPath(PointerBase rfid, int dwFlags,
 		VoidPointer hToken, CCharPointerPointer ppszPath

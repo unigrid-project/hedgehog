@@ -79,7 +79,7 @@ public class PublishPeersChannelHandlerTest extends BaseHandlerTest<PublishPeers
 	}
 
 	@Example
-	@SneakyThrows
+	//@SneakyThrows
 	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
 		@Tested PublishPeersChannelHandler handler) {
 

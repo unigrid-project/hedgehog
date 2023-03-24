@@ -47,10 +47,10 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data
 @Slf4j
 public class GridSpork implements Serializable, Signable {
-	@JsonFormat(shape=JsonFormat.Shape.STRING)
+	@JsonFormat(shape = JsonFormat.Shape.STRING)
 	private Instant timeStamp;
 
-	@JsonFormat(shape=JsonFormat.Shape.STRING)
+	@JsonFormat(shape = JsonFormat.Shape.STRING)
 	private Instant previousTimeStamp;
 
 	private short flags; /* Put Flag values in here */
@@ -145,7 +145,7 @@ public class GridSpork implements Serializable, Signable {
 
 			this.signature = signature.sign(getSignable());
 
-		} catch(InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new SigningException("Failed to sign spork with given private key", ex);
 		}
 	}

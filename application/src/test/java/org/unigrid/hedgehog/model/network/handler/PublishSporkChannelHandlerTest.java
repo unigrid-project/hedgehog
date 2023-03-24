@@ -78,7 +78,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		int expectedInvocations = 0;
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
-			/* Only count triggers on the server-side  */
+			/* Only count triggers on the server-side */
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
