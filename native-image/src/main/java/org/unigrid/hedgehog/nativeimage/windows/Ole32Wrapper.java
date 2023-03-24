@@ -62,6 +62,7 @@ public class Ole32Wrapper {
 		return holder.getGuid();
 	}
 
+	@SuppressWarnings("checkstyle:MethodName")
 	@CFunction(transition = CFunction.Transition.NO_TRANSITION)
 	private static native int IIDFromString(CCharPointer lpsz, GUID lpiid);
 }

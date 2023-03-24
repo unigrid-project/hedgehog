@@ -79,8 +79,11 @@ public class Unzipper {
 					} else {
 						printProgress(in.position(), in.size());
 						Files.createDirectories(path.getParent());
+
 						final File file = path.toFile();
-						final OutputStream out = new BufferedOutputStream(new FileOutputStream(file));
+						final OutputStream out = new BufferedOutputStream(
+							new FileOutputStream(file)
+						);
 
 						IOUtils.copy(archive.getInputStream(entry), out);
 						out.flush();
