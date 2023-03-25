@@ -353,6 +353,7 @@
 					<systemPropertyVariables>
 						<testoutput.target>${project.build.directory}</testoutput.target>
 					</systemPropertyVariables>
+					<enableAssertions>true</enableAssertions>
 				</configuration>
 			</plugin>
 			<plugin>
