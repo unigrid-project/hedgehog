@@ -21,18 +21,18 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.POST;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.math.BigDecimal;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -50,23 +50,33 @@ public class MintSupplyResource extends CDIBridgeResource {
 
 	@Path("/mint-supply") @GET
 	public Response list() {
-		System.out.println("list()");
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
-	}
+		final MintSupply ms = sporkDatabase.getMintSupply();
 
-	@Path("/mint-supply") @POST
-	public Response set(MintSupply.SporkData data) {
-		System.out.println("mint-supply set()");
-		log.debug(data.toString());
-
-		if (ObjectUtils.isNotEmpty(data.getMaxSupply())) {
-			return Response.ok().build();
-			//final byte[] maxSupply = data.getMaxSupply().toPlainString().getBytes(CharsetUtil.ISO_8859_1);
-			//final Signature signature = new Signature(Optional.of(key), Optional.empty());
-
-			//System.out.println(p2pServer);
+		if (Objects.isNull(ms)) {
+			return Response.noContent().build();
 		}
 
-		return Response.status(Status.BAD_REQUEST.getStatusCode(), "Missing 'maxSupply'").build();
+		return Response.ok().entity(sporkDatabase.getMintSupply()).build();
+	}
+
+	@Path("/mint-supply") @PUT
+	public Response set(BigDecimal maxSupply, @HeaderParam("privateKey") String privateKey) {
+
+		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
+			final MintSupply ms = ResourceHelper.getNewOrClonedSporkSection(
+				() -> sporkDatabase.getMintSupply(),
+				() -> new MintSupply()
+			);
+
+			final MintSupply.SporkData data = ms.getData();
+			ms.archive();
+			data.setMaxSupply(maxSupply);
+
+			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, false, signable -> {
+				sporkDatabase.setMintSupply(signable);
+			});
+		}
+
+		return Response.status(Response.Status.UNAUTHORIZED).build();
 	}
 }
