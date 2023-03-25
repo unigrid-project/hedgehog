@@ -116,5 +116,4 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 
 		TestFileOutput.outputJson(client.getEntity(url, String.class));
 	}
-
 }

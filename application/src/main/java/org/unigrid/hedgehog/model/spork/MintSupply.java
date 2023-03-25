@@ -32,6 +32,10 @@ public class MintSupply extends GridSpork implements Serializable {
 	public MintSupply() {
 		setType(Type.MINT_SUPPLY);
 		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
+
+		final MintSupply.SporkData data = new MintSupply.SporkData();
+		data.setMaxSupply(BigDecimal.ZERO);
+		setData(data);
 	}
 
 	@Data
