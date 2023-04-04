@@ -56,8 +56,13 @@ public class Topology {
 	}
 
 	@Protected @Lock(LockMode.WRITE)
-	public void addNode(Node node) {
-		nodes.add(node);
+	public boolean addNode(Node node) {
+		return nodes.add(node);
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public boolean removeNode(Node node) {
+		return nodes.remove(node);
 	}
 
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
