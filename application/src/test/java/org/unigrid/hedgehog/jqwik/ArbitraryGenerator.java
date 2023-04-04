@@ -31,4 +31,21 @@ public class ArbitraryGenerator {
 
 		return String.format("127.%d.%d.%d", ip[0], ip[1], ip[2]);
 	}
+
+	public static String version(int parts) {
+		assert parts > 0 : "Parts has to be at least one";
+
+		String vs = "";
+
+		for (int i = 0; i < parts; i++) {
+			vs = vs.concat(i == 0 ? "" : ".");
+			vs = vs.concat(Arbitraries.integers().between(0, 999).sample().toString());
+		}
+
+		return vs;
+	}
+
+	public static String version() {
+		return version(3);
+	}
 }
