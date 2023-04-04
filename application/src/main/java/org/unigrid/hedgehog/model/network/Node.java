@@ -19,28 +19,39 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
+import jakarta.ws.rs.core.UriBuilder;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.function.BiConsumer;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Node {
-	@EqualsAndHashCode.Include private InetSocketAddress address;
-	@Builder.Default private Optional<Connection> connection = Optional.empty();
+	private InetSocketAddress address;
+	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
 	@Builder.Default private Details details = new Details();
 	private Instant lastPingTime;
-	@Builder.Default private Optional<Ping> ping = Optional.empty();
+	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Ping> ping = Optional.empty();
 
 	@Data
+	@Builder
+	@NoArgsConstructor
+	@AllArgsConstructor
 	public static class Details {
 		private String[] protocols;
 		private int version;
@@ -56,5 +67,27 @@ public class Node {
 				});
 			});
 		}
+	}
+
+	public static Node fromAddress(String address) throws URISyntaxException {
+		return fromURI(new URI(null, address, null, null, null).parseServerAuthority());
+	}
+
+	public static Node fromURI(URI uri) throws URISyntaxException {
+		return Node.builder().address(new InetSocketAddress(uri.getHost(), uri.getPort())).build();
+	}
+
+	public URI getURI() {
+		return UriBuilder.fromPath("/{host}:{ip}").build(address.getHostName(), address.getPort());
+	}
+
+	@Override
+	public boolean equals(Object o) {
+		return getURI().equals(((Node) o).getURI());
+	}
+
+	@Override
+	public int hashCode() {
+		return getURI().hashCode();
 	}
 }

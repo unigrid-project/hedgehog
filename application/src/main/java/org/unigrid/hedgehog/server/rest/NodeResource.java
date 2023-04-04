@@ -24,13 +24,17 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 
 @Path("/node")
@@ -40,20 +44,73 @@ public class NodeResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private Topology topology;
 
-	@Path("/add") @POST
-	public Response add() {
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	private URI getURIFromString(String address) throws URISyntaxException {
+		return new URI(null, address, null, null, null).parseServerAuthority();
 	}
 
-	@Path("/list") @GET
+	@GET
 	public Response list() {
-		//System.out.println(topology);
-		//System.out.println(topology.toString());
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+		final Set<Node> nodes = topology.cloneNodes();
+
+		if (nodes.isEmpty()) {
+			return Response.status(Response.Status.NO_CONTENT).build();
+		}
+
+		return Response.ok().entity(nodes).build();
 	}
 
-	@Path("/remove") @DELETE
-	public Response remove() {
-		return Response.ok().entity(new ArrayList<>(Arrays.asList("A", "B", "C"))).build();
+	@Path("/{address}") @GET
+	public Response get(@PathParam("address") String address) {
+		try {
+			final Node nodeToFind = Node.fromAddress(address);
+			final AtomicReference<Response> response = new AtomicReference<>(
+				Response.status(Response.Status.NOT_FOUND).build()
+			);
+
+			topology.forEach(n -> {
+				if (nodeToFind.equals(n)) {
+					response.set(Response.ok().entity(n).build());
+				}
+			});
+
+			return response.get();
+
+		} catch (URISyntaxException ex) {
+			return Response.status(Response.Status.BAD_REQUEST).build();
+		}
+	}
+
+	@POST
+	public Response add(String address) {
+		try {
+			final Node node = Node.fromAddress(address);
+
+			if (topology.containsNode(node)) {
+				return Response.status(Response.Status.CONFLICT).build();
+			}
+
+			topology.addNode(node);
+			return Response.created(node.getURI()).build();
+
+		} catch (URISyntaxException ex) {
+			return Response.status(Response.Status.BAD_REQUEST).build();
+		}
+	}
+
+	@Path("/{address}") @DELETE
+	public Response remove(@PathParam("address") String address) {
+		try {
+			final Node nodeToFind = Node.fromAddress(address);
+
+			if (!topology.containsNode(nodeToFind)) {
+				return Response.status(Response.Status.NOT_FOUND).build();
+			}
+
+			topology.removeNode(nodeToFind);
+			return Response.ok().build();
+
+		} catch (URISyntaxException ex)  {
+			return Response.status(Response.Status.BAD_REQUEST).build();
+		}
 	}
 }
