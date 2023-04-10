@@ -49,7 +49,7 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		final PublishPeers pp = PublishPeers.builder().build();
 
 		for (int i = 0; i < nodes; i++) {
-			final String ip = ArbitraryGenerator.ip();
+			final String ip = ArbitraryGenerator.ip4();
 			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(ip, port);
 			final Node node = Node.builder().address(socketAddress).build();
 			pp.getNodes().add(node);

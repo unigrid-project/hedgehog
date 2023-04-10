@@ -22,7 +22,7 @@ package org.unigrid.hedgehog.jqwik;
 import net.jqwik.api.Arbitraries;
 
 public class ArbitraryGenerator {
-	public static String ip() {
+	public static String ip4() {
 		final int ip[] = new int[3];
 
 		for (int i = 0; i < ip.length; i++) {
@@ -30,6 +30,18 @@ public class ArbitraryGenerator {
 		}
 
 		return String.format("127.%d.%d.%d", ip[0], ip[1], ip[2]);
+	}
+
+	public static String ip6() {
+		final int ip[] = new int[8];
+
+		for (int i = 0; i < ip.length; i++) {
+			ip[i] = Arbitraries.integers().between(1, i == 0 ? 0x01ff : 0xffff).sample();
+		}
+
+		return String.format("%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+			ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7]
+		);
 	}
 
 	public static String version(int parts) {
