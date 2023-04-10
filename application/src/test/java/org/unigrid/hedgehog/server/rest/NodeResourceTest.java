@@ -56,8 +56,8 @@ public class NodeResourceTest extends BaseRestClientTest {
 	private Connection emptyConnection;
 
 	@Provide
-	public Arbitrary<InetSocketAddress> provideAddress(@ForAll @IntRange(min = 4, max = 16) int port) {
-		return Arbitraries.of(InetSocketAddress.createUnresolved(ArbitraryGenerator.ip(), port));
+	public Arbitrary<InetSocketAddress> provideAddress(@ForAll @IntRange(min = 1024, max = 65535) int port) {
+		return Arbitraries.of(InetSocketAddress.createUnresolved(ArbitraryGenerator.ip4(), port));
 	}
 
 	@Provide

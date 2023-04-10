@@ -34,6 +34,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
@@ -74,11 +75,17 @@ public class Node {
 	}
 
 	public static Node fromURI(URI uri) throws URISyntaxException {
-		return Node.builder().address(new InetSocketAddress(uri.getHost(), uri.getPort())).build();
+		int port = uri.getPort();
+
+		if (uri.getPort() == -1) {
+			port = NetOptions.DEFAULT_PORT;
+		}
+
+		return Node.builder().address(new InetSocketAddress(uri.getHost(), port)).build();
 	}
 
 	public URI getURI() {
-		return UriBuilder.fromPath("/{host}:{ip}").build(address.getHostName(), address.getPort());
+		return UriBuilder.fromPath("/{host}:{port}").build(address.getHostName(), address.getPort());
 	}
 
 	@Override
