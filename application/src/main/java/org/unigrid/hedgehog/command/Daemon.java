@@ -22,7 +22,6 @@ package org.unigrid.hedgehog.command;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
-import lombok.Getter;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -31,7 +30,6 @@ import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
-import picocli.CommandLine.Option;
 
 @ApplicationScoped
 @Command(name = "daemon")
