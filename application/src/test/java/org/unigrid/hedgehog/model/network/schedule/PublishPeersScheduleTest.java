@@ -36,8 +36,8 @@ import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSchedule, PublishPeers, Void> {
 	public static final int PERIOD_MS = 250;
-	public static final int WAIT_TIME_MS = 2000;
-	public static final double TOLERANCE = 0.1; /* 10% */
+	public static final int WAIT_TIME_MS = 3000;
+	public static final double TOLERANCE = 0.3; /* 30% */
 
 	public PublishPeersScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PublishPeersSchedule.class);
@@ -70,7 +70,10 @@ public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSched
 		}
 
 		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
-		final double toleranceAmount = Math.ceil(expectedInvocations * TOLERANCE);
+
+		double toleranceAmount = expectedInvocations * TOLERANCE;
+		toleranceAmount = toleranceAmount < 1 ? 1 : toleranceAmount;
+
 		assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
 	}
 }

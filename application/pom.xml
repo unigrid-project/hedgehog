@@ -367,7 +367,7 @@
 						</goals>
 						<configuration>
 							<cpuCount>system.numcores</cpuCount>
-							<factor>0.3</factor>
+							<factor>0.2</factor>
 						</configuration>
 					</execution>
 				</executions>
