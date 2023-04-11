@@ -67,7 +67,8 @@ public class RestServer extends AbstractServer {
 			NodeResource.class,
 			VestingStorageResource.class,
 			StorageBucket.class,
-			StorageObject.class
+			StorageObject.class,
+			UtilResource.class
 		);
 
 		config.register(JacksonJaxbJsonProvider.class);

@@ -17,26 +17,24 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command;
+package org.unigrid.hedgehog.server.rest;
 
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
-import org.unigrid.hedgehog.command.cli.GridSporkList;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
-import org.unigrid.hedgehog.command.cli.NodeAdd;
-import org.unigrid.hedgehog.command.cli.NodeList;
-import org.unigrid.hedgehog.command.cli.NodeRemove;
-import org.unigrid.hedgehog.command.cli.Stop;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Mixin;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.cdi.CDIContext;
 
-@Command(name = "cli", subcommands = { GridSporkGet.class, GridSporkGrow.class, GridSporkSet.class, GridSporkList.class,
-	NodeAdd.class, NodeRemove.class, NodeList.class,
-	Stop.class
-})
-public class CLI {
-	@Mixin private NetOptions netOptions;
-	@Mixin private RestOptions restOptions;
+@Path("/")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
+public class UtilResource extends CDIBridgeResource {
+	@Path("/stop") @POST
+	public Response stop(String address) {
+		CDIContext.stop();
+		return Response.status(Response.Status.ACCEPTED).build();
+	}
 }
