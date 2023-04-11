@@ -23,8 +23,6 @@ import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.InetSocketAddress;
-import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,23 +31,17 @@ import mockit.Mocked;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.From;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Property;
-import net.jqwik.api.ShrinkingMode;
-import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
-import net.jqwik.api.constraints.StringLength;
-import net.jqwik.api.constraints.Size;
-import net.jqwik.api.constraints.UniqueElements;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.ResponseOddityException;
+import static org.unigrid.hedgehog.command.option.NetOptions.DEFAULT_PORT;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.network.Node.Details;
 
 public class NodeResourceTest extends BaseRestClientTest {
 	@Mocked
@@ -60,12 +52,12 @@ public class NodeResourceTest extends BaseRestClientTest {
 		return Arbitraries.of(InetSocketAddress.createUnresolved(ArbitraryGenerator.ip4(), port));
 	}
 
-	@Provide
+	/*@Provide
 	public Arbitrary<String> provideProtocol(@ForAll @AlphaChars @StringLength(min = 4, max = 16) String feature) {
 		return Arbitraries.of(feature.concat("/" + ArbitraryGenerator.version()));
-	}
+	}*/
 
-	@Provide
+	/*@Provide
 	public Arbitrary<Node> provideNode(@ForAll short version, @ForAll Instant lastPingTime,
 		@ForAll @UniqueElements @Size(max = 5) List<@From("provideProtocol") String> protocols,
 		@ForAll("provideAddress") InetSocketAddress address) {
@@ -81,13 +73,15 @@ public class NodeResourceTest extends BaseRestClientTest {
 			build();
 
 		return Arbitraries.of(node);
+	}*/
+
+	private Response postAssert(String url, Node node) {
+		return postAssert(url, node.getURI().toString().replace("/", ""));
 	}
 
 	@SneakyThrows
-	private Response postAssert(String url, Node node) {
-		final Response response = client.post(url,
-			node.getURI().toString().replace("/", "")
-		);
+	private Response postAssert(String url, String host) {
+		final Response response = client.post(url, host);
 
 		assertThat(Status.fromStatusCode(response.getStatus()),
 			equalTo(Status.CREATED)
@@ -97,60 +91,85 @@ public class NodeResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
-	public void shoulBeAbleToAddNodes(@ForAll @Size(max = 20) List<@From("provideNode") Node> nodes) {
+	@Property(tries = 200)
+	public void shoulBeAbleToAddNodes(@ForAll("provideAddress") InetSocketAddress address) {
 		final String url = "/node";
 		final AtomicBoolean containsNode = new AtomicBoolean();
 		Optional<Set<Node>> nodesOnServer = Optional.empty();
 
-		for (Node node : nodes) {
-			final Response response = client.get(url);
-			containsNode.set(false);
+		final Response response = client.get(url);
+		final Node node = Node.builder().address(address).build();
 
-			if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-				nodesOnServer = Optional.of(response.readEntity(new GenericType<Set<Node>>(){}));
-			}
+		containsNode.set(false);
 
-			nodesOnServer.ifPresent(n -> {
-				try {
-					if (n.contains(node)) {
-						final Response repsonse = client.get(url + node.getURI());
-						containsNode.set(true);
+		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
+			nodesOnServer = Optional.of(response.readEntity(new GenericType<Set<Node>>(){}));
+		}
 
-						assertThat(Status.fromStatusCode(response.getStatus()),
-							equalTo(Status.OK)
-						);
-					}
-				} catch (ResponseOddityException ex) {
-					assertThat("Rest client exception", false);
+		nodesOnServer.ifPresent(n -> {
+			try {
+				if (n.contains(node)) {
+					final Response repsonse = client.get(url + node.getURI());
+					containsNode.set(true);
+
+					assertThat(Status.fromStatusCode(response.getStatus()),
+						equalTo(Status.OK)
+					);
 				}
-			});
-
-			if (!containsNode.get()) {
-				final Response postResponse = postAssert(url, node);
-				TestFileOutput.output(postResponse.getLocation().toString());
+			} catch (ResponseOddityException ex) {
+				assertThat("Rest client exception", false);
 			}
+		});
+
+		if (!containsNode.get()) {
+			final Response postResponse = postAssert(url, node);
+			TestFileOutput.output(postResponse.getLocation().toString());
 		}
 	}
 
 	@SneakyThrows
-	@Property(tries = 20)
-	public void shoulBeAbleToRemoveNodes(@ForAll @Size(max = 50) List<@From("provideNode") Node> nodes) {
+	@Property(tries = 50)
+	public void shouldAddNodeWithMissingPort(@ForAll("provideAddress") InetSocketAddress address) {
+		try {
+			final String url = "/node";
+			final Response postResponse = postAssert(url, address.getHostName());
+
+			if (Status.fromStatusCode(postResponse.getStatus()) == Status.CREATED) {
+				final InetSocketAddress addressWithDefaultPort = InetSocketAddress.createUnresolved(
+					address.getHostName(), DEFAULT_PORT
+				);
+
+				final Node node = Node.builder().address(addressWithDefaultPort).build();
+				final Response response = client.get(url + node.getURI());
+
+				assertThat(Status.fromStatusCode(response.getStatus()),
+					equalTo(Status.OK)
+				);
+			} else {
+				assertThat("Unexpected response", false);
+			}
+		} catch(ResponseOddityException ex) {
+			assertThat(ex.getMessage(), containsString("Conflict"));
+		}
+	}
+
+	@SneakyThrows
+	@Property(tries = 500)
+	public void shoulBeAbleToRemoveNodes(@ForAll("provideAddress") InetSocketAddress address) {
 		final String url = "/node";
 		Optional<Set<Node>> nodesOnServer = Optional.empty();
 
-		for (Node node : nodes) {
-			final Response response = client.get(url + node.getURI());
+		final Node node = Node.builder().address(address).build();
+		final Response response = client.get(url + node.getURI());
 
-			if (Status.fromStatusCode(response.getStatus()) == Status.NOT_FOUND) {
-				postAssert(url, node);
-			} else {
-				final Response deleteResponse = client.delete(url + node.getURI());
+		if (Status.fromStatusCode(response.getStatus()) == Status.NOT_FOUND) {
+			postAssert(url, node);
+		} else {
+			final Response deleteResponse = client.delete(url + node.getURI());
 
-				assertThat(Status.fromStatusCode(deleteResponse.getStatus()),
-					equalTo(Status.OK)
-				);
-			}
+			assertThat(Status.fromStatusCode(deleteResponse.getStatus()),
+				equalTo(Status.OK)
+			);
 		}
 	}
 }
