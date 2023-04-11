@@ -36,9 +36,6 @@ import picocli.CommandLine.Option;
 @ApplicationScoped
 @Command(name = "daemon")
 public class Daemon extends CDIContext implements Runnable {
-	@Getter @Option(names = {"-d", "--detach"}, description = "Detach from parent process or terminal.")
-	private boolean detach;
-
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
 
