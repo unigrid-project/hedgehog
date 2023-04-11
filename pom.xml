@@ -55,6 +55,8 @@
 						<dryRun>${dryRun}</dryRun>
 						<preparationGoals></preparationGoals>
 						<pushChanges>false</pushChanges>
+						<scmDevelopmentCommitComment>@{prefix} Prepare for next development iteration</scmDevelopmentCommitComment>
+						<scmReleaseCommitComment>@{prefix} Prepare release @{releaseLabel}</scmReleaseCommitComment>
 					</configuration>
 				</plugin>
 				<plugin>
