@@ -21,11 +21,12 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build with Maven
-      run: mvn package -DskipTests=${{ inputs.skip-tests }}
+      run: mvn install -DskipTests=${{ inputs.skip-tests }}
     - name: Create Java package
       run: |
         cd application
         mvn package -Dskiptests=true
+    - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
         name: Java Package
