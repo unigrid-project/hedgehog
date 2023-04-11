@@ -37,7 +37,7 @@ class RestClientCommand implements Runnable {
 	private String location;
 	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
 
-	public RestClientCommand(String method, String location) {
+	RestClientCommand(String method, String location) {
 		this(method);
 		this.location = location;
 	}
