@@ -20,12 +20,7 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import org.unigrid.hedgehog.model.network.Node;
 import picocli.CommandLine.Command;
 
 @Command(name = "stop")
