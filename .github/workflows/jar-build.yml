@@ -1,0 +1,32 @@
+name: Build Java Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip-tests:
+        type: boolean
+        description: Skip Test Suite
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+    - name: Build with Maven
+      run: mvn package -DskipTests=${{ inputs.skip-tests }}
+    - name: Create Java package
+      run: |
+        cd application
+        mvn package -Dskiptests=true
+      uses: actions/upload-artifact@v3
+      with:
+        name: Java Package
+        path: application/target/hedgehog-*-jar-with-dependencies.jar
