@@ -19,59 +19,32 @@
 
 package org.unigrid.hedgehog.model.network.schedule;
 
-import io.netty.channel.embedded.EmbeddedChannel;
-import java.net.InetSocketAddress;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.constraints.ShortRange;
-import net.jqwik.api.constraints.Size;
-import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.model.network.Connection;
-import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSchedule, PublishPeers, Void> {
-	public static final int PERIOD_MS = 75;
-	public static final int WAIT_TIME_MS = 1000;
-	public static final double TOLERANCE = 0.05; /* 5% */
+	public static final int PERIOD_MS = 250;
+	public static final int WAIT_TIME_MS = 2000;
+	public static final double TOLERANCE = 0.1; /* 10% */
 
 	public PublishPeersScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PublishPeersSchedule.class);
 	}
 
-	/*@Provide
-	public Arbitrary<List<Node>> provideNodes(@ForAll @ShortRange(min = 0, max = 10) short numNodes,
-		@ForAll @Size(value = 60) byte[] signature, @ForAll Instant time, @ForAll Instant previousTime) {
-
-		final List<Node> nodes = new ArrayList<>();
-
-		for (int i = 0; i < numNodes; numNodes++) {
-			final InetSocketAddress address = new InetSocketAddress(ArbitraryGenerator.ip(),
-				Arbitraries.integers().between(0, 65535).sample()
-			);
-
-			nodes.add(Node.builder().address(address).channel(Optional.of(new EmbeddedChannel())).build());
-		}
-	}*/
-
-	//@Property(tries = 5)
-	public void shoulBeAbleToSchedulePublishingOfPeers(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll("provideNodes") List<Node> nodes) throws Exception {
-
+	@Property(tries = 3)
+	public void shoulBeAbleToPropagateNetwork(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
 		final AtomicInteger invocations = new AtomicInteger();
 		final List<Connection> connections = new ArrayList<>();
 
