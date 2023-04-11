@@ -1,10 +1,9 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<name>Unigrid Hedgehog Parent</name>
 	<groupId>org.unigrid.hedgehog</groupId>
 	<artifactId>hedgehog-parent</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.0.1</version>
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -12,7 +11,8 @@
 	</properties>
 	<scm>
 		<developerConnection>scm:git:https://github.com/unigrid-project/hedgehog.git</developerConnection>
-	</scm>
+	  <tag>v0.0.1</tag>
+  </scm>
 	<modules>
 		<module>application</module>
 		<module>common</module>
@@ -53,7 +53,7 @@
 						<tagNameFormat>v@{project.version}</tagNameFormat>
 						<autoVersionSubmodules>true</autoVersionSubmodules>
 						<dryRun>${dryRun}</dryRun>
-						<preparationGoals></preparationGoals>
+						<preparationGoals />
 						<pushChanges>false</pushChanges>
 						<scmDevelopmentCommitComment>@{prefix} Prepare for next development iteration</scmDevelopmentCommitComment>
 						<scmReleaseCommitComment>@{prefix} Prepare release @{releaseLabel}</scmReleaseCommitComment>
