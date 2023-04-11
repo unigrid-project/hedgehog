@@ -2,6 +2,10 @@ name: Build Mac OSX (amd64) Executable
 
 on:
   workflow_dispatch:
+    inputs:
+      skip-tests:
+        type: boolean
+        description: Skip Test Suite
 
 jobs:
   build:
@@ -23,7 +27,7 @@ jobs:
         graalvm-version: 22.3.0
         native-image: true
     - name: Build with Maven
-      run: mvn package
+      run: mvn package -DskipTests=${{ inputs.skip-tests }}
     - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
