@@ -38,10 +38,15 @@ import java.util.Optional;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
 public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
+	@Mocked
+	private Connection emptyConnection;
+
 	@Provide
 	public Arbitrary<PublishPeers> providePublishPeers(@ForAll @Positive byte nodes,
 		@ForAll @IntRange(min = 4097, max = 65535) int port) throws UnknownHostException {
@@ -58,6 +63,15 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		return Arbitraries.of(pp);
 	}
 
+	@Provide
+	public Arbitrary<PublishPeers> provideWithConnection(@ForAll("providePublishPeers") PublishPeers publishPeers) {
+		for (Node n : publishPeers.getNodes()) {
+			n.setConnection(Optional.of(emptyConnection));
+		}
+
+		return Arbitraries.of(publishPeers);
+	}
+
 	@Property
 	@SneakyThrows
 	public void shouldMatch(@ForAll("providePublishPeers") PublishPeers publishPeers,
@@ -72,5 +86,25 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		assertThat(resultingPublishPeers, sameBeanAs(publishPeers));
 		assertThat(resultingPublishPeers, equalTo(publishPeers));
 		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shouldNotIncludeConnectionOrPing(@ForAll("providePublishPeers") PublishPeers publishPeers,
+		@Mocked ChannelHandlerContext context) {
+
+		for (Node n : publishPeers.getNodes()) {
+			n.setConnection(Optional.of(emptyConnection));
+			n.setPing(Optional.of(Ping.builder().build()));
+		}
+
+		final PublishPeers resultingPublishPeers = encodeDecode(publishPeers,
+			new PublishPeersEncoder(), new PublishPeersDecoder(), context
+		);
+
+		for (Node n : resultingPublishPeers.getNodes()) {
+			assertThat(n.getConnection(), equalTo(Optional.empty()));
+			assertThat(n.getPing(), equalTo(Optional.empty()));
+		}
 	}
 }
