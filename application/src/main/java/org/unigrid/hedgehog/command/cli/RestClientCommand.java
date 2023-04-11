@@ -21,20 +21,25 @@ package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import java.util.Optional;
+import java.util.function.Supplier;
+import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
 
+@AllArgsConstructor
 @RequiredArgsConstructor
-class RestClientCommand<T> implements Runnable {
-	private T entity;
+class RestClientCommand implements Runnable {
 	private final String method;
-	private final String location;
+	private String location;
+	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
 
-	RestClientCommand(T entity, String method, String location) {
-		this(method, location);
-		this.entity = entity;
+	public RestClientCommand(String method, String location) {
+		this(method);
+		this.location = location;
 	}
 
 	@Override
@@ -42,11 +47,24 @@ class RestClientCommand<T> implements Runnable {
 		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true)) {
 			switch (method) {
 				case HttpMethod.GET:
-					get(rest.get(location));
+					final Response response = rest.get(getLocation());
+
+					if (Status.fromStatusCode(response.getStatus()) == Status.NO_CONTENT) {
+						defaultSupplier.ifPresent(s -> {
+							System.out.println(s.get());
+						});
+					} else {
+						execute(response);
+					}
+
 					break;
 
 				case HttpMethod.POST:
-					post(rest.post(location, entity));
+					execute(rest.post(getLocation(), getEntity()));
+					break;
+
+				case HttpMethod.DELETE:
+					execute(rest.delete(getLocation()));
 					break;
 
 				default:
@@ -58,11 +76,15 @@ class RestClientCommand<T> implements Runnable {
 		}
 	}
 
-	protected void get(Response response) {
+	protected <T> T getEntity() {
 		throw new UnsupportedOperationException();
 	}
 
-	protected void post(Response response) {
+	protected String getLocation() {
+		return location;
+	}
+
+	protected void execute(Response response) {
 		throw new UnsupportedOperationException();
 	}
 }

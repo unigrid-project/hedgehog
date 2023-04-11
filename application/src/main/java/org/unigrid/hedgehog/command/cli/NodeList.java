@@ -20,18 +20,22 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.unigrid.hedgehog.model.network.Node;
 import picocli.CommandLine.Command;
 
 @Command(name = "node-list")
 public class NodeList extends RestClientCommand {
 	public NodeList() {
-		super(HttpMethod.GET, "/node/list");
+		super(HttpMethod.GET, "/node", Optional.of(() -> new HashSet<Node>()));
 	}
 
 	@Override
-	protected void get(Response response) {
-		System.out.println(response.readEntity(List.class));
+	protected void execute(Response response) {
+		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
 	}
 }

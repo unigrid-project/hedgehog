@@ -19,12 +19,27 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.Response;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Parameters;
 
 @Command(name = "node-add")
-public class NodeAdd implements Runnable {
+public class NodeAdd extends RestClientCommand {
+	@Parameters(index = "0", description = "The ip:port combination of the node to add.")
+	private String address;
+
+	public NodeAdd() {
+		super(HttpMethod.POST, "/node");
+	}
+
 	@Override
-	public void run() {
-		System.out.println("...");
+	protected <T> T getEntity() {
+		return (T) address;
+	}
+
+	@Override
+	protected void execute(Response response) {
+		System.out.println(response.getLocation());
 	}
 }
