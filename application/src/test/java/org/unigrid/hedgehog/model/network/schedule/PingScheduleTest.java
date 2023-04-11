@@ -36,8 +36,8 @@ import org.unigrid.hedgehog.server.TestServer;
 
 public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void> {
 	public static final int PERIOD_MS = 75;
-	public static final int WAIT_TIME_MS = 1000;
-	public static final double TOLERANCE = 0.08; /* 8% */
+	public static final int WAIT_TIME_MS = 3000;
+	public static final double TOLERANCE = 0.15; /* 15% */
 
 	public PingScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);

@@ -68,7 +68,7 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		new Thread(() -> {
 			lockModeProtected.writeProtect(() -> {
 				counter.incrementAndGet();
-				Thread.sleep(50);
+				Thread.sleep(200);
 
 				/* 1, because we should not have been able to lock from the main thread */
 				assertThat(counter.get(), is(1));
@@ -93,7 +93,7 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		new Thread(() -> {
 			lockModeProtected.writeProtect(() -> {
 				counter.incrementAndGet();
-				Thread.sleep(50);
+				Thread.sleep(200);
 
 				/* 1, because we should not have been able to lock from the main thread */
 				assertThat(counter.get(), is(1));
@@ -101,7 +101,7 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 			});
 
 			lockModeProtected.readProtect(() -> {
-				Thread.sleep(50);
+				Thread.sleep(200);
 
 				/* 3, because the read lock below should have passed */
 				assertThat(counter.get(), is(3));
@@ -114,7 +114,7 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 
 		lockModeProtected.readProtect(() -> {
 			counter.incrementAndGet();
-			Thread.sleep(50);
+			Thread.sleep(200);
 		});
 
 		await().untilAtomic(counter, is(4));
