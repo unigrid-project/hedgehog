@@ -54,6 +54,7 @@
 						<autoVersionSubmodules>true</autoVersionSubmodules>
 						<dryRun>${dryRun}</dryRun>
 						<preparationGoals></preparationGoals>
+						<pushChanges>false</pushChanges>
 					</configuration>
 				</plugin>
 				<plugin>
