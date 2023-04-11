@@ -53,6 +53,7 @@
 						<tagNameFormat>v@{project.version}</tagNameFormat>
 						<autoVersionSubmodules>true</autoVersionSubmodules>
 						<dryRun>${dryRun}</dryRun>
+						<preparationGoals></preparationGoals>
 					</configuration>
 				</plugin>
 				<plugin>
