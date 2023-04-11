@@ -7,3 +7,4 @@ socomo.html
 /native-image/target/
 /common/target/
 jshell.history
+release.properties
