@@ -19,12 +19,30 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.Response;
+import java.util.Set;
+import org.unigrid.hedgehog.model.network.Node;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "node-remove")
-public class NodeRemove implements Runnable {
+public class NodeRemove extends RestClientCommand {
+	@CommandLine.Parameters(index = "0", description = "The ip:port combination of the node to remove.")
+	private String address;
+
+	public NodeRemove() {
+		super(HttpMethod.DELETE);
+	}
+
 	@Override
-	public void run() {
-		System.out.println("...");
+	protected String getLocation() {
+		return "/node/%s".formatted(address);
+	}
+
+	@Override
+	protected void execute(Response response) {
+		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
 	}
 }
