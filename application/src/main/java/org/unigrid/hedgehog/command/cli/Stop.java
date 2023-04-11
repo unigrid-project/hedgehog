@@ -17,26 +17,30 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command;
+package org.unigrid.hedgehog.command.cli;
 
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
-import org.unigrid.hedgehog.command.cli.GridSporkList;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
-import org.unigrid.hedgehog.command.cli.NodeAdd;
-import org.unigrid.hedgehog.command.cli.NodeList;
-import org.unigrid.hedgehog.command.cli.NodeRemove;
-import org.unigrid.hedgehog.command.cli.Stop;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.Response;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.unigrid.hedgehog.model.network.Node;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Mixin;
 
-@Command(name = "cli", subcommands = { GridSporkGet.class, GridSporkGrow.class, GridSporkSet.class, GridSporkList.class,
-	NodeAdd.class, NodeRemove.class, NodeList.class,
-	Stop.class
-})
-public class CLI {
-	@Mixin private NetOptions netOptions;
-	@Mixin private RestOptions restOptions;
+@Command(name = "stop")
+public class Stop extends RestClientCommand {
+	public Stop() {
+		super(HttpMethod.POST, "/stop");
+	}
+
+	@Override
+	protected <T> T getEntity() {
+		return null; /* Should result in an empty body */
+	}
+
+	@Override
+	protected void execute(Response response) {
+		/* We don't need to do anything here - not even handle the response */
+	}
 }

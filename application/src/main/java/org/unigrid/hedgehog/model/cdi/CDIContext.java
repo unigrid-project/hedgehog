@@ -21,16 +21,40 @@ package org.unigrid.hedgehog.model.cdi;
 
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.se.SeContainerInitializer;
-import lombok.SneakyThrows;
+import java.io.OutputStream;
+import java.io.PrintStream;
+import lombok.extern.slf4j.Slf4j;
+import org.jboss.weld.environment.se.events.ContainerShutdown;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 
+@Slf4j
 public abstract class CDIContext implements Runnable {
-	@Override @SneakyThrows
+	private static final Object MONITOR = new Object();
+
+	private void shutdown(@Observes ContainerShutdown event) {
+		/* Gets rid of "Weld SE container {uuId} shut down by shutdown hook" */
+		System.setOut(new PrintStream(new OutputStream() {
+			@Override
+			public void write(int b) { /* Do nothing  */ }
+		}));
+	}
+
+	@Override
 	public void run() {
 		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).initialize();
 
-		synchronized (this) {
-			wait();
+		synchronized (MONITOR) {
+			try {
+				MONITOR.wait();
+			} catch (InterruptedException e) {
+				log.atDebug().log("Received singal to exit");
+			}
+		}
+	}
+
+	public static void stop() {
+		synchronized (MONITOR) {
+			MONITOR.notifyAll();
 		}
 	}
 
