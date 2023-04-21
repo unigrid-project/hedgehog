@@ -53,7 +53,7 @@ public class Shell32Wrapper {
 
 			/* End of string detected */
 			if (Arrays.equals(last, new byte[] {0x00, 0x00})) {
-				return i / 2 - 2;
+				return i;
 			}
 		}
 
