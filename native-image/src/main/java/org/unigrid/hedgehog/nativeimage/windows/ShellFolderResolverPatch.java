@@ -48,6 +48,6 @@ public final class ShellFolderResolverPatch {
 
 	@Substitute
 	protected int convertFolderIdToCsidl(FolderId folderId) {
-		throw new IllegalStateException("No longer supported.");
+		throw new IllegalStateException("Not supported.");
 	}
 }
