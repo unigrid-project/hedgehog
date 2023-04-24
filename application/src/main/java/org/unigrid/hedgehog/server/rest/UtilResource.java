@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -27,14 +28,20 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
+import org.unigrid.hedgehog.server.rest.entity.VersionResponse;
 
 @Path("/")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class UtilResource extends CDIBridgeResource {
 	@Path("/stop") @POST
-	public Response stop(String address) {
+	public Response stop() {
 		CDIContext.stop();
 		return Response.status(Response.Status.ACCEPTED).build();
+	}
+
+	@Path("/version") @GET
+	public Response version() {
+		return Response.status(Response.Status.ACCEPTED).entity(VersionResponse.create()).build();
 	}
 }

@@ -17,20 +17,23 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model;
+package org.unigrid.hedgehog.server.rest.entity;
 
-public class Network {
-	public static final String[] PROTOCOLS = {
-		"hedgehog/0.0.1",
-		"gridspork/0.0.1"
-	};
+import lombok.Builder;
+import lombok.Data;
+import org.unigrid.hedgehog.common.model.Version;
+import org.unigrid.hedgehog.model.Network;
 
-	public static final String[] SEEDS = {
-		"localhost"
-	};
+@Data
+@Builder
+public class VersionResponse {
+	private String version;
+	private String[] protocols;
 
-	public static final int COMMUNICATION_THREADS = 16;
-	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
-
-	public static final int MAX_STREAMS = 64;
+	public static VersionResponse create() {
+		return VersionResponse.builder()
+			.version(Version.getVersionNumber())
+			.protocols(Network.PROTOCOLS)
+			.build();
+	}
 }
