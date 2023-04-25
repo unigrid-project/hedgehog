@@ -22,7 +22,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.33.Final</version>
+					<version>0.0.39.Final</version>
 					<classifier>linux-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -34,7 +34,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.33.Final</version>
+					<version>0.0.39.Final</version>
 					<classifier>windows-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -46,7 +46,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.33.Final</version>
+					<version>0.0.39.Final</version>
 					<classifier>osx-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -115,27 +115,27 @@
 		<dependency>
 			<groupId>org.glassfish.jersey.containers</groupId>
 			<artifactId>jersey-container-netty-http</artifactId>
-			<version>3.0.5</version>
+			<version>3.0.10</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.containers</groupId>
 			<artifactId>jersey-container-jdk-http</artifactId>
-			<version>3.0.5</version>
+			<version>3.0.10</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.media</groupId>
 			<artifactId>jersey-media-json-jackson</artifactId>
-			<version>3.0.5</version>
+			<version>3.0.10</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.media</groupId>
 			<artifactId>jersey-media-jaxb</artifactId>
-			<version>3.0.5</version>
+			<version>3.0.10</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jersey.inject</groupId>
 			<artifactId>jersey-hk2</artifactId>
-			<version>3.0.5</version>
+			<version>3.0.10</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish.jaxb</groupId>
@@ -150,7 +150,7 @@
 		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-all</artifactId>
-			<version>4.1.84.Final</version>
+			<version>4.1.90.Final</version>
 			<exclusions>
 				<exclusion>
 					<groupId>*</groupId>
@@ -171,7 +171,7 @@
 		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-codec-http</artifactId>
-			<version>4.1.84.Final</version>
+			<version>4.1.90.Final</version>
 		</dependency>
 		<dependency>
 			<groupId>org.jboss</groupId>
