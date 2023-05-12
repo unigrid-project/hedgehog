@@ -22,10 +22,12 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
+@ChannelCodec(priority = 1)
 public class PingDecoder extends AbstractReplayingDecoder<Ping> implements PacketDecoder<Ping> {
 	/*
 	    Packet format:

@@ -71,6 +71,7 @@ public class P2PServer extends AbstractServer {
 			certificate.privateKey(), null, certificate.certificate())
 			.applicationProtocols(Network.PROTOCOLS).build();
 
+		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
 			.sslContext(context)
 			.tokenHandler(encryptedTokenHandler)
