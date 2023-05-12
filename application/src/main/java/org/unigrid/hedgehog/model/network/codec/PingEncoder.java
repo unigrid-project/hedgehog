@@ -24,11 +24,13 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
+@ChannelCodec(priority = 0)
 public class PingEncoder extends AbstractMessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
 	/*
 	    Packet format:

@@ -91,6 +91,7 @@ public class P2PClient implements Connection {
 			.get();
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
+		// TODO: Add support for ChannelCollector
 		channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),

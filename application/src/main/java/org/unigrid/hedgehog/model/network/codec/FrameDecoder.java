@@ -24,8 +24,10 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.util.AttributeKey;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
+@ChannelCodec(priority = -10)
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	public static final int MAGIC = 0xBABE;
 	public static final AttributeKey<Integer> PACKET_SIZE_KEY = AttributeKey.valueOf("PACKET_SIZE");
