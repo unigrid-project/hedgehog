@@ -33,7 +33,7 @@ import org.unigrid.hedgehog.model.network.Node;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class PublishPeers extends Packet implements Serializable {
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 10;
+	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 3;
 
 	@Builder.Default private Set<Node> nodes = new HashSet<>();
 
