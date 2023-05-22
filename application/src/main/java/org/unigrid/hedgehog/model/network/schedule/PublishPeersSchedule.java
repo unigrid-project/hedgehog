@@ -27,11 +27,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
 @Data
+@Slf4j
 @EqualsAndHashCode(callSuper = false)
 public class PublishPeersSchedule extends AbstractSchedule implements Schedulable {
 	public PublishPeersSchedule() {
@@ -46,6 +48,8 @@ public class PublishPeersSchedule extends AbstractSchedule implements Schedulabl
 			if (topology.isResolvable()) {
 				final Set<Node> nodesToSend = topology.get().cloneNodes();
 				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend));
+			} else {
+				log.atWarn().log("Unable to resolve Topology instance");
 			}
 		};
 	}
