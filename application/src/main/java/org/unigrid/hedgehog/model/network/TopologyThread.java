@@ -29,45 +29,53 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.client.P2PClient;
 
 @Slf4j
 public class TopologyThread extends Thread {
 	public static final int SECONDS_BETWEEN_RECONNECTS = 30;
+
+	private Map<InetSocketAddress, P2PClient> connections = new HashMap<>();
 	private Object lock = new Object();
 	private boolean run = true;
+
+	public class NodeConnectionHandler implements Consumer<Node> {
+		@Override
+		public void accept(Node node) {
+			log.atTrace().log("Handling node {} connection", node);
+
+			try {
+				if (!connections.containsKey(node.getAddress())) {
+					connections.put(node.getAddress(),
+						new P2PClient(node.getAddress().getHostName(),
+							node.getAddress().getPort()
+						)
+					);
+				}
+			} catch (ExecutionException | InterruptedException | CertificateException
+				| NoSuchAlgorithmException ex) {
+				log.atWarn().log("Node connection to {} failed", node, ex);
+
+				if (ex.getCause().getClass().isAssignableFrom(ConnectTimeoutException.class)) {
+					final Instance<Topology> topology = CDI.current().select(Topology.class);
+
+					topology.get().removeNode(node);
+					log.atTrace().log("Removed node {} from topology", node);
+				}
+			}
+		}
+	}
 
 	@Override
 	public void run() {
 		final Instance<Topology> topology = CDI.current().select(Topology.class);
-		final Map<InetSocketAddress, P2PClient> connections = new HashMap<>();
 
 		while (run) {
 			if (topology.isResolvable()) {
 				final Set<Node> nodes = topology.get().cloneNodes();
-
-				nodes.forEach(n -> {
-					try {
-						if (!connections.containsKey(n.getAddress())) {
-							connections.put(n.getAddress(),
-								new P2PClient(n.getAddress().getHostName(),
-									n.getAddress().getPort()
-								)
-							);
-						}
-					} catch (ExecutionException | InterruptedException | CertificateException
-						| NoSuchAlgorithmException ex) {
-						log.atWarn().log("Node connection to {} failed: {}", n, ex.getMessage());
-
-						for (Throwable t : ex.getSuppressed()) {
-							if (t instanceof ConnectTimeoutException) {
-								topology.get().removeNode(n);
-								log.atTrace().log("Removed node {} from topology", n);
-							}
-						}
-					}
-				});
+				nodes.forEach(new NodeConnectionHandler());
 			} else {
 				log.atWarn().log("Unable to resolve Topology instance");
 			}
@@ -76,7 +84,8 @@ public class TopologyThread extends Thread {
 				try {
 					lock.wait(SECONDS_BETWEEN_RECONNECTS * 1000);
 				} catch (InterruptedException ex) {
-					return; /* At this point we know we are done and can just bail out */
+					return;
+					/* At this point we know we are done and can just bail out */
 				}
 			}
 		}
