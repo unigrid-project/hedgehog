@@ -27,10 +27,10 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ChannelCodec {
-	public enum Type {
+	enum Type {
 		CLIENT, SERVER;
 	}
 
-	public Type[] value() default {ChannelCodec.Type.CLIENT, ChannelCodec.Type.SERVER};
-	public int priority() default 0;
+	Type[] value() default {ChannelCodec.Type.CLIENT, ChannelCodec.Type.SERVER};
+	int priority() default 0;
 }
