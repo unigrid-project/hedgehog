@@ -22,16 +22,20 @@ package org.unigrid.hedgehog.model.network;
 import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.net.URISyntaxException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
+@Slf4j
 @ApplicationScoped
 public class Topology {
 	private HashSet<Node> nodes;
@@ -39,6 +43,14 @@ public class Topology {
 	@PostConstruct
 	private void init() {
 		nodes = new HashSet<>();
+
+		for (String address : Network.SEEDS) {
+			try {
+				addNode(Node.fromAddress(address));
+			} catch (URISyntaxException ex) {
+				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
+			}
+		}
 	}
 
 	@Protected @Lock(LockMode.READ)
