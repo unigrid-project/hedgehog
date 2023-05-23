@@ -83,5 +83,5 @@ public class ChannelCollector {
 	public static <T extends ChannelHandler> List<T> collectSchedules(Type type, URL... urls) {
 		final URL[] locations = locations(org.unigrid.hedgehog.model.network.schedule.Package.class, urls);
 		return find(reflections(locations), ChannelScheduler.class, type);
-	}	
+	}
 }

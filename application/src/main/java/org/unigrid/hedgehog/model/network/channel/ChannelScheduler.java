@@ -27,10 +27,10 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface ChannelScheduler {
-	public enum Type {
+	enum Type {
 		CLIENT, SERVER;
 	}
 
-	public Type[] value() default {ChannelScheduler.Type.CLIENT, ChannelScheduler.Type.SERVER};
-	public int priority() default 0;
+	Type[] value() default {ChannelScheduler.Type.CLIENT, ChannelScheduler.Type.SERVER};
+	int priority() default 0;
 }
