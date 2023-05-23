@@ -25,7 +25,7 @@ import org.unigrid.hedgehog.model.function.VoidFunctionE;
 @Slf4j
 public class ExceptionUtil {
 	/**
-	* Executes a functional callback (VoidFunctionE) and swallows the exceptions. This allows us to call execute
+	* Executes a functional callback (VoidFunctionE) and swallows the exceptions. This allows us to execute
 	* functional callbacks that throw checked exceptions (something Java does not allow by default). Any
 	* swallowed exceptions are logged at trace level.
 	*

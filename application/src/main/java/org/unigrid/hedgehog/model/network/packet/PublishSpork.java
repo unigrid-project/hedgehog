@@ -31,7 +31,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class PublishSpork extends Packet implements Serializable {
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 5;
+	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 3;
 
 	private GridSpork gridSpork;
 
