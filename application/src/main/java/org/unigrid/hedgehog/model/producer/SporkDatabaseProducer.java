@@ -75,7 +75,7 @@ public class SporkDatabaseProducer {
 			SporkDatabase.persist(path(), sporkDatabase.get());
 
 		} catch (Exception ex) {
-			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
+			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
 			log.atTrace().log(() -> ex.toString());
 		}
 	}
