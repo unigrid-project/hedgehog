@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.ConnectTimeoutException;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
 import java.net.InetSocketAddress;
@@ -57,7 +58,14 @@ public class TopologyThread extends Thread {
 						}
 					} catch (ExecutionException | InterruptedException | CertificateException
 						| NoSuchAlgorithmException ex) {
-						log.atError().log("Node connection to {} failed: {}", n, ex);
+						log.atWarn().log("Node connection to {} failed: {}", n, ex.getMessage());
+
+						for (Throwable t : ex.getSuppressed()) {
+							if (t instanceof ConnectTimeoutException) {
+								topology.get().removeNode(n);
+								log.atTrace().log("Removed node {} from topology", n);
+							}
+						}
 					}
 				});
 			} else {
