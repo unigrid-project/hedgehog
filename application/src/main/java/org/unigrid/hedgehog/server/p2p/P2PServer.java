@@ -41,6 +41,7 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -51,12 +52,14 @@ import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
+	private TopologyThread topologyThread;
 	private Channel channel;
 
 	@Inject
@@ -89,7 +92,8 @@ public class P2PServer extends AbstractServer {
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),
-					new PublishPeersSchedule()
+					new PublishPeersSchedule(),
+					new PublishAndSaveSporkSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 
@@ -98,6 +102,9 @@ public class P2PServer extends AbstractServer {
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())
 			.sync().channel();
+
+		topologyThread = new TopologyThread();
+		topologyThread.start();
 	}
 
 	@Override
@@ -107,6 +114,7 @@ public class P2PServer extends AbstractServer {
 
 	@PreDestroy
 	private void destroy() {
+		topologyThread.exit();
 		channel.close();
 		group.shutdownGracefully();
 	}
