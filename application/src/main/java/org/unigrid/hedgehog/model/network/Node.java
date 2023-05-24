@@ -33,12 +33,15 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Data
+@Slf4j
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -56,6 +59,17 @@ public class Node {
 	public static class Details {
 		private String[] protocols;
 		private int version;
+	}
+
+	@SneakyThrows
+	public boolean isMe() {
+		try {
+			final String address = String.format("%s:%s", NetOptions.getHost(), NetOptions.getPort());
+			return equals(Node.fromAddress(address));
+
+		} catch (URISyntaxException ex) {
+			return false;
+		}
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {

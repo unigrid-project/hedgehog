@@ -69,7 +69,11 @@ public class Topology {
 
 	@Protected @Lock(LockMode.WRITE)
 	public boolean addNode(Node node) {
-		return nodes.add(node);
+		if (!nodes.contains(node) && !node.isMe()) {
+			return nodes.add(node);
+		}
+
+		return false;
 	}
 
 	@Protected @Lock(LockMode.WRITE)
