@@ -28,7 +28,7 @@ public class NetOptions {
 	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
 
 	@Getter @Option(names = { "-H", "--nethost" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "localhost"
+		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "0.0.0.0"
 	)
 	private static String host;
 
