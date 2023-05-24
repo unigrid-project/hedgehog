@@ -47,7 +47,7 @@ public class PublishPeersSchedule extends AbstractSchedule implements Schedulabl
 
 			if (topology.isResolvable()) {
 				final Set<Node> nodesToSend = topology.get().cloneNodes();
-				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend));
+				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend).build());
 			} else {
 				log.atWarn().log("Unable to resolve Topology instance");
 			}

@@ -64,9 +64,14 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 			final Instance<SporkDatabase> db = CDI.current().select(SporkDatabase.class);
 
 			if (db.isResolvable()) {
-				channel.writeAndFlush(PublishSpork.builder().gridSpork(db.get().getMintStorage()));
-				channel.writeAndFlush(PublishSpork.builder().gridSpork(db.get().getMintSupply()));
-				channel.writeAndFlush(PublishSpork.builder().gridSpork(db.get().getVestingStorage()));
+				channel.writeAndFlush(PublishSpork.builder()
+					.gridSpork(db.get().getMintStorage()).build());
+
+				channel.writeAndFlush(PublishSpork.builder()
+					.gridSpork(db.get().getMintSupply()).build());
+
+				channel.writeAndFlush(PublishSpork.builder()
+					.gridSpork(db.get().getVestingStorage()).build());
 
 				save(db.get());
 			} else {
