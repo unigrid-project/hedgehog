@@ -23,6 +23,7 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
@@ -60,6 +61,7 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient implements Connection {
@@ -111,7 +113,8 @@ public class P2PClient implements Connection {
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),
-					new PublishPeersSchedule()
+					new PublishPeersSchedule(),
+					new PublishAndSaveSporkSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.CLIENT)).sync().getNow();
 	}
