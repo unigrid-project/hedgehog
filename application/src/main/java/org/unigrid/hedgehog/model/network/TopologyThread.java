@@ -44,7 +44,7 @@ public class TopologyThread extends Thread {
 	public class NodeConnectionHandler implements Consumer<Node> {
 		@Override
 		public void accept(Node node) {
-			log.atTrace().log("Handling node {} connection", node);
+			log.atTrace().log("Handling connection {}", node);
 
 			try {
 				if (!connections.containsKey(node.getAddress())) {
