@@ -50,6 +50,7 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 		/* Should we forward this packet on to the next decoder? */
 		if (forward) {
 			in.resetReaderIndex();
+			in.retain();
 			ctx.fireChannelRead(in);
 		}
 	}
