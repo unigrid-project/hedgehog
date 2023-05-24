@@ -45,10 +45,13 @@ import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
+import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
+import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -87,7 +90,9 @@ public class P2PServer extends AbstractServer {
 					new FrameDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler()
+					new PublishPeersEncoder(), new PublishPeersDecoder(),
+					new PingChannelHandler(), new PublishSporkChannelHandler(),
+					new PublishPeersChannelHandler()
 				);
 			}, () -> {
 				return Arrays.asList(
