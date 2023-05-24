@@ -23,20 +23,16 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
+@Slf4j
 @Sharable
 public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPeers> {
 	public PublishPeersChannelHandler() {
 		super(PublishPeers.class);
-	}
-
-	private static void addNewNodeToTopology(Topology topology, Node node) {
-		if (!topology.containsNode(node)) {
-			topology.addNode(node);
-		}
 	}
 
 	@Override
@@ -45,7 +41,7 @@ public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPe
 
 		if (topology.isResolvable()) {
 			for (Node newNode : publishPeers.getNodes()) {
-				addNewNodeToTopology(topology.get(), newNode);
+				topology.get().addNode(newNode);
 			}
 		}
 	}
