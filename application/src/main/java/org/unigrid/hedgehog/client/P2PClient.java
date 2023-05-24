@@ -43,6 +43,7 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Network;
@@ -80,6 +81,7 @@ public class P2PClient implements Connection {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
+			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
 			.sslContext(context)
 			.build();
 

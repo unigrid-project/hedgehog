@@ -33,4 +33,5 @@ public class Network {
 	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
 
 	public static final int MAX_STREAMS = 64;
+	public static final int IDLE_TIME_MINUTES = 15;
 }
