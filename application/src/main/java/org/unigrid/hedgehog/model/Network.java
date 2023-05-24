@@ -26,7 +26,9 @@ public class Network {
 	};
 
 	public static final String[] SEEDS = {
-		"localhost"
+		"seed1.unigrid.org", "seed2.unigrid.org",
+		"seed3.unigrid.org", "seed4.unigrid.org",
+		"seed5.unigrid.org", "seed6.unigrid.org"
 	};
 
 	public static final int COMMUNICATION_THREADS = 8;
