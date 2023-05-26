@@ -26,33 +26,31 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
+import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
-@ChannelCodec(priority = 2)
-public class PingEncoder extends AbstractMessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
+@ChannelCodec(priority = 0)
+public class HelloEncoder extends AbstractMessageToByteEncoder<Hello> implements PacketEncoder<Hello> {
 	/*
 	    Packet format:
-	    R = Response flag ON/OFF
 	    0..............................................................63
 	    [                << Frame Header (FrameDecoder) >>             ]
-            [                       nano request time                      ]
-	    R[                           reserved                          ]
+            [   port num   ][                   reserved                   ]
+	    [                           reserved                           ]
 	*/
 	@Override
-	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, Ping ping) throws Exception {
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, Hello hello) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
 
-		out.writeLong(ping.getNanoTime());
-		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
-		out.writeZero(7 /* 56 bits */);
+		out.writeShort(hello.getPort());
+		out.writeZero(14 /* 112 bits */);
 
 		return Optional.of(out);
 	}
 
 	@Override
 	public Packet.Type getCodecType() {
-		return Packet.Type.PING;
+		return Packet.Type.HELLO;
 	}
 }

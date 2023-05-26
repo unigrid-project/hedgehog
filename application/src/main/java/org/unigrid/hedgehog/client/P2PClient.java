@@ -23,7 +23,6 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
@@ -50,6 +49,7 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
@@ -104,6 +104,7 @@ public class P2PClient implements Connection {
 			new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
+					new HelloEncoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),

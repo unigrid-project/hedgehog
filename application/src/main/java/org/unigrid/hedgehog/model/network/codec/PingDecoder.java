@@ -27,10 +27,11 @@ import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@ChannelCodec(priority = 1)
+@ChannelCodec(priority = 3)
 public class PingDecoder extends AbstractReplayingDecoder<Ping> implements PacketDecoder<Ping> {
 	/*
 	    Packet format:
+	    R = Response flag ON/OFF
 	    0..............................................................63
 	    [                << Frame Header (FrameDecoder) >>             ]
             [                       nano request time                      ]

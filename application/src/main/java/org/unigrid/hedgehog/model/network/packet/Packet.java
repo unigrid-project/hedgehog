@@ -39,6 +39,7 @@ public class Packet {
 	@AllArgsConstructor
 	public enum Type {
 		UNDEFINED((short) 0),
+		HELLO((short) 250),
 		PING((short) 500),
 		ASK_PEERS((short) 1000), PUBLISH_PEERS((short) 1010),
 		ASK_NODE_DETAILS((short) 1100), PUBLISH_NODE_DETAILS((short) 1110),
@@ -48,6 +49,7 @@ public class Packet {
 
 		public static Type get(short value) {
 			switch (value) {
+				case 250: return HELLO;
 				case 500: return PING;
 				case 1000: return ASK_PEERS;
 				case 1010: return PUBLISH_PEERS;
