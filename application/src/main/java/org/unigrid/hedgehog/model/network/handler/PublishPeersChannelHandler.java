@@ -40,9 +40,15 @@ public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPe
 		final Instance<Topology> topology = CDI.current().select(Topology.class);
 
 		if (topology.isResolvable()) {
+			log.atTrace().log("Received {} peers from {}",
+				publishPeers.getNodes().size(), context.channel().remoteAddress()
+			);
+
 			for (Node newNode : publishPeers.getNodes()) {
 				topology.get().addNode(newNode);
 			}
+		} else {
+			log.atWarn().log("Unable to resolve Topology instance");
 		}
 	}
 }
