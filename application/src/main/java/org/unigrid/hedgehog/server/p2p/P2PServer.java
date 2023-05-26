@@ -44,6 +44,7 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.HelloDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
@@ -51,6 +52,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
+import org.unigrid.hedgehog.model.network.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
@@ -90,11 +92,12 @@ public class P2PServer extends AbstractServer {
 			.streamHandler(new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
+					new HelloDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new PublishPeersChannelHandler()
+					new HelloChannelHandler(), new PublishPeersChannelHandler()
 				);
 			}, () -> {
 				return Arrays.asList(

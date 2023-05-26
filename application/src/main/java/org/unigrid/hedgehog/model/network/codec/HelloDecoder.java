@@ -20,39 +20,34 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
-import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
+import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
+import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Sharable
-@ChannelCodec(priority = 2)
-public class PingEncoder extends AbstractMessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
+@ChannelCodec(priority = 1)
+public class HelloDecoder extends AbstractReplayingDecoder<Hello> implements PacketDecoder<Hello> {
 	/*
 	    Packet format:
-	    R = Response flag ON/OFF
 	    0..............................................................63
 	    [                << Frame Header (FrameDecoder) >>             ]
-            [                       nano request time                      ]
-	    R[                           reserved                          ]
+            [   port num   ][                   reserved                   ]
+	    [                           reserved                           ]
 	*/
 	@Override
-	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, Ping ping) throws Exception {
-		final ByteBuf out = Unpooled.buffer();
+	public Optional<Hello> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final Hello hello = new Hello();
 
-		out.writeLong(ping.getNanoTime());
-		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
-		out.writeZero(7 /* 56 bits */);
+		hello.setPort(in.readUnsignedShort());
+		in.skipBytes(14 /* 112 bits */);
 
-		return Optional.of(out);
+		return Optional.of(hello);
 	}
 
 	@Override
 	public Packet.Type getCodecType() {
-		return Packet.Type.PING;
+		return Packet.Type.HELLO;
 	}
 }
