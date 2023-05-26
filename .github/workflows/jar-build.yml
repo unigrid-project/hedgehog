@@ -25,7 +25,7 @@ jobs:
     - name: Create Java package
       run: |
         cd application
-        mvn package -Dskiptests=true
+        mvn package -DskipTests=true
     - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
