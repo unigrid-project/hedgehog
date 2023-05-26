@@ -58,6 +58,15 @@ public class Topology {
 		nodes.forEach(consumer);
 	}
 
+	@Protected @Lock(LockMode.WRITE)
+	public void modifyNode(Node node, Consumer<Node> consumer) {
+		nodes.forEach(n -> {
+			if (node.equals(n)) {
+				consumer.accept(n);
+			}
+		});
+	}
+
 	public Set<Node> cloneNodes() {
 		return new HashSet(nodes);
 	}
