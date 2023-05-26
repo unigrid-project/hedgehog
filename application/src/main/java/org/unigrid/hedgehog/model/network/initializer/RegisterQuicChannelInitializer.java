@@ -29,8 +29,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
+@Slf4j
 @RequiredArgsConstructor
 public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStreamChannel> {
 	public static final AttributeKey<Type> CHANNEL_TYPE_KEY = AttributeKey.valueOf("CHANNEL_TYPE");
@@ -71,6 +75,11 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 					});
 				}
 			});
+		}
+
+		if (type == Type.CLIENT) {
+			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
+			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
 	}
 }
