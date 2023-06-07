@@ -62,6 +62,7 @@ public class TopologyThread extends Thread {
 					final Instance<Topology> topology = CDI.current().select(Topology.class);
 
 					topology.get().removeNode(node);
+					connections.remove(node.getAddress());
 					log.atTrace().log("Removed node {} from topology", node);
 				}
 			}
