@@ -42,6 +42,11 @@ public class Topology {
 
 	@PostConstruct
 	private void init() {
+		repopulate();
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public void repopulate() {
 		nodes = new HashSet<>();
 
 		for (String address : Network.SEEDS) {
@@ -60,6 +65,10 @@ public class Topology {
 	@Protected @Lock(LockMode.READ)
 	public void forEach(Consumer<Node> consumer) {
 		nodes.forEach(consumer);
+	}
+
+	public boolean isEmpty() {
+		return nodes.isEmpty();
 	}
 
 	@Protected @Lock(LockMode.WRITE)
