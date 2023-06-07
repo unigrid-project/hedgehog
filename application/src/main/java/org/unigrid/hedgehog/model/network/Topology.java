@@ -46,7 +46,11 @@ public class Topology {
 
 		for (String address : Network.SEEDS) {
 			try {
-				addNode(Node.fromAddress(address));
+				final Node node = Node.fromAddress(address);
+
+				if (!node.isMe()) {
+					addNode(node);
+				}
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
 			}
