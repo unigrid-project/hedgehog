@@ -75,6 +75,11 @@ public class TopologyThread extends Thread {
 
 		while (run) {
 			if (topology.isResolvable()) {
+				/* If we have no connections, we try the seed nodes again! */
+				if (topology.get().isEmpty()) {
+					topology.get().repopulate();
+				}
+
 				final Set<Node> nodes = topology.get().cloneNodes();
 				nodes.forEach(new NodeConnectionHandler());
 			} else {
