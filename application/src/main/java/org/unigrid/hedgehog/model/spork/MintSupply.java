@@ -41,5 +41,12 @@ public class MintSupply extends GridSpork implements Serializable {
 	@Data
 	public static class SporkData implements ChunkData {
 		private BigDecimal maxSupply;
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setMaxSupply(BigDecimal.ZERO);
+			return data;
+		}
 	}
 }

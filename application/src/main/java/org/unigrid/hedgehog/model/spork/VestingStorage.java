@@ -62,5 +62,12 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 			private int parts;
 		}
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setVestingAddresses(new HashMap<>());
+			return data;
+		}
 	}
 }
