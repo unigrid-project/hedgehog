@@ -51,7 +51,7 @@ public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPee
 		for (Node n : publishPeers.getNodes()) {
 			out.writeShort(n.getAddress().getPort());
 			out.writeZero(6 /* 48 bytes */);
-			ByteBufUtils.writeNullTerminatedString(n.getAddress().getHostName(), out);
+			ByteBufUtils.writeNullTerminatedString(n.getAddress().getAddress().getHostAddress(), out);
 		}
 
 		return Optional.of(out);
