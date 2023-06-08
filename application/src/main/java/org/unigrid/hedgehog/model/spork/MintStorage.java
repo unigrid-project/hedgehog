@@ -83,5 +83,12 @@ public class MintStorage extends GridSpork implements Serializable {
 				}
 			}
 		}
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setMints(new HashMap<>());
+			return data;
+		}
 	}
 }

@@ -171,8 +171,18 @@ public class GridSpork implements Serializable, Signable {
 	* populated with new values. This method will also update the current timeStamp to `{@code Instant.now()}.
 	*/
 	public void archive() {
-		previousTimeStamp = SerializationUtils.clone(timeStamp);
 		previousData = SerializationUtils.clone(data);
+		previousTimeStamp = SerializationUtils.clone(timeStamp);
 		timeStamp = Instant.now();
+
+		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero" value) */
+
+		if (Objects.isNull(previousData)) {
+			previousData = previousData.empty();
+		}
+
+		if (Objects.isNull(previousTimeStamp)) {
+			previousTimeStamp = Instant.EPOCH;
+		}
 	}
 }

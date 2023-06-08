@@ -35,4 +35,5 @@ import org.unigrid.hedgehog.model.spork.VestingStorage;
 })
 public interface ChunkData extends Serializable {
 	/* Empty on purpose */
+	ChunkData empty();
 }
