@@ -175,7 +175,7 @@ public class GridSpork implements Serializable, Signable {
 		previousTimeStamp = SerializationUtils.clone(timeStamp);
 		timeStamp = Instant.now();
 
-		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero" value) */
+		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero") */
 
 		if (Objects.isNull(previousData)) {
 			previousData = previousData.empty();
