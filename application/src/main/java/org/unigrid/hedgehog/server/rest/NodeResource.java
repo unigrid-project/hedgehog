@@ -89,8 +89,11 @@ public class NodeResource extends CDIBridgeResource {
 				return Response.status(Response.Status.CONFLICT).build();
 			}
 
-			topology.addNode(node);
-			return Response.created(node.getURI()).build();
+			if (topology.addNode(node)) {
+				return Response.created(node.getURI()).build();
+			} else {
+				return Response.notModified().build();
+			}
 
 		} catch (URISyntaxException ex) {
 			return Response.status(Response.Status.BAD_REQUEST).build();
