@@ -29,10 +29,13 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -47,6 +50,9 @@ public class MintSupplyResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
+
+	@CDIBridgeInject
+	private Topology topology;
 
 	@Path("/mint-supply") @GET
 	public Response list() {
@@ -74,6 +80,10 @@ public class MintSupplyResource extends CDIBridgeResource {
 
 			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, false, signable -> {
 				sporkDatabase.setMintSupply(signable);
+
+				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getMintSupply()).build(),
+					topology, Optional.empty()
+				);
 			});
 		}
 
