@@ -32,6 +32,7 @@ import org.apache.commons.io.FileUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 import net.jqwik.api.lifecycle.Store;
+import org.unigrid.hedgehog.model.Json;
 
 public class TestFileOutput {
 	private static final String BUILD_DIRECTORY = System.getProperty("testoutput.target");
@@ -68,19 +69,6 @@ public class TestFileOutput {
 	}
 
 	public static <T> void outputJson(T object) throws JsonProcessingException {
-		final ObjectMapper mapper = new ObjectMapper();
-		String json;
-
-		if (object instanceof String s) {
-			json = mapper.readTree(s).toPrettyString();
-		} else {
-			json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
-		}
-
-		/* An assertion failure down here should not really be able to happen. When JSON processing fails, it will
-		   usually output a JsonProcessingException rather than returning null (at least it should). */
-
-		assertThat(json, notNullValue());
-		TestFileOutput.output(json);
+		TestFileOutput.output(Json.parse(object));
 	}
 }
