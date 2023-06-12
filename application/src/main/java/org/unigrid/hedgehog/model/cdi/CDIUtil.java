@@ -19,8 +19,13 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.CDI;
+import java.util.function.Consumer;
+import lombok.extern.slf4j.Slf4j;
 import org.jboss.weld.interceptor.util.proxy.TargetInstanceProxy;
 
+@Slf4j
 public class CDIUtil {
 	public static <T> void instantiate(T proxy) {
 		proxy.toString(); /* Will force CDI to instantiate this referenced insteance */
@@ -28,5 +33,15 @@ public class CDIUtil {
 
 	public static <T> T unproxy(T proxy) {
 		return (T) ((TargetInstanceProxy) proxy).weld_getTargetInstance();
+	}
+
+	public static <T> void resolveAndRun(Class<T> clazz, Consumer<T> consumer) {
+		final Instance<T> instance = CDI.current().select(clazz);
+
+		if (instance.isResolvable()) {
+			consumer.accept(instance.get());
+		} else {
+			log.atWarn().log("Unable to resolve instance {}", clazz);
+		}
 	}
 }
