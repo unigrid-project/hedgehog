@@ -30,6 +30,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -42,41 +43,38 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 	}
 
 	private void save(SporkDatabase sporkDatabase) {
-		final Instance<ApplicationDirectory> dir = CDI.current().select(ApplicationDirectory.class);
-
-		if (dir.isResolvable()) {
-			final Path path = Path.of(dir.get().getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
+		CDIUtil.resolveAndRun(ApplicationDirectory.class, dir -> {
+			final Path path = Path.of(dir.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 
 			try {
-				Files.createDirectories(dir.get().getUserDataDir());
+				Files.createDirectories(dir.getUserDataDir());
 				SporkDatabase.persist(path, sporkDatabase);
 
 			} catch (Exception ex) {
 				log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
 				log.atTrace().log(() -> ex.toString());
 			}
-		}
+		});
 	}
 
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			final Instance<SporkDatabase> db = CDI.current().select(SporkDatabase.class);
-
-			if (db.isResolvable()) {
-				channel.writeAndFlush(PublishSpork.builder()
-					.gridSpork(db.get().getMintStorage()).build());
-
-				channel.writeAndFlush(PublishSpork.builder()
-					.gridSpork(db.get().getMintSupply()).build());
-
-				channel.writeAndFlush(PublishSpork.builder()
-					.gridSpork(db.get().getVestingStorage()).build());
-
-				save(db.get());
-			} else {
-				log.atWarn().log("Unable to resolve SporkDatabase instance");
-			}
+			CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+				writeAndFlush(channel, db);
+				save(db);
+			});
 		};
+	}
+
+	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase) {
+		channel.writeAndFlush(PublishSpork.builder()
+			.gridSpork(sporkDatabase.getMintStorage()).build());
+
+		channel.writeAndFlush(PublishSpork.builder()
+			.gridSpork(sporkDatabase.getMintSupply()).build());
+
+		channel.writeAndFlush(PublishSpork.builder()
+			.gridSpork(sporkDatabase.getVestingStorage()).build());
 	}
 }
