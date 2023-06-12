@@ -31,8 +31,11 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.Hello;
+import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -81,5 +84,10 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
+
+		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+			log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());
+			PublishAndSaveSporkSchedule.writeAndFlush(channel, db);
+		});
 	}
 }
