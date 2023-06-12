@@ -29,11 +29,14 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
@@ -49,6 +52,9 @@ public class VestingStorageResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
+
+	@CDIBridgeInject
+	private Topology topology;
 
 	@Path("/vesting-storage") @GET
 	public Response list() {
@@ -96,6 +102,10 @@ public class VestingStorageResource extends CDIBridgeResource {
 
 			return ResourceHelper.commitAndSign(vs, privateKey, sporkDatabase, isUpdate, signable -> {
 				sporkDatabase.setVestingStorage(signable);
+
+				Topology.sendAll(PublishSpork.builder().gridSpork(
+					sporkDatabase.getVestingStorage()).build(), topology, Optional.empty()
+				);
 			});
 		}
 
