@@ -20,7 +20,6 @@
 package org.unigrid.hedgehog.jqwik;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -29,8 +28,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import net.jqwik.api.lifecycle.Lifespan;
 import org.apache.commons.io.FileUtils;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.notNullValue;
 import net.jqwik.api.lifecycle.Store;
 import org.unigrid.hedgehog.model.Json;
 
