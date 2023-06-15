@@ -28,6 +28,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
@@ -173,7 +174,7 @@ public class GridSpork implements Serializable, Signable {
 	public void archive() {
 		previousData = SerializationUtils.clone(data);
 		previousTimeStamp = SerializationUtils.clone(timeStamp);
-		timeStamp = Instant.now();
+		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
 		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero") */
 
@@ -182,7 +183,7 @@ public class GridSpork implements Serializable, Signable {
 		}
 
 		if (Objects.isNull(previousTimeStamp)) {
-			previousTimeStamp = Instant.EPOCH;
+			previousTimeStamp = Instant.EPOCH.truncatedTo(ChronoUnit.MILLIS);
 		}
 	}
 }

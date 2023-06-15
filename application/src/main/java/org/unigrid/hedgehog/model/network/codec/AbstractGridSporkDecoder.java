@@ -20,7 +20,6 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import java.time.Instant;
 import java.util.Optional;
@@ -65,8 +64,8 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 
 			gridSpork.setFlags(in.readShort());
 			in.skipBytes(4 /* 32 bits */);
-			gridSpork.setTimeStamp(Instant.ofEpochSecond(in.readLong()));
-			gridSpork.setPreviousTimeStamp(Instant.ofEpochSecond(in.readLong()));
+			gridSpork.setTimeStamp(Instant.ofEpochMilli(in.readLong()));
+			gridSpork.setPreviousTimeStamp(Instant.ofEpochMilli(in.readLong()));
 			in.skipBytes(8 /* 64 bits */);
 
 			gridSpork.setData((ChunkData) cd.get().decodeChunk(ctx, in).get());
@@ -78,7 +77,6 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			in.readBytes(signature);
 			gridSpork.setSignature(signature);
 
-			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(in));
 			return Optional.of(gridSpork);
 		}
 

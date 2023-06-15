@@ -20,7 +20,6 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
@@ -67,8 +66,8 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			data.writeShort(spork.getType().getValue());
 			data.writeShort(spork.getFlags());
 			data.writeZero(4 /* 32 bits */);
-			data.writeLong(spork.getTimeStamp().getEpochSecond());
-			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
+			data.writeLong(spork.getTimeStamp().toEpochMilli());
+			data.writeLong(spork.getPreviousTimeStamp().toEpochMilli());
 			data.writeZero(8 /* 64 bits */);
 
 			ce.get().encodeChunk(ctx, spork.getData(), data);
@@ -77,8 +76,6 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			data.writeShort(spork.getSignature().length);
 			data.writeBytes(spork.getSignature());
 			out.writeBytes(data);
-
-			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
 		}
 	}
 }
