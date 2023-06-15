@@ -22,11 +22,10 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
 import java.net.InetSocketAddress;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -42,9 +41,7 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, Hello hello) throws Exception {
-		final Instance<Topology> topology = CDI.current().select(Topology.class);
-
-		if (topology.isResolvable()) {
+		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
 			log.atTrace().log("HELLO with port {} from source {}", hello.getPort(), address.getAddress());
 
@@ -52,13 +49,11 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 				.channel((QuicStreamChannel) ctx.channel())
 				.build();
 
-			topology.get().addNode(Node.builder()
+			topology.addNode(Node.builder()
 				.address(new InetSocketAddress(address.getAddress(), hello.getPort()))
 				.connection(Optional.of(container))
 				.build()
 			);
-		} else {
-			log.atWarn().log("Unable to resolve Topology instance");
-		}
+		});
 	}
 }
