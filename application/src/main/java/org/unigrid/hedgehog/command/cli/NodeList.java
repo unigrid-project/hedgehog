@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import org.unigrid.hedgehog.command.util.RestClientCommand;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;

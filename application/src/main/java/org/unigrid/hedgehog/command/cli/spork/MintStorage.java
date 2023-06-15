@@ -23,26 +23,38 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import lombok.Getter;
 import lombok.SneakyThrows;
+import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
+import org.unigrid.hedgehog.command.cli.GridSporkGrow;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
-@Command(name = "mint-supply")
-public class MintSupply implements Runnable {
+@Command(name = "mint-storage")
+public class MintStorage implements Runnable {
 	@Spec
 	private CommandSpec spec;
+
+	@Getter @CommandLine.Option(names = "--address", scope = CommandLine.ScopeType.INHERIT,
+		description = "Unigrid address for the mint."
+	)
+	private String address;
+
+	@Getter @CommandLine.Option(names = "--height", scope = CommandLine.ScopeType.INHERIT,
+		description = "Block height on the consensus chain for the mint."
+	)
+	private int height;
 
 	@Override
 	@SneakyThrows
 	public void run() {
 		if (spec.parent().userObject() instanceof GridSporkGet) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-supply") {
-
+			final RestClientCommand cmd = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-storage") {
 				@Override
 				protected void execute(Response response) {
 					System.out.println(Json.parse(response.readEntity(String.class)));
@@ -50,25 +62,29 @@ public class MintSupply implements Runnable {
 			};
 
 			cmd.run();
-		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/mint-supply") {
+		} else if (spec.parent().userObject() instanceof GridSporkGrow) {
+			if (ObjectUtils.anyNull(address, height)) {
+				System.out.println("Both block height and address have to be specified");
+			} else {
+				final String url = "/gridspork/mint-storage/%s/%s".formatted(address, height);
+				final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, url) {
+					@Override
+					protected <T> T getEntity() {
+						return (T) GridSporkGrow.getData();
+					}
 
-				@Override
-				protected <T> T getEntity() {
-					return (T) GridSporkSet.getData();
-				}
+					@Override
+					protected void execute(Response response) {
+						/* No need to do anything here */
+					}
+				};
 
-				@Override
-				protected void execute(Response response) {
-					/* No need to do anything here */
-				}
-			};
+				final MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
+				headers.add("privateKey", GridSporkGrow.getKey());
 
-			final MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
-			headers.add("privateKey", GridSporkSet.getKey());
-
-			cmd.setHeaders(headers);
-			cmd.run();
+				cmd.setHeaders(headers);
+				cmd.run();
+			}
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();
