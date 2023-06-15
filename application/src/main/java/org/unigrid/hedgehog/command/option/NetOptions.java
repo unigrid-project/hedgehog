@@ -36,4 +36,9 @@ public class NetOptions {
 		description = "Network port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
 	)
 	private static int port;
+
+	@Getter @Option(names = "--seeds", scope = CommandLine.ScopeType.INHERIT,
+		description = "Enable/disable seed nodes (enabled by default).", negatable = true
+	)
+	private static boolean seeds;
 }
