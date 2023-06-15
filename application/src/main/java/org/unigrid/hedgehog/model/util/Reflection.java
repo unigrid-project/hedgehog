@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.commons.lang3.reflect.MethodUtils;
 
 @Slf4j
@@ -93,5 +94,9 @@ public class Reflection {
 		throws ClassNotFoundException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
 
 		return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
+	}
+
+	public static <R,T> R getFieldValue(T instance, String name) throws IllegalAccessException {
+		return (R) FieldUtils.getField((Class<T>) instance.getClass(), name, true).get(instance);
 	}
 }
