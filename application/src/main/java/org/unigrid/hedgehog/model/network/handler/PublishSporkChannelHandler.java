@@ -16,16 +16,14 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -43,34 +41,30 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		final Instance<SporkDatabase> db = CDI.current().select(SporkDatabase.class);
-		final GridSpork newSpork = publishSpork.getGridSpork();
+		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+			final GridSpork newSpork = publishSpork.getGridSpork();
 
-		if (db.isUnsatisfied()) {
-			throw new IllegalStateException("Unable to locate spork database bean.");
-		}
+			final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.getMintStorage(),
+				MINT_SUPPLY, db.getMintSupply(),
+				VESTING_STORAGE, db.getVestingStorage()
+			);
 
-		final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.get().getMintStorage(),
-			MINT_SUPPLY, db.get().getMintSupply(),
-			VESTING_STORAGE, db.get().getVestingStorage()
-		);
+			final GridSpork oldSpork = entries.get(newSpork.getType());
 
-		final GridSpork oldSpork = entries.get(newSpork.getType());
-
-		if (!entries.containsKey(newSpork.getType())) {
-			log.atError().log("Received unsupported spork type - ignoring.");
-			return; /* Bail out on unsupported type */
-		}
-
-		if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
-			db.get().set(newSpork);
-
-			final Instance<Topology> topology = CDI.current().select(Topology.class);
-
-			if (topology.isResolvable()) {
-				// TODO: Handle errors better rather than sending Optional.empty()
-				Topology.sendAll(publishSpork, topology.get(), Optional.empty());
+			if (!entries.containsKey(newSpork.getType())) {
+				log.atError().log("Received unsupported spork type - ignoring.");
+				return;
+				/* Bail out on unsupported type */
 			}
-		}
+
+			if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
+				db.set(newSpork);
+
+				CDIUtil.resolveAndRun(Topology.class, topology -> {
+					// TODO: Handle errors better rather than sending Optional.empty()
+					Topology.sendAll(publishSpork, topology, Optional.empty());
+				});
+			}
+		});
 	}
 }
