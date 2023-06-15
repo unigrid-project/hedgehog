@@ -19,6 +19,8 @@
 
 package org.unigrid.hedgehog.model;
 
+import org.unigrid.hedgehog.command.option.NetOptions;
+
 public class Network {
 	private static final String[] PROTOCOLS = {
 		"hedgehog/0.0.1",
@@ -42,6 +44,10 @@ public class Network {
 	}
 
 	public static String[] getSeeds() {
-		return SEEDS;
+		if (NetOptions.isSeeds()) {
+			return SEEDS;
+		}
+
+		return new String[0];
 	}
 }
