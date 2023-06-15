@@ -20,12 +20,10 @@
 package org.unigrid.hedgehog.command.cli;
 
 import org.unigrid.hedgehog.command.cli.spork.MintSupply;
+import org.unigrid.hedgehog.command.cli.spork.MintStorage;
 import picocli.CommandLine.Command;
 
-@Command(name = "gridspork-get", subcommands = MintSupply.class)
-public class GridSporkGet implements Runnable {
-	@Override
-	public void run() {
-		System.out.println("...");
-	}
+@Command(name = "gridspork-get", subcommands = { MintSupply.class, MintStorage.class })
+public class GridSporkGet {
+	/* Empty on purpose */
 }

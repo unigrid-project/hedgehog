@@ -19,16 +19,23 @@
 
 package org.unigrid.hedgehog.command.cli;
 
-import org.unigrid.hedgehog.command.cli.spork.MintSupply;
+import lombok.Getter;
+import org.unigrid.hedgehog.command.cli.spork.MintStorage;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-grow", subcommands = MintSupply.class,
+@Command(name = "gridspork-grow", subcommands = MintStorage.class,
 	description = "Grow an already defined spork, expanding a defined data section. Previous data is unchanged."
 )
 public class GridSporkGrow {
-	@Option(names = { "-k", "--key" }, required = true,
-		description = "Hex representation of private key signing the spork."
+	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
+		description = "JSON describing the spork data.", required = true
 	)
-	private String key;
+	private static String data;
+
+	@Getter @Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT,
+		description = "Hex representation of private key signing the spork.", required = true
+	)
+	private static String key;
 }
