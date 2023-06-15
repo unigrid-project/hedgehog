@@ -75,7 +75,7 @@ public class P2PClient implements Connection {
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
-			.applicationProtocols(Network.PROTOCOLS)
+			.applicationProtocols(Network.getProtocols())
 			.build();
 
 		final ChannelHandler codec = new QuicClientCodecBuilder()

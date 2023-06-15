@@ -20,12 +20,12 @@
 package org.unigrid.hedgehog.model;
 
 public class Network {
-	public static final String[] PROTOCOLS = {
+	private static final String[] PROTOCOLS = {
 		"hedgehog/0.0.1",
 		"gridspork/0.0.1"
 	};
 
-	public static final String[] SEEDS = {
+	private static final String[] SEEDS = {
 		"seed1.unigrid.org", "seed2.unigrid.org",
 		"seed3.unigrid.org", "seed4.unigrid.org",
 		"seed5.unigrid.org", "seed6.unigrid.org"
@@ -36,4 +36,12 @@ public class Network {
 
 	public static final int MAX_STREAMS = 1024;
 	public static final int IDLE_TIME_MINUTES = 15;
+
+	public static String[] getProtocols() {
+		return PROTOCOLS;
+	}
+
+	public static String[] getSeeds() {
+		return SEEDS;
+	}
 }
