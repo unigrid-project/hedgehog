@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.client;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -45,9 +44,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import lombok.Getter;
-import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.Network;
-import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
@@ -59,18 +57,18 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
-public class P2PClient implements Connection {
+public class P2PClient extends ConnectionContainer {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
 	@Getter private final QuicStreamChannel channel;
 
 	public P2PClient(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
 
+		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
@@ -117,32 +115,7 @@ public class P2PClient implements Connection {
 					new PublishPeersSchedule(),
 					new PublishAndSaveSporkSchedule()
 				);
-			}, RegisterQuicChannelInitializer.Type.CLIENT)).sync().getNow();
-	}
-
-	public ChannelFuture send(Packet packet) {
-		return channel.writeAndFlush(packet);
-	}
-
-	@SneakyThrows
-	public void close() {
-		if (!channel.isShutdown()) {
-			channel.shutdown().sync();
-		}
-
-		if (!group.isShuttingDown()) {
-			group.shutdownGracefully().sync();
-		}
-	}
-
-	@SneakyThrows
-	public void closeDirty() {
-		if (!channel.isShutdown()) {
-			channel.shutdown();
-		}
-
-		if (!group.isShuttingDown()) {
-			group.shutdownGracefully();
-		}
+			}, RegisterQuicChannelInitializer.Type.CLIENT)
+		).sync().getNow();
 	}
 }
