@@ -79,7 +79,7 @@ public class P2PServer extends AbstractServer {
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(Network.PROTOCOLS).build();
+			.applicationProtocols(Network.getProtocols()).build();
 
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()

@@ -45,11 +45,16 @@ public class Topology {
 		repopulate();
 	}
 
+	@Protected @Lock(LockMode.WRITE)
+	public void clear() {
+		nodes.clear();
+	}
+
 	@Protected @Lock(LockMode.READ)
 	public void repopulate() {
 		nodes = new HashSet<>();
 
-		for (String address : Network.SEEDS) {
+		for (String address : Network.getSeeds()) {
 			try {
 				final Node node = Node.fromAddress(address);
 

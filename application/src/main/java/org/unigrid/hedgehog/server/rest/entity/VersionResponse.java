@@ -33,7 +33,7 @@ public class VersionResponse {
 	public static VersionResponse create() {
 		return VersionResponse.builder()
 			.version(Version.getVersionNumber())
-			.protocols(Network.PROTOCOLS)
+			.protocols(Network.getProtocols())
 			.build();
 	}
 }
