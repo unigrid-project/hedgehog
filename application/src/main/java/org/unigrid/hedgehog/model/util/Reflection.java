@@ -96,7 +96,7 @@ public class Reflection {
 		return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
 	}
 
-	public static <R,T> R getFieldValue(T instance, String name) throws IllegalAccessException {
+	public static <R, T> R getFieldValue(T instance, String name) throws IllegalAccessException {
 		return (R) FieldUtils.getField((Class<T>) instance.getClass(), name, true).get(instance);
 	}
 }

@@ -20,14 +20,13 @@
 package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
@@ -43,16 +42,12 @@ public class PublishPeersSchedule extends AbstractSchedule implements Schedulabl
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			final Instance<Topology> topology = CDI.current().select(Topology.class);
-
-			if (topology.isResolvable()) {
-				final Set<Node> nodesToSend = topology.get().cloneNodes();
+			CDIUtil.resolveAndRun(Topology.class, topology -> {
+				final Set<Node> nodesToSend = topology.cloneNodes();
 
 				log.atTrace().log("Publishing {} peers to {}", nodesToSend.size(), channel.remoteAddress());
 				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend).build());
-			} else {
-				log.atWarn().log("Unable to resolve Topology instance");
-			}
+			});
 		};
 	}
 }
