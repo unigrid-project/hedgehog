@@ -3,12 +3,12 @@
 	<name>Unigrid Hedgehog Common</name>
 	<groupId>org.unigrid.hedgehog</groupId>
 	<artifactId>hedgehog-common</artifactId>
-	<version>0.0.5-SNAPSHOT</version>
+	<version>0.0.5</version>
 	<packaging>jar</packaging>
 	<parent>
 		<groupId>org.unigrid.hedgehog</groupId>
 		<artifactId>hedgehog-parent</artifactId>
-		<version>0.0.5-SNAPSHOT</version>
+		<version>0.0.5</version>
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
