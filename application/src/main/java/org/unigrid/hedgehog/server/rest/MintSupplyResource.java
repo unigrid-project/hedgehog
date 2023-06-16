@@ -44,7 +44,7 @@ import org.unigrid.hedgehog.server.p2p.P2PServer;
 @Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class MintSupplyResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
