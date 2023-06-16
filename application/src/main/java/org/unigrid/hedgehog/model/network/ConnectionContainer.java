@@ -34,8 +34,8 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ConnectionContainer implements Connection {
-	@Getter private QuicStreamChannel channel;
-	@Getter private Optional<EventLoopGroup> group;
+	@Getter protected QuicStreamChannel channel;
+	@Getter protected Optional<EventLoopGroup> group;
 
 	@Override
 	public ChannelFuture send(Packet packet) {
