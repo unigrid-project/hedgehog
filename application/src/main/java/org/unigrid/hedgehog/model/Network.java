@@ -50,7 +50,7 @@ public class Network {
 			if (NetOptions.isSeeds()) {
 				return SEEDS;
 			}
-		} catch(ClassCastException ex) {
+		} catch (ClassCastException ex) {
 			// TODO: Some weird exception that only seems to happen during testing?
 			log.atError().log("Failed to get seeds {}", ex.getMessage());
 		}
