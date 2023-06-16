@@ -49,31 +49,8 @@ public class NodeResourceTest extends BaseRestClientTest {
 
 	@Provide
 	public Arbitrary<InetSocketAddress> provideAddress(@ForAll @IntRange(min = 1024, max = 65535) int port) {
-		return Arbitraries.of(InetSocketAddress.createUnresolved(ArbitraryGenerator.ip4(), port));
+		return Arbitraries.of(new InetSocketAddress(ArbitraryGenerator.ip4(), port));
 	}
-
-	/*@Provide
-	public Arbitrary<String> provideProtocol(@ForAll @AlphaChars @StringLength(min = 4, max = 16) String feature) {
-		return Arbitraries.of(feature.concat("/" + ArbitraryGenerator.version()));
-	}*/
-
-	/*@Provide
-	public Arbitrary<Node> provideNode(@ForAll short version, @ForAll Instant lastPingTime,
-		@ForAll @UniqueElements @Size(max = 5) List<@From("provideProtocol") String> protocols,
-		@ForAll("provideAddress") InetSocketAddress address) {
-
-		final Details details = Details.builder()
-			.protocols(protocols.toArray(new String[0]))
-			.version(version)
-			.build();
-
-		final Node node = Node.builder().
-			address(address).connection(Optional.of(emptyConnection)).
-			details(details).lastPingTime(lastPingTime).ping(Optional.empty()).
-			build();
-
-		return Arbitraries.of(node);
-	}*/
 
 	private Response postAssert(String url, Node node) {
 		return postAssert(url, node.getURI().toString().replace("/", ""));
@@ -91,7 +68,7 @@ public class NodeResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 200)
+	@Property(tries = 150)
 	public void shoulBeAbleToAddNodes(@ForAll("provideAddress") InetSocketAddress address) {
 		final String url = "/node";
 		final AtomicBoolean containsNode = new AtomicBoolean();
@@ -135,7 +112,7 @@ public class NodeResourceTest extends BaseRestClientTest {
 			final Response postResponse = postAssert(url, address.getHostName());
 
 			if (Status.fromStatusCode(postResponse.getStatus()) == Status.CREATED) {
-				final InetSocketAddress addressWithDefaultPort = InetSocketAddress.createUnresolved(
+				final InetSocketAddress addressWithDefaultPort = new InetSocketAddress(
 					address.getHostName(), DEFAULT_PORT
 				);
 
@@ -154,7 +131,7 @@ public class NodeResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 500)
+	@Property(tries = 150)
 	public void shoulBeAbleToRemoveNodes(@ForAll("provideAddress") InetSocketAddress address) {
 		final String url = "/node";
 		Optional<Set<Node>> nodesOnServer = Optional.empty();

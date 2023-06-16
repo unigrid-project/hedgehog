@@ -85,6 +85,7 @@ public class Topology {
 		});
 	}
 
+	@Protected @Lock(LockMode.READ)
 	public Set<Node> cloneNodes() {
 		return new HashSet(nodes);
 	}
@@ -108,6 +109,7 @@ public class Topology {
 		return nodes.remove(node);
 	}
 
+	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
 		topology.forEach(node -> {
 			if (node.getConnection().isPresent()) {

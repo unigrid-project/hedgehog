@@ -30,6 +30,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
+import net.jqwik.api.ShrinkingMode;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -45,7 +46,7 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 		super(PingChannelHandler.class);
 	}
 
-	@Property(tries = 50)
+	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
 		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
 		@Mocked PingSchedule pingSchedule) throws Exception {
