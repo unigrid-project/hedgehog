@@ -34,6 +34,7 @@ import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_STORAGE;
 import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_SUPPLY;
 import static org.unigrid.hedgehog.model.spork.GridSpork.Type.VESTING_STORAGE;
+import static org.unigrid.hedgehog.model.spork.GridSpork.Type.STATISTICS_PUBKEY;
 
 public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -72,6 +73,10 @@ public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 
 			case VESTING_STORAGE:
 				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
+				break;
+
+			case STATISTICS_PUBKEY:
+				sporkDatabase.setStatisticsPubKey((StatisticsPubKey) gridSpork);
 				break;
 
 			default:

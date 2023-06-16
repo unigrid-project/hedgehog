@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
 import org.unigrid.hedgehog.model.Address;
@@ -77,6 +78,12 @@ public class GridSporkProvider {
 				}
 
 				data.setVestingAddresses(vests);
+				return data;
+			} case STATISTICS_PUBKEY: {
+				final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
+				final byte[] key = RandomUtils.nextBytes(140);
+
+				data.setPublicKey(Hex.encodeHexString(key));
 				return data;
 			}
 		}
