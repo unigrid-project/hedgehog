@@ -26,6 +26,7 @@ module org.unigrid.hedgehog {
 	requires jakarta.interceptor;
 	requires jakarta.ws.rs;
 	requires jakarta.annotation;
+	requires jakarta.validation;
 	requires jakarta.el;
 	requires com.fasterxml.jackson.databind;
 	requires com.fasterxml.jackson.datatype.jsr310;
@@ -43,6 +44,7 @@ module org.unigrid.hedgehog {
 	requires jersey.client;
 	requires jersey.container.netty.http;
 	requires jersey.media.json.jackson;
+	requires jersey.bean.validation;
 	requires jersey.common;
 	requires jersey.hk2;
 	requires org.reflections;

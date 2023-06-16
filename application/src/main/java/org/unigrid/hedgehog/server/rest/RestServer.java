@@ -45,6 +45,7 @@ import lombok.SneakyThrows;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.glassfish.jersey.server.validation.ValidationFeature;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.cdi.Eager;
@@ -74,6 +75,7 @@ public class RestServer extends AbstractServer {
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
+		config.register(ValidationFeature.class);
 
 		return config;
 	}

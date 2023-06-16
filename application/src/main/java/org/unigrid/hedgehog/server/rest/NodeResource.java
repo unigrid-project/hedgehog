@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -60,7 +61,7 @@ public class NodeResource extends CDIBridgeResource {
 	}
 
 	@Path("/{address}") @GET
-	public Response get(@PathParam("address") String address) {
+	public Response get(@NotNull @PathParam("address") String address) {
 		try {
 			final Node nodeToFind = Node.fromAddress(address);
 			final AtomicReference<Response> response = new AtomicReference<>(
@@ -101,7 +102,7 @@ public class NodeResource extends CDIBridgeResource {
 	}
 
 	@Path("/{address}") @DELETE
-	public Response remove(@PathParam("address") String address) {
+	public Response remove(@NotNull @PathParam("address") String address) {
 		try {
 			final Node nodeToFind = Node.fromAddress(address);
 
