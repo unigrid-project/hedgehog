@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.LoggerFactory;
 
 public class ApplicationLogLevel {
@@ -40,7 +41,7 @@ public class ApplicationLogLevel {
 	public static int getVerbosityFromLevel(Level level) throws UnsupportedLogLevelException {
 		final Integer verbosity = (Integer) MapUtils.invertMap(LEVELS).get(level);
 
-		if (Objects.isNull(level)) {
+		if (ObjectUtils.anyNull(verbosity, level)) {
 			throw new UnsupportedLogLevelException(String.format("Can't find verbosity for %s.", level));
 		}
 
