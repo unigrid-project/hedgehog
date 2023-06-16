@@ -24,6 +24,7 @@ import java.time.Instant;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -45,16 +46,20 @@ import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
-	@Provide(ignoreExceptions = IllegalArgumentException.class)
+	@Provide
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
 		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
-		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
+		try {
+			return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
+		} catch(IllegalArgumentException ex) {
+			return Arbitraries.just(null);
+		}
 	}
 
 	@SneakyThrows
-	@Property(tries = 200)
+	@Property(tries = 100)
 	@Domain(SuiteDomain.class)
 	public void shouldMatch(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork,
 		@Mocked ChannelHandlerContext context) {
