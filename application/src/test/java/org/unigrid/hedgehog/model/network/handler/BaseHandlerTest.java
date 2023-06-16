@@ -54,7 +54,11 @@ public class BaseHandlerTest<T extends Packet, H> extends BaseServerTest {
 					for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
 						if (entry.getValue().getClass().equals(channelType)) {
 							if (channelCallback.isPresent()) {
-								channelCallback.get().accept(ctx, (T) obj);
+								try {
+									channelCallback.get().accept(ctx, (T) obj);
+								} catch(ClassCastException ex) {
+									/* Silently skip packets not intended for this handler */
+								}
 							}
 						}
 					}
