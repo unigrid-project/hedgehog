@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -60,7 +61,9 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
-	public Response create(@PathParam("bucket") String bucket, @PathParam("key") String key, InputStream data) {
+	public Response create(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key,
+		@NotNull InputStream data) {
+
 		try {
 			objectService.put(bucket, key, data);
 		} catch (NoSuchBucketException e) {
@@ -79,7 +82,7 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/list/{bucket}") @GET
 	@Produces(MediaType.APPLICATION_XML)
-	public Response list(@PathParam("bucket") String bucket, @Context UriInfo uriInfo) {
+	public Response list(@NotNull @PathParam("bucket") String bucket, @NotNull @Context UriInfo uriInfo) {
 		MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
 
 		Optional<String> prefix = Optional.ofNullable(params.getFirst("prefix")).filter(s -> !s.isEmpty());
@@ -104,8 +107,9 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @PUT
 	@Produces(MediaType.APPLICATION_XML)
-	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String destinationBucket,
-		@PathParam("key") String destinationKey) {
+	public Response copy(@Context HttpHeaders httpHeaders, @NotNull @PathParam("bucket") String destinationBucket,
+		@NotNull @PathParam("key") String destinationKey) {
+
 		String copySource = httpHeaders.getHeaderString("x-amz-copy-source");
 
 		if (copySource == null) {
@@ -137,7 +141,7 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @GET
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
-	public Response get(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+	public Response get(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key) {
 		byte[] byteArray;
 
 		try {
@@ -158,7 +162,7 @@ public class StorageObject extends CDIBridgeResource {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */
 	@Path("/{bucket}/{key}") @DELETE
-	public Response delete(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+	public Response delete(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key) {
 		boolean isDeleted;
 
 		try {

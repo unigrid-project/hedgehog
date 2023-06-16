@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -66,7 +67,7 @@ public class MintSupplyResource extends CDIBridgeResource {
 	}
 
 	@Path("/mint-supply") @PUT
-	public Response set(BigDecimal maxSupply, @HeaderParam("privateKey") String privateKey) {
+	public Response set(@NotNull BigDecimal maxSupply, @NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
 			final MintSupply ms = ResourceHelper.getNewOrClonedSporkSection(

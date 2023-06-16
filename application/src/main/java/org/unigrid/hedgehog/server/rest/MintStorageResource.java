@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
@@ -46,7 +47,7 @@ import org.unigrid.hedgehog.server.p2p.P2PServer;
 @Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class MintStorageResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
@@ -69,7 +70,7 @@ public class MintStorageResource extends CDIBridgeResource {
 	}
 
 	@Path("/mint-storage/{address}/{height}") @GET
-	public Response get(@PathParam("address") String address, @PathParam("height") int height) {
+	public Response get(@NotNull @PathParam("address") String address, @NotNull @PathParam("height") int height) {
 		if (Objects.isNull(sporkDatabase.getMintStorage())) {
 			return Response.noContent().build();
 		}
@@ -89,8 +90,8 @@ public class MintStorageResource extends CDIBridgeResource {
 	}
 
 	@Path("/mint-storage/{address}/{height}") @PUT
-	public Response grow(@PathParam("address") String address, @PathParam("height") int height, BigDecimal mintAmount,
-		@HeaderParam("privateKey") String privateKey) {
+	public Response grow(@NotNull BigDecimal mintAmount, @NotNull @PathParam("address") String address,
+		@NotNull @PathParam("height") int height, @NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
 			final MintStorage ms = ResourceHelper.getNewOrClonedSporkSection(

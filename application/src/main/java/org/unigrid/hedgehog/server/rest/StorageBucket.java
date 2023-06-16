@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.DELETE;
@@ -51,13 +52,10 @@ public class StorageBucket extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}") @PUT
 	@Consumes(MediaType.APPLICATION_XML)
-	public Response create(@PathParam("bucket") String bucket, CreateBucketConfiguration bucketConfiguration) {
-		if (bucketConfiguration == null) {
-			String errorMessage = "Request should contain BucketConfiguration file";
-			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
-		}
+	public Response create(@NotNull @PathParam("bucket") String bucket,
+		@NotNull CreateBucketConfiguration bucketConfiguration) {
 
-		String location = bucketService.create(bucket);
+		final String location = bucketService.create(bucket);
 
 		ResponseBuilder builder = Response.ok();
 		builder.header("Location", "/" + location);
@@ -82,11 +80,12 @@ public class StorageBucket extends CDIBridgeResource {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucket.html">Delete Bucket</a>
 	 */
 	@Path("/{bucket}") @DELETE
-	public Response delete(@PathParam("bucket") String bucket) {
+	public Response delete(@NotNull @PathParam("bucket") String bucket) {
 		boolean isDeleted;
 
 		try {
 			isDeleted = bucketService.delete(bucket);
+
 			if (!isDeleted) {
 				return Response.status(Response.Status.NOT_FOUND).build();
 			}

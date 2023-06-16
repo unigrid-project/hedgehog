@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PUT;
@@ -68,7 +69,7 @@ public class VestingStorageResource extends CDIBridgeResource {
 	}
 
 	@Path("/vesting-storage/{address}") @GET
-	public Response get(@PathParam("address") String address) {
+	public Response get(@NotNull @PathParam("address") String address) {
 		if (Objects.isNull(sporkDatabase.getVestingStorage())) {
 			return Response.noContent().build();
 		}
@@ -84,8 +85,8 @@ public class VestingStorageResource extends CDIBridgeResource {
 	}
 
 	@Path("/vesting-storage/{address}") @PUT
-	public Response grow(@PathParam("address") String address, Vesting vesting,
-		@HeaderParam("privateKey") String privateKey) {
+	public Response grow(@NotNull Vesting vesting, @NotNull @PathParam("address") String address,
+		@NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
 			final VestingStorage vs = ResourceHelper.getNewOrClonedSporkSection(
