@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.util;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.jul.JULHelper;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -26,6 +27,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.java.Log;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.Example;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -63,5 +65,16 @@ public class ApplicationLogLevelTest {
 		} else {
 			return messageLevel > logLevel;
 		}
+	}
+
+	@Example
+	public boolean shouldThrowExceptionOnUnsupportedLevel() {
+		try {
+			ApplicationLogLevel.getVerbosityFromLevel(Level.ALL);
+		} catch (UnsupportedLogLevelException ex) {
+			return true;
+		}
+
+		return false;
 	}
 }
