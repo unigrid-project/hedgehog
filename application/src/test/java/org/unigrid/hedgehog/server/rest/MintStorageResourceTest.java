@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -75,7 +76,8 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 
 		for (Location l : locations) {
 			final Response putResponse = client.putWithHeaders(url + l.getAddress().getWif() + "/" + l.getHeight(),
-				amount, new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
+				Entity.text(amount), new MultivaluedHashMap(Map.of("privateKey",
+				signature.getPrivateKey()))
 			);
 
 			if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
@@ -106,7 +108,7 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 			expectedStatusFromPut = Status.NO_CONTENT;
 		}
 
-		final Response putResponse = client.putWithHeaders(url, amount,
+		final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 

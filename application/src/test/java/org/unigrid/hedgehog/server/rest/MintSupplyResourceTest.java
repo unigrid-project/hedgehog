@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -48,7 +49,7 @@ public class MintSupplyResourceTest extends BaseRestClientTest {
 			originalMaxSupply = data.getMaxSupply();
 		}
 
-		final Response putResponse = client.putWithHeaders(url, maxSupply,
+		final Response putResponse = client.putWithHeaders(url, Entity.text(maxSupply),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 

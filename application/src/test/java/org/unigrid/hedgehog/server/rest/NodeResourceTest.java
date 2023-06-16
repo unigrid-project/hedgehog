@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -58,7 +59,7 @@ public class NodeResourceTest extends BaseRestClientTest {
 
 	@SneakyThrows
 	private Response postAssert(String url, String host) {
-		final Response response = client.post(url, host);
+		final Response response = client.post(url, Entity.text(host));
 
 		assertThat(Status.fromStatusCode(response.getStatus()),
 			equalTo(Status.CREATED)

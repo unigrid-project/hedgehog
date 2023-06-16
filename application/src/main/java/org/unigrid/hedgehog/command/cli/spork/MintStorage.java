@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -69,8 +70,8 @@ public class MintStorage implements Runnable {
 				final String url = "/gridspork/mint-storage/%s/%s".formatted(address, height);
 				final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, url) {
 					@Override
-					protected <T> T getEntity() {
-						return (T) GridSporkGrow.getData();
+					protected <T> Entity<T> getEntity() {
+						return (Entity<T>) Entity.text(GridSporkGrow.getData());
 					}
 
 					@Override

@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -77,7 +78,8 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 		}
 
 		for (int i = 0; i < addresses.size(); i++) {
-			final Response putResponse = client.putWithHeaders(url + addresses.get(i), vests.get(i),
+			final Response putResponse = client.putWithHeaders(url + addresses.get(i),
+				Entity.json(vests.get(i)),
 				new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 			);
 
@@ -106,7 +108,7 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 			expectedStatusFromPut = Status.OK;
 		}
 
-		final Response putResponse = client.putWithHeaders(url, vesting,
+		final Response putResponse = client.putWithHeaders(url, Entity.json(vesting),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 

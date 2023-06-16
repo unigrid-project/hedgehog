@@ -40,7 +40,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 
 @Path("/node")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class NodeResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private Topology topology;
@@ -82,7 +82,7 @@ public class NodeResource extends CDIBridgeResource {
 	}
 
 	@POST
-	public Response add(String address) {
+	public Response add(@NotNull String address) {
 		try {
 			final Node node = Node.fromAddress(address);
 
