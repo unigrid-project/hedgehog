@@ -37,8 +37,8 @@ public class NetOptions {
 	)
 	private static int port;
 
-	@Getter @Option(names = "--seeds", scope = CommandLine.ScopeType.INHERIT,
-		description = "Enable/disable seed nodes (enabled by default).", negatable = true
+	@Getter @Option(names = "--no-seeds", scope = CommandLine.ScopeType.INHERIT,
+		description = "Enable/disable seed nodes (enabled by default).", negatable = true, defaultValue = "true"
 	)
 	private static boolean seeds;
 }

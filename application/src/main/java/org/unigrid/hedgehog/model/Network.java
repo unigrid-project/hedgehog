@@ -19,8 +19,10 @@
 
 package org.unigrid.hedgehog.model;
 
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
+@Slf4j
 public class Network {
 	private static final String[] PROTOCOLS = {
 		"hedgehog/0.0.2",
@@ -44,8 +46,13 @@ public class Network {
 	}
 
 	public static String[] getSeeds() {
-		if (NetOptions.isSeeds()) {
-			return SEEDS;
+		try {
+			if (NetOptions.isSeeds()) {
+				return SEEDS;
+			}
+		} catch(ClassCastException ex) {
+			// TODO: Some weird exception that only seems to happen during testing?
+			log.atError().log("Failed to get seeds {}", ex.getMessage());
 		}
 
 		return new String[0];
