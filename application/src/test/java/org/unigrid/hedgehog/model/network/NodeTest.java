@@ -21,43 +21,83 @@ package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
 import lombok.SneakyThrows;
+import mockit.Capturing;
+import mockit.Expectations;
+import mockit.Mocked;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.server.TestServer;
 
 public class NodeTest extends BaseMockedWeldTest {
+	@Mocked private Network network;
+	@Mocked private NetOptions netOptions;
+	@Mocked private RestOptions restOptions;
+
 	@Inject
 	private Topology topology;
 
-	@Property
+	private enum Family {
+		IP4, IP6
+	}
+
+	@Provide
 	@SneakyThrows
-	public void shouldBeAbleToCreateNodeFromV4Address(@ForAll @IntRange(min = 1024, max = 65535) int port) {
+	public Arbitrary<Node> provideNode(@ForAll Family family,
+		@ForAll @IntRange(min = 1024, max = 65535) int port) {
+
+		String address = switch (family) {
+			case IP4 -> ArbitraryGenerator.ip4();
+			case IP6 -> ArbitraryGenerator.ip6();
+		};
+
 		Node node;
 
 		if (port % 3 == 0) {
-			node = Node.fromAddress(ArbitraryGenerator.ip4());
+			node = Node.fromAddress((family == Family.IP4 ? "%s" : "[%s]").formatted(address));
 		} else {
-			node = Node.fromAddress("%s:%d".formatted(ArbitraryGenerator.ip4(), port));
+			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		assertThat(node, notNullValue());
+		return Arbitraries.of(node);
+	}
+
+	@BeforeTry
+	public void before() {
+		TestServer.mockProperties();
 	}
 
 	@Property
 	@SneakyThrows
-	public void shouldBeAbleToCreateNodeFromV6Address(@ForAll @IntRange(min = 1024, max = 65535) int port) {
-		Node node;
-
-		if (port % 3 == 0) {
-			node = Node.fromAddress("[%s]".formatted(ArbitraryGenerator.ip6()));
-		} else {
-			node = Node.fromAddress("[%s]:%d".formatted(ArbitraryGenerator.ip6(), port));
-		}
-
+	public void shouldBeAbleToCreateNodeFromAddress(@ForAll("provideNode") Node node) {
 		assertThat(node, notNullValue());
+	}
+
+	@Property(tries = 100)
+	public void shouldFilterIfMe(@ForAll("provideNode") Node node, @ForAll boolean me) {
+		new Expectations(node) {{
+			node.isMe(); result = me;
+		}};
+
+		final int originalSize = topology.cloneNodes().size();
+
+		if (topology.containsNode(node) || me) {
+			topology.addNode(node);
+			assertThat(topology.cloneNodes().size(), is(originalSize));
+		} else {
+			topology.addNode(node);
+			assertThat(topology.cloneNodes().size(), is(originalSize + 1));
+		}
 	}
 }
