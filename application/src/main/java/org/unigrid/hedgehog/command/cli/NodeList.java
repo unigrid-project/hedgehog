@@ -26,6 +26,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.network.Node;
 import picocli.CommandLine.Command;
 
@@ -37,6 +38,6 @@ public class NodeList extends RestClientCommand {
 
 	@Override
 	protected void execute(Response response) {
-		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
+		System.out.println(Json.parse(response.readEntity(new GenericType<Set<Node>>() { })));
 	}
 }
