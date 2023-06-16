@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.command.util;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -112,7 +113,7 @@ public class RestClientCommand implements Runnable {
 		this.headers = Optional.of(headers);
 	}
 
-	protected <T> T getEntity() {
+	protected <T> Entity<T> getEntity() {
 		throw new UnsupportedOperationException();
 	}
 

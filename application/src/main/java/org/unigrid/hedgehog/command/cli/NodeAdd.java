@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -35,8 +36,8 @@ public class NodeAdd extends RestClientCommand {
 	}
 
 	@Override
-	protected <T> T getEntity() {
-		return (T) address;
+	protected <T> Entity<T> getEntity() {
+		return (Entity<T>) Entity.text(address);
 	}
 
 	@Override

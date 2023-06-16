@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -54,8 +55,8 @@ public class MintSupply implements Runnable {
 			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/mint-supply") {
 
 				@Override
-				protected <T> T getEntity() {
-					return (T) GridSporkSet.getData();
+				protected <T> Entity<T> getEntity() {
+					return (Entity<T>) Entity.text(GridSporkSet.getData());
 				}
 
 				@Override

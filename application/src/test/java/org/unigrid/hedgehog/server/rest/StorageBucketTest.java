@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.server.rest;
 
 import io.findify.s3mock.S3Mock;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,8 +78,8 @@ public class StorageBucketTest extends BaseRestClientTest {
 		final List<TestBucket> testBuckets = new ArrayList<>();
 
 		for (String bucketName : bucketNames) {
-			Response response = client.putXml("/bucket/" + bucketName, config);
-			Response mockResponse = clientMock.putXml("/" + bucketName, config);
+			Response response = client.put("/bucket/" + bucketName, Entity.xml(config));
+			Response mockResponse = clientMock.put("/" + bucketName, Entity.xml(config));
 			assertThat(response.getStatus(), equalTo(mockResponse.getStatus()));
 		}
 
@@ -126,7 +127,7 @@ public class StorageBucketTest extends BaseRestClientTest {
 		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
 
 		try {
-			client.put("/bucket/test", "");
+			client.put("/bucket/test", Entity.xml(""));
 		} catch (Exception e) {
 			assertThat(e, isA(ResponseOddityException.class));
 		}
