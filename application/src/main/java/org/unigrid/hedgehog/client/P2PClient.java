@@ -42,6 +42,7 @@ import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import lombok.Getter;
 import org.unigrid.hedgehog.model.Network;
@@ -62,14 +63,12 @@ import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient extends ConnectionContainer {
-	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	@Getter private final QuicStreamChannel channel;
-
 	public P2PClient(String hostname, int port)
 		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
 
 		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
+		group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -85,7 +84,7 @@ public class P2PClient extends ConnectionContainer {
 			.sslContext(context)
 			.build();
 
-		final Channel channelBootstrap = new Bootstrap().group(group)
+		final Channel channelBootstrap = new Bootstrap().group(group.get())
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(0).sync().channel();
