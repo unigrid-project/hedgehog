@@ -23,8 +23,8 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 
 public class Network {
 	private static final String[] PROTOCOLS = {
-		"hedgehog/0.0.1",
-		"gridspork/0.0.1"
+		"hedgehog/0.0.2",
+		"gridspork/0.0.2"
 	};
 
 	private static final String[] SEEDS = {
