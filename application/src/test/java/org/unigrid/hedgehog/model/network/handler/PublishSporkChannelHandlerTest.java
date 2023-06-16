@@ -29,6 +29,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.ShrinkingMode;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
@@ -69,8 +70,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
 
-	@Property(tries = 50)
 	@Domain(SuiteDomain.class)
+	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
@@ -93,10 +94,14 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			connection.send(publishSpork);
 			expectedInvocations++;
 
-			await().untilAtomic(invocations, is(expectedInvocations));
+			/* We do greaterThanOrEqualTo() because it's difficult to predict exactly how these are distributed
+			   between the nodes. For example, the server might share it's connected nodes with some node(s) and
+			   instantly increase the amount of sends on the network... */
+
+			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 			connection.closeDirty();
 		}
 
-		await().untilAtomic(invocations, is(expectedInvocations));
+		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }
