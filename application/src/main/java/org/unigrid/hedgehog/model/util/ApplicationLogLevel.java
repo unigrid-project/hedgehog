@@ -22,7 +22,6 @@ package org.unigrid.hedgehog.model.util;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import java.util.Map;
-import java.util.Objects;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.ObjectUtils;
