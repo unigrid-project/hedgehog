@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.unigrid.hedgehog.jqwik.*;
-import mockit.Mocked;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
