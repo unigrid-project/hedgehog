@@ -3,12 +3,12 @@
 	<name>Unigrid Hedgehog Native Image</name>
 	<groupId>org.unigrid.hedgehog</groupId>
 	<artifactId>hedgehog-native</artifactId>
-	<version>0.0.7-SNAPSHOT</version>
+	<version>0.0.7</version>
 	<packaging>jar</packaging>
 	<parent>
 		<groupId>org.unigrid.hedgehog</groupId>
 		<artifactId>hedgehog-parent</artifactId>
-		<version>0.0.7-SNAPSHOT</version>
+		<version>0.0.7</version>
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -123,12 +123,12 @@
 		<dependency>
 			<groupId>org.unigrid.hedgehog</groupId>
 			<artifactId>hedgehog</artifactId>
-			<version>0.0.7-SNAPSHOT</version>
+			<version>0.0.7</version>
 		</dependency>
 		<dependency>
 			<groupId>org.unigrid.hedgehog</groupId>
 			<artifactId>hedgehog-common</artifactId>
-			<version>0.0.7-SNAPSHOT</version>
+			<version>0.0.7</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.commons</groupId>
