@@ -87,11 +87,18 @@ public class P2PClient extends ConnectionContainer {
 			.handler(codec)
 			.bind(0).sync().channel();
 
-		final QuicChannel quicChannel = QuicChannel.newBootstrap(channelBootstrap)
-			.streamHandler(new ChannelInboundHandlerAdapter())
-			.remoteAddress(new InetSocketAddress(hostname, port))
-			.connect()
-			.get();
+		QuicChannel quicChannel;
+
+		try {
+			quicChannel = QuicChannel.newBootstrap(channelBootstrap)
+				.streamHandler(new ChannelInboundHandlerAdapter())
+				.remoteAddress(new InetSocketAddress(hostname, port))
+				.connect().get();
+
+		} catch (ExecutionException ex)  {
+			group.get().shutdownGracefully();
+			throw ex;
+		}
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		// TODO: Add support for ChannelCollector
