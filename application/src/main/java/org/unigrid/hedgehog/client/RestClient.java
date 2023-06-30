@@ -23,9 +23,11 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.InputStream;
 import java.util.List;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
@@ -62,8 +64,8 @@ public class RestClient implements AutoCloseable {
 	}
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
-		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
-			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED
+		final List<Status> status = List.of(Status.OK, Status.NO_CONTENT,
+			Status.NOT_FOUND, Status.UNAUTHORIZED
 		);
 
 		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
@@ -89,24 +91,55 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
-	public <T> Response post(String location, Entity<T> entity) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().post(entity);
+	public <T> Response post(String location, T entity) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.post(Entity.json(entity));
+
 		throwResponseOddity(response);
 		return response;
 	}
 
-	public <T> Response put(String location, Entity<T> entity) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().put(entity);
+	public Response postInputStream(String location, InputStream inputStream) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.post(Entity.entity(inputStream, MediaType.APPLICATION_OCTET_STREAM));
+
 		throwResponseOddity(response);
 		return response;
 	}
 
-	public <T> Response putWithHeaders(String location, Entity<T> entity, MultivaluedMap<String, Object> headers)
+	public <T> Response put(String location, T entity) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.put(Entity.json(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public <T> Response putXml(String location, T entity) throws ResponseOddityException {
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.put(Entity.xml(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public <T> Response putWithHeaders(String location, T entity, MultivaluedMap<String, Object> headers)
 		throws ResponseOddityException {
 
 		final Response response = client.target(String.format(baseUrl, location)).request()
 			.headers(headers)
-			.put(entity);
+			.put(Entity.json(entity));
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public Response putWithHeaders(String location, MultivaluedMap<String, Object> headers)
+		throws ResponseOddityException {
+
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.headers(headers)
+			.put(Entity.text(""));
 
 		throwResponseOddity(response);
 		return response;
