@@ -21,9 +21,8 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
@@ -37,18 +36,14 @@ public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPe
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext context, PublishPeers publishPeers) throws Exception {
-		final Instance<Topology> topology = CDI.current().select(Topology.class);
-
-		if (topology.isResolvable()) {
+		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			log.atTrace().log("Received {} peers from {}",
 				publishPeers.getNodes().size(), context.channel().remoteAddress()
 			);
 
 			for (Node newNode : publishPeers.getNodes()) {
-				topology.get().addNode(newNode);
+				topology.addNode(newNode);
 			}
-		} else {
-			log.atWarn().log("Unable to resolve Topology instance");
-		}
+		});
 	}
 }
