@@ -40,6 +40,7 @@ public class Network {
 
 	public static final int MAX_STREAMS = 512;
 	public static final int IDLE_TIME_MINUTES = 15;
+	public static final int CONNECTION_TIMEOUT_MS = 2000;
 
 	public static String[] getProtocols() {
 		return PROTOCOLS;

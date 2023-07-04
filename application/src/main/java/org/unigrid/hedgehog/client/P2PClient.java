@@ -43,6 +43,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -61,8 +62,8 @@ import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient extends ConnectionContainer {
-	public P2PClient(String hostname, int port)
-		throws ExecutionException, InterruptedException, CertificateException, NoSuchAlgorithmException {
+	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
+		NoSuchAlgorithmException, TimeoutException {
 
 		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
@@ -93,9 +94,9 @@ public class P2PClient extends ConnectionContainer {
 			quicChannel = QuicChannel.newBootstrap(channelBootstrap)
 				.streamHandler(new ChannelInboundHandlerAdapter())
 				.remoteAddress(new InetSocketAddress(hostname, port))
-				.connect().get();
+				.connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
-		} catch (ExecutionException ex)  {
+		} catch (ExecutionException | TimeoutException ex)  {
 			group.get().shutdownGracefully();
 			throw ex;
 		}
