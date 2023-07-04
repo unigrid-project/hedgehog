@@ -45,10 +45,12 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			final GridSpork newSpork = publishSpork.getGridSpork();
 
-			final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.getMintStorage(),
+			final Map<Type, GridSpork> entries = NullableMap.of(
+				MINT_STORAGE, db.getMintStorage(),
 				MINT_SUPPLY, db.getMintSupply(),
 				VESTING_STORAGE, db.getVestingStorage(),
-				STATISTICS_PUBKEY, db.getStatisticsPubKey()
+				STATISTICS_PUBKEY, db.getStatisticsPubKey(),
+				COSMOS, db.getCosmos()
 			);
 
 			final GridSpork oldSpork = entries.get(newSpork.getType());

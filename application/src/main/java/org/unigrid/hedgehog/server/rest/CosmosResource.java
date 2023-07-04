@@ -55,7 +55,6 @@ public class CosmosResource extends CDIBridgeResource {
 
 	@Path("/cosmos") @GET
 	public Response list() {
-		System.out.println("Cosmos get 1");
 		final Cosmos c = sporkDatabase.getCosmos();
 
 		if (Objects.isNull(c)) {
@@ -102,18 +101,19 @@ public class CosmosResource extends CDIBridgeResource {
 			System.out.println("Cosmos data");
 			System.out.println(data);
 			boolean isUpdate = false;
-			System.out.println("param " + parameter);
-			final Object oldCosmos = data.getParameters().get(parameter);
-			
+
+			if (Objects.nonNull(data.getParameters())) {
+				final Object oldCosmos = data.getParameters().get(parameter);
+				isUpdate = Objects.nonNull(oldCosmos);
+			}
+
 			c.archive();
-			isUpdate = Objects.nonNull(oldCosmos);
-			data.getParameters().put(parameter, obj);			
-			
+			data.getParameters().put(parameter, obj);
+
 			try {
 				c.sign(privateKey);
 			} catch (SigningException ex) {
-				// As we clone() the cosmos, returning here results in a database NOP
-				System.out.println("EXCCCC");
+				// As we clone() the cosmos, returning here results in a database NOP				
 				return Response.status(Response.Status.UNAUTHORIZED).entity(ex).build();
 			}
 			System.out.println("Cosmos");
@@ -123,11 +123,10 @@ public class CosmosResource extends CDIBridgeResource {
 
 			sporkDatabase.setCosmos(c);
 
-			System.out.println("1");
 			if (isUpdate) {
 				return Response.noContent().build();
 			}
-			System.out.println("2");
+
 			return Response.ok().build();
 		}
 

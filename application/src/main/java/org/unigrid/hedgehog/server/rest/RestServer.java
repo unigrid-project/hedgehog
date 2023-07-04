@@ -67,6 +67,7 @@ public class RestServer extends AbstractServer {
 			MintSupplyResource.class,
 			NodeResource.class,
 			VestingStorageResource.class,
+			CosmosResource.class,
 			StorageBucket.class,
 			StorageObject.class,
 			UtilResource.class

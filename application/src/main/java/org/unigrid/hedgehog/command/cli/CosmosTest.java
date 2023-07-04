@@ -16,26 +16,36 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+package org.unigrid.hedgehog.command.cli;
 
-package org.unigrid.hedgehog.model.network.chunk;
+import jakarta.ws.rs.core.Response;
+import java.util.Properties;
+import lombok.SneakyThrows;
+import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.command.option.RestOptions;
+import picocli.CommandLine;
 
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonSubTypes.Type;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import java.io.Serializable;
-import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintSupply;
-import org.unigrid.hedgehog.model.spork.VestingStorage;
-import org.unigrid.hedgehog.model.spork.Cosmos;
+@CommandLine.Command(name = "cosmos-test")
+public class CosmosTest implements Runnable {
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
-@JsonSubTypes({
-	@Type(MintStorage.SporkData.class),
-	@Type(MintSupply.SporkData.class),
-	@Type(VestingStorage.SporkData.class),
-	@Type(Cosmos.SporkData.class)
-})
-public interface ChunkData extends Serializable {
-	/* Empty on purpose */
-	ChunkData empty();
+	@Override
+	@SneakyThrows
+	public void run() {
+		Properties props = System.getProperties();
+		props.setProperty("jdk.internal.httpclient.disableHostnameVerification", Boolean.TRUE.toString());
+		
+		final RestClient client = new RestClient(RestOptions.getHost(), 1317, true);
+
+		try {
+			Response res = client.get("/cosmos-spork/cosmosspork/params");
+			System.out.println(res.getStatus());
+			System.out.println(res.getEntity());
+			System.out.println("1111");
+		} catch (ResponseOddityException ex) {
+			ex.printStackTrace();
+		}
+
+		client.close();
+	}
 }

@@ -39,13 +39,8 @@ public class Cosmos extends GridSpork implements Serializable {
 	public Cosmos() {
 		setType(Type.COSMOS);
 		final Cosmos.SporkData data = new Cosmos.SporkData();
-		
+
 		data.setParameters(new HashMap<>());
-		Cosmos.Coin coin = new Cosmos.Coin();
-		coin.setAmount(100000);
-		coin.setDenom("UGD");
-		data.setCoin(coin);
-		
 		setData(data);
 	}
 
@@ -63,7 +58,13 @@ public class Cosmos extends GridSpork implements Serializable {
 	@Data @Builder @AllArgsConstructor @NoArgsConstructor
 	public static class SporkData implements ChunkData {
 		private HashMap<String, Object> parameters;
-		private Coin coin;
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setParameters(new HashMap<>());
+			return data;
+		}
 
 		@Data
 		public static class Genesis {

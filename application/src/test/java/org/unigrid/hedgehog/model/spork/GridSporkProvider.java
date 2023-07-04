@@ -85,6 +85,19 @@ public class GridSporkProvider {
 
 				data.setPublicKey(Hex.encodeHexString(key));
 				return data;
+			} case COSMOS: {
+				final Cosmos.SporkData data = new Cosmos.SporkData();
+				final HashMap<String, Object> cosmos = new HashMap<>();
+
+				for (int i = 0; i < size; i++) {
+					final String key = RandomStringUtils.randomAlphanumeric(40);
+					final String value = RandomStringUtils.randomAlphanumeric(40);
+
+					cosmos.put(key, value);
+				}
+
+				data.setParameters(cosmos);
+				return data;
 			}
 		}
 

@@ -47,6 +47,7 @@ public class SporkDatabase implements Serializable {
 	private VestingStorage vestingStorage;
 
 	private StatisticsPubKey statisticsPubKey;
+	private Cosmos cosmos;
 
 	public static SporkDatabase load(Path path) throws IOException {
 		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
@@ -67,6 +68,7 @@ public class SporkDatabase implements Serializable {
 			case MINT_SUPPLY: return mintSupply;
 			case VESTING_STORAGE: return vestingStorage;
 			case STATISTICS_PUBKEY: return statisticsPubKey;
+			case COSMOS: return cosmos;
 			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
 		}
 	}
@@ -83,6 +85,10 @@ public class SporkDatabase implements Serializable {
 
 			case VESTING_STORAGE:
 				vestingStorage = (VestingStorage) gridSpork;
+				break;
+
+			case COSMOS:
+				cosmos = (Cosmos) gridSpork;
 				break;
 
 			case STATISTICS_PUBKEY:
