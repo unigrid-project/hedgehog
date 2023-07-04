@@ -36,7 +36,9 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			channel.writeAndFlush(Ping.builder().build());
+			final Ping ping = Ping.builder().build();
+			channel.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
+			channel.writeAndFlush(ping);
 		};
 	}
 }

@@ -22,6 +22,8 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
@@ -35,6 +37,13 @@ public class PingChannelHandler extends AbstractInboundHandler<Ping> {
 		if (!ping.isResponse()) {
 			ping.setResponse(true);
 			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+		} else {
+			CDIUtil.resolveAndRun(Topology.class, topology -> {
+				topology.getChannels().get(ctx.channel()).ifPresent(n -> {
+					final long previousTime = ctx.channel().attr(Ping.PING_TIME_KEY).get();
+					n.setNsPing(System.nanoTime() - previousTime);
+				});
+			});
 		}
 	}
 }

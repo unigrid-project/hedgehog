@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.network.packet;
 
+import io.netty.util.AttributeKey;
 import java.io.Serializable;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -30,6 +31,7 @@ import lombok.EqualsAndHashCode;
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
 public class Ping extends Packet implements Serializable {
+	public static final AttributeKey<Long> PING_TIME_KEY = AttributeKey.valueOf("PING_TIME");
 	public static final int HEARTBEAT_MINUTES = 3;
 
 	private boolean response;
