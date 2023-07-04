@@ -22,12 +22,14 @@ package org.unigrid.hedgehog.model.network;
 import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.net.URISyntaxException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
 import org.unigrid.hedgehog.model.Network;
@@ -39,6 +41,9 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @ApplicationScoped
 public class Topology {
 	private HashSet<Node> nodes;
+
+	@Inject
+	@Getter private ChannelMap channels;
 
 	@PostConstruct
 	private void init() {
@@ -53,6 +58,7 @@ public class Topology {
 	@Protected @Lock(LockMode.READ)
 	public void repopulate() {
 		nodes = new HashSet<>();
+		channels.clear();
 
 		for (String address : Network.getSeeds()) {
 			try {
