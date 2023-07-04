@@ -54,6 +54,7 @@ public class TopologyThread extends Thread {
 
 					topology.modifyNode(node, n -> {
 						n.setConnection(Optional.of(client));
+						topology.getChannels().set(client.getChannel(), n);
 					});
 				}
 			} catch (ExecutionException | InterruptedException | CertificateException
@@ -63,6 +64,7 @@ public class TopologyThread extends Thread {
 
 				node.getConnection().ifPresent(connection -> {
 					connection.closeDirty();
+					topology.getChannels().remove(connection.getChannel());
 				});
 
 				topology.removeNode(node);
