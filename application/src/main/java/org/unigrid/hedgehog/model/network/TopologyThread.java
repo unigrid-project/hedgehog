@@ -24,6 +24,7 @@ import java.security.cert.CertificateException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,8 +58,8 @@ public class TopologyThread extends Thread {
 						topology.getChannels().set(client.getChannel(), n);
 					});
 				}
-			} catch (ExecutionException | InterruptedException | CertificateException
-				| NoSuchAlgorithmException ex) {
+			} catch (CertificateException | ExecutionException | InterruptedException
+				| NoSuchAlgorithmException | TimeoutException ex) {
 
 				log.atWarn().log("Node connection to {} failed", node, ex);
 
