@@ -27,7 +27,6 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -40,7 +39,6 @@ import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Data
 @Slf4j
@@ -51,8 +49,7 @@ public class Node {
 	private InetSocketAddress address;
 	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
 	@Builder.Default private Details details = new Details();
-	private Instant lastPingTime;
-	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Ping> ping = Optional.empty();
+	private long nsPing;
 
 	@Data
 	@Builder

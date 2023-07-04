@@ -95,7 +95,6 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 
 		for (Node n : publishPeers.getNodes()) {
 			n.setConnection(Optional.of(emptyConnection));
-			n.setPing(Optional.of(Ping.builder().build()));
 		}
 
 		final PublishPeers resultingPublishPeers = encodeDecode(publishPeers,
@@ -104,7 +103,6 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 
 		for (Node n : resultingPublishPeers.getNodes()) {
 			assertThat(n.getConnection(), equalTo(Optional.empty()));
-			assertThat(n.getPing(), equalTo(Optional.empty()));
 		}
 	}
 }
