@@ -42,14 +42,15 @@ public class CosmosDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<C
 		final HashMap<String, Object> cosm = new HashMap<>();
 		final int entries = in.readMedium();
 
-		in.skipBytes(5 );// 40 bits
+		in.skipBytes(5); // 40 bits
 
 		while (in.readableBytes() > 0 && cosm.size() < entries) {
 			String key = ByteBufUtils.readNullTerminatedString(in);
 			byte[] bytes = new byte[in.readableBytes()];
 
 			Object obj = null;
-			try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes); ObjectInputStream ois = new ObjectInputStream(
+			try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes); ObjectInputStream ois =
+				new ObjectInputStream(
 				bais)) {
 				obj = ois.readObject();
 			}

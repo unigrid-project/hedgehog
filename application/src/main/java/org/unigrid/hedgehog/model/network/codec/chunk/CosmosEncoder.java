@@ -33,17 +33,17 @@ import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.spork.Cosmos;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
 public class CosmosEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<Cosmos.SporkData> {
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, Cosmos.SporkData data, ByteBuf out) throws Exception {
 		out.writeMedium(data.getParameters().size());
-		out.writeZero(5 ); // 40 bits
+		out.writeZero(5); // 40 bits
 		data.getParameters().forEach((key, value) -> {
 			ByteBufUtils.writeNullTerminatedString(key, out);
-			try (ByteArrayOutputStream baos = new ByteArrayOutputStream(); ObjectOutputStream oos = new ObjectOutputStream(
+			try (ByteArrayOutputStream baos = new ByteArrayOutputStream(); ObjectOutputStream oos =
+				new ObjectOutputStream(
 				baos)) {
 				oos.writeObject(value);
 				byte[] bytes = baos.toByteArray();

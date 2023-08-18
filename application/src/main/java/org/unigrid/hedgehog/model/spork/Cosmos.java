@@ -138,7 +138,8 @@ public class Cosmos extends GridSpork implements Serializable {
 
 					@Data
 					public static class Params {
-						// private SendEnabled sendEnabled; // Deprecated: Use of SendEnabled in params is deprecated.
+						// private SendEnabled sendEnabled;
+						// Deprecated: Use of SendEnabled in params is deprecated.
 						private boolean defaultSendEnabled;
 					}
 

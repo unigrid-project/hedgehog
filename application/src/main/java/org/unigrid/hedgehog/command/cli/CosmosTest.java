@@ -16,6 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.core.Response;
@@ -34,7 +35,7 @@ public class CosmosTest implements Runnable {
 	public void run() {
 		Properties props = System.getProperties();
 		props.setProperty("jdk.internal.httpclient.disableHostnameVerification", Boolean.TRUE.toString());
-		
+
 		final RestClient client = new RestClient(RestOptions.getHost(), 1317, true);
 
 		try {

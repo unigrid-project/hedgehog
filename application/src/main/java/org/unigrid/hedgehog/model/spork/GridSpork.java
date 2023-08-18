@@ -73,8 +73,8 @@ public class GridSpork implements Serializable, Signable {
 
 	@AllArgsConstructor
 	public enum Type {
-		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010), VESTING_STORAGE((short) 1020),		
-		COSMOS((short) 2000), STATISTICS_PUBKEY(((short) 2001));
+		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010),
+		VESTING_STORAGE((short) 1020), COSMOS((short) 2000), STATISTICS_PUBKEY(((short) 2001));
 
 		@Getter private final short value;
 

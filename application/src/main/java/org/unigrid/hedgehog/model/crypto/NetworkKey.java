@@ -45,10 +45,10 @@ public class NetworkKey {
 		+ "94d02cf079ba3aa260526b4f01d680bb3d73bb01846185f49b7f5c6e91f3491a36dd5148be5403d294c078cb"
 		+ "88a78d624b970bece17b1e23a049337e1859d72b260595b66ab73d5f8c76626be13c89e4f0c893c42171d3",
 
-		"12150eccf529c996f10408a55dc9a3e2d496b04c604245c4718c645fe79799a538674a6c950ae0a5396f9a95c"+
-		"6d27cce4fcb6b16a5fe013f69a936b2725390a187a10d5d1b32a6010546c82d9a4b502f83ba87d12f48d95792a274"+
-		"728fb151e17c5b46e856368fa6afc231999d8fc64b80f134392d6be1db01b2ce121a00c2a779c414",
-		
+		"12150eccf529c996f10408a55dc9a3e2d496b04c604245c4718c645fe79799a538674a6c950ae0a5396f9a95c"
+		+ "6d27cce4fcb6b16a5fe013f69a936b2725390a187a10d5d1b32a6010546c82d9a4b502f83ba87d12f48d95792a274"
+		+ "728fb151e17c5b46e856368fa6afc231999d8fc64b80f134392d6be1db01b2ce121a00c2a779c414",
+
 		"173d36a066bef5791dd055f38495a28c3ee28439c2fb12bd38423600744b36bf645e121f730d03734c657f01d2"
 		+ "47d93a58e8ea0bea2b8a128169d60c2a22aab1dcf1833dda6e457b4a81d008346a7892f4270450f50be2ac7ee"
 		+ "db7e0b2d54774196da339b0e847a0492f28f8066bca4e1978e387e232b8b8bb8e32d6984a738641e486"
@@ -109,7 +109,7 @@ public class NetworkKey {
 
 				this.signature = signature.sign(signable);
 
-			} catch(InvalidAlgorithmParameterException | IllegalArgumentException | InvalidKeySpecException
+			} catch (InvalidAlgorithmParameterException | IllegalArgumentException | InvalidKeySpecException
 				| NoSuchAlgorithmException  ex) {
 
 				throw new SigningException("Failed to prepare random signable data", ex);
