@@ -45,7 +45,7 @@ public class NetOptions {
 	@Getter @Option(names = "--network-keys", scope = CommandLine.ScopeType.INHERIT,
 		description = "Override the default network keys", split = ",",
 		defaultValue = "1c133daf1f85987771847f8ddfce77ff16a52abc48569a2e83fd85704c4fdfb4686def3c0b0b51dc57dd9885"
-                + "1579b90f62e817d8a8cd448cf5e852ad065b834059018b26142ac78815758eb4c0f8641b9bae185291a1b7e4"
+		+ "1579b90f62e817d8a8cd448cf5e852ad065b834059018b26142ac78815758eb4c0f8641b9bae185291a1b7e4"
 		+ "25d467f0d2ff6cd5580684afdd347737b2e94ef7a86dd1885aa07222e8a2ecd633dabbf3c94725699fabf1,"
 
 		+ "15380913ff0cfd116546f6d5ab6235f7775b111a33447981135ecb26971a53b31220e928e44230e3ff21f571"
