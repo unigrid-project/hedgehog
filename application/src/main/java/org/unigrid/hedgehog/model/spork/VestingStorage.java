@@ -22,6 +22,7 @@ package org.unigrid.hedgehog.model.spork;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -54,13 +55,19 @@ public class VestingStorage extends GridSpork implements Serializable {
 		public static class Vesting implements Serializable {
 			private BigDecimal amount;
 
-			@JsonFormat(shape = JsonFormat.Shape.STRING)
-			private Instant start;
+			private BigInteger block;
+
+			private int cliff;
 
 			@JsonFormat(shape = JsonFormat.Shape.STRING)
 			private Duration duration;
 
 			private int parts;
+
+			private int percent;
+
+			@JsonFormat(shape = JsonFormat.Shape.STRING)
+			private Instant start;
 		}
 
 		public SporkData empty() {

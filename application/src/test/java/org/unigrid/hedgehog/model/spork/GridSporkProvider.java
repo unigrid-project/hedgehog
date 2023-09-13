@@ -20,10 +20,12 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import org.apache.commons.codec.binary.Hex;
@@ -72,7 +74,11 @@ public class GridSporkProvider {
 					final Vesting vesting = Vesting.builder()
 						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
 						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
-						.parts(RandomUtils.nextInt(5, 100)).build();
+						.parts(RandomUtils.nextInt(5, 100))
+						.amount(new BigDecimal(RandomUtils.nextInt()))
+						.cliff(RandomUtils.nextInt(4, 40))
+						.percent(RandomUtils.nextInt(1, 40))
+						.block(new BigInteger(RandomUtils.nextInt(), new Random())).build();
 
 					vests.put(address, vesting);
 				}

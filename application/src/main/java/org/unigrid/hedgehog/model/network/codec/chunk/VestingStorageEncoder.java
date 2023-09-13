@@ -39,7 +39,11 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 	   n[                     << address (0-term) >>                   ]
 	    [                     vesting start (seconds)                  ]
 	    [                    vesting duration (seconds)                ]
-	    [                          vesting parts                   ...n]
+	    [                          vesting parts			   ]
+	    [                          vesting cliff			   ]
+	    [                         vesting percent			   ]
+	    [                       vesting block (0-term)		   ]
+	    [                       vesting amount (0-term)	       ...n]
 	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, VestingStorage.SporkData data, ByteBuf out) throws Exception {
@@ -51,6 +55,10 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 			out.writeLong(vesting.getStart().getEpochSecond());
 			out.writeLong(vesting.getDuration().getSeconds());
 			out.writeInt(vesting.getParts());
+			out.writeInt(vesting.getCliff());
+			out.writeInt(vesting.getPercent());
+			ByteBufUtils.writeNullTerminatedString(vesting.getBlock().toString(), out);
+			ByteBufUtils.writeNullTerminatedString(vesting.getAmount().toString(), out);
 		});
 	}
 

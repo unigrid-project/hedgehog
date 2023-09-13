@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -55,10 +56,12 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 	@Provide
 	public Arbitrary<Vesting> provideVesting(@ForAll @BigRange(min = "1", max = "1000000") @Scale(12) BigDecimal amount,
 		@ForAll @ByteRange(min = 1) byte parts, @ForAll @DurationRange(min = "P1D", max = "P1000D") Duration duration,
-		@ForAll @InstantRange() Instant start) {
+		@ForAll @InstantRange() Instant start, @ForAll @ByteRange(min = 1) int cliff,
+		@ForAll @ByteRange(min = 1, max = Byte.MAX_VALUE) int percent,
+		@ForAll @BigRange(min = "1", max = "100000") BigInteger block) {
 
 		return Arbitraries.of(Vesting.builder().amount(amount).duration(duration)
-			.parts(parts).start(start).build());
+			.parts(parts).start(start).cliff(cliff).percent(percent).block(block).build());
 	}
 
 	@SneakyThrows
