@@ -58,7 +58,7 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 		@ForAll @ByteRange(min = 1) byte parts, @ForAll @DurationRange(min = "P1D", max = "P1000D") Duration duration,
 		@ForAll @InstantRange() Instant start, @ForAll @ByteRange(min = 1) int cliff,
 		@ForAll @ByteRange(min = 1, max = Byte.MAX_VALUE) int percent,
-		@ForAll @BigRange(min = "1", max = "100000") BigInteger block) {
+		@ForAll int block) {
 
 		return Arbitraries.of(Vesting.builder().amount(amount).duration(duration)
 			.parts(parts).start(start).cliff(cliff).percent(percent).block(block).build());

@@ -78,7 +78,7 @@ public class GridSporkProvider {
 						.amount(new BigDecimal(RandomUtils.nextInt()))
 						.cliff(RandomUtils.nextInt(4, 40))
 						.percent(RandomUtils.nextInt(1, 40))
-						.block(new BigInteger(RandomUtils.nextInt(), new Random())).build();
+						.block(RandomUtils.nextInt()).build();
 
 					vests.put(address, vesting);
 				}

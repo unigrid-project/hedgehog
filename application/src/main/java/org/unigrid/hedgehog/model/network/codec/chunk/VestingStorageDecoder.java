@@ -22,7 +22,6 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -49,7 +48,7 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 	    [                          vesting parts			   ]
 	    [                          vesting cliff			   ]
 	    [                         vesting percent			   ]
-	    [                       vesting block (0-term)		   ]
+	    [				vesting block			   ]
 	    [                       vesting amount (0-term)	       ...n]
 	*/
 	@Override
@@ -69,7 +68,7 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 			vesting.setParts(in.readInt());
 			vesting.setCliff(in.readInt());
 			vesting.setPercent(in.readInt());
-			vesting.setBlock(new BigInteger(ByteBufUtils.readNullTerminatedString(in)));
+			vesting.setBlock(in.readInt());
 			vesting.setAmount(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
 
 			vests.put(address, vesting);

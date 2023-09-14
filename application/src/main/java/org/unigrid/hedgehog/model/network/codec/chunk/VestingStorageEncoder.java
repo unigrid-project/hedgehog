@@ -57,7 +57,7 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 			out.writeInt(vesting.getParts());
 			out.writeInt(vesting.getCliff());
 			out.writeInt(vesting.getPercent());
-			ByteBufUtils.writeNullTerminatedString(vesting.getBlock().toString(), out);
+			out.writeInt(vesting.getBlock());
 			ByteBufUtils.writeNullTerminatedString(vesting.getAmount().toString(), out);
 		});
 	}
