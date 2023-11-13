@@ -32,7 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Builder.Default;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.ToString;
@@ -46,9 +48,26 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Node {
+
+	@AllArgsConstructor
+	public enum GridnodeStatus {
+		ACTIVE((byte) 1), INACTIVE((byte) 2);
+
+		@Getter private final byte value;
+
+		public static GridnodeStatus get(byte value) {
+			switch (value) {
+				case 1: return ACTIVE;
+				case 2: return INACTIVE;
+				default: return INACTIVE;
+			}
+		}
+	}
+
 	private InetSocketAddress address;
 	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
 	@Builder.Default private Details details = new Details();
+	@Builder.Default private Optional<Gridnode> gridnode = Optional.empty();
 	private long nsPing;
 
 	@Data
@@ -58,6 +77,16 @@ public class Node {
 	public static class Details {
 		private String[] protocols;
 		private int version;
+	}
+
+	@Data
+	@Builder
+	@NoArgsConstructor
+	@AllArgsConstructor
+	public static class Gridnode {
+		@Default private GridnodeStatus gridnodeStatus = GridnodeStatus.INACTIVE;
+		private String gridnodeKey;
+		private String account;
 	}
 
 	@SneakyThrows
