@@ -96,16 +96,13 @@ public class GridnodeResource extends CDIBridgeResource {
 	@PUT
 	public Response put(@NotNull Gridnode gridnode,
 		@NotNull @HeaderParam("sign") String sign) {
-		System.out.println(gridnode.getGridnodeKey() + " || " + gridnode.getMessage() + " || " + sign);
 		try {
 			byte[] bytes = Utils.hexStringToByteArray(gridnode.getGridnodeKey());
 			ECKey pubKey = ECKey.fromPublicOnly(bytes);
-			System.out.println(pubKey.toString());
 			byte[] messageBytes = gridnode.getMessage().getBytes();
 			byte[] signBytes = Base64.getDecoder().decode(sign);
 			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
 				final Set<Node> nodes = topology.cloneNodes();
-				System.out.println(nodes.size());
 				nodes.stream().forEach(n -> {
 					if (n.getGridnode().isPresent()
 						&& n.getGridnode().get().getGridnodeKey()
@@ -126,7 +123,6 @@ public class GridnodeResource extends CDIBridgeResource {
 			return Response.status(Response.Status.EXPECTATION_FAILED).build();
 		}
 
-		System.out.println("was not abel to verify key!!!!");
 		return Response.status(Response.Status.UNAUTHORIZED).build();
 	}
 
@@ -149,7 +145,6 @@ public class GridnodeResource extends CDIBridgeResource {
 				map.put(account, delegatedAmount);
 			}
 		} catch (Exception e) {
-			System.out.println(e.getMessage());
 			log.error(e.getMessage());
 			return Response.status(Response.Status.EXPECTATION_FAILED).build();
 		}
@@ -160,25 +155,19 @@ public class GridnodeResource extends CDIBridgeResource {
 		map.entrySet().forEach(accountEntry -> {
 			String key = accountEntry.getKey();
 			Double val = accountEntry.getValue();
-			//System.out.println(key);
 			double cost = collateralCalculator.getCollateral(nodes.size());
-			//System.out.println(key);
-			//System.out.println(val);
-			//System.out.println(cost);
-			System.out.println((int) Math.round(val / cost));
+
 			List<ECKey> keys = GridnodeKey.generateKeys(key, (int) Math.round(val / cost));
 			List<String> pubKeys = new ArrayList<>();
 			keys.forEach(k -> {
 				pubKeys.add(k.getPublicKeyAsHex());
 			});
 
-			System.out.println("Nodes size = " + nodes.size());
 
 			nodes.removeIf(node -> node.getGridnode().get().getGridnodeKey().isEmpty()
 				|| node.getGridnode().get().getGridnodeStatus() == Node.GridnodeStatus.ACTIVE
 				&& pubKeys.contains(node.getGridnode().get().getGridnodeKey()));
 		});
-		System.out.println("Nodes size = " + nodes.size());
 
 		nodes.forEach(node -> node.getGridnode().get().setGridnodeStatus(Node.GridnodeStatus.INACTIVE));
 

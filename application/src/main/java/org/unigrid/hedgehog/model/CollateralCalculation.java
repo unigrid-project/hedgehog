@@ -33,10 +33,6 @@ public class CollateralCalculation {
 		final double calculation = collateral - collateral * 0.025
 			* Math.log(Math.pow(collateral, Math.min(5.0 - 0.1 * n, 1.0)));
 
-		System.out.println("calculation = " + calculation);
-		System.out.println("collateral = " + collateral);
-		System.out.println(n);
-
 		if (numNodes >= 0) {
 			sum = calculateCollateral(calculation, n + 1, numNodes);
 		} else {
