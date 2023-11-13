@@ -27,11 +27,15 @@ import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Future;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
@@ -65,6 +69,20 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		if (type == Type.CLIENT) {
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
+		}
+
+		if (type == Type.SERVER) {
+			try {
+				CDIUtil.resolveAndRun(Topology.class, (t) -> {
+					Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
+					if (me.get().getGridnode().isEmpty()) {
+						me.get().setGridnode(Optional.of(Node.Gridnode.builder().
+							gridnodeKey(GridnodeOptions.getGridnodeKey()).build()));
+					}
+				});
+			} catch (Exception e) {
+				log.error(e.getMessage());
+			}
 		}
 
 		if (Objects.nonNull(schedulersCreator.get())) {
