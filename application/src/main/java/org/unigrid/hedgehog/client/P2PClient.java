@@ -47,6 +47,8 @@ import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
 import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -112,6 +114,7 @@ public class P2PClient extends ConnectionContainer {
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
+					new GridnodeEncoder(), new GridnodeDecoder(),
 					new PublishPeersChannelHandler()
 				);
 			}, () -> {

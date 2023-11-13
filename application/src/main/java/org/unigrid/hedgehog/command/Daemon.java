@@ -23,6 +23,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
@@ -36,6 +37,7 @@ import picocli.CommandLine.Mixin;
 public class Daemon extends CDIContext implements Runnable {
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
+	@Mixin private GridnodeOptions gridnodeOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
