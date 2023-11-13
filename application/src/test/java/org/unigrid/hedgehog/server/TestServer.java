@@ -24,6 +24,8 @@ import jakarta.inject.Inject;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
+import org.bitcoinj.core.ECKey;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.Network;

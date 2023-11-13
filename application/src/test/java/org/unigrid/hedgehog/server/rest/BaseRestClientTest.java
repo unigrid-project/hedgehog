@@ -20,6 +20,8 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -32,6 +34,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.AfterTry;
+import org.bitcoinj.core.ECKey;
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -54,6 +57,8 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	protected TestServer server;
 
 	protected RestClient client;
+
+	public List<ECKey> keys = new ArrayList<>();
 
 	@BeforeContainer
 	private static void beforeContainer() {

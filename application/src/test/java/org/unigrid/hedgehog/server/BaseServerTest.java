@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.server;
 
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.List;
 import mockit.Mocked;
 import net.jqwik.api.constraints.IntRange;
@@ -28,6 +29,7 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.bitcoinj.core.ECKey;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
