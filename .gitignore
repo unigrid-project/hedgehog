@@ -8,3 +8,5 @@ socomo.html
 /common/target/
 jshell.history
 release.properties
+application/nb-configuration.xml
+application/licenseheader.txt
