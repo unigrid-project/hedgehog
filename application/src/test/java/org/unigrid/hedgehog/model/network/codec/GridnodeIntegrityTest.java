@@ -29,7 +29,7 @@ import java.util.Optional;
 import java.util.function.Predicate;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.network.Connection;
-import org.unigrid.hedgehog.model.network.packet.GridnodePacket;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -45,25 +45,25 @@ import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Node.Gridnode;
 
-public class GridnodeIntegrityTest extends BaseCodecTest<GridnodePacket>{
+public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode>{
 	@Mocked
 	private Connection emptyConnection;
 	
 	@Provide
-	public Arbitrary<GridnodePacket> provideGridnodePacket(@ForAll @AlphaChars @StringLength(36) String gridnodeKey,
+	public Arbitrary<PublishGridnode> provideGridnodePacket(@ForAll @AlphaChars @StringLength(36) String gridnodeKey,
 		@ForAll @IntRange(min = 4097, max = 65535) int port) throws UnknownHostException {
 
-		final GridnodePacket gp = GridnodePacket.builder().build();
+		final PublishGridnode gp = PublishGridnode.builder().build();
 		final String ip = ArbitraryGenerator.ip4();
 		final Node node = Node.builder().address(new InetSocketAddress(ip, port)).
-			gridnode(Optional.of(Gridnode.builder().gridnodeKey(gridnodeKey).build())).build();
+			gridnode(Optional.of(Gridnode.builder().id(gridnodeKey).build())).build();
 		gp.setNode(node);
 
 		return Arbitraries.of(gp);
 	}
 	
 	@Provide
-	public Arbitrary<GridnodePacket> provideWithConnection(@ForAll("providePublishPeers") GridnodePacket gridnode) {
+	public Arbitrary<PublishGridnode> provideWithConnection(@ForAll("providePublishPeers") PublishGridnode gridnode) {
 
 		gridnode.getNode().setConnection(Optional.of(emptyConnection));
 
@@ -72,12 +72,12 @@ public class GridnodeIntegrityTest extends BaseCodecTest<GridnodePacket>{
 	
 	@Property
 	@SneakyThrows
-	public void shouldMatch(@ForAll("provideGridnodePacket") GridnodePacket gridnodePacket, 
+	public void shouldMatch(@ForAll("provideGridnodePacket") PublishGridnode gridnodePacket, 
 		@Mocked ChannelHandlerContext context) {
 
 		final Optional<Pair<MutableInt, MutableInt>> sizes = getSizeHolder();
 
-		final GridnodePacket resultingGridnode = encodeDecode(gridnodePacket,
+		final PublishGridnode resultingGridnode = encodeDecode(gridnodePacket,
 			new GridnodeEncoder(), new GridnodeDecoder(), context, sizes
 		);
 

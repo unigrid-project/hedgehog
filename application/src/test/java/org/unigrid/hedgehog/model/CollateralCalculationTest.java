@@ -12,9 +12,9 @@ import net.jqwik.api.Provide;
 public class CollateralCalculationTest {
 	@Example
 	public boolean shouldSomethingSomething() {
-		final CollateralCalculation calculation = new CollateralCalculation();
+		final Collateral calculation = new Collateral();
 
-		System.out.println(calculation.getCollateral(5000));
+		System.out.println(calculation.get(5000));
 		return true;
 	}
 }

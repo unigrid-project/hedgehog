@@ -48,13 +48,13 @@ import net.jqwik.api.constraints.StringLength;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.Sha256Hash;
 import org.unigrid.hedgehog.client.ResponseOddityException;
-import org.unigrid.hedgehog.model.network.Gridnode;
+import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
-import org.unigrid.hedgehog.model.CollateralCalculation;
+import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.network.GridnodeHeartbeat;
+import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.network.Topology;
 
 public class GridnodeResourceTest extends BaseRestClientTest{
@@ -121,8 +121,8 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		node.setGridnode(Optional.of(Node.Gridnode.builder().gridnodeKey(key).
-			gridnodeStatus(Node.GridnodeStatus.ACTIVE).build()));
+		node.setGridnode(Optional.of(Node.Gridnode.builder().id(key).
+			status(Node.Gridnode.Status.ACTIVE).build()));
 		topology.addNode(node);
 	}
 
@@ -143,14 +143,14 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		node.setGridnode(Optional.of(Node.Gridnode.builder().gridnodeKey(key).
-			gridnodeStatus(Node.GridnodeStatus.INACTIVE).build()));
+		node.setGridnode(Optional.of(Node.Gridnode.builder().id(key).
+			status(Node.Gridnode.Status.INACTIVE).build()));
 		topology.addNode(node);
 	}
 
 	@SneakyThrows
-	private List<GridnodeHeartbeat> generateHeartbeatMap() {
-		List<GridnodeHeartbeat> list = new ArrayList<>();
+	private List<Delegation> generateHeartbeatMap() {
+		List<Delegation> list = new ArrayList<>();
 
 		for(int i = 0; i < 10; i++) {
 
@@ -159,9 +159,9 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			int nodeAmount = new Random().nextInt(1, 1000);
 			gridnodeKeys.addAll(GridnodeKey.generateKeys(account, 0));
 			double amount = new Random().nextDouble(2000, 2000 * 100);
-			GridnodeHeartbeat heartbeat = new GridnodeHeartbeat();
+			Delegation heartbeat = new Delegation();
 			heartbeat.setAccount(account);
-			heartbeat.setAmount(amount);
+			heartbeat.setDelegatedAmount(amount);
 			list.add(heartbeat);
 		}
 
@@ -170,13 +170,13 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 	@Example
 	public void shouldVerifyActiveNodes() {
-		List<GridnodeHeartbeat> list = generateHeartbeatMap();
+		List<Delegation> list = generateHeartbeatMap();
 
-		double cost = new CollateralCalculation().getCollateral(0);
+		double cost = new Collateral().get(0);
 
-		for (GridnodeHeartbeat heartbeat : list) {
+		for (Delegation heartbeat : list) {
 			String account = heartbeat.getAccount();
-			Double val = heartbeat.getAmount();
+			Double val = heartbeat.getDelegatedAmount();
 
 			int amountOfNodes = (int) Math.round(val/cost);
 			List<ECKey> keys = GridnodeKey.generateKeys(account, amountOfNodes);
@@ -210,13 +210,13 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 	@Example
 	public void shouldRemoveIllegalNodes() {
-		List<GridnodeHeartbeat> list = generateHeartbeatMap();
+		List<Delegation> list = generateHeartbeatMap();
 
-		double cost = new CollateralCalculation().getCollateral(0);
+		double cost = new Collateral().get(0);
 
 		for (int i = 0; i < list.size(); i++) {
 			String account = list.get(i).getAccount();
-			Double val = list.get(i).getAmount();
+			Double val = list.get(i).getDelegatedAmount();
 
 			int amountOfNodes = (int) Math.round(val/cost);
 			
@@ -233,7 +233,6 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		try {
 			ObjectMapper mapper = new ObjectMapper();
 			String json = mapper.writeValueAsString(list);
-			System.out.println("json = " + json);
 			final String url = "/gridnode/heartbeat/";
 			final Response response = client.put(url, Entity.json(json));
 			status = response.getStatus();
@@ -246,8 +245,6 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		
 		String nodes = topology.cloneNodes().toString();
 
-		System.out.println(initNodes);
-		System.out.println(nodes);
 		assertThat(initNodes, not(nodes));
 		assertThat(status, equalTo(200));
 		
@@ -258,7 +255,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		Set<Node> nodes = topology.cloneNodes();
 		
 		double result = 0;
-		double expetedResult = new CollateralCalculation().getCollateral(nodes.size());
+		double expetedResult = new Collateral().get(nodes.size());
 		try {
 			final String url = "/gridnode/colleteral/";
 			final Response response = client.get(url);
@@ -284,28 +281,21 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			
 			Sha256Hash message = Sha256Hash.of(gridnodeKey.getBytes());
 			ECKey.ECDSASignature sign = key.sign(message);
-			System.out.println("r = " + sign.r);
-			System.out.println("s = " + sign.s);
-			System.out.println("message = " + message);
-			Gridnode gridnode = Gridnode.builder().gridnodeKey(pubKey)
-				.message(gridnodeKey).build();
+			ActivateGridnode gridnode = ActivateGridnode.builder().gridnodeId(pubKey)
+				.gridnodeId(gridnodeKey).build();
 			provideInactiveGridnode(Family.IP4, new Random().nextInt(1024, 65535), gridnodeKey);
 
 			String signature = Base64.getEncoder().encodeToString(sign.encodeToDER());
 
 			String initNodes = topology.cloneNodes().toString();
 
-			System.out.println(gridnode.getGridnodeKey() + " || " + gridnode.getMessage() + " || " + signature);
 			final String url = "/gridnode/start/";
 			final Response response = client.putWithHeaders(url, Entity.json(gridnode),
 				new MultivaluedHashMap(Map.of("sign", signature)));
 			String nodes = topology.cloneNodes().toString();
 
 			int status = response.getStatus();
-			System.out.println(response.getStatus());
 
-			System.out.println(initNodes);
-			System.out.println(nodes);
 			assertThat(initNodes, not(nodes));
 			assertThat(status, equalTo(202));
 		} catch (ResponseOddityException ex) {
