@@ -26,24 +26,24 @@ import jakarta.inject.Inject;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.GridnodePacket;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
-public class GridnodeEncoder extends AbstractMessageToByteEncoder<GridnodePacket>
-	implements PacketEncoder<GridnodePacket> {
+public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnode>
+	implements PacketEncoder<PublishGridnode> {
 
 	@Inject
 	private Topology topology;
 
 	@Override
-	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, GridnodePacket in) throws Exception {
+	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishGridnode in) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
 
-		final byte[] key = in.getNode().getGridnode().get().getGridnodeKey().getBytes();
+		final byte[] key = in.getNode().getGridnode().get().getId().getBytes();
 
 		out.writeShort(in.getNode().getAddress().getPort());
-		out.writeByte(in.getNode().getGridnode().get().getGridnodeStatus().getValue());
+		out.writeByte(in.getNode().getGridnode().get().getStatus().getValue());
 		out.writeZero(5);
 		out.writeShort(key.length);
 		out.writeBytes(key);

@@ -61,10 +61,11 @@ public class GridnodeKey {
 		return verify;
 	}
 
+	//TODO: Adam do an extra review on this one
 	public static List<ECKey> generateKeys(String account, int numKeys) {
 		List<ECKey> derivedKeysList = new ArrayList<>();
 		try {
-			//
+			
 			byte[] seed = Sha256Hash.hash(account.getBytes());
 			//System.out.println("account: " + account);
 			//System.out.println("seed: " + seed);

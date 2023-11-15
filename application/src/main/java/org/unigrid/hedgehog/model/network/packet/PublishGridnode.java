@@ -30,13 +30,13 @@ import org.unigrid.hedgehog.model.network.Node;
 @Builder
 @AllArgsConstructor
 @EqualsAndHashCode(callSuper = false)
-public class GridnodePacket extends Packet implements Serializable {
+public class PublishGridnode extends Packet implements Serializable {
 
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 3;
+	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 5;
 
 	@Builder.Default private Node node = Node.builder().build();
 
-	public GridnodePacket() {
+	public PublishGridnode() {
 		setType(Packet.Type.GRIDNODE);
 	}
 }

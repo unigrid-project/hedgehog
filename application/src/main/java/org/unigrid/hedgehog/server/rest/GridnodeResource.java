@@ -19,8 +19,6 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -35,19 +33,22 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.SignatureDecodeException;
-import org.unigrid.hedgehog.model.CollateralCalculation;
+import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.Gridnode;
+import org.apache.commons.codec.binary.Hex;
+import org.unigrid.hedgehog.model.gridnode.Delegation;
+import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.util.Utils;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -62,23 +63,17 @@ public class GridnodeResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private Topology topology;
 
-	@CDIBridgeInject
-	private SporkDatabase sporkDatabase;
-
-	//@Inject
-	//GridnodeHash gridnodeHash;
-	@Path("/colleteral")
-	@GET
+	@GET @Path("/collateral")
 	public Response get() {
 		// get number of gridnodes and calculate colleteral
+		Set<Node> nodes = topology.cloneNodes();
 
-		final Set<Node> nodes = topology.cloneNodes();
+		nodes = nodes.stream().filter(n -> n.getGridnode().isPresent()
+			&& n.getGridnode().get().getStatus() == Node.Gridnode.Status.ACTIVE)
+			.collect(Collectors.toSet());
 
-		List<Node> nodeList = nodes.stream().filter(n -> n.getGridnode().get().getGridnodeKey() != ""
-			&& n.getGridnode().get().getGridnodeStatus() == Node.GridnodeStatus.ACTIVE).toList();
-		CollateralCalculation colleteral = new CollateralCalculation();
-
-		return Response.ok(colleteral.getCollateral(nodeList.size())).build();
+		final Collateral collateral = new Collateral();
+		return Response.ok(collateral.get(nodes.size())).build();
 	}
 
 	/**
@@ -94,23 +89,22 @@ public class GridnodeResource extends CDIBridgeResource {
 	 */
 	@Path("/start")
 	@PUT
-	public Response put(@NotNull Gridnode gridnode,
+	public Response put(@NotNull ActivateGridnode gridnode,
 		@NotNull @HeaderParam("sign") String sign) {
 		try {
-			byte[] bytes = Utils.hexStringToByteArray(gridnode.getGridnodeKey());
+			byte[] bytes = Hex.decodeHex(gridnode.getPublicKey());
 			ECKey pubKey = ECKey.fromPublicOnly(bytes);
-			byte[] messageBytes = gridnode.getMessage().getBytes();
+			byte[] messageBytes = gridnode.getGridnodeId().getBytes();
 			byte[] signBytes = Base64.getDecoder().decode(sign);
 			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
 				final Set<Node> nodes = topology.cloneNodes();
 				nodes.stream().forEach(n -> {
-					if (n.getGridnode().isPresent()
-						&& n.getGridnode().get().getGridnodeKey()
-							.equals(gridnode.getMessage())) {
-						n.getGridnode().get()
-							.setGridnodeStatus(Node.GridnodeStatus.ACTIVE);
-						//TODO: add package message to the network with the new status
-
+					if (n.getGridnode().isPresent() && n.getGridnode().get().getId()
+						.equals(gridnode.getGridnodeId())) {
+							n.getGridnode().get().setStatus(Node.Gridnode.Status.ACTIVE);
+							//TODO: Adam review
+							Topology.sendAll(PublishGridnode.builder()
+								.node(n).build(), topology, Optional.empty());
 					}
 				});
 				return Response.status(Response.Status.ACCEPTED).build();
@@ -126,36 +120,18 @@ public class GridnodeResource extends CDIBridgeResource {
 		return Response.status(Response.Status.UNAUTHORIZED).build();
 	}
 
-	@Path("heartbeat")
-	@PUT
-	public Response heartbeat(@NotNull String stringMap) {
-		Map<String, Double> map = new HashMap<>();
+	@PUT @Path("heartbeat")
+	public Response heartbeat(@NotNull List<Delegation> accounts) {
+		final Map<String, Double> map = accounts.stream()
+			.collect(Collectors.toMap(Delegation::getAccount, Delegation::getDelegatedAmount));
 
-		try {
-			ObjectMapper objectMapper = new ObjectMapper();
-			// Parse JSON into a List of Maps
-			List<Map<String, Object>> dataList = objectMapper.readValue(stringMap,
-				new TypeReference<List<Map<String, Object>>>() {
-				});
-
-			// Create a map from the parsed data
-			for (Map<String, Object> data : dataList) {
-				String account = (String) data.get("account");
-				Double delegatedAmount = (Double) data.get("delegated_amount");
-				map.put(account, delegatedAmount);
-			}
-		} catch (Exception e) {
-			log.error(e.getMessage());
-			return Response.status(Response.Status.EXPECTATION_FAILED).build();
-		}
-
-		CollateralCalculation collateralCalculator = new CollateralCalculation();
+		Collateral collateralCalculator = new Collateral();
 		final Set<Node> nodes = topology.cloneNodes();
 
 		map.entrySet().forEach(accountEntry -> {
 			String key = accountEntry.getKey();
 			Double val = accountEntry.getValue();
-			double cost = collateralCalculator.getCollateral(nodes.size());
+			double cost = collateralCalculator.get(nodes.size());
 
 			List<ECKey> keys = GridnodeKey.generateKeys(key, (int) Math.round(val / cost));
 			List<String> pubKeys = new ArrayList<>();
@@ -164,13 +140,12 @@ public class GridnodeResource extends CDIBridgeResource {
 			});
 
 
-			nodes.removeIf(node -> node.getGridnode().get().getGridnodeKey().isEmpty()
-				|| node.getGridnode().get().getGridnodeStatus() == Node.GridnodeStatus.ACTIVE
-				&& pubKeys.contains(node.getGridnode().get().getGridnodeKey()));
+			nodes.removeIf(node -> node.getGridnode().isEmpty()
+				|| node.getGridnode().get().getStatus() == Node.Gridnode.Status.ACTIVE
+				&& pubKeys.contains(node.getGridnode().get().getId()));
 		});
 
-		nodes.forEach(node -> node.getGridnode().get().setGridnodeStatus(Node.GridnodeStatus.INACTIVE));
-
+		nodes.forEach(node -> node.getGridnode().get().setStatus(Node.Gridnode.Status.INACTIVE));
 		return Response.status(Response.Status.OK).build();
 	}
 

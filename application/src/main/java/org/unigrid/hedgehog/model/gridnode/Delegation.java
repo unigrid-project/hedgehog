@@ -17,15 +17,15 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.model.gridnode;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 @Data
-public class GridnodeHeartbeat {
+public class Delegation {
 	private String account;
 
 	@JsonProperty(value = "delegated_amount")
-	private double amount;
+	private double delegatedAmount;
 }

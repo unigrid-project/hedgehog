@@ -22,11 +22,10 @@ package org.unigrid.hedgehog.model;
 import lombok.NoArgsConstructor;
 
 @NoArgsConstructor
-public class CollateralCalculation {
-
+public class Collateral {
 	private final int baseAmount = 3000;
 
-	private double calculateCollateral(double collateral, double n, int numNodes) {
+	private double calculate(double collateral, double n, int numNodes) {
 		double sum = 0;
 		numNodes = numNodes - 500;
 
@@ -34,7 +33,7 @@ public class CollateralCalculation {
 			* Math.log(Math.pow(collateral, Math.min(5.0 - 0.1 * n, 1.0)));
 
 		if (numNodes >= 0) {
-			sum = calculateCollateral(calculation, n + 1, numNodes);
+			sum = calculate(calculation, n + 1, numNodes);
 		} else {
 			sum = collateral;
 		}
@@ -43,13 +42,13 @@ public class CollateralCalculation {
 	}
 
 	public int numAllowedNodes(int runningNodes, double amount) {
-		double cost = getCollateral(runningNodes);
+		double cost = get(runningNodes);
 		double d = amount / cost;
 
 		return (int) d;
 	}
 
-	public double getCollateral(int numNodes) {
-		return calculateCollateral(baseAmount, 1, numNodes);
+	public double get(int numNodes) {
+		return calculate(baseAmount, 1, numNodes);
 	}
 }

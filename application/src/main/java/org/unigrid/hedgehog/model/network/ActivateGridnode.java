@@ -25,8 +25,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class Gridnode {
-
-	private String message;
-	private String gridnodeKey;
+public class ActivateGridnode {
+	private String gridnodeId;
+	private String publicKey;
 }

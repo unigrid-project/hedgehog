@@ -37,6 +37,7 @@ import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Hello;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -69,15 +70,28 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		if (type == Type.CLIENT) {
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
+			//TODO: Adam review
+			CDIUtil.resolveAndRun(Topology.class, (t) -> {
+				Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
+				if (!GridnodeOptions.getGridnodeKey().isEmpty()) {
+					me.get().setGridnode(Optional.of(Node.Gridnode.builder().
+							id(GridnodeOptions.getGridnodeKey()).build()));
+					channel.writeAndFlush(PublishGridnode.builder().node(me.get()).build());
+				}
+			});
 		}
 
 		if (type == Type.SERVER) {
 			try {
 				CDIUtil.resolveAndRun(Topology.class, (t) -> {
 					Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
-					if (me.get().getGridnode().isEmpty()) {
+					if (me.get().getGridnode().isEmpty() 
+						&& !GridnodeOptions.getGridnodeKey().isEmpty()) {
 						me.get().setGridnode(Optional.of(Node.Gridnode.builder().
-							gridnodeKey(GridnodeOptions.getGridnodeKey()).build()));
+							id(GridnodeOptions.getGridnodeKey()).build()));
+						//TODO: add set of grodnode id to stop starting mutiple of the same id
+						//TODO: send gridnode information to the network
+						channel.writeAndFlush(PublishGridnode.builder().node(me.get()).build());
 					}
 				});
 			} catch (Exception e) {

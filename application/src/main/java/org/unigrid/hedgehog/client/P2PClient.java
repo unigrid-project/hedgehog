@@ -56,6 +56,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
@@ -113,9 +114,9 @@ public class P2PClient extends ConnectionContainer {
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler(),
 					new GridnodeEncoder(), new GridnodeDecoder(),
-					new PublishPeersChannelHandler()
+					new PingChannelHandler(), new PublishSporkChannelHandler(),
+					new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
 				);
 			}, () -> {
 				return Arrays.asList(

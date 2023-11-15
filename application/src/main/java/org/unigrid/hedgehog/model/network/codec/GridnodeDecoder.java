@@ -29,18 +29,18 @@ import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Node.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.GridnodePacket;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
-public class GridnodeDecoder extends AbstractReplayingDecoder<GridnodePacket> implements PacketDecoder<GridnodePacket> {
+public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> implements PacketDecoder<PublishGridnode> {
 
 	@Inject
 	private Topology topology;
 
 	@Override
-	public Optional<GridnodePacket> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final GridnodePacket gridnodePacket = GridnodePacket.builder().build();
+	public Optional<PublishGridnode> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final PublishGridnode gridnodePacket = PublishGridnode.builder().build();
 		final int port = in.readUnsignedShort();
 		final byte gridnodeStatus = in.readByte();
 		in.skipBytes(5);
@@ -51,7 +51,7 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<GridnodePacket> im
 
 		gridnodePacket.getNode().setAddress(new InetSocketAddress(address, port));
 		gridnodePacket.getNode().setGridnode(Optional.of(Gridnode.builder().
-			gridnodeKey(gridnodeKey).gridnodeStatus(Node.GridnodeStatus.get(gridnodeStatus)).build()));
+			id(gridnodeKey).status(Node.Gridnode.Status.get(gridnodeStatus)).build()));
 
 		return Optional.of(gridnodePacket);
 	}

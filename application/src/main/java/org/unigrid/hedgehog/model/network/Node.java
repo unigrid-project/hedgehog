@@ -49,25 +49,15 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @AllArgsConstructor
 public class Node {
 
-	@AllArgsConstructor
-	public enum GridnodeStatus {
-		ACTIVE((byte) 1), INACTIVE((byte) 2);
-
-		@Getter private final byte value;
-
-		public static GridnodeStatus get(byte value) {
-			switch (value) {
-				case 1: return ACTIVE;
-				case 2: return INACTIVE;
-				default: return INACTIVE;
-			}
-		}
-	}
-
 	private InetSocketAddress address;
-	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
-	@Builder.Default private Details details = new Details();
-	@Builder.Default private Optional<Gridnode> gridnode = Optional.empty();
+	@JsonIgnore
+	@Builder.Default
+	@ToString.Exclude
+	private Optional<Connection> connection = Optional.empty();
+	@Builder.Default
+	private Details details = new Details();
+	@Builder.Default
+	private Optional<Gridnode> gridnode = Optional.empty();
 	private long nsPing;
 
 	@Data
@@ -75,6 +65,7 @@ public class Node {
 	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class Details {
+
 		private String[] protocols;
 		private int version;
 	}
@@ -84,8 +75,29 @@ public class Node {
 	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class Gridnode {
-		@Default private GridnodeStatus gridnodeStatus = GridnodeStatus.INACTIVE;
-		private String gridnodeKey;
+
+		@AllArgsConstructor
+		public enum Status {
+			ACTIVE((byte) 1), INACTIVE((byte) 2);
+
+			@Getter
+			private final byte value;
+
+			public static Status get(byte value) {
+				switch (value) {
+					case 1:
+						return ACTIVE;
+					case 2:
+						return INACTIVE;
+					default:
+						return INACTIVE;
+				}
+			}
+		}
+
+		@Default
+		private Status status = Status.INACTIVE;
+		private String id;
 		private String account;
 	}
 

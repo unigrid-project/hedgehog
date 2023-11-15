@@ -25,22 +25,28 @@ import java.util.Set;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.GridnodePacket;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
-public class GridnodeChannelHandler extends AbstractInboundHandler<GridnodePacket> {
+public class PublishGridnodeChannelHandler extends AbstractInboundHandler<PublishGridnode> {
 
-	public GridnodeChannelHandler() {
-		super(GridnodePacket.class);
+	public PublishGridnodeChannelHandler() {
+		super(PublishGridnode.class);
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, GridnodePacket obj) throws Exception {
+	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Node> nodes = topology.cloneNodes();
 			Optional<Node> node = nodes.stream().filter(n -> n.getAddress()
 				== obj.getNode().getAddress()).findFirst();
-
+			boolean isEmpty = node.get().getGridnode().isEmpty();
 			node.get().setGridnode(Optional.of(obj.getNode().getGridnode().get()));
+			//TODO: propagate if not in list already
+			if (isEmpty) {
+				Topology.sendAll(PublishGridnode.builder().node(node.get()).build(),
+					topology, Optional.empty());
+			}
+			
 		});
 	}
 }
