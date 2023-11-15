@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import jakarta.inject.Inject;
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -76,6 +77,8 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 			final int port = server.getP2p().getPort();
 			final Connection connection = new P2PClient(host, port);
 			final ECKey key = new ECKey();
+			topology.addNode(Node.builder().address(new InetSocketAddress(host, port))
+				.build());
 			Set<Node> nodes = topology.cloneNodes();
 			Optional<Node> obj = nodes.stream().filter(n -> n.getAddress().getHostName()
 				.equals(host)).findFirst();
