@@ -19,7 +19,6 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
-import io.netty.channel.ChannelHandlerContext;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -29,6 +28,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collector;
 import lombok.SneakyThrows;
 import mockit.Mocked;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Tested;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -40,6 +41,7 @@ import org.bitcoinj.core.ECKey;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -51,6 +53,18 @@ import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, PublishGridnodeChannelHandler> {
 
+	/*public final class FakeGridnodeOptions extends MockUp<GridnodeOptions> {
+
+		private String gridnodeKey;
+
+		@Mock
+		public String getGridnodeKey() {
+			System.out.println("Getting gridnode key");
+			ECKey key = new ECKey();
+			return key.getPublicKeyAsHex();
+		}
+	}*/
+	
 	@Inject
 	private Topology topology;
 
@@ -61,7 +75,6 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulPropagateGridnodeToNetwork(@ForAll("provideTestServers") List<TestServer> servers,
 		@Mocked PingSchedule pingSchedule) throws Exception {
-
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
 
@@ -71,6 +84,7 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 				invocations.incrementAndGet();
 			}
 		}));
+		
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
@@ -84,7 +98,7 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 				.equals(host)).findFirst();
 			obj.get().setGridnode(Optional.of(Node.Gridnode.builder().id(key.getPublicKeyAsHex()).build()));
 			Node node = obj.get();
-
+			System.out.println(nodes.toString());
 			connection.send(PublishGridnode.builder().node(node).build());
 			expectedInvocations++;
 

@@ -24,8 +24,7 @@ import jakarta.inject.Inject;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
-import org.bitcoinj.core.ECKey;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.GridnodeOptionsMockup;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.Network;
@@ -42,12 +41,15 @@ public class TestServer {
 	private RestServer rest;
 
 	public static void mockProperties(TestServer server) {
+		//new GridnodeOptionsMockup();
 		mockProperties();
+
 		CDIUtil.instantiate(server.getP2p());
 		CDIUtil.instantiate(server.getRest());
 	}
 
 	public static void mockProperties() {
+
 		new Expectations() {{
 			int port = FreePortFinder.findFreeLocalPort();
 

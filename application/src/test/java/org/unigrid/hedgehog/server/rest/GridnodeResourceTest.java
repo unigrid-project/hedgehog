@@ -257,7 +257,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		double result = 0;
 		double expetedResult = new Collateral().get(nodes.size());
 		try {
-			final String url = "/gridnode/colleteral/";
+			final String url = "/gridnode/collateral/";
 			final Response response = client.get(url);
 
 			result = response.readEntity(Double.class);
