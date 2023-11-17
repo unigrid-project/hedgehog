@@ -46,12 +46,13 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 		in.skipBytes(5);
 		final short length = in.readShort();
 		final ByteBuf data = in.readBytes(length);
-		final String gridnodeKey = data.toString(StandardCharsets.UTF_8);
+		final String gridnodeId = data.toString(StandardCharsets.UTF_8);
 		final String address = ByteBufUtils.readNullTerminatedString(in);
+		System.out.println("decode gridnode");
 
 		gridnodePacket.getNode().setAddress(new InetSocketAddress(address, port));
 		gridnodePacket.getNode().setGridnode(Optional.of(Gridnode.builder().
-			id(gridnodeKey).status(Node.Gridnode.Status.get(gridnodeStatus)).build()));
+			id(gridnodeId).status(Node.Gridnode.Status.get(gridnodeStatus)).build()));
 
 		return Optional.of(gridnodePacket);
 	}

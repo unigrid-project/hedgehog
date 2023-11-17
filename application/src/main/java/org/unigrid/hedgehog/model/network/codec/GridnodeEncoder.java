@@ -39,14 +39,14 @@ public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnod
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishGridnode in) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
-
-		final byte[] key = in.getNode().getGridnode().get().getId().getBytes();
+		System.out.println("encode gridnode");
+		final byte[] id = in.getNode().getGridnode().get().getId().getBytes();
 
 		out.writeShort(in.getNode().getAddress().getPort());
 		out.writeByte(in.getNode().getGridnode().get().getStatus().getValue());
 		out.writeZero(5);
-		out.writeShort(key.length);
-		out.writeBytes(key);
+		out.writeShort(id.length);
+		out.writeBytes(id);
 		ByteBufUtils.writeNullTerminatedString(in.getNode().getAddress().getAddress().getHostAddress(), out);
 
 		return Optional.of(out);

@@ -127,13 +127,20 @@ public class GridnodeResource extends CDIBridgeResource {
 
 		Collateral collateralCalculator = new Collateral();
 		final Set<Node> nodes = topology.cloneNodes();
+		int numNodes = nodes.size();
+		log.atDebug().log("Heartbeat");
+		log.atDebug().log("number of node on the network " + numNodes);
 
 		map.entrySet().forEach(accountEntry -> {
 			String key = accountEntry.getKey();
 			Double val = accountEntry.getValue();
 			double cost = collateralCalculator.get(nodes.size());
+			log.atDebug().log("Account = " + key + " delegated amount = " + val);
+			int i = (int) Math.round(val / cost);
+			log.atDebug().log("Alowed to run " + i + " nodes");
 
-			List<ECKey> keys = GridnodeKey.generateKeys(key, (int) Math.round(val / cost));
+
+			List<ECKey> keys = GridnodeKey.generateKeys(key, i);
 			List<String> pubKeys = new ArrayList<>();
 			keys.forEach(k -> {
 				pubKeys.add(k.getPublicKeyAsHex());

@@ -65,4 +65,6 @@ module org.unigrid.hedgehog {
 	requires org.bitcoinj.core;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
+	
+	exports org.unigrid.hedgehog.model.gridnode to com.fasterxml.jackson.databind;
 }

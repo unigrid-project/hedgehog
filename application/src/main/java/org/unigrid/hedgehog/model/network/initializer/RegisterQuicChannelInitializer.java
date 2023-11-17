@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
@@ -73,7 +74,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			//TODO: Adam review
 			CDIUtil.resolveAndRun(Topology.class, (t) -> {
 				Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
-				if (!GridnodeOptions.getGridnodeKey().isEmpty()) {
+				if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
 					me.get().setGridnode(Optional.of(Node.Gridnode.builder().
 							id(GridnodeOptions.getGridnodeKey()).build()));
 					channel.writeAndFlush(PublishGridnode.builder().node(me.get()).build());
@@ -85,7 +86,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			try {
 				CDIUtil.resolveAndRun(Topology.class, (t) -> {
 					Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
-					if (!GridnodeOptions.getGridnodeKey().isEmpty()) {
+					if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
 						me.get().setGridnode(Optional.of(Node.Gridnode.builder().
 							id(GridnodeOptions.getGridnodeKey()).build()));
 						//TODO: add set of grodnode id to stop starting mutiple of the same id

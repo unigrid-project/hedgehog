@@ -325,6 +325,7 @@
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=org.unigrid.hedgehog.common
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog=info.picocli
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
+                                                --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.gridnode=com.fasterxml.jackson.databind
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
