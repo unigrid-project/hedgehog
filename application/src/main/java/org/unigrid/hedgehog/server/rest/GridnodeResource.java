@@ -131,6 +131,10 @@ public class GridnodeResource extends CDIBridgeResource {
 		log.atDebug().log("Heartbeat");
 		log.atDebug().log("number of node on the network " + numNodes);
 
+		if (numNodes == 0) {
+			return Response.status(Response.Status.NO_CONTENT).build();
+		}
+
 		map.entrySet().forEach(accountEntry -> {
 			String key = accountEntry.getKey();
 			Double val = accountEntry.getValue();
