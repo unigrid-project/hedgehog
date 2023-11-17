@@ -63,6 +63,7 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
@@ -98,10 +99,10 @@ public class P2PServer extends AbstractServer {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new HelloDecoder(),
+					new GridnodeEncoder(), new GridnodeDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new GridnodeEncoder(), new GridnodeDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
 					new HelloChannelHandler(), new PublishPeersChannelHandler(),
 					new PublishGridnodeChannelHandler()
@@ -110,7 +111,8 @@ public class P2PServer extends AbstractServer {
 				return Arrays.asList(
 					new PingSchedule(),
 					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()
+					new PublishAndSaveSporkSchedule()//,
+					//new PublishGridnodeSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 

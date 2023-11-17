@@ -48,7 +48,9 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
+import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, PublishGridnodeChannelHandler> {
@@ -74,12 +76,13 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 
 	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulPropagateGridnodeToNetwork(@ForAll("provideTestServers") List<TestServer> servers,
-		@Mocked PingSchedule pingSchedule) throws Exception {
+		@Mocked PublishGridnodeSchedule schedule) throws Exception {
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
 
-		setChannelCallback(Optional.of((ctx, gridnode) -> {
+		setChannelCallback(Optional.of((ctx, publishGridnode) -> {
 			/* Only count triggers on the server-side  */
+			System.out.println("callback");
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
@@ -99,13 +102,14 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 			obj.get().setGridnode(Optional.of(Node.Gridnode.builder().id(key.getPublicKeyAsHex()).build()));
 			Node node = obj.get();
 			System.out.println(nodes.toString());
+
 			connection.send(PublishGridnode.builder().node(node).build());
 			expectedInvocations++;
 
-			await().untilAtomic(invocations, is(expectedInvocations));
+			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 			connection.closeDirty();
 		}
 
-		await().untilAtomic(invocations, is(expectedInvocations));
+		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }

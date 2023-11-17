@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
+import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.Set;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
@@ -37,16 +38,25 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Node> nodes = topology.cloneNodes();
-			Optional<Node> node = nodes.stream().filter(n -> n.getAddress()
-				== obj.getNode().getAddress()).findFirst();
+			Optional<Node> node = nodes.stream().filter(n -> n.getAddress().getHostName()
+				.equals(obj.getNode().getAddress().getHostName()) && n.getAddress().getPort()
+				== obj.getNode().getAddress().getPort()).findFirst();
+
+			if (node.isEmpty()) {
+				topology.addNode(obj.getNode());
+				node = nodes.stream().filter(n -> n.getAddress()
+					== obj.getNode().getAddress()).findFirst();
+			}
+
 			boolean isEmpty = node.get().getGridnode().isEmpty();
 			node.get().setGridnode(Optional.of(obj.getNode().getGridnode().get()));
 			//TODO: propagate if not in list already
 			if (isEmpty) {
+				System.out.println("gridnode handler send gridnode agien");
+
 				Topology.sendAll(PublishGridnode.builder().node(node.get()).build(),
 					topology, Optional.empty());
 			}
-			
 		});
 	}
 }
