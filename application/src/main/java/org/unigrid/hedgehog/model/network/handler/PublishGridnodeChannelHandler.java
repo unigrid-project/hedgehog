@@ -19,42 +19,59 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
+@Slf4j
+@Sharable
 public class PublishGridnodeChannelHandler extends AbstractInboundHandler<PublishGridnode> {
 
 	public PublishGridnodeChannelHandler() {
 		super(PublishGridnode.class);
+		log.atDebug().log("Init");
+
 	}
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			Set<Node> nodes = topology.cloneNodes();
-			Optional<Node> node = nodes.stream().filter(n -> n.getAddress().getHostName()
-				.equals(obj.getNode().getAddress().getHostName()) && n.getAddress().getPort()
-				== obj.getNode().getAddress().getPort()).findFirst();
-
-			if (node.isEmpty()) {
-				topology.addNode(obj.getNode());
-				node = nodes.stream().filter(n -> n.getAddress()
-					== obj.getNode().getAddress()).findFirst();
+			Set<Gridnode> gridnodes = topology.cloneGridnode();
+			boolean isEmpty = false;
+			System.out.println(gridnodes.size());
+			//Optional<Gridnode> gridnode = gridnodes.stream().filter(g -> obj.getGridnode().equals(g
+			//	.getHostName())).findFirst();
+			Gridnode gridnode = Gridnode.builder().build();
+			for(Gridnode g : gridnodes) {
+				if (g.equals(obj.getGridnode())) {
+					gridnode = g;
+				}
+			}
+			
+			if (gridnodes.isEmpty()) {
+				topology.addGridnode(obj.getGridnode());
+				gridnode = obj.getGridnode();
+				isEmpty = true;
 			}
 
-			boolean isEmpty = node.get().getGridnode().isEmpty();
-			node.get().setGridnode(Optional.of(obj.getNode().getGridnode().get()));
+			topology.addGridnode(obj.getGridnode());
+
+			topology.modifyGridnode(gridnode, g -> {
+				log.atDebug().log("Modifying a gridnode");
+				g.setHostName(obj.getGridnode().getHostName());
+				g.setId(obj.getGridnode().getId());
+				g.setStatus(obj.getGridnode().getStatus());
+			});
 			//TODO: propagate if not in list already
 			if (isEmpty) {
-				System.out.println("gridnode handler send gridnode agien");
-
-				Topology.sendAll(PublishGridnode.builder().node(node.get()).build(),
+				log.atDebug().log("gridnode handler send gridnode agien");
+				Topology.sendAll(PublishGridnode.builder().gridnode(gridnode).build(),
 					topology, Optional.empty());
 			}
 		});

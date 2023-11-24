@@ -56,8 +56,6 @@ public class Node {
 	private Optional<Connection> connection = Optional.empty();
 	@Builder.Default
 	private Details details = new Details();
-	@Builder.Default
-	private Optional<Gridnode> gridnode = Optional.empty();
 	private long nsPing;
 
 	@Data
@@ -68,37 +66,6 @@ public class Node {
 
 		private String[] protocols;
 		private int version;
-	}
-
-	@Data
-	@Builder
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class Gridnode {
-
-		@AllArgsConstructor
-		public enum Status {
-			ACTIVE((byte) 1), INACTIVE((byte) 2);
-
-			@Getter
-			private final byte value;
-
-			public static Status get(byte value) {
-				switch (value) {
-					case 1:
-						return ACTIVE;
-					case 2:
-						return INACTIVE;
-					default:
-						return INACTIVE;
-				}
-			}
-		}
-
-		@Default
-		private Status status = Status.INACTIVE;
-		private String id;
-		private String account;
 	}
 
 	@SneakyThrows
@@ -134,6 +101,7 @@ public class Node {
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
+		log.atDebug().log("Send all packet " + packet.toString());
 		if (node.getConnection().isPresent()) {
 			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
 

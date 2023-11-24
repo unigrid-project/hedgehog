@@ -35,6 +35,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Hello;
@@ -67,31 +68,36 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
 		channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).set(type);
 		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
-
+		log.atDebug().log("TYPE=CLIENT");
 		if (type == Type.CLIENT) {
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 			//TODO: Adam review
 			CDIUtil.resolveAndRun(Topology.class, (t) -> {
-				Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
+				log.atTrace().log("Are we sending gridnode to the network");
 				if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-					me.get().setGridnode(Optional.of(Node.Gridnode.builder().
-							id(GridnodeOptions.getGridnodeKey()).build()));
-					channel.writeAndFlush(PublishGridnode.builder().node(me.get()).build());
+					log.atTrace().log("Setting up gridnode and populationg it to the network");
+					Gridnode gridnode = Gridnode.builder().id(GridnodeOptions.getGridnodeKey())
+						.hostName(NetOptions.getHost() + ":" + NetOptions.getPort()).build();
+					t.addGridnode(gridnode);
+					channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode).build());
 				}
 			});
 		}
-
+		log.atDebug().log("type=SERVER");
 		if (type == Type.SERVER) {
 			try {
 				CDIUtil.resolveAndRun(Topology.class, (t) -> {
-					Optional<Node> me = t.cloneNodes().stream().filter(n -> n.isMe()).findFirst();
 					if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-						me.get().setGridnode(Optional.of(Node.Gridnode.builder().
-							id(GridnodeOptions.getGridnodeKey()).build()));
-						//TODO: add set of grodnode id to stop starting mutiple of the same id
-						//TODO: send gridnode information to the network
-						//channel.writeAndFlush(PublishGridnode.builder().node(me.get()).build());
+						log.atTrace()
+							.log("Setting up gridnode and populationg it to the network");
+						Gridnode gridnode = Gridnode.builder().id(GridnodeOptions
+							.getGridnodeKey())
+							.hostName(NetOptions.getHost() + ":" + NetOptions.getPort())
+							.build();
+						t.addGridnode(gridnode);
+						channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode)
+							.build());
 					}
 				});
 			} catch (Exception e) {
@@ -99,7 +105,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				log.error(e.getMessage());
 			}
 		}
-
+		log.atDebug().log("Schedulers");
 		if (Objects.nonNull(schedulersCreator.get())) {
 			schedulersCreator.get().forEach(s -> {
 
@@ -117,7 +123,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				}
 			});
 		}
-
+		log.atDebug().log("CDIUtil");
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());
 			PublishAndSaveSporkSchedule.writeAndFlush(channel, db);

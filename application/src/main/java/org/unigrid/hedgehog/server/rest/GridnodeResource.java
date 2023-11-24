@@ -46,6 +46,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.model.gridnode.Delegation;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -66,14 +67,24 @@ public class GridnodeResource extends CDIBridgeResource {
 	@GET @Path("/collateral")
 	public Response get() {
 		// get number of gridnodes and calculate colleteral
-		Set<Node> nodes = topology.cloneNodes();
-
-		nodes = nodes.stream().filter(n -> n.getGridnode().isPresent()
-			&& n.getGridnode().get().getStatus() == Node.Gridnode.Status.ACTIVE)
-			.collect(Collectors.toSet());
+		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		int count = 0;
+		
+		for(Gridnode g : gridnodes){
+			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+				count++;
+			}
+		}
 
 		final Collateral collateral = new Collateral();
-		return Response.ok(collateral.get(nodes.size())).build();
+		return Response.ok(collateral.get(count)).build();
+	}
+	
+	@GET
+	public Response list() {
+		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		
+		return Response.ok(gridnodes.toString()).build();
 	}
 
 	/**
@@ -97,14 +108,15 @@ public class GridnodeResource extends CDIBridgeResource {
 			byte[] messageBytes = gridnode.getGridnodeId().getBytes();
 			byte[] signBytes = Base64.getDecoder().decode(sign);
 			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
-				final Set<Node> nodes = topology.cloneNodes();
-				nodes.stream().forEach(n -> {
-					if (n.getGridnode().isPresent() && n.getGridnode().get().getId()
-						.equals(gridnode.getGridnodeId())) {
-							n.getGridnode().get().setStatus(Node.Gridnode.Status.ACTIVE);
-							//TODO: Adam review
-							Topology.sendAll(PublishGridnode.builder()
-								.node(n).build(), topology, Optional.empty());
+				final Set<Gridnode> gridnodes = topology.cloneGridnode();
+				gridnodes.forEach(g -> {
+					if(g.getId().equals(gridnode.getGridnodeId())) {
+						log.atTrace().log("Activating node with id {}", g.getId());
+						topology.modifyGridnode(g, n -> {
+							n.setStatus(Gridnode.Status.ACTIVE);
+						});
+						Topology.sendAll(PublishGridnode.builder().gridnode(g).build(),
+							topology, Optional.empty());
 					}
 				});
 				return Response.status(Response.Status.ACCEPTED).build();
@@ -113,6 +125,7 @@ public class GridnodeResource extends CDIBridgeResource {
 			log.error(ex.getMessage());
 			return Response.status(Response.Status.UNAUTHORIZED).build();
 		} catch (Exception e) {
+			System.out.println(e.getMessage());
 			log.error(e.getMessage());
 			return Response.status(Response.Status.EXPECTATION_FAILED).build();
 		}
@@ -126,8 +139,8 @@ public class GridnodeResource extends CDIBridgeResource {
 			.collect(Collectors.toMap(Delegation::getAccount, Delegation::getDelegatedAmount));
 
 		Collateral collateralCalculator = new Collateral();
-		final Set<Node> nodes = topology.cloneNodes();
-		int numNodes = nodes.size();
+		final Set<Gridnode> gridnodes = topology.cloneGridnode();
+		int numNodes = gridnodes.size();
 		log.atDebug().log("Heartbeat");
 		log.atDebug().log("number of node on the network " + numNodes);
 
@@ -138,7 +151,7 @@ public class GridnodeResource extends CDIBridgeResource {
 		map.entrySet().forEach(accountEntry -> {
 			String key = accountEntry.getKey();
 			Double val = accountEntry.getValue();
-			double cost = collateralCalculator.get(nodes.size());
+			double cost = collateralCalculator.get(gridnodes.size());
 			log.atDebug().log("Account = " + key + " delegated amount = " + val);
 			int i = (int) Math.round(val / cost);
 			log.atDebug().log("Alowed to run " + i + " nodes");
@@ -151,12 +164,11 @@ public class GridnodeResource extends CDIBridgeResource {
 			});
 
 
-			nodes.removeIf(node -> node.getGridnode().isEmpty()
-				|| node.getGridnode().get().getStatus() == Node.Gridnode.Status.ACTIVE
-				&& pubKeys.contains(node.getGridnode().get().getId()));
+			gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
+				&& pubKeys.contains(gridnode.getId()));
 		});
 
-		nodes.forEach(node -> node.getGridnode().get().setStatus(Node.Gridnode.Status.INACTIVE));
+		gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
 		return Response.status(Response.Status.OK).build();
 	}
 

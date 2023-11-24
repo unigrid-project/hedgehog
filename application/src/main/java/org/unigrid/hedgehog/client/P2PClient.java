@@ -123,8 +123,8 @@ public class P2PClient extends ConnectionContainer {
 				return Arrays.asList(
 					new PingSchedule(),
 					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()//,
-					//new PublishGridnodeSchedule()
+					new PublishAndSaveSporkSchedule(),
+					new PublishGridnodeSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();

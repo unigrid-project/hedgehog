@@ -24,12 +24,14 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import jakarta.inject.Inject;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
+@Slf4j
 public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnode>
 	implements PacketEncoder<PublishGridnode> {
 
@@ -39,15 +41,14 @@ public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnod
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishGridnode in) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
-		System.out.println("encode gridnode");
-		final byte[] id = in.getNode().getGridnode().get().getId().getBytes();
+		log.atDebug().log("encode gridnode");
+		final byte[] id = in.getGridnode().getId().getBytes();
 
-		out.writeShort(in.getNode().getAddress().getPort());
-		out.writeByte(in.getNode().getGridnode().get().getStatus().getValue());
+		out.writeByte(in.getGridnode().getStatus().getValue());
 		out.writeZero(5);
 		out.writeShort(id.length);
 		out.writeBytes(id);
-		ByteBufUtils.writeNullTerminatedString(in.getNode().getAddress().getAddress().getHostAddress(), out);
+		ByteBufUtils.writeNullTerminatedString(in.getGridnode().getHostName(), out);
 
 		return Optional.of(out);
 	}

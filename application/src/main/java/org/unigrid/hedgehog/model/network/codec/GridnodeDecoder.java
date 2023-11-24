@@ -25,14 +25,16 @@ import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.network.Node.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
+@Slf4j
 public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> implements PacketDecoder<PublishGridnode> {
 
 	@Inject
@@ -41,18 +43,16 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 	@Override
 	public Optional<PublishGridnode> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final PublishGridnode gridnodePacket = PublishGridnode.builder().build();
-		final int port = in.readUnsignedShort();
 		final byte gridnodeStatus = in.readByte();
 		in.skipBytes(5);
 		final short length = in.readShort();
 		final ByteBuf data = in.readBytes(length);
 		final String gridnodeId = data.toString(StandardCharsets.UTF_8);
-		final String address = ByteBufUtils.readNullTerminatedString(in);
-		System.out.println("decode gridnode");
+		final String hostName = ByteBufUtils.readNullTerminatedString(in);
+		log.atDebug().log("decode gridnode");
 
-		gridnodePacket.getNode().setAddress(new InetSocketAddress(address, port));
-		gridnodePacket.getNode().setGridnode(Optional.of(Gridnode.builder().
-			id(gridnodeId).status(Node.Gridnode.Status.get(gridnodeStatus)).build()));
+		gridnodePacket.setGridnode(Gridnode.builder().hostName(hostName)
+			.id(gridnodeId).status(Gridnode.Status.get(gridnodeStatus)).build());
 
 		return Optional.of(gridnodePacket);
 	}

@@ -20,13 +20,17 @@
 package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -37,20 +41,18 @@ import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 public class PublishGridnodeSchedule extends AbstractSchedule implements Schedulable {
 	public PublishGridnodeSchedule() {
 		super(PublishGridnode.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
+		log.atDebug().log("Init");
 	}
 
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
 			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				final Set<Node> nodesToSend = topology.cloneNodes();
+				final Set<Gridnode> gridnodesToSend = topology.cloneGridnode();
 
-				log.atTrace().log("Publishing {} peers to {}", nodesToSend.size(),
-					channel.remoteAddress());
-				nodesToSend.forEach(n -> {
-					if (n.getGridnode().isPresent()) {
-						channel.writeAndFlush(PublishGridnode.builder().node(n).build());
-					}
+				gridnodesToSend.forEach((g) -> {
+					log.atTrace().log("Sending gridnode");
+					channel.writeAndFlush(PublishGridnode.builder().gridnode(g).build());
 				});
 			});
 		};

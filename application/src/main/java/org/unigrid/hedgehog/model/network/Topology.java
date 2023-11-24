@@ -32,15 +32,20 @@ import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
+import org.apache.commons.lang3.StringUtils;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
 @ApplicationScoped
 public class Topology {
 	private HashSet<Node> nodes;
+	private HashSet<Gridnode> gridnodes;
 
 	@Inject
 	@Getter private ChannelMap channels;
@@ -48,6 +53,11 @@ public class Topology {
 	@PostConstruct
 	private void init() {
 		repopulate();
+		gridnodes = new HashSet<>();
+		if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
+			gridnodes.add(Gridnode.builder().id(GridnodeOptions.getGridnodeKey())
+				.hostName(NetOptions.getHost() + ":" + NetOptions.getPort()).build());
+		}
 	}
 
 	@Protected @Lock(LockMode.WRITE)
@@ -117,10 +127,50 @@ public class Topology {
 
 	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
+		log.atDebug().log("Send all packet " + packet.toString());
 		topology.forEach(node -> {
 			if (node.getConnection().isPresent()) {
 				Node.send(packet, node, consumer);
 			}
 		});
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public void modifyGridnode(Gridnode gridnode, Consumer<Gridnode> consumer)  {
+		gridnodes.forEach(g -> {
+			if (gridnode.equals(g)) {
+				consumer.accept(g);
+			}
+		});
+	}
+	
+	public void changeGridnodeStatus(String gridnodeId, Gridnode.Status status) {
+		Gridnode gridnode = Gridnode.builder().id(gridnodeId).status(status).build();
+		modifyGridnode(gridnode, (g) -> {
+			g.setStatus(gridnode.getStatus());
+		});
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public boolean addGridnode(Gridnode gridnode) {
+		if (!gridnodes.contains(gridnode)) {
+			return gridnodes.add(gridnode);
+		}
+
+		return false;
+	}
+	
+	@Protected @Lock(LockMode.WRITE)
+	public boolean removeGridnode(Gridnode gridnode) {
+		if (!gridnodes.contains(gridnode)) {
+			return gridnodes.remove(gridnode);
+		}
+
+		return false;
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public Set<Gridnode> cloneGridnode() {
+		return new HashSet(gridnodes);
 	}
 }

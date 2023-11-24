@@ -39,6 +39,7 @@ import jakarta.inject.Inject;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
@@ -67,6 +68,7 @@ import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
+@Slf4j
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
@@ -79,12 +81,12 @@ public class P2PServer extends AbstractServer {
 	@PostConstruct @SneakyThrows
 	private void init() {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
-
+		log.atDebug().log("Init P2P server");
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
 			.applicationProtocols(Network.getProtocols()).build();
-
+		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
 			.sslContext(context)
@@ -111,8 +113,8 @@ public class P2PServer extends AbstractServer {
 				return Arrays.asList(
 					new PingSchedule(),
 					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()//,
-					//new PublishGridnodeSchedule()
+					new PublishAndSaveSporkSchedule(),
+					new PublishGridnodeSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 
@@ -121,7 +123,7 @@ public class P2PServer extends AbstractServer {
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())
 			.sync().channel();
-
+		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
 	}
