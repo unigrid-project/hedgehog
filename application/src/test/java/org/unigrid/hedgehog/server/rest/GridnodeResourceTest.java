@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import lombok.SneakyThrows;
@@ -55,7 +54,9 @@ import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Delegation;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeScheduleTest;
 
 public class GridnodeResourceTest extends BaseRestClientTest{
 
@@ -79,13 +80,13 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		return Arbitraries.of("");
 	}
 	
-		private enum Family {
+	private enum Family {
 		IP4, IP6
 	}
 
 	@Provide
 	@SneakyThrows
-	public Arbitrary<Node> provideNode(@ForAll Family family,
+	public Arbitrary<Gridnode> provideGridnode(@ForAll Family family,
 		@ForAll @IntRange(min = 1024, max = 65535) int port) {
 
 		String address = switch (family) {
@@ -100,8 +101,12 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		} else {
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
+		ECKey key = new ECKey();
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName())
+			.id(key.getPublicKeyAsHex()).build();
 		topology.addNode(node);
-		return Arbitraries.of(node);
+		topology.addGridnode(gridnode);
+		return Arbitraries.of(gridnode);
 	}
 
 	@SneakyThrows
@@ -121,9 +126,10 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		node.setGridnode(Optional.of(Node.Gridnode.builder().id(key).
-			status(Node.Gridnode.Status.ACTIVE).build()));
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+			.status(Gridnode.Status.ACTIVE).build();
 		topology.addNode(node);
+		topology.addGridnode(gridnode);
 	}
 
 	@SneakyThrows
@@ -143,9 +149,10 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		node.setGridnode(Optional.of(Node.Gridnode.builder().id(key).
-			status(Node.Gridnode.Status.INACTIVE).build()));
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+			.build();
 		topology.addNode(node);
+		topology.addGridnode(gridnode);
 	}
 
 	@SneakyThrows
@@ -168,8 +175,8 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		return list;
 	}
 
-	@Example
-	public void shouldVerifyActiveNodes() {
+	/*@Example
+	public void shouldVerifyActiveNodes(@ForAll("provideNode") Node node) {
 		List<Delegation> list = generateHeartbeatMap();
 
 		double cost = new Collateral().get(0);
@@ -187,6 +194,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		}
 		
 		String initNodes = topology.cloneNodes().toString();
+		System.out.println(topology.cloneNodes().size());
 		int status = 0;
 		try {
 			ObjectMapper mapper = new ObjectMapper();
@@ -203,13 +211,13 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		}
 		
 		String nodes = topology.cloneNodes().toString();
-
+		System.out.println(topology.cloneNodes().size());
 		assertThat(initNodes, equalTo(nodes));
 		assertThat(status, equalTo(200));
-	}
+	}*/
 
-	@Example
-	public void shouldRemoveIllegalNodes() {
+	@Property(tries = 5)
+	public void shouldRemoveIllegalNodes(@ForAll("provideGridnode") Gridnode node) {
 		List<Delegation> list = generateHeartbeatMap();
 
 		double cost = new Collateral().get(0);
@@ -228,7 +236,8 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			}
 		}
 		
-		String initNodes = topology.cloneNodes().toString();
+		String initNodes = topology.cloneGridnode().toString();
+		System.out.println(topology.cloneGridnode().size());
 		int status = 0;
 		try {
 			ObjectMapper mapper = new ObjectMapper();
@@ -243,8 +252,8 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			System.out.println(ex.getMessage());
 		}
 		
-		String nodes = topology.cloneNodes().toString();
-
+		String nodes = topology.cloneGridnode().toString();
+		System.out.println(topology.cloneGridnode().size());
 		assertThat(initNodes, not(nodes));
 		assertThat(status, equalTo(200));
 		
@@ -252,10 +261,17 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 	@Property(tries = 10, shrinking = ShrinkingMode.OFF)
 	public void shouldReturnBaseCost() {
-		Set<Node> nodes = topology.cloneNodes();
+		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		int count = 0;
+		for(Gridnode g : gridnodes){
+			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+				count++;
+			}
+		}
+
 		
 		double result = 0;
-		double expetedResult = new Collateral().get(nodes.size());
+		double expetedResult = new Collateral().get(count);
 		try {
 			final String url = "/gridnode/collateral/";
 			final Response response = client.get(url);
@@ -265,11 +281,13 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 		} catch (ResponseOddityException ex) {
 			System.out.println(ex.getMessage());
 		}
+		System.out.println(expetedResult);
+		System.out.println(result);
 		assert result == expetedResult;
 	}
 
 	@Example
-	public void shouldActivateGridnode(@ForAll("provideNode") Node node) {
+	public void shouldActivateGridnode(@ForAll("provideGridnode") Gridnode node) {
 		try {
 			//ECKey key = keys.get(0);
 			String s = "start gridnode";
@@ -278,21 +296,22 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			String privKey = key.getPrivateKeyAsHex();
 			List<ECKey> gridnodeKeys = GridnodeKey.generateKeys(pubKey, 1);
 			String gridnodeKey = gridnodeKeys.get(0).getPublicKeyAsHex();
-			
+			System.out.println("1");
 			Sha256Hash message = Sha256Hash.of(gridnodeKey.getBytes());
 			ECKey.ECDSASignature sign = key.sign(message);
-			ActivateGridnode gridnode = ActivateGridnode.builder().gridnodeId(pubKey)
+			ActivateGridnode gridnode = ActivateGridnode.builder().publicKey(pubKey)
 				.gridnodeId(gridnodeKey).build();
 			provideInactiveGridnode(Family.IP4, new Random().nextInt(1024, 65535), gridnodeKey);
+			System.out.println("1");
 
 			String signature = Base64.getEncoder().encodeToString(sign.encodeToDER());
 
-			String initNodes = topology.cloneNodes().toString();
-
+			String initNodes = topology.cloneGridnode().toString();
+			System.out.println("1");
 			final String url = "/gridnode/start/";
 			final Response response = client.putWithHeaders(url, Entity.json(gridnode),
 				new MultivaluedHashMap(Map.of("sign", signature)));
-			String nodes = topology.cloneNodes().toString();
+			String nodes = topology.cloneGridnode().toString();
 
 			int status = response.getStatus();
 

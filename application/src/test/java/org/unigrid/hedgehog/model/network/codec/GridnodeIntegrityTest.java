@@ -23,10 +23,8 @@ import static com.shazam.shazamcrest.matcher.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import io.netty.channel.ChannelHandlerContext;
-import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Optional;
-import java.util.function.Predicate;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -42,8 +40,7 @@ import net.jqwik.api.constraints.StringLength;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
-import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.network.Node.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 
 public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode>{
 	@Mocked
@@ -55,21 +52,12 @@ public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode>{
 
 		final PublishGridnode gp = PublishGridnode.builder().build();
 		final String ip = ArbitraryGenerator.ip4();
-		final Node node = Node.builder().address(new InetSocketAddress(ip, port)).
-			gridnode(Optional.of(Gridnode.builder().id(gridnodeKey).build())).build();
-		gp.setNode(node);
+		final Gridnode gridnode = Gridnode.builder().id(gridnodeKey).hostName(ip + ":" + port).build();
+		gp.setGridnode(gridnode);
 
 		return Arbitraries.of(gp);
 	}
-	
-	@Provide
-	public Arbitrary<PublishGridnode> provideWithConnection(@ForAll("providePublishPeers") PublishGridnode gridnode) {
 
-		gridnode.getNode().setConnection(Optional.of(emptyConnection));
-
-		return Arbitraries.of(gridnode);
-	}
-	
 	@Property
 	@SneakyThrows
 	public void shouldMatch(@ForAll("provideGridnodePacket") PublishGridnode gridnodePacket, 

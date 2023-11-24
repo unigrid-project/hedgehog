@@ -42,6 +42,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -94,16 +95,12 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 			final int port = server.getP2p().getPort();
 			final Connection connection = new P2PClient(host, port);
 			final ECKey key = new ECKey();
+			Gridnode gridnode = Gridnode.builder().hostName(host + ":" + port).id(key.getPublicKeyAsHex())
+				.build();
 			topology.addNode(Node.builder().address(new InetSocketAddress(host, port))
 				.build());
-			Set<Node> nodes = topology.cloneNodes();
-			Optional<Node> obj = nodes.stream().filter(n -> n.getAddress().getHostName()
-				.equals(host)).findFirst();
-			obj.get().setGridnode(Optional.of(Node.Gridnode.builder().id(key.getPublicKeyAsHex()).build()));
-			Node node = obj.get();
-			System.out.println(nodes.toString());
-
-			connection.send(PublishGridnode.builder().node(node).build());
+			topology.addGridnode(gridnode);
+			connection.send(PublishGridnode.builder().gridnode(gridnode).build());
 			expectedInvocations++;
 
 			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
