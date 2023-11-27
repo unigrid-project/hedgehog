@@ -30,7 +30,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,7 +47,6 @@ import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.ActivateGridnode;
-import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
@@ -69,9 +67,9 @@ public class GridnodeResource extends CDIBridgeResource {
 		// get number of gridnodes and calculate colleteral
 		Set<Gridnode> gridnodes = topology.cloneGridnode();
 		int count = 0;
-		
-		for(Gridnode g : gridnodes){
-			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+
+		for (Gridnode g : gridnodes) {
+			if (g.getStatus() == Gridnode.Status.ACTIVE) {
 				count++;
 			}
 		}
@@ -79,11 +77,11 @@ public class GridnodeResource extends CDIBridgeResource {
 		final Collateral collateral = new Collateral();
 		return Response.ok(collateral.get(count)).build();
 	}
-	
+
 	@GET
 	public Response list() {
 		Set<Gridnode> gridnodes = topology.cloneGridnode();
-		
+
 		return Response.ok(gridnodes.toString()).build();
 	}
 
@@ -110,7 +108,7 @@ public class GridnodeResource extends CDIBridgeResource {
 			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
 				final Set<Gridnode> gridnodes = topology.cloneGridnode();
 				gridnodes.forEach(g -> {
-					if(g.getId().equals(gridnode.getGridnodeId())) {
+					if (g.getId().equals(gridnode.getGridnodeId())) {
 						log.atTrace().log("Activating node with id {}", g.getId());
 						topology.modifyGridnode(g, n -> {
 							n.setStatus(Gridnode.Status.ACTIVE);
@@ -156,13 +154,11 @@ public class GridnodeResource extends CDIBridgeResource {
 			int i = (int) Math.round(val / cost);
 			log.atDebug().log("Alowed to run " + i + " nodes");
 
-
 			List<ECKey> keys = GridnodeKey.generateKeys(key, i);
 			List<String> pubKeys = new ArrayList<>();
 			keys.forEach(k -> {
 				pubKeys.add(k.getPublicKeyAsHex());
 			});
-
 
 			gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
 				&& pubKeys.contains(gridnode.getId()));

@@ -48,12 +48,12 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 			//Optional<Gridnode> gridnode = gridnodes.stream().filter(g -> obj.getGridnode().equals(g
 			//	.getHostName())).findFirst();
 			Gridnode gridnode = Gridnode.builder().build();
-			for(Gridnode g : gridnodes) {
+			for (Gridnode g : gridnodes) {
 				if (g.equals(obj.getGridnode())) {
 					gridnode = g;
 				}
 			}
-			
+
 			if (gridnodes.isEmpty()) {
 				topology.addGridnode(obj.getGridnode());
 				gridnode = obj.getGridnode();

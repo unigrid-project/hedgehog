@@ -143,7 +143,7 @@ public class Topology {
 			}
 		});
 	}
-	
+
 	public void changeGridnodeStatus(String gridnodeId, Gridnode.Status status) {
 		Gridnode gridnode = Gridnode.builder().id(gridnodeId).status(status).build();
 		modifyGridnode(gridnode, (g) -> {
@@ -159,7 +159,7 @@ public class Topology {
 
 		return false;
 	}
-	
+
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeGridnode(Gridnode gridnode) {
 		if (!gridnodes.contains(gridnode)) {
