@@ -43,36 +43,26 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Gridnode> gridnodes = topology.cloneGridnode();
-			boolean isEmpty = false;
+			boolean isEmpty = true;
 			System.out.println(gridnodes.size());
-			//Optional<Gridnode> gridnode = gridnodes.stream().filter(g -> obj.getGridnode().equals(g
-			//	.getHostName())).findFirst();
-			Gridnode gridnode = Gridnode.builder().build();
-			for (Gridnode g : gridnodes) {
-				if (g.equals(obj.getGridnode())) {
-					gridnode = g;
+
+			for (Gridnode g: gridnodes) {
+				if (g.getId().equals(obj.getGridnode().getId())) {
+					isEmpty = false;
 				}
 			}
 
-			if (gridnodes.isEmpty()) {
-				topology.addGridnode(obj.getGridnode());
-				gridnode = obj.getGridnode();
-				isEmpty = true;
-			}
-
-			topology.addGridnode(obj.getGridnode());
-
-			topology.modifyGridnode(gridnode, g -> {
-				log.atDebug().log("Modifying a gridnode");
-				g.setHostName(obj.getGridnode().getHostName());
-				g.setId(obj.getGridnode().getId());
-				g.setStatus(obj.getGridnode().getStatus());
-			});
-			//TODO: propagate if not in list already
 			if (isEmpty) {
-				log.atDebug().log("gridnode handler send gridnode agien");
-				Topology.sendAll(PublishGridnode.builder().gridnode(gridnode).build(),
+				topology.addGridnode(obj.getGridnode());
+				Topology.sendAll(PublishGridnode.builder().gridnode(obj.getGridnode()).build(),
 					topology, Optional.empty());
+			}
+			else {
+				topology.modifyGridnode(obj.getGridnode(), g -> {
+					log.atDebug().log("Modifying a gridnode");
+					g.setHostName(obj.getGridnode().getHostName());
+					g.setStatus(obj.getGridnode().getStatus());
+				});
 			}
 		});
 	}
