@@ -31,8 +31,6 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	public static final long WATCHDOG_TIMEOUT_MS = 60000;
-
 	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
 		final Path script = basePath.resolve(Path.of(
 			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
@@ -45,7 +43,7 @@ public class NativeImage {
 		executor.setExitValue(0);
 
 		try {
-			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
+			final ExecuteWatchdog watchdog = new ExecuteWatchdog(ExecuteWatchdog.INFINITE_TIMEOUT);
 			executor.setWatchdog(watchdog);
 			return executor.execute(cmdLine);
 
