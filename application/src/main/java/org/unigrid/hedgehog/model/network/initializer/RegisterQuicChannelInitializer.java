@@ -30,14 +30,9 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Hello;
-import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -70,38 +65,6 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		if (type == Type.CLIENT) {
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
-			//TODO: Adam review
-			CDIUtil.resolveAndRun(Topology.class, (t) -> {
-				log.atTrace().log("Are we sending gridnode to the network");
-				if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-					log.atTrace().log("Setting up gridnode and populationg it to the network");
-					Gridnode gridnode = Gridnode.builder().id(GridnodeOptions.getGridnodeKey())
-						.hostName(NetOptions.getHost() + ":" + NetOptions.getPort()).build();
-					t.addGridnode(gridnode);
-					channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode).build());
-				}
-			});
-		}
-		log.atDebug().log("type=SERVER");
-		if (type == Type.SERVER) {
-			try {
-				CDIUtil.resolveAndRun(Topology.class, (t) -> {
-					if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-						log.atTrace()
-							.log("Setting up gridnode and populationg it to the network");
-						Gridnode gridnode = Gridnode.builder().id(GridnodeOptions
-							.getGridnodeKey())
-							.hostName(NetOptions.getHost() + ":" + NetOptions.getPort())
-							.build();
-						t.addGridnode(gridnode);
-						channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode)
-							.build());
-					}
-				});
-			} catch (Exception e) {
-				System.out.println(e.getMessage());
-				log.error(e.getMessage());
-			}
 		}
 		log.atDebug().log("Schedulers");
 		if (Objects.nonNull(schedulersCreator.get())) {

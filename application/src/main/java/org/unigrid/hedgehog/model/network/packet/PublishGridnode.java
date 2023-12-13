@@ -32,7 +32,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 @EqualsAndHashCode(callSuper = false)
 public class PublishGridnode extends Packet implements Serializable {
 
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 1;
+	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 5;
 
 	@Builder.Default private Gridnode gridnode = Gridnode.builder().build();
 
