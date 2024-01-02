@@ -25,6 +25,8 @@ import io.netty.channel.ChannelHandlerContext;
 import jakarta.inject.Inject;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Hex;
+import org.unigrid.hedgehog.model.crypto.NetworkIdentifier;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -34,14 +36,28 @@ import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 @Slf4j
 public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnode>
 	implements PacketEncoder<PublishGridnode> {
+	
+	private final String MESSAGE = "publishGridnode";
 
 	@Inject
 	private Topology topology;
+
+	@Inject
+	private NetworkIdentifier identifier;
 
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishGridnode in) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
 		log.atDebug().log("encode gridnode");
+
+		byte[] sign = identifier.sign(MESSAGE);
+		byte[] data = Hex.decodeHex(MESSAGE);
+
+		out.writeShort(data.length);
+		out.writeShort(sign.length);
+		out.writeBytes(data);
+		out.writeBytes(sign);
+
 		final byte[] id = in.getGridnode().getId().getBytes();
 
 		out.writeByte(in.getGridnode().getStatus().getValue());

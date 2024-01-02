@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.crypto.NetworkIdentifier;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
@@ -38,8 +39,20 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 	@Inject
 	private Topology topology;
 
+	@Inject
+	private NetworkIdentifier id;
+
 	@Override
 	public Optional<PublishGridnode> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final short dataLength = in.readByte();
+		final short signLength = in.readByte();
+		final byte[] dataBuf = in.readBytes(dataLength).array();
+		final byte[] sign = in.readBytes(signLength).array();
+
+		if(!id.verify(dataBuf, sign)) {
+			return Optional.empty();
+		}
+
 		final PublishGridnode gridnodePacket = PublishGridnode.builder().build();
 		final byte gridnodeStatus = in.readByte();
 		in.skipBytes(5);

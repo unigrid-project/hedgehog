@@ -266,6 +266,13 @@
 			<artifactId>core</artifactId>
 			<version>12.62.0</version>
 		</dependency> -->
+	 <dependency>
+	  <groupId>net.jqwik</groupId>
+	  <artifactId>jqwik-api</artifactId>
+	  <version>1.7.2</version>
+	  <scope>test</scope>
+	  <type>jar</type>
+	 </dependency>
 	</dependencies>
 	<build>
 		<plugins>
@@ -326,6 +333,7 @@
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog=info.picocli
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
                                                 --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.gridnode=com.fasterxml.jackson.databind
+                                                --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.crypto=weld.core.impl
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.gridnode=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
@@ -340,6 +348,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
+                                                --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.crypto=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=org.apache.commons.lang3
