@@ -63,6 +63,7 @@ module org.unigrid.hedgehog {
 	requires org.unigrid.hedgehog.common;
 	requires jdk.crypto.ec;
 	requires org.bitcoinj.core;
+	requires org.bouncycastle.provider;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
 	
