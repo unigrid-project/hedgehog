@@ -30,6 +30,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.ValidatorSpork;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -120,5 +122,45 @@ public class MintStorageResource extends CDIBridgeResource {
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();
+	}
+
+	@Path("/validator") @PUT
+	public Response validatorGrow(@NotNull String pubKey,
+		@NotNull @HeaderParam("privateKey") String privateKey) {
+
+		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
+			final ValidatorSpork vs = ResourceHelper.getNewOrClonedSporkSection(
+				() -> sporkDatabase.getValidatorSpork(),
+				() -> new ValidatorSpork()
+			);
+
+			final ValidatorSpork.SporkData data = vs.getData();
+			final List<String> oldKeys = data.getValidatorKeys();
+			final boolean isUpdate = Objects.nonNull(oldKeys);
+
+			vs.archive();
+			data.getValidatorKeys().add(pubKey);
+
+			return ResourceHelper.commitAndSign(vs, privateKey, sporkDatabase, isUpdate, signable -> {
+				sporkDatabase.setValidatorSpork(signable);
+
+				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getValidatorSpork()).build(),
+					topology, Optional.empty()
+				);
+			});
+		}
+
+		return Response.status(Response.Status.UNAUTHORIZED).build();
+	}
+
+	@Path("/validator/list") @GET
+	public Response listValidators() {
+		final ValidatorSpork ms = sporkDatabase.getValidatorSpork();
+
+		if (Objects.isNull(ms)) {
+			return Response.noContent().build();
+		}
+
+		return Response.ok().entity(sporkDatabase.getValidatorSpork()).build();
 	}
 }

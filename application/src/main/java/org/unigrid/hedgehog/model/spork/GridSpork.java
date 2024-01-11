@@ -74,7 +74,7 @@ public class GridSpork implements Serializable, Signable {
 	@AllArgsConstructor
 	public enum Type {
 		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010), VESTING_STORAGE((short) 1020),
-		STATISTICS_PUBKEY(((short) 2001));
+		VALIDATOR_SPORK((short) 1030), STATISTICS_PUBKEY(((short) 2001));
 
 		@Getter private final short value;
 
@@ -83,6 +83,7 @@ public class GridSpork implements Serializable, Signable {
 				case 1000: return MINT_STORAGE;
 				case 1010: return MINT_SUPPLY;
 				case 1020: return VESTING_STORAGE;
+				case 1030: return VALIDATOR_SPORK;
 				case 2001: return STATISTICS_PUBKEY;
 				default: return UNDEFINED;
 			}
@@ -107,6 +108,7 @@ public class GridSpork implements Serializable, Signable {
 			case MINT_STORAGE: return new MintStorage();
 			case MINT_SUPPLY: return new MintSupply();
 			case VESTING_STORAGE: return new VestingStorage();
+			case VALIDATOR_SPORK: return new ValidatorSpork();
 			case STATISTICS_PUBKEY: return new StatisticsPubKey();
 			default: throw new IllegalArgumentException("Unknown spork type supplied");
 		}
