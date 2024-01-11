@@ -46,8 +46,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.HeartbeatData;
 import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.ValidatorSpork;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -61,6 +64,9 @@ public class GridnodeResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private Topology topology;
+
+	@CDIBridgeInject
+	private SporkDatabase sporkDatabase;
 
 	@GET @Path("/collateral")
 	public Response get() {
@@ -132,8 +138,38 @@ public class GridnodeResource extends CDIBridgeResource {
 	}
 
 	@PUT @Path("heartbeat")
-	public Response heartbeat(@NotNull List<Delegation> accounts) {
-		final Map<String, Double> map = accounts.stream()
+	public Response heartbeat(@NotNull HeartbeatData data) {
+		try {
+			final ValidatorSpork vs = ResourceHelper.getNewOrClonedSporkSection(
+				() -> sporkDatabase.getValidatorSpork(),
+				() -> new ValidatorSpork()
+			);
+			ValidatorSpork.SporkData sporkData = vs.getData();
+			boolean verified = false;
+			for (String s : sporkData.getValidatorKeys()) {
+				byte[] bytes = Hex.decodeHex(s);
+				ECKey pubKey = ECKey.fromPublicOnly(bytes);
+				byte[] messageBytes = data.getMessage().getBytes();
+				byte[] signBytes = Base64.getDecoder().decode(data.getSign());
+				if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
+					verified = true;
+				}
+			}
+			if(!verified) {
+				return Response.status(Response.Status.UNAUTHORIZED).build();
+			}
+		}  catch (SignatureDecodeException ex) {
+			System.out.println("SignatureDecodeException");
+			System.out.println(ex.getMessage());
+			log.error(ex.getMessage());
+			return Response.status(Response.Status.UNAUTHORIZED).build();
+		} catch (Exception e) {
+			System.out.println("Generic exception");
+			System.out.println(e.getMessage());
+			log.error(e.getMessage());
+			return Response.status(Response.Status.EXPECTATION_FAILED).build();
+		}
+		final Map<String, Double> map = data.getDelagations().stream()
 			.collect(Collectors.toMap(Delegation::getAccount, Delegation::getDelegatedAmount));
 
 		Collateral collateralCalculator = new Collateral();

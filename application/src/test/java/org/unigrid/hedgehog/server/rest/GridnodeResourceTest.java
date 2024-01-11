@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -55,6 +57,7 @@ import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.HeartbeatData;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeScheduleTest;
 
@@ -217,9 +220,10 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 	}*/
 
 	@Property(tries = 5)
-	public void shouldRemoveIllegalNodes(@ForAll("provideGridnode") Gridnode node) {
+	public void shouldRemoveIllegalNodes(@ForAll("provideSignature") Signature signature,
+		@ForAll("provideGridnode") Gridnode node) {
 		List<Delegation> list = generateHeartbeatMap();
-
+		final String validatorUrl = "/gridspork/validator/";
 		double cost = new Collateral().get(0);
 
 		for (int i = 0; i < list.size(); i++) {
@@ -233,27 +237,57 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 			for (ECKey key : keys) {
 				provideActiveGridnode(Family.IP4, new Random().nextInt(1024, 65535), key.getPublicKeyAsHex());
+				
 			}
 		}
-		
-		String initNodes = topology.cloneGridnode().toString();
-		System.out.println(topology.cloneGridnode().size());
+		ECKey key = new ECKey();
+		String pubKey = key.getPublicKeyAsHex();
+		try {
+			final Response putResponse = client.putWithHeaders(validatorUrl,
+				Entity.text(pubKey), new MultivaluedHashMap(Map.of("privateKey",
+					signature.getPrivateKey()))
+			);
+		} catch (ResponseOddityException ex) {
+			Logger.getLogger(GridnodeResourceTest.class.getName()).log(Level.SEVERE, null, ex);
+		}
+		Set<Gridnode> initGridnodes = topology.cloneGridnode();
+		String initNodes = initGridnodes.toString();
+		int count = 0;
+		for (Gridnode g : initGridnodes) {
+			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+				count++;
+			}
+		}
+		System.out.println(initGridnodes.size());
+		System.out.println("number of active gridnodes = " + count);
 		int status = 0;
 		try {
-			ObjectMapper mapper = new ObjectMapper();
-			String json = mapper.writeValueAsString(list);
+			String message = "message";
+			HeartbeatData heartbeatData = new HeartbeatData();
+			heartbeatData.setMessage(message);
+			heartbeatData.setDelagations(list);
+			ECKey.ECDSASignature sign = key.sign(Sha256Hash.of(message.getBytes()));
+			String derSign = Base64.getEncoder().encodeToString(sign.encodeToDER());
+			heartbeatData.setSign(derSign);
 			final String url = "/gridnode/heartbeat/";
-			final Response response = client.put(url, Entity.json(json));
+			final Response response = client.put(url, Entity.json(heartbeatData));
 			status = response.getStatus();
-			
+			System.out.println("response status = " + status);
 		} catch (ResponseOddityException ex) {
 			System.out.println(ex.getMessage());
-		} catch (JsonProcessingException ex) {
+		} /*catch (JsonProcessingException ex) {
 			System.out.println(ex.getMessage());
+		}*/
+		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		String nodes = gridnodes.toString();
+		System.out.println(gridnodes.size());
+		count = 0;
+		for (Gridnode g : gridnodes) {
+			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+				count++;
+			}
 		}
-		
-		String nodes = topology.cloneGridnode().toString();
-		System.out.println(topology.cloneGridnode().size());
+		System.out.println("number of active gridnodes = " + count);
 		assertThat(initNodes, not(nodes));
 		assertThat(status, equalTo(200));
 		
