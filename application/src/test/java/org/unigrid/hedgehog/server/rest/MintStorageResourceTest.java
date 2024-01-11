@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
@@ -47,6 +48,7 @@ import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.ValidatorSpork;
 
 public class MintStorageResourceTest extends BaseRestClientTest {
 	@Provide
@@ -56,6 +58,11 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 		return Arbitraries.of(Location.builder().height(height).address(
 			Address.builder().wif(address).build()
 		).build());
+	}
+
+	@Provide
+	public Arbitrary<String> providePubKey(@ForAll @AlphaChars @StringLength(36) String pubKey) {
+		return Arbitraries.of(pubKey);
 	}
 
 	@SneakyThrows
@@ -117,5 +124,34 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 		);
 
 		TestFileOutput.outputJson(client.getEntity(url, String.class));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shouldVerifyAddedKeyInList(@ForAll("provideSignature") Signature signature,
+		@ForAll ("providePubKey") String pubKey) {
+
+		final String url = "/gridspork/validator/";
+		final Response response = client.get(url + "/list");
+		int originalNumMints = 0;
+		int newMints = 0;
+
+		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
+			final ValidatorSpork.SporkData data = response.readEntity(ValidatorSpork.class).getData();
+			originalNumMints = data.getValidatorKeys().size();
+		}
+		final Response putResponse = client.putWithHeaders(url,
+			Entity.text(pubKey), new MultivaluedHashMap(Map.of("privateKey",
+			signature.getPrivateKey()))
+		);
+
+		if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
+			newMints++;
+		}
+
+		if (newMints > 0) {
+			final ValidatorSpork.SporkData data = client.getEntity(url, ValidatorSpork.class).getData();
+			assertThat(data.getValidatorKeys().size(), equalTo(originalNumMints + newMints));
+		}
 	}
 }
