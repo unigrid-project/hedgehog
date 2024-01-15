@@ -44,14 +44,6 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 
 	@Override
 	public Optional<PublishGridnode> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final short dataLength = in.readByte();
-		final short signLength = in.readByte();
-		final byte[] dataBuf = in.readBytes(dataLength).array();
-		final byte[] sign = in.readBytes(signLength).array();
-
-		if(!id.verify(dataBuf, sign)) {
-			return Optional.empty();
-		}
 
 		final PublishGridnode gridnodePacket = PublishGridnode.builder().build();
 		final byte gridnodeStatus = in.readByte();

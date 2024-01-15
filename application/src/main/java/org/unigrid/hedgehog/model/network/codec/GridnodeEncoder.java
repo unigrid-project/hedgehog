@@ -50,14 +50,6 @@ public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnod
 		final ByteBuf out = Unpooled.buffer();
 		log.atDebug().log("encode gridnode");
 
-		byte[] sign = identifier.sign(MESSAGE);
-		byte[] data = Hex.decodeHex(MESSAGE);
-
-		out.writeShort(data.length);
-		out.writeShort(sign.length);
-		out.writeBytes(data);
-		out.writeBytes(sign);
-
 		final byte[] id = in.getGridnode().getId().getBytes();
 
 		out.writeByte(in.getGridnode().getStatus().getValue());
