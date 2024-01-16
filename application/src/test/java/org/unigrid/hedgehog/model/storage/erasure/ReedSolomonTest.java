@@ -27,6 +27,7 @@ import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
@@ -61,25 +62,30 @@ public class ReedSolomonTest {
 		return positions;
 	}
 
+	private static boolean[] eraseRandomly(final Random random, final byte[][] shards, final int maxErasures) {
+		final boolean[] present = new boolean[shards.length];
+
+		Arrays.fill(present, true);
+
+		shuffledPositions(random, shards.length).stream().limit(random.nextInt(maxErasures + 1)).forEach(lost -> {
+			present[lost] = false;
+			shards[lost] = null;
+		});
+
+		return present;
+	}
+
 	@Property(tries = 300)
-	public void recoversAnyErasureWithinParity(@ForAll @IntRange(min = 1, max = 20) int dataShards,
-		@ForAll @IntRange(min = 0, max = 12) int parityShards, @ForAll @IntRange(min = 1, max = 64) int size,
-		@ForAll long seed) {
+	public void recoversAnyErasureWithinParity(@ForAll @IntRange(min = 1, max = 20) final int dataShards,
+		@ForAll @IntRange(min = 0, max = 12) final int parityShards,
+		@ForAll @IntRange(min = 1, max = 64) final int size, @ForAll final long seed) {
 
 		final Random random = new Random(seed);
 		final ReedSolomon codec = new ReedSolomon(dataShards, parityShards);
 		final byte[][] data = randomShards(random, dataShards, size);
 		final byte[][] original = concat(data, codec.encode(data));
 		final byte[][] shards = deepCopy(original);
-		final boolean[] present = new boolean[shards.length];
-
-		Arrays.fill(present, true);
-
-		shuffledPositions(random, shards.length).stream().limit(random.nextInt(parityShards + 1)).forEach(lost -> {
-			present[lost] = false;
-			shards[lost] = null;
-		});
-
+		final boolean[] present = eraseRandomly(random, shards, parityShards);
 		final byte[][] decoded = codec.decode(shards, present);
 
 		for (int i = 0; i < original.length; i++) {
@@ -88,9 +94,9 @@ public class ReedSolomonTest {
 	}
 
 	@Property(tries = 100)
-	public void smallerCodesArePrefixesOfLargerOnes(@ForAll @IntRange(min = 1, max = 16) int dataShards,
-		@ForAll @IntRange(min = 0, max = 8) int smaller, @ForAll @IntRange(min = 0, max = 8) int extra,
-		@ForAll long seed) {
+	public void smallerCodesArePrefixesOfLargerOnes(@ForAll @IntRange(min = 1, max = 16) final int dataShards,
+		@ForAll @IntRange(min = 0, max = 8) final int smaller, @ForAll @IntRange(min = 0, max = 8) final int extra,
+		@ForAll final long seed) {
 
 		final byte[][] data = randomShards(new Random(seed), dataShards, 16);
 		final byte[][] small = new ReedSolomon(dataShards, smaller).encode(data);
@@ -102,8 +108,59 @@ public class ReedSolomonTest {
 	}
 
 	@Property(tries = 100)
-	public void refusesTooFewShards(@ForAll @IntRange(min = 1, max = 20) int dataShards,
-		@ForAll @IntRange(min = 0, max = 12) int parityShards, @ForAll long seed) {
+	public void smallerCodesDecodeFragmentsOfLargerOnes(@ForAll @IntRange(min = 1, max = 16) final int dataShards,
+		@ForAll @IntRange(min = 0, max = 8) final int smaller, @ForAll @IntRange(min = 0, max = 8) final int extra,
+		@ForAll @IntRange(min = 1, max = 32) final int size, @ForAll final long seed) {
+
+		final Random random = new Random(seed);
+		final byte[][] data = randomShards(random, dataShards, size);
+		final byte[][] largeParity = new ReedSolomon(dataShards, smaller + extra).encode(data);
+		final byte[][] shards = concat(deepCopy(data), Arrays.copyOf(largeParity, smaller));
+		final boolean[] present = eraseRandomly(random, shards, smaller);
+		final byte[][] decoded = new ReedSolomon(dataShards, smaller).decode(shards, present);
+
+		for (int i = 0; i < dataShards; i++) {
+			assertThat(decoded[i], equalTo(data[i]));
+		}
+	}
+
+	@Example
+	public void keepsTheEncodingMatrixStable() {
+		final byte[][] data = {
+			{ 0x00, 0x01, 0x02, 0x03 },
+			{ 0x10, 0x20, 0x40, (byte) 0x80 },
+			{ (byte) 0xFF, 0x55, (byte) 0xAA, 0x0F }
+		};
+
+		final byte[][] expected = {
+			{ (byte) 0xF7, (byte) 0xB1, 0x7F, 0x4E },
+			{ 0x06, (byte) 0x89, 0x0F, 0x3C }
+		};
+
+		assertThat(new ReedSolomon(3, 2).encode(data), equalTo(expected));
+	}
+
+	@Property(tries = 200)
+	public void refusesMalformedPresentShards(@ForAll @IntRange(min = 1, max = 20) final int dataShards,
+		@ForAll @IntRange(min = 1, max = 12) final int parityShards,
+		@ForAll @IntRange(min = 1, max = 64) final int size, @ForAll final boolean missing,
+		@ForAll final long seed) {
+
+		final Random random = new Random(seed);
+		final ReedSolomon codec = new ReedSolomon(dataShards, parityShards);
+		final byte[][] data = randomShards(random, dataShards, size);
+		final byte[][] shards = concat(data, codec.encode(data));
+		final boolean[] present = new boolean[shards.length];
+		final int wrongLength = random.nextBoolean() ? random.nextInt(size) : size + 1 + random.nextInt(8);
+
+		Arrays.fill(present, true);
+		shards[random.nextInt(shards.length)] = missing ? null : new byte[wrongLength];
+		assertThrows(IllegalArgumentException.class, () -> codec.decode(shards, present));
+	}
+
+	@Property(tries = 100)
+	public void refusesTooFewShards(@ForAll @IntRange(min = 1, max = 20) final int dataShards,
+		@ForAll @IntRange(min = 0, max = 12) final int parityShards, @ForAll final long seed) {
 
 		final Random random = new Random(seed);
 		final ReedSolomon codec = new ReedSolomon(dataShards, parityShards);
@@ -119,10 +176,11 @@ public class ReedSolomonTest {
 	}
 
 	@Property(tries = 100)
-	public void refusesMoreShardsThanTheFieldAllows(@ForAll @IntRange(min = 1, max = 255) int dataShards,
-		@ForAll @IntRange(min = 1, max = 255) int excess) {
+	public void refusesMoreShardsThanTheFieldAllows(@ForAll @IntRange(min = 1, max = 255) final int dataShards,
+		@ForAll @IntRange(min = 1, max = 255) final int excess) {
 
 		final int parityShards = ReedSolomon.MAX_SHARDS - dataShards + excess;
 		assertThrows(IllegalArgumentException.class, () -> new ReedSolomon(dataShards, parityShards));
 	}
 }
+

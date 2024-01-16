@@ -47,7 +47,6 @@ final class GaloisField {
 	}
 
 	private GaloisField() {
-		/* Static helpers only */
 	}
 
 	private static int next(final int element) {

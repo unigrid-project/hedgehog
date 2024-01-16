@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.model.storage.erasure;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.IntStream;
 
 public final class ReedSolomon {
@@ -56,7 +57,7 @@ public final class ReedSolomon {
 	}
 
 	public byte[][] encode(final byte[][] data) {
-		requireEqualSizes(data, dataShards);
+		requireCountOfEqualSize(data, dataShards);
 
 		final byte[][] parity = new byte[parityShards][data[0].length];
 
@@ -72,15 +73,19 @@ public final class ReedSolomon {
 			throw new IllegalArgumentException("Expected " + totalShards() + " shard slots");
 		}
 
-		final int[] chosen = IntStream.range(0, totalShards()).filter(i -> present[i]).limit(dataShards).toArray();
+		final int[] available = IntStream.range(0, totalShards()).filter(i -> present[i]).toArray();
 
-		if (chosen.length < dataShards) {
+		if (available.length < dataShards) {
 			throw new IllegalArgumentException("Need " + dataShards + " shards but only "
-				+ chosen.length + " are present");
+				+ available.length + " are present");
 		}
 
-		final byte[][] sources = Arrays.stream(chosen).mapToObj(i -> shards[i]).toArray(byte[][]::new);
-		final int[][] inverse = invert(rowsOf(chosen));
+		final byte[][] availableShards = Arrays.stream(available).mapToObj(i -> shards[i]).toArray(byte[][]::new);
+
+		requireNonNullOfEqualSize(availableShards);
+
+		final byte[][] sources = Arrays.copyOf(availableShards, dataShards);
+		final int[][] inverse = invert(rowsOf(Arrays.copyOf(available, dataShards)));
 		final byte[][] data = new byte[dataShards][sources[0].length];
 
 		for (int row = 0; row < dataShards; row++) {
@@ -106,11 +111,18 @@ public final class ReedSolomon {
 		return unit;
 	}
 
-	private static void requireEqualSizes(final byte[][] shards, final int expectedCount) {
-		if (shards.length != expectedCount
-			|| Arrays.stream(shards).mapToInt(s -> s.length).distinct().count() != 1) {
+	private static void requireCountOfEqualSize(final byte[][] shards, final int expectedCount) {
+		if (shards.length != expectedCount) {
+			throw new IllegalArgumentException("Expected " + expectedCount + " shards");
+		}
 
-			throw new IllegalArgumentException("Expected " + expectedCount + " shards of equal size");
+		requireNonNullOfEqualSize(shards);
+	}
+
+	private static void requireNonNullOfEqualSize(final byte[][] shards) {
+		if (Arrays.stream(shards).anyMatch(Objects::isNull)
+			|| Arrays.stream(shards).mapToInt(s -> s.length).distinct().count() != 1) {
+			throw new IllegalArgumentException("Expected non-null shards of equal size");
 		}
 	}
 
