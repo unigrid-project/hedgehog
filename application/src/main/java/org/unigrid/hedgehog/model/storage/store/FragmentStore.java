@@ -37,6 +37,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.storage.GroupId;
@@ -49,6 +50,7 @@ public class FragmentStore {
 	public enum PutResult { STORED, QUOTA, TOMBSTONE, DUPLICATE }
 
 	@Value
+	@Builder
 	public static class Holding {
 		private final StorageFormat format;
 		private final int slots;
@@ -63,6 +65,7 @@ public class FragmentStore {
 	private static final String TOMBSTONES = "tombstones";
 	private static final int HEADER_SIZE = 4 + Long.BYTES;
 	private static final int HEX_DIRECTORY = 2;
+	private static final int UNSIGNED_BYTE_MAX = 0xFF;
 
 	private final Path root;
 	private final Path tombstoneDirectory;
@@ -94,6 +97,9 @@ public class FragmentStore {
 	public synchronized PutResult put(GroupId id, StorageFormat format, int slots, Tier tier, int index,
 		byte[] payload) throws IOException {
 
+		requireUnsignedByte("slots", slots);
+		requireUnsignedByte("index", index);
+
 		if (isTombstoned(id)) {
 			return PutResult.TOMBSTONE;
 		}
@@ -106,7 +112,8 @@ public class FragmentStore {
 			return PutResult.QUOTA;
 		}
 
-		final Holding holding = new Holding(format, slots, tier, index, payload.length, sequence++);
+		final Holding holding = Holding.builder().format(format).slots(slots).tier(tier).index(index)
+			.size(payload.length).sequence(sequence++).build();
 		write(pathOf(id), ByteBuffer.allocate(HEADER_SIZE + payload.length).put(format.getId()).put((byte) slots)
 			.put((byte) tier.ordinal()).put((byte) index).putLong(holding.getSequence()).put(payload).array());
 		track(id, holding);
@@ -147,10 +154,10 @@ public class FragmentStore {
 	public synchronized void delete(GroupId id, Duration keepTombstone) throws IOException {
 		final Instant expiry = clock.instant().plus(keepTombstone);
 
-		remove(id);
 		write(tombstoneDirectory.resolve(id.toHex()),
 			ByteBuffer.allocate(Long.BYTES).putLong(expiry.toEpochMilli()).array());
 		tombstones.put(id, expiry);
+		remove(id);
 	}
 
 	public synchronized boolean isTombstoned(GroupId id) {
@@ -178,6 +185,12 @@ public class FragmentStore {
 
 	public synchronized long extraBytes() {
 		return extraBytes;
+	}
+
+	private static void requireUnsignedByte(String name, int value) {
+		if (value < 0 || value > UNSIGNED_BYTE_MAX) {
+			throw new IllegalArgumentException("The " + name + " must be within 0.." + UNSIGNED_BYTE_MAX);
+		}
 	}
 
 	private long extraLimit() {
@@ -246,22 +259,32 @@ public class FragmentStore {
 	}
 
 	private void load(Path file) throws IOException {
+		try {
+			track(groupOf(file, FRAGMENT_SUFFIX), readHolding(file));
+		} catch (IllegalArgumentException | IndexOutOfBoundsException | BufferUnderflowException ex) {
+			discard(file, "fragment");
+		}
+	}
+
+	private static GroupId groupOf(Path file, String suffix) {
 		final String name = file.getFileName().toString();
+		return GroupId.fromHex(name.substring(0, name.length() - suffix.length()));
+	}
+
+	private static Holding readHolding(Path file) throws IOException {
 		final ByteBuffer header = ByteBuffer.wrap(readHeader(file));
 
-		try {
-			final StorageFormat format = StorageFormat.of(header.get() & 0xFF);
-			final int slots = header.get() & 0xFF;
-			final Tier tier = Tier.values()[header.get()];
-			final int index = header.get() & 0xFF;
-			final Holding holding = new Holding(format, slots, tier, index, Files.size(file) - HEADER_SIZE,
-				header.getLong());
+		return Holding.builder().format(StorageFormat.of(header.get() & UNSIGNED_BYTE_MAX))
+			.slots(header.get() & UNSIGNED_BYTE_MAX).tier(Tier.values()[header.get()])
+			.index(header.get() & UNSIGNED_BYTE_MAX).sequence(header.getLong())
+			.size(Files.size(file) - HEADER_SIZE).build();
+	}
 
-			track(GroupId.fromHex(name.substring(0, name.length() - FRAGMENT_SUFFIX.length())), holding);
-		} catch (IllegalArgumentException | IndexOutOfBoundsException | BufferUnderflowException ex) {
-			log.atWarn().log("Skipping an unreadable fragment file");
-			log.atTrace().log("Unreadable fragment file {}", name);
-		}
+	/* Repair restores the redundancy an unreadable file held, so keeping it would only waste quota. */
+	private static void discard(Path file, String kind) throws IOException {
+		log.atWarn().log("Removing an unreadable {} file", kind);
+		log.atTrace().log("Unreadable {} file {}", kind, file.getFileName());
+		Files.deleteIfExists(file);
 	}
 
 	private static byte[] readHeader(Path file) throws IOException {
@@ -279,8 +302,12 @@ public class FragmentStore {
 		}
 
 		for (Path file : files) {
-			final long expiry = ByteBuffer.wrap(Files.readAllBytes(file)).getLong();
-			tombstones.put(GroupId.fromHex(file.getFileName().toString()), Instant.ofEpochMilli(expiry));
+			try {
+				final long expiry = ByteBuffer.wrap(Files.readAllBytes(file)).getLong();
+				tombstones.put(groupOf(file, ""), Instant.ofEpochMilli(expiry));
+			} catch (IllegalArgumentException | BufferUnderflowException ex) {
+				discard(file, "tombstone");
+			}
 		}
 	}
 }
