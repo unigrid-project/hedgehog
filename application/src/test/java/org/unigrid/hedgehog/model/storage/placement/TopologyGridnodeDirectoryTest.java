@@ -20,26 +20,44 @@
 package org.unigrid.hedgehog.model.storage.placement;
 
 import java.util.List;
-import net.jqwik.api.Example;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.Chars;
+import net.jqwik.api.constraints.NumericChars;
+import net.jqwik.api.constraints.StringLength;
+import net.jqwik.api.constraints.WithNull;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 
 public class TopologyGridnodeDirectoryTest {
-	@Example
-	public void listsOnlyActiveGridnodes() {
-		final Gridnode active = Gridnode.builder().id("a").status(Gridnode.Status.ACTIVE).build();
-		final Gridnode inactive = Gridnode.builder().id("b").status(Gridnode.Status.INACTIVE).build();
-		final GridnodeDirectory directory = new TopologyGridnodeDirectory(() -> List.of(active, inactive), () -> "a");
+	private static final List<Gridnode> NO_GRIDNODES = List.of();
 
-		assertThat(directory.active(), contains(active));
-		assertThat(directory.self().get(), equalTo("a"));
+	@Property
+	public void listsOnlyActiveGridnodesInOrder(@ForAll List<Gridnode.Status> statuses) {
+		final List<Gridnode> gridnodes = IntStream.range(0, statuses.size()).mapToObj(i -> Gridnode.builder()
+			.id("gridnode-" + i).status(statuses.get(i)).build()).collect(Collectors.toList());
+		final List<Gridnode> active = gridnodes.stream()
+			.filter(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE).collect(Collectors.toList());
+
+		assertThat(new TopologyGridnodeDirectory(() -> gridnodes, () -> "").active(), equalTo(active));
 	}
 
-	@Example
-	public void hasNoSelfWithoutAGridnodeKey() {
-		assertThat(new TopologyGridnodeDirectory(List::of, () -> " ").self().isPresent(), is(false));
+	@Property
+	public void hasNoSelfForABlankId(@ForAll @WithNull @Chars({' ', '\t', '\n', '\r'}) String id) {
+		assertThat(new TopologyGridnodeDirectory(() -> NO_GRIDNODES, () -> id).self(), equalTo(Optional.empty()));
+	}
+
+	@Property
+	public void trimsTheSelfId(@ForAll @AlphaChars @NumericChars @Chars({'-', '.'}) @StringLength(min = 1) String id,
+		@ForAll @Chars({' ', '\t', '\n', '\r'}) String leading,
+		@ForAll @Chars({' ', '\t', '\n', '\r'}) String trailing) {
+
+		assertThat(new TopologyGridnodeDirectory(() -> NO_GRIDNODES, () -> leading + id + trailing).self(),
+			equalTo(Optional.of(id)));
 	}
 }
