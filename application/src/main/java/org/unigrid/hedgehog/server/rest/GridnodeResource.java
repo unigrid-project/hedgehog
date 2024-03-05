@@ -28,13 +28,9 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.SignatureDecodeException;
 import org.unigrid.hedgehog.model.Collateral;
@@ -44,13 +40,11 @@ import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.HeartbeatData;
 import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.model.spork.ValidatorSpork;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -139,7 +133,8 @@ public class GridnodeResource extends CDIBridgeResource {
 
 	@PUT @Path("heartbeat")
 	public Response heartbeat(@NotNull HeartbeatData data) {
-		try {
+		return Response.status(Response.Status.NOT_IMPLEMENTED).build();
+		/*try {
 			final ValidatorSpork vs = ResourceHelper.getNewOrClonedSporkSection(
 				() -> sporkDatabase.getValidatorSpork(),
 				() -> new ValidatorSpork()
@@ -201,7 +196,7 @@ public class GridnodeResource extends CDIBridgeResource {
 		});
 
 		gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
-		return Response.status(Response.Status.OK).build();
+		return Response.status(Response.Status.OK).build();*/
 	}
 
 	/*@Path("heartbeat/hash")

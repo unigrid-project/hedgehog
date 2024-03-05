@@ -49,7 +49,7 @@ public class ValidatorSpork implements Runnable {
 			};
 			cmd.run();
 		} else if (spec.parent().userObject() instanceof ValidatorGrow) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/validator"){
+			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/validator") {
 				@Override
 				protected <T> Entity<T> getEntity() {
 					return (Entity<T>) Entity.text(ValidatorGrow.getData());

@@ -23,9 +23,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 @Data
-public class Delegation {
+public class Delegations {
 	private String account;
 
 	@JsonProperty(value = "delegated_amount")
-	private double delegatedAmount;
+	private String delegatedAmount;
+
+	public double getDelegatedAmount() {
+		return Double.parseDouble(delegatedAmount);
+	}
 }

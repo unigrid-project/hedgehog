@@ -19,15 +19,21 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
-import java.util.List;
-import lombok.Data;
+import java.util.Timer;
+import net.jqwik.api.Example;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.network.Topology;
 
-@Data
-public class HeartbeatData {
+public class HeartbeatTest extends BaseMockedWeldTest {
 
-	//private String sign;
+	@CDIBridgeInject
+	private Topology topology;
 
-	//private String message;
-
-	private List<Delegations> delegations;
+	@Example
+	public void canWeGetHeartbeatData() {
+		Heartbeat heartbeat = new Heartbeat();
+		
+		heartbeat.run();
+	}
 }

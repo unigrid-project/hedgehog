@@ -48,7 +48,8 @@ public class NetworkIdentifier {
 
 	private static final String KEYPAIR_NAME = "EC";
 	private static final String SIGNATURE_NAME = "SHA512WithECDSA";
-	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
+	private static final String EC_SEC_NAME = "secp521r1";
+	/* P‐521 */
 
 	public static final int PRIVATE_KEY_SIZE = 520;
 	public static final int PRIVATE_KEY_HEX_SIZE = 65;
@@ -58,7 +59,8 @@ public class NetworkIdentifier {
 	private ECPrivateKey privateKey;
 	private ECPublicKey publicKey;
 
-	@Getter @Setter
+	@Getter
+	@Setter
 	private List<String> networkKeys = new ArrayList<>();
 
 	@SneakyThrows
@@ -112,23 +114,23 @@ public class NetworkIdentifier {
 		try {
 			for (String s : networkKeys) {
 				byte[] encode = Base64.getDecoder().decode(s);
-				
+
 				KeyFactory kf = KeyFactory.getInstance(EC_SEC_NAME);
-				
+
 				EncodedKeySpec keySpec = new X509EncodedKeySpec(encode);
-				
+
 				ECPublicKey pubKey = (ECPublicKey) kf.generatePublic(keySpec);
-				
-				final java.security.Signature signature = 
-					java.security.Signature.getInstance(SIGNATURE_NAME);
-			
+
+				final java.security.Signature signature
+					= java.security.Signature.getInstance(SIGNATURE_NAME);
+
 				signature.initVerify(publicKey);
 				signature.update(data);
 				return signature.verify(signatureData);
 			}
-		return false;
-		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException |
-			InvalidKeySpecException ex) {
+			return false;
+		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException
+			| InvalidKeySpecException ex) {
 			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
 				+ "with public key '%s'", publicKey), ex);
 		}

@@ -47,7 +47,7 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Gridnode> gridnodes = topology.cloneGridnode();
 			boolean isEmpty = true;
-			System.out.println(gridnodes.size());
+			//System.out.println(gridnodes.size());
 
 			if (obj.getGridnode().getHostName().contains("0.0.0.0")
 				&& !obj.getGridnode().getId().equals(GridnodeOptions.getGridnodeKey())) {

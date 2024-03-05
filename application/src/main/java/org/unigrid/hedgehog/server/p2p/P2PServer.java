@@ -37,12 +37,14 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Arrays;
+import java.util.Timer;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.gridnode.Heartbeat;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -126,6 +128,9 @@ public class P2PServer extends AbstractServer {
 		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
+
+		Timer timer = new Timer();
+		timer.schedule(new Heartbeat(), 3000, 30 * 1000);
 	}
 
 	@Override
