@@ -23,7 +23,7 @@ import lombok.NoArgsConstructor;
 
 @NoArgsConstructor
 public class Collateral {
-	private final int baseAmount = 3000;
+	private final int baseAmount = 100;
 
 	private double calculate(double collateral, double n, int numNodes) {
 		double sum = 0;
