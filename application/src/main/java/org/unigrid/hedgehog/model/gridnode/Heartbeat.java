@@ -16,7 +16,6 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
 package org.unigrid.hedgehog.model.gridnode;
 
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
@@ -28,7 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TimerTask;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
@@ -38,25 +36,21 @@ import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.JsonConfiguration;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 @Slf4j
 @Consumes({MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN})
-public class Heartbeat extends TimerTask {
-
-	@CDIBridgeInject
-	private Topology topology;
+public class Heartbeat {
 
 	private static final String HEARTBEAT_URL = "https://rest-testnet.unigrid.org/gridnode/all-delegations";
 
 	private Client client;
 
 	@SneakyThrows
-	@Override
-	public void run() {
+	public void getHeartbeatData() {
 		final ClientConfig clientConfig = new ClientConfig();
 
 		clientConfig.register(JacksonJaxbJsonProvider.class);
@@ -76,34 +70,39 @@ public class Heartbeat extends TimerTask {
 		final Map<String, Double> map = heartbeat.getDelegations().stream()
 			.collect(Collectors.toMap(Delegations::getAccount, Delegations::getDelegatedAmount));
 
-		Collateral collateralCalculator = new Collateral();
-		final Set<Gridnode> gridnodes = topology.cloneGridnode();
-		int numNodes = gridnodes.size();
-		log.atDebug().log("Heartbeat");
-		log.atDebug().log("number of node on the network " + numNodes);
+		CDIUtil.resolveAndRun(Topology.class, topology -> {
 
-		if (numNodes == 0) {
-			return;
-		}
+			Collateral collateralCalculator = new Collateral();
+			final Set<Gridnode> gridnodes = topology.cloneGridnode();
+			int numNodes = gridnodes.size();
+			log.atDebug().log("Heartbeat");
+			log.atDebug().log("number of node on the network " + numNodes);
 
-		map.entrySet().forEach(accountEntry -> {
-			String key = accountEntry.getKey();
-			Double val = accountEntry.getValue();
-			double cost = collateralCalculator.get(gridnodes.size());
-			log.atDebug().log("Account = " + key + " delegated amount = " + val);
-			int i = (int) Math.round(val / cost);
-			log.atDebug().log("Alowed to run " + i + " nodes");
+			if (numNodes == 0) {
+				return;
+			}
 
-			List<ECKey> keys = GridnodeKey.generateKeys(key, i);
-			List<String> pubKeys = new ArrayList<>();
-			keys.forEach(k -> {
-				pubKeys.add(k.getPublicKeyAsHex());
+			map.entrySet().forEach(accountEntry -> {
+				String key = accountEntry.getKey();
+				Double val = accountEntry.getValue();
+				double cost = collateralCalculator.get(gridnodes.size());
+				log.atDebug().log("Account = " + key + " delegated amount = " + val);
+				int i = (int) Math.round(val / cost);
+				log.atDebug().log("Alowed to run " + i + " nodes");
+
+				List<ECKey> keys = GridnodeKey.generateKeys(key, i);
+				List<String> pubKeys = new ArrayList<>();
+				keys.forEach(k -> {
+					pubKeys.add(k.getPublicKeyAsHex());
+				});
+
+				gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
+					&& pubKeys.contains(gridnode.getId()));
 			});
 
-			gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
-				&& pubKeys.contains(gridnode.getId()));
+			gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
 		});
 
-		gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
 	}
+
 }

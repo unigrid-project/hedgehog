@@ -19,21 +19,22 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
-import java.util.Timer;
-import net.jqwik.api.Example;
-import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
-import org.unigrid.hedgehog.model.network.Topology;
+import jakarta.inject.Inject;
+import java.util.TimerTask;
+import lombok.SneakyThrows;
 
-public class HeartbeatTest extends BaseMockedWeldTest {
+public class HeartbeatTimer extends TimerTask {
 
-	@CDIBridgeInject
-	private Topology topology;
+	Heartbeat heartbeat;
 
-	@Example
-	public void canWeGetHeartbeatData() {
-		Heartbeat heartbeat = new Heartbeat();
-		
+	public HeartbeatTimer() {
+		heartbeat = new Heartbeat();
+	}
+
+	@SneakyThrows
+	@Override
+	public void run() {
 		heartbeat.getHeartbeatData();
 	}
+
 }

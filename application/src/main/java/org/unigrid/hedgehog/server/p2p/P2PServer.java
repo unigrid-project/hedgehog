@@ -44,7 +44,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
-import org.unigrid.hedgehog.model.gridnode.Heartbeat;
+import org.unigrid.hedgehog.model.gridnode.HeartbeatTimer;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -130,7 +130,7 @@ public class P2PServer extends AbstractServer {
 		topologyThread.start();
 
 		Timer timer = new Timer();
-		timer.schedule(new Heartbeat(), 3000, 30 * 1000);
+		timer.schedule(new HeartbeatTimer(), 3000, 30 * 1000);
 	}
 
 	@Override
