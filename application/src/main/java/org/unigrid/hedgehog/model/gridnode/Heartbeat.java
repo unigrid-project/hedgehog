@@ -68,7 +68,7 @@ public class Heartbeat {
 		HeartbeatData heartbeat = client.target(HEARTBEAT_URL).request().get(HeartbeatData.class);
 
 		final Map<String, Double> map = heartbeat.getDelegations().stream()
-			.collect(Collectors.toMap(Delegations::getAccount, Delegations::getDelegatedAmount));
+			.collect(Collectors.toMap(Delegations::getPublicKey, Delegations::getDelegatedAmount));
 
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 

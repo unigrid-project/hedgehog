@@ -28,6 +28,9 @@ public class Delegations {
 
 	@JsonProperty(value = "delegated_amount")
 	private String delegatedAmount;
+	
+	@JsonProperty(value = "public_key")
+	private String publicKey;
 
 	public double getDelegatedAmount() {
 		return Double.parseDouble(delegatedAmount);
