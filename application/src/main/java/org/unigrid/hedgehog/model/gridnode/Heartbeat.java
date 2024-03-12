@@ -45,7 +45,7 @@ import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 @Consumes({MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN})
 public class Heartbeat {
 
-	private static final String HEARTBEAT_URL = "https://rest-testnet.unigrid.org/gridnode/all-delegations";
+	private static final String HEARTBEAT_URL = "https://rest-devnet.unigrid.org/gridnode/all-delegations";
 
 	private Client client;
 
