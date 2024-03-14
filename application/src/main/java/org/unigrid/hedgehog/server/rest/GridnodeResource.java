@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -31,6 +32,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
+import lombok.SneakyThrows;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.SignatureDecodeException;
 import org.unigrid.hedgehog.model.Collateral;
@@ -79,10 +81,15 @@ public class GridnodeResource extends CDIBridgeResource {
 	}
 
 	@GET
+	@SneakyThrows
 	public Response list() {
 		Set<Gridnode> gridnodes = topology.cloneGridnode();
 
-		return Response.ok(gridnodes.toString()).build();
+		String json = "";
+		ObjectMapper mapper = new ObjectMapper();
+		
+		json = mapper.writeValueAsString(gridnodes);
+		return Response.ok(json).build();
 	}
 
 	/**
