@@ -56,7 +56,7 @@ import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Delegations;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.gridnode.HeartbeatData;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeScheduleTest;
@@ -89,7 +89,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 	@Provide
 	@SneakyThrows
-	public Arbitrary<Gridnode> provideGridnode(@ForAll Family family,
+	public Arbitrary<GridnodeData> provideGridnode(@ForAll Family family,
 		@ForAll @IntRange(min = 1024, max = 65535) int port) {
 
 		String address = switch (family) {
@@ -105,7 +105,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 		ECKey key = new ECKey();
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName())
+		GridnodeData gridnode = GridnodeData.builder().hostName(node.getAddress().getHostName())
 			.id(key.getPublicKeyAsHex()).build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
@@ -129,8 +129,8 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
-			.status(Gridnode.Status.ACTIVE).build();
+		GridnodeData gridnode = GridnodeData.builder().hostName(node.getAddress().getHostName()).id(key)
+			.status(GridnodeData.Status.ACTIVE).build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
 	}
@@ -152,7 +152,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+		GridnodeData gridnode = GridnodeData.builder().hostName(node.getAddress().getHostName()).id(key)
 			.build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
@@ -295,10 +295,10 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 
 	@Property(tries = 10, shrinking = ShrinkingMode.OFF)
 	public void shouldReturnBaseCost() {
-		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		Set<GridnodeData> gridnodes = topology.cloneGridnode();
 		int count = 0;
-		for(Gridnode g : gridnodes){
-			if(g.getStatus() == Gridnode.Status.ACTIVE) {
+		for(GridnodeData g : gridnodes){
+			if(g.getStatus() == GridnodeData.Status.ACTIVE) {
 				count++;
 			}
 		}
@@ -321,7 +321,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 	}
 
 	@Example
-	public void shouldActivateGridnode(@ForAll("provideGridnode") Gridnode node) {
+	public void shouldActivateGridnode(@ForAll("provideGridnode") GridnodeData node) {
 		try {
 			//ECKey key = keys.get(0);
 			String s = "start gridnode";

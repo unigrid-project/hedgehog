@@ -73,7 +73,7 @@ public class Heartbeat {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 
 			Collateral collateralCalculator = new Collateral();
-			final Set<Gridnode> gridnodes = topology.cloneGridnode();
+			final Set<GridnodeData> gridnodes = topology.cloneGridnode();
 			int numNodes = gridnodes.size();
 			log.atDebug().log("Heartbeat");
 			log.atDebug().log("number of node on the network " + numNodes);
@@ -96,13 +96,12 @@ public class Heartbeat {
 					pubKeys.add(k.getPublicKeyAsHex());
 				});
 
-				gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
+				gridnodes.removeIf(gridnode -> gridnode.getStatus() == GridnodeData.Status.ACTIVE
 					&& pubKeys.contains(gridnode.getId()));
 			});
 
-			gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
+			gridnodes.forEach(gridnode -> gridnode.setStatus(GridnodeData.Status.INACTIVE));
 		});
-
 	}
 
 }

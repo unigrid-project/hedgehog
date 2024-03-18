@@ -27,7 +27,7 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.network.Topology;
 import static org.unigrid.hedgehog.model.network.handler.ConnectionHandler.SOCKET_ADDRESS_KEY;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -45,7 +45,7 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			Set<Gridnode> gridnodes = topology.cloneGridnode();
+			Set<GridnodeData> gridnodes = topology.cloneGridnode();
 			boolean isEmpty = true;
 			//System.out.println(gridnodes.size());
 
@@ -62,14 +62,14 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 				}
 			}
 
-			for (Gridnode g: gridnodes) {
+			for (GridnodeData g: gridnodes) {
 				if (g.getId().equals(obj.getGridnode().getId())) {
 					isEmpty = false;
 				}
 			}
 
 			if (isEmpty) {
-				topology.addGridnode(Gridnode.builder().id(obj.getGridnode().getId())
+				topology.addGridnode(GridnodeData.builder().id(obj.getGridnode().getId())
 					.status(obj.getGridnode().getStatus())
 					.hostName(obj.getGridnode().getHostName()).build());
 				Topology.sendAll(PublishGridnode.builder().gridnode(obj.getGridnode()).build(),

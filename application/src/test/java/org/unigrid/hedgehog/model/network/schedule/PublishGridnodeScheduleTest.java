@@ -35,7 +35,7 @@ import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -85,8 +85,8 @@ public class PublishGridnodeScheduleTest extends BaseScheduleTest<PublishGridnod
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 		topology.addNode(node);
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
-			.status(Gridnode.Status.ACTIVE).build();
+		GridnodeData gridnode = GridnodeData.builder().hostName(node.getAddress().getHostName()).id(key)
+			.status(GridnodeData.Status.ACTIVE).build();
 		topology.addGridnode(gridnode);
 	}
 

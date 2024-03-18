@@ -27,7 +27,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
@@ -44,7 +44,7 @@ public class PublishGridnodeSchedule extends AbstractSchedule implements Schedul
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
 			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				final Set<Gridnode> gridnodesToSend = topology.cloneGridnode();
+				final Set<GridnodeData> gridnodesToSend = topology.cloneGridnode();
 
 				gridnodesToSend.forEach((g) -> {
 					log.atTrace().log("Sending gridnode");

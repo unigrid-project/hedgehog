@@ -42,7 +42,7 @@ import org.unigrid.hedgehog.model.crypto.GridnodeKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.gridnode.HeartbeatData;
 import org.unigrid.hedgehog.model.network.ActivateGridnode;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -67,11 +67,11 @@ public class GridnodeResource extends CDIBridgeResource {
 	@GET @Path("/collateral")
 	public Response get() {
 		// get number of gridnodes and calculate colleteral
-		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		Set<GridnodeData> gridnodes = topology.cloneGridnode();
 		int count = 0;
 
-		for (Gridnode g : gridnodes) {
-			if (g.getStatus() == Gridnode.Status.ACTIVE) {
+		for (GridnodeData g : gridnodes) {
+			if (g.getStatus() == GridnodeData.Status.ACTIVE) {
 				count++;
 			}
 		}
@@ -83,7 +83,7 @@ public class GridnodeResource extends CDIBridgeResource {
 	@GET
 	@SneakyThrows
 	public Response list() {
-		Set<Gridnode> gridnodes = topology.cloneGridnode();
+		Set<GridnodeData> gridnodes = topology.cloneGridnode();
 
 		String json = "";
 		ObjectMapper mapper = new ObjectMapper();
@@ -113,12 +113,12 @@ public class GridnodeResource extends CDIBridgeResource {
 			byte[] messageBytes = gridnode.getGridnodeId().getBytes();
 			byte[] signBytes = Base64.getDecoder().decode(sign);
 			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
-				final Set<Gridnode> gridnodes = topology.cloneGridnode();
+				final Set<GridnodeData> gridnodes = topology.cloneGridnode();
 				gridnodes.forEach(g -> {
 					if (g.getId().equals(gridnode.getGridnodeId())) {
 						log.atTrace().log("Activating node with id {}", g.getId());
 						topology.modifyGridnode(g, n -> {
-							n.setStatus(Gridnode.Status.ACTIVE);
+							n.setStatus(GridnodeData.Status.ACTIVE);
 						});
 						Topology.sendAll(PublishGridnode.builder().gridnode(g).build(),
 							topology, Optional.empty());

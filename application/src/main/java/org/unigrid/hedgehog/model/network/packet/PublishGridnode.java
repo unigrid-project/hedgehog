@@ -24,7 +24,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 
 @Data
 @Builder
@@ -32,9 +32,9 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 @EqualsAndHashCode(callSuper = false)
 public class PublishGridnode extends Packet implements Serializable {
 
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 5;
+	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 2;
 
-	@Builder.Default private Gridnode gridnode = Gridnode.builder().build();
+	@Builder.Default private GridnodeData gridnode = GridnodeData.builder().build();
 
 	public PublishGridnode() {
 		setType(Packet.Type.GRIDNODE);

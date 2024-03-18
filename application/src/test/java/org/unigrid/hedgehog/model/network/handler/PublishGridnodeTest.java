@@ -42,7 +42,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -95,7 +95,7 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 			final int port = server.getP2p().getPort();
 			final Connection connection = new P2PClient(host, port);
 			final ECKey key = new ECKey();
-			Gridnode gridnode = Gridnode.builder().hostName(host + ":" + port).id(key.getPublicKeyAsHex())
+			GridnodeData gridnode = GridnodeData.builder().hostName(host + ":" + port).id(key.getPublicKeyAsHex())
 				.build();
 			topology.addNode(Node.builder().address(new InetSocketAddress(host, port))
 				.build());

@@ -26,7 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.crypto.NetworkIdentifier;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeData;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -54,8 +54,8 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 		final String hostName = ByteBufUtils.readNullTerminatedString(in);
 		log.atDebug().log("decode gridnode");
 
-		gridnodePacket.setGridnode(Gridnode.builder().hostName(hostName)
-			.id(gridnodeId).status(Gridnode.Status.get(gridnodeStatus)).build());
+		gridnodePacket.setGridnode(GridnodeData.builder().hostName(hostName)
+			.id(gridnodeId).status(GridnodeData.Status.get(gridnodeStatus)).build());
 
 		return Optional.of(gridnodePacket);
 	}
