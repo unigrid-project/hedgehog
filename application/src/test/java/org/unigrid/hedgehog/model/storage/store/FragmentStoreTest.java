@@ -21,30 +21,54 @@ package org.unigrid.hedgehog.model.storage.store;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
-import net.jqwik.api.Example;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.Tuple;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.TestClock;
+import org.unigrid.hedgehog.model.storage.store.FragmentStore.Holding;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.PutResult;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;
 
 public class FragmentStoreTest {
 	private static final StorageFormat FORMAT = StorageFormat.current();
 	private static final int SLOTS = 32;
+	private static final long UNLIMITED = 1_000_000;
+	private static final int HEADER_SIZE = 12;
+	private static final int POOL_OF_IDS = 8;
 	private final Random random = new Random(1);
+
+	private record Fragment(GroupId id, StorageFormat format, int slots, Tier tier, int index, byte[] payload) { }
+
+	private enum Kind { PUT, REMOVE, DELETE, PURGE, ADVANCE, RESTART }
+
+	private record Operation(Kind kind, int target, Tier tier, int size, int minutes) { }
 
 	private static Path root() {
 		return Jimfs.newFileSystem(Configuration.unix()).getPath("/data/fragments");
@@ -64,9 +88,56 @@ public class FragmentStoreTest {
 	}
 
 	@SneakyThrows
+	private static void putAll(FragmentStore store, List<Fragment> fragments) {
+		for (Fragment f : fragments) {
+			store.put(f.id(), f.format(), f.slots(), f.tier(), f.index(), f.payload());
+		}
+	}
+
+	private static Map<GroupId, Holding> snapshot(FragmentStore store) {
+		return store.groups().stream().collect(Collectors.toMap(Function.identity(), id -> store.holding(id).get()));
+	}
+
+	@SneakyThrows
+	private static Path plant(Path file, byte[] content) {
+		Files.createDirectories(file.getParent());
+		return Files.write(file, content);
+	}
+
+	private static Path fragmentPath(Path root, GroupId id) {
+		final String hex = id.toHex();
+		return root.resolve(hex.substring(0, 2)).resolve(hex.substring(2, 4)).resolve(hex + ".frag");
+	}
+
+	@Provide
+	public Arbitrary<List<Fragment>> fragments() {
+		final Arbitrary<GroupId> ids = Arbitraries.bytes().array(byte[].class).ofSize(GroupId.SIZE).map(GroupId::of);
+		final Arbitrary<Integer> unsignedBytes = Arbitraries.integers().between(0, 255);
+
+		return Combinators.combine(ids, Arbitraries.of(StorageFormat.class), unsignedBytes, Arbitraries.of(Tier.class),
+			unsignedBytes, Arbitraries.bytes().array(byte[].class).ofMinSize(1).ofMaxSize(60))
+			.as(Fragment::new).list().ofMaxSize(40);
+	}
+
+	@Provide
+	public Arbitrary<List<Operation>> operations() {
+		final Arbitrary<Kind> kinds = Arbitraries.frequency(Tuple.of(8, Kind.PUT), Tuple.of(2, Kind.REMOVE),
+			Tuple.of(2, Kind.DELETE), Tuple.of(1, Kind.PURGE), Tuple.of(2, Kind.ADVANCE), Tuple.of(1, Kind.RESTART));
+
+		return Combinators.combine(kinds, Arbitraries.integers().between(0, POOL_OF_IDS - 1), Arbitraries.of(Tier.class),
+			Arbitraries.integers().between(0, 60), Arbitraries.integers().between(1, 3000))
+			.as(Operation::new).list().ofMaxSize(80);
+	}
+
+	@Provide
+	public Arbitrary<Integer> outsideAByte() {
+		return Arbitraries.oneOf(Arbitraries.integers().lessOrEqual(-1), Arbitraries.integers().greaterOrEqual(256));
+	}
+
+	@SneakyThrows
 	@Property(tries = 50)
 	public void storesAndReturnsFragments(@ForAll @Size(max = 200) byte[] payload,
-		@ForAll @IntRange(min = 0, max = 255) int index, @ForAll @IntRange(min = 1, max = 255) int slots,
+		@ForAll @IntRange(min = 0, max = 255) int index, @ForAll @IntRange(min = 0, max = 255) int slots,
 		@ForAll Tier tier) {
 
 		final FragmentStore store = store(root(), new TestClock(), 1000, 50);
@@ -74,102 +145,262 @@ public class FragmentStoreTest {
 
 		assertThat(store.put(id, FORMAT, slots, tier, index, payload), equalTo(PutResult.STORED));
 		assertThat(store.get(id).get(), equalTo(payload));
-		assertThat(store.holding(id).get().getIndex(), equalTo(index));
-		assertThat(store.holding(id).get().getSlots(), equalTo(slots));
-		assertThat(store.holding(id).get().getTier(), equalTo(tier));
-		assertThat(store.holding(id).get().getFormat(), equalTo(FORMAT));
+		assertThat(store.holding(id).get(), equalTo(Holding.builder().format(FORMAT).slots(slots).tier(tier)
+			.index(index).size(payload.length).sequence(0).build()));
 		assertThat(store.put(id, FORMAT, slots, tier, index, new byte[] { 4 }), equalTo(PutResult.DUPLICATE));
 	}
 
-	@SneakyThrows
-	@Example
-	public void refusesGuaranteedFragmentsBeyondTheQuota() {
-		final FragmentStore store = store(root(), new TestClock(), 10, 50);
+	@Property(tries = 100)
+	public void rejectsSlotsAndIndicesOutsideAByte(@ForAll("outsideAByte") int value) {
+		final FragmentStore store = store(root(), new TestClock(), 1000, 50);
 
-		assertThat(store.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[8]), equalTo(PutResult.STORED));
-		assertThat(store.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[8]), equalTo(PutResult.QUOTA));
-	}
-
-	@SneakyThrows
-	@Example
-	public void evictsTheOldestExtraForGuaranteedFragments() {
-		final FragmentStore store = store(root(), new TestClock(), 12, 100);
-		final GroupId oldest = group();
-		final GroupId newest = group();
-
-		store.put(oldest, FORMAT, SLOTS, Tier.EXTRA, 30, new byte[4]);
-		store.put(newest, FORMAT, SLOTS, Tier.EXTRA, 31, new byte[4]);
-
-		assertThat(store.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[8]), equalTo(PutResult.STORED));
-		assertThat(store.holding(oldest).isPresent(), is(false));
-		assertThat(store.holding(newest).isPresent(), is(true));
-	}
-
-	@SneakyThrows
-	@Example
-	public void rollsExtrasWithinTheirPool() {
-		final FragmentStore store = store(root(), new TestClock(), 100, 10);
-		final GroupId first = group();
-
-		store.put(first, FORMAT, SLOTS, Tier.EXTRA, 20, new byte[10]);
-		assertThat(store.put(group(), FORMAT, SLOTS, Tier.EXTRA, 20, new byte[10]), equalTo(PutResult.STORED));
-		assertThat(store.holding(first).isPresent(), is(false));
-		assertThat(store.put(group(), FORMAT, SLOTS, Tier.EXTRA, 20, new byte[11]), equalTo(PutResult.QUOTA));
-	}
-
-	@SneakyThrows
-	@Example
-	public void tombstonesBlockStoresUntilTheyExpire() {
-		final TestClock clock = new TestClock();
-		final FragmentStore store = store(root(), clock, 100, 50);
-		final GroupId id = group();
-
-		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
-		store.delete(id, Duration.ofDays(1));
-
-		assertThat(store.get(id).isPresent(), is(false));
-		assertThat(store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]), equalTo(PutResult.TOMBSTONE));
-
-		clock.advance(Duration.ofDays(2));
-		store.purgeTombstones();
-		assertThat(store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]), equalTo(PutResult.STORED));
-	}
-
-	@SneakyThrows
-	@Example
-	public void survivesARestart() {
-		final Path root = root();
-		final TestClock clock = new TestClock();
-		final FragmentStore before = store(root, clock, 100, 100);
-		final GroupId oldestExtra = group();
-		final GroupId deleted = group();
-
-		before.put(oldestExtra, FORMAT, SLOTS, Tier.EXTRA, 40, new byte[40]);
-		before.put(group(), FORMAT, SLOTS, Tier.EXTRA, 41, new byte[40]);
-		before.put(deleted, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[1]);
-		before.delete(deleted, Duration.ofDays(1));
-
-		final FragmentStore after = store(root, clock, 100, 100);
-
-		assertThat(after.usedBytes(), equalTo(80L));
-		assertThat(after.isTombstoned(deleted), is(true));
-		assertThat(after.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[30]), equalTo(PutResult.STORED));
-		assertThat(after.holding(oldestExtra).isPresent(), is(false));
+		assertThrows(IllegalArgumentException.class,
+			() -> store.put(group(), FORMAT, value, Tier.GUARANTEED, 0, new byte[1]));
+		assertThrows(IllegalArgumentException.class,
+			() -> store.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, value, new byte[1]));
+		assertThat(store.groups().isEmpty(), is(true));
 	}
 
 	@SneakyThrows
 	@Property(tries = 50)
-	public void neverExceedsItsLimits(@ForAll @IntRange(min = 10, max = 400) int maxBytes,
-		@ForAll @IntRange(min = 0, max = 90) int pool,
-		@ForAll @Size(max = 60) List<@IntRange(min = 1, max = 60) Integer> sizes, @ForAll long seed) {
+	public void restoresEveryHoldingAfterARestart(@ForAll("fragments") List<Fragment> fragments) {
+		final Path root = root();
+		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
 
-		final FragmentStore store = store(root(), new TestClock(), maxBytes, pool);
-		final Random choice = new Random(seed);
+		putAll(before, fragments);
+		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
 
-		for (int size : sizes) {
-			store.put(group(), FORMAT, SLOTS, choice.nextBoolean() ? Tier.EXTRA : Tier.GUARANTEED, 0, new byte[size]);
-			assertThat(store.usedBytes(), lessThanOrEqualTo((long) maxBytes));
-			assertThat(store.extraBytes(), lessThanOrEqualTo((long) maxBytes * pool / 100));
+		assertThat(after.groups(), equalTo(before.groups()));
+		assertThat(snapshot(after), equalTo(snapshot(before)));
+		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
+		assertThat(after.extraBytes(), equalTo(before.extraBytes()));
+
+		for (GroupId id : before.groups()) {
+			assertThat(after.get(id).get(), equalTo(before.get(id).get()));
+		}
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void evictsExtrasOldestFirstAfterARestart(@ForAll("fragments") List<Fragment> fragments) {
+		final Path root = root();
+
+		putAll(store(root, new TestClock(), UNLIMITED, 100), fragments);
+		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
+		final List<GroupId> extrasByAge = snapshot(after).entrySet().stream()
+			.filter(entry -> entry.getValue().getTier() == Tier.EXTRA)
+			.sorted(Comparator.comparingLong(entry -> entry.getValue().getSequence()))
+			.map(Map.Entry::getKey).collect(Collectors.toList());
+
+		for (int i = 0; i < extrasByAge.size(); i++) {
+			after.limits(after.usedBytes(), 100);
+
+			assertThat(after.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[1]), equalTo(PutResult.STORED));
+			assertThat(after.holding(extrasByAge.get(i)).isPresent(), is(false));
+			assertThat(after.groups().containsAll(extrasByAge.subList(i + 1, extrasByAge.size())), is(true));
+		}
+
+		assertThat(after.extraBytes(), equalTo(0L));
+	}
+
+	@SneakyThrows
+	@Property(tries = 100)
+	public void tombstonesBlockStoresUntilTheyExpire(@ForAll @IntRange(min = 1, max = 100_000) int keepMinutes,
+		@ForAll @Size(max = 20) List<@IntRange(min = 0, max = 20_000) Integer> advances,
+		@ForAll boolean purge, @ForAll boolean restart) {
+
+		final Path root = root();
+		final TestClock clock = new TestClock();
+		final GroupId id = group();
+		FragmentStore store = store(root, clock, 1000, 50);
+		long elapsed = 0;
+
+		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
+		store.delete(id, Duration.ofMinutes(keepMinutes));
+		assertThat(store.get(id).isPresent(), is(false));
+
+		for (int minutes : advances) {
+			clock.advance(Duration.ofMinutes(minutes));
+			elapsed += minutes;
+
+			if (purge) {
+				store.purgeTombstones();
+			}
+
+			if (restart) {
+				store = store(root, clock, 1000, 50);
+			}
+
+			assertThat(store.isTombstoned(id), is(elapsed < keepMinutes));
+		}
+
+		final PutResult expected = elapsed < keepMinutes ? PutResult.TOMBSTONE : PutResult.STORED;
+		assertThat(store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]), equalTo(expected));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void discardsUnreadableFilesOnStartup(@ForAll("fragments") List<Fragment> fragments,
+		@ForAll @Size(max = HEADER_SIZE - 1) byte[] truncated, @ForAll @Size(min = HEADER_SIZE, max = 40) byte[] garbage,
+		@ForAll @IntRange(min = 2, max = 127) int badTier, @ForAll @Size(max = Long.BYTES - 1) byte[] shortTombstone) {
+
+		final Path root = root();
+		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
+		final byte[] badFormat = garbage.clone();
+		final byte[] unknownTier = garbage.clone();
+
+		putAll(before, fragments);
+		badFormat[0] = 0;
+		unknownTier[0] = FORMAT.getId();
+		unknownTier[2] = (byte) badTier;
+
+		final List<Path> planted = List.of(plant(fragmentPath(root, group()), truncated),
+			plant(fragmentPath(root, group()), badFormat), plant(fragmentPath(root, group()), unknownTier),
+			plant(root.resolve("00").resolve("00").resolve("not-hex.frag"), new byte[HEADER_SIZE]),
+			plant(root.resolve("tombstones").resolve(group().toHex()), shortTombstone),
+			plant(root.resolve("tombstones").resolve("not-hex"), new byte[Long.BYTES]));
+
+		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
+
+		for (Path file : planted) {
+			assertThat(Files.exists(file), is(false));
+		}
+
+		assertThat(snapshot(after), equalTo(snapshot(before)));
+		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
+	}
+
+	@Property(tries = 200)
+	public void behavesLikeItsModel(@ForAll @IntRange(min = 10, max = 400) int maxBytes,
+		@ForAll @IntRange(min = 0, max = 100) int extraPoolPercent, @ForAll("operations") List<Operation> operations) {
+
+		final Harness harness = new Harness(maxBytes, extraPoolPercent);
+
+		for (Operation operation : operations) {
+			harness.apply(operation);
+		}
+	}
+
+	private static final class Model {
+		private final Map<GroupId, Holding> holdings = new HashMap<>();
+		private final Map<GroupId, Instant> tombstones = new HashMap<>();
+		private final long maxBytes;
+		private final long extraLimit;
+		private long sequence;
+
+		Model(long maxBytes, int extraPoolPercent) {
+			this.maxBytes = maxBytes;
+			this.extraLimit = maxBytes * extraPoolPercent / 100;
+		}
+
+		long bytes(Tier... tiers) {
+			return holdings.values().stream().filter(holding -> Arrays.asList(tiers).contains(holding.getTier()))
+				.mapToLong(Holding::getSize).sum();
+		}
+
+		boolean isTombstoned(GroupId id, Instant now) {
+			final Instant expiry = tombstones.get(id);
+			return expiry != null && now.isBefore(expiry);
+		}
+
+		PutResult put(GroupId id, Tier tier, int size, Instant now) {
+			final long room = maxBytes - bytes(Tier.GUARANTEED);
+
+			if (isTombstoned(id, now)) {
+				return PutResult.TOMBSTONE;
+			} else if (holdings.containsKey(id)) {
+				return PutResult.DUPLICATE;
+			} else if (size > (tier == Tier.GUARANTEED ? room : Math.min(room, extraLimit))) {
+				return PutResult.QUOTA;
+			}
+
+			while (bytes(Tier.values()) + size > maxBytes || tier == Tier.EXTRA && bytes(Tier.EXTRA) + size > extraLimit) {
+				holdings.remove(oldestExtra());
+			}
+
+			holdings.put(id, Holding.builder().format(FORMAT).slots(SLOTS).tier(tier).index(0).size(size)
+				.sequence(sequence++).build());
+			return PutResult.STORED;
+		}
+
+		/* A restarted store only needs its new sequences to be younger than the fragments it still holds. */
+		void restart() {
+			sequence = holdings.values().stream().mapToLong(Holding::getSequence).max().orElse(-1) + 1;
+		}
+
+		private GroupId oldestExtra() {
+			return holdings.entrySet().stream().filter(entry -> entry.getValue().getTier() == Tier.EXTRA)
+				.min(Comparator.comparingLong(entry -> entry.getValue().getSequence())).get().getKey();
+		}
+	}
+
+	private final class Harness {
+		private final Path root = root();
+		private final TestClock clock = new TestClock();
+		private final List<GroupId> ids = Stream.generate(FragmentStoreTest.this::group).limit(POOL_OF_IDS)
+			.collect(Collectors.toList());
+		private final long maxBytes;
+		private final int extraPoolPercent;
+		private final Model model;
+		private FragmentStore store;
+
+		Harness(long maxBytes, int extraPoolPercent) {
+			this.maxBytes = maxBytes;
+			this.extraPoolPercent = extraPoolPercent;
+			this.model = new Model(maxBytes, extraPoolPercent);
+			this.store = store(root, clock, maxBytes, extraPoolPercent);
+		}
+
+		@SneakyThrows
+		void apply(Operation operation) {
+			final GroupId id = ids.get(operation.target());
+
+			switch (operation.kind()) {
+				case PUT -> put(id, operation.tier(), operation.size());
+				case REMOVE -> assertThat(store.remove(id), is(model.holdings.remove(id) != null));
+				case DELETE -> delete(id, Duration.ofMinutes(operation.minutes()));
+				case PURGE -> store.purgeTombstones();
+				case ADVANCE -> clock.advance(Duration.ofMinutes(operation.minutes()));
+				default -> restart();
+			}
+
+			verify();
+		}
+
+		@SneakyThrows
+		private void put(GroupId id, Tier tier, int size) {
+			final Map<GroupId, Holding> before = snapshot(store);
+			final PutResult expected = model.put(id, tier, size, clock.instant());
+
+			assertThat(store.put(id, FORMAT, SLOTS, tier, 0, new byte[size]), equalTo(expected));
+
+			if (expected != PutResult.STORED) {
+				assertThat(snapshot(store), equalTo(before));
+			}
+		}
+
+		private void restart() {
+			store = store(root, clock, maxBytes, extraPoolPercent);
+			model.restart();
+		}
+
+		@SneakyThrows
+		private void delete(GroupId id, Duration keep) {
+			model.tombstones.put(id, clock.instant().plus(keep));
+			model.holdings.remove(id);
+			store.delete(id, keep);
+		}
+
+		private void verify() {
+			assertThat(snapshot(store), equalTo(model.holdings));
+			assertThat(store.usedBytes(), equalTo(model.bytes(Tier.values())));
+			assertThat(store.extraBytes(), equalTo(model.bytes(Tier.EXTRA)));
+			assertThat(store.usedBytes(), lessThanOrEqualTo(maxBytes));
+			assertThat(store.extraBytes(), lessThanOrEqualTo(model.extraLimit));
+
+			for (GroupId id : ids) {
+				assertThat(store.isTombstoned(id), is(model.isTombstoned(id, clock.instant())));
+			}
 		}
 	}
 }
