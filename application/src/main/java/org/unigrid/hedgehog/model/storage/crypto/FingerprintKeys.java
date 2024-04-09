@@ -28,6 +28,7 @@ import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 public final class FingerprintKeys {
 	public static final int KEY_SIZE = 32;
+	public static final int MAX_POSITION = 0xFF;
 
 	private final StorageFormat format;
 	private final byte[] secret;
@@ -50,11 +51,25 @@ public final class FingerprintKeys {
 	}
 
 	public byte[] manifestSeed(int copy) {
-		return derive(label("manifest", 1).put((byte) copy).array());
+		return derive(label("manifest", 1).put(unsignedByte(copy, "Manifest copy")).array());
 	}
 
 	public byte[] chunkSeed(int stripe, int index) {
-		return derive(label("chunk", Integer.BYTES + 1).putInt(stripe).put((byte) index).array());
+		if (stripe < 0) {
+			throw new IllegalArgumentException("Stripe must not be negative");
+		}
+
+		final byte position = unsignedByte(index, "Chunk index");
+		return derive(label("chunk", Integer.BYTES + 1).putInt(stripe).put(position).array());
+	}
+
+	/* Seeds carry positions as a single byte, so a wider value would wrap and share a seed with another position */
+	private static byte unsignedByte(int value, String name) {
+		if (value < 0 || value > MAX_POSITION) {
+			throw new IllegalArgumentException(name + " must be within 0.." + MAX_POSITION);
+		}
+
+		return (byte) value;
 	}
 
 	private static ByteBuffer label(String name, int suffixBytes) {

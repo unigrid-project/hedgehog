@@ -29,14 +29,21 @@ import org.unigrid.hedgehog.model.storage.GroupId;
 public final class GroupKey {
 	public static final int PUBLIC_KEY_SIZE = Ed25519PublicKeyParameters.KEY_SIZE;
 	public static final int SIGNATURE_SIZE = Ed25519PrivateKeyParameters.SIGNATURE_SIZE;
+	public static final int SEED_SIZE = Ed25519PrivateKeyParameters.KEY_SIZE;
 	private static final byte[] DELETE_CONTEXT = "hh-delete-v1".getBytes(StandardCharsets.US_ASCII);
 
 	private final Ed25519PrivateKeyParameters privateKey;
 	private final byte[] publicKey;
+	private final GroupId groupId;
 
 	public GroupKey(byte[] seed) {
+		if (seed.length != SEED_SIZE) {
+			throw new IllegalArgumentException("A group key seed is exactly " + SEED_SIZE + " bytes");
+		}
+
 		privateKey = new Ed25519PrivateKeyParameters(seed, 0);
 		publicKey = privateKey.generatePublicKey().getEncoded();
+		groupId = groupIdOf(publicKey);
 	}
 
 	public byte[] publicKey() {
@@ -44,7 +51,7 @@ public final class GroupKey {
 	}
 
 	public GroupId groupId() {
-		return groupIdOf(publicKey);
+		return groupId;
 	}
 
 	public byte[] sign(byte[] message) {
@@ -68,11 +75,16 @@ public final class GroupKey {
 			return false;
 		}
 
-		final Ed25519Signer verifier = new Ed25519Signer();
+		try {
+			final Ed25519Signer verifier = new Ed25519Signer();
 
-		verifier.init(false, new Ed25519PublicKeyParameters(publicKey, 0));
-		verifier.update(message, 0, message.length);
-		return verifier.verifySignature(signature);
+			verifier.init(false, new Ed25519PublicKeyParameters(publicKey, 0));
+			verifier.update(message, 0, message.length);
+			return verifier.verifySignature(signature);
+		} catch (IllegalArgumentException ex) {
+			/* Newer BouncyCastle releases reject a public key that is not a valid curve point */
+			return false;
+		}
 	}
 
 	public static byte[] deleteMessage(GroupId groupId, long timestamp) {

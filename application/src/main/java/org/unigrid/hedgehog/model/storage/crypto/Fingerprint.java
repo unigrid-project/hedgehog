@@ -81,7 +81,7 @@ public final class Fingerprint {
 
 	@Override
 	public int hashCode() {
-		return Arrays.hashCode(secret);
+		return format.hashCode();
 	}
 
 	@Override

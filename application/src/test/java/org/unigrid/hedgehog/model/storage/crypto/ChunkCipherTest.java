@@ -19,25 +19,33 @@
 
 package org.unigrid.hedgehog.model.storage.crypto;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.HexFormat;
 import lombok.SneakyThrows;
+import net.jqwik.api.Assume;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
+import org.unigrid.hedgehog.model.storage.crypto.Fingerprints.Secrets;
 import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class ChunkCipherTest {
-	private static FingerprintKeys keys() {
-		return new FingerprintKeys(Fingerprint.generate(new SecureRandom()));
+	private static FingerprintKeys keys(byte[] secret) {
+		return new FingerprintKeys(Fingerprints.of(secret));
 	}
 
 	@SneakyThrows
 	@Property(tries = 100)
-	public void roundTrips(@ForAll @Size(max = 2048) byte[] plaintext, @ForAll long sequence) {
-		final ChunkCipher cipher = ChunkCipher.forChunks(keys());
+	public void roundTripsChunks(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 2048) byte[] plaintext, @ForAll long sequence) {
+
+		final ChunkCipher cipher = ChunkCipher.forChunks(keys(secret));
 		final byte[] sealed = cipher.seal(sequence, plaintext);
 
 		assertThat(sealed.length, equalTo(plaintext.length + ChunkCipher.TAG_SIZE));
@@ -45,30 +53,85 @@ public class ChunkCipherTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 50)
-	public void rejectsAMovedChunk(@ForAll @Size(max = 256) byte[] plaintext, @ForAll long sequence) {
-		final ChunkCipher cipher = ChunkCipher.forChunks(keys());
-		final byte[] sealed = cipher.seal(sequence, plaintext);
+	@Property(tries = 100)
+	public void roundTripsManifests(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 2048) byte[] plaintext, @ForAll @IntRange(max = FingerprintKeys.MAX_POSITION) int copy) {
 
-		assertThrows(GeneralSecurityException.class, () -> cipher.open(sequence + 1, sealed));
+		final ChunkCipher cipher = ChunkCipher.forManifest(keys(secret));
+		final byte[] sealed = cipher.seal(copy, plaintext);
+
+		assertThat(sealed.length, equalTo(plaintext.length + ChunkCipher.TAG_SIZE));
+		assertThat(cipher.open(copy, sealed), equalTo(plaintext));
 	}
 
 	@SneakyThrows
 	@Property(tries = 50)
-	public void rejectsTampering(@ForAll @Size(min = 1, max = 256) byte[] plaintext, @ForAll long sequence) {
-		final ChunkCipher cipher = ChunkCipher.forChunks(keys());
-		final byte[] sealed = cipher.seal(sequence, plaintext);
-		sealed[0]++;
+	public void rejectsAMovedChunk(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 256) byte[] plaintext, @ForAll long sequence, @ForAll long otherSequence) {
 
-		assertThrows(GeneralSecurityException.class, () -> cipher.open(sequence, sealed));
+		Assume.that(sequence != otherSequence);
+
+		final ChunkCipher cipher = ChunkCipher.forChunks(keys(secret));
+		final byte[] sealed = cipher.seal(sequence, plaintext);
+
+		assertThrows(GeneralSecurityException.class, () -> cipher.open(otherSequence, sealed));
 	}
 
 	@SneakyThrows
-	@Property(tries = 20)
-	public void separatesChunksFromManifests(@ForAll @Size(max = 64) byte[] plaintext) {
-		final FingerprintKeys keys = keys();
-		final byte[] sealed = ChunkCipher.forChunks(keys).seal(0, plaintext);
+	@Property(tries = 100)
+	public void rejectsTamperingAnywhere(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 256) byte[] plaintext, @ForAll @IntRange(max = 1024) int position,
+		@ForAll @IntRange(min = 1, max = 255) int flip) {
 
-		assertThrows(GeneralSecurityException.class, () -> ChunkCipher.forManifest(keys).open(0, sealed));
+		final ChunkCipher cipher = ChunkCipher.forChunks(keys(secret));
+		final byte[] sealed = cipher.seal(0, plaintext);
+		sealed[position % sealed.length] ^= (byte) flip;
+
+		assertThrows(GeneralSecurityException.class, () -> cipher.open(0, sealed));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void rejectsAnotherFingerprint(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll(supplier = Secrets.class) byte[] otherSecret, @ForAll @Size(max = 256) byte[] plaintext,
+		@ForAll long sequence) {
+
+		Assume.that(!Arrays.equals(secret, otherSecret));
+
+		final byte[] sealed = ChunkCipher.forChunks(keys(secret)).seal(sequence, plaintext);
+		final ChunkCipher otherCipher = ChunkCipher.forChunks(keys(otherSecret));
+
+		assertThrows(GeneralSecurityException.class, () -> otherCipher.open(sequence, sealed));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void separatesChunksFromManifests(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 64) byte[] plaintext, @ForAll long sequence) {
+
+		final FingerprintKeys keys = keys(secret);
+		final byte[] sealed = ChunkCipher.forChunks(keys).seal(sequence, plaintext);
+
+		assertThrows(GeneralSecurityException.class, () -> ChunkCipher.forManifest(keys).open(sequence, sealed));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void separatesManifestsFromChunks(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Size(max = 64) byte[] plaintext, @ForAll @IntRange(max = FingerprintKeys.MAX_POSITION) int copy) {
+
+		final FingerprintKeys keys = keys(secret);
+		final byte[] sealed = ChunkCipher.forManifest(keys).seal(copy, plaintext);
+
+		assertThrows(GeneralSecurityException.class, () -> ChunkCipher.forChunks(keys).open(copy, sealed));
+	}
+
+	@SneakyThrows
+	@Example
+	public void sealsTheKnownAnswer() {
+		final ChunkCipher cipher = ChunkCipher.forChunks(keys(Fingerprints.knownSecret()));
+		final byte[] sealed = cipher.seal(5, "hedgehog".getBytes(StandardCharsets.US_ASCII));
+
+		assertThat(HexFormat.of().formatHex(sealed), equalTo("2d568721669af5c6cfa5ca445778bb9fb9ceebc07f45d41b"));
 	}
 }

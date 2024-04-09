@@ -24,9 +24,12 @@ import java.util.Arrays;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
+import org.unigrid.hedgehog.model.storage.crypto.Fingerprints.Secrets;
 import net.jqwik.api.Property;
+import net.jqwik.api.constraints.Chars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.constraints.StringLength;
 import org.bitcoinj.core.Base58;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -37,39 +40,54 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class FingerprintTest {
 	private static final String ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+	private static final String KNOWN_ENCODING = "2wkH4kHMn2WPndf8CxmsoFkX93ouZMJUwTBFSZpDCeNeGWa7dj";
+
+	private static SecureRandom replaying(byte[] bytes) {
+		return new SecureRandom() {
+			@Override
+			public void nextBytes(byte[] target) {
+				System.arraycopy(bytes, 0, target, 0, target.length);
+			}
+		};
+	}
 
 	@Property(tries = 50)
-	public void roundTripsThroughText() {
-		final Fingerprint fingerprint = Fingerprint.generate(new SecureRandom());
+	public void roundTripsThroughText(@ForAll(supplier = Secrets.class) byte[] secret) {
+		final Fingerprint fingerprint = Fingerprint.generate(replaying(secret));
 
 		assertThat(Fingerprint.parse(fingerprint.encode()), equalTo(fingerprint));
 	}
 
 	@Property(tries = 50)
-	public void parsesWithSurroundingWhitespace() {
-		final Fingerprint fingerprint = Fingerprint.generate(new SecureRandom());
+	public void parsesWithSurroundingWhitespace(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @Chars({' ', '\t', '\n', '\r'}) @StringLength(max = 4) String leading,
+		@ForAll @Chars({' ', '\t', '\n', '\r'}) @StringLength(max = 4) String trailing) {
 
-		assertThat(Fingerprint.parse("  " + fingerprint.encode() + "\n"), equalTo(fingerprint));
+		final Fingerprint fingerprint = Fingerprint.generate(replaying(secret));
+
+		assertThat(Fingerprint.parse(leading + fingerprint.encode() + trailing), equalTo(fingerprint));
 	}
 
 	@Property(tries = 200)
-	public void rejectsSingleCharacterTypos(@ForAll @IntRange(min = 0, max = 40) int position,
-		@ForAll @IntRange(min = 1, max = 57) int shift) {
+	public void rejectsSingleCharacterTypos(@ForAll(supplier = Secrets.class) byte[] secret,
+		@ForAll @IntRange(min = 0, max = 60) int position, @ForAll @IntRange(min = 1, max = 57) int shift) {
 
-		final String encoded = Fingerprint.generate(new SecureRandom()).encode();
+		final String encoded = Fingerprints.of(secret).encode();
 		final int index = position % encoded.length();
-		final char replacement = ALPHABET.charAt((ALPHABET.indexOf(encoded.charAt(index)) + shift) % ALPHABET.length());
-		final String typo = encoded.substring(0, index) + replacement + encoded.substring(index + 1);
+		final int shifted = (ALPHABET.indexOf(encoded.charAt(index)) + shift) % ALPHABET.length();
+		final String typo = encoded.substring(0, index) + ALPHABET.charAt(shifted) + encoded.substring(index + 1);
 
 		assertThrows(IllegalArgumentException.class, () -> Fingerprint.parse(typo));
 	}
 
 	@Property(tries = 100)
 	public void rejectsUnknownFormats(@ForAll @IntRange(min = 0, max = 255) int formatId,
-		@ForAll @Size(Fingerprint.SECRET_SIZE) byte[] secret) {
+		@ForAll(supplier = Secrets.class) byte[] secret) {
 
 		Assume.that(Arrays.stream(StorageFormat.values()).noneMatch(format -> (format.getId() & 0xFF) == formatId));
-		assertThrows(IllegalArgumentException.class, () -> Fingerprint.parse(Base58.encodeChecked(formatId, secret)));
+
+		final String encoded = Base58.encodeChecked(formatId, secret);
+		assertThrows(IllegalArgumentException.class, () -> Fingerprint.parse(encoded));
 	}
 
 	@Property(tries = 100)
@@ -80,18 +98,27 @@ public class FingerprintTest {
 		assertThrows(IllegalArgumentException.class, () -> Fingerprint.parse(encoded));
 	}
 
-	@Example
-	public void carriesTheStorageFormat() {
-		final Fingerprint fingerprint = Fingerprint.generate(new SecureRandom());
+	@Property(tries = 50)
+	public void generatesTheCurrentFormatFromTheGivenRandomness(@ForAll(supplier = Secrets.class) byte[] secret) {
+		final Fingerprint fingerprint = Fingerprint.generate(replaying(secret));
 
 		assertThat(fingerprint.format(), equalTo(StorageFormat.current()));
+		assertThat(fingerprint, equalTo(Fingerprints.of(secret)));
 		assertThat(Base58.decodeChecked(fingerprint.encode())[0], equalTo(StorageFormat.current().getId()));
 	}
 
-	@Example
-	public void neverPrintsItsSecret() {
-		final Fingerprint fingerprint = Fingerprint.generate(new SecureRandom());
+	@Property(tries = 50)
+	public void neverPrintsItsSecret(@ForAll(supplier = Secrets.class) byte[] secret) {
+		final Fingerprint fingerprint = Fingerprints.of(secret);
 
 		assertThat(fingerprint.toString(), not(containsString(fingerprint.encode())));
+	}
+
+	@Example
+	public void encodesTheKnownSecretStably() {
+		final Fingerprint fingerprint = Fingerprint.generate(replaying(Fingerprints.knownSecret()));
+
+		assertThat(fingerprint.encode(), equalTo(KNOWN_ENCODING));
+		assertThat(Fingerprint.parse(KNOWN_ENCODING), equalTo(fingerprint));
 	}
 }
