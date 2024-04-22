@@ -19,10 +19,14 @@
 
 package org.unigrid.hedgehog.model.storage;
 
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
@@ -35,10 +39,59 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class LayoutParametersTest {
 	private static final int SMALL_CHUNK_SIZE = 1024;
+	private static final int MIN_CHUNK_SIZE = ChunkCipher.TAG_SIZE + Manifest.ENCODED_SIZE;
 
 	public static LayoutParameters small() {
 		return LayoutParameters.builder().chunkSize(SMALL_CHUNK_SIZE).fragmentSize(128).outerParityPercent(50)
 			.maxOuterDataChunks(4).innerParityPercent(50).maxParityPercent(100).build();
+	}
+
+	public static Arbitrary<LayoutParameters> validLayouts() {
+		final Arbitrary<Integer> percents = Arbitraries.integers().between(0, LayoutParameters.MAX_PARITY_PERCENT);
+
+		return Combinators.combine(Arbitraries.integers().between(1, 256), Arbitraries.integers().between(1, 32),
+			percents, Arbitraries.integers().between(1, ReedSolomon.MAX_SHARDS), percents, percents
+		).as((fragmentSize, dataFragments, outerParity, maxOuterDataChunks, innerParity, extraParity) ->
+			LayoutParameters.builder().fragmentSize(fragmentSize)
+				.chunkSize(fragmentSize * Math.max(dataFragments, (MIN_CHUNK_SIZE + fragmentSize - 1) / fragmentSize))
+				.outerParityPercent(outerParity).maxOuterDataChunks(maxOuterDataChunks)
+				.innerParityPercent(innerParity).maxParityPercent(innerParity + extraParity).build()
+		).filter(LayoutParametersTest::accepts);
+	}
+
+	private static Arbitrary<Integer> extremeOr(int typical) {
+		return Arbitraries.oneOf(Arbitraries.just(typical), Arbitraries.integers(),
+			Arbitraries.integers().between(1 << 20, Integer.MAX_VALUE));
+	}
+
+	@Provide
+	public Arbitrary<LayoutParameters> extremeLayouts() {
+		return Combinators.combine(extremeOr(SMALL_CHUNK_SIZE), extremeOr(128), extremeOr(50), extremeOr(4),
+			extremeOr(50), extremeOr(100)
+		).as((chunkSize, fragmentSize, outerParity, maxOuterDataChunks, innerParity, maxParity) ->
+			LayoutParameters.builder().chunkSize(chunkSize).fragmentSize(fragmentSize).outerParityPercent(outerParity)
+				.maxOuterDataChunks(maxOuterDataChunks).innerParityPercent(innerParity).maxParityPercent(maxParity)
+				.build()
+		);
+	}
+
+	private static long roundedUpShare(long value, long percent) {
+		return (value * percent + 99) / 100;
+	}
+
+	private static boolean fitsReedSolomon(long data, long parityPercent) {
+		return data >= 1 && data + roundedUpShare(data, parityPercent) <= ReedSolomon.MAX_SHARDS;
+	}
+
+	private static boolean codable(LayoutParameters layout) {
+		final long fragmentSize = layout.getFragmentSize();
+		final long chunkSize = layout.getChunkSize();
+
+		return fragmentSize > 0 && chunkSize >= MIN_CHUNK_SIZE && chunkSize % fragmentSize == 0
+			&& layout.getInnerParityPercent() >= 0 && layout.getInnerParityPercent() <= layout.getMaxParityPercent()
+			&& layout.getOuterParityPercent() >= 0 && layout.getOuterParityPercent() <= LayoutParameters.MAX_PARITY_PERCENT
+			&& fitsReedSolomon(chunkSize / fragmentSize, layout.getMaxParityPercent())
+			&& fitsReedSolomon(layout.getMaxOuterDataChunks(), layout.getOuterParityPercent());
 	}
 
 	private static boolean accepts(LayoutParameters layout) {
@@ -70,6 +123,23 @@ public class LayoutParametersTest {
 
 		assertThat(share * 100, greaterThanOrEqualTo((long) value * percent));
 		assertThat((share - 1) * 100, lessThan((long) value * percent));
+	}
+
+	@Property(tries = 3000)
+	public void neverAcceptsAnUncodableLayout(@ForAll("extremeLayouts") LayoutParameters layout) {
+		if (accepts(layout)) {
+			assertThat(codable(layout), is(true));
+		}
+	}
+
+	@Property
+	public void generatesOnlyCodableLayouts(@ForAll("validLayoutsForTest") LayoutParameters layout) {
+		assertThat(codable(layout), is(true));
+	}
+
+	@Provide
+	public Arbitrary<LayoutParameters> validLayoutsForTest() {
+		return validLayouts();
 	}
 
 	@Property

@@ -25,13 +25,24 @@ import lombok.Value;
 @Value
 public class Manifest {
 	public static final int ENCODED_SIZE = 2 + Long.BYTES + 2 * Integer.BYTES + 4 * Short.BYTES;
+	public static final int MAX_COPIES = 0xFF;
 
 	private final StorageFormat format;
 	private final long fileSize;
 	private final int manifestCopies;
 	private final LayoutParameters layout;
 
+	public void validate() {
+		LayoutParameters.require(fileSize >= 0, "fileSize cannot be negative");
+		LayoutParameters.require(LayoutParameters.inRange(manifestCopies, 1, MAX_COPIES),
+			"manifestCopies must be 1-255"
+		);
+		layout.validate();
+	}
+
 	public byte[] encode() {
+		validate();
+
 		return ByteBuffer.allocate(ENCODED_SIZE).put(format.getId()).putLong(fileSize).put((byte) manifestCopies)
 			.putInt(layout.getChunkSize()).putInt(layout.getFragmentSize())
 			.putShort((short) layout.getOuterParityPercent()).putShort((short) layout.getMaxOuterDataChunks())
@@ -40,6 +51,8 @@ public class Manifest {
 	}
 
 	public static Manifest decode(byte[] plaintext) {
+		LayoutParameters.require(plaintext.length >= ENCODED_SIZE, "Manifest is truncated");
+
 		final ByteBuffer buffer = ByteBuffer.wrap(plaintext);
 		final StorageFormat format = StorageFormat.of(buffer.get() & 0xFF);
 		final long fileSize = buffer.getLong();
@@ -50,7 +63,8 @@ public class Manifest {
 			.innerParityPercent(Short.toUnsignedInt(buffer.getShort()))
 			.maxParityPercent(Short.toUnsignedInt(buffer.getShort())).build();
 
-		layout.validate();
-		return new Manifest(format, fileSize, manifestCopies, layout);
+		final Manifest manifest = new Manifest(format, fileSize, manifestCopies, layout);
+		manifest.validate();
+		return manifest;
 	}
 }

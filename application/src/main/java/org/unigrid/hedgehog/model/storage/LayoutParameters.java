@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 public class LayoutParameters {
 	public static final int MAX_PARITY_PERCENT = 200;
 	private static final int PERCENT = 100;
+	private static final int MAX_FRAGMENT_PARITY_PERCENT = ReedSolomon.MAX_SHARDS * PERCENT;
 
 	private final int chunkSize;
 	private final int fragmentSize;
@@ -38,7 +39,7 @@ public class LayoutParameters {
 	private final int maxParityPercent;
 
 	public static int percentOf(int value, int percent) {
-		return (int) ((value * (long) percent + PERCENT - 1) / PERCENT);
+		return Math.toIntExact((value * (long) percent + PERCENT - 1) / PERCENT);
 	}
 
 	public static void require(boolean condition, String message) {
@@ -90,12 +91,16 @@ public class LayoutParameters {
 	private void validatePercentages() {
 		require(inRange(outerParityPercent, 0, MAX_PARITY_PERCENT), "outerParityPercent must be 0-200");
 		require(inRange(innerParityPercent, 0, MAX_PARITY_PERCENT), "innerParityPercent must be 0-200");
-		require(maxParityPercent >= innerParityPercent, "maxParityPercent cannot be below innerParityPercent");
+		require(inRange(maxParityPercent, innerParityPercent, MAX_FRAGMENT_PARITY_PERCENT),
+			"maxParityPercent must lie between innerParityPercent and 25500"
+		);
 	}
 
+	/* The shard counts are bounded before any percentage is taken of them, so the arithmetic cannot overflow */
 	private void validateShardCounts() {
+		require(dataFragments() <= ReedSolomon.MAX_SHARDS, "A chunk would need more than 255 fragments");
 		require(maxFragments() <= ReedSolomon.MAX_SHARDS, "A chunk would need more than 255 fragments");
-		require(maxOuterDataChunks >= 1, "maxOuterDataChunks must be positive");
+		require(inRange(maxOuterDataChunks, 1, ReedSolomon.MAX_SHARDS), "maxOuterDataChunks must be 1-255");
 		require(maxOuterDataChunks + outerParityChunks(maxOuterDataChunks) <= ReedSolomon.MAX_SHARDS,
 			"A stripe would need more than 255 chunks"
 		);

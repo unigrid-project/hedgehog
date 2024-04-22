@@ -29,7 +29,10 @@ public class StorageLayout {
 	public static StorageLayout of(LayoutParameters parameters, long fileSize) {
 		parameters.validate();
 		LayoutParameters.require(fileSize >= 0, "fileSize cannot be negative");
-		return new StorageLayout(parameters, fileSize);
+
+		final StorageLayout layout = new StorageLayout(parameters, fileSize);
+		LayoutParameters.require(layout.stripeCount() <= Integer.MAX_VALUE, "fileSize needs too many stripes");
+		return layout;
 	}
 
 	public long dataChunks() {
@@ -37,7 +40,11 @@ public class StorageLayout {
 	}
 
 	public int stripes() {
-		return Math.toIntExact(ceilDiv(dataChunks(), parameters.getMaxOuterDataChunks()));
+		return Math.toIntExact(stripeCount());
+	}
+
+	private long stripeCount() {
+		return ceilDiv(dataChunks(), parameters.getMaxOuterDataChunks());
 	}
 
 	public int dataChunksIn(int stripe) {
@@ -53,6 +60,6 @@ public class StorageLayout {
 	}
 
 	private static long ceilDiv(long dividend, long divisor) {
-		return (dividend + divisor - 1) / divisor;
+		return dividend / divisor + (dividend % divisor == 0 ? 0 : 1);
 	}
 }

@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.model.storage;
 
+import java.math.BigInteger;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -33,6 +34,8 @@ import static org.hamcrest.Matchers.lessThan;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class StorageLayoutTest {
+	private static final long MAX_SMALL_FILE_SIZE = (long) Integer.MAX_VALUE * 4 * 1008;
+
 	@Property(tries = 300)
 	public void coversEveryByteWithoutSpareChunks(@ForAll @LongRange(min = 0, max = 50_000) long fileSize,
 		@ForAll @IntRange(min = 1, max = 20) int maxOuterDataChunks) {
@@ -72,6 +75,33 @@ public class StorageLayoutTest {
 		IntStream.range(0, layout.stripes()).forEach(s ->
 			assertThat(layout.parityChunksIn(s), equalTo((layout.dataChunksIn(s) + 1) / 2))
 		);
+	}
+
+	@Property
+	public void coversEveryByteOfHugeFiles(@ForAll @LongRange(min = 0, max = Long.MAX_VALUE) long fileSize) {
+		final LayoutParameters parameters = LayoutParametersTest.small().toBuilder().chunkSize(1 << 30)
+			.fragmentSize(1 << 24).maxOuterDataChunks(128).build();
+		final StorageLayout layout = StorageLayout.of(parameters, fileSize);
+		final BigInteger payloadSize = BigInteger.valueOf(parameters.payloadSize());
+		final BigInteger chunks = BigInteger.valueOf(layout.dataChunks());
+		final BigInteger size = BigInteger.valueOf(fileSize);
+
+		assertThat(chunks.multiply(payloadSize), greaterThanOrEqualTo(size));
+		assertThat(chunks.subtract(BigInteger.ONE).multiply(payloadSize), lessThan(size.max(BigInteger.ONE)));
+		assertThat((long) layout.stripes(), equalTo((layout.dataChunks() + 127) / 128));
+	}
+
+	@Property
+	public void rejectsFilesNeedingMoreStripesThanCanBeCounted(@ForAll @LongRange(min = MAX_SMALL_FILE_SIZE + 1,
+		max = Long.MAX_VALUE) long fileSize) {
+
+		assertThrows(IllegalArgumentException.class, () -> StorageLayout.of(LayoutParametersTest.small(), fileSize));
+	}
+
+	@Example
+	public void acceptsTheLargestFileWhoseStripesCanBeCounted() {
+		assertThat(StorageLayout.of(LayoutParametersTest.small(), MAX_SMALL_FILE_SIZE).stripes(),
+			equalTo(Integer.MAX_VALUE));
 	}
 
 	@Property
