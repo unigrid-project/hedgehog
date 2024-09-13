@@ -34,8 +34,11 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
@@ -84,7 +87,10 @@ public class FragmentTest {
 		final Fragment decoded = Fragment.decode(fragment.encode());
 
 		assertThat(decoded.encode(), equalTo(fragment.encode()));
+		assertThat(decoded, equalTo(fragment));
+		assertThat(decoded.hashCode(), equalTo(fragment.hashCode()));
 		assertThat(decoded.verify(key.groupId()), is(true));
+		assertThat(decoded.toString(), not(anyOf(containsString("data="), containsString("proof="))));
 		assertThat(decoded.groupId(), equalTo(key.groupId()));
 		assertThat(fragment.encode()[0], equalTo(StorageFormat.current().getId()));
 		assertThat(fragment.getDescriptor().encode().length, equalTo(GroupDescriptor.ENCODED_SIZE));

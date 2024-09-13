@@ -26,6 +26,7 @@ import lombok.Builder;
 import lombok.Value;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
+import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 
 @Value
 @Builder(toBuilder = true)
@@ -33,7 +34,6 @@ public class GroupDescriptor {
 	private static final int HEADER_SIZE = 4 + Integer.BYTES;
 	public static final int ENCODED_SIZE = HEADER_SIZE + GroupKey.PUBLIC_KEY_SIZE + MerkleTree.HASH_SIZE
 		+ GroupKey.SIGNATURE_SIZE;
-	private static final byte[] CONTEXT = "hh-group".getBytes(StandardCharsets.US_ASCII);
 
 	private final StorageFormat format;
 	private final int dataFragments;
@@ -44,7 +44,13 @@ public class GroupDescriptor {
 	private final byte[] merkleRoot;
 	private final byte[] signature;
 
-	public static GroupDescriptor sign(GroupKey key, StorageFormat format, LayoutParameters layout, byte[] merkleRoot) {
+	/* Validating first keeps a count above 255 from being silently truncated into the byte that gets signed */
+	public static GroupDescriptor sign(final GroupKey key, final StorageFormat format, final LayoutParameters layout,
+		final byte[] merkleRoot) {
+
+		layout.validate();
+		LayoutParameters.require(merkleRoot.length == MerkleTree.HASH_SIZE, "A Merkle root is exactly 32 bytes");
+
 		final GroupDescriptor unsigned = GroupDescriptor.builder().format(format)
 			.dataFragments(layout.dataFragments()).parityFragments(layout.parityFragments())
 			.maxFragments(layout.maxFragments()).fragmentSize(layout.getFragmentSize())
@@ -63,11 +69,19 @@ public class GroupDescriptor {
 	}
 
 	public int chunkSize() {
-		return dataFragments * fragmentSize;
+		try {
+			return Math.multiplyExact(dataFragments, fragmentSize);
+		} catch (ArithmeticException ex) {
+			throw new IllegalArgumentException("The group describes a chunk beyond addressable size", ex);
+		}
 	}
 
+	/* Each count is bounded before they are summed, so no signed combination of fields can overflow */
 	public boolean isWellFormed() {
-		return dataFragments >= 1 && guaranteedFragments() <= maxFragments && fragmentSize > 0;
+		return LayoutParameters.inRange(dataFragments, 1, ReedSolomon.MAX_SHARDS)
+			&& LayoutParameters.inRange(parityFragments, 0, ReedSolomon.MAX_SHARDS)
+			&& LayoutParameters.inRange(maxFragments, guaranteedFragments(), ReedSolomon.MAX_SHARDS)
+			&& fragmentSize > 0;
 	}
 
 	public boolean isValid() {
@@ -78,7 +92,7 @@ public class GroupDescriptor {
 		return fields().put(signature).array();
 	}
 
-	public static GroupDescriptor decode(ByteBuffer buffer) {
+	public static GroupDescriptor decode(final ByteBuffer buffer) {
 		return GroupDescriptor.builder().format(StorageFormat.of(buffer.get() & 0xFF))
 			.dataFragments(buffer.get() & 0xFF).parityFragments(buffer.get() & 0xFF)
 			.maxFragments(buffer.get() & 0xFF).fragmentSize(buffer.getInt())
@@ -86,7 +100,7 @@ public class GroupDescriptor {
 			.signature(read(buffer, GroupKey.SIGNATURE_SIZE)).build();
 	}
 
-	static byte[] read(ByteBuffer buffer, int length) {
+	static byte[] read(final ByteBuffer buffer, final int length) {
 		final byte[] bytes = new byte[length];
 		buffer.get(bytes);
 		return bytes;
@@ -98,8 +112,10 @@ public class GroupDescriptor {
 			.put(merkleRoot);
 	}
 
-	private byte[] signedBytes() {
+	byte[] signedBytes() {
+		final byte[] context = ("hh-group-v" + (format.getId() & 0xFF)).getBytes(StandardCharsets.US_ASCII);
 		final byte[] fields = Arrays.copyOf(fields().array(), ENCODED_SIZE - GroupKey.SIGNATURE_SIZE);
-		return ByteBuffer.allocate(CONTEXT.length + fields.length).put(CONTEXT).put(fields).array();
+
+		return ByteBuffer.allocate(context.length + fields.length).put(context).put(fields).array();
 	}
 }

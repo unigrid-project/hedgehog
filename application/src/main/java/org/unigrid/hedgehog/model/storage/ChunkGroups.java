@@ -35,8 +35,9 @@ public final class ChunkGroups {
 		/* Static helpers only */
 	}
 
-	/* An unvalidated layout could silently truncate its fragment counts into the single bytes that get signed */
-	public static List<Fragment> seal(byte[] chunk, GroupKey key, StorageFormat format, LayoutParameters layout) {
+	public static List<Fragment> seal(final byte[] chunk, final GroupKey key, final StorageFormat format,
+		final LayoutParameters layout) {
+
 		layout.validate();
 		LayoutParameters.require(chunk.length == layout.getChunkSize(), "Chunk size does not match the layout");
 
@@ -51,7 +52,7 @@ public final class ChunkGroups {
 			.collect(Collectors.toList()));
 	}
 
-	public static byte[] open(Collection<Fragment> verified) {
+	public static byte[] open(final Collection<Fragment> verified) {
 		final GroupDescriptor descriptor = descriptorOf(verified);
 		final byte[][] shards = decode(descriptor, verified);
 		final ByteBuffer chunk = ByteBuffer.allocate(descriptor.chunkSize());
@@ -61,8 +62,13 @@ public final class ChunkGroups {
 	}
 
 	/* The rebuilt tree must match the signed root, so a repairer can never place fragments the owner did not sign. */
-	public static List<Fragment> rebuild(Collection<Fragment> verified, Collection<Integer> indices) {
+	public static List<Fragment> rebuild(final Collection<Fragment> verified, final Collection<Integer> indices) {
 		final GroupDescriptor descriptor = descriptorOf(verified);
+
+		LayoutParameters.require(indices.stream().allMatch(index -> isSlotOf(descriptor, index)),
+			"Cannot rebuild a fragment outside the group"
+		);
+
 		final byte[][] shards = decode(descriptor, verified);
 		final MerkleTree tree = MerkleTree.of(Arrays.asList(shards));
 
@@ -73,7 +79,11 @@ public final class ChunkGroups {
 		return fragmentsOf(descriptor, tree, shards, indices);
 	}
 
-	private static byte[][] withParity(byte[][] data, int parityShards) {
+	private static boolean isSlotOf(final GroupDescriptor descriptor, final int index) {
+		return LayoutParameters.inRange(index, 0, descriptor.getMaxFragments() - 1);
+	}
+
+	private static byte[][] withParity(final byte[][] data, final int parityShards) {
 		final byte[][] parity = new ReedSolomon(data.length, parityShards).encode(data);
 		final byte[][] shards = Arrays.copyOf(data, data.length + parityShards);
 
@@ -81,12 +91,12 @@ public final class ChunkGroups {
 		return shards;
 	}
 
-	private static byte[][] decode(GroupDescriptor descriptor, Collection<Fragment> verified) {
+	private static byte[][] decode(final GroupDescriptor descriptor, final Collection<Fragment> verified) {
 		final int total = descriptor.getMaxFragments();
 		final byte[][] shards = new byte[total][];
 		final boolean[] present = new boolean[total];
 
-		for (Fragment fragment : verified) {
+		for (final Fragment fragment : verified) {
 			shards[fragment.getIndex()] = fragment.getData();
 			present[fragment.getIndex()] = true;
 		}
@@ -95,21 +105,26 @@ public final class ChunkGroups {
 			.decode(shards, present);
 	}
 
-	/* One key may sign several seals over time, and mixing their fragments would decode to garbage */
-	private static GroupDescriptor descriptorOf(Collection<Fragment> verified) {
+	/* Anyone can sign a group, so a validly signed descriptor still has to describe a codable one. And one key may
+	   sign several seals over time, where mixing their fragments would decode to garbage. */
+	private static GroupDescriptor descriptorOf(final Collection<Fragment> verified) {
 		LayoutParameters.require(!verified.isEmpty(), "No fragments to work with");
 
 		final GroupDescriptor descriptor = verified.iterator().next().getDescriptor();
 
+		LayoutParameters.require(descriptor.isWellFormed(), "Fragments describe a malformed group");
 		LayoutParameters.require(verified.stream().allMatch(fragment -> fragment.getDescriptor().equals(descriptor)),
 			"Fragments belong to different seals"
+		);
+		LayoutParameters.require(verified.stream().allMatch(fragment -> isSlotOf(descriptor, fragment.getIndex())
+			&& fragment.getData().length == descriptor.getFragmentSize()), "Fragments do not fit their group"
 		);
 
 		return descriptor;
 	}
 
-	private static List<Fragment> fragmentsOf(GroupDescriptor descriptor, MerkleTree tree, byte[][] shards,
-		Collection<Integer> indices) {
+	private static List<Fragment> fragmentsOf(final GroupDescriptor descriptor, final MerkleTree tree,
+		final byte[][] shards, final Collection<Integer> indices) {
 
 		return indices.stream().map(i -> new Fragment(descriptor, i, tree.proof(i), shards[i]))
 			.collect(Collectors.toList());

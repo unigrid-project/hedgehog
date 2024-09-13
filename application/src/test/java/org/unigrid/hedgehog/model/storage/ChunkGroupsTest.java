@@ -31,12 +31,14 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.statistics.Statistics;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
 
 public class ChunkGroupsTest {
 	static byte[] chunk(Random random, LayoutParameters layout) {
@@ -59,6 +61,10 @@ public class ChunkGroupsTest {
 		final List<Fragment> shuffled = new ArrayList<>(fragments);
 		Collections.shuffle(shuffled, random);
 		return shuffled;
+	}
+
+	private static void covers(String label, boolean malformation) {
+		Statistics.label(label).collect(malformation).coverage(checker -> checker.check(true).count(n -> n > 0));
 	}
 
 	@Provide
@@ -144,6 +150,50 @@ public class ChunkGroupsTest {
 		sources.add(random.nextInt(sources.size() + 1), stranger);
 		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.open(sources));
 		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.rebuild(sources, List.of(0)));
+	}
+
+	@Property(tries = 50)
+	public void refusesIndicesOutsideTheGroup(@ForAll long seed, @ForAll("layouts") LayoutParameters layout,
+		@ForAll int index) {
+
+		Assume.that(index < 0 || index >= layout.maxFragments());
+
+		final Random random = new Random(seed);
+		final List<Fragment> sources = new ArrayList<>(seal(random, key(random), layout));
+		final Fragment original = sources.get(0);
+
+		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.rebuild(sources, List.of(0, index)));
+		sources.add(new Fragment(original.getDescriptor(), index, original.getProof(), original.getData()));
+		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.open(sources));
+		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.rebuild(sources, List.of(0)));
+	}
+
+	@Property
+	public void refusesValidlySignedMalformedGroups(@ForAll long seed,
+		@ForAll @IntRange(min = 0, max = 0xFF) int dataFragments, @ForAll @IntRange(min = 0, max = 0xFF) int parity,
+		@ForAll @IntRange(min = 0, max = 0xFF) int maxFragments, @ForAll @IntRange(min = -8, max = 64) int fragmentSize) {
+
+		final Random random = new Random(seed);
+		final GroupKey key = key(random);
+		final GroupDescriptor unsigned = GroupDescriptor.builder().format(StorageFormat.current())
+			.dataFragments(dataFragments).parityFragments(parity).maxFragments(maxFragments).fragmentSize(fragmentSize)
+			.publicKey(key.publicKey()).merkleRoot(new byte[MerkleTree.HASH_SIZE])
+			.signature(new byte[GroupKey.SIGNATURE_SIZE]).build();
+
+		Assume.that(!unsigned.isWellFormed());
+		covers("no data fragments", dataFragments == 0);
+		covers("too few slots", maxFragments < dataFragments + parity);
+		covers("no fragment size", fragmentSize <= 0);
+
+		final GroupDescriptor signed = unsigned.toBuilder().signature(key.sign(unsigned.signedBytes())).build();
+		final List<Fragment> fragments = IntStream.range(0, Math.max(1, Math.max(dataFragments, maxFragments)))
+			.mapToObj(i -> new Fragment(signed, i, List.of(), new byte[Math.max(0, fragmentSize)]))
+			.collect(Collectors.toList());
+
+		assertThat(signed.isValid(), is(true));
+		fragments.forEach(fragment -> assertThat(fragment.verify(key.groupId()), is(false)));
+		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.open(fragments));
+		assertThrows(IllegalArgumentException.class, () -> ChunkGroups.rebuild(fragments, List.of(0)));
 	}
 
 	@Property(tries = 50)

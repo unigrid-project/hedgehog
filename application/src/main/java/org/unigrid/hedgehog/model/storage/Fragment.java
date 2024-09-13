@@ -23,6 +23,8 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import lombok.Value;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
 
@@ -32,8 +34,10 @@ public class Fragment {
 
 	private final GroupDescriptor descriptor;
 	private final int index;
-	private final List<byte[]> proof;
-	private final byte[] data;
+
+	/* Determined by the descriptor, index and data, and a list of arrays would only compare by reference */
+	@EqualsAndHashCode.Exclude @ToString.Exclude private final List<byte[]> proof;
+	@ToString.Exclude private final byte[] data;
 
 	public GroupId groupId() {
 		return descriptor.groupId();
@@ -47,7 +51,7 @@ public class Fragment {
 		return index >= descriptor.guaranteedFragments();
 	}
 
-	public boolean verify(GroupId expected) {
+	public boolean verify(final GroupId expected) {
 		return descriptor.isWellFormed() && descriptor.groupId().equals(expected)
 			&& data.length == descriptor.getFragmentSize() && descriptor.isValid()
 			&& MerkleTree.verify(descriptor.getMerkleRoot(), descriptor.getMaxFragments(), index, data, proof);
@@ -63,7 +67,7 @@ public class Fragment {
 	}
 
 	/* The data length must equal what remains, so a forged length can never drive an allocation beyond the input */
-	public static Fragment decode(byte[] encoded) {
+	public static Fragment decode(final byte[] encoded) {
 		final ByteBuffer buffer = ByteBuffer.wrap(encoded);
 		final GroupDescriptor descriptor = GroupDescriptor.decode(buffer);
 		final int index = buffer.get() & 0xFF;
