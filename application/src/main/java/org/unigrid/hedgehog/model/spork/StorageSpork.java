@@ -40,6 +40,10 @@ public class StorageSpork extends GridSpork implements Serializable {
 		private static final int MAX_EXTRA_POOL_PERCENT = 90;
 		private static final int PERCENT = 100;
 
+		/* Bounded by their wire fields, so the spork a signer validated is the one its peers decode */
+		private static final int MAX_PLACEMENT_SLACK = 0xFF;
+		private static final int MAX_TOMBSTONE_DAYS = 0xFFFF;
+
 		private long maxBytesPerNode = 10_737_418_240L;
 		private int chunkSize = 1_048_576;
 		private int fragmentSize = 65_536;
@@ -78,7 +82,10 @@ public class StorageSpork extends GridSpork implements Serializable {
 			LayoutParameters.require(LayoutParameters.inRange(extraPoolPercent, 0, MAX_EXTRA_POOL_PERCENT),
 				"extraPoolPercent must be 0-90");
 			LayoutParameters.require(repairIntervalMinutes >= 1, "repairIntervalMinutes must be positive");
-			LayoutParameters.require(tombstoneDays >= 1, "tombstoneDays must be positive");
+			LayoutParameters.require(LayoutParameters.inRange(placementSlack, 0, MAX_PLACEMENT_SLACK),
+				"placementSlack must be 0-255");
+			LayoutParameters.require(LayoutParameters.inRange(tombstoneDays, 1, MAX_TOMBSTONE_DAYS),
+				"tombstoneDays must be 1-65535");
 			LayoutParameters.require(maxBytesPerNode >= 0, "maxBytesPerNode cannot be negative");
 		}
 	}

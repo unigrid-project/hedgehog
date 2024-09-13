@@ -21,8 +21,6 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import java.util.function.BiConsumer;
-import java.util.function.BiFunction;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -33,50 +31,59 @@ import net.jqwik.api.Provide;
 import org.unigrid.hedgehog.model.network.codec.chunk.StorageSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.chunk.StorageSporkEncoder;
 import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
+import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.unigrid.hedgehog.model.spork.StorageSporkTest.with;
 
 public class StorageSporkIntegrityTest {
 	private static final int ENCODED_SIZE = 40;
 
-	private static <T> BiFunction<SporkData, T, SporkData> set(BiConsumer<SporkData, T> setter) {
-		return (data, value) -> {
-			setter.accept(data, value);
-			return data;
-		};
-	}
-
 	@Provide
-	public Arbitrary<SporkData> sporkData() {
+	public Arbitrary<SporkData> wireWideSporkData() {
 		final Arbitrary<Integer> ints = Arbitraries.integers();
 		final Arbitrary<Integer> unsignedShorts = Arbitraries.integers().between(0, 0xFFFF);
 		final Arbitrary<Integer> unsignedBytes = Arbitraries.integers().between(0, 0xFF);
 
 		return Builders.withBuilder(SporkData::new)
-			.use(Arbitraries.longs()).in(set(SporkData::setMaxBytesPerNode))
-			.use(ints).in(set(SporkData::setChunkSize))
-			.use(ints).in(set(SporkData::setFragmentSize))
-			.use(unsignedShorts).in(set(SporkData::setOuterParityPercent))
-			.use(unsignedShorts).in(set(SporkData::setMaxOuterDataChunks))
-			.use(unsignedShorts).in(set(SporkData::setInnerParityPercent))
-			.use(unsignedShorts).in(set(SporkData::setMaxParityPercent))
-			.use(ints).in(set(SporkData::setRepairIntervalMinutes))
-			.use(unsignedShorts).in(set(SporkData::setTombstoneDays))
-			.use(unsignedBytes).in(set(SporkData::setManifestCopies))
-			.use(unsignedBytes).in(set(SporkData::setPlacementSlack))
-			.use(unsignedBytes).in(set(SporkData::setRepairThresholdPercent))
-			.use(unsignedBytes).in(set(SporkData::setExtraPoolPercent))
+			.use(Arbitraries.longs()).in(with(SporkData::setMaxBytesPerNode))
+			.use(ints).in(with(SporkData::setChunkSize))
+			.use(ints).in(with(SporkData::setFragmentSize))
+			.use(unsignedShorts).in(with(SporkData::setOuterParityPercent))
+			.use(unsignedShorts).in(with(SporkData::setMaxOuterDataChunks))
+			.use(unsignedShorts).in(with(SporkData::setInnerParityPercent))
+			.use(unsignedShorts).in(with(SporkData::setMaxParityPercent))
+			.use(ints).in(with(SporkData::setRepairIntervalMinutes))
+			.use(unsignedShorts).in(with(SporkData::setTombstoneDays))
+			.use(unsignedBytes).in(with(SporkData::setManifestCopies))
+			.use(unsignedBytes).in(with(SporkData::setPlacementSlack))
+			.use(unsignedBytes).in(with(SporkData::setRepairThresholdPercent))
+			.use(unsignedBytes).in(with(SporkData::setExtraPoolPercent))
 			.build();
 	}
 
+	@Provide
+	public Arbitrary<SporkData> validatedSporkData() {
+		return StorageSporkTest.sporkDataAcrossTheBounds().filter(StorageSporkTest::accepts);
+	}
+
 	@SneakyThrows
-	@Property
-	public void survivesARoundTripInAFixedSize(@ForAll("sporkData") SporkData data) {
+	private static void assertRoundTrip(SporkData data) {
 		final ByteBuf buffer = Unpooled.buffer();
 
 		new StorageSporkEncoder().encodeChunk(null, data, buffer);
 		assertThat(buffer.readableBytes(), equalTo(ENCODED_SIZE));
 		assertThat(new StorageSporkDecoder().decodeChunk(null, buffer).orElseThrow(), equalTo(data));
 		assertThat(buffer.readableBytes(), equalTo(0));
+	}
+
+	@Property
+	public void survivesARoundTripInAFixedSize(@ForAll("wireWideSporkData") SporkData data) {
+		assertRoundTrip(data);
+	}
+
+	@Property
+	public void survivesARoundTripWheneverValid(@ForAll("validatedSporkData") SporkData data) {
+		assertRoundTrip(data);
 	}
 }

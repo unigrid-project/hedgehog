@@ -64,8 +64,7 @@ public class LayoutParametersTest {
 			Arbitraries.integers().between(1 << 20, Integer.MAX_VALUE));
 	}
 
-	@Provide
-	public Arbitrary<LayoutParameters> extremeLayouts() {
+	public static Arbitrary<LayoutParameters> extremeLayouts() {
 		return Combinators.combine(extremeOr(SMALL_CHUNK_SIZE), extremeOr(128), extremeOr(50), extremeOr(4),
 			extremeOr(50), extremeOr(100)
 		).as((chunkSize, fragmentSize, outerParity, maxOuterDataChunks, innerParity, maxParity) ->
@@ -126,7 +125,7 @@ public class LayoutParametersTest {
 	}
 
 	@Property(tries = 3000)
-	public void neverAcceptsAnUncodableLayout(@ForAll("extremeLayouts") LayoutParameters layout) {
+	public void neverAcceptsAnUncodableLayout(@ForAll("extremeLayoutsForTest") LayoutParameters layout) {
 		if (accepts(layout)) {
 			assertThat(codable(layout), is(true));
 		}
@@ -140,6 +139,11 @@ public class LayoutParametersTest {
 	@Provide
 	public Arbitrary<LayoutParameters> validLayoutsForTest() {
 		return validLayouts();
+	}
+
+	@Provide
+	public Arbitrary<LayoutParameters> extremeLayoutsForTest() {
+		return extremeLayouts();
 	}
 
 	@Property
