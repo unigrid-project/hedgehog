@@ -91,6 +91,23 @@ public class GridSporkProvider {
 
 				data.setPublicKey(Hex.encodeHexString(key));
 				return data;
+			} case STORAGE: {
+				final StorageSpork.SporkData data = new StorageSpork.SporkData();
+
+				data.setMaxBytesPerNode(RandomUtils.nextLong(0, Long.MAX_VALUE));
+				data.setChunkSize(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setFragmentSize(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setOuterParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setMaxOuterDataChunks(RandomUtils.nextInt(0, 1 << 16));
+				data.setInnerParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setMaxParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setRepairIntervalMinutes(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setTombstoneDays(RandomUtils.nextInt(0, 1 << 16));
+				data.setManifestCopies(RandomUtils.nextInt(0, 1 << 8));
+				data.setPlacementSlack(RandomUtils.nextInt(0, 1 << 8));
+				data.setRepairThresholdPercent(RandomUtils.nextInt(0, 1 << 8));
+				data.setExtraPoolPercent(RandomUtils.nextInt(0, 1 << 8));
+				return data;
 			}
 		}
 

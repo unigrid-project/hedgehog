@@ -48,7 +48,8 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.getMintStorage(),
 				MINT_SUPPLY, db.getMintSupply(),
 				VESTING_STORAGE, db.getVestingStorage(),
-				STATISTICS_PUBKEY, db.getStatisticsPubKey()
+				STATISTICS_PUBKEY, db.getStatisticsPubKey(),
+				STORAGE, db.getStorageSpork()
 			);
 
 			final GridSpork oldSpork = entries.get(newSpork.getType());

@@ -79,6 +79,10 @@ public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 				sporkDatabase.setStatisticsPubKey((StatisticsPubKey) gridSpork);
 				break;
 
+			case STORAGE:
+				sporkDatabase.setStorageSpork((StorageSpork) gridSpork);
+				break;
+
 			default:
 				throw new IllegalArgumentException("Unsupported spork type passed.");
 		}
