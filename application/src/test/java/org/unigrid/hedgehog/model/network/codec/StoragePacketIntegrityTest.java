@@ -22,13 +22,19 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import mockit.Mocked;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Negative;
 import net.jqwik.api.constraints.Size;
@@ -47,6 +53,7 @@ import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.network.packet.StoreFragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
@@ -56,8 +63,33 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 		return encodeDecode(packet, encoder, decoder, context);
 	}
 
+	private static final Map<Class<?>, Packet.Type> STORAGE_TYPES = Map.of(
+		StoreFragment.class, Packet.Type.STORE_FRAGMENT, FetchFragment.class, Packet.Type.FETCH_FRAGMENT,
+		FragmentReply.class, Packet.Type.FRAGMENT_REPLY, HasFragment.class, Packet.Type.HAS_FRAGMENT,
+		FragmentStatus.class, Packet.Type.FRAGMENT_STATUS, DeleteGroup.class, Packet.Type.DELETE_GROUP,
+		StorageAck.class, Packet.Type.STORAGE_ACK);
+
 	private static List<GroupId> groups(List<byte[]> ids) {
 		return ids.stream().map(GroupId::of).collect(Collectors.toList());
+	}
+
+	@Provide
+	public Arbitrary<Packet> storagePackets() {
+		final Arbitrary<Long> ids = Arbitraries.longs();
+
+		return Arbitraries.oneOf(ids.map(id -> StoreFragment.builder().requestId(id).build()),
+			ids.map(id -> FetchFragment.builder().requestId(id).build()),
+			ids.map(id -> FragmentReply.builder().requestId(id).build()),
+			ids.map(id -> HasFragment.builder().requestId(id).build()),
+			ids.map(id -> FragmentStatus.builder().requestId(id).build()),
+			ids.map(id -> DeleteGroup.builder().requestId(id).build()),
+			ids.map(id -> StorageAck.builder().requestId(id).build()));
+	}
+
+	@Provide
+	public Arbitrary<Integer> indicesOutsideAByte() {
+		return Arbitraries.oneOf(Arbitraries.integers().lessOrEqual(-1),
+			Arbitraries.integers().greaterOrEqual(StorageCodecs.MAX_INDEX + 1));
 	}
 
 	@Property(tries = 30)
@@ -95,7 +127,7 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 
 	@Property(tries = 30)
 	public void fragmentStatus(@ForAll long requestId, @ForAll @Size(max = 40) List<@Size(32) byte[]> ids,
-		@ForAll FragmentStatus.State state, @ForAll @IntRange(min = 0, max = 254) int index,
+		@ForAll FragmentStatus.State state, @ForAll @IntRange(min = 0, max = StorageCodecs.MAX_INDEX) int index,
 		@Mocked ChannelHandlerContext context) {
 
 		final List<FragmentStatus.Entry> entries = groups(ids).stream()
@@ -136,6 +168,56 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 
 		assertThrows(IllegalArgumentException.class, () -> new HasFragmentEncoder().encode(context, has));
 		assertThrows(IllegalArgumentException.class, () -> new FragmentStatusEncoder().encode(context, status));
+	}
+
+	@Property(tries = 30)
+	public void encoderRefusesIndicesOutsideAByte(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll("indicesOutsideAByte") int index, @Mocked ChannelHandlerContext context) {
+
+		final FragmentStatus packet = FragmentStatus.builder().requestId(requestId)
+			.entries(List.of(new FragmentStatus.Entry(GroupId.of(group), FragmentStatus.State.HELD, index))).build();
+
+		assertThrows(IllegalArgumentException.class, () -> new FragmentStatusEncoder().encode(context, packet));
+	}
+
+	@Property(tries = 30)
+	public void encoderRefusesSignaturesOfAnyOtherSize(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll @Size(max = 2 * GroupKey.SIGNATURE_SIZE) byte[] signature, @Mocked ChannelHandlerContext context) {
+
+		Assume.that(signature.length != GroupKey.SIGNATURE_SIZE);
+
+		final DeleteGroup packet = DeleteGroup.builder().requestId(requestId).groupId(GroupId.of(group))
+			.signature(signature).build();
+
+		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupEncoder().encode(context, packet));
+	}
+
+	@Property(tries = 30)
+	public void decoderRefusesSignaturesOfAnyOtherSize(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll long timestamp, @ForAll int length, @Mocked ChannelHandlerContext context) {
+
+		Assume.that(length != GroupKey.SIGNATURE_SIZE);
+
+		final ByteBuf in = Unpooled.buffer().writeLong(requestId).writeBytes(group).writeLong(timestamp)
+			.writeInt(length).writeZero(GroupKey.SIGNATURE_SIZE);
+
+		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupDecoder().typedDecode(context, in));
+	}
+
+	@Property
+	public void everyTypeIsFoundByItsValue(@ForAll Packet.Type type) {
+		assertThat(Packet.Type.get(type.getValue()), equalTo(type));
+	}
+
+	@Property
+	public void unassignedValuesAreUndefined(@ForAll short value) {
+		Assume.that(Arrays.stream(Packet.Type.values()).noneMatch(type -> type.getValue() == value));
+		assertThat(Packet.Type.get(value), equalTo(Packet.Type.UNDEFINED));
+	}
+
+	@Property(tries = 50)
+	public void buildersSetThePacketType(@ForAll("storagePackets") Packet packet) {
+		assertThat(packet.getType(), equalTo(STORAGE_TYPES.get(packet.getClass())));
 	}
 
 	@Property(tries = 30)

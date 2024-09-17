@@ -27,6 +27,7 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
 @Sharable
 public class DeleteGroupEncoder extends AbstractMessageToByteEncoder<DeleteGroup>
@@ -40,7 +41,7 @@ public class DeleteGroupEncoder extends AbstractMessageToByteEncoder<DeleteGroup
 		out.writeLong(packet.getRequestId());
 		StorageCodecs.writeGroupId(out, packet.getGroupId());
 		out.writeLong(packet.getTimestamp());
-		StorageCodecs.writeBytes(out, packet.getSignature());
+		StorageCodecs.writeBytes(out, packet.getSignature(), GroupKey.SIGNATURE_SIZE);
 		return Optional.of(out);
 	}
 

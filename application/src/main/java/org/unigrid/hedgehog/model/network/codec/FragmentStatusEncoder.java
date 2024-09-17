@@ -40,10 +40,10 @@ public class FragmentStatusEncoder extends AbstractMessageToByteEncoder<Fragment
 		out.writeLong(packet.getRequestId());
 		StorageCodecs.writeCount(out, packet.getEntries().size());
 
-		for (FragmentStatus.Entry entry : packet.getEntries()) {
+		for (final FragmentStatus.Entry entry : packet.getEntries()) {
 			StorageCodecs.writeGroupId(out, entry.getGroupId());
 			out.writeByte(entry.getState().ordinal());
-			out.writeByte(entry.getIndex());
+			StorageCodecs.writeIndex(out, entry.getIndex());
 		}
 
 		return Optional.of(out);

@@ -25,6 +25,7 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
 public class DeleteGroupDecoder extends AbstractReplayingDecoder<DeleteGroup>
 	implements PacketDecoder<DeleteGroup> {
@@ -32,7 +33,7 @@ public class DeleteGroupDecoder extends AbstractReplayingDecoder<DeleteGroup>
 	@Override
 	public Optional<DeleteGroup> typedDecode(final ChannelHandlerContext ctx, final ByteBuf in) throws Exception {
 		return Optional.of(DeleteGroup.builder().requestId(in.readLong()).groupId(StorageCodecs.readGroupId(in))
-			.timestamp(in.readLong()).signature(StorageCodecs.readBytes(in)).build());
+			.timestamp(in.readLong()).signature(StorageCodecs.readBytes(in, GroupKey.SIGNATURE_SIZE)).build());
 	}
 
 	@Override

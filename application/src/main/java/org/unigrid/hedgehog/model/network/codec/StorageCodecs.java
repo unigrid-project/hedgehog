@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.model.storage.GroupId;
 
 public final class StorageCodecs {
 	public static final int MAX_GROUPS_PER_PACKET = 4096;
+	public static final int MAX_INDEX = 0xFF;
 	private static final String TOO_MANY_GROUPS = "At most " + MAX_GROUPS_PER_PACKET + " groups fit in one packet";
 
 	private StorageCodecs() {
@@ -40,7 +41,11 @@ public final class StorageCodecs {
 		out.writeBytes(bytes);
 	}
 
-	/* Slicing first makes a forged length fail on the bytes actually present, before anything is allocated */
+	public static void writeBytes(final ByteBuf out, final byte[] bytes, final int size) {
+		requireSize(bytes.length, size);
+		writeBytes(out, bytes);
+	}
+
 	public static byte[] readBytes(final ByteBuf in) {
 		final int length = in.readInt();
 
@@ -48,7 +53,33 @@ public final class StorageCodecs {
 			throw new IllegalArgumentException("Invalid byte array length " + length);
 		}
 
+		return copyOut(in, length);
+	}
+
+	public static byte[] readBytes(final ByteBuf in, final int size) {
+		final int length = in.readInt();
+
+		requireSize(length, size);
+		return copyOut(in, length);
+	}
+
+	private static void requireSize(final int length, final int size) {
+		if (length != size) {
+			throw new IllegalArgumentException("Expected " + size + " bytes but found " + length);
+		}
+	}
+
+	/* Slicing first makes a forged length fail on the bytes actually present, before anything is allocated */
+	private static byte[] copyOut(final ByteBuf in, final int length) {
 		return ByteBufUtil.getBytes(in.readSlice(length));
+	}
+
+	public static void writeIndex(final ByteBuf out, final int index) {
+		if (index < 0 || index > MAX_INDEX) {
+			throw new IllegalArgumentException("Fragment index " + index + " is outside 0.." + MAX_INDEX);
+		}
+
+		out.writeByte(index);
 	}
 
 	public static void writeGroupId(final ByteBuf out, final GroupId groupId) {
