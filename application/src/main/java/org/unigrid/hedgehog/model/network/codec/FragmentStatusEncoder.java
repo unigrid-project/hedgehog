@@ -27,12 +27,18 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 
 @Sharable
 public class FragmentStatusEncoder extends AbstractMessageToByteEncoder<FragmentStatus>
 	implements PacketEncoder<FragmentStatus> {
 
-	/* [request id u64][count u16]([group id 32 bytes][state u8][fragment index u8]) * count */
+	private static final String MALFORMED_PROOF = "A tombstone needs a proof with a 32-byte key and a 64-byte signature";
+
+	/*
+	 * [request id u64][count u16]([group id 32 bytes][state u8][fragment index u8][proof]) * count, where only a
+	 * tombstone has a proof: [public key 32 bytes][timestamp u64][signature 64 bytes]
+	 */
 	@Override
 	public Optional<ByteBuf> encode(final ChannelHandlerContext ctx, final FragmentStatus packet) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
@@ -44,9 +50,20 @@ public class FragmentStatusEncoder extends AbstractMessageToByteEncoder<Fragment
 			StorageCodecs.writeGroupId(out, entry.getGroupId());
 			out.writeByte(entry.getState().ordinal());
 			StorageCodecs.writeIndex(out, entry.getIndex());
+
+			if (entry.getState() == FragmentStatus.State.TOMBSTONE) {
+				writeProof(out, entry);
+			}
 		}
 
 		return Optional.of(out);
+	}
+
+	private static void writeProof(final ByteBuf out, final FragmentStatus.Entry tombstone) {
+		final DeleteProof proof = tombstone.getProof().filter(DeleteProof::isWellFormed)
+			.orElseThrow(() -> new IllegalArgumentException(MALFORMED_PROOF));
+
+		out.writeBytes(proof.getPublicKey()).writeLong(proof.getTimestamp()).writeBytes(proof.getSignature());
 	}
 
 	@Override

@@ -33,13 +33,17 @@ import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 public class DeleteGroupEncoder extends AbstractMessageToByteEncoder<DeleteGroup>
 	implements PacketEncoder<DeleteGroup> {
 
-	/* [request id u64][group id 32 bytes][timestamp u64][signature length u32][signature bytes] */
+	/*
+	 * [request id u64][group id 32 bytes][public key length u32][public key bytes][timestamp u64]
+	 * [signature length u32][signature bytes]
+	 */
 	@Override
 	public Optional<ByteBuf> encode(final ChannelHandlerContext ctx, final DeleteGroup packet) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
 
 		out.writeLong(packet.getRequestId());
 		StorageCodecs.writeGroupId(out, packet.getGroupId());
+		StorageCodecs.writeBytes(out, packet.getPublicKey(), GroupKey.PUBLIC_KEY_SIZE);
 		out.writeLong(packet.getTimestamp());
 		StorageCodecs.writeBytes(out, packet.getSignature(), GroupKey.SIGNATURE_SIZE);
 		return Optional.of(out);

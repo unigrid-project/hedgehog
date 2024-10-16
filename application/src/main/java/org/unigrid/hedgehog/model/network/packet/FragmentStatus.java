@@ -21,10 +21,15 @@ package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Optional;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.Value;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 
 @Data
@@ -41,10 +46,22 @@ public class FragmentStatus extends Packet implements Correlated, Serializable {
 	}
 
 	@Value
+	@AllArgsConstructor
 	public static class Entry implements Serializable {
 		private final GroupId groupId;
 		private final State state;
 		private final int index;
+
+		/* Present for a tombstone, so a peer can check the delete for itself instead of trusting the sender */
+		@Getter(AccessLevel.NONE) private final DeleteProof proof;
+
+		public Entry(final GroupId groupId, final State state, final int index) {
+			this(groupId, state, index, null);
+		}
+
+		public Optional<DeleteProof> getProof() {
+			return Optional.ofNullable(proof);
+		}
 	}
 
 	private long requestId;

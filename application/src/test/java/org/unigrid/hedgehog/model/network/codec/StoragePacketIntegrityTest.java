@@ -32,6 +32,7 @@ import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -51,6 +52,7 @@ import org.unigrid.hedgehog.model.network.packet.HasFragment;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.network.packet.StoreFragment;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
@@ -84,6 +86,32 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 			ids.map(id -> FragmentStatus.builder().requestId(id).build()),
 			ids.map(id -> DeleteGroup.builder().requestId(id).build()),
 			ids.map(id -> StorageAck.builder().requestId(id).build()));
+	}
+
+	private static Arbitrary<byte[]> bytes(int size) {
+		return Arbitraries.bytes().array(byte[].class).ofSize(size);
+	}
+
+	private static Arbitrary<DeleteProof> proofs() {
+		return Combinators.combine(bytes(GroupKey.PUBLIC_KEY_SIZE), Arbitraries.longs(), bytes(GroupKey.SIGNATURE_SIZE))
+			.as(DeleteProof::new);
+	}
+
+	@Provide
+	public Arbitrary<List<FragmentStatus.Entry>> entries() {
+		return Combinators.combine(bytes(GroupId.SIZE).map(GroupId::of), Arbitraries.of(FragmentStatus.State.class),
+			Arbitraries.integers().between(0, StorageCodecs.MAX_INDEX), proofs())
+			.as((id, state, index, proof) -> new FragmentStatus.Entry(id, state, index,
+				state == FragmentStatus.State.TOMBSTONE ? proof : null))
+			.list().ofMaxSize(40);
+	}
+
+	@Provide
+	public Arbitrary<DeleteProof> malformedProofs() {
+		final Arbitrary<byte[]> anyBytes = Arbitraries.bytes().array(byte[].class).ofMaxSize(2 * GroupKey.SIGNATURE_SIZE);
+
+		return Combinators.combine(anyBytes, Arbitraries.longs(), anyBytes).as(DeleteProof::new)
+			.filter(proof -> !proof.isWellFormed());
 	}
 
 	@Provide
@@ -126,12 +154,9 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 	}
 
 	@Property(tries = 30)
-	public void fragmentStatus(@ForAll long requestId, @ForAll @Size(max = 40) List<@Size(32) byte[]> ids,
-		@ForAll FragmentStatus.State state, @ForAll @IntRange(min = 0, max = StorageCodecs.MAX_INDEX) int index,
+	public void fragmentStatus(@ForAll long requestId, @ForAll("entries") List<FragmentStatus.Entry> entries,
 		@Mocked ChannelHandlerContext context) {
 
-		final List<FragmentStatus.Entry> entries = groups(ids).stream()
-			.map(id -> new FragmentStatus.Entry(id, state, index)).collect(Collectors.toList());
 		final FragmentStatus packet = FragmentStatus.builder().requestId(requestId).entries(entries).build();
 
 		assertThat(roundTrip(packet, new FragmentStatusEncoder(), new FragmentStatusDecoder(), context),
@@ -139,11 +164,22 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 	}
 
 	@Property(tries = 30)
-	public void deleteGroup(@ForAll long requestId, @ForAll @Size(32) byte[] group, @ForAll long timestamp,
-		@ForAll @Size(64) byte[] signature, @Mocked ChannelHandlerContext context) {
+	public void encoderRefusesTombstonesWithoutAWellFormedProof(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll("malformedProofs") DeleteProof malformed, @ForAll boolean missing, @Mocked ChannelHandlerContext context) {
+
+		final FragmentStatus.Entry entry = new FragmentStatus.Entry(GroupId.of(group), FragmentStatus.State.TOMBSTONE, 0,
+			missing ? null : malformed);
+		final FragmentStatus packet = FragmentStatus.builder().requestId(requestId).entries(List.of(entry)).build();
+
+		assertThrows(IllegalArgumentException.class, () -> new FragmentStatusEncoder().encode(context, packet));
+	}
+
+	@Property(tries = 30)
+	public void deleteGroup(@ForAll long requestId, @ForAll @Size(32) byte[] group, @ForAll @Size(32) byte[] publicKey,
+		@ForAll long timestamp, @ForAll @Size(64) byte[] signature, @Mocked ChannelHandlerContext context) {
 
 		final DeleteGroup packet = DeleteGroup.builder().requestId(requestId).groupId(GroupId.of(group))
-			.timestamp(timestamp).signature(signature).build();
+			.publicKey(publicKey).timestamp(timestamp).signature(signature).build();
 		assertThat(roundTrip(packet, new DeleteGroupEncoder(), new DeleteGroupDecoder(), context), equalTo(packet));
 	}
 
@@ -187,7 +223,19 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 		Assume.that(signature.length != GroupKey.SIGNATURE_SIZE);
 
 		final DeleteGroup packet = DeleteGroup.builder().requestId(requestId).groupId(GroupId.of(group))
-			.signature(signature).build();
+			.publicKey(new byte[GroupKey.PUBLIC_KEY_SIZE]).signature(signature).build();
+
+		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupEncoder().encode(context, packet));
+	}
+
+	@Property(tries = 30)
+	public void encoderRefusesPublicKeysOfAnyOtherSize(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll @Size(max = 2 * GroupKey.PUBLIC_KEY_SIZE) byte[] publicKey, @Mocked ChannelHandlerContext context) {
+
+		Assume.that(publicKey.length != GroupKey.PUBLIC_KEY_SIZE);
+
+		final DeleteGroup packet = DeleteGroup.builder().requestId(requestId).groupId(GroupId.of(group))
+			.publicKey(publicKey).signature(new byte[GroupKey.SIGNATURE_SIZE]).build();
 
 		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupEncoder().encode(context, packet));
 	}
@@ -198,8 +246,21 @@ public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {
 
 		Assume.that(length != GroupKey.SIGNATURE_SIZE);
 
-		final ByteBuf in = Unpooled.buffer().writeLong(requestId).writeBytes(group).writeLong(timestamp)
+		final ByteBuf in = Unpooled.buffer().writeLong(requestId).writeBytes(group)
+			.writeInt(GroupKey.PUBLIC_KEY_SIZE).writeZero(GroupKey.PUBLIC_KEY_SIZE).writeLong(timestamp)
 			.writeInt(length).writeZero(GroupKey.SIGNATURE_SIZE);
+
+		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupDecoder().typedDecode(context, in));
+	}
+
+	@Property(tries = 30)
+	public void decoderRefusesPublicKeysOfAnyOtherSize(@ForAll long requestId, @ForAll @Size(32) byte[] group,
+		@ForAll int length, @Mocked ChannelHandlerContext context) {
+
+		Assume.that(length != GroupKey.PUBLIC_KEY_SIZE);
+
+		final ByteBuf in = Unpooled.buffer().writeLong(requestId).writeBytes(group).writeInt(length)
+			.writeZero(GroupKey.PUBLIC_KEY_SIZE + Long.BYTES + Integer.BYTES + GroupKey.SIGNATURE_SIZE);
 
 		assertThrows(IllegalArgumentException.class, () -> new DeleteGroupDecoder().typedDecode(context, in));
 	}

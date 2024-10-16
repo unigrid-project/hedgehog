@@ -30,6 +30,7 @@ import org.unigrid.hedgehog.model.storage.GroupId;
 public class DeleteGroup extends Packet implements Correlated, Serializable {
 	private long requestId;
 	private GroupId groupId;
+	private byte[] publicKey;
 	private long timestamp;
 	private byte[] signature;
 
@@ -38,10 +39,13 @@ public class DeleteGroup extends Packet implements Correlated, Serializable {
 	}
 
 	@Builder
-	public DeleteGroup(final long requestId, final GroupId groupId, final long timestamp, final byte[] signature) {
+	public DeleteGroup(final long requestId, final GroupId groupId, final byte[] publicKey, final long timestamp,
+		final byte[] signature) {
+
 		this();
 		this.requestId = requestId;
 		this.groupId = groupId;
+		this.publicKey = publicKey;
 		this.timestamp = timestamp;
 		this.signature = signature;
 	}

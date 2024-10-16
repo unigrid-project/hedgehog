@@ -28,13 +28,30 @@ import java.util.stream.IntStream;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
+import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
 public class FragmentStatusDecoder extends AbstractReplayingDecoder<FragmentStatus>
 	implements PacketDecoder<FragmentStatus> {
 
 	private static FragmentStatus.Entry readEntry(final ByteBuf in) {
-		return new FragmentStatus.Entry(StorageCodecs.readGroupId(in),
-			FragmentStatus.State.of(in.readUnsignedByte()), in.readUnsignedByte());
+		final GroupId groupId = StorageCodecs.readGroupId(in);
+		final FragmentStatus.State state = FragmentStatus.State.of(in.readUnsignedByte());
+		final int index = in.readUnsignedByte();
+
+		return new FragmentStatus.Entry(groupId, state, index,
+			state == FragmentStatus.State.TOMBSTONE ? readProof(in) : null);
+	}
+
+	private static DeleteProof readProof(final ByteBuf in) {
+		final byte[] publicKey = new byte[GroupKey.PUBLIC_KEY_SIZE];
+		final byte[] signature = new byte[GroupKey.SIGNATURE_SIZE];
+
+		in.readBytes(publicKey);
+		final long timestamp = in.readLong();
+		in.readBytes(signature);
+		return new DeleteProof(publicKey, timestamp, signature);
 	}
 
 	@Override

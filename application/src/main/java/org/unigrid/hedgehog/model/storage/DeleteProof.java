@@ -17,28 +17,25 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec;
+package org.unigrid.hedgehog.model.storage;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import java.io.Serializable;
+import lombok.Value;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
-public class DeleteGroupDecoder extends AbstractReplayingDecoder<DeleteGroup>
-	implements PacketDecoder<DeleteGroup> {
+/* Self-certifying, so any node can check and keep a tombstone without holding the group */
+@Value
+public class DeleteProof implements Serializable {
+	private final byte[] publicKey;
+	private final long timestamp;
+	private final byte[] signature;
 
-	@Override
-	public Optional<DeleteGroup> typedDecode(final ChannelHandlerContext ctx, final ByteBuf in) throws Exception {
-		return Optional.of(DeleteGroup.builder().requestId(in.readLong()).groupId(StorageCodecs.readGroupId(in))
-			.publicKey(StorageCodecs.readBytes(in, GroupKey.PUBLIC_KEY_SIZE)).timestamp(in.readLong())
-			.signature(StorageCodecs.readBytes(in, GroupKey.SIGNATURE_SIZE)).build());
+	public boolean isWellFormed() {
+		return publicKey.length == GroupKey.PUBLIC_KEY_SIZE && signature.length == GroupKey.SIGNATURE_SIZE;
 	}
 
-	@Override
-	public Packet.Type getCodecType() {
-		return Packet.Type.DELETE_GROUP;
+	public boolean verifies(final GroupId groupId) {
+		return isWellFormed() && GroupKey.groupIdOf(publicKey).equals(groupId)
+			&& GroupKey.verify(publicKey, GroupKey.deleteMessage(groupId, timestamp), signature);
 	}
 }
