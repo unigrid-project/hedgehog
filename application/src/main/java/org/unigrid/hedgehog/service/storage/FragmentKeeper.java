@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
@@ -100,7 +101,7 @@ public class FragmentKeeper {
 			return StorageStatus.INVALID;
 		}
 
-		return tombstone(groupId, parameters.get().getTombstoneDays());
+		return tombstone(groupId, new DeleteProof(owner, timestamp, signature), parameters.get().getTombstoneDays());
 	}
 
 	private StorageStatus put(final Fragment fragment, final byte[] encoded, final StorageSpork.SporkData parameters) {
@@ -117,9 +118,9 @@ public class FragmentKeeper {
 		}
 	}
 
-	private StorageStatus tombstone(final GroupId groupId, final int tombstoneDays) {
+	private StorageStatus tombstone(final GroupId groupId, final DeleteProof proof, final int tombstoneDays) {
 		try {
-			store.delete(groupId, Duration.ofDays(tombstoneDays));
+			store.delete(groupId, Duration.ofDays(tombstoneDays), proof);
 			return StorageStatus.OK;
 		} catch (IOException ex) {
 			log.atWarn().log("Unable to delete a fragment: {}", ex.getMessage());

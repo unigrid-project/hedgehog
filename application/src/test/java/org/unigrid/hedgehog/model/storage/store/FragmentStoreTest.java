@@ -30,6 +30,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -49,9 +50,11 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.TestClock;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Holding;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.PutResult;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;
@@ -62,6 +65,7 @@ public class FragmentStoreTest {
 	private static final long UNLIMITED = 1_000_000;
 	private static final int HEADER_SIZE = 12;
 	private static final int POOL_OF_IDS = 8;
+	private static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
 	private final Random random = new Random(1);
 
 	private record Fragment(GroupId id, StorageFormat format, int slots, Tier tier, int index, byte[] payload) { }
@@ -75,9 +79,18 @@ public class FragmentStoreTest {
 	}
 
 	private GroupId group() {
-		final byte[] id = new byte[GroupId.SIZE];
-		random.nextBytes(id);
-		return GroupId.of(id);
+		return GroupId.of(bytes(GroupId.SIZE));
+	}
+
+	private byte[] bytes(int size) {
+		final byte[] bytes = new byte[size];
+		random.nextBytes(bytes);
+		return bytes;
+	}
+
+	/* The store keeps whatever well-formed proof it is given; checking it is the caller's job */
+	private DeleteProof proof() {
+		return new DeleteProof(bytes(GroupKey.PUBLIC_KEY_SIZE), random.nextLong(), bytes(GroupKey.SIGNATURE_SIZE));
 	}
 
 	@SneakyThrows
@@ -212,12 +225,14 @@ public class FragmentStoreTest {
 		final Path root = root();
 		final TestClock clock = new TestClock();
 		final GroupId id = group();
+		final DeleteProof proof = proof();
 		FragmentStore store = store(root, clock, 1000, 50);
 		long elapsed = 0;
 
 		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
-		store.delete(id, Duration.ofMinutes(keepMinutes));
+		store.delete(id, Duration.ofMinutes(keepMinutes), proof);
 		assertThat(store.get(id).isPresent(), is(false));
+		assertThat(store.tombstone(id), equalTo(Optional.of(proof)));
 
 		for (int minutes : advances) {
 			clock.advance(Duration.ofMinutes(minutes));
@@ -232,6 +247,7 @@ public class FragmentStoreTest {
 			}
 
 			assertThat(store.isTombstoned(id), is(elapsed < keepMinutes));
+			assertThat(store.tombstone(id), equalTo(elapsed < keepMinutes ? Optional.of(proof) : Optional.empty()));
 		}
 
 		final PutResult expected = elapsed < keepMinutes ? PutResult.TOMBSTONE : PutResult.STORED;
@@ -242,7 +258,8 @@ public class FragmentStoreTest {
 	@Property(tries = 50)
 	public void discardsUnreadableFilesOnStartup(@ForAll("fragments") List<Fragment> fragments,
 		@ForAll @Size(max = HEADER_SIZE - 1) byte[] truncated, @ForAll @Size(min = HEADER_SIZE, max = 40) byte[] garbage,
-		@ForAll @IntRange(min = 2, max = 127) int badTier, @ForAll @Size(max = Long.BYTES - 1) byte[] shortTombstone) {
+		@ForAll @IntRange(min = 2, max = 127) int badTier, @ForAll @Size(max = TOMBSTONE_SIZE - 1) byte[] shortTombstone,
+		@ForAll @Size(min = TOMBSTONE_SIZE + 1, max = 2 * TOMBSTONE_SIZE) byte[] longTombstone) {
 
 		final Path root = root();
 		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
@@ -258,7 +275,8 @@ public class FragmentStoreTest {
 			plant(fragmentPath(root, group()), badFormat), plant(fragmentPath(root, group()), unknownTier),
 			plant(root.resolve("00").resolve("00").resolve("not-hex.frag"), new byte[HEADER_SIZE]),
 			plant(root.resolve("tombstones").resolve(group().toHex()), shortTombstone),
-			plant(root.resolve("tombstones").resolve("not-hex"), new byte[Long.BYTES]));
+			plant(root.resolve("tombstones").resolve(group().toHex()), longTombstone),
+			plant(root.resolve("tombstones").resolve("not-hex"), new byte[TOMBSTONE_SIZE]));
 
 		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
 
@@ -268,6 +286,31 @@ public class FragmentStoreTest {
 
 		assertThat(snapshot(after), equalTo(snapshot(before)));
 		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
+	}
+
+	@Provide
+	public Arbitrary<DeleteProof> malformedProofs() {
+		final Arbitrary<byte[]> anyBytes = Arbitraries.bytes().array(byte[].class).ofMaxSize(2 * GroupKey.SIGNATURE_SIZE);
+
+		return Combinators.combine(anyBytes, Arbitraries.longs(), anyBytes).as(DeleteProof::new)
+			.filter(proof -> !proof.isWellFormed());
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void refusesMalformedProofs(@ForAll("malformedProofs") DeleteProof malformed) {
+		final Path root = root();
+		final FragmentStore store = store(root, new TestClock(), 1000, 50);
+		final GroupId id = group();
+
+		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
+		assertThrows(IllegalArgumentException.class, () -> store.delete(id, Duration.ofMinutes(1), malformed));
+		assertThat(store.isTombstoned(id), is(false));
+		assertThat(store.holding(id).isPresent(), is(true));
+
+		try (Stream<Path> tombstones = Files.list(root.resolve("tombstones"))) {
+			assertThat(tombstones.count(), equalTo(0L));
+		}
 	}
 
 	@Property(tries = 200)
@@ -284,6 +327,7 @@ public class FragmentStoreTest {
 	private static final class Model {
 		private final Map<GroupId, Holding> holdings = new HashMap<>();
 		private final Map<GroupId, Instant> tombstones = new HashMap<>();
+		private final Map<GroupId, DeleteProof> proofs = new HashMap<>();
 		private final long maxBytes;
 		private final long extraLimit;
 		private long sequence;
@@ -386,9 +430,12 @@ public class FragmentStoreTest {
 
 		@SneakyThrows
 		private void delete(GroupId id, Duration keep) {
+			final DeleteProof proof = proof();
+
 			model.tombstones.put(id, clock.instant().plus(keep));
+			model.proofs.put(id, proof);
 			model.holdings.remove(id);
-			store.delete(id, keep);
+			store.delete(id, keep, proof);
 		}
 
 		private void verify() {
@@ -399,7 +446,10 @@ public class FragmentStoreTest {
 			assertThat(store.extraBytes(), lessThanOrEqualTo(model.extraLimit));
 
 			for (GroupId id : ids) {
-				assertThat(store.isTombstoned(id), is(model.isTombstoned(id, clock.instant())));
+				final boolean tombstoned = model.isTombstoned(id, clock.instant());
+
+				assertThat(store.isTombstoned(id), is(tombstoned));
+				assertThat(store.tombstone(id), equalTo(tombstoned ? Optional.of(model.proofs.get(id)) : Optional.empty()));
 			}
 		}
 	}

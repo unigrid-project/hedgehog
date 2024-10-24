@@ -40,8 +40,10 @@ import java.util.stream.Stream;
 import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
+import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
 @Slf4j
 public class FragmentStore {
@@ -60,10 +62,17 @@ public class FragmentStore {
 		private final long sequence;
 	}
 
+	@Value
+	private static class Tombstone {
+		private final Instant expiry;
+		private final DeleteProof proof;
+	}
+
 	private static final String FRAGMENT_SUFFIX = ".frag";
 	private static final String TEMPORARY_SUFFIX = ".tmp";
 	private static final String TOMBSTONES = "tombstones";
 	private static final int HEADER_SIZE = 4 + Long.BYTES;
+	private static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
 	private static final int HEX_DIRECTORY = 2;
 	private static final int UNSIGNED_BYTE_MAX = 0xFF;
 
@@ -72,7 +81,7 @@ public class FragmentStore {
 	private final Clock clock;
 	private final Map<GroupId, Holding> holdings = new HashMap<>();
 	private final TreeMap<Long, GroupId> extrasByAge = new TreeMap<>();
-	private final Map<GroupId, Instant> tombstones = new HashMap<>();
+	private final Map<GroupId, Tombstone> tombstones = new HashMap<>();
 	private long sequence;
 	private long usedBytes;
 	private long extraBytes;
@@ -151,18 +160,28 @@ public class FragmentStore {
 		return true;
 	}
 
-	public synchronized void delete(GroupId id, Duration keepTombstone) throws IOException {
+	/* [expiry u64][timestamp i64][public key 32 bytes][signature 64 bytes] */
+	public synchronized void delete(GroupId id, Duration keepTombstone, DeleteProof proof) throws IOException {
+		if (!proof.isWellFormed()) {
+			throw new IllegalArgumentException("A delete proof has a 32-byte key and a 64-byte signature");
+		}
+
 		final Instant expiry = clock.instant().plus(keepTombstone);
 
-		write(tombstoneDirectory.resolve(id.toHex()),
-			ByteBuffer.allocate(Long.BYTES).putLong(expiry.toEpochMilli()).array());
-		tombstones.put(id, expiry);
+		write(tombstoneDirectory.resolve(id.toHex()), ByteBuffer.allocate(TOMBSTONE_SIZE)
+			.putLong(expiry.toEpochMilli()).putLong(proof.getTimestamp()).put(proof.getPublicKey())
+			.put(proof.getSignature()).array());
+		tombstones.put(id, new Tombstone(expiry, proof));
 		remove(id);
 	}
 
+	public synchronized Optional<DeleteProof> tombstone(GroupId id) {
+		return Optional.ofNullable(tombstones.get(id))
+			.filter(tombstone -> clock.instant().isBefore(tombstone.getExpiry())).map(Tombstone::getProof);
+	}
+
 	public synchronized boolean isTombstoned(GroupId id) {
-		final Instant expiry = tombstones.get(id);
-		return expiry != null && clock.instant().isBefore(expiry);
+		return tombstone(id).isPresent();
 	}
 
 	public synchronized void purgeTombstones() throws IOException {
@@ -303,11 +322,27 @@ public class FragmentStore {
 
 		for (Path file : files) {
 			try {
-				final long expiry = ByteBuffer.wrap(Files.readAllBytes(file)).getLong();
-				tombstones.put(groupOf(file, ""), Instant.ofEpochMilli(expiry));
-			} catch (IllegalArgumentException | BufferUnderflowException ex) {
+				tombstones.put(groupOf(file, ""), readTombstone(file));
+			} catch (IllegalArgumentException ex) {
 				discard(file, "tombstone");
 			}
 		}
+	}
+
+	private static Tombstone readTombstone(Path file) throws IOException {
+		final byte[] content = Files.readAllBytes(file);
+
+		if (content.length != TOMBSTONE_SIZE) {
+			throw new IllegalArgumentException("A tombstone file is exactly " + TOMBSTONE_SIZE + " bytes");
+		}
+
+		final ByteBuffer buffer = ByteBuffer.wrap(content);
+		final Instant expiry = Instant.ofEpochMilli(buffer.getLong());
+		final long timestamp = buffer.getLong();
+		final byte[] publicKey = new byte[GroupKey.PUBLIC_KEY_SIZE];
+		final byte[] signature = new byte[GroupKey.SIGNATURE_SIZE];
+
+		buffer.get(publicKey).get(signature);
+		return new Tombstone(expiry, new DeleteProof(publicKey, timestamp, signature));
 	}
 }
