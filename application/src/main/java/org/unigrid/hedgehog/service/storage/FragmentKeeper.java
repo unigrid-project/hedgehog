@@ -28,13 +28,13 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
+import org.unigrid.hedgehog.model.network.packet.FragmentStatus.Entry;
+import org.unigrid.hedgehog.model.network.packet.FragmentStatus.State;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.PutResult;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;
@@ -74,11 +74,14 @@ public class FragmentKeeper {
 		}
 	}
 
-	public List<FragmentStatus.Entry> census(final List<GroupId> groupIds) {
+	public List<Entry> census(final List<GroupId> groupIds) {
 		return groupIds.stream().map(this::entryOf).collect(Collectors.toList());
 	}
 
-	public StorageStatus delete(final GroupId groupId, final long timestamp, final byte[] signature) {
+	/* The proof is self-certifying, so a node that never held the group keeps the tombstone as well */
+	public StorageStatus delete(final GroupId groupId, final byte[] publicKey, final long timestamp,
+		final byte[] signature) {
+
 		final Optional<StorageSpork.SporkData> parameters = spork.get();
 
 		if (parameters.isEmpty()) {
@@ -89,19 +92,13 @@ public class FragmentKeeper {
 			return StorageStatus.OK;
 		}
 
-		final Optional<Fragment> held = fetch(groupId).flatMap(FragmentKeeper::decode);
+		final DeleteProof proof = new DeleteProof(publicKey, timestamp, signature);
 
-		if (held.isEmpty()) {
-			return StorageStatus.NOT_FOUND;
-		}
-
-		final byte[] owner = held.get().getDescriptor().getPublicKey();
-
-		if (!GroupKey.verify(owner, GroupKey.deleteMessage(groupId, timestamp), signature)) {
+		if (!proof.verifies(groupId)) {
 			return StorageStatus.INVALID;
 		}
 
-		return tombstone(groupId, new DeleteProof(owner, timestamp, signature), parameters.get().getTombstoneDays());
+		return tombstone(groupId, proof, parameters.get().getTombstoneDays());
 	}
 
 	private StorageStatus put(final Fragment fragment, final byte[] encoded, final StorageSpork.SporkData parameters) {
@@ -128,14 +125,10 @@ public class FragmentKeeper {
 		}
 	}
 
-	private FragmentStatus.Entry entryOf(final GroupId groupId) {
-		if (store.isTombstoned(groupId)) {
-			return new FragmentStatus.Entry(groupId, FragmentStatus.State.TOMBSTONE, 0);
-		}
-
-		return store.holding(groupId)
-			.map(holding -> new FragmentStatus.Entry(groupId, FragmentStatus.State.HELD, holding.getIndex()))
-			.orElseGet(() -> new FragmentStatus.Entry(groupId, FragmentStatus.State.NONE, 0));
+	private Entry entryOf(final GroupId groupId) {
+		return store.tombstone(groupId).map(proof -> new Entry(groupId, State.TOMBSTONE, 0, proof))
+			.or(() -> store.holding(groupId).map(holding -> new Entry(groupId, State.HELD, holding.getIndex())))
+			.orElseGet(() -> new Entry(groupId, State.NONE, 0));
 	}
 
 	private static StorageStatus statusOf(final PutResult result) {
