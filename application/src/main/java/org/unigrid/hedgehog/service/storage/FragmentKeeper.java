@@ -69,7 +69,7 @@ public class FragmentKeeper {
 		try {
 			return store.get(groupId);
 		} catch (IOException ex) {
-			log.atWarn().log("Unable to read a stored fragment: {}", ex.getMessage());
+			warn("Unable to read a stored fragment", ex);
 			return Optional.empty();
 		}
 	}
@@ -110,7 +110,7 @@ public class FragmentKeeper {
 			return statusOf(store.put(fragment.groupId(), fragment.format(),
 				fragment.getDescriptor().getMaxFragments(), tier, fragment.getIndex(), encoded));
 		} catch (IOException ex) {
-			log.atWarn().log("Unable to store a fragment: {}", ex.getMessage());
+			warn("Unable to store a fragment", ex);
 			return StorageStatus.ERROR;
 		}
 	}
@@ -120,7 +120,7 @@ public class FragmentKeeper {
 			store.delete(groupId, Duration.ofDays(tombstoneDays), proof);
 			return StorageStatus.OK;
 		} catch (IOException ex) {
-			log.atWarn().log("Unable to delete a fragment: {}", ex.getMessage());
+			warn("Unable to tombstone a group", ex);
 			return StorageStatus.ERROR;
 		}
 	}
@@ -138,5 +138,11 @@ public class FragmentKeeper {
 			case TOMBSTONE: return StorageStatus.TOMBSTONE;
 			default: return StorageStatus.DUPLICATE;
 		}
+	}
+
+	/* An I/O message can name the fragment's path, and with it the group, which belongs at trace level only */
+	private static void warn(final String failure, final IOException ex) {
+		log.atWarn().log("{}: {}", failure, ex.getClass().getSimpleName());
+		log.atTrace().setCause(ex).log(failure);
 	}
 }
