@@ -132,12 +132,12 @@ public class FragmentKeeper {
 	}
 
 	private static StorageStatus statusOf(final PutResult result) {
-		switch (result) {
-			case STORED: return StorageStatus.OK;
-			case QUOTA: return StorageStatus.QUOTA;
-			case TOMBSTONE: return StorageStatus.TOMBSTONE;
-			default: return StorageStatus.DUPLICATE;
-		}
+		return switch (result) {
+			case STORED -> StorageStatus.OK;
+			case QUOTA -> StorageStatus.QUOTA;
+			case TOMBSTONE -> StorageStatus.TOMBSTONE;
+			case DUPLICATE -> StorageStatus.DUPLICATE;
+		};
 	}
 
 	/* An I/O message can name the fragment's path, and with it the group, which belongs at trace level only */
