@@ -36,13 +36,16 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -98,7 +101,8 @@ public class P2PServer extends AbstractServer {
 			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
 			.handler(new ConnectionHandler())
 			.streamHandler(new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+					new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new HelloDecoder(),
 					new GridnodeEncoder(), new GridnodeDecoder(),
@@ -108,7 +112,10 @@ public class P2PServer extends AbstractServer {
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
 					new HelloChannelHandler(), new PublishPeersChannelHandler(),
 					new PublishGridnodeChannelHandler()
-				);
+				));
+
+				handlers.addAll(StoragePipeline.handlers());
+				return handlers;
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),

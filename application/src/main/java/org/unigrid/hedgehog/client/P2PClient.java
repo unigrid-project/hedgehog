@@ -40,12 +40,15 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
+import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
@@ -109,7 +112,8 @@ public class P2PClient extends ConnectionContainer {
 		// TODO: Add support for ChannelCollector
 		channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+					new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new HelloEncoder(),
 					new GridnodeEncoder(), new GridnodeDecoder(),
@@ -118,7 +122,10 @@ public class P2PClient extends ConnectionContainer {
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
 					new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
-				);
+				));
+
+				handlers.addAll(StoragePipeline.handlers());
+				return handlers;
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),
