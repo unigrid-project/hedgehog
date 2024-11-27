@@ -36,7 +36,7 @@ public class FetchFragmentChannelHandler extends AbstractInboundHandler<FetchFra
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, FetchFragment request) {
+	public void typedChannelRead(final ChannelHandlerContext ctx, final FetchFragment request) {
 		CDIUtil.resolveAndRun(FragmentKeeper.class, keeper -> {
 			final Optional<byte[]> fragment = keeper.fetch(request.getGroupId());
 

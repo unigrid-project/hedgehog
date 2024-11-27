@@ -28,12 +28,12 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Sharable
 public class StorageResponseChannelHandler<T extends Packet & Correlated> extends AbstractInboundHandler<T> {
-	public StorageResponseChannelHandler(Class<T> responseType) {
+	public StorageResponseChannelHandler(final Class<T> responseType) {
 		super(responseType);
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, T response) {
+	public void typedChannelRead(final ChannelHandlerContext ctx, final T response) {
 		CDIUtil.resolveAndRun(PendingRequests.class, pending -> pending.complete(ctx.channel(), response));
 	}
 }

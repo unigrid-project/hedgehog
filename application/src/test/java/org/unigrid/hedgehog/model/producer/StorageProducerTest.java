@@ -37,7 +37,7 @@ import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 
 public class StorageProducerTest {
 	@SneakyThrows
-	private static Optional<SporkData> storageSporkOf(SporkDatabase database) {
+	private static Optional<SporkData> storageSporkOf(final SporkDatabase database) {
 		final StorageProducer producer = new StorageProducer();
 
 		FieldUtils.writeField(producer, "sporkDatabase", database, true);

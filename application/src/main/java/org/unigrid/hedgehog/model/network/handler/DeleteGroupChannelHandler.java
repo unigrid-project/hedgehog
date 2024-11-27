@@ -35,7 +35,7 @@ public class DeleteGroupChannelHandler extends AbstractInboundHandler<DeleteGrou
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, DeleteGroup request) {
+	public void typedChannelRead(final ChannelHandlerContext ctx, final DeleteGroup request) {
 		CDIUtil.resolveAndRun(FragmentKeeper.class, keeper -> {
 			final StorageStatus status = keeper.delete(request.getGroupId(), request.getPublicKey(),
 				request.getTimestamp(), request.getSignature());

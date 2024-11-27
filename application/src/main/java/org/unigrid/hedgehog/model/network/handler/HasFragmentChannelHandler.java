@@ -34,7 +34,7 @@ public class HasFragmentChannelHandler extends AbstractInboundHandler<HasFragmen
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, HasFragment request) {
+	public void typedChannelRead(final ChannelHandlerContext ctx, final HasFragment request) {
 		CDIUtil.resolveAndRun(FragmentKeeper.class, keeper -> {
 			ctx.writeAndFlush(FragmentStatus.builder().requestId(request.getRequestId())
 				.entries(keeper.census(request.getGroupIds())).build())

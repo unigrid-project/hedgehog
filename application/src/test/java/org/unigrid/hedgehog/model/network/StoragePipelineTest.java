@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
+import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -33,6 +34,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.ShrinkingMode;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.packet.Correlated;
@@ -40,6 +42,8 @@ import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.packet.FetchFragment;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
+import org.unigrid.hedgehog.model.network.packet.FragmentStatus.Entry;
+import org.unigrid.hedgehog.model.network.packet.FragmentStatus.State;
 import org.unigrid.hedgehog.model.network.packet.HasFragment;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
@@ -51,7 +55,17 @@ import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.service.storage.FragmentKeeper;
 
 public class StoragePipelineTest extends BaseServerTest {
-	private static final GroupId GROUP = GroupId.of(new byte[GroupId.SIZE]);
+	private static final GroupId HELD_GROUP = groupOf(0);
+	private static final GroupId MISSING_GROUP = groupOf(1);
+	private static final byte[] FRAGMENT = new byte[] { 7 };
+	private static final int HELD_INDEX = 3;
+
+	private static GroupId groupOf(final int first) {
+		final byte[] id = new byte[GroupId.SIZE];
+
+		id[0] = (byte) first;
+		return GroupId.of(id);
+	}
 
 	@BeforeProperty
 	private void mockKeeper() {
@@ -61,11 +75,12 @@ public class StoragePipelineTest extends BaseServerTest {
 			}
 
 			@Mock public Optional<byte[]> fetch(GroupId groupId) {
-				return Optional.of(new byte[] { 7 });
+				return HELD_GROUP.equals(groupId) ? Optional.of(FRAGMENT) : Optional.empty();
 			}
 
-			@Mock public List<FragmentStatus.Entry> census(List<GroupId> groupIds) {
-				return List.of(new FragmentStatus.Entry(groupIds.get(0), FragmentStatus.State.HELD, 3));
+			@Mock public List<Entry> census(List<GroupId> groupIds) {
+				return groupIds.stream().map(id -> HELD_GROUP.equals(id) ? new Entry(id, State.HELD, HELD_INDEX)
+					: new Entry(id, State.NONE, 0)).collect(Collectors.toList());
 			}
 
 			@Mock public StorageStatus delete(GroupId groupId, byte[] publicKey, long timestamp, byte[] signature) {
@@ -75,7 +90,9 @@ public class StoragePipelineTest extends BaseServerTest {
 	}
 
 	@SneakyThrows
-	private <T extends Correlated> T request(P2PClient client, LongFunction<Packet> request, Class<T> type) {
+	private <T extends Correlated> T request(final P2PClient client, final LongFunction<Packet> request,
+		final Class<T> type) {
+
 		/* Every test server runs in its own container, so an injected field could belong to another one than
 		   the container the reply handler resolves from */
 		final PendingRequests pendingRequests = CDI.current().select(PendingRequests.class).get();
@@ -86,6 +103,32 @@ public class StoragePipelineTest extends BaseServerTest {
 		return response.get(10, TimeUnit.SECONDS);
 	}
 
+	private FragmentReply fetch(final P2PClient client, final GroupId groupId) {
+		return request(client, id -> FetchFragment.builder().requestId(id).groupId(groupId).build(),
+			FragmentReply.class);
+	}
+
+	private void assertAnswers(final P2PClient client) {
+		assertThat(request(client, id -> StoreFragment.builder().requestId(id).fragment(new byte[] { 1 }).build(),
+			StorageAck.class).getStatus(), equalTo(StorageStatus.QUOTA));
+
+		final FragmentReply held = fetch(client, HELD_GROUP);
+		final FragmentReply missing = fetch(client, MISSING_GROUP);
+
+		assertThat(held.getStatus(), equalTo(StorageStatus.OK));
+		assertThat(held.getFragment(), equalTo(FRAGMENT));
+		assertThat(missing.getStatus(), equalTo(StorageStatus.NOT_FOUND));
+		assertThat(missing.getFragment(), equalTo(new byte[0]));
+
+		assertThat(request(client, id -> HasFragment.builder().requestId(id)
+			.groupIds(List.of(HELD_GROUP, MISSING_GROUP)).build(), FragmentStatus.class).getEntries(),
+			contains(new Entry(HELD_GROUP, State.HELD, HELD_INDEX), new Entry(MISSING_GROUP, State.NONE, 0)));
+
+		assertThat(request(client, id -> DeleteGroup.builder().requestId(id).groupId(HELD_GROUP)
+			.publicKey(new byte[32]).timestamp(1).signature(new byte[64]).build(),
+			StorageAck.class).getStatus(), equalTo(StorageStatus.INVALID));
+	}
+
 	@SneakyThrows
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
 	public void answersEveryStorageRequest(@ForAll("provideTestServers") List<TestServer> servers) {
@@ -93,15 +136,7 @@ public class StoragePipelineTest extends BaseServerTest {
 			final P2PClient client = new P2PClient(server.getP2p().getHostName(), server.getP2p().getPort());
 
 			try {
-				assertThat(request(client, id -> StoreFragment.builder().requestId(id).fragment(new byte[] { 1 })
-					.build(), StorageAck.class).getStatus(), equalTo(StorageStatus.QUOTA));
-				assertThat(request(client, id -> FetchFragment.builder().requestId(id).groupId(GROUP).build(),
-					FragmentReply.class).getFragment(), equalTo(new byte[] { 7 }));
-				assertThat(request(client, id -> HasFragment.builder().requestId(id).groupIds(List.of(GROUP)).build(),
-					FragmentStatus.class).getEntries().get(0).getIndex(), equalTo(3));
-				assertThat(request(client, id -> DeleteGroup.builder().requestId(id).groupId(GROUP)
-					.publicKey(new byte[32]).timestamp(1).signature(new byte[64]).build(),
-					StorageAck.class).getStatus(), equalTo(StorageStatus.INVALID));
+				assertAnswers(client);
 			} finally {
 				client.closeDirty();
 			}

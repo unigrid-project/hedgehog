@@ -34,32 +34,51 @@ import org.unigrid.hedgehog.model.network.packet.Correlated;
 public class PendingRequests {
 	public static final Duration TIMEOUT = Duration.ofSeconds(10);
 
-	private record Pending(Channel channel, CompletableFuture<Correlated> future) {
-		/* A request waiting for its reply on one specific channel */
+	private record Pending(Channel channel, Class<? extends Correlated> type, CompletableFuture<Correlated> future) {
+		/* A peer answering with the wrong packet type must neither consume nor fail the request */
+		private boolean awaits(final Channel origin, final Correlated response) {
+			return channel.equals(origin) && type.isInstance(response);
+		}
 	}
 
 	private final Map<Long, Pending> pending = new ConcurrentHashMap<>();
 	private final AtomicLong sequence = new AtomicLong(new SecureRandom().nextLong());
+	private final Duration timeout;
+
+	public PendingRequests() {
+		this(TIMEOUT);
+	}
+
+	PendingRequests(final Duration timeout) {
+		this.timeout = timeout;
+	}
+
+	int size() {
+		return pending.size();
+	}
 
 	public long nextRequestId() {
 		return sequence.incrementAndGet();
 	}
 
-	public <T extends Correlated> CompletableFuture<T> register(long requestId, Channel channel, Class<T> type) {
-		final CompletableFuture<Correlated> future = new CompletableFuture<>();
+	public <T extends Correlated> CompletableFuture<T> register(final long requestId, final Channel channel,
+		final Class<T> type) {
 
-		pending.put(requestId, new Pending(channel, future));
-		future.orTimeout(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
-			.whenComplete((response, error) -> pending.remove(requestId));
+		final Pending request = new Pending(channel, type, new CompletableFuture<>());
 
-		return future.thenApply(type::cast);
+		pending.put(requestId, request);
+
+		/* Chained after the removal, so a caller that sees the reply or the timeout also sees the entry gone */
+		return request.future().orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
+			.whenComplete((response, error) -> pending.remove(requestId, request))
+			.thenApply(type::cast);
 	}
 
-	public void complete(Channel channel, Correlated response) {
-		final Pending waiting = pending.get(response.getRequestId());
+	public void complete(final Channel channel, final Correlated response) {
+		final long requestId = response.getRequestId();
+		final Pending waiting = pending.get(requestId);
 
-		if (waiting != null && waiting.channel().equals(channel)) {
-			pending.remove(response.getRequestId());
+		if (waiting != null && waiting.awaits(channel, response) && pending.remove(requestId, waiting)) {
 			waiting.future().complete(response);
 		}
 	}

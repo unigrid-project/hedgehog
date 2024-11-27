@@ -34,7 +34,7 @@ public class StoreFragmentChannelHandler extends AbstractInboundHandler<StoreFra
 	}
 
 	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, StoreFragment request) {
+	public void typedChannelRead(final ChannelHandlerContext ctx, final StoreFragment request) {
 		CDIUtil.resolveAndRun(FragmentKeeper.class, keeper -> {
 			ctx.writeAndFlush(StorageAck.builder().requestId(request.getRequestId())
 				.status(keeper.store(request.getFragment())).build())
