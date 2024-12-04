@@ -27,11 +27,18 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Optional;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.network.PendingRequests;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
+import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 import org.unigrid.hedgehog.service.storage.FragmentKeeper;
+import org.unigrid.hedgehog.service.storage.FragmentTransport;
+import org.unigrid.hedgehog.service.storage.NettyFragmentTransport;
 
 @ApplicationScoped
 public class StorageProducer {
@@ -43,6 +50,9 @@ public class StorageProducer {
 	@Inject
 	private SporkDatabase sporkDatabase;
 
+	@Inject
+	private Topology topology;
+
 	@Produces @Singleton
 	public FragmentStore fragmentStore() throws IOException {
 		final Path root = applicationDirectory.getUserDataDir().resolve(FRAGMENT_DIRECTORY);
@@ -53,6 +63,16 @@ public class StorageProducer {
 	@Produces @Singleton
 	public FragmentKeeper fragmentKeeper(final FragmentStore store) {
 		return new FragmentKeeper(store, this::storageSpork);
+	}
+
+	@Produces @Singleton
+	public GridnodeDirectory gridnodeDirectory() {
+		return new TopologyGridnodeDirectory(topology::cloneGridnode, GridnodeOptions::getGridnodeKey);
+	}
+
+	@Produces @Singleton
+	public FragmentTransport fragmentTransport(final PendingRequests pendingRequests) {
+		return new NettyFragmentTransport(topology::cloneNodes, pendingRequests);
 	}
 
 	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead */
