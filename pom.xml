@@ -22,6 +22,7 @@
 	<modules>
 		<module>application</module>
 		<module>common</module>
+		<module>ledger</module>
 		<module>native-image</module>
 	</modules>
 	<dependencyManagement>
