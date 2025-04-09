@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.ledger;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import org.bouncycastle.crypto.digests.RIPEMD160Digest;
 
 public final class Digests {
 	public static final int HASH_SIZE = 64;
@@ -31,22 +30,6 @@ public final class Digests {
 
 	public static byte[] sha512(byte[]... parts) {
 		return digest("SHA-512", parts);
-	}
-
-	/* The legacy chain hashes with a double SHA-256 wherever it signs */
-	public static byte[] sha256Twice(byte[]... parts) {
-		return digest("SHA-256", digest("SHA-256", parts));
-	}
-
-	/* How a legacy address is derived from a public key: RIPEMD-160 of its SHA-256 */
-	public static byte[] hash160(byte[] data) {
-		final byte[] sha256 = digest("SHA-256", data);
-		final RIPEMD160Digest ripemd = new RIPEMD160Digest();
-		final byte[] out = new byte[ripemd.getDigestSize()];
-
-		ripemd.update(sha256, 0, sha256.length);
-		ripemd.doFinal(out, 0);
-		return out;
 	}
 
 	private static byte[] digest(String algorithm, byte[]... parts) {
