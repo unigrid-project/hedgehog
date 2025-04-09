@@ -19,7 +19,6 @@
 module org.unigrid.hedgehog.ledger {
 	requires static lombok;
 	requires org.slf4j;
-	requires org.bitcoinj.core;
 	requires org.bouncycastle.provider;
 
 	exports org.unigrid.hedgehog.ledger;

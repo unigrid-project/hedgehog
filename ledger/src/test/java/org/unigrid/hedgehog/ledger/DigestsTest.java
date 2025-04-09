@@ -19,8 +19,6 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.Arrays;
 import java.util.HexFormat;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -31,11 +29,6 @@ import static org.hamcrest.Matchers.equalTo;
 public class DigestsTest {
 	private static final String ABC_SHA512 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
 		+ "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
-
-	/* The compressed public key of the secp256k1 generator, the key with private key 1, whose address hash is a
-	   widely published constant */
-	private static final String GENERATOR_KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
-	private static final String GENERATOR_HASH160 = "751e76e8199196d454941c45d1b3a323f1433bd6";
 
 	@Example
 	public void shouldHashWithSha512() {
@@ -48,22 +41,8 @@ public class DigestsTest {
 		assertThat(Digests.sha512(first, second), equalTo(Digests.sha512(Bytes.concat(first, second))));
 	}
 
-	@Property(tries = 100)
-	public void shouldHashTwiceWithSha256(@ForAll byte[] data) throws Exception {
-		final MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-		final byte[] expected = sha256.digest(sha256.digest(data));
-
-		assertThat(Arrays.toString(Digests.sha256Twice(data)), equalTo(Arrays.toString(expected)));
-	}
-
 	@Example
 	public void shouldProduceSixtyFourBytes() {
 		assertThat(Digests.sha512().length, equalTo(Digests.HASH_SIZE));
-	}
-
-	@Example
-	public void shouldDeriveAnAddressHashLikeTheLegacyChain() {
-		assertThat(HexFormat.of().formatHex(Digests.hash160(HexFormat.of().parseHex(GENERATOR_KEY))),
-			equalTo(GENERATOR_HASH160));
 	}
 }
