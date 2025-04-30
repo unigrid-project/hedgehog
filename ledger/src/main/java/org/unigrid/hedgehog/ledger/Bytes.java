@@ -45,6 +45,10 @@ final class Bytes {
 		return out.toByteArray();
 	}
 
+	static byte[] longBytes(long value) {
+		return ByteBuffer.allocate(Long.BYTES).putLong(value).array();
+	}
+
 	static String hex(byte[] bytes) {
 		return HexFormat.of().formatHex(bytes);
 	}
