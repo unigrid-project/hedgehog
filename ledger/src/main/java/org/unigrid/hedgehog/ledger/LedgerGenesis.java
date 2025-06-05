@@ -27,9 +27,9 @@ import lombok.Value;
 public class LedgerGenesis {
 	private static final byte[] MAGIC = "UGLEDGR2".getBytes(StandardCharsets.US_ASCII);
 
-	long time;
-	int roundLength;
-	ValidatorSet validators;
+	private final long time;
+	private final int roundLength;
+	private final ValidatorSet validators;
 
 	public LedgerGenesis(long time, int roundLength, ValidatorSet validators) {
 		if (roundLength < 1) {
