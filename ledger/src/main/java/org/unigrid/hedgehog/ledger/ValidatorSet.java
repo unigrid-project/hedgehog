@@ -30,7 +30,7 @@ public record ValidatorSet(List<AccountKey> keys) {
 		keys = List.copyOf(keys);
 
 		if (keys.isEmpty() || keys.size() > MAX_SIZE) {
-			throw new IllegalArgumentException("A validator set holds 1 to " + MAX_SIZE + " keys, found " + keys.size());
+			throw new IllegalArgumentException("A validator set holds 1 to " + MAX_SIZE + " keys: " + keys.size());
 		}
 
 		if (new HashSet<>(keys).size() != keys.size()) {
