@@ -16,6 +16,7 @@
 	<modules>
 		<module>application</module>
 		<module>common</module>
+		<module>proxy</module>
 		<module>native-image</module>
 	</modules>
 	<dependencyManagement>

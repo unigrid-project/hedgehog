@@ -60,6 +60,7 @@ module org.unigrid.hedgehog {
 	requires net.harawata.appdirs;
 	requires org.graalvm.sdk;
 	requires org.unigrid.hedgehog.common;
+	requires org.unigrid.hedgehog.proxy;
 	requires jdk.crypto.ec;
 	requires org.bitcoinj.core;
 	requires org.bouncycastle.provider;
