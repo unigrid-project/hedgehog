@@ -26,4 +26,6 @@ module org.unigrid.hedgehog.proxy {
 	requires io.netty.common;
 	requires io.netty.handler;
 	requires io.netty.transport;
+
+	exports org.unigrid.hedgehog.proxy.chain;
 }
