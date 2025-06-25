@@ -1,0 +1,98 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2025 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.proxy.chain;
+
+import java.nio.ByteBuffer;
+
+public final class EntryCodec {
+	private EntryCodec() {
+		/* Static helpers only */
+	}
+
+	public static byte[] encode(Entry entry) {
+		final byte[] body = body(entry.header(), entry.payload());
+
+		return ByteBuffer.allocate(body.length + Entry.TRAILER_SIZE).put(body).putLong(entry.hash())
+			.put(entry.signature()).array();
+	}
+
+	public static Entry decode(byte[] bytes, int maxEntryBytes) throws InvalidEntryException {
+		final ByteBuffer in = ByteBuffer.wrap(bytes);
+		final Entry entry = decode(in, maxEntryBytes);
+
+		if (in.hasRemaining()) {
+			throw new InvalidEntryException("Found " + in.remaining() + " bytes after the entry");
+		}
+
+		return entry;
+	}
+
+	public static Entry decode(ByteBuffer in, int maxEntryBytes) throws InvalidEntryException {
+		final EntryHeader header = header(in);
+		final byte[] payload = take(in, payloadLength(in, maxEntryBytes));
+		final long hash = in.getLong();
+
+		return new Entry(header, payload, hash, take(in, Entry.SIGNATURE_SIZE));
+	}
+
+	static byte[] body(EntryHeader header, byte[] payload) {
+		return ByteBuffer.allocate(Entry.HEADER_SIZE + payload.length)
+			.put(header.chainId().bytes()).put(header.writer().bytes())
+			.putLong(header.seq()).putLong(header.prev()).putLong(header.timestamp())
+			.put(header.fingerprint().bytes()).put(header.kind().code())
+			.putInt(payload.length).put(payload).array();
+	}
+
+	private static EntryHeader header(ByteBuffer in) throws InvalidEntryException {
+		final ChainId chainId = new ChainId(take(in, ChainId.SIZE));
+		final WriterId writer = new WriterId(take(in, WriterId.SIZE));
+		final long seq = in.getLong();
+		final long prev = in.getLong();
+		final long timestamp = in.getLong();
+		final Fingerprint fingerprint = new Fingerprint(take(in, Fingerprint.SIZE));
+
+		return new EntryHeader(chainId, writer, seq, prev, timestamp, fingerprint, kind(in));
+	}
+
+	private static EntryKind kind(ByteBuffer in) throws InvalidEntryException {
+		final byte code = in.get();
+
+		return EntryKind.of(code).orElseThrow(() -> new InvalidEntryException("Unknown entry kind " + code));
+	}
+
+	/* The length is checked against the limit before anything is allocated for the payload */
+	private static int payloadLength(ByteBuffer in, int maxEntryBytes) throws InvalidEntryException {
+		final long length = Integer.toUnsignedLong(in.getInt());
+		final long size = Entry.OVERHEAD + length;
+
+		if (size > maxEntryBytes) {
+			throw new InvalidEntryException("An entry of " + size + " bytes exceeds the limit of "
+				+ maxEntryBytes + " bytes");
+		}
+
+		return (int) length;
+	}
+
+	private static byte[] take(ByteBuffer in, int size) {
+		final byte[] bytes = new byte[size];
+
+		in.get(bytes);
+		return bytes;
+	}
+}
