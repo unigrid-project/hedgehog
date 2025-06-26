@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.Random;
+import java.util.stream.IntStream;
 
 /* Structurally valid values made of random bytes; their signatures do not verify */
 final class CodecFixtures {
@@ -50,5 +51,15 @@ final class CodecFixtures {
 
 	static Transaction transaction(Random random) {
 		return random.nextBoolean() ? mint(random) : vote(random);
+	}
+
+	static Block block(Random random, int transactions, int endorsements) {
+		return Block.builder().height(random.nextInt(1000) + 1L).previousHash(random(random, Digests.HASH_SIZE))
+			.time(random.nextInt(100000)).stateRoot(random(random, Digests.HASH_SIZE))
+			.transactionRoot(random(random, Digests.HASH_SIZE))
+			.transactions(IntStream.range(0, transactions).mapToObj(i -> transaction(random)).toList())
+			.proposer(account(random))
+			.endorsements(IntStream.range(0, endorsements).mapToObj(i -> new Endorsement(account(random),
+				random(random, Ed25519.SIGNATURE_SIZE))).toList()).build();
 	}
 }
