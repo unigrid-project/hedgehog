@@ -44,8 +44,14 @@ public final class EntryCodec {
 	}
 
 	public static Entry decode(ByteBuffer in, int maxEntryBytes) throws InvalidEntryException {
+		requireRemaining(in, Entry.HEADER_SIZE);
+
 		final EntryHeader header = header(in);
-		final byte[] payload = take(in, payloadLength(in, maxEntryBytes));
+		final int length = payloadLength(in, maxEntryBytes);
+
+		requireRemaining(in, length + Entry.TRAILER_SIZE);
+
+		final byte[] payload = take(in, length);
 		final long hash = in.getLong();
 
 		return new Entry(header, payload, hash, take(in, Entry.SIGNATURE_SIZE));
@@ -62,12 +68,22 @@ public final class EntryCodec {
 	private static EntryHeader header(ByteBuffer in) throws InvalidEntryException {
 		final ChainId chainId = new ChainId(take(in, ChainId.SIZE));
 		final WriterId writer = new WriterId(take(in, WriterId.SIZE));
-		final long seq = in.getLong();
+		final long seq = seq(in);
 		final long prev = in.getLong();
 		final long timestamp = in.getLong();
 		final Fingerprint fingerprint = new Fingerprint(take(in, Fingerprint.SIZE));
 
 		return new EntryHeader(chainId, writer, seq, prev, timestamp, fingerprint, kind(in));
+	}
+
+	private static long seq(ByteBuffer in) throws InvalidEntryException {
+		final long seq = in.getLong();
+
+		if (seq < 0) {
+			throw new InvalidEntryException("Negative sequence number " + seq);
+		}
+
+		return seq;
 	}
 
 	private static EntryKind kind(ByteBuffer in) throws InvalidEntryException {
@@ -87,6 +103,13 @@ public final class EntryCodec {
 		}
 
 		return (int) length;
+	}
+
+	private static void requireRemaining(ByteBuffer in, int size) throws InvalidEntryException {
+		if (in.remaining() < size) {
+			throw new InvalidEntryException("Truncated entry: needs " + size + " more bytes, found "
+				+ in.remaining());
+		}
 	}
 
 	private static byte[] take(ByteBuffer in, int size) {
