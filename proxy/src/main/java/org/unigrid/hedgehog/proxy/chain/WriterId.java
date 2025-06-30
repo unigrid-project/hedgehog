@@ -18,11 +18,32 @@
 
 package org.unigrid.hedgehog.proxy.chain;
 
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters;
+import org.bouncycastle.crypto.signers.Ed25519Signer;
+import org.bouncycastle.math.ec.rfc8032.Ed25519;
+
 public final class WriterId extends FixedBytes implements Comparable<WriterId> {
 	public static final int SIZE = 32;
 
 	public WriterId(byte[] bytes) {
 		super(bytes, SIZE);
+	}
+
+	public boolean verify(byte[] message, byte[] signature) {
+		if (signature.length != Entry.SIGNATURE_SIZE || !isPrimeOrderPoint()) {
+			return false;
+		}
+
+		final Ed25519Signer verifier = new Ed25519Signer();
+
+		verifier.init(false, new Ed25519PublicKeyParameters(bytes(), 0));
+		verifier.update(message, 0, message.length);
+		return verifier.verifySignature(signature);
+	}
+
+	/* A writer id is untrusted input and a small order point verifies one signature for every message */
+	private boolean isPrimeOrderPoint() {
+		return Ed25519.validatePublicKeyFull(bytes(), 0);
 	}
 
 	@Override
