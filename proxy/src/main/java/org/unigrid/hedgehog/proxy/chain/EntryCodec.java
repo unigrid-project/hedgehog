@@ -65,6 +65,11 @@ public final class EntryCodec {
 			.putInt(payload.length).put(payload).array();
 	}
 
+	/* FNVJ64 is not collision resistant, so the signature covers the body itself and not only its hash */
+	static byte[] signed(byte[] body, long hash) {
+		return ByteBuffer.allocate(body.length + Long.BYTES).put(body).putLong(hash).array();
+	}
+
 	private static EntryHeader header(ByteBuffer in) throws InvalidEntryException {
 		final ChainId chainId = new ChainId(take(in, ChainId.SIZE));
 		final WriterId writer = new WriterId(take(in, WriterId.SIZE));

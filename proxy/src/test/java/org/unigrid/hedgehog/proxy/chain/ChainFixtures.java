@@ -47,4 +47,14 @@ final class ChainFixtures {
 		return Combinators.combine(headers(), payloads(), Arbitraries.longs(), bytes(Entry.SIGNATURE_SIZE))
 			.as(Entry::new);
 	}
+
+	static Arbitrary<WriterKey> writerKeys() {
+		return bytes(WriterKey.SEED_SIZE).map(WriterKey::new);
+	}
+
+	static Arbitrary<Entry> signedEntries() {
+		return Combinators.combine(writerKeys(), headers(), payloads()).as((key, header, payload) -> key.sign(
+			new EntryHeader(header.chainId(), key.id(), header.seq(), header.prev(), header.timestamp(),
+				header.fingerprint(), header.kind()), payload));
+	}
 }

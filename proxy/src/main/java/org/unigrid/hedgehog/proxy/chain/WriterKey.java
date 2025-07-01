@@ -49,6 +49,17 @@ public final class WriterKey {
 		return id;
 	}
 
+	public Entry sign(EntryHeader header, byte[] payload) {
+		if (!id.equals(header.writer())) {
+			throw new IllegalArgumentException("The header names writer " + header.writer() + ", not " + id);
+		}
+
+		final byte[] body = EntryCodec.body(header, payload);
+		final long hash = FnvJ64.hash(body);
+
+		return new Entry(header, payload, hash, signature(EntryCodec.signed(body, hash)));
+	}
+
 	byte[] signature(byte[] message) {
 		final Ed25519Signer signer = new Ed25519Signer();
 

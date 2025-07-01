@@ -65,6 +65,12 @@ public final class Entry {
 		return OVERHEAD + payload.length;
 	}
 
+	public boolean isAuthentic() {
+		final byte[] body = EntryCodec.body(header, payload);
+
+		return FnvJ64.hash(body) == hash && header.writer().verify(EntryCodec.signed(body, hash), signature);
+	}
+
 	@Override
 	public boolean equals(Object other) {
 		return other instanceof Entry entry && header.equals(entry.header) && hash == entry.hash
