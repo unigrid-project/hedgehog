@@ -18,6 +18,9 @@
 
 package org.unigrid.hedgehog.proxy.chain;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -56,5 +59,39 @@ final class ChainFixtures {
 		return Combinators.combine(writerKeys(), headers(), payloads()).as((key, header, payload) -> key.sign(
 			new EntryHeader(header.chainId(), key.id(), header.seq(), header.prev(), header.timestamp(),
 				header.fingerprint(), header.kind()), payload));
+	}
+
+	static WriterKey key(int number) {
+		final byte[] seed = new byte[WriterKey.SEED_SIZE];
+
+		Arrays.fill(seed, (byte) number);
+		return new WriterKey(seed);
+	}
+
+	static ChainId chainId(int number) {
+		final byte[] bytes = new byte[ChainId.SIZE];
+
+		Arrays.fill(bytes, (byte) number);
+		return new ChainId(bytes);
+	}
+
+	static Entry signed(WriterKey key, ChainId chainId, long seq, long prev, long timestamp, EntryKind kind) {
+		return key.sign(new EntryHeader(chainId, key.id(), seq, prev, timestamp, Fingerprint.NONE, kind),
+			new byte[] { (byte) seq });
+	}
+
+	/* A feed of count entries that each link to the one before, one millisecond apart */
+	static List<Entry> linked(WriterKey key, ChainId chainId, int count, long timestamp, EntryKind kind) {
+		final List<Entry> entries = new ArrayList<>();
+		long prev = 0;
+
+		for (int seq = 0; seq < count; seq++) {
+			final Entry entry = signed(key, chainId, seq, prev, timestamp + seq, kind);
+
+			entries.add(entry);
+			prev = entry.hash();
+		}
+
+		return entries;
 	}
 }
