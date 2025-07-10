@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 public final class LedgerState {
 	private static final byte[] HEIGHT = { 'H' };
@@ -173,31 +174,67 @@ public final class LedgerState {
 	/* Applies the block to next, which the caller owns, so the state it was called on is never touched. The
 	   cheap checks come first and the signature checks last. */
 	private Optional<String> rejectionOf(Block block, LedgerState next) {
-		final Optional<String> header = headerRejection(block);
+		final Optional<String> rejection = headerRejection(block).or(() -> certificateRejection(block))
+			.or(() -> next.applyTransactions(block));
 
-		if (header.isPresent()) {
-			return header;
+		if (rejection.isPresent()) {
+			return rejection;
 		}
 
+		next.height = block.getHeight();
+		return next.sealRejection(block);
+	}
+
+	private Optional<String> applyTransactions(Block block) {
 		for (final Transaction transaction : block.getTransactions()) {
-			final Optional<String> rejection = next.rejectionOf(transaction);
+			final Optional<String> rejection = rejectionOf(transaction);
 
 			if (rejection.isPresent()) {
 				return rejection;
 			}
 
-			next.apply(transaction);
+			apply(transaction);
 		}
 
-		next.height = block.getHeight();
+		return Optional.empty();
+	}
 
-		if (!Arrays.equals(block.getStateRoot(), next.stateRoot())) {
+	/* The last checks, on a state that has the block applied: that its root is the block's and that each
+	   signature in the certificate is over this very block. They come last because they cost the most. */
+	private Optional<String> sealRejection(Block block) {
+		if (!Arrays.equals(block.getStateRoot(), stateRoot())) {
 			return Optional.of("State root does not match");
 		}
 
-		next.tipHash = block.hash();
-		next.tipTime = block.getTime();
+		if (!block.getEndorsements().stream().allMatch(block::isSigned)) {
+			return Optional.of("Certificate holds a signature that is not valid for this block");
+		}
+
+		tipHash = block.hash();
+		tipTime = block.getTime();
 		return Optional.empty();
+	}
+
+	/* Who signed, before any signature is checked: more than 2/3 of the set, each once and in order, the
+	   proposer among them. */
+	private Optional<String> certificateRejection(Block block) {
+		final List<Endorsement> endorsements = block.getEndorsements();
+
+		if (endorsements.size() < validators.quorum()) {
+			return Optional.of("Certificate has no quorum");
+		}
+
+		if (!endorsements.stream().allMatch(endorsement -> validators.contains(endorsement.signer()))) {
+			return Optional.of("Certificate holds a signer that is not a validator");
+		}
+
+		if (!IntStream.range(1, endorsements.size()).allMatch(i -> endorsements.get(i - 1).signer()
+			.compareTo(endorsements.get(i).signer()) < 0)) {
+			return Optional.of("Certificate is not sorted with each signer once");
+		}
+
+		return endorsements.stream().anyMatch(endorsement -> endorsement.signer().equals(block.getProposer()))
+			? Optional.empty() : Optional.of("Certificate lacks the proposer");
 	}
 
 	private Optional<String> headerRejection(Block block) {
