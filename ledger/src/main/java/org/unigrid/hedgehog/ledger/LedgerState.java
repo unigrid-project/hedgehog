@@ -20,12 +20,14 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.IntStream;
 
 public final class LedgerState {
@@ -33,12 +35,14 @@ public final class LedgerState {
 	private static final byte[] ACCOUNT = { 'A' };
 	private static final byte[] REFERENCE = { 'M' };
 	private static final byte[] VALIDATOR = { 'V' };
+	private static final byte[] VOTE = { 'T' };
 
 	private final LedgerGenesis genesis;
 	private final MintAuthority authority;
 	private final byte[] chainId;
 	private Map<AccountKey, Long> accounts = new HashMap<>();
 	private Set<Reference> minted = new HashSet<>();
+	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
 	private long height;
 	private byte[] tipHash;
@@ -59,6 +63,7 @@ public final class LedgerState {
 		chainId = other.chainId;
 		accounts = new HashMap<>(other.accounts);
 		minted = new HashSet<>(other.minted);
+		votes = new TreeSet<>(other.votes);
 		validators = other.validators;
 		height = other.height;
 		tipHash = other.tipHash;
@@ -107,7 +112,16 @@ public final class LedgerState {
 			return rejectionOf(mint);
 		}
 
+		if (transaction instanceof Vote vote) {
+			return rejectionOf(vote);
+		}
+
 		return Optional.of("Unsupported transaction kind");
+	}
+
+	public int votesFor(AccountKey candidate, Vote.Action action) {
+		return (int) votes.stream().filter(cast -> cast.candidate().equals(candidate) && cast.action() == action)
+			.count();
 	}
 
 	public Optional<String> rejectionOf(Block block) {
@@ -124,6 +138,7 @@ public final class LedgerState {
 
 		accounts = next.accounts;
 		minted = next.minted;
+		votes = next.votes;
 		validators = next.validators;
 		height = next.height;
 		tipHash = next.tipHash;
@@ -156,7 +171,48 @@ public final class LedgerState {
 			.add(Bytes.concat(ACCOUNT, entry.getKey().bytes(), Bytes.longBytes(entry.getValue()))));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
 		validators.keys().forEach(key -> leaves.add(Bytes.concat(VALIDATOR, key.bytes())));
+		votes.forEach(cast -> leaves.add(Bytes.concat(VOTE, cast.candidate().bytes(),
+			new byte[] { cast.action().wire() }, cast.voter().bytes())));
 		return MerkleRoot.of(leaves);
+	}
+
+	private Optional<String> rejectionOf(Vote vote) {
+		return voterRejection(vote).or(() -> candidateRejection(vote)).or(() -> signatureRejection(vote));
+	}
+
+	private Optional<String> voterRejection(Vote vote) {
+		if (!validators.contains(vote.voter())) {
+			return Optional.of("Voter is not a validator");
+		}
+
+		if (vote.round() != round()) {
+			return Optional.of("Vote is for another round");
+		}
+
+		return votes.stream().anyMatch(cast -> cast.candidate().equals(vote.candidate())
+			&& cast.voter().equals(vote.voter())) ? Optional.of("Voter has already voted on this candidate")
+			: Optional.empty();
+	}
+
+	/* A key is added only when it is not in the set and removed only when it is, and a foundation validator
+	   from the genesis is never removed: they stay on as the backup */
+	private Optional<String> candidateRejection(Vote vote) {
+		final boolean member = validators.contains(vote.candidate());
+
+		if (vote.action() == Vote.Action.ADD) {
+			return member ? Optional.of("Candidate is already a validator") : Optional.empty();
+		}
+
+		if (!member) {
+			return Optional.of("Candidate is not a validator");
+		}
+
+		return genesis.getValidators().contains(vote.candidate())
+			? Optional.of("Genesis validators cannot be removed") : Optional.empty();
+	}
+
+	private Optional<String> signatureRejection(Vote vote) {
+		return vote.hasValidSignature(chainId) ? Optional.empty() : Optional.of("Vote signature is not valid");
 	}
 
 	private Optional<String> rejectionOf(Mint mint) {
@@ -272,9 +328,22 @@ public final class LedgerState {
 	}
 
 	private void apply(Transaction transaction) {
-		final Mint mint = (Mint) transaction;
+		if (transaction instanceof Mint mint) {
+			accounts.merge(mint.recipient(), mint.amount(), Long::sum);
+			minted.add(mint.reference());
+		} else if (transaction instanceof Vote vote) {
+			votes.add(new VoteCast(vote.candidate(), vote.action(), vote.voter()));
+		}
+	}
 
-		accounts.merge(mint.recipient(), mint.amount(), Long::sum);
-		minted.add(mint.reference());
+	private record VoteCast(AccountKey candidate, Vote.Action action, AccountKey voter)
+		implements Comparable<VoteCast> {
+		private static final Comparator<VoteCast> ORDER = Comparator.comparing(VoteCast::candidate)
+			.thenComparing(VoteCast::action).thenComparing(VoteCast::voter);
+
+		@Override
+		public int compareTo(VoteCast other) {
+			return ORDER.compare(this, other);
+		}
 	}
 }
