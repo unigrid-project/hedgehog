@@ -23,11 +23,13 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public final class LedgerState {
@@ -159,8 +161,41 @@ public final class LedgerState {
 			next.apply(transaction);
 		}
 
-		next.height = blockHeight;
+		next.finishBlock(blockHeight);
 		return next.stateRoot();
+	}
+
+	/* The last block of a round closes it: the changes more than 2/3 of the set voted for take effect for the
+	   next round, and the votes start over */
+	private void finishBlock(long blockHeight) {
+		height = blockHeight;
+
+		if (blockHeight % genesis.getRoundLength() == 0) {
+			endRound();
+		}
+	}
+
+	private void endRound() {
+		final Map<Choice, Long> tally = votes.stream().collect(Collectors.groupingBy(
+			cast -> new Choice(cast.candidate(), cast.action()), LinkedHashMap::new, Collectors.counting()));
+		final List<AccountKey> removed = new ArrayList<>();
+		final List<AccountKey> added = new ArrayList<>();
+
+		tally.forEach((choice, count) -> {
+			if (count * 3 > validators.size() * 2L) {
+				(choice.action() == Vote.Action.ADD ? added : removed).add(choice.candidate());
+			}
+		});
+
+		final List<AccountKey> keys = validators.keys().stream().filter(key -> !removed.contains(key))
+			.collect(Collectors.toCollection(ArrayList::new));
+
+		added.stream().limit(ValidatorSet.MAX_SIZE - keys.size()).forEach(keys::add);
+		validators = new ValidatorSet(keys);
+		votes.clear();
+	}
+
+	private record Choice(AccountKey candidate, Vote.Action action) {
 	}
 
 	public byte[] stateRoot() {
@@ -237,7 +272,7 @@ public final class LedgerState {
 			return rejection;
 		}
 
-		next.height = block.getHeight();
+		next.finishBlock(block.getHeight());
 		return next.sealRejection(block);
 	}
 
