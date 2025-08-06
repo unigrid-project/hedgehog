@@ -33,6 +33,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public final class LedgerState {
+	/* Votes stay in the state, and in its root, until the round ends, so each validator gets a fixed number */
+	public static final int MAX_VOTES_PER_VALIDATOR = 64;
+
 	private static final byte[] HEIGHT = { 'H' };
 	private static final byte[] ACCOUNT = { 'A' };
 	private static final byte[] REFERENCE = { 'M' };
@@ -224,9 +227,17 @@ public final class LedgerState {
 			return Optional.of("Vote is for another round");
 		}
 
-		return votes.stream().anyMatch(cast -> cast.candidate().equals(vote.candidate())
-			&& cast.voter().equals(vote.voter())) ? Optional.of("Voter has already voted on this candidate")
-			: Optional.empty();
+		return countRejection(vote);
+	}
+
+	private Optional<String> countRejection(Vote vote) {
+		if (votes.stream().anyMatch(cast -> cast.candidate().equals(vote.candidate())
+			&& cast.voter().equals(vote.voter()))) {
+			return Optional.of("Voter has already voted on this candidate");
+		}
+
+		return votes.stream().filter(cast -> cast.voter().equals(vote.voter())).count() >= MAX_VOTES_PER_VALIDATOR
+			? Optional.of("Voter has cast too many votes this round") : Optional.empty();
 	}
 
 	/* A key is added only when it is not in the set and removed only when it is, and a foundation validator

@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -130,6 +131,20 @@ public class LedgerVoteTest {
 		final List<Transaction> twice = List.of(add(state, 1, GRIDNODE), add(state, 1, GRIDNODE));
 
 		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, twice));
+	}
+
+	/* Every vote stays in the state, and in the state root, until the round ends, so one validator must not be
+	   able to fill it with votes for keys without end */
+	@Example
+	public void shouldLimitTheOpenVotesOfOneValidatorPerRound() {
+		final LedgerState state = freshState();
+		final List<Transaction> votes = IntStream.range(0, LedgerState.MAX_VOTES_PER_VALIDATOR)
+			.mapToObj(i -> (Transaction) add(state, 1, key(300 + i))).toList();
+
+		state.apply(block(state, FOUNDATION, votes));
+
+		assertThat(reasonOf(state.rejectionOf(add(state, 1, key(900)))), containsString("too many votes"));
+		assertThat(state.rejectionOf(add(state, 2, key(900))).isPresent(), is(false));
 	}
 
 	@Example
