@@ -63,6 +63,8 @@ public final class Chain {
 	}
 
 	public synchronized Offer offer(Entry entry) {
+		trim();
+
 		final Optional<Admission> refusal = refusal(entry);
 
 		if (refusal.isPresent()) {
@@ -84,6 +86,15 @@ public final class Chain {
 		}
 
 		return Offer.accepted(List.of(append(feed, entry)));
+	}
+
+	/* Drops the entries older than the retention window, while every feed keeps its head */
+	public synchronized void trim() {
+		final long cutoff = clock.getAsLong() - limits.retentionMillis();
+
+		while (!entries.isEmpty() && entries.first().header().timestamp() < cutoff) {
+			forget(entries.pollFirst());
+		}
 	}
 
 	/* Lets a feed join mid-stream after the given head, for a chain whose older entries are trimmed */
@@ -130,6 +141,10 @@ public final class Chain {
 			return Optional.of(Admission.FUTURE);
 		}
 
+		if (entry.header().timestamp() < now - limits.retentionMillis()) {
+			return Optional.of(Admission.EXPIRED);
+		}
+
 		return Optional.empty();
 	}
 
@@ -139,6 +154,18 @@ public final class Chain {
 		entries.add(entry);
 		retained.computeIfAbsent(feed.writer(), writer -> new TreeMap<>()).put(entry.header().seq(), entry);
 		bytes += entry.size();
+		trimToCapacity();
 		return entry;
+	}
+
+	private void trimToCapacity() {
+		while (bytes > limits.capacityBytes()) {
+			forget(entries.pollFirst());
+		}
+	}
+
+	private void forget(Entry entry) {
+		retained.get(entry.header().writer()).remove(entry.header().seq());
+		bytes -= entry.size();
 	}
 }

@@ -29,5 +29,7 @@ public enum Admission {
 	TOO_LARGE,
 	/* Timestamped further ahead of the local clock than the retention window */
 	FUTURE,
+	/* Timestamped further back than the retention window, so it would be trimmed at once */
+	EXPIRED,
 	NOT_AUTHENTIC
 }
