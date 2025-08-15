@@ -85,7 +85,7 @@ public final class Chain {
 			return Offer.of(Admission.NOT_AUTHENTIC);
 		}
 
-		return Offer.accepted(List.of(append(feed, entry)));
+		return isFullFor(entry) ? Offer.of(Admission.FULL) : Offer.accepted(List.of(append(feed, entry)));
 	}
 
 	/* Drops the entries older than the retention window, while every feed keeps its head */
@@ -148,6 +148,13 @@ public final class Chain {
 		return Optional.empty();
 	}
 
+	/* Only sealed traffic waits for room, so sessions can still open, be accepted and leave */
+	private boolean isFullFor(Entry entry) {
+		return entry.header().kind() == EntryKind.SEALED && bytes + entry.size() > limits.capacityBytes();
+	}
+
+	/* Offer.appended is what the chain took in, which entries() may no longer hold: a non-sealed entry that sorts
+	   before everything retained is trimmed as it arrives. A sealed entry that fits never trims anything */
 	private Entry append(Feed feed, Entry entry) {
 		feed.append(entry);
 		feeds.putIfAbsent(feed.writer(), feed);

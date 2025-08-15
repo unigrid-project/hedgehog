@@ -31,5 +31,7 @@ public enum Admission {
 	FUTURE,
 	/* Timestamped further back than the retention window, so it would be trimmed at once */
 	EXPIRED,
-	NOT_AUTHENTIC
+	NOT_AUTHENTIC,
+	/* A sealed entry while the chain is at capacity: its writer pauses until older entries expire */
+	FULL
 }

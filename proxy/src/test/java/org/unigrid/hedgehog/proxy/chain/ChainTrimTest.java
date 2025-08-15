@@ -85,6 +85,23 @@ public class ChainTrimTest {
 	}
 
 	@Example
+	public void shouldTakeAnEntryThatTrimmingDropsAtOnce() {
+		final WriterKey other = ChainFixtures.key(2);
+		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
+		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.JOIN);
+		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1, EntryKind.JOIN);
+
+		joins.forEach(chain::offer);
+		assertThat(chain.offer(oldest), equalTo(new Offer(Admission.ACCEPTED, List.of(oldest))));
+		assertThat(chain.entries(), equalTo(joins));
+		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, joins.get(3).hash()),
+			other.id(), new Head(0, oldest.hash()))));
+		assertThat(chain.offer(oldest).admission(), is(Admission.DUPLICATE));
+		assertThat(chain.range(other.id(), 0, 0), is(empty()));
+	}
+
+	@Example
 	public void shouldTrimByAgeBeforeTakingAnEntry() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
