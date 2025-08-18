@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.proxy.chain;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -36,9 +37,8 @@ import java.util.function.LongSupplier;
 public final class Chain {
 	private static final Comparator<Entry> FIFO = Comparator.comparingLong((Entry entry) -> entry.header().timestamp())
 		.thenComparing(entry -> entry.header().writer()).thenComparingLong(entry -> entry.header().seq());
-	private static final Map<Link, Admission> REFUSALS = Map.of(Link.AHEAD, Admission.AHEAD,
-		Link.DUPLICATE, Admission.DUPLICATE, Link.REPLAYED, Admission.REPLAYED,
-		Link.BROKEN, Admission.BROKEN, Link.FOREIGN, Admission.BROKEN);
+	private static final Map<Link, Admission> REFUSALS = Map.of(Link.DUPLICATE, Admission.DUPLICATE,
+		Link.REPLAYED, Admission.REPLAYED, Link.BROKEN, Admission.BROKEN, Link.FOREIGN, Admission.BROKEN);
 
 	private final ChainId id;
 	private final ChainLimits limits;
@@ -46,7 +46,9 @@ public final class Chain {
 	private final Map<WriterId, Feed> feeds = new HashMap<>();
 	private final NavigableSet<Entry> entries = new TreeSet<>(FIFO);
 	private final Map<WriterId, NavigableMap<Long, Entry>> retained = new HashMap<>();
+	private final Map<WriterId, NavigableMap<Long, Entry>> held = new HashMap<>();
 	private long bytes;
+	private long heldBytes;
 
 	public Chain(ChainId id, ChainLimits limits, LongSupplier clock) {
 		this.id = Objects.requireNonNull(id, "id");
@@ -75,17 +77,22 @@ public final class Chain {
 		final Feed feed = feeds.getOrDefault(writer, new Feed(writer));
 		final Link link = feed.check(entry);
 
-		if (link != Link.NEXT) {
+		if (REFUSALS.containsKey(link)) {
 			return Offer.of(REFUSALS.get(link));
 		}
 
-		/* The signature is the dear check, so only an entry the feed could take gets it. Entries a chain
-		   already has arrive over and over from the other members and from anyone who replays them. */
+		/* The signature is the dear check, so an entry the feed refuses never gets it, only one it takes or holds
+		   for a gap does. Entries a chain already has arrive over and over from the other members and from anyone
+		   who replays them. */
 		if (!entry.isAuthentic()) {
 			return Offer.of(Admission.NOT_AUTHENTIC);
 		}
 
-		return isFullFor(entry) ? Offer.of(Admission.FULL) : Offer.accepted(List.of(append(feed, entry)));
+		if (link == Link.AHEAD) {
+			return hold(entry);
+		}
+
+		return isFullFor(entry) ? Offer.of(Admission.FULL) : Offer.accepted(append(feed, entry));
 	}
 
 	/* Drops the entries older than the retention window, while every feed keeps its head */
@@ -126,6 +133,10 @@ public final class Chain {
 		return bytes;
 	}
 
+	public synchronized long heldBytes() {
+		return heldBytes;
+	}
+
 	private Optional<Admission> refusal(Entry entry) {
 		final long now = clock.getAsLong();
 
@@ -153,16 +164,61 @@ public final class Chain {
 		return entry.header().kind() == EntryKind.SEALED && bytes + entry.size() > limits.capacityBytes();
 	}
 
-	/* Offer.appended is what the chain took in, which entries() may no longer hold: a non-sealed entry that sorts
-	   before everything retained is trimmed as it arrives. A sealed entry that fits never trims anything */
-	private Entry append(Feed feed, Entry entry) {
+	private Offer hold(Entry entry) {
+		if (heldBytes + entry.size() > limits.bufferBytes() || isFullFor(entry)) {
+			return Offer.of(Admission.FULL);
+		}
+
+		final NavigableMap<Long, Entry> waiting = held.computeIfAbsent(entry.header().writer(),
+			writer -> new TreeMap<>());
+
+		if (waiting.putIfAbsent(entry.header().seq(), entry) == null) {
+			heldBytes += entry.size();
+		}
+
+		return Offer.of(Admission.AHEAD);
+	}
+
+	private List<Entry> append(Feed feed, Entry entry) {
+		final List<Entry> appended = new ArrayList<>();
+
+		retain(feed, entry, appended);
+		release(feed, appended);
+		return appended;
+	}
+
+	/* Offer.appended is what the chain took in, which entries() may no longer hold: trimming drops the oldest entries,
+	   so a non-sealed entry that sorts before everything retained is trimmed as it arrives. Entries released from the
+	   buffer are not checked against the capacity again: their writer was already told AHEAD, so dropping them would
+	   lose entries, and refusing the filler instead would need its check to count the held run and could answer FULL
+	   for good when the capacity is close to maxEntryBytes. bufferBytes() bounds the overshoot */
+	private void retain(Feed feed, Entry entry, List<Entry> appended) {
 		feed.append(entry);
 		feeds.putIfAbsent(feed.writer(), feed);
 		entries.add(entry);
 		retained.computeIfAbsent(feed.writer(), writer -> new TreeMap<>()).put(entry.header().seq(), entry);
 		bytes += entry.size();
+		appended.add(entry);
 		trimToCapacity();
-		return entry;
+	}
+
+	/* Appends what waited for the entry just appended and drops what waited but no longer links */
+	private void release(Feed feed, List<Entry> appended) {
+		final NavigableMap<Long, Entry> waiting = held.getOrDefault(feed.writer(), Collections.emptyNavigableMap());
+
+		while (!waiting.isEmpty() && waiting.firstKey() <= feed.nextSeq()) {
+			final Entry next = waiting.pollFirstEntry().getValue();
+
+			heldBytes -= next.size();
+
+			if (feed.check(next) == Link.NEXT) {
+				retain(feed, next, appended);
+			}
+		}
+
+		if (waiting.isEmpty()) {
+			held.remove(feed.writer());
+		}
 	}
 
 	private void trimToCapacity() {

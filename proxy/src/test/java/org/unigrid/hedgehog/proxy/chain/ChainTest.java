@@ -191,8 +191,11 @@ public class ChainTest {
 	}
 
 	@Example
-	public void shouldNotVerifyAnEntryAheadOfItsFeed() {
-		assertThat(chain().offer(withoutSignature(linked(WRITER, 3).get(2))).admission(), is(Admission.AHEAD));
+	public void shouldVerifyAnEntryAheadOfItsFeedBeforeHoldingIt() {
+		final Chain chain = chain();
+
+		assertThat(chain.offer(withoutSignature(linked(WRITER, 3).get(2))).admission(), is(Admission.NOT_AUTHENTIC));
+		assertThat(chain.heldBytes(), is(0L));
 	}
 
 	@Example
@@ -237,7 +240,7 @@ public class ChainTest {
 	public void shouldLeaveNoTraceOfARefusedWriter() {
 		final Chain chain = chain();
 
-		chain.offer(linked(WRITER, 2).get(1));
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 7, NOW, EntryKind.SEALED));
 		assertThat(chain.heads(), equalTo(Map.of()));
 		assertThat(chain.bytes(), is(0L));
 		assertThat(chain.anchor(WRITER.id(), new Head(0, 1)), is(true));

@@ -32,6 +32,7 @@ public enum Admission {
 	/* Timestamped further back than the retention window, so it would be trimmed at once */
 	EXPIRED,
 	NOT_AUTHENTIC,
-	/* A sealed entry while the chain is at capacity: its writer pauses until older entries expire */
+	/* No room: a sealed entry while the chain is at capacity, or any entry the buffer for out-of-order ones cannot
+	   take. The host turns it into a pause for the writer */
 	FULL
 }

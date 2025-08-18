@@ -21,6 +21,9 @@ package org.unigrid.hedgehog.proxy.chain;
 import java.util.concurrent.TimeUnit;
 
 public record ChainLimits(long capacityBytes, int retentionSeconds, int maxEntryBytes) {
+	/* Entries that wait for a gap to fill may take a quarter of the capacity on top of it */
+	private static final int HELD_SHARE = 4;
+
 	public ChainLimits {
 		if (maxEntryBytes < Entry.OVERHEAD) {
 			throw new IllegalArgumentException("An entry needs at least " + Entry.OVERHEAD
@@ -44,5 +47,9 @@ public record ChainLimits(long capacityBytes, int retentionSeconds, int maxEntry
 
 	public int maxPayloadBytes() {
 		return maxEntryBytes - Entry.OVERHEAD;
+	}
+
+	public long bufferBytes() {
+		return Math.max(maxEntryBytes, capacityBytes / HELD_SHARE);
 	}
 }
