@@ -28,9 +28,11 @@ import java.util.NavigableMap;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.LongSupplier;
+import java.util.stream.Collectors;
 
 /* The feeds of every writer on a chain merged into one FIFO. Each writer orders only its own entries,
    so the chain cannot fork. */
@@ -102,6 +104,15 @@ public final class Chain {
 		while (!entries.isEmpty() && entries.first().header().timestamp() < cutoff) {
 			forget(entries.pollFirst());
 		}
+	}
+
+	/* Once the first entry waiting past a gap is older than the retention window, every member has
+	   trimmed the missing entries and the gap can never fill. The feed then skips past what waited. */
+	public synchronized List<Gap> expireGaps() {
+		final long cutoff = clock.getAsLong() - limits.retentionMillis();
+
+		return List.copyOf(held.keySet()).stream().map(writer -> expire(writer, cutoff))
+			.flatMap(Optional::stream).toList();
 	}
 
 	/* Lets a feed join mid-stream after the given head, for a chain whose older entries are trimmed */
@@ -200,6 +211,39 @@ public final class Chain {
 		bytes += entry.size();
 		appended.add(entry);
 		trimToCapacity();
+	}
+
+	/* An anchor can move a feed past entries that already waited, and a feed never moves backwards, so
+	   what waits at or below its head is dropped and the gap is judged by what still waits past it */
+	private Optional<Gap> expire(WriterId writer, long cutoff) {
+		final long nextSeq = feeds.getOrDefault(writer, new Feed(writer)).nextSeq();
+		final NavigableMap<Long, Entry> waiting = held.get(writer);
+
+		dropHeld(waiting.headMap(nextSeq));
+
+		if (waiting.isEmpty()) {
+			held.remove(writer);
+			return Optional.empty();
+		}
+
+		return waiting.firstEntry().getValue().header().timestamp() < cutoff
+			? Optional.of(skip(writer, nextSeq)) : Optional.empty();
+	}
+
+	private Gap skip(WriterId writer, long fromSeq) {
+		final NavigableMap<Long, Entry> waiting = held.remove(writer);
+		final Entry last = waiting.lastEntry().getValue();
+		final Set<Fingerprint> fingerprints = waiting.values().stream().map(entry -> entry.header().fingerprint())
+			.collect(Collectors.toSet());
+
+		dropHeld(waiting);
+		feeds.put(writer, new Feed(writer, new Head(last.header().seq(), last.hash())));
+		return new Gap(writer, fromSeq, last.header().seq(), fingerprints);
+	}
+
+	private void dropHeld(Map<Long, Entry> dropped) {
+		heldBytes -= dropped.values().stream().mapToLong(Entry::size).sum();
+		dropped.clear();
 	}
 
 	/* Appends what waited for the entry just appended and drops what waited but no longer links */
