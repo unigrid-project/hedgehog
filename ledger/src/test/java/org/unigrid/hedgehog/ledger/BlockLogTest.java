@@ -170,6 +170,29 @@ public class BlockLogTest {
 		}
 	}
 
+	/* A write that fails half way must not leave its half record behind for the next append to write after */
+	@Example
+	public void shouldRollBackAPartlyWrittenRecordAndKeepGoing() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = logIn(fileSystem);
+
+			Files.createDirectories(file.getParent());
+
+			final FlakyChannel channel = new FlakyChannel(FileChannel.open(file, StandardOpenOption.READ,
+				StandardOpenOption.WRITE, StandardOpenOption.CREATE));
+
+			try (BlockLog log = BlockLog.over(channel)) {
+				log.append(block(1));
+				channel.failNextWriteAfter(20);
+				assertThrows(IOException.class, () -> log.append(block(2)));
+				assertThat(log.blocks(), equalTo(List.of(block(1))));
+				log.append(block(3));
+			}
+
+			assertThat(read(file), equalTo(List.of(block(1), block(3))));
+		}
+	}
+
 	@Example
 	public void shouldTreatALengthPastTheEndAsATornWrite() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {

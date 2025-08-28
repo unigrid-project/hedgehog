@@ -53,6 +53,11 @@ public final class BlockLog implements Closeable {
 		final FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE,
 			StandardOpenOption.CREATE);
 
+		return over(channel);
+	}
+
+	/* Takes over a channel that is open for reading and writing, and closes it if the log cannot be read */
+	static BlockLog over(FileChannel channel) throws IOException {
 		try {
 			return new BlockLog(channel, recover(channel));
 		} catch (IOException | RuntimeException e) {
@@ -70,12 +75,31 @@ public final class BlockLog implements Closeable {
 		final ByteBuffer record = ByteBuffer.allocate(RECORD_HEADER + data.length).putInt(data.length)
 			.putInt(checksum(data)).put(data).flip();
 
-		while (record.hasRemaining()) {
-			channel.write(record);
+		final long before = channel.position();
+
+		try {
+			while (record.hasRemaining()) {
+				channel.write(record);
+			}
+
+			channel.force(false);
+		} catch (IOException e) {
+			rollBackTo(before, e);
+			throw e;
 		}
 
-		channel.force(false);
 		blocks.add(block);
+	}
+
+	/* A write that failed part way leaves half a record, and the next append would write behind it and
+	   corrupt the log from the middle. If even the cut fails, the file is for the next open to repair. */
+	private void rollBackTo(long position, IOException cause) {
+		try {
+			channel.truncate(position);
+			channel.position(position);
+		} catch (IOException e) {
+			cause.addSuppressed(e);
+		}
 	}
 
 	@Override
