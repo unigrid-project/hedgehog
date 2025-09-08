@@ -29,4 +29,5 @@ module org.unigrid.hedgehog.proxy {
 
 	exports org.unigrid.hedgehog.proxy.chain;
 	exports org.unigrid.hedgehog.proxy.group;
+	exports org.unigrid.hedgehog.proxy.session;
 }
