@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -30,6 +32,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -52,13 +55,20 @@ public class GroupFetcherTest {
 		return chunk;
 	}
 
+	private static int firstRound(StorageSpork.SporkData parameters) {
+		return Math.min(parameters.window(), parameters.layout().dataFragments() + 2);
+	}
+
+	private static void placeOn(StorageFleet fleet, List<Fragment> fragments, List<Gridnode> holders) {
+		for (int i = 0; i < fragments.size(); i++) {
+			fleet.getTransport().store(holders.get(i), fragments.get(i).encode()).join();
+		}
+	}
+
 	private static List<Gridnode> placeAll(StorageFleet fleet, GroupKey key, List<Fragment> fragments) {
 		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), fleet.getParameters().window());
 
-		for (int i = 0; i < fragments.size(); i++) {
-			fleet.getTransport().store(window.get(i), fragments.get(i).encode()).join();
-		}
-
+		placeOn(fleet, fragments, window);
 		return window;
 	}
 
@@ -145,14 +155,42 @@ public class GroupFetcherTest {
 		final GroupKey key = StorageTestData.key(random);
 		final byte[] chunk = chunk(parameters, random);
 		final List<Fragment> fragments = ChunkGroups.seal(chunk, key, StorageFormat.current(), parameters.layout());
-		final List<Gridnode> window = placeAll(fleet, key, fragments);
-		final int lost = parameters.layout().maxFragments() - parameters.layout().dataFragments();
+		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+		final int dataFragments = parameters.layout().dataFragments();
 
-		window.subList(0, lost).forEach(gridnode -> fleet.getTransport().offline(gridnode.getId()));
+		/* Holding the group at the bottom of the window leaves too few answers among the best-ranked */
+		placeOn(fleet, fragments, window.subList(window.size() - fragments.size(), window.size()));
+		window.subList(0, window.size() - dataFragments).forEach(g -> fleet.getTransport().offline(g.getId()));
 
 		final List<Fragment> fetched = new GroupFetcher(fleet.getTransport()).fetch(key.groupId(), window,
-			parameters.layout().dataFragments(), StorageFormat.current());
+			dataFragments, StorageFormat.current());
 
 		assertThat(ChunkGroups.open(fetched), equalTo(chunk));
+		assertThat(fleet.getTransport().getFetches().get(), greaterThan(firstRound(parameters)));
+	}
+
+	@Property(tries = 60)
+	public void finishesARoundWithoutWaitingForSilentGridnodes(@ForAll("parameters") StorageSpork.SporkData parameters,
+		@ForAll long seed) throws Exception {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+		final GroupKey key = StorageTestData.key(random);
+		final byte[] chunk = chunk(parameters, random);
+		final List<Fragment> fragments = ChunkGroups.seal(chunk, key, StorageFormat.current(), parameters.layout());
+		final List<Gridnode> window = placeAll(fleet, key, fragments);
+		final int dataFragments = parameters.layout().dataFragments();
+		final int askedHolders = Math.min(firstRound(parameters), fragments.size());
+		final List<Gridnode> holders = new ArrayList<>(window.subList(0, askedHolders));
+
+		Collections.shuffle(holders, random);
+		holders.subList(0, askedHolders - dataFragments).forEach(g -> fleet.getTransport().silence(g.getId()));
+		window.subList(askedHolders, window.size()).forEach(g -> fleet.getTransport().silence(g.getId()));
+
+		final List<Fragment> fetched = CompletableFuture.supplyAsync(() -> new GroupFetcher(fleet.getTransport())
+			.fetch(key.groupId(), window, dataFragments, StorageFormat.current())).get(10, TimeUnit.SECONDS);
+
+		assertThat(fetched.size(), equalTo(dataFragments));
+		assertRecovered(fetched, key, chunk);
 	}
 }

@@ -23,10 +23,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentSkipListMap;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
@@ -51,7 +49,9 @@ public class GroupFetcher {
 		final StorageFormat format) {
 
 		final int first = Math.min(candidates.size(), expectedData + OVER_FETCH);
-		final Map<Integer, Fragment> found = collect(groupId, format, candidates.subList(0, first), new TreeMap<>());
+		final Map<Integer, Fragment> found = new ConcurrentSkipListMap<>();
+
+		collect(groupId, format, candidates.subList(0, first), found);
 
 		if (!isComplete(found.values())) {
 			collect(groupId, format, candidates.subList(first, candidates.size()), found);
@@ -60,35 +60,37 @@ public class GroupFetcher {
 		return List.copyOf(found.values());
 	}
 
+	/* A round ends as soon as the group is complete, so a silent gridnode delays only a fetch that needs it */
+	private void collect(final GroupId groupId, final StorageFormat format, final List<Gridnode> targets,
+		final Map<Integer, Fragment> found) {
+
+		final CompletableFuture<Void> complete = new CompletableFuture<>();
+		final CompletableFuture<?>[] settled = targets.stream().map(target -> transport.fetch(target, groupId)
+			.thenAccept(reply -> accept(valid(groupId, format, reply), found, complete)))
+			.toArray(CompletableFuture[]::new);
+
+		CompletableFuture.anyOf(complete, CompletableFuture.allOf(settled)).exceptionally(error -> null).join();
+	}
+
 	/* Only verified fragments claim an index, so a forged copy can never displace a genuine one */
-	private Map<Integer, Fragment> collect(final GroupId groupId, final StorageFormat format,
-		final List<Gridnode> targets, final Map<Integer, Fragment> found) {
+	private static void accept(final Optional<Fragment> fragment, final Map<Integer, Fragment> found,
+		final CompletableFuture<Void> complete) {
 
-		final List<CompletableFuture<FragmentReply>> replies = targets.stream()
-			.map(target -> transport.fetch(target, groupId)).collect(Collectors.toList());
+		fragment.ifPresent(verified -> found.putIfAbsent(verified.getIndex(), verified));
 
-		for (CompletableFuture<FragmentReply> reply : replies) {
-			valid(groupId, format, reply)
-				.ifPresent(fragment -> found.putIfAbsent(fragment.getIndex(), fragment));
+		if (isComplete(found.values())) {
+			complete.complete(null);
 		}
-
-		return found;
 	}
 
 	private static Optional<Fragment> valid(final GroupId groupId, final StorageFormat format,
-		final CompletableFuture<FragmentReply> reply) {
+		final FragmentReply reply) {
 
-		try {
-			final FragmentReply response = reply.join();
-
-			if (response.getStatus() != StorageStatus.OK || response.getFragment() == null) {
-				return Optional.empty();
-			}
-
-			return FragmentKeeper.decode(response.getFragment())
-				.filter(fragment -> fragment.groupId().equals(groupId) && fragment.format() == format);
-		} catch (CompletionException ex) {
+		if (reply.getStatus() != StorageStatus.OK || reply.getFragment() == null) {
 			return Optional.empty();
 		}
+
+		return FragmentKeeper.decode(reply.getFragment())
+			.filter(fragment -> fragment.groupId().equals(groupId) && fragment.format() == format);
 	}
 }

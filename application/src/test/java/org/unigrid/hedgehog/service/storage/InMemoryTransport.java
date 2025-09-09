@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.storage.StorageStatus;
 public class InMemoryTransport implements FragmentTransport {
 	private final Map<String, FragmentKeeper> keepers = new ConcurrentHashMap<>();
 	private final Set<String> offline = ConcurrentHashMap.newKeySet();
+	private final Set<String> silent = ConcurrentHashMap.newKeySet();
 	private final Map<String, UnaryOperator<byte[]>> tampering = new ConcurrentHashMap<>();
 	@Getter private final List<byte[]> sent = new CopyOnWriteArrayList<>();
 	@Getter private final AtomicInteger fetches = new AtomicInteger();
@@ -52,8 +53,14 @@ public class InMemoryTransport implements FragmentTransport {
 		offline.add(id);
 	}
 
+	/* A silent gridnode never answers, like a peer that swallows requests without closing the connection */
+	public void silence(String id) {
+		silent.add(id);
+	}
+
 	public void online(String id) {
 		offline.remove(id);
+		silent.remove(id);
 	}
 
 	public boolean isOnline(String id) {
@@ -101,6 +108,10 @@ public class InMemoryTransport implements FragmentTransport {
 
 		if (keeper == null || offline.contains(target.getId())) {
 			return CompletableFuture.failedFuture(new IllegalStateException("Gridnode unreachable"));
+		}
+
+		if (silent.contains(target.getId())) {
+			return new CompletableFuture<>();
 		}
 
 		return CompletableFuture.completedFuture(action.apply(keeper));
