@@ -158,6 +158,48 @@ public class PendingRequestsTest {
 		assertThat(pending.size(), equalTo(0));
 	}
 
+	@Property
+	public void failsAndForgetsOnlyTheRequestsItIsToldTo(@ForAll("requests") List<Request> requests,
+		@ForAll("failures") List<Boolean> failures) {
+
+		final PendingRequests pending = new PendingRequests(NEVER_DURING_A_TRY);
+		final List<Channel> channels = channels();
+		final List<CompletableFuture<? extends Correlated>> futures = new ArrayList<>();
+		final Map<Integer, Throwable> causes = new HashMap<>();
+
+		for (Request request : requests) {
+			final long id = pending.nextRequestId();
+
+			futures.add(pending.register(id, channels.get(request.channel()), typeOf(request.type())));
+
+			if (failures.get(futures.size() - 1)) {
+				causes.put(futures.size() - 1, new IllegalStateException("write failed"));
+				pending.fail(id, causes.get(futures.size() - 1));
+			}
+		}
+
+		pending.fail(pending.nextRequestId(), new IllegalStateException("nobody waits for this"));
+
+		for (int i = 0; i < requests.size(); i++) {
+			final CompletableFuture<? extends Correlated> future = futures.get(i);
+
+			if (causes.containsKey(i)) {
+				final ExecutionException failure = assertThrows(ExecutionException.class, () -> future.get());
+
+				assertThat(failure.getCause(), sameInstance(causes.get(i)));
+			} else {
+				assertThat(future.isDone(), is(false));
+			}
+		}
+
+		assertThat(pending.size(), equalTo(requests.size() - causes.size()));
+	}
+
+	@Provide
+	public Arbitrary<List<Boolean>> failures() {
+		return Arbitraries.of(true, false).list().ofSize(MAX_REQUESTS);
+	}
+
 	@Property(tries = 10)
 	public void failsAndForgetsRequestsThatTimeOut(@ForAll("requests") List<Request> requests,
 		@ForAll @IntRange(min = 1, max = 50) int timeoutMillis) {

@@ -74,6 +74,15 @@ public class PendingRequests {
 			.thenApply(type::cast);
 	}
 
+	/* Called by the sender only, so unlike a reply it needs no channel to prove where it came from */
+	public void fail(final long requestId, final Throwable cause) {
+		final Pending waiting = pending.remove(requestId);
+
+		if (waiting != null) {
+			waiting.future().completeExceptionally(cause);
+		}
+	}
+
 	public void complete(final Channel channel, final Correlated response) {
 		final long requestId = response.getRequestId();
 		final Pending waiting = pending.get(requestId);

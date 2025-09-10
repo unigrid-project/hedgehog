@@ -85,7 +85,7 @@ public class NettyFragmentTransport implements FragmentTransport {
 
 		channel.get().writeAndFlush(request).addListener(written -> {
 			if (!written.isSuccess()) {
-				response.completeExceptionally(written.cause());
+				pending.fail(request.getRequestId(), written.cause());
 			}
 		});
 
