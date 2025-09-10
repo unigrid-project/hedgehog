@@ -71,8 +71,10 @@ public class StorageProducer {
 	}
 
 	@Produces @Singleton
-	public FragmentTransport fragmentTransport(final PendingRequests pendingRequests) {
-		return new NettyFragmentTransport(topology::cloneNodes, pendingRequests);
+	public FragmentTransport fragmentTransport(final PendingRequests pendingRequests,
+		final GridnodeDirectory directory, final FragmentKeeper keeper) {
+
+		return new NettyFragmentTransport(topology::cloneNodes, pendingRequests, directory::self, () -> keeper);
 	}
 
 	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead */

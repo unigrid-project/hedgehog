@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -40,36 +42,76 @@ import org.unigrid.hedgehog.model.network.packet.HasFragment;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.network.packet.StoreFragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.StorageStatus;
 
+/* Topology never lists the node itself, so the local gridnode is answered by its own keeper in-process */
 @RequiredArgsConstructor
 public class NettyFragmentTransport implements FragmentTransport {
+	/* Runs on the calling thread; going through supplyAsync only turns a keeper failure into a failed future */
+	private static final Executor IN_PLACE = Runnable::run;
+
 	private final Supplier<Set<Node>> nodes;
 	private final PendingRequests pending;
+	private final Supplier<Optional<String>> selfId;
+	private final Supplier<FragmentKeeper> localKeeper;
 
 	@Override
 	public CompletableFuture<StorageAck> store(final Gridnode target, final byte[] fragment) {
-		return send(target, StoreFragment.builder().requestId(pending.nextRequestId()).fragment(fragment).build(),
-			StorageAck.class);
+		final StoreFragment request = StoreFragment.builder().requestId(pending.nextRequestId()).fragment(fragment)
+			.build();
+
+		return route(target, request, StorageAck.class, keeper -> StorageAck.builder()
+			.requestId(request.getRequestId()).status(keeper.store(fragment)).build());
 	}
 
 	@Override
 	public CompletableFuture<FragmentReply> fetch(final Gridnode target, final GroupId groupId) {
-		return send(target, FetchFragment.builder().requestId(pending.nextRequestId()).groupId(groupId).build(),
-			FragmentReply.class);
+		final FetchFragment request = FetchFragment.builder().requestId(pending.nextRequestId()).groupId(groupId)
+			.build();
+
+		return route(target, request, FragmentReply.class,
+			keeper -> fetched(request.getRequestId(), keeper.fetch(groupId)));
 	}
 
 	@Override
 	public CompletableFuture<FragmentStatus> has(final Gridnode target, final List<GroupId> groupIds) {
-		return send(target, HasFragment.builder().requestId(pending.nextRequestId()).groupIds(groupIds).build(),
-			FragmentStatus.class);
+		final HasFragment request = HasFragment.builder().requestId(pending.nextRequestId()).groupIds(groupIds)
+			.build();
+
+		return route(target, request, FragmentStatus.class, keeper -> FragmentStatus.builder()
+			.requestId(request.getRequestId()).entries(keeper.census(groupIds)).build());
 	}
 
 	@Override
 	public CompletableFuture<StorageAck> delete(final Gridnode target, final GroupId groupId, final byte[] publicKey,
 		final long timestamp, final byte[] signature) {
 
-		return send(target, DeleteGroup.builder().requestId(pending.nextRequestId()).groupId(groupId)
-			.publicKey(publicKey).timestamp(timestamp).signature(signature).build(), StorageAck.class);
+		final DeleteGroup request = DeleteGroup.builder().requestId(pending.nextRequestId()).groupId(groupId)
+			.publicKey(publicKey).timestamp(timestamp).signature(signature).build();
+
+		return route(target, request, StorageAck.class, keeper -> StorageAck.builder()
+			.requestId(request.getRequestId())
+			.status(keeper.delete(groupId, publicKey, timestamp, signature)).build());
+	}
+
+	private static FragmentReply fetched(final long requestId, final Optional<byte[]> fragment) {
+		return FragmentReply.builder().requestId(requestId)
+			.status(fragment.isPresent() ? StorageStatus.OK : StorageStatus.NOT_FOUND)
+			.fragment(fragment.orElse(new byte[0])).build();
+	}
+
+	private <T extends Correlated> CompletableFuture<T> route(final Gridnode target, final Correlated request,
+		final Class<T> type, final Function<FragmentKeeper, T> answer) {
+
+		if (isSelf(target)) {
+			return CompletableFuture.supplyAsync(() -> answer.apply(localKeeper.get()), IN_PLACE);
+		}
+
+		return send(target, request, type);
+	}
+
+	private boolean isSelf(final Gridnode target) {
+		return selfId.get().filter(id -> id.equals(target.getId())).isPresent();
 	}
 
 	private <T extends Correlated> CompletableFuture<T> send(final Gridnode target, final Correlated request,
