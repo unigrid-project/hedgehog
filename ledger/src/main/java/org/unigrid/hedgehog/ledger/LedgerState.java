@@ -150,6 +150,22 @@ public final class LedgerState {
 		tipTime = next.tipTime;
 	}
 
+	/* The candidates that can go in one block, in order: each is kept if it is still valid after the ones kept
+	   before it. The state itself is not touched. */
+	public List<Transaction> applicable(List<Transaction> candidates) {
+		final LedgerState scratch = copy();
+		final List<Transaction> kept = new ArrayList<>();
+
+		for (final Transaction candidate : candidates) {
+			if (scratch.rejectionOf(candidate).isEmpty()) {
+				scratch.apply(candidate);
+				kept.add(candidate);
+			}
+		}
+
+		return kept;
+	}
+
 	/* What the root would be if these transactions made the block at blockHeight, for a proposer to commit to */
 	public byte[] rootAfter(long blockHeight, List<Transaction> transactions) {
 		final LedgerState next = copy();

@@ -147,6 +147,17 @@ public class LedgerVoteTest {
 		assertThat(state.rejectionOf(add(state, 2, key(900))).isPresent(), is(false));
 	}
 
+	/* Transactions that are each fine can still fail together, so a proposer keeps only what fits in order */
+	@Example
+	public void shouldKeepOnlyTheTransactionsThatFitTogether() {
+		final LedgerState state = freshState();
+		final List<Transaction> tooMany = IntStream.range(0, LedgerState.MAX_VOTES_PER_VALIDATOR + 5)
+			.mapToObj(i -> (Transaction) add(state, 1, key(300 + i))).toList();
+
+		assertThat(state.applicable(tooMany), equalTo(tooMany.subList(0, LedgerState.MAX_VOTES_PER_VALIDATOR)));
+		assertThat(state.votesFor(key(300), Vote.Action.ADD), equalTo(0));
+	}
+
 	@Example
 	public void shouldRefuseAVoteSignedForAnotherChain() {
 		final LedgerState state = freshState();
