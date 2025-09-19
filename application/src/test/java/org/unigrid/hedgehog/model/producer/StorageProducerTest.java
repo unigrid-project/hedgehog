@@ -19,6 +19,8 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import java.io.ByteArrayInputStream;
+import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
@@ -30,18 +32,26 @@ import net.jqwik.api.statistics.Statistics;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
 import org.unigrid.hedgehog.model.spork.StorageSporkTest;
+import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
+import org.unigrid.hedgehog.service.storage.InMemoryTransport;
+import org.unigrid.hedgehog.service.storage.StorageDisabledException;
 
 public class StorageProducerTest {
 	@SneakyThrows
-	private static Optional<SporkData> storageSporkOf(final SporkDatabase database) {
+	private static StorageProducer producerOf(final SporkDatabase database) {
 		final StorageProducer producer = new StorageProducer();
 
 		FieldUtils.writeField(producer, "sporkDatabase", database, true);
-		return producer.storageSpork();
+		return producer;
+	}
+
+	private static Optional<SporkData> storageSporkOf(final SporkDatabase database) {
+		return producerOf(database).storageSpork();
 	}
 
 	@Provide
@@ -68,5 +78,14 @@ public class StorageProducerTest {
 	@Example
 	public void disablesStorageWithoutAStorageSpork() {
 		assertThat(storageSporkOf(SporkDatabase.builder().build()), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void producesAStorageServiceThatFollowsTheSpork() {
+		final StorageProducer producer = producerOf(SporkDatabase.builder().build());
+
+		assertThrows(StorageDisabledException.class, () -> producer.storageService(
+			new TopologyGridnodeDirectory(List::of, () -> "self"), new InMemoryTransport())
+			.store(new ByteArrayInputStream(new byte[1])));
 	}
 }

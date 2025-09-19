@@ -21,6 +21,8 @@ package org.unigrid.hedgehog.service.storage;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -82,6 +84,10 @@ public class StorageFleet {
 
 	public GridnodeDirectory directory(String self) {
 		return new TopologyGridnodeDirectory(() -> gridnodes, () -> self);
+	}
+
+	public StorageService service(SecureRandom random) {
+		return new StorageService(directory("client"), transport, this::spork, random, Duration.ZERO);
 	}
 
 	public long holdersOf(GroupId groupId) {

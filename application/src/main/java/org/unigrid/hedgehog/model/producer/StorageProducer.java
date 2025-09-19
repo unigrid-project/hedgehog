@@ -25,7 +25,9 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
@@ -39,10 +41,12 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 import org.unigrid.hedgehog.service.storage.FragmentKeeper;
 import org.unigrid.hedgehog.service.storage.FragmentTransport;
 import org.unigrid.hedgehog.service.storage.NettyFragmentTransport;
+import org.unigrid.hedgehog.service.storage.StorageService;
 
 @ApplicationScoped
 public class StorageProducer {
 	private static final String FRAGMENT_DIRECTORY = "fragments";
+	private static final Duration SEND_JITTER = Duration.ofMillis(25);
 
 	@Inject
 	private ApplicationDirectory applicationDirectory;
@@ -75,6 +79,11 @@ public class StorageProducer {
 		final GridnodeDirectory directory, final FragmentKeeper keeper) {
 
 		return new NettyFragmentTransport(topology::cloneNodes, pendingRequests, directory::self, () -> keeper);
+	}
+
+	@Produces @Singleton
+	public StorageService storageService(final GridnodeDirectory directory, final FragmentTransport transport) {
+		return new StorageService(directory, transport, this::storageSpork, new SecureRandom(), SEND_JITTER);
 	}
 
 	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead */
