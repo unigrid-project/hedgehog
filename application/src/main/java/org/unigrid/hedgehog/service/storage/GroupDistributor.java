@@ -24,7 +24,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -33,18 +33,28 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
-@RequiredArgsConstructor
 public class GroupDistributor {
+	private static final Duration JITTER_LIMIT = Duration.ofMillis(Integer.MAX_VALUE);
+
 	private final FragmentTransport transport;
 	private final Random random;
 	private final Duration maxJitter;
+
+	public GroupDistributor(final FragmentTransport transport, final Random random, final Duration maxJitter) {
+		if (maxJitter.isNegative() || maxJitter.compareTo(JITTER_LIMIT) >= 0) {
+			throw new IllegalArgumentException("The jitter must lie between zero and " + JITTER_LIMIT);
+		}
+
+		this.transport = transport;
+		this.random = random;
+		this.maxJitter = maxJitter;
+	}
 
 	public static boolean stored(final CompletableFuture<StorageAck> ack) {
 		try {
@@ -62,15 +72,17 @@ public class GroupDistributor {
 		}
 
 		final Deque<Gridnode> spare = new ArrayDeque<>(window.subList(guaranteed, window.size()));
+		final List<Fragment> required = sealed.subList(0, guaranteed);
 
-		for (Fragment failed : sendAll(sealed.subList(0, guaranteed), window.subList(0, guaranteed))) {
-			if (!retry(failed, spare)) {
+		for (Map.Entry<Integer, CompletableFuture<StorageAck>> ack : sendAll(required, window).entrySet()) {
+			if (!stored(ack.getValue()) && !retry(required.get(ack.getKey()), spare)) {
 				return false;
 			}
 		}
 
+		/* Extras only widen the margin, so nobody waits for their acknowledgements */
 		final int extras = Math.min(sealed.size() - guaranteed, spare.size());
-		sendAll(sealed.subList(guaranteed, guaranteed + extras), new ArrayList<>(spare).subList(0, extras));
+		sendAll(sealed.subList(guaranteed, guaranteed + extras), new ArrayList<>(spare));
 		return true;
 	}
 
@@ -83,14 +95,15 @@ public class GroupDistributor {
 	}
 
 	/* Fragments leave in random order with jitter so a gridnode cannot read placement order off arrival order. */
-	private List<Fragment> sendAll(final List<Fragment> fragments, final List<Gridnode> targets) {
+	private Map<Integer, CompletableFuture<StorageAck>> sendAll(final List<Fragment> fragments,
+		final List<Gridnode> targets) {
+
 		final List<Integer> order = IntStream.range(0, fragments.size()).boxed().collect(Collectors.toList());
-		final Map<Integer, CompletableFuture<StorageAck>> acks = new HashMap<>();
+		final Map<Integer, CompletableFuture<StorageAck>> acks = new LinkedHashMap<>();
 
 		Collections.shuffle(order, random);
 		order.forEach(i -> acks.put(i, send(targets.get(i), fragments.get(i))));
-
-		return order.stream().filter(i -> !stored(acks.get(i))).map(fragments::get).collect(Collectors.toList());
+		return acks;
 	}
 
 	private CompletableFuture<StorageAck> send(final Gridnode target, final Fragment fragment) {

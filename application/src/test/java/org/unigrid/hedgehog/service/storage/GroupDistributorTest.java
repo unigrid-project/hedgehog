@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import net.jqwik.api.Arbitrary;
@@ -37,6 +39,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
@@ -85,6 +88,54 @@ public class GroupDistributorTest {
 		assertThat(placed, is(true));
 		assertThat(heldIndices(fleet, key), hasItems(guaranteed.toArray(new Integer[0])));
 		assertThat(fleet.holdersOf(key.groupId()), equalTo((long) heldIndices(fleet, key).size()));
+		fleet.getGridnodes().stream().filter(g -> !window.contains(g)).forEach(g -> assertThat(fleet.getStores()
+			.get(g.getId()).holding(key.groupId()).isPresent(), is(false)));
+	}
+
+	@Property(tries = 20)
+	public void placesTheGuaranteedFragmentsWithJitter(@ForAll("parameters") StorageSpork.SporkData parameters,
+		@ForAll long seed, @ForAll @IntRange(min = 1, max = 3) int jitterMillis) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+		final GroupKey key = StorageTestData.key(random);
+		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+		final List<Integer> guaranteed = IntStream.range(0, parameters.layout().guaranteedFragments()).boxed()
+			.collect(Collectors.toList());
+
+		assertThat(new GroupDistributor(fleet.getTransport(), random, Duration.ofMillis(jitterMillis))
+			.place(seal(parameters, key, random), window), is(true));
+		assertThat(heldIndices(fleet, key), hasItems(guaranteed.toArray(new Integer[0])));
+	}
+
+	@Property(tries = 40)
+	public void neverWaitsForTheExtraFragments(@ForAll("parameters") StorageSpork.SporkData parameters,
+		@ForAll long seed) throws Exception {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+		final GroupKey key = StorageTestData.key(random);
+		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+		final GroupDistributor distributor = new GroupDistributor(fleet.getTransport(), random, Duration.ZERO);
+		final List<Fragment> sealed = seal(parameters, key, random);
+
+		window.subList(parameters.layout().guaranteedFragments(), window.size())
+			.forEach(g -> fleet.getTransport().silence(g.getId()));
+
+		assertThat(CompletableFuture.supplyAsync(() -> distributor.place(sealed, window)).get(10, TimeUnit.SECONDS),
+			is(true));
+	}
+
+	@Property
+	public void acceptsOnlyAJitterItCanDraw(@ForAll long jitterMillis) {
+		final Duration jitter = Duration.ofMillis(jitterMillis);
+
+		if (jitterMillis < 0 || jitterMillis >= Integer.MAX_VALUE) {
+			assertThrows(IllegalArgumentException.class, () -> new GroupDistributor(new InMemoryTransport(),
+				new Random(), jitter));
+		} else {
+			new GroupDistributor(new InMemoryTransport(), new Random(), jitter);
+		}
 	}
 
 	@Property(tries = 40)
@@ -102,7 +153,7 @@ public class GroupDistributorTest {
 	}
 
 	@Property(tries = 40)
-	public void withdrawTombstonesEveryHolder(@ForAll("parameters") StorageSpork.SporkData parameters,
+	public void withdrawTombstonesEveryReachableWindowMember(@ForAll("parameters") StorageSpork.SporkData parameters,
 		@ForAll long seed) {
 
 		final Random random = new Random(seed);
@@ -110,11 +161,14 @@ public class GroupDistributorTest {
 		final GroupKey key = StorageTestData.key(random);
 		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
 		final GroupDistributor distributor = new GroupDistributor(fleet.getTransport(), random, Duration.ZERO);
+		final Set<Gridnode> offline = window.stream().filter(g -> random.nextInt(3) == 0).collect(Collectors.toSet());
 
 		distributor.place(seal(parameters, key, random), window);
+		offline.forEach(g -> fleet.getTransport().offline(g.getId()));
 		distributor.withdraw(key, window, 42);
 
 		assertThat(fleet.holdersOf(key.groupId()), equalTo(0L));
-		window.forEach(g -> assertThat(fleet.getStores().get(g.getId()).isTombstoned(key.groupId()), is(true)));
+		window.forEach(g -> assertThat(fleet.getStores().get(g.getId()).isTombstoned(key.groupId()),
+			is(!offline.contains(g))));
 	}
 }
