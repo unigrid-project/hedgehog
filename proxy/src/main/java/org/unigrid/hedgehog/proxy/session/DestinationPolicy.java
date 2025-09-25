@@ -18,8 +18,11 @@
 
 package org.unigrid.hedgehog.proxy.session;
 
+import io.netty.handler.codec.socksx.v5.Socks5AddressType;
+import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.util.NetUtil;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
 
@@ -72,6 +75,41 @@ public final class DestinationPolicy {
 		final byte[] bytes = address.getAddress();
 
 		return bytes.length == IPV4_SIZE ? allowsIpv4(bytes) : allowsIpv6(bytes);
+	}
+
+	/* The addresses an exit may connect to: an IP literal as given, a domain name as resolved. A name is
+	   refused as a whole when any of its addresses is, so it cannot pair a public answer with a local one.
+	   The exit connects to these addresses and never resolves the name again. */
+	public List<InetAddress> admit(SocksAddress destination, Resolver resolver) throws DestinationRefusedException {
+		final List<InetAddress> addresses = resolve(destination, resolver);
+
+		if (addresses.isEmpty()) {
+			throw new DestinationRefusedException(Socks5CommandStatus.HOST_UNREACHABLE, destination.host()
+				+ " has no address");
+		}
+
+		if (!addresses.stream().allMatch(this::allows)) {
+			throw new DestinationRefusedException(Socks5CommandStatus.FORBIDDEN, destination.host()
+				+ " is not a public destination");
+		}
+
+		return addresses;
+	}
+
+	private static List<InetAddress> resolve(SocksAddress destination, Resolver resolver)
+		throws DestinationRefusedException {
+		try {
+			if (Socks5AddressType.DOMAIN.equals(destination.type())) {
+				return List.copyOf(resolver.resolveAll(destination.host()));
+			}
+
+			final byte[] literal = NetUtil.createByteArrayFromIpAddressString(destination.host());
+
+			return List.of(InetAddress.getByAddress(literal));
+		} catch (UnknownHostException ex) {
+			throw new DestinationRefusedException(Socks5CommandStatus.HOST_UNREACHABLE, destination.host()
+				+ " does not resolve");
+		}
 	}
 
 	private boolean allowsIpv4(byte[] address) {
