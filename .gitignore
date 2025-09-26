@@ -6,6 +6,7 @@ socomo.html
 /application/target/
 /native-image/target/
 /common/target/
+/ledger/target/
 jshell.history
 release.properties
 application/nb-configuration.xml
