@@ -47,6 +47,43 @@ public final class Session {
 		lastActivity = context.now();
 	}
 
+	/* The exit's side of the handshake: answers an OPEN that names this gridnode with an ACCEPT. Nothing here
+	   remembers an OPEN, so the host offers each one once and keeps one session per fingerprint: a repeat is
+	   answered again with a fresh key. */
+	public static Optional<Session> accept(SessionContext context, Entry open, String ownId) {
+		if (!isOpenNaming(context, open, ownId)) {
+			return Optional.empty();
+		}
+
+		final EntryHeader header = open.header();
+		final EphemeralKey key = EphemeralKey.generate(context.random());
+
+		try {
+			final SessionKeys keys = Handshake.exitKeys(key, open, context.writer().writer());
+			final SessionCipher cipher = new SessionCipher(keys, Direction.EXIT_TO_CLIENT, header.chainId(),
+				header.fingerprint());
+
+			context.post(header.fingerprint(), EntryKind.ACCEPT, Handshake.accept(key, keys));
+			return Optional.of(new Session(context, header.fingerprint(), header.writer(), cipher));
+		} catch (HandshakeException ex) {
+			return Optional.empty();
+		}
+	}
+
+	/* The cheap refusals, before a key is generated: an exit id that cannot fit an entry names nobody, as the
+	   chain would not have taken the entry */
+	private static boolean isOpenNaming(SessionContext context, Entry open, String ownId) {
+		final EntryHeader header = open.header();
+
+		if (header.kind() != EntryKind.OPEN || !header.chainId().equals(context.writer().chainId())) {
+			return false;
+		}
+
+		final byte[] payload = open.payload();
+
+		return payload.length <= context.maxPayloadBytes() && Handshake.names(payload, ownId);
+	}
+
 	public Fingerprint fingerprint() {
 		return fingerprint;
 	}
