@@ -300,7 +300,29 @@ public final class LedgerState {
 		}
 
 		next.finishBlock(block.getHeight());
-		return next.sealRejection(block);
+
+		final Optional<String> sealed = next.rootRejection(block).or(() -> signaturesRejection(block));
+
+		if (sealed.isEmpty()) {
+			next.tipHash = block.hash();
+			next.tipTime = block.getTime();
+		}
+
+		return sealed;
+	}
+
+	/* Whether a block is right apart from its certificate, which is what a validator checks before it signs:
+	   its place in the chain, its transactions and the root they lead to */
+	public Optional<String> proposalRejection(Block block) {
+		final LedgerState next = copy();
+		final Optional<String> rejection = headerRejection(block).or(() -> next.applyTransactions(block));
+
+		if (rejection.isPresent()) {
+			return rejection;
+		}
+
+		next.finishBlock(block.getHeight());
+		return next.rootRejection(block);
 	}
 
 	private Optional<String> applyTransactions(Block block) {
@@ -317,20 +339,17 @@ public final class LedgerState {
 		return Optional.empty();
 	}
 
-	/* The last checks, on a state that has the block applied: that its root is the block's and that each
-	   signature in the certificate is over this very block. They come last because they cost the most. */
-	private Optional<String> sealRejection(Block block) {
-		if (!Arrays.equals(block.getStateRoot(), stateRoot())) {
-			return Optional.of("State root does not match");
-		}
+	/* On a state that has the block applied: that its root is the block's */
+	private Optional<String> rootRejection(Block block) {
+		return Arrays.equals(block.getStateRoot(), stateRoot()) ? Optional.empty()
+			: Optional.of("State root does not match");
+	}
 
-		if (!block.getEndorsements().stream().allMatch(block::isSigned)) {
-			return Optional.of("Certificate holds a signature that is not valid for this block");
-		}
-
-		tipHash = block.hash();
-		tipTime = block.getTime();
-		return Optional.empty();
+	/* Each signature in the certificate must be over this very block. This comes last because it costs the
+	   most. */
+	private static Optional<String> signaturesRejection(Block block) {
+		return block.getEndorsements().stream().allMatch(block::isSigned) ? Optional.empty()
+			: Optional.of("Certificate holds a signature that is not valid for this block");
 	}
 
 	/* Who signed, before any signature is checked: more than 2/3 of the set, each once and in order, the

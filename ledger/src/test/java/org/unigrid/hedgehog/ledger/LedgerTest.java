@@ -154,6 +154,68 @@ public class LedgerTest {
 		}
 	}
 
+	/* A signature is a promise that the block is right, so a validator signs nothing it has not checked */
+	@Example
+	public void shouldRefuseToSignABlockThatIsNotValid() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			final Block proposed = ledger.propose(seed(1), 2000).get();
+			final Block wrongRoot = proposed.toBuilder().stateRoot(new byte[Digests.HASH_SIZE]).build();
+			final Block wrongTransactions = proposed.toBuilder().transactions(List.of(mint(1, 999))).build();
+
+			assertThrows(InvalidBlockException.class, () -> ledger.sign(wrongRoot, seed(2)));
+			assertThrows(InvalidBlockException.class, () -> ledger.sign(wrongTransactions, seed(2)));
+			assertThat(ledger.sign(proposed, seed(2)).getEndorsements().size(), equalTo(2));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToSignWithAKeyThatIsNoValidator() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			final Block proposed = ledger.propose(seed(1), 2000).get();
+
+			assertThrows(IllegalArgumentException.class, () -> ledger.sign(proposed, seed(99)));
+		}
+	}
+
+	/* Signing two blocks at one height is how a validator splits the chain, so this one never does it */
+	@Example
+	public void shouldNeverSignTwoDifferentBlocksAtOneHeight() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			final Block first = ledger.propose(seed(1), 2000).get();
+			final Block second = first.toBuilder().time(2001).build();
+
+			assertThat(ledger.sign(first, seed(2)).getEndorsements().size(), equalTo(2));
+			assertThat(ledger.sign(first, seed(2)).getEndorsements().size(), equalTo(2));
+			assertThrows(IllegalStateException.class, () -> ledger.sign(second, seed(2)));
+			assertThrows(IllegalStateException.class, () -> ledger.sign(second, seed(1)));
+		}
+	}
+
+	@Example
+	public void shouldLetAValidatorSignAgainAtTheNextHeight() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+			seal(ledger, FOUNDATION, 2000);
+			ledger.submit(mint(2, 500));
+
+			assertThat(seal(ledger, FOUNDATION, 2001).getHeight(), equalTo(2L));
+		}
+	}
+
 	@Example
 	public void shouldNotProposeInThePast() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
