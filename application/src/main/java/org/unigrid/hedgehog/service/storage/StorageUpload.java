@@ -61,12 +61,17 @@ final class StorageUpload {
 		this.random = random;
 	}
 
+	/* Whatever ends an upload early, errors included, must not leave its groups behind */
 	void run(final InputStream input) throws IOException, StorageException {
+		boolean stored = false;
+
 		try {
 			storeManifest(storeStripes(input));
-		} catch (IOException | StorageException | RuntimeException ex) {
-			rollback();
-			throw ex;
+			stored = true;
+		} finally {
+			if (!stored) {
+				rollback();
+			}
 		}
 	}
 
