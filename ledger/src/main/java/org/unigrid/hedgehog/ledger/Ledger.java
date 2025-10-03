@@ -19,13 +19,17 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public final class Ledger implements LedgerApplication {
 	private final LedgerState state;
 	private final BlockLog log;
 	private final Mempool mempool = new Mempool();
+	private final Map<AccountKey, Promise> promises = new HashMap<>();
 
 	/* The log is replayed into the state, block by block and with every check, so a log that was tampered
 	   with does not come up as a state */
@@ -64,15 +68,46 @@ public final class Ledger implements LedgerApplication {
 			return Optional.empty();
 		}
 
-		return Optional.of(Block.builder().height(height).previousHash(state.tipHash())
+		final Block block = Block.builder().height(height).previousHash(state.tipHash())
 			.time(Math.max(time, state.tipTime())).stateRoot(state.rootAfter(height, transactions))
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
-			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of()).build().endorsedBy(proposerSeed));
+			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of()).build();
+
+		promiseNoOtherBlock(block.getProposer(), block);
+		return Optional.of(block.endorsedBy(proposerSeed));
 	}
 
+	/* A signature promises that the block is right and that this validator signed no other block at its
+	   height, so both are checked first. The promise is kept in memory only: a restarted node must be kept
+	   from signing again at a height it signed before, which is for the key handling around the engine. */
 	@Override
-	public Block sign(Block block, byte[] validatorSeed) {
+	public synchronized Block sign(Block block, byte[] validatorSeed) {
+		final AccountKey signer = Ed25519.publicKey(validatorSeed);
+
+		if (!state.validators().contains(signer)) {
+			throw new IllegalArgumentException("Key " + signer + " is not a validator");
+		}
+
+		state.proposalRejection(block).ifPresent(reason -> {
+			throw new InvalidBlockException(reason);
+		});
+		promiseNoOtherBlock(signer, block);
 		return block.endorsedBy(validatorSeed);
+	}
+
+	private void promiseNoOtherBlock(AccountKey signer, Block block) {
+		final Promise earlier = promises.get(signer);
+
+		if (earlier != null && earlier.height() == block.getHeight()
+			&& !Arrays.equals(earlier.hash(), block.hash())) {
+			throw new IllegalStateException("Validator " + signer + " has signed another block at height "
+				+ block.getHeight());
+		}
+
+		promises.put(signer, new Promise(block.getHeight(), block.hash()));
+	}
+
+	private record Promise(long height, byte[] hash) {
 	}
 
 	@Override
