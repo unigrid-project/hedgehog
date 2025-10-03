@@ -57,25 +57,38 @@ public final class Retrieval {
 		this.window = manifest.getLayout().maxFragments() + placementSlack;
 	}
 
-	/* The manifest's own layout is unknown until it is read, so its lookup may widen to every ranked gridnode. */
+	/* The file's copy count and layout are unknown until its manifest is read, and a later spork may have changed
+	   both. So every copy that may exist is first looked for in the current window, and only then does the lookup
+	   widen to every ranked gridnode. */
 	static Retrieval open(final FingerprintKeys keys, final StorageSpork.SporkData current,
 		final List<Gridnode> gridnodes, final GroupFetcher fetcher) throws FingerprintNotFoundException {
 
+		final int expectedData = current.layout().dataFragments();
+		final Manifest manifest = find(keys, gridnodes, fetcher, expectedData,
+			StorageSpork.SporkData.MAX_MANIFEST_COPIES, current.window())
+			.or(() -> find(keys, gridnodes, fetcher, expectedData, current.getManifestCopies(),
+				ReedSolomon.MAX_SHARDS + current.getPlacementSlack()))
+			.orElseThrow(FingerprintNotFoundException::new);
+
+		return new Retrieval(keys, manifest, gridnodes, fetcher, current.getPlacementSlack());
+	}
+
+	private static Optional<Manifest> find(final FingerprintKeys keys, final List<Gridnode> gridnodes,
+		final GroupFetcher fetcher, final int expectedData, final int copies, final int width) {
+
 		final ChunkCipher cipher = ChunkCipher.forManifest(keys);
 
-		for (int copy = 0; copy < current.getManifestCopies(); copy++) {
+		for (int copy = 0; copy < copies; copy++) {
 			final GroupId groupId = new GroupKey(keys.manifestSeed(copy)).groupId();
-			final List<Gridnode> candidates = Placement.window(groupId, gridnodes,
-				ReedSolomon.MAX_SHARDS + current.getPlacementSlack());
-			final Optional<Manifest> manifest = readManifest(cipher, copy,
-				fetcher.fetch(groupId, candidates, current.layout().dataFragments(), keys.format()));
+			final Optional<Manifest> manifest = readManifest(cipher, copy, fetcher.fetch(groupId,
+				Placement.window(groupId, gridnodes, width), expectedData, keys.format()));
 
 			if (manifest.isPresent()) {
-				return new Retrieval(keys, manifest.get(), gridnodes, fetcher, current.getPlacementSlack());
+				return manifest;
 			}
 		}
 
-		throw new FingerprintNotFoundException();
+		return Optional.empty();
 	}
 
 	public long size() {

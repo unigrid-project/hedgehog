@@ -33,10 +33,14 @@ public final class StorageArbitraries {
 	public static Arbitrary<StorageSpork.SporkData> parameters() {
 		return Combinators.combine(Arbitraries.of(32, 64, 128), Arbitraries.integers().between(2, 12),
 			Arbitraries.integers().between(25, 100), Arbitraries.integers().between(0, 50),
-			Arbitraries.integers().between(0, 100), Arbitraries.integers().between(1, 6))
-			.as((fragmentSize, dataFragments, inner, extra, outer, stripeChunks) -> {
+			Arbitraries.integers().between(0, 100), Arbitraries.integers().between(1, 6),
+			Arbitraries.integers().between(1, StorageSpork.SporkData.MAX_MANIFEST_COPIES),
+			Arbitraries.integers().between(0, 8))
+			.as((fragmentSize, dataFragments, inner, extra, outer, stripeChunks, manifestCopies, slack) -> {
 				final StorageSpork.SporkData data = StorageTestData.parameters();
 
+				data.setManifestCopies(manifestCopies);
+				data.setPlacementSlack(slack);
 				data.setFragmentSize(fragmentSize);
 				data.setChunkSize(fragmentSize * dataFragments);
 				data.setInnerParityPercent(inner);

@@ -150,6 +150,9 @@ public class GroupFetcherTest {
 	public void widensWhenTheBestRankedAreGone(@ForAll("parameters") StorageSpork.SporkData parameters,
 		@ForAll long seed) {
 
+		/* Only a window wider than the first round of dataFragments + 2 leaves anyone to widen to */
+		parameters.setPlacementSlack(Math.max(3, parameters.getPlacementSlack()));
+
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
 		final GroupKey key = StorageTestData.key(random);

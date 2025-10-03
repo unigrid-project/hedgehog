@@ -101,7 +101,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 60)
-	public void roundTripsAnyFileUnderAnyLayout(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void roundTripsAnyFileUnderAnyLayout(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final StorageService service = fleet(scenario.get1(), new Random(seed)).service(new SecureRandom());
@@ -124,7 +124,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 60)
-	public void survivesAnyLossWithinInnerParity(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void survivesAnyLossWithinInnerParity(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final Random random = new Random(seed);
@@ -141,7 +141,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 60)
-	public void neverReturnsWrongBytes(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void neverReturnsWrongBytes(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final Random random = new Random(seed);
@@ -165,7 +165,7 @@ public class StorageServiceTest {
 
 	@Property(tries = 40)
 	public void retrievesAfterSporkChange(
-		@ForAll("sporkChanges") Tuple2<StorageSpork.SporkData, StorageSpork.SporkData> change, @ForAll final long seed) {
+		@ForAll("sporkChanges") final Tuple2<StorageSpork.SporkData, StorageSpork.SporkData> change, @ForAll final long seed) {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(change.get1(),
@@ -174,13 +174,30 @@ public class StorageServiceTest {
 		final byte[] file = bytes(random, random.nextInt(4 * change.get1().layout().payloadSize()));
 		final Fingerprint fingerprint = store(service, file);
 
-		change.get2().setPlacementSlack(change.get1().getPlacementSlack());
 		fleet.setParameters(change.get2());
 		assertThat(retrieve(service, fingerprint), equalTo(file));
 	}
 
 	@Property(tries = 40)
-	public void retrievesAfterGridnodesJoin(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void retrievesAfterFewerManifestCopiesWithoutTheFirst(
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
+
+		final Random random = new Random(seed);
+		final StorageSpork.SporkData parameters = scenario.get1();
+
+		parameters.setManifestCopies(Math.max(2, parameters.getManifestCopies()));
+
+		final StorageFleet fleet = fleet(parameters, random);
+		final StorageService service = fleet.service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
+
+		fleet.forget(new GroupKey(new FingerprintKeys(fingerprint).manifestSeed(0)).groupId());
+		parameters.setManifestCopies(1 + random.nextInt(parameters.getManifestCopies() - 1));
+		assertThat(retrieve(service, fingerprint), equalTo(scenario.get2()));
+	}
+
+	@Property(tries = 40)
+	public void retrievesAfterGridnodesJoin(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final Random random = new Random(seed);
@@ -199,7 +216,7 @@ public class StorageServiceTest {
 
 	@SneakyThrows
 	@Property(tries = 40)
-	public void deletesEveryGroupOfAFile(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void deletesEveryGroupOfAFile(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
@@ -213,7 +230,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 40)
-	public void neverSendsTheFingerprintOrItsKeys(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void neverSendsTheFingerprintOrItsKeys(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
@@ -222,7 +239,7 @@ public class StorageServiceTest {
 		final byte[] secret = Arrays.copyOfRange(decoded, 1, decoded.length);
 		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
 
-		for (byte[] payload : fleet.getTransport().getSent()) {
+		for (final byte[] payload : fleet.getTransport().getSent()) {
 			assertThat(contains(payload, secret), is(false));
 			assertThat(contains(payload, keys.chunkKey()), is(false));
 			assertThat(contains(payload, keys.manifestKey()), is(false));
@@ -233,7 +250,7 @@ public class StorageServiceTest {
 	   own sequence only, and nothing may be placed beyond the groups the layout accounts for */
 	@Property(tries = 40)
 	public void sealsEveryChunkUnderItsOwnSequence(
-		@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed)
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed)
 		throws GeneralSecurityException {
 
 		final StorageSpork.SporkData parameters = scenario.get1();
@@ -272,7 +289,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 30)
-	public void findsNothingForUnknownFingerprints(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario,
+	public void findsNothingForUnknownFingerprints(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
 		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
@@ -283,7 +300,7 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 30)
-	public void rollsBackUploadsThatCannotBePlaced(@ForAll("scenarios") Tuple2<StorageSpork.SporkData, byte[]> scenario) {
+	public void rollsBackUploadsThatCannotBePlaced(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario) {
 		final StorageSpork.SporkData parameters = scenario.get1();
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
 		final int spare = parameters.window() - parameters.layout().guaranteedFragments();

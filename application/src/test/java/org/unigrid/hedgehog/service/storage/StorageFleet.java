@@ -86,8 +86,15 @@ public class StorageFleet {
 		return new TopologyGridnodeDirectory(() -> gridnodes, () -> self);
 	}
 
-	public StorageService service(SecureRandom random) {
+	public StorageService service(final SecureRandom random) {
 		return new StorageService(directory("client"), transport, this::spork, random, Duration.ZERO);
+	}
+
+	@SneakyThrows
+	public void forget(final GroupId groupId) {
+		for (final FragmentStore store : stores.values()) {
+			store.remove(groupId);
+		}
 	}
 
 	public long holdersOf(GroupId groupId) {

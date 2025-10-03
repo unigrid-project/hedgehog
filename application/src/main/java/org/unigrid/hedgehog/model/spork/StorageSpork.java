@@ -36,7 +36,7 @@ public class StorageSpork extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
-		private static final int MAX_MANIFEST_COPIES = 16;
+		public static final int MAX_MANIFEST_COPIES = 16;
 		private static final int MAX_EXTRA_POOL_PERCENT = 90;
 		private static final int PERCENT = 100;
 
