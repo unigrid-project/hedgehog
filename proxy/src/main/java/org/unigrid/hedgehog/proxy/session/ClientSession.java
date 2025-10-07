@@ -19,6 +19,9 @@
 package org.unigrid.hedgehog.proxy.session;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -31,19 +34,24 @@ import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 
 /* The client's side of a session: posts OPEN naming the exit it chose, completes the handshake on that
-   fingerprint's ACCEPT and sends its Connect at once. From then on it relays to and from a Session. */
+   fingerprint's ACCEPT and sends its Connect at once. An OPEN that nobody answers in time is posted again with
+   a new fingerprint towards another exit. From then on it relays to and from a Session. */
 public final class ClientSession {
+	public static final long ACCEPT_TIMEOUT_MILLIS = 5000;
+	public static final int MAX_ATTEMPTS = 3;
+
 	private static final Logger LOG = LoggerFactory.getLogger(ClientSession.class);
 
 	private final SessionContext context;
 	private final ExitSelector exits;
 	private final Connect connect;
+	private final List<String> tried = new ArrayList<>();
 	private Attempt attempt;
 	private Session session;
 	private boolean closed;
 
-	private record Attempt(Fingerprint fingerprint, EphemeralKey key, String exit) {
-		/* One OPEN and the key that answers it, which is null once the attempt has ended */
+	private record Attempt(Fingerprint fingerprint, EphemeralKey key, String exit, long startedAt) {
+		/* One OPEN, when it was posted and the key that answers it, which is null once the attempt has ended */
 	}
 
 	public ClientSession(SessionContext context, ExitSelector exits, Connect connect) {
@@ -58,7 +66,12 @@ public final class ClientSession {
 			throw new IllegalStateException("The session was opened before");
 		}
 
-		return attempt();
+		if (attempt()) {
+			return true;
+		}
+
+		end();
+		return false;
 	}
 
 	public synchronized SessionState state() {
@@ -102,24 +115,56 @@ public final class ClientSession {
 		session.send(message);
 	}
 
+	/* Called on the host's schedule. The OPEN of an attempt that no ACCEPT answered in time is replaced, until
+	   the attempts or the exits are used up and the session is closed as unreachable. */
+	public synchronized Optional<Close> tick() {
+		return isUnanswered() ? retry() : Optional.empty();
+	}
+
+	private boolean isUnanswered() {
+		return state() == SessionState.OPENING && context.now() - attempt.startedAt() >= ACCEPT_TIMEOUT_MILLIS;
+	}
+
+	private Optional<Close> retry() {
+		if (tried.size() < MAX_ATTEMPTS && attempt()) {
+			return Optional.empty();
+		}
+
+		end();
+		return Optional.of(new Close(CloseReason.UNREACHABLE));
+	}
+
 	private boolean attempt() {
 		final byte[] bytes = new byte[Fingerprint.SIZE];
 
 		context.random().nextBytes(bytes);
 
 		final Fingerprint fingerprint = new Fingerprint(bytes);
-		final Optional<String> exit = exits.exit(fingerprint, Set.of());
+		final Optional<String> exit = choose(fingerprint);
 
-		if (exit.isEmpty() || !fits(exit.get())) {
-			closed = true;
+		if (exit.isEmpty()) {
 			return false;
 		}
 
 		final EphemeralKey key = EphemeralKey.generate(context.random());
 
-		attempt = new Attempt(fingerprint, key, exit.get());
+		tried.add(exit.get());
+		attempt = new Attempt(fingerprint, key, exit.get(), context.now());
 		context.post(fingerprint, EntryKind.OPEN, Handshake.open(key, exit.get()));
 		return true;
+	}
+
+	/* The first exit of the fingerprint's rendezvous order that was not tried and whose id fits the OPEN. The
+	   search ends when the selector answers an exit it was told to pass over, as it would be asked for ever. */
+	private Optional<String> choose(Fingerprint fingerprint) {
+		final Set<String> passedOver = new HashSet<>(tried);
+		Optional<String> exit = exits.exit(fingerprint, passedOver);
+
+		while (exit.isPresent() && !fits(exit.get()) && passedOver.add(exit.get())) {
+			exit = exits.exit(fingerprint, passedOver);
+		}
+
+		return exit.filter(this::fits);
 	}
 
 	/* An OPEN that does not fit one entry is refused by every replica of the chain, and the gap it leaves in the
@@ -158,14 +203,22 @@ public final class ClientSession {
 			   quote the ACCEPT. */
 			LOG.warn("Closing a session after an unexpected {} while completing the handshake",
 				ex.getClass().getName());
-			closed = true;
-			forgetKey();
+			end();
 			return Optional.of(new Close(CloseReason.BROKEN));
 		}
 	}
 
-	/* The private key has no use once the handshake is over or given up */
+	/* Every way for the session to close goes through here, so that none can leave the key behind */
+	private void end() {
+		closed = true;
+		forgetKey();
+	}
+
+	/* The private key has no use once the handshake is over or given up, and no attempt exists before the first
+	   OPEN */
 	private void forgetKey() {
-		attempt = new Attempt(attempt.fingerprint(), null, attempt.exit());
+		if (attempt != null) {
+			attempt = new Attempt(attempt.fingerprint(), null, attempt.exit(), attempt.startedAt());
+		}
 	}
 }

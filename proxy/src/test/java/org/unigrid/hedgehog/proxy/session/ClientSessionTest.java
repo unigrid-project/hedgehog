@@ -259,7 +259,7 @@ public class ClientSessionTest {
 	}
 
 	/* The client as writer 1 of the chain, with an outbox and randomness of the test's choosing */
-	private static ClientSession clientOf(SessionWire wire, Consumer<Entry> outbox, SecureRandom random,
+	static ClientSession clientOf(SessionWire wire, Consumer<Entry> outbox, SecureRandom random,
 		ExitSelector selector) {
 
 		return new ClientSession(new SessionContext(new FeedWriter(SessionFixtures.key(1), SessionFixtures.CHAIN),
@@ -272,7 +272,7 @@ public class ClientSessionTest {
 
 	/* Whether the bytes are held by an object that the root reaches through the fields of this project's classes
 	   and of BouncyCastle's */
-	private static boolean holds(Object root, byte[] secret) throws IllegalAccessException {
+	static boolean holds(Object root, byte[] secret) throws IllegalAccessException {
 		final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
 		final Deque<Object> pending = new ArrayDeque<>(List.of(root));
 
