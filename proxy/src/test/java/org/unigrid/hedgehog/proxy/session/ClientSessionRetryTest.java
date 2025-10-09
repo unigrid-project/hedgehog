@@ -585,6 +585,43 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
+	public void shouldForgetThePrivateKeyWhenClosedBeforeAnExitAnswered() throws IllegalAccessException {
+		for (int retries = 0; retries < ClientSession.MAX_ATTEMPTS; retries++) {
+			final SessionWire wire = new SessionWire("gn-z");
+			final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b", "gn-c"));
+
+			client.open();
+
+			for (int retry = 0; retry < retries; retry++) {
+				timeOut(wire);
+				client.tick();
+			}
+
+			assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(retries)), is(true));
+			assertThat(client.close(CloseReason.DONE), equalTo(Optional.of(new Close(CloseReason.DONE))));
+			assertThat(holdsNoKeyOfAnyAttempt(client, ClientSession.MAX_ATTEMPTS), is(true));
+		}
+	}
+
+	@Example
+	public void shouldStopAskingWhenTheSelectorKeepsAnsweringAnExitThatDoesNotFit() {
+		final SessionWire wire = new SessionWire("gn-a");
+		final AtomicInteger asked = new AtomicInteger();
+		final ClientSession client = wire.client((fingerprint, excluded) -> {
+			if (asked.incrementAndGet() > 10) {
+				throw new AssertionError("asked for ever");
+			}
+
+			return Optional.of(TOO_LONG);
+		}, CONNECT);
+
+		assertThat(client.open(), is(false));
+		assertThat(asked.get(), is(2));
+		assertThat(client.state(), is(SessionState.CLOSED));
+		assertThat(wire.posted.isEmpty(), is(true));
+	}
+
+	@Example
 	public void shouldHoldNoPrivateKeyOnceARetriedHandshakeIsDone() throws IllegalAccessException {
 		final SessionWire wire = new SessionWire("gn-b");
 		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b"));

@@ -145,9 +145,19 @@ public final class Session {
 		}
 	}
 
-	/* Ends the session from this side and tells the peer why */
+	/* Ends the session from this side and tells the peer why. The host also calls it with BROKEN for the
+	   fingerprints of a Gap its chain skipped. */
 	public synchronized Optional<Close> close(CloseReason reason) {
 		return open ? Optional.of(end(reason)) : Optional.empty();
+	}
+
+	/* Runs on the host's schedule: a session without traffic either way for sessionIdleSeconds closes */
+	public synchronized Optional<Close> tick() {
+		if (open && context.now() - lastActivity >= context.settings().sessionIdleMillis()) {
+			return Optional.of(end(CloseReason.IDLE));
+		}
+
+		return Optional.empty();
 	}
 
 	private Close end(CloseReason reason) {

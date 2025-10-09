@@ -116,9 +116,29 @@ public final class ClientSession {
 	}
 
 	/* Called on the host's schedule. The OPEN of an attempt that no ACCEPT answered in time is replaced, until
-	   the attempts or the exits are used up and the session is closed as unreachable. */
+	   the attempts or the exits are used up and the session is closed as unreachable. An established session
+	   closes when it has been idle for too long. */
 	public synchronized Optional<Close> tick() {
+		if (session != null) {
+			return session.tick();
+		}
+
 		return isUnanswered() ? retry() : Optional.empty();
+	}
+
+	/* Ends the session from the client's side. Before an exit answered there is nobody to tell, and a late
+	   ACCEPT finds the session closed. */
+	public synchronized Optional<Close> close(CloseReason reason) {
+		if (session != null) {
+			return session.close(reason);
+		}
+
+		if (closed) {
+			return Optional.empty();
+		}
+
+		end();
+		return Optional.of(new Close(reason));
 	}
 
 	private boolean isUnanswered() {

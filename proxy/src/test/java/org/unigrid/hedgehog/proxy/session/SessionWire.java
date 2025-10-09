@@ -23,9 +23,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -39,25 +41,37 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
    exit answers the OPENs that name exitId, keeps one session per fingerprint and collects what it receives. */
 final class SessionWire {
 	final AtomicLong clock = new AtomicLong(SessionFixtures.NOW);
-	final Chain clientChain = new Chain(SessionFixtures.CHAIN, ProxySettings.DEFAULTS.chainLimits(), clock::get);
-	final Chain exitChain = new Chain(SessionFixtures.CHAIN, ProxySettings.DEFAULTS.chainLimits(), clock::get);
+	final ProxySettings settings;
+	final Chain clientChain;
+	final Chain exitChain;
 	final Deque<Entry> posted = new ArrayDeque<>();
-	final SessionContext clientContext = context(1);
-	final SessionContext exitContext = context(2);
+	final SessionContext clientContext;
+	final SessionContext exitContext;
 	final Map<Fingerprint, Session> exits = new HashMap<>();
 	final List<SealedMessage> atClient = new ArrayList<>();
 	final List<SealedMessage> atExit = new ArrayList<>();
+	/* Entries that never reach the exit's replica, as if lost on the way */
+	final Set<Entry> lostAtExit = new HashSet<>();
 	final String exitId;
 	ClientSession client;
 
 	SessionWire(String exitId) {
+		this(exitId, ProxySettings.DEFAULTS);
+	}
+
+	SessionWire(String exitId, ProxySettings settings) {
 		this.exitId = exitId;
+		this.settings = settings;
+		clientChain = new Chain(SessionFixtures.CHAIN, settings.chainLimits(), clock::get);
+		exitChain = new Chain(SessionFixtures.CHAIN, settings.chainLimits(), clock::get);
+		clientContext = context(1);
+		exitContext = context(2);
 	}
 
 	/* Writer number on the chain of this wire, whose entries go out like everyone else's */
 	SessionContext context(int number) {
 		return new SessionContext(new FeedWriter(SessionFixtures.key(number), SessionFixtures.CHAIN), posted::add,
-			clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
+			clock::get, new SecureRandom(), settings);
 	}
 
 	ClientSession client(ExitSelector selector, Connect connect) {
@@ -70,7 +84,10 @@ final class SessionWire {
 			final Entry entry = posted.poll();
 
 			clientChain.offer(entry).appended().forEach(appended -> client.receive(appended).ifPresent(atClient::add));
-			exitChain.offer(entry).appended().forEach(this::atExitSide);
+
+			if (!lostAtExit.remove(entry)) {
+				exitChain.offer(entry).appended().forEach(this::atExitSide);
+			}
 		}
 	}
 
