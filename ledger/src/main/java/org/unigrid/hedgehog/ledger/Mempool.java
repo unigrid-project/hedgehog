@@ -29,8 +29,19 @@ import java.util.Map;
    the chain is alive: blocks only come when they are needed, so a quiet chain makes none for a long while,
    and the heartbeats are how it can still be told from a stalled one. */
 public final class Mempool {
+	public static final int DEFAULT_MAX_PENDING = 10_000;
+
 	private final Map<Object, Transaction> pending = new LinkedHashMap<>();
 	private final Map<AccountKey, Heartbeat> heartbeats = new HashMap<>();
+	private final int maxPending;
+
+	public Mempool() {
+		this(DEFAULT_MAX_PENDING);
+	}
+
+	public Mempool(int maxPending) {
+		this.maxPending = maxPending;
+	}
 
 	/* A slot is what a transaction is about: a mint by its reference, a vote by who votes on whom. A second
 	   one for the same slot has another id but could never be applied after the first. */
@@ -47,15 +58,24 @@ public final class Mempool {
 		return new VoteSlot(vote.voter(), vote.candidate());
 	}
 
+	/* Refuses what is already waiting, what the state refuses, and anything that would pass the limits: the
+	   mempool as a whole, and each validator's waiting votes, which count as much as cast ones do */
 	public synchronized boolean admit(Transaction transaction, LedgerState state) {
 		final Object slot = slotOf(transaction);
 
-		if (pending.containsKey(slot) || state.rejectionOf(transaction).isPresent()) {
+		if (pending.containsKey(slot) || pending.size() >= maxPending || exceedsVoteLimit(transaction)
+			|| state.rejectionOf(transaction).isPresent()) {
 			return false;
 		}
 
 		pending.put(slot, transaction);
 		return true;
+	}
+
+	private boolean exceedsVoteLimit(Transaction transaction) {
+		return transaction instanceof Vote vote && pending.values().stream()
+			.filter(waiting -> waiting instanceof Vote other && other.voter().equals(vote.voter())).count()
+			>= LedgerState.MAX_VOTES_PER_VALIDATOR;
 	}
 
 	/* Oldest first, and left in place: they leave when a block that holds them is committed */

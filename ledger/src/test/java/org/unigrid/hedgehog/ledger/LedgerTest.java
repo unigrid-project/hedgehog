@@ -269,13 +269,19 @@ public class LedgerTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
-			for (int i = 0; i < LedgerState.MAX_VOTES_PER_VALIDATOR + 5; i++) {
+			for (int i = 0; i < 40; i++) {
 				assertThat(ledger.submit(voteAdd(ledger, 1, seed(300 + i), 0)), equalTo(Optional.empty()));
 			}
 
-			final Block block = seal(ledger, FOUNDATION, 2000);
+			seal(ledger, FOUNDATION, 2000);
 
-			assertThat(block.getTransactions().size(), equalTo(LedgerState.MAX_VOTES_PER_VALIDATOR));
+			for (int i = 40; i < 70; i++) {
+				assertThat(ledger.submit(voteAdd(ledger, 1, seed(300 + i), 0)), equalTo(Optional.empty()));
+			}
+
+			final Block block = seal(ledger, FOUNDATION, 2001);
+
+			assertThat(block.getTransactions().size(), equalTo(LedgerState.MAX_VOTES_PER_VALIDATOR - 40));
 			assertThat(ledger.pending(), equalTo(0));
 		}
 	}

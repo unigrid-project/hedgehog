@@ -74,6 +74,37 @@ public class MempoolTest {
 		assertThat(mempool.size(), equalTo(3));
 	}
 
+	/* Waiting votes count against a validator like cast ones, or a validator could fill the mempool with them */
+	@Example
+	public void shouldHoldNoMoreVotesFromOneValidatorThanARoundAllows() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+
+		for (int i = 0; i < LedgerState.MAX_VOTES_PER_VALIDATOR; i++) {
+			assertThat(mempool.admit(vote(state, 1, 300 + i, Vote.Action.ADD), state), is(true));
+		}
+
+		assertThat(mempool.admit(vote(state, 1, 999, Vote.Action.ADD), state), is(false));
+		assertThat(mempool.admit(vote(state, 2, 999, Vote.Action.ADD), state), is(true));
+	}
+
+	@Example
+	public void shouldRefuseWhatDoesNotFitWhenFullAndTakeMoreOnceThereIsRoom() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool(3);
+
+		assertThat(mempool.admit(mint(1, 5), state), is(true));
+		assertThat(mempool.admit(mint(2, 5), state), is(true));
+		assertThat(mempool.admit(mint(3, 5), state), is(true));
+		assertThat(mempool.admit(mint(4, 5), state), is(false));
+
+		final Block block = block(state, FOUNDATION, List.of(mint(1, 5)));
+
+		state.apply(block);
+		mempool.removeCommitted(block, state);
+		assertThat(mempool.admit(mint(4, 5), state), is(true));
+	}
+
 	@Example
 	public void shouldRefuseWhatTheStateRefuses() {
 		final Mempool mempool = new Mempool();
