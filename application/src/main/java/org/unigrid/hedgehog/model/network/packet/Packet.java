@@ -48,7 +48,8 @@ public class Packet {
 		GRIDNODE((short) 2030),
 		STORE_FRAGMENT((short) 3000), FETCH_FRAGMENT((short) 3010), FRAGMENT_REPLY((short) 3020),
 		HAS_FRAGMENT((short) 3030), FRAGMENT_STATUS((short) 3040), DELETE_GROUP((short) 3050),
-		STORAGE_ACK((short) 3060);
+		STORAGE_ACK((short) 3060),
+		JOIN_CHAIN((short) 4000), JOIN_REPLY((short) 4010);
 
 		private static final Map<Short, Type> BY_VALUE = Arrays.stream(values())
 			.collect(Collectors.toMap(Type::getValue, type -> type));
