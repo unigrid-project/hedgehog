@@ -25,6 +25,7 @@ import java.nio.BufferUnderflowException;
 import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
@@ -133,35 +134,37 @@ public final class Retrieval {
 		final int total = dataChunks + layout.parityChunksIn(stripe);
 		final byte[][] chunks = new byte[total][];
 		final boolean[] present = new boolean[total];
-		final int foundData = fetchRange(stripe, 0, dataChunks, chunks, present);
+		fetchRange(stripe, 0, dataChunks, chunks, present);
 
-		if (foundData == dataChunks) {
+		if (countOf(present) == dataChunks) {
 			return chunks;
 		}
 
-		if (foundData + fetchRange(stripe, dataChunks, total, chunks, present) < dataChunks) {
+		fetchRange(stripe, dataChunks, total, chunks, present);
+
+		if (countOf(present) < dataChunks) {
 			throw new DataLossException(stripe);
 		}
 
 		return new ReedSolomon(dataChunks, total - dataChunks).decode(chunks, present);
 	}
 
-	private int fetchRange(final int stripe, final int from, final int to, final byte[][] chunks,
+	/* Stops as soon as the stripe has enough chunks, so parity groups are only fetched while still needed */
+	private void fetchRange(final int stripe, final int from, final int to, final byte[][] chunks,
 		final boolean[] present) {
 
-		int found = 0;
-
-		for (int index = from; index < to; index++) {
+		for (int index = from; index < to && countOf(present) < layout.dataChunksIn(stripe); index++) {
 			final Optional<byte[]> chunk = chunk(new GroupKey(keys.chunkSeed(stripe, index)).groupId());
 
 			if (chunk.isPresent()) {
 				chunks[index] = chunk.get();
 				present[index] = true;
-				found++;
 			}
 		}
+	}
 
-		return found;
+	private static int countOf(final boolean[] present) {
+		return (int) IntStream.range(0, present.length).filter(i -> present[i]).count();
 	}
 
 	/* Only the owner can sign a group, yet a group sealed twice or with another layout must still count as missing
