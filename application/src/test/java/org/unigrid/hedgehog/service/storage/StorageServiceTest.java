@@ -53,12 +53,14 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
 import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.Manifest;
 import org.unigrid.hedgehog.model.storage.StorageLayout;
 import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
 import org.unigrid.hedgehog.model.storage.crypto.FingerprintKeys;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
+import org.unigrid.hedgehog.model.storage.placement.Placement;
 
 public class StorageServiceTest {
 	@Provide
@@ -194,6 +196,53 @@ public class StorageServiceTest {
 		fleet.forget(new GroupKey(new FingerprintKeys(fingerprint).manifestSeed(0)).groupId());
 		parameters.setManifestCopies(1 + random.nextInt(parameters.getManifestCopies() - 1));
 		assertThat(retrieve(service, fingerprint), equalTo(scenario.get2()));
+	}
+
+	/* Only the owner can sign a second seal of a group, but mixing it with the first must still read as a missing
+	   chunk that outer parity replaces, never as an unchecked failure */
+	@Property(tries = 40)
+	public void treatsMixedSealsOfAGroupAsMissing(
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
+
+		final Random random = new Random(seed);
+		final StorageSpork.SporkData parameters = scenario.get1();
+		final StorageFleet fleet = fleet(parameters, random);
+		final StorageService service = fleet.service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
+		final GroupKey key = new GroupKey(new FingerprintKeys(fingerprint).chunkSeed(0, 0));
+		final List<Gridnode> ranked = Placement.rank(key.groupId(), fleet.getGridnodes());
+
+		fleet.replace(key.groupId(), ChunkGroups.seal(bytes(random, parameters.getChunkSize()), key,
+			fingerprint.format(), parameters.layout()), gridnode -> ranked.indexOf(gridnode) % 2 == 1);
+
+		if (StorageLayout.of(parameters.layout(), scenario.get2().length).parityChunksIn(0) > 0) {
+			assertThat(retrieve(service, fingerprint), equalTo(scenario.get2()));
+		} else {
+			assertThrows(DataLossException.class, () -> service.retrieve(fingerprint, new ByteArrayOutputStream()));
+		}
+	}
+
+	@SneakyThrows
+	@Property(tries = 30)
+	public void findsNothingBehindManifestsNoLayoutCanAddress(
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
+
+		final StorageSpork.SporkData parameters = scenario.get1();
+		final StorageFleet fleet = fleet(parameters, new Random(seed));
+		final StorageService service = fleet.service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
+		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
+		final byte[] manifest = Arrays.copyOf(new Manifest(keys.format(), Long.MAX_VALUE,
+			parameters.getManifestCopies(), parameters.layout()).encode(), parameters.layout().payloadSize());
+
+		for (int copy = 0; copy < parameters.getManifestCopies(); copy++) {
+			final GroupKey key = new GroupKey(keys.manifestSeed(copy));
+
+			fleet.replace(key.groupId(), ChunkGroups.seal(ChunkCipher.forManifest(keys).seal(copy, manifest), key,
+				keys.format(), parameters.layout()), gridnode -> true);
+		}
+
+		assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint));
 	}
 
 	@Property(tries = 40)

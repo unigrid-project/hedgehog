@@ -164,13 +164,25 @@ public final class Retrieval {
 		return found;
 	}
 
+	/* Only the owner can sign a group, yet a group sealed twice or with another layout must still count as missing
+	   rather than break the stripe it belongs to */
 	private Optional<byte[]> chunk(final GroupId groupId) {
 		final List<Fragment> fragments = fetcher.fetch(groupId, Placement.window(groupId, gridnodes, window),
 			manifest.getLayout().dataFragments(), keys.format());
 
-		return GroupFetcher.isComplete(fragments) ? Optional.of(ChunkGroups.open(fragments)) : Optional.empty();
+		if (!GroupFetcher.isComplete(fragments)) {
+			return Optional.empty();
+		}
+
+		try {
+			return Optional.of(ChunkGroups.open(fragments))
+				.filter(chunk -> chunk.length == manifest.getLayout().getChunkSize());
+		} catch (IllegalArgumentException ex) {
+			return Optional.empty();
+		}
 	}
 
+	/* A manifest that decrypts yet describes a file no layout can address counts as unreadable, like a lost copy */
 	private static Optional<Manifest> readManifest(final ChunkCipher cipher, final int copy,
 		final List<Fragment> fragments) {
 
@@ -179,7 +191,10 @@ public final class Retrieval {
 		}
 
 		try {
-			return Optional.of(Manifest.decode(cipher.open(copy, ChunkGroups.open(fragments))));
+			final Manifest manifest = Manifest.decode(cipher.open(copy, ChunkGroups.open(fragments)));
+
+			StorageLayout.of(manifest.getLayout(), manifest.getFileSize());
+			return Optional.of(manifest);
 		} catch (GeneralSecurityException | IllegalArgumentException | BufferUnderflowException ex) {
 			return Optional.empty();
 		}

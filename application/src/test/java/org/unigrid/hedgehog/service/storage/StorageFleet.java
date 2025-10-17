@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.Getter;
@@ -36,6 +37,7 @@ import lombok.Setter;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.TestClock;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
@@ -94,6 +96,20 @@ public class StorageFleet {
 	public void forget(final GroupId groupId) {
 		for (final FragmentStore store : stores.values()) {
 			store.remove(groupId);
+		}
+	}
+
+	/* Swaps the fragment a chosen holder keeps for the one at the same index of another seal of the group */
+	@SneakyThrows
+	public void replace(final GroupId groupId, final List<Fragment> sealed, final Predicate<Gridnode> chosen) {
+		for (final Gridnode gridnode : gridnodes.stream().filter(chosen).collect(Collectors.toList())) {
+			final FragmentStore store = stores.get(gridnode.getId());
+			final Optional<FragmentStore.Holding> holding = store.holding(groupId);
+
+			if (holding.isPresent()) {
+				store.remove(groupId);
+				new FragmentKeeper(store, this::spork).store(sealed.get(holding.get().getIndex()).encode());
+			}
 		}
 	}
 
