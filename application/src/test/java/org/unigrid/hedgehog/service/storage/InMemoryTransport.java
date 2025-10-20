@@ -19,6 +19,7 @@
 
 package org.unigrid.hedgehog.service.storage;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,11 +81,13 @@ public class InMemoryTransport implements FragmentTransport {
 	@Override
 	public CompletableFuture<FragmentReply> fetch(Gridnode target, GroupId groupId) {
 		fetches.incrementAndGet();
+		sent.add(groupId.bytes());
 		return call(target, keeper -> reply(target, keeper.fetch(groupId)));
 	}
 
 	@Override
 	public CompletableFuture<FragmentStatus> has(Gridnode target, List<GroupId> groupIds) {
+		groupIds.forEach(groupId -> sent.add(groupId.bytes()));
 		return call(target, keeper -> FragmentStatus.builder().entries(keeper.census(groupIds)).build());
 	}
 
@@ -92,6 +95,8 @@ public class InMemoryTransport implements FragmentTransport {
 	public CompletableFuture<StorageAck> delete(Gridnode target, GroupId groupId, byte[] publicKey, long timestamp,
 		byte[] signature) {
 
+		sent.add(ByteBuffer.allocate(GroupId.SIZE + publicKey.length + Long.BYTES + signature.length)
+			.put(groupId.bytes()).put(publicKey).putLong(timestamp).put(signature).array());
 		return call(target, keeper -> StorageAck.builder()
 			.status(keeper.delete(groupId, publicKey, timestamp, signature)).build());
 	}

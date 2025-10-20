@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -279,19 +280,35 @@ public class StorageServiceTest {
 	}
 
 	@Property(tries = 40)
-	public void neverSendsTheFingerprintOrItsKeys(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
-		@ForAll final long seed) {
+	public void neverSendsTheFingerprintOrAnythingDerivedFromIt(
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed)
+		throws StorageException {
 
-		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
-		final Fingerprint fingerprint = store(fleet.service(new SecureRandom()), scenario.get2());
-		final byte[] decoded = Base58.decodeChecked(fingerprint.encode());
-		final byte[] secret = Arrays.copyOfRange(decoded, 1, decoded.length);
+		final StorageSpork.SporkData parameters = scenario.get1();
+		final StorageFleet fleet = fleet(parameters, new Random(seed));
+		final StorageService service = fleet.service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
 		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
+		final byte[] decoded = Base58.decodeChecked(fingerprint.encode());
+		final Set<ByteBuffer> secrets = new HashSet<>(List.of(ByteBuffer.wrap(decoded, 1, Fingerprint.SECRET_SIZE).slice(),
+			ByteBuffer.wrap(keys.chunkKey()), ByteBuffer.wrap(keys.manifestKey())));
+		final StorageLayout layout = StorageLayout.of(parameters.layout(), scenario.get2().length);
+
+		for (int stripe = 0; stripe < layout.stripes(); stripe++) {
+			for (int index = 0; index < layout.dataChunksIn(stripe) + layout.parityChunksIn(stripe); index++) {
+				secrets.add(ByteBuffer.wrap(keys.chunkSeed(stripe, index)));
+			}
+		}
+
+		for (int copy = 0; copy < parameters.getManifestCopies(); copy++) {
+			secrets.add(ByteBuffer.wrap(keys.manifestSeed(copy)));
+		}
+
+		assertThat(retrieve(service, fingerprint), equalTo(scenario.get2()));
+		service.delete(fingerprint);
 
 		for (final byte[] payload : fleet.getTransport().getSent()) {
-			assertThat(contains(payload, secret), is(false));
-			assertThat(contains(payload, keys.chunkKey()), is(false));
-			assertThat(contains(payload, keys.manifestKey()), is(false));
+			assertThat(leaksAny(payload, secrets), is(false));
 		}
 	}
 
@@ -383,13 +400,9 @@ public class StorageServiceTest {
 		return Arrays.copyOf(Arrays.copyOfRange(file, from, Math.min(file.length, from + payload)), payload);
 	}
 
-	private static boolean contains(final byte[] haystack, final byte[] needle) {
-		for (int i = 0; i + needle.length <= haystack.length; i++) {
-			if (Arrays.equals(haystack, i, i + needle.length, needle, 0, needle.length)) {
-				return true;
-			}
-		}
-
-		return false;
+	/* The secret, keys and seeds are all one size, so every window of that size is looked up once */
+	private static boolean leaksAny(final byte[] payload, final Set<ByteBuffer> secrets) {
+		return IntStream.rangeClosed(0, payload.length - FingerprintKeys.KEY_SIZE)
+			.anyMatch(i -> secrets.contains(ByteBuffer.wrap(payload, i, FingerprintKeys.KEY_SIZE)));
 	}
 }
