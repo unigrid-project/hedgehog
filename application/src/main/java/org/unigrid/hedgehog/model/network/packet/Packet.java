@@ -50,7 +50,7 @@ public class Packet {
 		HAS_FRAGMENT((short) 3030), FRAGMENT_STATUS((short) 3040), DELETE_GROUP((short) 3050),
 		STORAGE_ACK((short) 3060),
 		JOIN_CHAIN((short) 4000), JOIN_REPLY((short) 4010), CHAIN_ENTRY((short) 4020), CHAIN_HEADS((short) 4030),
-		FETCH_ENTRIES((short) 4040);
+		FETCH_ENTRIES((short) 4040), ENTRY_REFUSED((short) 4050);
 
 		private static final Map<Short, Type> BY_VALUE = Arrays.stream(values())
 			.collect(Collectors.toMap(Type::getValue, type -> type));
