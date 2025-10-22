@@ -112,6 +112,31 @@ public class LedgerStateTest {
 		assertThat(state.rejectionOf(mint(2, 5)).isPresent(), is(true));
 	}
 
+	/* More than 2/3 of the validators signed it after asking the authority, so a node whose authority does not
+	   know the mint yet, or no longer does, takes the block all the same instead of disagreeing with its peers */
+	@Example
+	public void shouldTakeACertifiedBlockWhateverTheLocalAuthoritySays() {
+		final LedgerState signer = soloState(ANY_MINT);
+		final Block certified = soloBlock(signer, mint(1, 500));
+		final LedgerState follower = soloState(NO_MINT);
+
+		follower.apply(certified);
+
+		assertThat(follower.balanceOf(account(1)), equalTo(500L));
+		assertThat(follower.stateRoot(), equalTo(signer.rootAfter(1, List.of(mint(1, 500)))));
+	}
+
+	/* A validator still asks the authority before it signs, and a proposer before it proposes */
+	@Example
+	public void shouldStillAskTheAuthorityBeforeSigning() {
+		final LedgerState signer = soloState(ANY_MINT);
+		final Block proposal = soloBlock(signer, mint(1, 500));
+		final LedgerState cautious = soloState(NO_MINT);
+
+		assertThat(reasonOf(cautious.proposalRejection(proposal)), containsString("not authorized"));
+		assertThat(signer.proposalRejection(proposal).isPresent(), is(false));
+	}
+
 	@Example
 	public void shouldNeverLetABalanceWrap() {
 		final LedgerState state = soloState(ANY_MINT);

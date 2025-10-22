@@ -53,6 +53,11 @@ public final class LedgerState {
 	private byte[] tipHash;
 	private long tipTime;
 
+	/* Set only on the scratch copy a certified block is checked against. More than 2/3 of the validators signed
+	   that block after asking their authorities, so this node's own authority, which may not know the mint yet
+	   or any longer, is not asked again and cannot make it disagree with the others. */
+	private boolean vouched;
+
 	public LedgerState(LedgerGenesis genesis, MintAuthority authority) {
 		this.genesis = genesis;
 		this.authority = authority;
@@ -286,14 +291,16 @@ public final class LedgerState {
 			return Optional.of("Balance would overflow");
 		}
 
-		return authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
+		return vouched || authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
 	}
 
 	/* Applies the block to next, which the caller owns, so the state it was called on is never touched. The
 	   cheap checks come first and the signature checks last. */
 	private Optional<String> rejectionOf(Block block, LedgerState next) {
+		next.vouched = true;
+
 		final Optional<String> rejection = headerRejection(block).or(() -> certificateRejection(block))
-			.or(() -> next.applyTransactions(block));
+			.or(() -> signaturesRejection(block)).or(() -> next.applyTransactions(block));
 
 		if (rejection.isPresent()) {
 			return rejection;
@@ -301,7 +308,7 @@ public final class LedgerState {
 
 		next.finishBlock(block.getHeight());
 
-		final Optional<String> sealed = next.rootRejection(block).or(() -> signaturesRejection(block));
+		final Optional<String> sealed = next.rootRejection(block);
 
 		if (sealed.isEmpty()) {
 			next.tipHash = block.hash();
