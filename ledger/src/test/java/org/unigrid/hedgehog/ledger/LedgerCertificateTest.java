@@ -131,6 +131,22 @@ public class LedgerCertificateTest {
 			containsString("signature"));
 	}
 
+	/* Anyone can send a block, so the cheap proof that validators signed it comes before the work its
+	   transactions cost; here the block also holds a transaction that is wrong, and the signatures are what is named */
+	@Example
+	public void shouldCheckTheSignaturesBeforeLookingAtTheTransactions() {
+		final LedgerState state = state(1000, ANY_MINT, THREE);
+
+		state.apply(certified(state, THREE, 3));
+
+		final List<Transaction> reused = List.of(new Mint(account(2), 9, reference(1)));
+		final Block other = block(state, THREE, 3, state.tipTime(), List.of(mint(2, 9)));
+		final Block forged = other.toBuilder().transactions(reused).transactionRoot(Block.transactionRootOf(reused))
+			.build();
+
+		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+	}
+
 	@Example
 	public void shouldLeaveTheStateAloneWhenTheCertificateIsRefused() {
 		final LedgerState state = state(1000, ANY_MINT, THREE);
