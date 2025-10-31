@@ -34,7 +34,9 @@ import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
 import org.unigrid.hedgehog.model.storage.crypto.FingerprintKeys;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 
-/* Every operation waits on replies that arrive on the Netty event loops, so calling one from a loop deadlocks */
+/* Every operation waits on replies that arrive on the Netty event loops, so calling one from a loop deadlocks.
+   A delete returns even when some gridnodes never acknowledged it: tombstones spread through repair and reach
+   them later, so waiting for every holder would only let one silent gridnode block the caller. */
 @RequiredArgsConstructor
 public class StorageService {
 	private final GridnodeDirectory directory;
