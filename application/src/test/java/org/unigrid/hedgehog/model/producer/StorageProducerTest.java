@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.model.producer;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
@@ -28,6 +29,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.Size;
 import net.jqwik.api.statistics.Statistics;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -39,7 +41,10 @@ import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
 import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.service.storage.InMemoryTransport;
+import org.unigrid.hedgehog.service.storage.StorageArbitraries;
 import org.unigrid.hedgehog.service.storage.StorageDisabledException;
+import org.unigrid.hedgehog.service.storage.StorageFleet;
+import org.unigrid.hedgehog.service.storage.StorageService;
 
 public class StorageProducerTest {
 	@SneakyThrows
@@ -60,7 +65,7 @@ public class StorageProducerTest {
 	}
 
 	@Property
-	public void exposesOnlyValidStorageSporks(@ForAll("sporkData") SporkData data) {
+	public void exposesOnlyValidStorageSporks(@ForAll("sporkData") final SporkData data) {
 		final StorageSpork spork = new StorageSpork();
 		final boolean valid = StorageSporkTest.accepts(data);
 
@@ -87,5 +92,28 @@ public class StorageProducerTest {
 		assertThrows(StorageDisabledException.class, () -> producer.storageService(
 			new TopologyGridnodeDirectory(List::of, () -> "self"), new InMemoryTransport())
 			.store(new ByteArrayInputStream(new byte[1])));
+	}
+
+	@Provide
+	public Arbitrary<SporkData> storageParameters() {
+		return StorageArbitraries.parameters();
+	}
+
+	@SneakyThrows
+	@Property(tries = 10)
+	public void producesAStorageServiceThatStoresAndRetrieves(@ForAll("storageParameters") final SporkData parameters,
+		@ForAll @Size(max = 256) final byte[] file) {
+
+		final StorageSpork spork = new StorageSpork();
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+		final ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+		spork.setData(parameters);
+
+		final StorageService service = producerOf(SporkDatabase.builder().storageSpork(spork).build())
+			.storageService(fleet.directory("client"), fleet.getTransport());
+
+		service.retrieve(service.store(new ByteArrayInputStream(file)), output);
+		assertThat(output.toByteArray(), equalTo(file));
 	}
 }
