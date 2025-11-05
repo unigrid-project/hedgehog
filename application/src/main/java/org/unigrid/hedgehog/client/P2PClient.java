@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.ChainPipeline;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -124,6 +125,7 @@ public class P2PClient extends ConnectionContainer {
 				));
 
 				handlers.addAll(StoragePipeline.handlers());
+				handlers.addAll(ChainPipeline.handlers());
 				return handlers;
 			}, () -> {
 				return Arrays.asList(

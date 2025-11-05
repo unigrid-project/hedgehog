@@ -44,6 +44,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.ChainPipeline;
 import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -114,6 +115,7 @@ public class P2PServer extends AbstractServer {
 				));
 
 				handlers.addAll(StoragePipeline.handlers());
+				handlers.addAll(ChainPipeline.handlers());
 				return handlers;
 			}, () -> {
 				return Arrays.asList(
