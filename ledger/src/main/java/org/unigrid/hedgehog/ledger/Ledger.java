@@ -57,9 +57,16 @@ public final class Ledger implements LedgerApplication {
 	@Override
 	public synchronized Optional<Block> propose(byte[] proposerSeed, long time) {
 		final long height = state.height() + 1;
+		final AccountKey proposer = Ed25519.publicKey(proposerSeed);
 
-		if (!state.validators().proposerAt(height).equals(Ed25519.publicKey(proposerSeed))) {
+		if (!state.validators().proposerAt(height).equals(proposer)) {
 			return Optional.empty();
+		}
+
+		final Promise earlier = promises.get(proposer);
+
+		if (earlier != null && earlier.height() == height) {
+			return Optional.ofNullable(earlier.proposal());
 		}
 
 		final List<Transaction> transactions = state.applicable(mempool.take(Block.MAX_TRANSACTIONS));
@@ -73,8 +80,10 @@ public final class Ledger implements LedgerApplication {
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
 			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of()).build();
 
-		promiseNoOtherBlock(block.getProposer(), block);
-		return Optional.of(block.endorsedBy(proposerSeed));
+		final Block proposal = block.endorsedBy(proposerSeed);
+
+		promises.put(proposer, new Promise(height, block.hash(), proposal));
+		return Optional.of(proposal);
 	}
 
 	/* A signature promises that the block is right and that this validator signed no other block at its
@@ -104,10 +113,14 @@ public final class Ledger implements LedgerApplication {
 				+ block.getHeight());
 		}
 
-		promises.put(signer, new Promise(block.getHeight(), block.hash()));
+		if (earlier == null || earlier.height() != block.getHeight()) {
+			promises.put(signer, new Promise(block.getHeight(), block.hash(), null));
+		}
 	}
 
-	private record Promise(long height, byte[] hash) {
+	/* What a validator has put its name to at a height. A proposer keeps the block it proposed, to hand it
+	   back if asked again, since a second, different block at that height would be a double signature. */
+	private record Promise(long height, byte[] hash, Block proposal) {
 	}
 
 	@Override
