@@ -264,6 +264,39 @@ public class LedgerTest {
 		}
 	}
 
+	/* Its authority may not have loaded yet when a node starts; the blocks it logged are certified and stand */
+	@Example
+	public void shouldRestoreFromTheLogWhateverTheAuthoritySaysNow() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger first = open(fileSystem);
+
+			first.submit(mint(1, 500));
+			seal(first, FOUNDATION, 2000);
+
+			final Ledger restarted = open(fileSystem, 1000, NO_MINT);
+
+			assertThat(restarted.height(), equalTo(1L));
+			assertThat(restarted.balanceOf(account(1)), equalTo(500L));
+		}
+	}
+
+	/* The proposer has put its name to one block at this height; asked again it hands that block back, and a
+	   transaction that arrived in between goes into the next one */
+	@Example
+	public void shouldHandTheSameBlockBackWhenAskedToProposeAgainAtOneHeight() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			final Optional<Block> first = ledger.propose(seed(1), 2000);
+
+			ledger.submit(mint(2, 500));
+
+			assertThat(ledger.propose(seed(1), 2001), equalTo(first));
+		}
+	}
+
 	@Example
 	public void shouldKeepOnlyWhatFitsInTheBlockItProposes() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
