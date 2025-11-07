@@ -25,6 +25,10 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Cleanup;
@@ -40,6 +44,22 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 @AllArgsConstructor
 public class SporkDatabase implements Serializable {
 	public static final String SPORK_DB_FILE = "spork.db";
+
+	private static final Map<Type, Function<SporkDatabase, GridSpork>> GETTERS = Map.of(
+		Type.MINT_STORAGE, SporkDatabase::getMintStorage,
+		Type.MINT_SUPPLY, SporkDatabase::getMintSupply,
+		Type.VESTING_STORAGE, SporkDatabase::getVestingStorage,
+		Type.STORAGE, SporkDatabase::getStorageSpork,
+		Type.STATISTICS_PUBKEY, SporkDatabase::getStatisticsPubKey
+	);
+
+	private static final Map<Type, BiConsumer<SporkDatabase, GridSpork>> SETTERS = Map.of(
+		Type.MINT_STORAGE, (db, spork) -> db.setMintStorage((MintStorage) spork),
+		Type.MINT_SUPPLY, (db, spork) -> db.setMintSupply((MintSupply) spork),
+		Type.VESTING_STORAGE, (db, spork) -> db.setVestingStorage((VestingStorage) spork),
+		Type.STORAGE, (db, spork) -> db.setStorageSpork((StorageSpork) spork),
+		Type.STATISTICS_PUBKEY, (db, spork) -> db.setStatisticsPubKey((StatisticsPubKey) spork)
+	);
 
 	private MintStorage mintStorage;
 	private MintSupply mintSupply;
@@ -62,40 +82,14 @@ public class SporkDatabase implements Serializable {
 	}
 
 	public GridSpork get(Type gridSporkType) {
-		switch (gridSporkType) {
-			case MINT_STORAGE: return mintStorage;
-			case MINT_SUPPLY: return mintSupply;
-			case VESTING_STORAGE: return vestingStorage;
-			case STORAGE: return storageSpork;
-			case STATISTICS_PUBKEY: return statisticsPubKey;
-			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
-		}
+		return accessor(GETTERS, gridSporkType, "Unsupported spork type requested from database").apply(this);
 	}
 
 	public void set(GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				mintStorage = (MintStorage) gridSpork;
-				break;
+		accessor(SETTERS, gridSpork.getType(), "Unsupported spork type sent to database").accept(this, gridSpork);
+	}
 
-			case MINT_SUPPLY:
-				mintSupply = (MintSupply) gridSpork;
-				break;
-
-			case VESTING_STORAGE:
-				vestingStorage = (VestingStorage) gridSpork;
-				break;
-
-			case STORAGE:
-				storageSpork = (StorageSpork) gridSpork;
-				break;
-
-			case STATISTICS_PUBKEY:
-				statisticsPubKey = (StatisticsPubKey) gridSpork;
-				break;
-
-			default:
-				throw new IllegalArgumentException("Unsupported spork type sent to database");
-		}
+	private static <A> A accessor(Map<Type, A> accessors, Type type, String unsupported) {
+		return Optional.ofNullable(accessors.get(type)).orElseThrow(() -> new IllegalArgumentException(unsupported));
 	}
 }
