@@ -50,6 +50,7 @@ public class SporkDatabase implements Serializable {
 		Type.MINT_SUPPLY, SporkDatabase::getMintSupply,
 		Type.VESTING_STORAGE, SporkDatabase::getVestingStorage,
 		Type.STORAGE, SporkDatabase::getStorageSpork,
+		Type.COMMUNICATION, SporkDatabase::getCommunicationSpork,
 		Type.STATISTICS_PUBKEY, SporkDatabase::getStatisticsPubKey
 	);
 
@@ -58,6 +59,7 @@ public class SporkDatabase implements Serializable {
 		Type.MINT_SUPPLY, (db, spork) -> db.setMintSupply((MintSupply) spork),
 		Type.VESTING_STORAGE, (db, spork) -> db.setVestingStorage((VestingStorage) spork),
 		Type.STORAGE, (db, spork) -> db.setStorageSpork((StorageSpork) spork),
+		Type.COMMUNICATION, (db, spork) -> db.setCommunicationSpork((CommunicationSpork) spork),
 		Type.STATISTICS_PUBKEY, (db, spork) -> db.setStatisticsPubKey((StatisticsPubKey) spork)
 	);
 
@@ -65,6 +67,7 @@ public class SporkDatabase implements Serializable {
 	private MintSupply mintSupply;
 	private VestingStorage vestingStorage;
 	private StorageSpork storageSpork;
+	private CommunicationSpork communicationSpork;
 
 	private StatisticsPubKey statisticsPubKey;
 

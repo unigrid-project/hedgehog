@@ -78,7 +78,8 @@ public class GridSpork implements Serializable, Signable {
 	public enum Type {
 		UNDEFINED((short) 0, null), MINT_STORAGE((short) 1000, MintStorage::new),
 		MINT_SUPPLY((short) 1010, MintSupply::new), VESTING_STORAGE((short) 1020, VestingStorage::new),
-		STORAGE((short) 1030, StorageSpork::new), STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
+		STORAGE((short) 1030, StorageSpork::new), COMMUNICATION((short) 1040, CommunicationSpork::new),
+		STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
 
 		private static final Map<Short, Type> BY_VALUE = Arrays.stream(values())
 			.collect(Collectors.toMap(Type::getValue, type -> type));
