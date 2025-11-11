@@ -27,6 +27,9 @@ import org.unigrid.hedgehog.command.cli.NodeAdd;
 import org.unigrid.hedgehog.command.cli.NodeList;
 import org.unigrid.hedgehog.command.cli.NodeRemove;
 import org.unigrid.hedgehog.command.cli.Stop;
+import org.unigrid.hedgehog.command.cli.StorageDelete;
+import org.unigrid.hedgehog.command.cli.StorageGet;
+import org.unigrid.hedgehog.command.cli.StoragePut;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import picocli.CommandLine.Command;
@@ -34,6 +37,7 @@ import picocli.CommandLine.Mixin;
 
 @Command(name = "cli", subcommands = { GridSporkGet.class, GridSporkGrow.class, GridSporkSet.class, GridSporkList.class,
 	NodeAdd.class, NodeRemove.class, NodeList.class,
+	StoragePut.class, StorageGet.class, StorageDelete.class,
 	Stop.class
 })
 public class CLI {

@@ -112,6 +112,28 @@ public class RestClient implements AutoCloseable {
 		return response;
 	}
 
+	public Response getWithHeaders(String location, MultivaluedMap<String, Object> headers)
+		throws ResponseOddityException {
+
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.headers(headers)
+			.get();
+
+		throwResponseOddity(response);
+		return response;
+	}
+
+	public Response deleteWithHeaders(String location, MultivaluedMap<String, Object> headers)
+		throws ResponseOddityException {
+
+		final Response response = client.target(String.format(baseUrl, location)).request()
+			.headers(headers)
+			.delete();
+
+		throwResponseOddity(response);
+		return response;
+	}
+
 	@Override
 	public void close() {
 		client.close();

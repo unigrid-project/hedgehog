@@ -50,7 +50,8 @@ public class RestClientCommand implements Runnable {
 
 	private class MethodCallback {
 		private void get(RestClient rest) throws ResponseOddityException {
-			final Response response = rest.get(getLocation());
+			final Response response = headers.isPresent()
+				? rest.getWithHeaders(getLocation(), headers.get()) : rest.get(getLocation());
 
 			if (Status.fromStatusCode(response.getStatus()) == Status.NO_CONTENT) {
 				defaultSupplier.ifPresentOrElse(s -> {
@@ -64,7 +65,8 @@ public class RestClientCommand implements Runnable {
 		}
 
 		private void delete(RestClient rest) throws ResponseOddityException {
-			execute(rest.delete(getLocation()));
+			execute(headers.isPresent()
+				? rest.deleteWithHeaders(getLocation(), headers.get()) : rest.delete(getLocation()));
 		}
 
 		private void post(RestClient rest) throws ResponseOddityException {
