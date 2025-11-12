@@ -20,19 +20,119 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.function.Consumer;
+import java.util.function.ObjIntConsumer;
+import lombok.AllArgsConstructor;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class CommunicationSporkTest {
+	public static final int MAX_UNSIGNED_SHORT = 0xFFFF;
+	public static final long MAX_UNSIGNED_INT = 0xFFFF_FFFFL;
+
+	@AllArgsConstructor
+	enum ShortCount {
+		GROUP_SIZE(SporkData::setGroupSize), CHAINS_PER_GROUP(SporkData::setChainsPerGroup),
+		CLIENTS_PER_CHAIN(SporkData::setClientsPerChain), RETENTION_SECONDS(SporkData::setRetentionSeconds),
+		SESSION_IDLE_SECONDS(SporkData::setSessionIdleSeconds);
+
+		private final ObjIntConsumer<SporkData> setter;
+	}
+
+	public static boolean accepts(SporkData data) {
+		try {
+			data.validate();
+			return true;
+		} catch (IllegalArgumentException e) {
+			return false;
+		}
+	}
+
+	private static SporkData changed(Consumer<SporkData> change) {
+		final SporkData data = new SporkData();
+
+		change.accept(data);
+		return data;
+	}
+
+	private static boolean acceptsAfter(Consumer<SporkData> change) {
+		return accepts(changed(change));
+	}
+
+	private static String refusalOf(Consumer<SporkData> change) {
+		final SporkData data = changed(change);
+
+		return assertThrows(IllegalArgumentException.class, data::validate).getMessage();
+	}
+
+	private static boolean acceptsShortCount(ShortCount count, int value) {
+		return acceptsAfter(data -> count.setter.accept(data, value));
+	}
+
+	private static boolean acceptsCapacity(long maxEntryBytes, long capacity) {
+		return acceptsAfter(data -> {
+			data.setMaxEntryBytes(maxEntryBytes);
+			data.setChainCapacityBytes(capacity);
+		});
+	}
+
+	private static void assertCapacityBounds(long maxEntryBytes) {
+		assertThat(acceptsCapacity(maxEntryBytes, maxEntryBytes - 1), is(false));
+		assertThat(acceptsCapacity(maxEntryBytes, maxEntryBytes), is(true));
+		assertThat(acceptsCapacity(maxEntryBytes, MAX_UNSIGNED_INT), is(true));
+		assertThat(acceptsCapacity(maxEntryBytes, MAX_UNSIGNED_INT + 1), is(false));
+	}
+
+	private static Arbitrary<Integer> intsAround(int lower, int upper) {
+		return Arbitraries.oneOf(Arbitraries.integers().between(lower - 2, lower + 2),
+			Arbitraries.integers().between(upper - 2, upper + 2), Arbitraries.integers()
+		);
+	}
+
+	private static Arbitrary<Long> longsAround(long lower, long upper) {
+		return Arbitraries.oneOf(Arbitraries.longs().between(lower - 2, lower + 2),
+			Arbitraries.longs().between(upper - 2, upper + 2), Arbitraries.longs()
+		);
+	}
+
+	@Provide
+	public Arbitrary<Integer> aroundTheShortCountBounds() {
+		return intsAround(1, MAX_UNSIGNED_SHORT);
+	}
+
+	@Provide
+	public Arbitrary<Long> aroundTheReorganizePeriodBounds() {
+		return longsAround(60, MAX_UNSIGNED_INT);
+	}
+
+	@Provide
+	public Arbitrary<Long> aroundTheEntrySizeBounds() {
+		return longsAround(1024, 1_048_576);
+	}
+
+	@Provide
+	public Arbitrary<Long> aroundTheChainCapacityBounds() {
+		return longsAround(new SporkData().getMaxEntryBytes(), MAX_UNSIGNED_INT);
+	}
+
 	@Example
-	public void hasTheProxyDefaults() {
+	public void hasValidProxyDefaults() {
 		final SporkData data = new CommunicationSpork().getData();
 
+		data.validate();
 		assertThat(data.getGroupSize(), equalTo(8));
 		assertThat(data.getReorganizePeriodSeconds(), equalTo(3600L));
 		assertThat(data.getChainsPerGroup(), equalTo(4));
@@ -77,5 +177,125 @@ public class CommunicationSporkTest {
 		assertThat(Modifier.isFinal(version.getModifiers()), is(true));
 		assertThat(version.getType(), equalTo(long.class));
 		assertThat(version.getLong(null), equalTo(1L));
+	}
+
+	@Example
+	public void keepsShortCountsBetweenOneAndTheWireWidth() {
+		for (ShortCount count : ShortCount.values()) {
+			assertThat(count + " at 0", acceptsShortCount(count, 0), is(false));
+			assertThat(count + " at 1", acceptsShortCount(count, 1), is(true));
+			assertThat(count + " at 65535", acceptsShortCount(count, MAX_UNSIGNED_SHORT), is(true));
+			assertThat(count + " at 65536", acceptsShortCount(count, MAX_UNSIGNED_SHORT + 1), is(false));
+		}
+	}
+
+	@Example
+	public void keepsReorganizePeriodsBetweenAMinuteAndTheWireWidth() {
+		assertThat(acceptsAfter(data -> data.setReorganizePeriodSeconds(59)), is(false));
+		assertThat(acceptsAfter(data -> data.setReorganizePeriodSeconds(60)), is(true));
+		assertThat(acceptsAfter(data -> data.setReorganizePeriodSeconds(MAX_UNSIGNED_INT)), is(true));
+		assertThat(acceptsAfter(data -> data.setReorganizePeriodSeconds(MAX_UNSIGNED_INT + 1)), is(false));
+	}
+
+	@Example
+	public void keepsEntrySizesBetweenAKibibyteAndAMebibyte() {
+		assertThat(acceptsAfter(data -> data.setMaxEntryBytes(1023)), is(false));
+		assertThat(acceptsAfter(data -> data.setMaxEntryBytes(1024)), is(true));
+		assertThat(acceptsAfter(data -> data.setMaxEntryBytes(1_048_576)), is(true));
+		assertThat(acceptsAfter(data -> data.setMaxEntryBytes(1_048_577)), is(false));
+	}
+
+	@Example
+	public void keepsChainCapacitiesFromTheSmallestEntrySizeToTheWireWidth() {
+		assertCapacityBounds(1024);
+	}
+
+	@Example
+	public void keepsChainCapacitiesFromTheLargestEntrySizeToTheWireWidth() {
+		assertCapacityBounds(1_048_576);
+	}
+
+	@Example
+	public void namesTheShortCountThatIsOutOfRange() {
+		assertThat(refusalOf(data -> data.setGroupSize(0)), containsString("groupSize"));
+		assertThat(refusalOf(data -> data.setChainsPerGroup(0)), containsString("chainsPerGroup"));
+		assertThat(refusalOf(data -> data.setClientsPerChain(0)), containsString("clientsPerChain"));
+		assertThat(refusalOf(data -> data.setRetentionSeconds(0)), containsString("retentionSeconds"));
+		assertThat(refusalOf(data -> data.setSessionIdleSeconds(0)), containsString("sessionIdleSeconds"));
+	}
+
+	@Example
+	public void namesTheWiderFieldThatIsOutOfRange() {
+		assertThat(refusalOf(data -> data.setReorganizePeriodSeconds(59)),
+			containsString("reorganizePeriodSeconds"));
+		assertThat(refusalOf(data -> data.setMaxEntryBytes(1023)), containsString("maxEntryBytes"));
+		assertThat(refusalOf(data -> data.setChainCapacityBytes(0)), containsString("chainCapacityBytes"));
+	}
+
+	@Example
+	public void namesTheEntrySizeBeforeTheChainCapacity() {
+		final String refusal = refusalOf(data -> {
+			data.setMaxEntryBytes(1023);
+			data.setChainCapacityBytes(0);
+		});
+
+		assertThat(refusal, containsString("maxEntryBytes"));
+	}
+
+	@Example
+	public void statesTheFieldTheRangeAndTheValueThatWasRefused() {
+		assertThat(refusalOf(data -> data.setGroupSize(0)), equalTo("groupSize must be 1-65535, not 0"));
+		assertThat(refusalOf(data -> data.setReorganizePeriodSeconds(MAX_UNSIGNED_INT + 1)),
+			equalTo("reorganizePeriodSeconds must be 60-4294967295, not 4294967296"));
+		assertThat(refusalOf(data -> data.setMaxEntryBytes(1_048_577)),
+			equalTo("maxEntryBytes must be 1024-1048576, not 1048577"));
+		assertThat(refusalOf(data -> data.setChainCapacityBytes(-1)),
+			equalTo("chainCapacityBytes must hold one entry and be at most 4294967295, not -1"));
+	}
+
+	@Property
+	public void acceptsShortCountsExactlyInRange(@ForAll ShortCount count,
+		@ForAll("aroundTheShortCountBounds") int value) {
+
+		final SporkData data = new SporkData();
+
+		count.setter.accept(data, value);
+		assertThat(accepts(data), is(value >= 1 && value <= MAX_UNSIGNED_SHORT));
+	}
+
+	@Property
+	public void acceptsReorganizePeriodsExactlyInRange(@ForAll("aroundTheReorganizePeriodBounds") long seconds) {
+		final SporkData data = new SporkData();
+
+		data.setReorganizePeriodSeconds(seconds);
+		assertThat(accepts(data), is(seconds >= 60 && seconds <= MAX_UNSIGNED_INT));
+	}
+
+	@Property
+	public void acceptsEntrySizesExactlyInRange(@ForAll("aroundTheEntrySizeBounds") long maxEntryBytes) {
+		final SporkData data = new SporkData();
+
+		data.setMaxEntryBytes(maxEntryBytes);
+		assertThat(accepts(data), is(maxEntryBytes >= 1024 && maxEntryBytes <= 1_048_576));
+	}
+
+	@Property
+	public void acceptsChainCapacitiesExactlyInRange(@ForAll("aroundTheChainCapacityBounds") long capacity) {
+		final SporkData data = new SporkData();
+
+		data.setChainCapacityBytes(capacity);
+		assertThat(accepts(data), is(capacity >= data.getMaxEntryBytes() && capacity <= MAX_UNSIGNED_INT));
+	}
+
+	@Property
+	public void refusesChainsThatCannotHoldOneEntry(
+		@ForAll @LongRange(min = 1024, max = 1_048_576) long maxEntryBytes,
+		@ForAll @LongRange(min = -2, max = 2) long slack) {
+
+		final SporkData data = new SporkData();
+
+		data.setMaxEntryBytes(maxEntryBytes);
+		data.setChainCapacityBytes(maxEntryBytes + slack);
+		assertThat(accepts(data), is(slack >= 0));
 	}
 }
