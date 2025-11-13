@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.ObjIntConsumer;
 import lombok.AllArgsConstructor;
@@ -82,6 +83,10 @@ public class CommunicationSporkTest {
 		return acceptsAfter(data -> count.setter.accept(data, value));
 	}
 
+	private static boolean acceptsFlags(int flags) {
+		return acceptsAfter(data -> data.setCommunicationFlags(flags));
+	}
+
 	private static boolean acceptsCapacity(long maxEntryBytes, long capacity) {
 		return acceptsAfter(data -> {
 			data.setMaxEntryBytes(maxEntryBytes);
@@ -114,6 +119,11 @@ public class CommunicationSporkTest {
 	}
 
 	@Provide
+	public Arbitrary<Integer> aroundTheKnownFlags() {
+		return intsAround(0, 0x03);
+	}
+
+	@Provide
 	public Arbitrary<Long> aroundTheReorganizePeriodBounds() {
 		return longsAround(60, MAX_UNSIGNED_INT);
 	}
@@ -141,6 +151,9 @@ public class CommunicationSporkTest {
 		assertThat(data.getRetentionSeconds(), equalTo(30));
 		assertThat(data.getMaxEntryBytes(), equalTo(16_384L));
 		assertThat(data.getSessionIdleSeconds(), equalTo(300));
+		assertThat(data.getCommunicationFlags(), equalTo(0x03));
+		assertThat(data.allows(CommunicationFlag.CONNECT), is(true));
+		assertThat(data.allows(CommunicationFlag.UDP), is(true));
 	}
 
 	@Example
@@ -253,6 +266,31 @@ public class CommunicationSporkTest {
 			equalTo("chainCapacityBytes must hold one entry and be at most 4294967295, not -1"));
 	}
 
+	@Example
+	public void acceptsEveryCombinationOfTheKnownFlags() {
+		for (int flags : new int[] {0, 1, 2, 3}) {
+			assertThat("flags " + flags, acceptsFlags(flags), is(true));
+		}
+	}
+
+	@Example
+	public void refusesEveryValueHoldingAnUnknownBit() {
+		final int[] unknown = {-1, 4, 0x07, 0x8000, 0xFFFF, 0x10000, 0x10001, 0x10003,
+			Integer.MIN_VALUE, Integer.MAX_VALUE};
+
+		for (int flags : unknown) {
+			assertThat("flags " + flags, acceptsFlags(flags), is(false));
+		}
+	}
+
+	@Example
+	public void statesTheUnknownFlagsThatWereRefused() {
+		assertThat(refusalOf(data -> data.setCommunicationFlags(0x10003)),
+			equalTo("communicationFlags holds unknown flags: 0x10003"));
+		assertThat(refusalOf(data -> data.setCommunicationFlags(-1)),
+			equalTo("communicationFlags holds unknown flags: 0xffffffff"));
+	}
+
 	@Property
 	public void acceptsShortCountsExactlyInRange(@ForAll ShortCount count,
 		@ForAll("aroundTheShortCountBounds") int value) {
@@ -297,5 +335,24 @@ public class CommunicationSporkTest {
 		data.setMaxEntryBytes(maxEntryBytes);
 		data.setChainCapacityBytes(maxEntryBytes + slack);
 		assertThat(accepts(data), is(slack >= 0));
+	}
+
+	@Property
+	public void acceptsOnlyKnownFlags(@ForAll("aroundTheKnownFlags") int flags) {
+		final SporkData data = new SporkData();
+
+		data.setCommunicationFlags(flags);
+		assertThat(accepts(data), is(flags >= 0 && flags <= 0x03));
+	}
+
+	@Property
+	public void allowsExactlyTheFlagsItHolds(@ForAll Set<CommunicationFlag> flags) {
+		final SporkData data = new SporkData();
+
+		data.setCommunicationFlags(CommunicationFlag.of(flags.toArray(CommunicationFlag[]::new)));
+
+		for (CommunicationFlag flag : CommunicationFlag.values()) {
+			assertThat(data.allows(flag), is(flags.contains(flag)));
+		}
 	}
 }

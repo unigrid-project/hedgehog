@@ -54,10 +54,15 @@ public class CommunicationSpork extends GridSpork implements Serializable {
 		private int retentionSeconds = 30;
 		private long maxEntryBytes = 16L * 1024;
 		private int sessionIdleSeconds = 300;
+		private int communicationFlags = CommunicationFlag.of(CommunicationFlag.CONNECT, CommunicationFlag.UDP);
 
 		@Override
 		public SporkData empty() {
 			return new SporkData();
+		}
+
+		public boolean allows(CommunicationFlag flag) {
+			return (communicationFlags & flag.getValue()) != 0;
 		}
 
 		/* Callers relay the message, so it states the refused value and nothing else */
@@ -82,6 +87,8 @@ public class CommunicationSpork extends GridSpork implements Serializable {
 				"maxEntryBytes must be 1024-1048576");
 			requireBetween(maxEntryBytes, MAX_UNSIGNED_INT, chainCapacityBytes,
 				"chainCapacityBytes must hold one entry and be at most 4294967295");
+			Validate.isTrue(CommunicationFlag.areKnown(communicationFlags),
+				"communicationFlags holds unknown flags: 0x" + Integer.toHexString(communicationFlags));
 		}
 	}
 }
