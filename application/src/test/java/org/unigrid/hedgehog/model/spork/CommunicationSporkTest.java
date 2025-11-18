@@ -20,21 +20,29 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Random;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.ObjIntConsumer;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Builders;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.Shrinkable;
 import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
@@ -43,6 +51,8 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 public class CommunicationSporkTest {
 	public static final int MAX_UNSIGNED_SHORT = 0xFFFF;
 	public static final long MAX_UNSIGNED_INT = 0xFFFF_FFFFL;
+	private static final int DRAWS = 500;
+	private static final long DRAW_SEED = 42;
 
 	@AllArgsConstructor
 	enum ShortCount {
@@ -51,6 +61,44 @@ public class CommunicationSporkTest {
 		SESSION_IDLE_SECONDS(SporkData::setSessionIdleSeconds);
 
 		private final ObjIntConsumer<SporkData> setter;
+	}
+
+	public static <T> BiFunction<SporkData, T, SporkData> with(BiConsumer<SporkData, T> setter) {
+		return (data, value) -> {
+			setter.accept(data, value);
+			return data;
+		};
+	}
+
+	private static Arbitrary<Integer> justBeyond(int minimum, int maximum) {
+		return Arbitraries.oneOf(Arbitraries.of(minimum - 1, minimum, maximum, maximum + 1),
+			Arbitraries.integers().between(minimum - 1, maximum + 1)
+		);
+	}
+
+	private static Arbitrary<Long> justBeyond(long minimum, long maximum) {
+		return Arbitraries.oneOf(Arbitraries.of(minimum - 1, minimum, maximum, maximum + 1),
+			Arbitraries.longs().between(minimum - 1, maximum + 1)
+		);
+	}
+
+	public static Arbitrary<SporkData> sporkDataAcrossTheBounds() {
+		return Builders.withBuilder(SporkData::new)
+			.use(justBeyond(1, MAX_UNSIGNED_SHORT)).in(with(SporkData::setGroupSize))
+			.use(justBeyond(60L, MAX_UNSIGNED_INT)).in(with(SporkData::setReorganizePeriodSeconds))
+			.use(justBeyond(1, MAX_UNSIGNED_SHORT)).in(with(SporkData::setChainsPerGroup))
+			.use(justBeyond(1, MAX_UNSIGNED_SHORT)).in(with(SporkData::setClientsPerChain))
+			.use(justBeyond(0L, MAX_UNSIGNED_INT)).in(with(SporkData::setChainCapacityBytes))
+			.use(justBeyond(1, MAX_UNSIGNED_SHORT)).in(with(SporkData::setRetentionSeconds))
+			.use(justBeyond(1024L, 1_048_576L)).in(with(SporkData::setMaxEntryBytes))
+			.use(justBeyond(1, MAX_UNSIGNED_SHORT)).in(with(SporkData::setSessionIdleSeconds))
+			.use(justBeyond(0, 0x03)).in(with(SporkData::setCommunicationFlags))
+			.build();
+	}
+
+	private static <T> Set<T> drawnFrom(Function<SporkData, T> field) {
+		return sporkDataAcrossTheBounds().generator(DRAWS).stream(new Random(DRAW_SEED)).limit(DRAWS)
+			.map(Shrinkable::value).map(field).collect(Collectors.toSet());
 	}
 
 	public static boolean accepts(SporkData data) {
@@ -289,6 +337,14 @@ public class CommunicationSporkTest {
 			equalTo("communicationFlags holds unknown flags: 0x10003"));
 		assertThat(refusalOf(data -> data.setCommunicationFlags(-1)),
 			equalTo("communicationFlags holds unknown flags: 0xffffffff"));
+	}
+
+	@Example
+	public void drawsTheExactBoundsAndTheValuesJustBeyondThem() {
+		assertThat(drawnFrom(SporkData::getCommunicationFlags), hasItems(-1, 0, 1, 2, 3, 4));
+		assertThat(drawnFrom(SporkData::getGroupSize), hasItems(0, 1, MAX_UNSIGNED_SHORT, MAX_UNSIGNED_SHORT + 1));
+		assertThat(drawnFrom(SporkData::getReorganizePeriodSeconds),
+			hasItems(59L, 60L, MAX_UNSIGNED_INT, MAX_UNSIGNED_INT + 1));
 	}
 
 	@Property

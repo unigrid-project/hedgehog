@@ -22,6 +22,7 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonSubTypes.Type;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.io.Serializable;
+import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
@@ -32,7 +33,8 @@ import org.unigrid.hedgehog.model.spork.VestingStorage;
 	@Type(MintStorage.SporkData.class),
 	@Type(MintSupply.SporkData.class),
 	@Type(VestingStorage.SporkData.class),
-	@Type(StorageSpork.SporkData.class)
+	@Type(StorageSpork.SporkData.class),
+	@Type(CommunicationSpork.SporkData.class)
 })
 public interface ChunkData extends Serializable {
 	/* Empty on purpose */
