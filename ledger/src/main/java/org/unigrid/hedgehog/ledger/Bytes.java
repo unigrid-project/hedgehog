@@ -45,6 +45,10 @@ final class Bytes {
 		return out.toByteArray();
 	}
 
+	static byte[] intBytes(int value) {
+		return ByteBuffer.allocate(Integer.BYTES).putInt(value).array();
+	}
+
 	static byte[] longBytes(long value) {
 		return ByteBuffer.allocate(Long.BYTES).putLong(value).array();
 	}
