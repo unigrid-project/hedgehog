@@ -31,13 +31,16 @@ import java.util.Optional;
 import java.util.zip.CRC32C;
 import lombok.extern.slf4j.Slf4j;
 
-/* Records are length, CRC32C and the encoded block. A block counts as stored only once append has forced
-   it to disk, so the only damage a crash can do is a torn last record, which open drops. A bad record with
-   more data after it is real corruption and is refused instead of cutting everything behind it off. */
+/* A record is the length of the block, a checksum of that length, a checksum of the block and the block.
+   A block counts as stored only once append has forced it to disk, so a crash can only damage the last
+   record, which open drops: it is cut short, or its file was extended with zeros. The checksum of the
+   length is what tells a damaged length in the middle of the log, which is corruption and is refused, from
+   a cut-off tail, which is not. Refusing is the safe answer: dropping a record also drops all behind it. */
 @Slf4j
 public final class BlockLog implements Closeable {
-	private static final int RECORD_HEADER = 2 * Integer.BYTES;
-	private static final int MAX_RECORD = 16 * 1024 * 1024;
+	static final int RECORD_HEADER = 3 * Integer.BYTES;
+	static final int MAX_RECORD = BlockCodec.MAX_ENCODED_SIZE;
+	private static final int ZERO_SCAN_CHUNK = 8192;
 
 	private final FileChannel channel;
 	private final List<Block> blocks;
@@ -66,15 +69,21 @@ public final class BlockLog implements Closeable {
 		}
 	}
 
+	static byte[] recordHeader(int length, int dataChecksum) {
+		return ByteBuffer.allocate(RECORD_HEADER).putInt(length).putInt(checksum(Bytes.intBytes(length)))
+			.putInt(dataChecksum).array();
+	}
+
+	static byte[] encodeRecord(byte[] data) {
+		return Bytes.concat(recordHeader(data.length, checksum(data)), data);
+	}
+
 	public synchronized List<Block> blocks() {
 		return List.copyOf(blocks);
 	}
 
 	public synchronized void append(Block block) throws IOException {
-		final byte[] data = BlockCodec.encode(block);
-		final ByteBuffer record = ByteBuffer.allocate(RECORD_HEADER + data.length).putInt(data.length)
-			.putInt(checksum(data)).put(data).flip();
-
+		final ByteBuffer record = ByteBuffer.wrap(encodeRecord(BlockCodec.encode(block)));
 		final long before = channel.position();
 
 		try {
@@ -132,8 +141,8 @@ public final class BlockLog implements Closeable {
 		return blocks;
 	}
 
-	/* Empty when the record is a torn last write: cut short, a length that runs past the end of the file, or
-	   a checksum that fails on the very last record. A failing checksum with more data after it is corruption. */
+	/* Empty when the record is a torn last write: a header cut short, a tail of zeros, data cut short, or a
+	   checksum that fails on the very last record. Anything else that does not check out is corruption. */
 	private static Optional<byte[]> readRecord(FileChannel channel, long start, long size) throws IOException {
 		final ByteBuffer header = ByteBuffer.allocate(RECORD_HEADER);
 
@@ -142,10 +151,25 @@ public final class BlockLog implements Closeable {
 		}
 
 		final int length = header.flip().getInt();
-		final int expected = header.getInt();
+		final int lengthChecksum = header.getInt();
+		final int dataChecksum = header.getInt();
+
+		if (lengthChecksum != checksum(Bytes.intBytes(length))) {
+			return tornOrCorrupt(channel, start, size, "its length does not match its checksum");
+		}
+
+		if (length < 0 || length > MAX_RECORD) {
+			throw new CorruptLogException("The block record at offset " + start + " has an impossible length");
+		}
+
+		return readData(channel, start, size, length, dataChecksum);
+	}
+
+	private static Optional<byte[]> readData(FileChannel channel, long start, long size, int length,
+		int dataChecksum) throws IOException {
 		final long end = start + RECORD_HEADER + (long) length;
 
-		if (!isPlausible(length, end, size)) {
+		if (end > size) {
 			return Optional.empty();
 		}
 
@@ -153,7 +177,7 @@ public final class BlockLog implements Closeable {
 
 		readFully(channel, ByteBuffer.wrap(data), start + RECORD_HEADER);
 
-		if (checksum(data) == expected) {
+		if (checksum(data) == dataChecksum) {
 			return Optional.of(data);
 		}
 
@@ -164,8 +188,30 @@ public final class BlockLog implements Closeable {
 		throw new CorruptLogException("The block record at offset " + start + " fails its checksum");
 	}
 
-	private static boolean isPlausible(int length, long end, long size) {
-		return length >= 0 && length <= MAX_RECORD && end <= size;
+	private static Optional<byte[]> tornOrCorrupt(FileChannel channel, long start, long size, String why)
+		throws IOException {
+		if (isZeroFilled(channel, start, size)) {
+			return Optional.empty();
+		}
+
+		throw new CorruptLogException("The block record at offset " + start + " is damaged: " + why);
+	}
+
+	private static boolean isZeroFilled(FileChannel channel, long from, long size) throws IOException {
+		final ByteBuffer chunk = ByteBuffer.allocate(ZERO_SCAN_CHUNK);
+
+		for (long at = from; at < size; at += ZERO_SCAN_CHUNK) {
+			chunk.clear();
+			readFully(channel, chunk, at);
+
+			for (int i = 0; i < chunk.position(); i++) {
+				if (chunk.get(i) != 0) {
+					return false;
+				}
+			}
+		}
+
+		return true;
 	}
 
 	private static Block decode(byte[] data, long offset) throws CorruptLogException {
@@ -177,6 +223,7 @@ public final class BlockLog implements Closeable {
 		}
 	}
 
+	/* True when the buffer was filled; false when the file ended first, with what was there left in it */
 	private static boolean readFully(FileChannel channel, ByteBuffer buffer, long position) throws IOException {
 		long at = position;
 

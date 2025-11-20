@@ -21,15 +21,14 @@ package org.unigrid.hedgehog.ledger;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.zip.CRC32C;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
@@ -73,7 +72,11 @@ public class BlockLogTest {
 	}
 
 	private static long recordSize(Block block) {
-		return 2L * Integer.BYTES + BlockCodec.encode(block).length;
+		return BlockLog.RECORD_HEADER + BlockCodec.encode(block).length;
+	}
+
+	private static void appendBytes(Path file, byte[] bytes) throws IOException {
+		Files.write(file, bytes, StandardOpenOption.APPEND);
 	}
 
 	@Example
@@ -145,7 +148,7 @@ public class BlockLogTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			append(logIn(fileSystem), block(1), block(2), block(3));
 
-			final long insideSecond = recordSize(block(1)) + 2L * Integer.BYTES + 10;
+			final long insideSecond = recordSize(block(1)) + BlockLog.RECORD_HEADER + 10;
 			final long sizeBefore = Files.size(logIn(fileSystem));
 
 			flipBit(logIn(fileSystem), insideSecond);
@@ -157,14 +160,8 @@ public class BlockLogTest {
 	@Example
 	public void shouldRefuseARecordThatChecksOutButDoesNotDecode() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final byte[] junk = new byte[10];
-			final CRC32C crc = new CRC32C();
-			final ByteBuffer record = ByteBuffer.allocate(2 * Integer.BYTES + junk.length);
-
-			crc.update(junk);
-			record.putInt(junk.length).putInt((int) crc.getValue()).put(junk);
 			Files.createDirectories(logIn(fileSystem).getParent());
-			Files.write(logIn(fileSystem), record.array());
+			Files.write(logIn(fileSystem), BlockLog.encodeRecord(new byte[10]));
 
 			assertThrows(CorruptLogException.class, () -> BlockLog.open(logIn(fileSystem)));
 		}
@@ -194,11 +191,60 @@ public class BlockLogTest {
 	}
 
 	@Example
-	public void shouldTreatALengthPastTheEndAsATornWrite() throws IOException {
+	public void shouldTreatADataCutShortAsATornWrite() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] whole = BlockLog.encodeRecord(new byte[1000]);
+
+			append(logIn(fileSystem), block(1));
+			appendBytes(logIn(fileSystem), Arrays.copyOf(whole, BlockLog.RECORD_HEADER + 10));
+			assertThat(read(logIn(fileSystem)), equalTo(List.of(block(1))));
+		}
+	}
+
+	@Example
+	public void shouldTreatAShortGarbageTailAsATornWrite() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			append(logIn(fileSystem), block(1));
-			Files.write(logIn(fileSystem), new byte[] { 0x7f, 0, 0, 0, 0, 0, 0, 0, 1, 2 }, StandardOpenOption.APPEND);
+			appendBytes(logIn(fileSystem), new byte[] { 0x7f, 1, 2 });
 			assertThat(read(logIn(fileSystem)), equalTo(List.of(block(1))));
+		}
+	}
+
+	/* Filesystems often extend a file with zeros when the machine goes down during a write */
+	@Example
+	public void shouldTreatAZeroFilledTailAsATornWrite() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			append(logIn(fileSystem), block(1));
+			appendBytes(logIn(fileSystem), new byte[5000]);
+			assertThat(read(logIn(fileSystem)), equalTo(List.of(block(1))));
+			assertThat(Files.size(logIn(fileSystem)), equalTo(recordSize(block(1))));
+		}
+	}
+
+	/* A flipped bit in a length field in the middle must not read as a cut-off tail that erases what follows */
+	@Example
+	public void shouldRefuseACorruptedLengthBeforeTheLastRecord() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			append(logIn(fileSystem), block(1), block(2), block(3));
+
+			final long sizeBefore = Files.size(logIn(fileSystem));
+
+			flipBit(logIn(fileSystem), recordSize(block(1)) + 3);
+			assertThrows(CorruptLogException.class, () -> BlockLog.open(logIn(fileSystem)));
+			flipBit(logIn(fileSystem), recordSize(block(1)) + 3);
+			flipBit(logIn(fileSystem), recordSize(block(1)));
+			assertThrows(CorruptLogException.class, () -> BlockLog.open(logIn(fileSystem)));
+			assertThat(Files.size(logIn(fileSystem)), equalTo(sizeBefore));
+		}
+	}
+
+	@Example
+	public void shouldRefuseALengthBeyondTheLargestBlock() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			append(logIn(fileSystem), block(1));
+			appendBytes(logIn(fileSystem), BlockLog.recordHeader(BlockLog.MAX_RECORD + 1, 0));
+			appendBytes(logIn(fileSystem), new byte[100]);
+			assertThrows(CorruptLogException.class, () -> BlockLog.open(logIn(fileSystem)));
 		}
 	}
 }
