@@ -29,10 +29,16 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.codec.chunk.CommunicationSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.chunk.CommunicationSporkEncoder;
+import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
+import org.unigrid.hedgehog.model.spork.CommunicationSporkTest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.model.spork.CommunicationSporkTest.MAX_UNSIGNED_INT;
 import static org.unigrid.hedgehog.model.spork.CommunicationSporkTest.MAX_UNSIGNED_SHORT;
 import static org.unigrid.hedgehog.model.spork.CommunicationSporkTest.with;
@@ -58,6 +64,11 @@ public class CommunicationSporkIntegrityTest {
 			.build();
 	}
 
+	@Provide
+	public Arbitrary<SporkData> validatedSporkData() {
+		return CommunicationSporkTest.sporkDataAcrossTheBounds().filter(CommunicationSporkTest::accepts);
+	}
+
 	@SneakyThrows
 	private static ByteBuf encode(SporkData data) {
 		final ByteBuf buffer = Unpooled.buffer();
@@ -79,6 +90,34 @@ public class CommunicationSporkIntegrityTest {
 		data.setSessionIdleSeconds(unsignedShort);
 		data.setCommunicationFlags(unsignedShort);
 		return data;
+	}
+
+	@SneakyThrows
+	private static SporkData overTheWire(SporkData data) {
+		final ByteBuf buffer = encode(data);
+		final SporkData decoded = new CommunicationSporkDecoder().decodeChunk(null, buffer).orElseThrow();
+
+		assertThat(buffer.readableBytes(), equalTo(0));
+		return decoded;
+	}
+
+	@SneakyThrows
+	private static boolean keepsItsSignatureOverTheWire(SporkData data) {
+		final Signature signature = new Signature();
+		final CommunicationSpork signed = new CommunicationSpork();
+		final CommunicationSpork received = new CommunicationSpork();
+
+		signed.setData(data);
+		signed.sign(signature.getPrivateKey());
+		received.setData(overTheWire(data));
+		received.setSignature(signed.getSignature());
+		return Signature.verify(received, signature.getPublicKey());
+	}
+
+	private static void assertLostOverTheWire(SporkData data) {
+		assertThat(CommunicationSporkTest.accepts(data), is(false));
+		assertThat(overTheWire(data), not(equalTo(data)));
+		assertThat(keepsItsSignatureOverTheWire(data), is(false));
 	}
 
 	@Example
@@ -114,5 +153,83 @@ public class CommunicationSporkIntegrityTest {
 	@Property
 	public void encodesEverySporkInAFixedSize(@ForAll("wireWideSporkData") SporkData data) {
 		assertThat(encode(data).readableBytes(), equalTo(ENCODED_SIZE));
+	}
+
+	@Property
+	public void survivesARoundTripWithinTheWireWidths(@ForAll("wireWideSporkData") SporkData data) {
+		assertThat(overTheWire(data), equalTo(data));
+	}
+
+	@Property
+	public void survivesARoundTripWheneverValid(@ForAll("validatedSporkData") SporkData data) {
+		assertThat(overTheWire(data), equalTo(data));
+	}
+
+	@Property(tries = 10)
+	public void keepsItsSignatureOverTheWireWheneverValid(@ForAll("validatedSporkData") SporkData data) {
+		assertThat(keepsItsSignatureOverTheWire(data), is(true));
+	}
+
+	@Example
+	public void wouldLoseItsSignatureBeyondTheWireWidths() {
+		final SporkData data = new SporkData();
+
+		data.setReorganizePeriodSeconds(MAX_UNSIGNED_INT + 3600);
+		assertThat(CommunicationSporkTest.accepts(data), is(false));
+		assertThat(keepsItsSignatureOverTheWire(data), is(false));
+	}
+
+	@Example
+	public void wouldLoseItsSignatureOnceAnUnsignedIntFieldWrapsToZero() {
+		final SporkData data = new SporkData();
+
+		data.setReorganizePeriodSeconds(MAX_UNSIGNED_INT + 1);
+		assertLostOverTheWire(data);
+	}
+
+	@Example
+	public void wouldLoseItsSignatureOnceAnUnsignedShortFieldWrapsToZero() {
+		final SporkData data = new SporkData();
+
+		data.setGroupSize(MAX_UNSIGNED_SHORT + 1);
+		assertLostOverTheWire(data);
+	}
+
+	@Example
+	@SneakyThrows
+	public void readsTheFieldsInTheSpecifiedOrder() {
+		final ByteBuf buffer = Unpooled.wrappedBuffer(
+			ByteBufUtil.decodeHexDump("000800000e100004001002000000001e00004000012c00030000000000000000"));
+
+		assertThat(new CommunicationSporkDecoder().decodeChunk(null, buffer).orElseThrow(), equalTo(new SporkData()));
+		assertThat(buffer.readableBytes(), equalTo(0));
+	}
+
+	@Example
+	public void roundTripsEveryFieldAtItsValidMaximum() {
+		final SporkData data = withEveryFieldAt(MAX_UNSIGNED_SHORT, MAX_UNSIGNED_INT);
+
+		data.setMaxEntryBytes(1024 * 1024);
+		data.setCommunicationFlags(3);
+		assertThat(CommunicationSporkTest.accepts(data), is(true));
+		assertThat(overTheWire(data), equalTo(data));
+	}
+
+	@Example
+	public void roundTripsEveryFieldAtItsValidMinimum() {
+		final SporkData data = withEveryFieldAt(1, 1024);
+
+		data.setReorganizePeriodSeconds(60);
+		data.setCommunicationFlags(0);
+		assertThat(CommunicationSporkTest.accepts(data), is(true));
+		assertThat(overTheWire(data), equalTo(data));
+	}
+
+	/* The decoder keeps whatever the wire holds, because refusing it is up to validate() */
+	@Example
+	public void decodesEveryFieldAtItsWireMaximum() {
+		final SporkData data = withEveryFieldAt(MAX_UNSIGNED_SHORT, MAX_UNSIGNED_INT);
+
+		assertThat(overTheWire(data), equalTo(data));
 	}
 }
