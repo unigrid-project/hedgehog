@@ -107,6 +107,19 @@ public class GridSporkProvider {
 				data.setRepairThresholdPercent(RandomUtils.nextInt(0, 1 << 8));
 				data.setExtraPoolPercent(RandomUtils.nextInt(0, 1 << 8));
 				return data;
+			} case COMMUNICATION: {
+				final CommunicationSpork.SporkData data = new CommunicationSpork.SporkData();
+
+				data.setGroupSize(RandomUtils.nextInt(0, 1 << 16));
+				data.setReorganizePeriodSeconds(RandomUtils.nextLong(0, 1L << 32));
+				data.setChainsPerGroup(RandomUtils.nextInt(0, 1 << 16));
+				data.setClientsPerChain(RandomUtils.nextInt(0, 1 << 16));
+				data.setChainCapacityBytes(RandomUtils.nextLong(0, 1L << 32));
+				data.setRetentionSeconds(RandomUtils.nextInt(0, 1 << 16));
+				data.setMaxEntryBytes(RandomUtils.nextLong(0, 1L << 32));
+				data.setSessionIdleSeconds(RandomUtils.nextInt(0, 1 << 16));
+				data.setCommunicationFlags(RandomUtils.nextInt(0, 1 << 16));
+				return data;
 			}
 		}
 

@@ -27,6 +27,7 @@ import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import static org.unigrid.hedgehog.model.spork.GridSpork.Type.*;
@@ -48,7 +49,8 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				MINT_SUPPLY, db.getMintSupply(),
 				VESTING_STORAGE, db.getVestingStorage(),
 				STATISTICS_PUBKEY, db.getStatisticsPubKey(),
-				STORAGE, db.getStorageSpork()
+				STORAGE, db.getStorageSpork(),
+				COMMUNICATION, db.getCommunicationSpork()
 			);
 
 			final GridSpork oldSpork = entries.get(newSpork.getType());
@@ -59,7 +61,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				/* Bail out on unsupported type */
 			}
 
-			if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
+			if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature() && hasValidData(newSpork)) {
 				db.set(newSpork);
 
 				CDIUtil.resolveAndRun(Topology.class, topology -> {
@@ -68,5 +70,20 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				});
 			}
 		});
+	}
+
+	/* Checked after the signature, so that only a trusted signer can make a node write this line to its log */
+	private static boolean hasValidData(GridSpork spork) {
+		if (spork.getType() != COMMUNICATION) {
+			return true;
+		}
+
+		try {
+			spork.<CommunicationSpork.SporkData>getData().validate();
+			return true;
+		} catch (IllegalArgumentException ex) {
+			log.atWarn().log("Refusing a communication spork: {}", ex.getMessage());
+			return false;
+		}
 	}
 }
