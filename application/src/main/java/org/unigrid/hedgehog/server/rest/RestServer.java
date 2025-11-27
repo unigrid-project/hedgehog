@@ -70,6 +70,7 @@ public class RestServer extends AbstractServer {
 			StorageBucket.class,
 			StorageObject.class,
 			StorageSporkResource.class,
+			CommunicationSporkResource.class,
 			UtilResource.class
 		);
 
