@@ -18,12 +18,13 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import org.unigrid.hedgehog.command.cli.spork.Communication;
 import org.unigrid.hedgehog.command.cli.spork.MintSupply;
 import org.unigrid.hedgehog.command.cli.spork.MintStorage;
 import org.unigrid.hedgehog.command.cli.spork.Storage;
 import picocli.CommandLine.Command;
 
-@Command(name = "gridspork-get", subcommands = { MintSupply.class, MintStorage.class, Storage.class })
+@Command(name = "gridspork-get", subcommands = { MintSupply.class, MintStorage.class, Storage.class, Communication.class })
 public class GridSporkGet {
 	/* Empty on purpose */
 }
