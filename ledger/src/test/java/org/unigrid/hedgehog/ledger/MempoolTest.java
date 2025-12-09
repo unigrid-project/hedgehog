@@ -249,6 +249,21 @@ public class MempoolTest {
 		assertThat(mempool.isProgressing(state, 4200, 60), is(false));
 	}
 
+	/* A heartbeat signed for the tip that a block has since replaced is stale, however genuine it is */
+	@Example
+	public void shouldRefuseAHeartbeatForThePreviousTipOnceABlockHasLanded() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+		final Heartbeat beforeTheBlock = beat(state, 1, 1000);
+		final Block block = block(state, FOUNDATION, List.of(mint(1, 5)));
+
+		state.apply(block);
+		mempool.removeCommitted(block, state);
+
+		assertThat(mempool.admit(beforeTheBlock, state), is(false));
+		assertThat(mempool.admit(beat(state, 1, 1001), state), is(true));
+	}
+
 	@Example
 	public void shouldForgetHeartbeatsWhenABlockMovesTheTip() {
 		final LedgerState state = chain();
