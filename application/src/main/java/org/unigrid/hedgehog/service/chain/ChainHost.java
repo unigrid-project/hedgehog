@@ -34,6 +34,7 @@ import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
@@ -51,11 +52,13 @@ import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 /* Hosts the chains of this node's shard group while a valid communication spork says the proxy is on */
+@Slf4j
 @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainHost implements ChainService {
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
+	private final ChainTransport transport;
 	private final LongSupplier clock;
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -63,13 +66,18 @@ public class ChainHost implements ChainService {
 	private volatile Hosting hosting = Hosting.OFF;
 
 	@Inject
-	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory) {
-		this(settings, directory, System::currentTimeMillis);
+	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory,
+		final ChainTransport transport) {
+
+		this(settings, directory, transport, System::currentTimeMillis);
 	}
 
-	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final LongSupplier clock) {
+	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
+		final LongSupplier clock) {
+
 		this.settings = settings;
 		this.directory = directory;
+		this.transport = transport;
 		this.clock = clock;
 	}
 
@@ -79,20 +87,29 @@ public class ChainHost implements ChainService {
 		return List.copyOf(hosting.current().keySet());
 	}
 
+	Optional<HostedChain> hosted(final ChainId id) {
+		return hosting.find(id);
+	}
+
 	public Optional<Chain> chain(final ChainId id) {
-		return hosting.find(id).map(HostedChain::getChain);
+		return hosted(id).map(HostedChain::getChain);
 	}
 
 	public OptionalInt group() {
 		return hosting.group();
 	}
 
-	/* Follows the spork, the topology and the clock. Refreshes run one at a time and swap in a hosting that is
-	   never changed afterwards, so the other calls read it without a lock. */
+	/* Follows the spork, the topology and the clock. Refreshes run one at a time and swap in a hosting whose
+	   chains and map are never changed afterwards, so the other calls read it without a lock. The streams to the
+	   other members are the exception: they are looked up again on every refresh, also when the hosting is
+	   reused, and handed to the chains before a rebuilt hosting is swapped in so that no reader sees a chain
+	   without them. */
 	public synchronized void refresh() {
 		final Hosting previous = hosting;
+		final Hosting next = settings.current().map(current -> hostingFor(current, previous)).orElse(Hosting.OFF);
 
-		hosting = settings.current().map(current -> hostingFor(current, previous)).orElse(Hosting.OFF);
+		holdStreams(next);
+		hosting = next;
 	}
 
 	/* Not private so that a test can tell how often the groups are ranked */
@@ -131,7 +148,37 @@ public class ChainHost implements ChainService {
 				.orElseGet(() -> new HostedChain(new Chain(id, limits, clock))));
 		}
 
-		return new Hosting(Optional.of(basis), group, Collections.unmodifiableMap(chains));
+		return new Hosting(Optional.of(basis), group, peersOf(view, group, basis.own()),
+			Collections.unmodifiableMap(chains));
+	}
+
+	private static List<String> peersOf(final GroupView view, final OptionalInt group, final Optional<String> own) {
+		return group.stream().boxed().flatMap(index -> view.groups().members(index).stream())
+			.filter(member -> !own.equals(Optional.of(member))).toList();
+	}
+
+	/* Looked up once per refresh and not per packet, because finding a connection scans the topology and resolves
+	   the address of the gridnode: the cost is bounded by the size of the group. The chains share one immutable
+	   list, which the netty threads read through a volatile field while this thread writes the next one. A stream
+	   that is not open is no stream of a member; the list is as old as the refresh, so a stream that closes
+	   later is dropped by the next one. */
+	private void holdStreams(final Hosting next) {
+		final List<Channel> streams = next.peers().stream().map(this::lookUp).flatMap(Optional::stream)
+			.filter(Channel::isActive).toList();
+
+		next.current().values().forEach(hosted -> hosted.setMemberStreams(streams));
+	}
+
+	/* One broken lookup leaves that member without a stream, not every member, and the refresh which runs about
+	   once a second must not fail for it. Only the class of the failure is logged, as its message may name an
+	   address. */
+	private Optional<Channel> lookUp(final String member) {
+		try {
+			return Objects.requireNonNullElse(transport.streamTo(member), Optional.empty());
+		} catch (RuntimeException ex) {
+			log.warn("The lookup of a member stream failed with {}", ex.getClass().getName());
+			return Optional.empty();
+		}
 	}
 
 	private Set<String> activeIds() {

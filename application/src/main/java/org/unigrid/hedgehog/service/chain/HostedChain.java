@@ -18,12 +18,20 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
+import java.util.List;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 
 /* One chain this node hosts, with what the host knows about it beyond the entries */
 @RequiredArgsConstructor
 final class HostedChain {
 	@Getter private final Chain chain;
+
+	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed.
+	   Replaced as a whole by an immutable list and never changed in place, volatile so that the netty threads
+	   which read it see the list the refresh thread has just written. */
+	@Getter @Setter private volatile List<Channel> memberStreams = List.of();
 }

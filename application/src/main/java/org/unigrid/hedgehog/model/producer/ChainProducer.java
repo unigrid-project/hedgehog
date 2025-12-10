@@ -23,15 +23,26 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.util.Optional;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.service.chain.ChainTransport;
+import org.unigrid.hedgehog.service.chain.NettyChainTransport;
 import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
 @ApplicationScoped
 public class ChainProducer {
 	@Inject
 	private SporkDatabase sporkDatabase;
+
+	@Inject
+	private Topology topology;
+
+	@Produces @Singleton
+	public ChainTransport chainTransport() {
+		return new NettyChainTransport(topology::cloneNodes, topology::cloneGridnode);
+	}
 
 	@Produces @Singleton
 	public ProxySettingsSource proxySettingsSource() {

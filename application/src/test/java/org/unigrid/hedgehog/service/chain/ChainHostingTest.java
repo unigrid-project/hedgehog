@@ -76,7 +76,8 @@ public class ChainHostingTest {
 		private int views;
 
 		CountingHost(final ChainFleet fleet, final Supplier<String> own) {
-			super(fleet.settings::get, new TopologyGridnodeDirectory(() -> fleet.gridnodes, own), fleet.clock::get);
+			super(fleet.settings::get, new TopologyGridnodeDirectory(() -> fleet.gridnodes, own),
+				peer -> Optional.empty(), fleet.clock::get);
 		}
 
 		@Override

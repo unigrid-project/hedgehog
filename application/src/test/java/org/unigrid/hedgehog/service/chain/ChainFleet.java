@@ -18,11 +18,16 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,14 +37,21 @@ import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
-/* Gridnodes that share one clock, one topology and one set of settings, each with its own host */
+/* Gridnodes that share one clock, one topology and one set of settings, each with its own host. A stream
+   between two hosts is an embedded channel at each end. */
 final class ChainFleet {
 	static final long NOW = 1_750_000_000_000L;
+
+	/* Each end of a stream is a channel of its own, so the key tells whose end it is */
+	private record Link(String owner, String peer) {
+	}
 
 	final AtomicLong clock = new AtomicLong(NOW);
 	final AtomicReference<Optional<ProxySettings>> settings = new AtomicReference<>(Optional.of(ProxySettings.DEFAULTS));
 	final List<Gridnode> gridnodes = new CopyOnWriteArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
+	private final Map<Link, EmbeddedChannel> streams = new HashMap<>();
+	private final Set<String> offline = new HashSet<>();
 
 	ChainFleet(final int size) {
 		IntStream.range(0, size).forEach(number -> gridnodes.add(gridnode("gn-" + number, Gridnode.Status.ACTIVE)));
@@ -57,8 +69,30 @@ final class ChainFleet {
 	}
 
 	ChainHost host(final String id) {
-		return hosts.computeIfAbsent(id, own -> new ChainHost(settings::get,
-			new TopologyGridnodeDirectory(() -> gridnodes, () -> own), clock::get));
+		return hosts.computeIfAbsent(id, own -> hostOver(own, peer -> streamBetween(own, peer)));
+	}
+
+	/* A host that is not one of the fleet, for a transport the test supplies */
+	ChainHost hostOver(final String id, final ChainTransport transport) {
+		return new ChainHost(settings::get, new TopologyGridnodeDirectory(() -> gridnodes, () -> id), transport,
+			clock::get);
+	}
+
+	/* An offline host gets no stream from the others until it is back */
+	void offline(final String id) {
+		offline.add(id);
+	}
+
+	void online(final String id) {
+		offline.remove(id);
+	}
+
+	EmbeddedChannel stream(final String owner, final String peer) {
+		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
+	}
+
+	private Optional<Channel> streamBetween(final String owner, final String peer) {
+		return hosts.containsKey(peer) && !offline.contains(peer) ? Optional.of(stream(owner, peer)) : Optional.empty();
 	}
 
 	List<String> activeIds() {

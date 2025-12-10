@@ -18,8 +18,11 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import io.netty.channel.embedded.EmbeddedChannel;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.ObjIntConsumer;
 import lombok.SneakyThrows;
@@ -33,6 +36,10 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.NodeConnections;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
 import org.unigrid.hedgehog.model.spork.CommunicationSporkTest;
@@ -40,6 +47,7 @@ import static org.unigrid.hedgehog.model.spork.CommunicationSporkTest.MAX_UNSIGN
 import static org.unigrid.hedgehog.model.spork.CommunicationSporkTest.MAX_UNSIGNED_SHORT;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.service.chain.ChainTransport;
 import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
 public class ChainProducerTest {
@@ -57,6 +65,29 @@ public class ChainProducerTest {
 
 		FieldUtils.writeField(producer, "sporkDatabase", database, true);
 		return producer;
+	}
+
+	@SneakyThrows
+	private static ChainProducer producerOver(final Topology topology) {
+		final ChainProducer producer = new ChainProducer();
+
+		FieldUtils.writeField(producer, "topology", topology, true);
+		return producer;
+	}
+
+	/* Answers with copies, as the topology does, so that a change after the call stays out of the answer */
+	private static Topology topologyOf(final Set<Node> nodes, final Set<Gridnode> gridnodes) {
+		return new Topology() {
+			@Override
+			public Set<Node> cloneNodes() {
+				return new HashSet<>(nodes);
+			}
+
+			@Override
+			public Set<Gridnode> cloneGridnode() {
+				return new HashSet<>(gridnodes);
+			}
+		};
 	}
 
 	private static Optional<ProxySettings> settingsOf(final SporkDatabase database) {
@@ -255,5 +286,29 @@ public class ChainProducerTest {
 		assertThat(settings.maxEntryBytes(), is(data.getMaxEntryBytes()));
 		assertThat(settings.sessionIdleSeconds(), is(data.getSessionIdleSeconds()));
 		assertThat(settings.flags(), is(data.getCommunicationFlags()));
+	}
+
+	@Example
+	public void findsTheStreamToAGridnodeInTheTopologyItWasGiven() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final Topology topology = topologyOf(Set.of(NodeConnections.connected("10.0.0.1:52883", channel)),
+			Set.of(Gridnode.builder().id("alpha").hostName("10.0.0.1:52883").build()));
+		final ChainTransport transport = producerOver(topology).chainTransport();
+
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(channel)));
+		assertThat(transport.streamTo("bravo"), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void readsTheTopologyAgainForEveryStream() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final Set<Node> nodes = new HashSet<>();
+		final ChainTransport transport = producerOver(topologyOf(nodes,
+			Set.of(Gridnode.builder().id("alpha").hostName("10.0.0.1:52883").build()))).chainTransport();
+
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.empty()));
+
+		nodes.add(NodeConnections.connected("10.0.0.1:52883", channel));
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(channel)));
 	}
 }

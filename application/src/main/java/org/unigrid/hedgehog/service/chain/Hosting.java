@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -28,9 +29,11 @@ import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 /* What a node hosts at one moment, replaced as a whole when the topology, the time or the settings change.
-   The chains keep the order of their indexes. */
-record Hosting(Optional<Basis> basis, OptionalInt group, Map<ChainId, HostedChain> current) {
-	static final Hosting OFF = new Hosting(Optional.empty(), OptionalInt.empty(), Map.of());
+   The chains keep the order of their indexes. The peers are the other members of the node's group; they follow
+   from the basis but are kept, so that a refresh which reuses the hosting can look up their streams without
+   ranking the groups again. */
+record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map<ChainId, HostedChain> current) {
+	static final Hosting OFF = new Hosting(Optional.empty(), OptionalInt.empty(), List.of(), Map.of());
 
 	record Basis(ProxySettings settings, Epoch epoch, Set<String> activeIds, Optional<String> own) {
 		/* Everything the groups and chains of a hosting follow from, so an equal basis needs no new ranking */
