@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,6 +35,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
+import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.EntryKind;
+import org.unigrid.hedgehog.proxy.chain.FeedWriter;
+import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -66,6 +74,22 @@ final class ChainFleet {
 
 		return new ProxySettings(groupSize, 3600, chainsPerGroup, clientsPerChain, 32L * 1024 * 1024,
 			retentionSeconds, 16 * 1024, 300, flags);
+	}
+
+	static WriterKey key(final int number) {
+		return new WriterKey(ByteBuffer.allocate(WriterKey.SEED_SIZE).putInt(number).array());
+	}
+
+	static WriterId writer(final int number) {
+		return key(number).id();
+	}
+
+	/* The first entries of one writer's feed, each timestamped at the given time */
+	static List<Entry> entries(final WriterKey key, final ChainId chainId, final int count, final long timestamp) {
+		final FeedWriter feed = new FeedWriter(key, chainId);
+
+		return IntStream.range(0, count).mapToObj(number -> feed.write(timestamp, Fingerprint.NONE, EntryKind.SEALED,
+			new byte[] { (byte) number })).toList();
 	}
 
 	ChainHost host(final String id) {

@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -25,6 +27,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -49,6 +52,28 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 
 	Optional<HostedChain> find(final ChainId id) {
 		return Optional.ofNullable(current.get(id));
+	}
+
+	/* The chain a writer is attached to, else the one with the fewest client feeds, the lowest index among equals.
+	   A named chain is the only candidate, because the writer joined another member's chain and attaches to the
+	   same one here. */
+	Optional<HostedChain> placement(final WriterId writer, final Optional<ChainId> named) {
+		if (named.isPresent()) {
+			return find(named.get());
+		}
+
+		return current.values().stream().filter(hosted -> hosted.isAttached(writer)).findFirst()
+			.or(() -> current.values().stream().min(Comparator.comparingInt(HostedChain::clientCount)));
+	}
+
+	/* The writers a stream is attached as, over all chains */
+	long clientsOn(final Channel stream) {
+		return current.values().stream().mapToLong(hosted -> hosted.clientsOn(stream)).sum();
+	}
+
+	/* A chain this hosting no longer holds is gone with its attachments, so only the held ones are searched */
+	void detachAll(final Channel stream) {
+		current.values().forEach(hosted -> hosted.detachAll(stream));
 	}
 
 	/* A chain keeps its entries as long as its id and its limits stay what they were */

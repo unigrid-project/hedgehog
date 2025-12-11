@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
+import io.netty.util.AttributeKey;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Collection;
@@ -36,6 +37,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
@@ -48,6 +50,8 @@ import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -56,10 +60,17 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
 @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainHost implements ChainService {
+	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */
+	static final int MAX_WRITERS_PER_STREAM = 4;
+
+	/* Set on a stream once its close is awaited, so that however often it joins and leaves it is awaited once */
+	private static final AttributeKey<Boolean> CLOSE_AWAITED = AttributeKey.valueOf("chainHostCloseAwaited");
+
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
 	private final ChainTransport transport;
 	private final LongSupplier clock;
+	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
 	   while the refresh thread works on the next one */
@@ -187,9 +198,73 @@ public class ChainHost implements ChainService {
 			.collect(Collectors.toUnmodifiableSet());
 	}
 
+	/* Client feeds are only ever added in here, one join at a time, so no chain gets past its limit. They are
+	   removed by leaves and closed streams without the lock, which can only make room. The lock is not the one
+	   of refresh(), which waits for stream lookups that a join must not wait for. */
 	@Override
 	public JoinReply join(final Channel peer, final JoinChain request) {
-		return JoinReply.builder().requestId(request.getRequestId()).status(JoinReply.Status.DISABLED).build();
+		final JoinReply.JoinReplyBuilder reply = JoinReply.builder().requestId(request.getRequestId());
+		final WriterId writer = request.getWriter();
+
+		synchronized (joins) {
+			final Hosting current = hosting;
+
+			if (current.settings().isEmpty()) {
+				return reply.status(JoinReply.Status.DISABLED).build();
+			}
+
+			if (writer == null) {
+				return reply.status(JoinReply.Status.FULL).build();
+			}
+
+			return current.placement(writer, request.getChainId())
+				.map(hosted -> admit(current, hosted, peer, writer, reply))
+				.orElseGet(() -> reply.status(JoinReply.Status.UNKNOWN_CHAIN).build());
+		}
+	}
+
+	private JoinReply admit(final Hosting current, final HostedChain hosted, final Channel peer,
+		final WriterId writer, final JoinReply.JoinReplyBuilder reply) {
+
+		final HostedChain.Attachment attachment = attach(current, hosted, peer, writer);
+
+		if (attachment == HostedChain.Attachment.REFUSED) {
+			return reply.status(JoinReply.Status.FULL).build();
+		}
+
+		final Map<WriterId, Head> heads = hosted.getChain().heads();
+
+		/* The reply carries every head and a packet holds only so many, so a chain with more takes no clients */
+		if (heads.size() > ChainCodecs.MAX_HEADS_PER_PACKET) {
+			hosted.detach(writer, peer);
+			return reply.status(JoinReply.Status.FULL).build();
+		}
+
+		if (attachment == HostedChain.Attachment.NEW) {
+			awaitClose(peer);
+		}
+
+		return reply.status(JoinReply.Status.JOINED).chainId(hosted.getChain().id()).heads(heads).build();
+	}
+
+	/* A stream that is not open is no place to attach: its close has run or is running, and the attachment would
+	   outlive it. A stream closes on the event loop that reads its packets, so it cannot close during a join. */
+	private HostedChain.Attachment attach(final Hosting current, final HostedChain hosted, final Channel peer,
+		final WriterId writer) {
+
+		if (!peer.isActive()) {
+			return HostedChain.Attachment.REFUSED;
+		}
+
+		final boolean streamHasRoom = current.clientsOn(peer) < MAX_WRITERS_PER_STREAM;
+
+		return hosted.attach(writer, peer, current.settings().orElseThrow().clientsPerChain(), streamHasRoom);
+	}
+
+	private void awaitClose(final Channel peer) {
+		if (peer.attr(CLOSE_AWAITED).setIfAbsent(Boolean.TRUE) == null) {
+			peer.closeFuture().addListener(closed -> hosting.detachAll(peer));
+		}
 	}
 
 	@Override
@@ -212,8 +287,11 @@ public class ChainHost implements ChainService {
 		/* No writer of this node is on a chain to pause */
 	}
 
+	/* A leave is unsigned, so it is only believed from the stream the writer attached through */
 	@Override
 	public void leave(final Channel peer, final LeaveChain leave) {
-		/* No client is attached to detach */
+		if (leave.getChainId() != null && leave.getWriter() != null) {
+			hosted(leave.getChainId()).ifPresent(hosted -> hosted.detach(leave.getWriter(), peer));
+		}
 	}
 }
