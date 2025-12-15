@@ -54,16 +54,21 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 		return Optional.ofNullable(current.get(id));
 	}
 
-	/* The chain a writer is attached to, else the one with the fewest client feeds, the lowest index among equals.
-	   A named chain is the only candidate, because the writer joined another member's chain and attaches to the
-	   same one here. */
+	/* The chain a writer is attached to, else the one with the fewest client feeds, the lowest index among equals,
+	   but a chain that takes no more of the writer only when no other does. A named chain is the only candidate,
+	   because the writer joined another member's chain and attaches to the same one here. */
 	Optional<HostedChain> placement(final WriterId writer, final Optional<ChainId> named) {
 		if (named.isPresent()) {
 			return find(named.get());
 		}
 
 		return current.values().stream().filter(hosted -> hosted.isAttached(writer)).findFirst()
-			.or(() -> current.values().stream().min(Comparator.comparingInt(HostedChain::clientCount)));
+			.or(() -> current.values().stream().min(byRoom(writer)));
+	}
+
+	private static Comparator<HostedChain> byRoom(final WriterId writer) {
+		return Comparator.comparing((HostedChain hosted) -> !hosted.canTake(writer))
+			.thenComparingInt(HostedChain::clientCount);
 	}
 
 	/* The writers a stream is attached as, over all chains */

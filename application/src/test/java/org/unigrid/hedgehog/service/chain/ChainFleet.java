@@ -49,6 +49,7 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
    between two hosts is an embedded channel at each end. */
 final class ChainFleet {
 	static final long NOW = 1_750_000_000_000L;
+	static final int MEMBERS = 4;
 
 	/* Each end of a stream is a channel of its own, so the key tells whose end it is */
 	private record Link(String owner, String peer) {
@@ -74,6 +75,25 @@ final class ChainFleet {
 
 		return new ProxySettings(groupSize, 3600, chainsPerGroup, clientsPerChain, 32L * 1024 * 1024,
 			retentionSeconds, 16 * 1024, 300, flags);
+	}
+
+	/* Chains of 1 KiB hold five of the small entries `entries` writes */
+	static ProxySettings tinyChains() {
+		return new ProxySettings(8, 3600, 4, 16, 1024, 30, 1024, 300, 3);
+	}
+
+	/* Four gridnodes in one group, so each of them hosts the same chains */
+	static ChainFleet group(final ProxySettings settings) {
+		final ChainFleet fleet = new ChainFleet(MEMBERS);
+
+		fleet.settings.set(Optional.of(settings));
+		IntStream.range(0, MEMBERS).forEach(member -> fleet.host("gn-" + member));
+		fleet.refreshAll();
+		return fleet;
+	}
+
+	static ChainFleet group() {
+		return group(settings(MEMBERS, 4, 16, 30, 3));
 	}
 
 	static WriterKey key(final int number) {

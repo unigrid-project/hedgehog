@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -46,11 +47,13 @@ import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
+import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -267,9 +270,25 @@ public class ChainHost implements ChainService {
 		}
 	}
 
+	/* Duplicates and entries of chains this node does not host are dropped without a word, like everything
+	   else a chain turns away: only a writer that is told the chain is full has something to do about it.
+	   An entry from a stream that may not write it is dropped before anything is verified. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
-		return List.of();
+		final Hosting current = hosting;
+		final List<EntryRefused> refusals = new ArrayList<>();
+
+		for (final Entry entry : Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of())) {
+			final Optional<Offer> offer = current.find(entry.header().chainId())
+				.filter(hosted -> hosted.accepts(peer, entry.header().writer()))
+				.flatMap(hosted -> hosted.offer(entry));
+
+			if (offer.isPresent() && offer.get().admission() == Admission.FULL) {
+				refusals.add(EntryRefused.of(entry, Admission.FULL));
+			}
+		}
+
+		return refusals;
 	}
 
 	@Override
