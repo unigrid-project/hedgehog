@@ -26,7 +26,9 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
@@ -35,6 +37,9 @@ import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 public class RestClient implements AutoCloseable {
+	/* A server that stops sending partway through a stream would otherwise hold the caller forever */
+	private static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
+
 	private final Client client;
 	private final String baseUrl;
 
@@ -52,6 +57,7 @@ public class RestClient implements AutoCloseable {
 		client = ClientBuilder.newBuilder()
 			.hostnameVerifier((hostname, session) -> true) /* Accept all hostnames */
 			.sslContext(context)
+			.readTimeout(READ_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
 			.withConfig(clientConfig).build();
 
 		if (isSecure) {
