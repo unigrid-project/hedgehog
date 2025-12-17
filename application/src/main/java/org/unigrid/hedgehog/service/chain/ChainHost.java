@@ -272,23 +272,67 @@ public class ChainHost implements ChainService {
 
 	/* Duplicates and entries of chains this node does not host are dropped without a word, like everything
 	   else a chain turns away: only a writer that is told the chain is full has something to do about it.
-	   An entry from a stream that may not write it is dropped before anything is verified. */
+	   An entry from a stream that may not write it is dropped before anything is verified. What the chains
+	   appended is flooded on, once per chain for the whole packet, and what they refused is not. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
 		final Hosting current = hosting;
 		final List<EntryRefused> refusals = new ArrayList<>();
+		final Map<HostedChain, List<Entry>> appended = new LinkedHashMap<>();
 
 		for (final Entry entry : Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of())) {
-			final Optional<Offer> offer = current.find(entry.header().chainId())
-				.filter(hosted -> hosted.accepts(peer, entry.header().writer()))
-				.flatMap(hosted -> hosted.offer(entry));
+			final Optional<HostedChain> hosted = current.find(entry.header().chainId())
+				.filter(chain -> chain.accepts(peer, entry.header().writer()));
+			final Optional<Offer> offer = hosted.flatMap(chain -> chain.offer(entry));
+
+			offer.ifPresent(taken -> appended.computeIfAbsent(hosted.get(), chain -> new ArrayList<>())
+				.addAll(taken.appended()));
 
 			if (offer.isPresent() && offer.get().admission() == Admission.FULL) {
 				refusals.add(EntryRefused.of(entry, Admission.FULL));
 			}
 		}
 
+		appended.forEach((hosted, taken) -> flood(hosted, peer, taken));
 		return refusals;
+	}
+
+	/* An entry this node writes itself goes in like any other, but there is no stream to spare in the flood. A
+	   writer the chain takes no more of is told FULL, like a sealed entry without room. */
+	public Admission post(final Entry entry) {
+		return hosted(entry.header().chainId()).map(hosted -> post(hosted, entry)).orElse(Admission.WRONG_CHAIN);
+	}
+
+	private Admission post(final HostedChain hosted, final Entry entry) {
+		final Optional<Offer> offer = hosted.offer(entry);
+
+		offer.ifPresent(taken -> flood(hosted, null, taken.appended()));
+		return offer.map(Offer::admission).orElse(Admission.FULL);
+	}
+
+	/* The stream the entries came in on already has them, and a closed one cannot take them. A stream with no room
+	   is skipped too, since writes it does not take pile up in memory: a member catches up through reconcile and a
+	   client's gap expires like any other */
+	private void flood(final HostedChain hosted, final Channel origin, final List<Entry> appended) {
+		final List<ChainEntry> batches = ChainEntry.batches(appended);
+
+		if (batches.isEmpty()) {
+			return;
+		}
+
+		hosted.audience().filter(stream -> stream != origin && stream.isActive() && stream.isWritable())
+			.forEach(stream -> write(stream, batches));
+	}
+
+	/* One stream that fails must not stop the others, and only the class of its failure is logged, as a
+	   message may name an address */
+	private void write(final Channel stream, final List<ChainEntry> batches) {
+		try {
+			batches.forEach(stream::write);
+			stream.flush();
+		} catch (RuntimeException ex) {
+			log.warn("The flood to a stream failed with {}", ex.getClass().getName());
+		}
 	}
 
 	@Override

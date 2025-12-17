@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -107,6 +108,11 @@ final class HostedChain {
 
 	void detachAll(final Channel stream) {
 		clients.values().removeIf(stream::equals);
+	}
+
+	/* Every member stream and every client stream, which is who a new entry is flooded to */
+	Stream<Channel> audience() {
+		return Stream.concat(memberStreams.stream(), clients.values().stream()).distinct();
 	}
 
 	/* Members relay the entries of any writer, a client only posts its own */

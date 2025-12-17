@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -34,6 +35,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.packet.ChainEntry;
+import org.unigrid.hedgehog.model.network.packet.ChainHeads;
+import org.unigrid.hedgehog.model.network.packet.EntryRefused;
+import org.unigrid.hedgehog.model.network.packet.FetchEntries;
+import org.unigrid.hedgehog.model.network.packet.JoinChain;
+import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -50,6 +57,12 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
 final class ChainFleet {
 	static final long NOW = 1_750_000_000_000L;
 	static final int MEMBERS = 4;
+	private static final int MAX_ROUNDS = 100;
+	private static final int MAX_PACKETS_PER_ROUND = 1_000;
+
+	record Delivery(String from, String to, Object packet) {
+		/* One packet that went from a host to another */
+	}
 
 	/* Each end of a stream is a channel of its own, so the key tells whose end it is */
 	private record Link(String owner, String peer) {
@@ -58,6 +71,7 @@ final class ChainFleet {
 	final AtomicLong clock = new AtomicLong(NOW);
 	final AtomicReference<Optional<ProxySettings>> settings = new AtomicReference<>(Optional.of(ProxySettings.DEFAULTS));
 	final List<Gridnode> gridnodes = new CopyOnWriteArrayList<>();
+	final List<Delivery> deliveries = new ArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
 	private final Map<Link, EmbeddedChannel> streams = new HashMap<>();
 	private final Set<String> offline = new HashSet<>();
@@ -122,6 +136,27 @@ final class ChainFleet {
 			clock::get);
 	}
 
+	/* The first chain of the group, which every member hosts when the fleet is a single group */
+	ChainId chain() {
+		return host("gn-0").hostedChains().get(0);
+	}
+
+	/* A client that joins that chain through a stream of its own at a member */
+	EmbeddedChannel client(final String member, final int writer) {
+		final EmbeddedChannel stream = new EmbeddedChannel();
+
+		host(member).join(stream, JoinChain.builder().requestId(writer).writer(writer(writer))
+			.chainId(chain()).build());
+		return stream;
+	}
+
+	/* A stream that has more written to it than it takes, and so stays unwritable until it is flushed */
+	static EmbeddedChannel unwritable(final EmbeddedChannel stream) {
+		stream.config().setWriteBufferWaterMark(new WriteBufferWaterMark(1, 2));
+		stream.write("Not flushed");
+		return stream;
+	}
+
 	/* An offline host gets no stream from the others until it is back */
 	void offline(final String id) {
 		offline.add(id);
@@ -135,8 +170,72 @@ final class ChainFleet {
 		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
 	}
 
+	/* Hands over what the hosts have written to each other, a round of hops at a time so that the order does not
+	   depend on the streams, until the fleet is quiet. A fleet that talks for many rounds, or whose rounds keep
+	   growing, passes the same packets around in circles, which a test must fail on and not wait for. */
+	void deliver() {
+		for (int round = 0; round < MAX_ROUNDS; round++) {
+			final List<Map.Entry<Link, Object>> written = drain();
+
+			if (written.isEmpty()) {
+				return;
+			}
+
+			if (written.size() > MAX_PACKETS_PER_ROUND) {
+				break;
+			}
+
+			written.forEach(sent -> route(sent.getKey(), sent.getValue()));
+		}
+
+		throw new IllegalStateException("The fleet keeps passing packets around");
+	}
+
+	private List<Map.Entry<Link, Object>> drain() {
+		final List<Map.Entry<Link, Object>> written = new ArrayList<>();
+
+		streams.forEach((link, stream) -> {
+			for (Object packet = stream.readOutbound(); packet != null; packet = stream.readOutbound()) {
+				written.add(Map.entry(link, packet));
+			}
+		});
+
+		return written;
+	}
+
 	private Optional<Channel> streamBetween(final String owner, final String peer) {
 		return hosts.containsKey(peer) && !offline.contains(peer) ? Optional.of(stream(owner, peer)) : Optional.empty();
+	}
+
+	private void route(final Link from, final Object packet) {
+		if (hosts.containsKey(from.peer()) && !offline.contains(from.peer())) {
+			deliveries.add(new Delivery(from.owner(), from.peer(), packet));
+			dispatch(hosts.get(from.peer()), stream(from.peer(), from.owner()), packet);
+		}
+	}
+
+	/* What the packet handlers do with each packet: hand it to the host and write back what it answers */
+	private static void dispatch(final ChainHost host, final Channel stream, final Object packet) {
+		if (packet instanceof EntryRefused refusal) {
+			host.refused(stream, refusal);
+		} else if (packet instanceof LeaveChain leave) {
+			host.leave(stream, leave);
+		} else {
+			answer(host, stream, packet);
+		}
+	}
+
+	/* The packets that the receiving host answers on the stream they came in on */
+	private static void answer(final ChainHost host, final Channel stream, final Object packet) {
+		if (packet instanceof ChainEntry entries) {
+			host.receive(stream, entries).forEach(stream::writeAndFlush);
+		} else if (packet instanceof ChainHeads heads) {
+			host.reconcile(stream, heads).ifPresent(stream::writeAndFlush);
+		} else if (packet instanceof FetchEntries request) {
+			ChainEntry.batches(host.fetch(stream, request)).forEach(stream::writeAndFlush);
+		} else if (packet instanceof JoinChain request) {
+			stream.writeAndFlush(host.join(stream, request));
+		}
 	}
 
 	List<String> activeIds() {
