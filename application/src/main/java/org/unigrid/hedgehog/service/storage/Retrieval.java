@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.BufferUnderflowException;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
@@ -46,6 +47,7 @@ public final class Retrieval {
 	private final List<Gridnode> gridnodes;
 	private final GroupFetcher fetcher;
 	private final int window;
+	private Optional<List<byte[]>> first = Optional.empty();
 
 	private Retrieval(final FingerprintKeys keys, final Manifest manifest, final List<Gridnode> gridnodes,
 		final GroupFetcher fetcher, final int placementSlack) {
@@ -96,21 +98,43 @@ public final class Retrieval {
 		return manifest.getFileSize();
 	}
 
+	/* Recovers the first stripe up front, so a file lost from its start fails before a caller commits to an answer
+	   rather than partway through the bytes it sends */
+	Retrieval prepare() throws DataLossException {
+		if (layout.stripes() > 0) {
+			first = Optional.of(plaintexts(ChunkCipher.forChunks(keys), 0));
+		}
+
+		return this;
+	}
+
 	public void writeTo(final OutputStream output) throws IOException, StorageException {
 		final ChunkCipher cipher = ChunkCipher.forChunks(keys);
 		long remaining = manifest.getFileSize();
 
 		for (int stripe = 0; stripe < layout.stripes(); stripe++) {
-			final byte[][] chunks = stripe(stripe);
-
-			for (int i = 0; i < layout.dataChunksIn(stripe); i++) {
-				final byte[] plaintext = open(cipher, layout.firstSequenceOf(stripe) + i, chunks[i], stripe);
+			for (final byte[] plaintext : preparedOr(cipher, stripe)) {
 				final int length = (int) Math.min(plaintext.length, remaining);
 
 				output.write(plaintext, 0, length);
 				remaining -= length;
 			}
 		}
+	}
+
+	private List<byte[]> preparedOr(final ChunkCipher cipher, final int stripe) throws DataLossException {
+		return stripe == 0 && first.isPresent() ? first.get() : plaintexts(cipher, stripe);
+	}
+
+	private List<byte[]> plaintexts(final ChunkCipher cipher, final int stripe) throws DataLossException {
+		final byte[][] chunks = stripe(stripe);
+		final List<byte[]> plaintexts = new ArrayList<>();
+
+		for (int i = 0; i < layout.dataChunksIn(stripe); i++) {
+			plaintexts.add(open(cipher, layout.firstSequenceOf(stripe) + i, chunks[i], stripe));
+		}
+
+		return plaintexts;
 	}
 
 	void withdraw(final GroupDistributor distributor, final long timestamp) {

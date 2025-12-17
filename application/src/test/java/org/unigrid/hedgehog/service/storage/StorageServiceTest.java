@@ -37,6 +37,7 @@ import java.util.Set;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -276,6 +277,42 @@ public class StorageServiceTest {
 		service.delete(fingerprint);
 
 		assertThat(fleet.groups().isEmpty(), is(true));
+		assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint));
+	}
+
+	/* Opening recovers the first stripe, so only a later stripe can fail once bytes have been written. Either way
+	   the manifest alone is enough to delete what is left of the file. */
+	@SneakyThrows
+	@Property(tries = 40)
+	public void reportsALostFirstStripeOnOpen(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
+		@ForAll final long seed) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(scenario.get1(), random);
+		final StorageService service = fleet.service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
+		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
+		final StorageLayout layout = StorageLayout.of(scenario.get1().layout(), scenario.get2().length);
+
+		Assume.that(layout.stripes() > 0);
+
+		final int lost = random.nextInt(layout.stripes());
+
+		for (int index = 0; index < layout.dataChunksIn(lost) + layout.parityChunksIn(lost); index++) {
+			fleet.forget(new GroupKey(keys.chunkSeed(lost, index)).groupId());
+		}
+
+		if (lost == 0) {
+			assertThrows(DataLossException.class, () -> service.open(fingerprint));
+		} else {
+			final ByteArrayOutputStream output = new ByteArrayOutputStream();
+			final Retrieval retrieval = service.open(fingerprint);
+
+			assertThrows(DataLossException.class, () -> retrieval.writeTo(output));
+			assertThat(output.size() < scenario.get2().length, is(true));
+		}
+
+		service.delete(fingerprint);
 		assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint));
 	}
 

@@ -61,8 +61,7 @@ public class StorageService {
 	}
 
 	public Retrieval open(final Fingerprint fingerprint) throws StorageException {
-		return Retrieval.open(new FingerprintKeys(fingerprint), parameters(), directory.active(),
-			new GroupFetcher(transport));
+		return locate(fingerprint).prepare();
 	}
 
 	public void retrieve(final Fingerprint fingerprint, final OutputStream output)
@@ -72,7 +71,13 @@ public class StorageService {
 	}
 
 	public void delete(final Fingerprint fingerprint) throws StorageException {
-		open(fingerprint).withdraw(distributor(), System.currentTimeMillis());
+		locate(fingerprint).withdraw(distributor(), System.currentTimeMillis());
+	}
+
+	/* A delete only needs the manifest, so a file whose data is already lost can still be removed */
+	private Retrieval locate(final Fingerprint fingerprint) throws StorageException {
+		return Retrieval.open(new FingerprintKeys(fingerprint), parameters(), directory.active(),
+			new GroupFetcher(transport));
 	}
 
 	private StorageSpork.SporkData parameters() throws StorageDisabledException {
