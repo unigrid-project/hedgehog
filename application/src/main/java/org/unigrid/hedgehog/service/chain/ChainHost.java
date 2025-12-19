@@ -25,15 +25,19 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +57,7 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.HeadsDiff;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.GroupView;
@@ -66,6 +71,15 @@ public class ChainHost implements ChainService {
 	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */
 	static final int MAX_WRITERS_PER_STREAM = 4;
 
+	/* What one fetch can ask for and what one answer can hold: a few packets full, however much a peer asks */
+	private static final int RANGE_ENTRIES = ChainCodecs.MAX_ENTRIES_PER_PACKET;
+	private static final int MAX_RANGES = 8;
+
+	/* The order of the chain itself, so that the entries of a writer reach the requester in sequence */
+	private static final Comparator<Entry> OLDEST_FIRST = Comparator
+		.comparingLong((Entry entry) -> entry.header().timestamp()).thenComparing(entry -> entry.header().writer())
+		.thenComparingLong(entry -> entry.header().seq());
+
 	/* Set on a stream once its close is awaited, so that however often it joins and leaves it is awaited once */
 	private static final AttributeKey<Boolean> CLOSE_AWAITED = AttributeKey.valueOf("chainHostCloseAwaited");
 
@@ -73,6 +87,7 @@ public class ChainHost implements ChainService {
 	private final GridnodeDirectory directory;
 	private final ChainTransport transport;
 	private final LongSupplier clock;
+	private final RandomGenerator random;
 	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -83,16 +98,17 @@ public class ChainHost implements ChainService {
 	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory,
 		final ChainTransport transport) {
 
-		this(settings, directory, transport, System::currentTimeMillis);
+		this(settings, directory, transport, System::currentTimeMillis, new Random());
 	}
 
 	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
-		final LongSupplier clock) {
+		final LongSupplier clock, final RandomGenerator random) {
 
 		this.settings = settings;
 		this.directory = directory;
 		this.transport = transport;
 		this.clock = clock;
+		this.random = random;
 	}
 
 	/* The chains of this node's group in the current epoch, in index order. Each call reads the hosting once, so
@@ -101,8 +117,9 @@ public class ChainHost implements ChainService {
 		return List.copyOf(hosting.current().keySet());
 	}
 
+	/* A packet may name no chain, which the map of a hosting that is off cannot be asked for */
 	Optional<HostedChain> hosted(final ChainId id) {
-		return hosting.find(id);
+		return Optional.ofNullable(id).flatMap(hosting::find);
 	}
 
 	public Optional<Chain> chain(final ChainId id) {
@@ -335,14 +352,109 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	@Override
-	public Optional<FetchEntries> reconcile(final Channel peer, final ChainHeads heads) {
-		return Optional.empty();
+	/* Run once a second: each chain with entries tells one random member how far it has got, so a member that
+	   is behind asks for what it lacks. Those entries come back through receive like any other. Only streams that
+	   are open and take writes are chosen from, and a client is none of them: it never needs another's entries. */
+	public void reconcileRound() {
+		hosting.current().values().forEach(this::announce);
 	}
 
+	private void announce(final HostedChain hosted) {
+		final List<Channel> members = hosted.getMemberStreams().stream().filter(Channel::isActive)
+			.filter(Channel::isWritable).toList();
+		final Map<WriterId, Head> heads = hosted.getChain().heads();
+
+		if (members.isEmpty() || heads.isEmpty()) {
+			return;
+		}
+
+		final Channel member = members.get(random.nextInt(members.size()));
+		final ChainHeads announcement = ChainHeads.builder().chainId(hosted.getChain().id()).heads(capped(heads))
+			.build();
+
+		try {
+			member.writeAndFlush(announcement);
+		} catch (RuntimeException ex) {
+			log.warn("The heads to a member stream failed with {}", ex.getClass().getName());
+		}
+	}
+
+	/* A packet of heads holds only so many, and the writers a chain takes are bounded by the same number, so this
+	   only matters to a chain that was handed more feeds than it takes. It announces a part of them. */
+	private static Map<WriterId, Head> capped(final Map<WriterId, Head> heads) {
+		if (heads.size() <= ChainCodecs.MAX_HEADS_PER_PACKET) {
+			return heads;
+		}
+
+		return heads.entrySet().stream().limit(ChainCodecs.MAX_HEADS_PER_PACKET)
+			.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+	}
+
+	/* The heads of a peer only say what to ask for: nothing is adopted from them, and no feed is anchored at a
+	   head a peer names, so a peer cannot pin a writer to a head that is not its own. A feed this chain has not
+	   seen starts at its first entry, and if that entry is gone the entries that follow it wait until the gap
+	   expires. Only a member is answered. */
+	@Override
+	public Optional<FetchEntries> reconcile(final Channel peer, final ChainHeads heads) {
+		return hosted(heads.getChainId()).filter(hosted -> hosted.trusts(peer))
+			.map(hosted -> missing(hosted, heads.getHeads())).filter(ranges -> !ranges.isEmpty())
+			.map(ranges -> FetchEntries.builder().chainId(heads.getChainId()).ranges(ranges).build());
+	}
+
+	/* The writers this chain is behind the peer on and can take, by ascending id. A feed whose entries are gone at
+	   every member is claimed again in every round, so asking for the lowest ids each time would never reach a
+	   writer that sorts after eight of them: with more than eight, the eight asked for start at a random place of
+	   the list and carry on from its start when the end is passed. */
+	private List<FetchEntries.Range> missing(final HostedChain hosted, final Map<WriterId, Head> remote) {
+		final List<FetchEntries.Range> ahead = HeadsDiff.missing(hosted.getChain().heads(), remote, RANGE_ENTRIES)
+			.stream().filter(range -> hosted.canTake(range.writer()))
+			.map(range -> new FetchEntries.Range(range.writer(), range.fromSeq(), range.toSeq())).toList();
+
+		if (ahead.size() <= MAX_RANGES) {
+			return ahead;
+		}
+
+		final int start = random.nextInt(ahead.size());
+
+		return IntStream.range(0, MAX_RANGES).mapToObj(place -> ahead.get((start + place) % ahead.size())).toList();
+	}
+
+	/* The answers to a member that never reads would pile up in the buffer of its stream, which only turns unwritable
+	   when it is full, so a stream that takes no writes gets no answer and asks again */
 	@Override
 	public List<Entry> fetch(final Channel peer, final FetchEntries request) {
-		return List.of();
+		return hosted(request.getChainId()).filter(hosted -> hosted.trusts(peer))
+			.filter(hosted -> peer.isActive() && peer.isWritable())
+			.map(hosted -> retained(hosted.getChain(), request.getRanges())).orElse(List.of());
+	}
+
+	/* A range asked for twice is answered once, and a range wider than a packet is answered with its first entries */
+	private static List<Entry> retained(final Chain chain, final List<FetchEntries.Range> ranges) {
+		final List<Entry> oldestFirst = ranges.stream().limit(MAX_RANGES)
+			.flatMap(range -> chain.range(range.writer(), range.fromSeq(),
+				range.fromSeq() + Math.min(range.toSeq() - range.fromSeq(), RANGE_ENTRIES - 1)).stream())
+			.distinct().sorted(OLDEST_FIRST).toList();
+
+		return withinBytes(oldestFirst);
+	}
+
+	/* One answer must fit the frames the requester accepts, so it stops at the entry that would pass the cap and
+	   the requester asks for the rest next round */
+	private static List<Entry> withinBytes(final List<Entry> entries) {
+		final List<Entry> within = new ArrayList<>();
+		long bytes = 0;
+
+		for (final Entry entry : entries) {
+			bytes += ChainCodecs.encodedBytes(entry);
+
+			if (bytes > ChainCodecs.MAX_FRAME_BYTES) {
+				break;
+			}
+
+			within.add(entry);
+		}
+
+		return within;
 	}
 
 	@Override

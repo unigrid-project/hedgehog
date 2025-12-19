@@ -115,6 +115,12 @@ final class HostedChain {
 		return Stream.concat(memberStreams.stream(), clients.values().stream()).distinct();
 	}
 
+	/* Only the members may ask what this chain holds: a client that is attached could otherwise draw whole packets
+	   of entries for the price of a join */
+	boolean trusts(final Channel stream) {
+		return stream != null && memberStreams.contains(stream);
+	}
+
 	/* Members relay the entries of any writer, a client only posts its own */
 	boolean accepts(final Channel stream, final WriterId writer) {
 		return stream != null && (memberStreams.contains(stream) || clients.get(writer) == stream);

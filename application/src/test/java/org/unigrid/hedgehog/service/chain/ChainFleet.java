@@ -18,22 +18,28 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
@@ -71,9 +77,10 @@ final class ChainFleet {
 	final AtomicLong clock = new AtomicLong(NOW);
 	final AtomicReference<Optional<ProxySettings>> settings = new AtomicReference<>(Optional.of(ProxySettings.DEFAULTS));
 	final List<Gridnode> gridnodes = new CopyOnWriteArrayList<>();
+	final Random random = new Random(1);
 	final List<Delivery> deliveries = new ArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
-	private final Map<Link, EmbeddedChannel> streams = new HashMap<>();
+	private final Map<Link, EmbeddedChannel> streams = new LinkedHashMap<>();
 	private final Set<String> offline = new HashSet<>();
 
 	ChainFleet(final int size) {
@@ -132,8 +139,13 @@ final class ChainFleet {
 
 	/* A host that is not one of the fleet, for a transport the test supplies */
 	ChainHost hostOver(final String id, final ChainTransport transport) {
+		return hostOver(id, transport, random);
+	}
+
+	/* The same, for a test that decides which member the host picks */
+	ChainHost hostOver(final String id, final ChainTransport transport, final RandomGenerator picks) {
 		return new ChainHost(settings::get, new TopologyGridnodeDirectory(() -> gridnodes, () -> id), transport,
-			clock::get);
+			clock::get, picks);
 	}
 
 	/* The first chain of the group, which every member hosts when the fleet is a single group */
@@ -168,6 +180,24 @@ final class ChainFleet {
 
 	EmbeddedChannel stream(final String owner, final String peer) {
 		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
+	}
+
+	/* One tick of the clocks: every online host tells a member where its chains stand, and what that sets going
+	   is delivered */
+	void round() {
+		hosts.forEach((id, host) -> {
+			if (!offline.contains(id)) {
+				host.reconcileRound();
+			}
+		});
+
+		deliver();
+	}
+
+	/* Whether every online host holds the same heads and the same entries of a chain */
+	boolean agree(final ChainId chainId) {
+		return hosts.entrySet().stream().filter(host -> !offline.contains(host.getKey())).map(host -> host.getValue()
+			.chain(chainId).orElseThrow()).map(chain -> List.of(chain.heads(), chain.entries())).distinct().count() == 1;
 	}
 
 	/* Hands over what the hosts have written to each other, a round of hops at a time so that the order does not
@@ -249,5 +279,25 @@ final class ChainFleet {
 
 	void refreshAll() {
 		new ArrayList<>(hosts.values()).forEach(ChainHost::refresh);
+	}
+
+	/* What the hosts warn about while the action runs. The module descriptor reads logback-classic only, so the
+	   in-memory appender of logback-core is out of reach until the module is made to read it. */
+	static List<ILoggingEvent> warningsWhile(final Runnable action) {
+		ChainFleet.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ChainHost.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
 	}
 }
