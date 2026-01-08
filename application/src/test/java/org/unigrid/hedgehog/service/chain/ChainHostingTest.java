@@ -18,14 +18,18 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -43,11 +47,15 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -68,6 +76,10 @@ public class ChainHostingTest {
 	private static final long NEXT_START = NEXT_EPOCH * EPOCH_MILLIS;
 	private static final int SWAPS = 5_000;
 	private static final int TIMEOUT_SECONDS = 10;
+	/* A retired chain is kept while its epoch is at most this far behind the current one, and the most retired
+	   chains a host holds. Both are stated here so that a change of the rule fails a test. */
+	private static final int KEPT_UP_TO_AGE = 4;
+	private static final int RETIRED_CAP = 1024;
 
 	/* Counts how often the shard groups are ranked, which is what a refresh must not do for nothing, and notes
 	   whether the host was locked each time */
@@ -77,7 +89,7 @@ public class ChainHostingTest {
 
 		CountingHost(final ChainFleet fleet, final Supplier<String> own) {
 			super(fleet.settings::get, new TopologyGridnodeDirectory(() -> fleet.gridnodes, own),
-				peer -> Optional.empty(), fleet.clock::get, fleet.random);
+				peer -> Optional.empty(), fleet.clock::get, fleet.random, new ManualScheduler());
 		}
 
 		@Override
@@ -93,6 +105,36 @@ public class ChainHostingTest {
 
 		host.refresh();
 		return host;
+	}
+
+	/* Takes the host through the given number of epochs, a turn of the clock at a time, and answers the chains
+	   it hosted in each of them, the epoch it started in first */
+	private static List<List<ChainId>> throughEpochs(final ChainFleet fleet, final ChainHost host, final int turns) {
+		final List<List<ChainId>> epochs = new ArrayList<>(List.of(host.hostedChains()));
+
+		for (int turn = 0; turn < turns; turn++) {
+			fleet.clock.addAndGet(EPOCH_MILLIS);
+			host.refresh();
+			epochs.add(host.hostedChains());
+		}
+
+		return epochs;
+	}
+
+	/* The chains of the epochs from the first up to but not including the last, oldest first */
+	private static List<ChainId> flattened(final List<List<ChainId>> epochs, final int first, final int last) {
+		return epochs.subList(first, last).stream().flatMap(List::stream).toList();
+	}
+
+	private static WeakReference<Chain> weakChainOf(final ChainHost host, final ChainId id) {
+		return new WeakReference<>(host.chain(id).orElseThrow());
+	}
+
+	private static void assertReleased(final WeakReference<Chain> chain) {
+		await().atMost(TIMEOUT_SECONDS, TimeUnit.SECONDS).until(() -> {
+			System.gc();
+			return chain.get() == null;
+		});
 	}
 
 	private static ChainHost hostAt(final long now) {
@@ -260,7 +302,295 @@ public class ChainHostingTest {
 
 		assertThat(host.hostedChains().size(), equalTo(before.size()));
 		assertThat(host.hostedChains(), not(equalTo(before)));
-		assertThat(host.chain(before.get(0)), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void retiresTheChainsOfAnEpochItLeavesAndKeepsThemWithTheirEntries() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<ChainId> first = host.hostedChains();
+		final Chain chain = host.chain(first.get(0)).orElseThrow();
+
+		assertThat(host.retiredChains(), is(empty()));
+
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 2);
+
+		assertThat(host.hostedChains(), equalTo(epochs.get(2)));
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 0, 2)));
+		assertThat(host.chain(first.get(0)).orElseThrow(), sameInstance(chain));
+		assertThat(host.hostedChains().stream().anyMatch(first::contains), is(false));
+	}
+
+	@Example
+	public void keepsTheChainsOfAnEpochThatIsFourBehindTheCurrentOne() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final Chain oldest = host.chain(host.hostedChains().get(0)).orElseThrow();
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 4);
+
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 0, 4)));
+		assertThat(host.retiredChains().size(), equalTo(16));
+		assertThat(host.chain(epochs.get(0).get(0)).orElseThrow(), sameInstance(oldest));
+	}
+
+	@Example
+	public void dropsTheChainsOfAnEpochThatIsFiveBehindTheCurrentOne() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 5);
+
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 1, 5)));
+		assertThat(host.retiredChains().size(), equalTo(16));
+		epochs.get(0).forEach(id -> assertThat(host.chain(id), equalTo(Optional.empty())));
+		epochs.get(1).forEach(id -> assertThat(host.chain(id).isPresent(), is(true)));
+	}
+
+	@Property(tries = 30)
+	public void keepsTheChainsOfTheEpochsUpToFourBehindOnly(@ForAll @IntRange(min = 1, max = 12) int turns,
+		@ForAll @IntRange(min = 1, max = 6) int chainsPerGroup) {
+
+		final ChainFleet fleet = new ChainFleet(20);
+
+		fleet.settings.set(Optional.of(ChainFleet.settings(8, chainsPerGroup, 16, 30, 3)));
+
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, turns);
+		final List<ChainId> kept = flattened(epochs, Math.max(0, turns - KEPT_UP_TO_AGE), turns);
+
+		assertThat(host.hostedChains(), equalTo(epochs.get(turns)));
+		assertThat(host.retiredChains(), equalTo(kept));
+		assertThat(kept.size(), equalTo(Math.min(turns, KEPT_UP_TO_AGE) * chainsPerGroup));
+		flattened(epochs, 0, turns + 1).forEach(id -> assertThat(host.chain(id).isPresent(),
+			equalTo(kept.contains(id) || host.hostedChains().contains(id))));
+	}
+
+	@Example
+	public void keepsEveryChainOfAnEarlierEpochWhileTheNodeChangesGroupWithinAnEpoch() {
+		final ChainFleet fleet = new ChainFleet(70);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final Set<ChainId> expected = new HashSet<>(host.hostedChains());
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		expected.addAll(host.hostedChains());
+
+		/* Gridnodes leaving, ten times, so that gn-3 lands in one group after another in this epoch */
+		for (final int size : new int[] { 69, 66, 62, 57, 56, 47, 31, 24, 19, 15 }) {
+			resize(fleet, size);
+			host.refresh();
+			expected.addAll(host.hostedChains());
+		}
+
+		expected.removeAll(host.hostedChains());
+
+		/* More than four epochs' worth of chains, which a count of chains would have cut down */
+		assertThat(expected.size(), greaterThan(4 * KEPT_UP_TO_AGE));
+		assertThat(host.retiredChains().size(), equalTo(expected.size()));
+		assertThat(new HashSet<>(host.retiredChains()), equalTo(expected));
+	}
+
+	@Example
+	public void retiresOnlyWhatItHostedWhenTheClockJumpsSeveralEpochs() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<ChainId> first = host.hostedChains();
+
+		fleet.clock.addAndGet(KEPT_UP_TO_AGE * EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(chainsIn(NEXT_EPOCH + 3)));
+		assertThat(host.retiredChains(), equalTo(first));
+	}
+
+	@Example
+	public void dropsAtOnceWhatIsFiveEpochsBehindWhenTheClockJumps() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<ChainId> first = host.hostedChains();
+
+		fleet.clock.addAndGet((KEPT_UP_TO_AGE + 1) * EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(chainsIn(NEXT_EPOCH + 4)));
+		assertThat(host.retiredChains(), is(empty()));
+		first.forEach(id -> assertThat(host.chain(id), equalTo(Optional.empty())));
+	}
+
+	private static ChainHost hostWithChainsPerGroup(final ChainFleet fleet, final int chainsPerGroup) {
+		fleet.settings.set(Optional.of(ChainFleet.settings(8, chainsPerGroup, 16, 30, 3)));
+		return refreshed(fleet, "gn-3");
+	}
+
+	@Example
+	public void dropsTheOldestRetiredChainsFirstWhenThereAreMoreThanTheCapAllows() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostWithChainsPerGroup(fleet, 400);
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 3);
+		final List<ChainId> all = flattened(epochs, 0, 3);
+
+		assertThat(all.size(), equalTo(1200));
+		assertThat(host.retiredChains(), equalTo(all.subList(1200 - RETIRED_CAP, 1200)));
+		assertThat(host.chain(epochs.get(0).get(175)), equalTo(Optional.empty()));
+		assertThat(host.chain(epochs.get(0).get(176)).isPresent(), is(true));
+	}
+
+	@Property(tries = 10)
+	public void neverHoldsMoreRetiredChainsThanTheCapAndDropsTheOldestFirst(
+		@ForAll @IntRange(min = 300, max = 600) int chainsPerGroup, @ForAll @IntRange(min = 1, max = 6) int turns) {
+
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostWithChainsPerGroup(fleet, chainsPerGroup);
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, turns);
+		final List<ChainId> byAge = flattened(epochs, Math.max(0, turns - KEPT_UP_TO_AGE), turns);
+		final List<ChainId> capped = byAge.subList(Math.max(0, byAge.size() - RETIRED_CAP), byAge.size());
+
+		assertThat(host.retiredChains().size(), lessThanOrEqualTo(RETIRED_CAP));
+		assertThat(host.retiredChains(), equalTo(capped));
+	}
+
+	@Example
+	public void dropsTheOldestEpochBeforeTheOldestRetiredWhenTheClockHasSteppedBack() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostWithChainsPerGroup(fleet, 600);
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 3);
+
+		fleet.clock.addAndGet(-EPOCH_MILLIS);
+		host.refresh();
+		fleet.clock.addAndGet(-EPOCH_MILLIS);
+		host.refresh();
+
+		final List<ChainId> expected = new ArrayList<>(epochs.get(3));
+
+		expected.addAll(epochs.get(2).subList(176, 600));
+
+		assertThat(host.hostedChains(), equalTo(epochs.get(1)));
+		assertThat(host.retiredChains(), equalTo(expected));
+	}
+
+	@Example
+	public void takesARetiredChainBackWithItsEntriesWhenItsIdIsWantedAgain() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<ChainId> first = host.hostedChains();
+		final Chain chain = host.chain(first.get(0)).orElseThrow();
+
+		host.post(ChainFleet.entries(ChainFleet.key(1), first.get(0), 1, ChainFleet.NOW).get(0));
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		final List<ChainId> second = host.hostedChains();
+
+		fleet.clock.addAndGet(-EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(first));
+		assertThat(host.chain(first.get(0)).orElseThrow(), sameInstance(chain));
+		assertThat(chain.entries().size(), equalTo(1));
+		assertThat(host.retiredChains(), equalTo(second));
+	}
+
+	@Example
+	public void buildsFreshChainsWhenTheClockStepsBackBeyondWhatIsKept() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final Chain oldest = host.chain(host.hostedChains().get(0)).orElseThrow();
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 5);
+
+		fleet.clock.addAndGet(-5 * EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(epochs.get(0)));
+		assertThat(host.chain(epochs.get(0).get(0)).orElseThrow(), not(sameInstance(oldest)));
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 1, 6)));
+	}
+
+	@Example
+	public void doesNotKeepARetiredChainThatIsWantedAgainWithOtherLimits() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<ChainId> first = host.hostedChains();
+		final Chain chain = host.chain(first.get(0)).orElseThrow();
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		final List<ChainId> second = host.hostedChains();
+
+		fleet.clock.addAndGet(-EPOCH_MILLIS);
+		fleet.settings.set(Optional.of(ChainFleet.settings(8, 4, 16, 31, 3)));
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(first));
+		assertThat(host.chain(first.get(0)).orElseThrow(), not(sameInstance(chain)));
+		assertThat(host.retiredChains(), equalTo(second));
+	}
+
+	@Example
+	public void leavesTheRetiredChainsAloneWhenARefreshReusesTheHosting() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 2);
+		final Hosting before = host.snapshot();
+
+		host.refresh();
+		host.tick();
+		host.maintain();
+
+		assertThat(host.snapshot(), sameInstance(before));
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 0, 2)));
+	}
+
+	@Example
+	public void keepsTheRetiredChainsWhenARebuildKeepsTheCurrentOnes() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 2);
+		final Hosting before = host.snapshot();
+		final List<Chain> chains = host.snapshot().all().map(HostedChain::getChain).toList();
+
+		fleet.settings.set(Optional.of(ChainFleet.settings(8, 4, 8, 30, 3)));
+		host.refresh();
+
+		assertThat(host.snapshot(), not(sameInstance(before)));
+		assertThat(host.hostedChains(), equalTo(epochs.get(2)));
+		assertThat(host.retiredChains(), equalTo(flattened(epochs, 0, 2)));
+		assertThat(host.snapshot().all().map(HostedChain::getChain).toList(), equalTo(chains));
+	}
+
+	@Example
+	public void releasesAChainOnceItIsDropped() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final WeakReference<Chain> oldest = weakChainOf(host, host.hostedChains().get(0));
+
+		throughEpochs(fleet, host, KEPT_UP_TO_AGE);
+		System.gc();
+		assertThat(oldest.get(), is(notNullValue()));
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+
+		assertReleased(oldest);
+	}
+
+	@Example
+	public void releasesTheRetiredChainsWhenTheClockReadsBeforeTheOrigin() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
+		final WeakReference<Chain> oldest = weakChainOf(host, host.hostedChains().get(0));
+		final List<List<ChainId>> epochs = throughEpochs(fleet, host, 2);
+
+		fleet.clock.set(-1);
+		host.refresh();
+
+		assertThat(host.hostedChains(), is(empty()));
+		assertThat(host.retiredChains(), is(empty()));
+		assertThat(host.chain(epochs.get(0).get(0)), equalTo(Optional.empty()));
+		assertReleased(oldest);
+
+		fleet.clock.set(ChainFleet.NOW + 2 * EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(host.hostedChains(), equalTo(epochs.get(2)));
+		assertThat(host.retiredChains(), is(empty()));
 	}
 
 	@Example
@@ -298,14 +628,21 @@ public class ChainHostingTest {
 		final List<ChainId> hosted = host.hostedChains();
 		final Chain before = host.chain(hosted.get(0)).orElseThrow();
 
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		assertThat(host.retiredChains(), equalTo(hosted));
+
+		fleet.clock.addAndGet(-EPOCH_MILLIS);
 		fleet.settings.set(Optional.empty());
 		host.refresh();
 		assertThat(host.hostedChains(), is(empty()));
+		assertThat(host.retiredChains(), is(empty()));
 		assertThat(host.chain(hosted.get(0)), equalTo(Optional.empty()));
 
 		fleet.settings.set(Optional.of(ProxySettings.DEFAULTS));
 		host.refresh();
 		assertThat(host.hostedChains(), equalTo(hosted));
+		assertThat(host.retiredChains(), is(empty()));
 		assertThat(host.chain(hosted.get(0)).orElseThrow(), not(sameInstance(before)));
 	}
 
@@ -350,12 +687,14 @@ public class ChainHostingTest {
 		fleet.clock.set(NEXT_START - EPOCH_MILLIS - 1);
 		host.refresh();
 		assertThat(host.hostedChains(), equalTo(chainsIn(NEXT_EPOCH - 2)));
-		assertThat(host.chain(current.id()), equalTo(Optional.empty()));
+		assertThat(host.retiredChains(), equalTo(chainsIn(NEXT_EPOCH - 1)));
+		assertThat(host.chain(current.id()).orElseThrow(), sameInstance(current));
 
 		fleet.clock.set(ChainFleet.NOW);
 		host.refresh();
 		assertThat(host.hostedChains(), equalTo(chainsIn(NEXT_EPOCH - 1)));
-		assertThat(host.chain(current.id()).orElseThrow(), not(sameInstance(current)));
+		assertThat(host.retiredChains(), equalTo(chainsIn(NEXT_EPOCH - 2)));
+		assertThat(host.chain(current.id()).orElseThrow(), sameInstance(current));
 	}
 
 	@Example
@@ -597,10 +936,18 @@ public class ChainHostingTest {
 
 	@Example
 	public void hostsSnapshotsNobodyCanChange() {
-		final Hosting hosting = refreshed(new ChainFleet(20), "gn-3").snapshot();
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = refreshed(fleet, "gn-3");
 
+		throughEpochs(fleet, host, 1);
+
+		final Hosting hosting = host.snapshot();
+
+		assertThat(hosting.retired().isEmpty(), is(false));
 		assertThrows(UnsupportedOperationException.class, () -> hosting.current().clear());
+		assertThrows(UnsupportedOperationException.class, () -> hosting.retired().clear());
 		assertThrows(UnsupportedOperationException.class, () -> Hosting.OFF.current().clear());
+		assertThrows(UnsupportedOperationException.class, () -> Hosting.OFF.retired().clear());
 	}
 
 	@Example

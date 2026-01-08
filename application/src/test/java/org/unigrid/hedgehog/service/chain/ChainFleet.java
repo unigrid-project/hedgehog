@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -80,6 +81,7 @@ final class ChainFleet {
 	final Random random = new Random(1);
 	final List<Delivery> deliveries = new ArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
+	private final Map<String, ManualScheduler> schedulers = new LinkedHashMap<>();
 	private final Map<Link, EmbeddedChannel> streams = new LinkedHashMap<>();
 	private final Set<String> offline = new HashSet<>();
 
@@ -127,8 +129,11 @@ final class ChainFleet {
 
 	/* The first entries of one writer's feed, each timestamped at the given time */
 	static List<Entry> entries(final WriterKey key, final ChainId chainId, final int count, final long timestamp) {
-		final FeedWriter feed = new FeedWriter(key, chainId);
+		return write(new FeedWriter(key, chainId), count, timestamp);
+	}
 
+	/* The next entries of a feed, so that one writer can write at different times */
+	static List<Entry> write(final FeedWriter feed, final int count, final long timestamp) {
 		return IntStream.range(0, count).mapToObj(number -> feed.write(timestamp, Fingerprint.NONE, EntryKind.SEALED,
 			new byte[] { (byte) number })).toList();
 	}
@@ -145,7 +150,11 @@ final class ChainFleet {
 	/* The same, for a test that decides which member the host picks */
 	ChainHost hostOver(final String id, final ChainTransport transport, final RandomGenerator picks) {
 		return new ChainHost(settings::get, new TopologyGridnodeDirectory(() -> gridnodes, () -> id), transport,
-			clock::get, picks);
+			clock::get, picks, schedulers.computeIfAbsent(id, scheduler -> new ManualScheduler()));
+	}
+
+	ManualScheduler scheduler(final String id) {
+		return schedulers.get(id);
 	}
 
 	/* The first chain of the group, which every member hosts when the fleet is a single group */
@@ -182,12 +191,12 @@ final class ChainFleet {
 		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
 	}
 
-	/* One tick of the clocks: every online host tells a member where its chains stand, and what that sets going
-	   is delivered */
+	/* One tick of the clocks: every online host does what it does each second, and what that sets going is
+	   delivered */
 	void round() {
 		hosts.forEach((id, host) -> {
 			if (!offline.contains(id)) {
-				host.reconcileRound();
+				host.tick();
 			}
 		});
 
@@ -281,21 +290,23 @@ final class ChainFleet {
 		new ArrayList<>(hosts.values()).forEach(ChainHost::refresh);
 	}
 
-	/* What the hosts warn about while the action runs. The module descriptor reads logback-classic only, so the
-	   in-memory appender of logback-core is out of reach until the module is made to read it. */
+	/* What the hosts and their listeners warn about while the action runs. The module descriptor reads
+	   logback-classic only, so the in-memory appender of logback-core is out of reach until the module is made
+	   to read it. */
 	static List<ILoggingEvent> warningsWhile(final Runnable action) {
 		ChainFleet.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
 
-		final Logger logger = (Logger) LoggerFactory.getLogger(ChainHost.class);
+		final List<Logger> loggers = Stream.of(ChainHost.class, Listeners.class)
+			.map(logged -> (Logger) LoggerFactory.getLogger(logged)).toList();
 		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
 		appender.start();
-		logger.addAppender(appender);
+		loggers.forEach(logger -> logger.addAppender(appender));
 
 		try {
 			action.run();
 		} finally {
-			logger.detachAppender(appender);
+			loggers.forEach(logger -> logger.detachAppender(appender));
 		}
 
 		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();

@@ -186,6 +186,10 @@ public class ChainHostJoinTest {
 		return host.hostedChains().stream().mapToInt(chainId -> hostedOn(host, chainId).clientCount()).sum();
 	}
 
+	private static int retiredClientsOf(final ChainHost host) {
+		return host.snapshot().retired().values().stream().mapToInt(HostedChain::clientCount).sum();
+	}
+
 	private static boolean isAttached(final ChainHost host, final int writer) {
 		return host.hostedChains().stream()
 			.anyMatch(chainId -> hostedOn(host, chainId).isAttached(ChainFleet.writer(writer)));
@@ -319,7 +323,7 @@ public class ChainHostJoinTest {
 	}
 
 	@Example
-	public void refusesAChainOfAnEarlierEpochAndDropsItsClients() {
+	public void refusesAChainOfAnEarlierEpochAndKeepsItsClientsUntilTheirStreamCloses() {
 		final ChainFleet fleet = new ChainFleet(20);
 		final ChainHost host = hostOf(fleet, "gn-3");
 		final EmbeddedChannel stream = new EmbeddedChannel();
@@ -330,6 +334,7 @@ public class ChainHostJoinTest {
 
 		assertThat(join(host, new EmbeddedChannel(), 1, earlier), equalTo(refusal(1, JoinReply.Status.UNKNOWN_CHAIN)));
 		assertThat(clientsOf(host), is(0));
+		assertThat(retiredClientsOf(host), is(1));
 
 		final JoinReply later = join(host, stream, 0);
 
@@ -337,9 +342,11 @@ public class ChainHostJoinTest {
 		assertThat(chainOf(later), not(equalTo(earlier)));
 		assertThat(host.hostedChains().contains(chainOf(later)), is(true));
 		assertThat(clientsOf(host), is(1));
+		assertThat(retiredClientsOf(host), is(1));
 
 		stream.close();
 		assertThat(clientsOf(host), is(0));
+		assertThat(retiredClientsOf(host), is(0));
 	}
 
 	@Property(tries = 16)
@@ -411,6 +418,95 @@ public class ChainHostJoinTest {
 
 		streams.get(5).close();
 		assertThat(join(host, new EmbeddedChannel(), 100).getStatus(), is(JoinReply.Status.JOINED));
+	}
+
+	@Example
+	public void attachesNobodyToAChainOfAnEarlierEpoch() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
+		final ChainId earlier = host.hostedChains().get(0);
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(join(host, new EmbeddedChannel(), 1, earlier).getStatus(), is(JoinReply.Status.UNKNOWN_CHAIN));
+		assertThat(join(host, new EmbeddedChannel(), 1).getStatus(), is(JoinReply.Status.JOINED));
+	}
+
+	@Example
+	public void placesNewClientsOnTheCurrentChainsEvenWhenARetiredOneHasFewer() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		IntStream.range(0, CHAINS).forEach(writer -> join(host, new EmbeddedChannel(), writer));
+
+		final JoinReply reply = join(host, new EmbeddedChannel(), CHAINS);
+
+		assertThat(reply.getStatus(), is(JoinReply.Status.JOINED));
+		assertThat(host.hostedChains().contains(chainOf(reply)), is(true));
+		assertThat(retiredClientsOf(host), is(0));
+	}
+
+	@Example
+	public void attachesAWriterToACurrentChainAndKeepsItOnTheRetiredOneUntilItsStreamCloses() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
+		final EmbeddedChannel stream = new EmbeddedChannel();
+		final ChainId earlier = chainOf(join(host, stream, 1));
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+
+		final JoinReply again = join(host, stream, 1);
+
+		assertThat(again.getStatus(), is(JoinReply.Status.JOINED));
+		assertThat(host.hostedChains().contains(chainOf(again)), is(true));
+		assertThat(hostedOn(host, chainOf(again)).isAttached(ChainFleet.writer(1)), is(true));
+		assertThat(hostedOn(host, earlier).isAttached(ChainFleet.writer(1)), is(true));
+
+		stream.close();
+
+		assertThat(hostedOn(host, chainOf(again)).isAttached(ChainFleet.writer(1)), is(false));
+		assertThat(hostedOn(host, earlier).isAttached(ChainFleet.writer(1)), is(false));
+	}
+
+	@Example
+	public void countsTheClientsOnRetiredChainsAgainstTheirStream() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
+		final EmbeddedChannel stream = new EmbeddedChannel();
+
+		host.hostedChains().forEach(chainId -> join(host, stream, host.hostedChains().indexOf(chainId), chainId));
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(clientsOn(host, stream), is((long) CHAINS));
+		assertThat(join(host, stream, CHAINS).getStatus(), is(JoinReply.Status.FULL));
+		assertThat(join(host, new EmbeddedChannel(), CHAINS).getStatus(), is(JoinReply.Status.JOINED));
+	}
+
+	@Example
+	public void detachesTheClientsOfRetiredChainsWhenTheirStreamsClose() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3", CHAINS, STREAMS);
+		final List<EmbeddedChannel> streams = streams(STREAMS);
+
+		IntStream.range(0, STREAMS).forEach(writer -> join(host, streams.get(writer), writer));
+		assertThat(clientsOf(host), is(STREAMS));
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+
+		assertThat(clientsOf(host), is(0));
+		assertThat(retiredClientsOf(host), is(STREAMS));
+		assertThat(clientsOn(host, streams.get(0)), is(1L));
+
+		streams.forEach(EmbeddedChannel::close);
+
+		assertThat(retiredClientsOf(host), is(0));
+		assertThat(clientsOn(host, streams.get(0)), is(0L));
 	}
 
 	@Example

@@ -49,6 +49,7 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -407,7 +408,7 @@ public class ChainHostMembersTest {
 	public void startsWithoutAnyStream() {
 		final Chain chain = new Chain(new ChainId(new byte[ChainId.SIZE]), ProxySettings.DEFAULTS.chainLimits(), () -> 0L);
 
-		assertThat(new HostedChain(chain).getMemberStreams(), is(empty()));
+		assertThat(new HostedChain(chain, new Epoch(0)).getMemberStreams(), is(empty()));
 	}
 
 	@Example

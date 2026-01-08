@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
@@ -34,9 +35,12 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
 /* What a node hosts at one moment, replaced as a whole when the topology, the time or the settings change.
    The chains keep the order of their indexes. The peers are the other members of the node's group; they follow
    from the basis but are kept, so that a refresh which reuses the hosting can look up their streams without
-   ranking the groups again. */
-record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map<ChainId, HostedChain> current) {
-	static final Hosting OFF = new Hosting(Optional.empty(), OptionalInt.empty(), List.of(), Map.of());
+   ranking the groups again. The retired chains are those of earlier hostings that this one does not want, in the
+   order they retired, kept with their entries for as long as the host keeps them. */
+record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map<ChainId, HostedChain> current,
+	Map<ChainId, HostedChain> retired) {
+
+	static final Hosting OFF = new Hosting(Optional.empty(), OptionalInt.empty(), List.of(), Map.of(), Map.of());
 
 	record Basis(ProxySettings settings, Epoch epoch, Set<String> activeIds, Optional<String> own) {
 		/* Everything the groups and chains of a hosting follow from, so an equal basis needs no new ranking */
@@ -50,16 +54,23 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 		return basis.filter(other::equals).isPresent();
 	}
 
+	/* The chains this hosting holds, the current epoch's first. The retired ones keep their entries and are read
+	   by id, but take no new clients and are not among the chains the host is hosting. */
+	Stream<HostedChain> all() {
+		return Stream.concat(current.values().stream(), retired.values().stream());
+	}
+
 	Optional<HostedChain> find(final ChainId id) {
-		return Optional.ofNullable(current.get(id));
+		return Optional.ofNullable(current.getOrDefault(id, retired.get(id)));
 	}
 
 	/* The chain a writer is attached to, else the one with the fewest client feeds, the lowest index among equals,
 	   but a chain that takes no more of the writer only when no other does. A named chain is the only candidate,
-	   because the writer joined another member's chain and attaches to the same one here. */
+	   because the writer joined another member's chain and attaches to the same one here; a retired chain takes
+	   no new client, so it is not one. */
 	Optional<HostedChain> placement(final WriterId writer, final Optional<ChainId> named) {
 		if (named.isPresent()) {
-			return find(named.get());
+			return Optional.ofNullable(current.get(named.get()));
 		}
 
 		return current.values().stream().filter(hosted -> hosted.isAttached(writer)).findFirst()
@@ -73,12 +84,12 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 
 	/* The writers a stream is attached as, over all chains */
 	long clientsOn(final Channel stream) {
-		return current.values().stream().mapToLong(hosted -> hosted.clientsOn(stream)).sum();
+		return all().mapToLong(hosted -> hosted.clientsOn(stream)).sum();
 	}
 
-	/* A chain this hosting no longer holds is gone with its attachments, so only the held ones are searched */
+	/* A chain this hosting no longer holds is gone with its attachments, so the held and retired ones are searched */
 	void detachAll(final Channel stream) {
-		current.values().forEach(hosted -> hosted.detachAll(stream));
+		all().forEach(hosted -> hosted.detachAll(stream));
 	}
 
 	/* A chain keeps its entries as long as its id and its limits stay what they were */

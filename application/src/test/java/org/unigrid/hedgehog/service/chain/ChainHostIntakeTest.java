@@ -65,6 +65,7 @@ import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.InvalidEntryException;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostIntakeTest {
@@ -76,6 +77,7 @@ public class ChainHostIntakeTest {
 	   rounds of streams offering at once fall into */
 	private static final int ROUNDS = 500;
 	private static final long BEYOND_RETENTION_MILLIS = 31_000;
+	private static final long EPOCH_MILLIS = 3_600_000;
 	private static final ChainId CHAIN = new ChainId(new byte[ChainId.SIZE]);
 
 	private static ChainId chainOf(final ChainFleet fleet, final int index) {
@@ -108,6 +110,17 @@ public class ChainHostIntakeTest {
 		return client;
 	}
 
+	/* Turns the epoch of the first member the given number of times and puts the clock back, so that what was
+	   written in the first epoch is still within the retention window */
+	private static void retire(final ChainFleet fleet, final int turns) {
+		IntStream.range(0, turns).forEach(turn -> {
+			fleet.clock.addAndGet(EPOCH_MILLIS);
+			fleet.host("gn-0").refresh();
+		});
+
+		fleet.clock.set(ChainFleet.NOW);
+	}
+
 	private static Entry first(final ChainId chainId, final int writer) {
 		return ChainFleet.entries(ChainFleet.key(writer), chainId, 1, ChainFleet.NOW).get(0);
 	}
@@ -118,7 +131,7 @@ public class ChainHostIntakeTest {
 	}
 
 	private static HostedChain hostedChain(final int maxWriters, final ChainLimits limits, final LongSupplier clock) {
-		return new HostedChain(new Chain(CHAIN, limits, clock), maxWriters);
+		return new HostedChain(new Chain(CHAIN, limits, clock), new Epoch(0), maxWriters);
 	}
 
 	private static HostedChain hostedChain(final int maxWriters) {
@@ -195,6 +208,74 @@ public class ChainHostIntakeTest {
 		assertThat(receive(fleet, member(fleet), ChainFleet.entries(ChainFleet.key(1), foreign, 3, ChainFleet.NOW)),
 			is(empty()));
 		fleet.host("gn-0").hostedChains().forEach(id -> assertThat(stored(fleet, id), is(empty())));
+	}
+
+	@Example
+	public void keepsTakingTheEntriesOfAChainOfAnEarlierEpoch() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId earlier = chainOf(fleet, 0);
+		final List<Entry> entries = ChainFleet.entries(ChainFleet.key(1), earlier, 3, ChainFleet.NOW);
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		fleet.host("gn-0").refresh();
+		fleet.clock.set(ChainFleet.NOW);
+
+		assertThat(receive(fleet, member(fleet), entries), is(empty()));
+		assertThat(stored(fleet, earlier), equalTo(entries));
+	}
+
+	@Example
+	public void keepsPostingToAChainOfAnEarlierEpoch() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId earlier = chainOf(fleet, 0);
+		final Entry entry = first(earlier, 1);
+
+		retire(fleet, 1);
+
+		assertThat(fleet.host("gn-0").post(entry), is(Admission.ACCEPTED));
+		assertThat(stored(fleet, earlier), contains(entry));
+	}
+
+	@Example
+	public void keepsServingTheClientsOfAChainThatRetired() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId earlier = chainOf(fleet, 0);
+		final EmbeddedChannel client = attach(fleet, 1, earlier);
+		final List<Entry> own = ChainFleet.entries(ChainFleet.key(1), earlier, 2, ChainFleet.NOW);
+		final List<Entry> others = ChainFleet.entries(ChainFleet.key(2), earlier, 2, ChainFleet.NOW);
+
+		retire(fleet, 1);
+
+		assertThat(receive(fleet, client, own), is(empty()));
+		assertThat(receive(fleet, member(fleet), others), is(empty()));
+		assertThat(stored(fleet, earlier).size(), is(4));
+		assertThat(((ChainEntry) client.readOutbound()).getEntries(), equalTo(others));
+	}
+
+	@Example
+	public void takesTheEntriesOfAChainThatIsFourEpochsBehind() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId earlier = chainOf(fleet, 0);
+		final List<Entry> entries = ChainFleet.entries(ChainFleet.key(1), earlier, 3, ChainFleet.NOW);
+
+		retire(fleet, 4);
+
+		assertThat(receive(fleet, member(fleet), entries), is(empty()));
+		assertThat(stored(fleet, earlier), equalTo(entries));
+	}
+
+	@Example
+	public void dropsTheEntriesOfAChainOnceItsRetirementHasEnded() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId earlier = chainOf(fleet, 0);
+
+		retire(fleet, 5);
+
+		assertThat(fleet.host("gn-0").chain(earlier), equalTo(Optional.empty()));
+		assertThat(receive(fleet, member(fleet), ChainFleet.entries(ChainFleet.key(1), earlier, 3, ChainFleet.NOW)),
+			is(empty()));
+		assertThat(fleet.host("gn-0").post(first(earlier, 1)), is(Admission.WRONG_CHAIN));
+		assertThat(fleet.host("gn-0").chain(earlier), equalTo(Optional.empty()));
 	}
 
 	@Example

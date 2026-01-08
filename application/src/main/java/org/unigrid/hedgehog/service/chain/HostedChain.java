@@ -34,6 +34,7 @@ import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 
 /* One chain this node hosts, with what the host knows about it beyond the entries */
 @RequiredArgsConstructor
@@ -48,6 +49,9 @@ final class HostedChain {
 
 	@Getter private final Chain chain;
 
+	/* The epoch the chain was created for, which decides how long it is kept once it has retired */
+	@Getter private final Epoch epoch;
+
 	/* A parameter only so that a test reaches the limit without taking thousands of writers */
 	private final int maxWriters;
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
@@ -58,8 +62,8 @@ final class HostedChain {
 	   which read it see the list the refresh thread has just written. */
 	@Getter @Setter private volatile List<Channel> memberStreams = List.of();
 
-	HostedChain(final Chain chain) {
-		this(chain, MAX_WRITERS);
+	HostedChain(final Chain chain, final Epoch epoch) {
+		this(chain, epoch, MAX_WRITERS);
 	}
 
 	int clientCount() {

@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
@@ -34,6 +36,9 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
@@ -41,6 +46,7 @@ import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -60,20 +66,35 @@ import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.HeadsDiff;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
-/* Hosts the chains of this node's shard group while a valid communication spork says the proxy is on */
+/* Hosts the chains of this node's shard group while a valid communication spork says the proxy is on. Ticks on a
+   scheduler of its own, so a spork that changes while nothing else happens still starts and stops the hosting. */
 @Slf4j
-@ApplicationScoped
+@Eager @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainHost implements ChainService {
 	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */
 	static final int MAX_WRITERS_PER_STREAM = 4;
 
+	/* A chain this node stopped hosting is kept for the sessions that still run on it and the members that lag
+	   while the epoch it was created for is at most this many epochs behind the current one, and dropped when
+	   it is more behind. It is the epoch of the chain that counts, not how often the topology made the node
+	   rebuild its hosting since. */
+	static final int RETIRED_EPOCHS = 4;
+
+	/* The most retired chains held, whatever their age, as a node must not end up holding every chain it ever
+	   hosted: the oldest epoch goes first, and within it the chain that retired first. Maintenance trims a retired
+	   chain every second, so an idle one holds next to nothing, but the count is bounded all the same. */
+	static final int MAX_RETIRED_CHAINS = 1024;
+
 	/* What one fetch can ask for and what one answer can hold: a few packets full, however much a peer asks */
 	private static final int RANGE_ENTRIES = ChainCodecs.MAX_ENTRIES_PER_PACKET;
 	private static final int MAX_RANGES = 8;
+
+	private static final int TICK_SECONDS = 1;
 
 	/* The order of the chain itself, so that the entries of a writer reach the requester in sequence */
 	private static final Comparator<Entry> OLDEST_FIRST = Comparator
@@ -88,6 +109,8 @@ public class ChainHost implements ChainService {
 	private final ChainTransport transport;
 	private final LongSupplier clock;
 	private final RandomGenerator random;
+	private final ScheduledExecutorService scheduler;
+	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -98,23 +121,74 @@ public class ChainHost implements ChainService {
 	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory,
 		final ChainTransport transport) {
 
-		this(settings, directory, transport, System::currentTimeMillis, new Random());
+		this(settings, directory, transport, System::currentTimeMillis, new Random(),
+			Executors.newSingleThreadScheduledExecutor(ChainHost::daemonThread));
 	}
 
 	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
-		final LongSupplier clock, final RandomGenerator random) {
+		final LongSupplier clock, final RandomGenerator random, final ScheduledExecutorService scheduler) {
 
 		this.settings = settings;
 		this.directory = directory;
 		this.transport = transport;
 		this.clock = clock;
 		this.random = random;
+		this.scheduler = scheduler;
+	}
+
+	/* A daemon, so a host that is never stopped still lets the process end */
+	private static Thread daemonThread(final Runnable body) {
+		final Thread thread = new Thread(body, "chain-host");
+		thread.setDaemon(true);
+		return thread;
+	}
+
+	@PostConstruct
+	void start() {
+		scheduler.scheduleWithFixedDelay(this::tick, TICK_SECONDS, TICK_SECONDS, TimeUnit.SECONDS);
+	}
+
+	@PreDestroy
+	void stop() {
+		scheduler.shutdownNow();
+	}
+
+	/* One tick follows the spork, the topology and the clock, then keeps the chains in shape and only then talks to
+	   the members, so that a fetch it sets going is never served from entries past the retention window. */
+	public void tick() {
+		guarded("refresh", this::refresh);
+		guarded("maintain", this::maintain);
+		guarded("reconcile", this::reconcileRound);
+	}
+
+	/* A step that fails is logged by its name and the class of the failure, as a message may name an address, and
+	   the steps after it and the next tick go on: an exception that escaped would cancel the schedule for good.
+	   An Error is no failure to carry on from, so it passes, but not before a line in the log, as the schedule
+	   would end with it unseen. */
+	private void guarded(final String name, final Runnable step) {
+		try {
+			step.run();
+		} catch (RuntimeException ex) {
+			log.warn("The {} step of the chain host tick failed with {}", name, ex.getClass().getName());
+		} catch (Error ex) {
+			log.error("The {} step of the chain host tick ended with {}", name, ex.getClass().getName());
+			throw ex;
+		}
 	}
 
 	/* The chains of this node's group in the current epoch, in index order. Each call reads the hosting once, so
 	   this and group() may answer from two different hostings; a caller that needs both takes one read of it. */
 	public List<ChainId> hostedChains() {
 		return List.copyOf(hosting.current().keySet());
+	}
+
+	/* The chains of earlier hostings that are still kept, in the order they retired */
+	public List<ChainId> retiredChains() {
+		return List.copyOf(hosting.retired().keySet());
+	}
+
+	public void addGapListener(final GapListener listener) {
+		gapListeners.add(listener);
 	}
 
 	/* A packet may name no chain, which the map of a hosting that is off cannot be asked for */
@@ -176,11 +250,38 @@ public class ChainHost implements ChainService {
 
 		for (final ChainId id : basis.own().map(view::chainsOf).orElse(List.of())) {
 			chains.put(id, previous.reusable(id, limits)
-				.orElseGet(() -> new HostedChain(new Chain(id, limits, clock))));
+				.orElseGet(() -> new HostedChain(new Chain(id, limits, clock), basis.epoch())));
 		}
 
 		return new Hosting(Optional.of(basis), group, peersOf(view, group, basis.own()),
-			Collections.unmodifiableMap(chains));
+			Collections.unmodifiableMap(chains), retiredBy(previous, chains.keySet(), basis.epoch()));
+	}
+
+	/* The chains held and not wanted now are retired, in the order they retired. A retired chain that is wanted
+	   again leaves them to be a current one, and one whose epoch is more than RETIRED_EPOCHS behind the current
+	   epoch is dropped. An epoch ahead of the current one, as after a clock that stepped back, is not behind. This
+	   runs when a hosting is rebuilt and only then, since the wanted chains and the epoch change only then: a
+	   reused hosting has the retired chains it had. */
+	private static Map<ChainId, HostedChain> retiredBy(final Hosting previous, final Set<ChainId> wanted,
+		final Epoch now) {
+
+		final Map<ChainId, HostedChain> retired = new LinkedHashMap<>(previous.retired());
+
+		retired.putAll(previous.current());
+		retired.keySet().removeAll(wanted);
+		retired.values().removeIf(hosted -> now.number() - hosted.getEpoch().number() > RETIRED_EPOCHS);
+		dropBeyondTheCap(retired);
+		return Collections.unmodifiableMap(retired);
+	}
+
+	/* The sort is stable, so within an epoch the chain that retired first goes first */
+	private static void dropBeyondTheCap(final Map<ChainId, HostedChain> retired) {
+		final List<ChainId> oldest = retired.values().stream()
+			.sorted(Comparator.comparingLong((HostedChain hosted) -> hosted.getEpoch().number()))
+			.limit(Math.max(0, retired.size() - MAX_RETIRED_CHAINS))
+			.map(hosted -> hosted.getChain().id()).toList();
+
+		retired.keySet().removeAll(oldest);
 	}
 
 	private static List<String> peersOf(final GroupView view, final OptionalInt group, final Optional<String> own) {
@@ -349,6 +450,25 @@ public class ChainHost implements ChainService {
 			stream.flush();
 		} catch (RuntimeException ex) {
 			log.warn("The flood to a stream failed with {}", ex.getClass().getName());
+		}
+	}
+
+	/* Run once a second: keeps the entries of every held chain within its retention and tells the listeners of the
+	   gaps that have grown too old to fill. A gap that nobody fills leaves a feed stuck, which the listeners break
+	   by dropping the sessions it belongs to. Every held chain is maintained, retired ones included, since a lagging
+	   member still reads them. */
+	public void maintain() {
+		hosting.all().forEach(this::upkeep);
+	}
+
+	/* One chain that fails is logged by the class of the failure and does not keep the others from being kept up */
+	private void upkeep(final HostedChain hosted) {
+		try {
+			hosted.getChain().trim();
+			hosted.getChain().expireGaps().forEach(gap -> gapListeners.tell(listener ->
+				listener.gapped(hosted.getChain().id(), gap)));
+		} catch (RuntimeException ex) {
+			log.warn("The upkeep of a chain failed with {}", ex.getClass().getName());
 		}
 	}
 

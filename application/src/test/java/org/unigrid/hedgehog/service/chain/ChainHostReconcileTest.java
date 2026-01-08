@@ -67,6 +67,7 @@ import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostReconcileTest {
@@ -513,7 +514,7 @@ public class ChainHostReconcileTest {
 	@Example
 	public void trustsTheMemberStreamsItHoldsAndNothingElse() {
 		final HostedChain hosted = new HostedChain(new Chain(new ChainId(new byte[ChainId.SIZE]),
-			ProxySettings.DEFAULTS.chainLimits(), () -> ChainFleet.NOW));
+			ProxySettings.DEFAULTS.chainLimits(), () -> ChainFleet.NOW), new Epoch(0));
 		final EmbeddedChannel member = new EmbeddedChannel();
 
 		assertThat(hosted.trusts(null), is(false));
