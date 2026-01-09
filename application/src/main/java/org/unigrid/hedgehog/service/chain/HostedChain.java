@@ -24,7 +24,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -43,11 +45,26 @@ final class HostedChain {
 	   heads carries, which keeps every reconcile and join reply in one packet. */
 	static final int MAX_WRITERS = ChainCodecs.MAX_HEADS_PER_PACKET;
 
+	/* The deliveries that may wait for the thread that drains a chain, so that a listener that is slow or stuck
+	   cannot make the host hold on to every entry that comes in meanwhile. A delivery beyond it is dropped: the
+	   entries are in the chain all the same, a member catches up through reconcile and a session that missed its
+	   OPEN times out and tries again. */
+	static final int MAX_PENDING_DELIVERIES = 4096;
+
 	private static final Set<Admission> HOLDS_A_FEED = Set.of(Admission.ACCEPTED, Admission.AHEAD);
 
 	enum Attachment { NEW, KNOWN, REFUSED }
 
 	@Getter private final Chain chain;
+
+	/* Held for the offers of one packet and the queueing of what they appended, and for nothing else, so that the
+	   queue holds the deliveries in the order the chain appended them. No flood, no listener, no stream write and no
+	   log line runs under it, and it is taken before the chain's own lock. */
+	@Getter private final Object deliveryLock = new Object();
+
+	/* Replaceable only so that a test can bound the queue or watch it; nothing else sets it */
+	@Getter @Setter(AccessLevel.PACKAGE) private volatile DeliveryQueue deliveries = new DeliveryQueue(
+		new LinkedBlockingQueue<>(MAX_PENDING_DELIVERIES));
 
 	/* The epoch the chain was created for, which decides how long it is kept once it has retired */
 	@Getter private final Epoch epoch;

@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,10 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
@@ -69,6 +73,7 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.service.chain.DeliveryQueue.Delivery;
 
 /* Hosts the chains of this node's shard group while a valid communication spork says the proxy is on. Ticks on a
    scheduler of its own, so a spork that changes while nothing else happens still starts and stops the hosting. */
@@ -110,7 +115,9 @@ public class ChainHost implements ChainService {
 	private final LongSupplier clock;
 	private final RandomGenerator random;
 	private final ScheduledExecutorService scheduler;
+	private final Executor deliveryExecutor;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
+	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final WriterPauses pauses = new WriterPauses();
 	private final Object joins = new Object();
 
@@ -123,11 +130,22 @@ public class ChainHost implements ChainService {
 		final ChainTransport transport) {
 
 		this(settings, directory, transport, System::currentTimeMillis, new Random(),
-			Executors.newSingleThreadScheduledExecutor(ChainHost::daemonThread));
+			Executors.newSingleThreadScheduledExecutor(body -> daemonThread(body, "chain-host")),
+			Executors.newSingleThreadExecutor(body -> daemonThread(body, "chain-delivery")));
 	}
 
+	/* Runs every delivery on the thread that asks for it, so that a post is flooded when it returns */
 	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
 		final LongSupplier clock, final RandomGenerator random, final ScheduledExecutorService scheduler) {
+
+		this(settings, directory, transport, clock, random, scheduler, Runnable::run);
+	}
+
+	/* The delivery executor runs what a post hands over: the draining of its chain, on a thread that holds none of the
+	   locks of the caller */
+	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
+		final LongSupplier clock, final RandomGenerator random, final ScheduledExecutorService scheduler,
+		final Executor deliveryExecutor) {
 
 		this.settings = settings;
 		this.directory = directory;
@@ -135,11 +153,12 @@ public class ChainHost implements ChainService {
 		this.clock = clock;
 		this.random = random;
 		this.scheduler = scheduler;
+		this.deliveryExecutor = deliveryExecutor;
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
-	private static Thread daemonThread(final Runnable body) {
-		final Thread thread = new Thread(body, "chain-host");
+	private static Thread daemonThread(final Runnable body, final String name) {
+		final Thread thread = new Thread(body, name);
 		thread.setDaemon(true);
 		return thread;
 	}
@@ -149,9 +168,14 @@ public class ChainHost implements ChainService {
 		scheduler.scheduleWithFixedDelay(this::tick, TICK_SECONDS, TICK_SECONDS, TimeUnit.SECONDS);
 	}
 
+	/* An executor that runs on the caller has nothing to shut down */
 	@PreDestroy
 	void stop() {
 		scheduler.shutdownNow();
+
+		if (deliveryExecutor instanceof ExecutorService service) {
+			service.shutdownNow();
+		}
 	}
 
 	/* One tick follows the spork, the topology and the clock, then keeps the chains in shape and only then talks to
@@ -190,6 +214,10 @@ public class ChainHost implements ChainService {
 
 	public void addGapListener(final GapListener listener) {
 		gapListeners.add(listener);
+	}
+
+	public void addEntryListener(final EntryListener listener) {
+		entryListeners.add(listener);
 	}
 
 	/* A packet may name no chain, which the map of a hosting that is off cannot be asked for */
@@ -392,28 +420,135 @@ public class ChainHost implements ChainService {
 	/* Duplicates and entries of chains this node does not host are dropped without a word, like everything
 	   else a chain turns away: only a writer that is told the chain is full has something to do about it.
 	   An entry from a stream that may not write it is dropped before anything is verified. What the chains
-	   appended is flooded on, once per chain for the whole packet, and what they refused is not. */
+	   appended is flooded on and offered to the entry listeners, once per chain for the whole packet, and what
+	   they refused is not. That is done on the thread of the stream, which holds no lock of the host, before this
+	   returns, unless another thread is draining the chain: that thread does it when it is through with the delivery
+	   it is on. The refusals come in the order of the packet, whatever chains it names. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
 		final Hosting current = hosting;
-		final List<EntryRefused> refusals = new ArrayList<>();
-		final Map<HostedChain, List<Entry>> appended = new LinkedHashMap<>();
+		final List<Entry> packet = Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of());
+		final Map<HostedChain, List<Entry>> permitted = new LinkedHashMap<>();
+		final Set<Entry> full = Collections.newSetFromMap(new IdentityHashMap<>());
+		final List<Runnable> steps = new ArrayList<>();
 
-		for (final Entry entry : Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of())) {
-			final Optional<HostedChain> hosted = current.find(entry.header().chainId())
-				.filter(chain -> chain.accepts(peer, entry.header().writer()));
-			final Optional<Offer> offer = hosted.flatMap(chain -> chain.offer(entry));
+		for (final Entry entry : packet) {
+			current.find(entry.header().chainId()).filter(chain -> chain.accepts(peer, entry.header().writer()))
+				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
+		}
 
-			offer.ifPresent(taken -> appended.computeIfAbsent(hosted.get(), chain -> new ArrayList<>())
-				.addAll(taken.appended()));
+		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(takeIn(hosted, peer, ofChain))));
+		permitted.keySet().forEach(hosted -> steps.add(() -> drain(hosted)));
+		allOf(steps);
 
-			if (offer.isPresent() && offer.get().admission() == Admission.FULL) {
-				refusals.add(EntryRefused.of(entry, Admission.FULL));
+		return packet.stream().filter(full::contains).map(entry -> EntryRefused.of(entry, Admission.FULL)).toList();
+	}
+
+	/* Runs every step, whatever an earlier one throws, and throws the first failure with the later ones on it. So the
+	   chains after one whose listener fails still get their entries passed on, and a failing drain does not hide the
+	   failure of the offers before it. */
+	private static void allOf(final List<Runnable> steps) {
+		Throwable first = null;
+
+		for (final Runnable step : steps) {
+			try {
+				step.run();
+			} catch (RuntimeException | Error ex) {
+				if (first == null) {
+					first = ex;
+				} else {
+					suppress(first, ex);
+				}
 			}
 		}
 
-		appended.forEach((hosted, taken) -> flood(hosted, peer, taken));
-		return refusals;
+		if (first instanceof RuntimeException failure) {
+			throw failure;
+		}
+
+		if (first instanceof Error failure) {
+			throw failure;
+		}
+	}
+
+	/* A preallocated exception can be thrown by two steps, and a throwable cannot suppress itself */
+	private static void suppress(final Throwable into, final Throwable failure) {
+		if (into != failure) {
+			into.addSuppressed(failure);
+		}
+	}
+
+	/* Answers the entries the chain had no room for */
+	private List<Entry> takeIn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
+		final List<Optional<Offer>> offers = offerAndQueue(hosted, entries, peer, true);
+
+		return IntStream.range(0, entries.size()).filter(place -> isFull(offers.get(place)))
+			.mapToObj(entries::get).toList();
+	}
+
+	private static boolean isFull(final Optional<Offer> offer) {
+		return offer.isPresent() && offer.get().admission() == Admission.FULL;
+	}
+
+	/* The offers and the queueing of what they appended are one step under the delivery lock of the chain, which is
+	   what makes the queue hold the deliveries in the order the chain appended them, however many streams relay the
+	   same feed at once. Nothing else runs under the lock: flooding and the listeners are left to whoever drains the
+	   queue, with nothing locked. What was appended before an offer failed is queued all the same. */
+	private List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
+		final Channel origin, final boolean tell) {
+
+		final List<Optional<Offer>> offers = new ArrayList<>();
+		final List<Entry> appended = new ArrayList<>();
+		boolean beginsFullEpisode = false;
+
+		try {
+			synchronized (hosted.getDeliveryLock()) {
+				try {
+					for (final Entry entry : entries) {
+						final Optional<Offer> offer = hosted.offer(entry);
+
+						offers.add(offer);
+						offer.ifPresent(taken -> appended.addAll(taken.appended()));
+					}
+				} finally {
+					beginsFullEpisode = queue(hosted, new Delivery(List.copyOf(appended), origin, tell));
+				}
+			}
+		} finally {
+			if (beginsFullEpisode) {
+				log.warn("A chain delivery queue is full");
+			}
+		}
+
+		return offers;
+	}
+
+	/* A packet that appended nothing has nothing to deliver and takes no room in the queue. A delivery the queue has
+	   no room for is dropped, the entries being in the chain all the same, but their flood is lost with it. Answers
+	   whether that is the first drop of a stretch in which the queue is full, as the log is told then, and once the
+	   delivery lock is released, since an appender may block. The line does not name the chain, as it would fill the
+	   log of a node whose listener is stuck. */
+	private boolean queue(final HostedChain hosted, final Delivery delivery) {
+		final DeliveryQueue deliveries = hosted.getDeliveries();
+
+		return !delivery.entries().isEmpty() && !deliveries.add(delivery) && deliveries.beginsFullEpisode();
+	}
+
+	/* Floods and tells the listeners what the chain appended, in the order it appended it, on this thread unless
+	   another is doing so. That thread takes the deliveries queued meanwhile, each after the one it is on, so a post
+	   from a listener is flooded when the listener returns. */
+	private void drain(final HostedChain hosted) {
+		hosted.getDeliveries().drain(delivery -> deliver(hosted, delivery));
+	}
+
+	/* Floods first, so that no other node waits for what the listeners do */
+	private void deliver(final HostedChain hosted, final Delivery delivery) {
+		flood(hosted, delivery.origin(), delivery.entries());
+
+		if (delivery.tell()) {
+			delivery.entries().forEach(entry -> entryListeners.tell(listener ->
+				listener.appended(hosted.getChain().id(), entry)));
+		}
 	}
 
 	/* An entry this node writes itself goes in like any other, but there is no stream to spare in the flood. A
@@ -422,11 +557,27 @@ public class ChainHost implements ChainService {
 		return hosted(entry.header().chainId()).map(hosted -> post(hosted, entry)).orElse(Admission.WRONG_CHAIN);
 	}
 
+	/* The entries this node writes itself are queued like the others, so that they are flooded in the order the chain
+	   appended them, but the listeners are not told, as they are the sessions' own output. The caller holds locks of
+	   its own, which no listener may run under, so the draining is handed to the delivery executor and the post
+	   answers at once. An entry the queue has no room for is in the chain and still answers ACCEPTED, but its flood is
+	   lost with the dropped delivery: members repair that through reconcile, attached clients do not. */
 	private Admission post(final HostedChain hosted, final Entry entry) {
-		final Optional<Offer> offer = hosted.offer(entry);
+		try {
+			return offerAndQueue(hosted, List.of(entry), null, false).get(0).map(Offer::admission)
+				.orElse(Admission.FULL);
+		} finally {
+			handOver(hosted);
+		}
+	}
 
-		offer.ifPresent(taken -> flood(hosted, null, taken.appended()));
-		return offer.map(Offer::admission).orElse(Admission.FULL);
+	/* Nothing is drained once the host is stopped, as its executor then takes no more */
+	private void handOver(final HostedChain hosted) {
+		try {
+			deliveryExecutor.execute(() -> drain(hosted));
+		} catch (RejectedExecutionException ex) {
+			log.debug("The host is stopped, so a post is not flooded");
+		}
 	}
 
 	/* The stream the entries came in on already has them, and a closed one cannot take them. A stream with no room
