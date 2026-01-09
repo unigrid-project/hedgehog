@@ -111,6 +111,7 @@ public class ChainHost implements ChainService {
 	private final RandomGenerator random;
 	private final ScheduledExecutorService scheduler;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
+	private final WriterPauses pauses = new WriterPauses();
 	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -577,9 +578,20 @@ public class ChainHost implements ChainService {
 		return within;
 	}
 
+	/* Only a full chain asks the writer to wait, and only a member of that chain's group is believed, on a retired
+	   chain as on a current one since both still take entries. A refusal does not say whether the writer is one of
+	   this node's, so whatever owns a writer looks its pause up here. */
 	@Override
 	public void refused(final Channel peer, final EntryRefused refusal) {
-		/* No writer of this node is on a chain to pause */
+		if (refusal != null && refusal.getWriter() != null && refusal.getAdmission() == Admission.FULL
+			&& hosted(refusal.getChainId()).filter(hosted -> hosted.trusts(peer)).isPresent()) {
+
+			pauses.pause(refusal);
+		}
+	}
+
+	public WriterPauses pauses() {
+		return pauses;
 	}
 
 	/* A leave is unsigned, so it is only believed from the stream the writer attached through */
