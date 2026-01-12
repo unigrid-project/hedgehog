@@ -396,6 +396,7 @@ public class ChainHostIntakeTest {
 			ChainFleet.entries(ChainFleet.key(writer), chainId, 2, ChainFleet.NOW)).toList();
 
 		feeds.subList(0, HostedChain.MAX_WRITERS).forEach(feed -> receive(fleet, member(fleet), feed.subList(0, 1)));
+		fleet.clock.addAndGet(1000);
 		return feeds;
 	}
 
@@ -648,6 +649,7 @@ public class ChainHostIntakeTest {
 		assertThat(chain.heads().size(), is(HostedChain.MAX_WRITERS));
 		assertThat(chain.heads().containsKey(last), is(true));
 
+		fleet.clock.addAndGet(1000);
 		receive(fleet, member(fleet), List.of(firsts.get(HostedChain.MAX_WRITERS), second(chainId,
 			HostedChain.MAX_WRITERS)));
 		assertThat(chain.heads().size(), is(HostedChain.MAX_WRITERS));

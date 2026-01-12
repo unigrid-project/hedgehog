@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.util.Arrays;
@@ -128,6 +129,38 @@ public class ChainMembershipHandlerTest extends BaseMockedWeldTest {
 
 		Arrays.fill(bytes, (byte) value);
 		return bytes;
+	}
+
+	/* A stream that has more written to it than it takes, and so takes no more writes until it is flushed; answers
+	   what it holds */
+	private static Object unwritable(final EmbeddedChannel channel) {
+		final Object held = "Not flushed";
+
+		channel.config().setWriteBufferWaterMark(new WriteBufferWaterMark(1, 2));
+		channel.write(held);
+		assertThat(channel.isWritable(), is(false));
+		return held;
+	}
+
+	@Property(tries = 10)
+	public void writesNoReplyToAStreamThatTakesNoWrites(@ForAll long requestId, @ForAll("writers") WriterId writer) {
+		final EmbeddedChannel channel = new EmbeddedChannel(new JoinChainChannelHandler());
+		final Object held = unwritable(channel);
+		final JoinChain request = joinOf(requestId, writer);
+
+		channel.writeInbound(request);
+
+		assertThat(calls, contains(new Call(channel, request)));
+		assertThat(channel.outboundMessages(), empty());
+		assertThat(channel.isOpen(), is(true));
+
+		channel.flush();
+		assertThat(channel.readOutbound(), sameInstance(held));
+		assertThat(channel.outboundMessages(), empty());
+
+		channel.writeInbound(request);
+		assertThat(channel.readOutbound(), equalTo(reply(requestId, JoinReply.Status.FULL)));
+		assertThat(channel.outboundMessages(), empty());
 	}
 
 	@Property(tries = 10)

@@ -173,6 +173,14 @@ public class ChainHostReconcileTest {
 			.orElseThrow().getRanges();
 	}
 
+	/* A stream may send only so many heads in a second, so a test that asks many times asks once a second */
+	private static List<FetchEntries.Range> askedInASecondOfItsOwn(final ChainFleet fleet,
+		final Map<WriterId, Head> claimed) {
+
+		fleet.clock.addAndGet(1000);
+		return asked(fleet, claimed);
+	}
+
 	private static List<WriterId> writersSorted(final int from, final int count) {
 		return IntStream.range(from, from + count).mapToObj(ChainFleet::writer).sorted().toList();
 	}
@@ -668,7 +676,7 @@ public class ChainHostReconcileTest {
 		final List<WriterId> writers = writersSorted(100, ahead);
 		final Map<WriterId, Head> claimed = aheadOf(writers);
 		final List<List<FetchEntries.Range>> requests = IntStream.range(0, rounds)
-			.mapToObj(round -> asked(fleet, claimed)).toList();
+			.mapToObj(round -> askedInASecondOfItsOwn(fleet, claimed)).toList();
 
 		assertThat(requests.stream().anyMatch(request -> request.stream()
 			.anyMatch(range -> range.writer().equals(writers.get(ahead - 1)))), is(true));

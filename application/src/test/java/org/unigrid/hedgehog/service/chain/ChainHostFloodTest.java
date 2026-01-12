@@ -842,6 +842,10 @@ public class ChainHostFloodTest {
 
 		assertThat(members.get(1).writes, hasSize(fill));
 		assertThat(host.post(beyond), is(Admission.FULL));
+
+		/* A stream may send only so many entries in a second, so what follows the fill comes in the next one */
+		fleet.clock.addAndGet(1000);
+
 		assertThat(receiveFrom(host, members.get(0), List.of(beyond)), is(empty()));
 		assertThat(members.get(1).writes, hasSize(fill));
 

@@ -119,6 +119,7 @@ public class ChainHost implements ChainService {
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final WriterPauses pauses = new WriterPauses();
+	private final StreamBudgets budgets;
 	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -154,6 +155,7 @@ public class ChainHost implements ChainService {
 		this.random = random;
 		this.scheduler = scheduler;
 		this.deliveryExecutor = deliveryExecutor;
+		this.budgets = new StreamBudgets(clock);
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
@@ -350,49 +352,72 @@ public class ChainHost implements ChainService {
 
 	/* Client feeds are only ever added in here, one join at a time, so no chain gets past its limit. They are
 	   removed by leaves and closed streams without the lock, which can only make room. The lock is not the one
-	   of refresh(), which waits for stream lookups that a join must not wait for. */
+	   of refresh(), which waits for stream lookups that a join must not wait for. A stream that takes no writes
+	   and one over the joins of its second are refused before the lock. */
 	@Override
 	public JoinReply join(final Channel peer, final JoinChain request) {
 		final JoinReply.JoinReplyBuilder reply = JoinReply.builder().requestId(request.getRequestId());
-		final WriterId writer = request.getWriter();
 
-		synchronized (joins) {
-			final Hosting current = hosting;
-
-			if (current.settings().isEmpty()) {
-				return reply.status(JoinReply.Status.DISABLED).build();
-			}
-
-			if (writer == null) {
-				return reply.status(JoinReply.Status.FULL).build();
-			}
-
-			return current.placement(writer, request.getChainId())
-				.map(hosted -> admit(current, hosted, peer, writer, reply))
-				.orElseGet(() -> reply.status(JoinReply.Status.UNKNOWN_CHAIN).build());
-		}
-	}
-
-	private JoinReply admit(final Hosting current, final HostedChain hosted, final Channel peer,
-		final WriterId writer, final JoinReply.JoinReplyBuilder reply) {
-
-		final HostedChain.Attachment attachment = attach(current, hosted, peer, writer);
-
-		if (attachment == HostedChain.Attachment.REFUSED) {
+		if (!peer.isWritable() || !budgets.take(peer, StreamBudgets.Kind.JOINS, 1)) {
 			return reply.status(JoinReply.Status.FULL).build();
 		}
 
+		final Optional<HostedChain> placed;
+
+		synchronized (joins) {
+			placed = placed(peer, request, reply);
+		}
+
+		return placed.map(hosted -> admitted(hosted, peer, request.getWriter(), reply)).orElseGet(reply::build);
+	}
+
+	/* Attaches the writer to a chain, or writes on the reply the refusal the request earns */
+	private Optional<HostedChain> placed(final Channel peer, final JoinChain request,
+		final JoinReply.JoinReplyBuilder reply) {
+
+		final Hosting current = hosting;
+		final WriterId writer = request.getWriter();
+
+		if (current.settings().isEmpty()) {
+			reply.status(JoinReply.Status.DISABLED);
+			return Optional.empty();
+		}
+
+		if (writer == null) {
+			reply.status(JoinReply.Status.FULL);
+			return Optional.empty();
+		}
+
+		final Optional<HostedChain> placement = current.placement(writer, request.getChainId());
+
+		if (placement.isEmpty()) {
+			reply.status(JoinReply.Status.UNKNOWN_CHAIN);
+			return Optional.empty();
+		}
+
+		if (attach(current, placement.orElseThrow(), peer, writer) == HostedChain.Attachment.REFUSED) {
+			reply.status(JoinReply.Status.FULL);
+			return Optional.empty();
+		}
+
+		return placement;
+	}
+
+	/* The heads are read once the writer is attached, so an entry the chain appends in between is flooded to it and
+	   leaves no gap, and off the join lock, since the read waits for the monitor of the chain, which a stream that
+	   floods forged entries can hold, and every other join of the node would queue behind it. The reply carries
+	   every head and a packet holds only so many, so a chain with more takes no clients. */
+	private JoinReply admitted(final HostedChain hosted, final Channel peer, final WriterId writer,
+		final JoinReply.JoinReplyBuilder reply) {
+
 		final Map<WriterId, Head> heads = hosted.getChain().heads();
 
-		/* The reply carries every head and a packet holds only so many, so a chain with more takes no clients */
 		if (heads.size() > ChainCodecs.MAX_HEADS_PER_PACKET) {
 			hosted.detach(writer, peer);
 			return reply.status(JoinReply.Status.FULL).build();
 		}
 
-		if (attachment == HostedChain.Attachment.NEW) {
-			awaitClose(peer);
-		}
+		awaitClose(peer);
 
 		return reply.status(JoinReply.Status.JOINED).chainId(hosted.getChain().id()).heads(heads).build();
 	}
@@ -423,7 +448,8 @@ public class ChainHost implements ChainService {
 	   appended is flooded on and offered to the entry listeners, once per chain for the whole packet, and what
 	   they refused is not. That is done on the thread of the stream, which holds no lock of the host, before this
 	   returns, unless another thread is draining the chain: that thread does it when it is through with the delivery
-	   it is on. The refusals come in the order of the packet, whatever chains it names. */
+	   it is on. The refusals come in the order of the packet, whatever chains it names. A packet with more entries to
+	   verify than the stream has left of its second is dropped whole, before anything is verified. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
 		final Hosting current = hosting;
@@ -435,6 +461,12 @@ public class ChainHost implements ChainService {
 		for (final Entry entry : packet) {
 			current.find(entry.header().chainId()).filter(chain -> chain.accepts(peer, entry.header().writer()))
 				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
+		}
+
+		final int toVerify = permitted.values().stream().mapToInt(List::size).sum();
+
+		if (!budgets.take(peer, StreamBudgets.Kind.ENTRIES, toVerify)) {
+			return List.of();
 		}
 
 		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(takeIn(hosted, peer, ofChain))));
@@ -665,10 +697,14 @@ public class ChainHost implements ChainService {
 	/* The heads of a peer only say what to ask for: nothing is adopted from them, and no feed is anchored at a
 	   head a peer names, so a peer cannot pin a writer to a head that is not its own. A feed this chain has not
 	   seen starts at its first entry, and if that entry is gone the entries that follow it wait until the gap
-	   expires. Only a member is answered. */
+	   expires. Only a member is answered, and only while its stream takes writes, as answers it does not read would
+	   pile up in memory, and only so many of its packets of heads in a second, counted before the heads of the chain
+	   are read. */
 	@Override
 	public Optional<FetchEntries> reconcile(final Channel peer, final ChainHeads heads) {
 		return hosted(heads.getChainId()).filter(hosted -> hosted.trusts(peer))
+			.filter(hosted -> peer.isWritable())
+			.filter(hosted -> budgets.take(peer, StreamBudgets.Kind.HEADS, 1))
 			.map(hosted -> missing(hosted, heads.getHeads())).filter(ranges -> !ranges.isEmpty())
 			.map(ranges -> FetchEntries.builder().chainId(heads.getChainId()).ranges(ranges).build());
 	}
@@ -692,12 +728,23 @@ public class ChainHost implements ChainService {
 	}
 
 	/* The answers to a member that never reads would pile up in the buffer of its stream, which only turns unwritable
-	   when it is full, so a stream that takes no writes gets no answer and asks again */
+	   when it is full, so a stream that takes no writes gets no answer and asks again. The ranges are charged before
+	   the answer is built, which waits for the monitor of the chain, and the bytes of the answer once it is built:
+	   an answer that does not fit what is left of the second is not sent, and the member asks again later. */
 	@Override
 	public List<Entry> fetch(final Channel peer, final FetchEntries request) {
 		return hosted(request.getChainId()).filter(hosted -> hosted.trusts(peer))
 			.filter(hosted -> peer.isActive() && peer.isWritable())
-			.map(hosted -> retained(hosted.getChain(), request.getRanges())).orElse(List.of());
+			.filter(hosted -> budgets.take(peer, StreamBudgets.Kind.RANGES,
+				Math.min(request.getRanges().size(), MAX_RANGES)))
+			.map(hosted -> withinBudget(peer, hosted.getChain(), request.getRanges())).orElse(List.of());
+	}
+
+	private List<Entry> withinBudget(final Channel peer, final Chain chain, final List<FetchEntries.Range> ranges) {
+		final List<Entry> answer = retained(chain, ranges);
+		final int bytes = answer.stream().mapToInt(ChainCodecs::encodedBytes).sum();
+
+		return budgets.take(peer, StreamBudgets.Kind.FETCH_BYTES, bytes) ? answer : List.of();
 	}
 
 	/* A range asked for twice is answered once, and a range wider than a packet is answered with its first entries */

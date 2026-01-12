@@ -31,11 +31,13 @@ public class ChainHeadsChannelHandler extends AbstractInboundHandler<ChainHeads>
 		super(ChainHeads.class);
 	}
 
+	/* A stream that takes no more writes is asked for nothing, as the requests to a peer that does not read would pile
+	   up in memory: the heads come again in a later round */
 	@Override
 	public void typedChannelRead(final ChannelHandlerContext ctx, final ChainHeads heads) {
 		CDIUtil.resolveAndRun(ChainService.class, chains -> {
-			chains.reconcile(ctx.channel(), heads).ifPresent(fetch -> ctx.writeAndFlush(fetch)
-				.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE));
+			chains.reconcile(ctx.channel(), heads).filter(fetch -> ctx.channel().isWritable()).ifPresent(fetch ->
+				ctx.writeAndFlush(fetch).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE));
 		});
 	}
 }

@@ -317,14 +317,19 @@ public class ChainHostListenerTest {
 	private record Backlog(ChainFleet fleet, ChainHost host, List<Entry> entries, EmbeddedChannel stream,
 		List<Offered> offered, CountDownLatch letGo, Task<?> draining) {
 
-		/* The relay of the entry at the index by a member, on a thread of its own */
+		/* The relay of the entry at the index by a member, on a thread of its own. It comes in a second of its
+		   own, as one stream may only send so many entries a second and the fill of the queue takes them all */
 		Task<List<EntryRefused>> relayed(final int index) {
-			return new Task<>(() -> host.receive(stream, packet(entries.subList(index, index + 1))));
+			return new Task<>(() -> {
+				fleet.clock.addAndGet(1000);
+				return host.receive(stream, packet(entries.subList(index, index + 1)));
+			});
 		}
 
 		/* The relay of the entries from the first index up to but not including the last, one packet each */
 		Task<Object> relayedAll(final int from, final int to) {
 			return new Task<>(() -> {
+				fleet.clock.addAndGet(1000);
 				entries.subList(from, to).forEach(entry -> host.receive(stream, packet(List.of(entry))));
 				return null;
 			});

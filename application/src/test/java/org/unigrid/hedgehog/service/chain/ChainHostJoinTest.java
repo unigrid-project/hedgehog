@@ -216,9 +216,16 @@ public class ChainHostJoinTest {
 		return IntStream.range(0, count).mapToObj(number -> new EmbeddedChannel()).toList();
 	}
 
-	@SneakyThrows
 	private static List<JoinReply> joinAtOnce(final ChainHost host, final List<JoinChain> requests,
 		final List<? extends Channel> streams, final ExecutorService eventLoops) {
+
+		return joinAtOnce(host, requests, streams, eventLoops, () -> { });
+	}
+
+	/* The step runs on each racing thread right before its join */
+	@SneakyThrows
+	private static List<JoinReply> joinAtOnce(final ChainHost host, final List<JoinChain> requests,
+		final List<? extends Channel> streams, final ExecutorService eventLoops, final Runnable beforeEachJoin) {
 
 		final CountDownLatch go = new CountDownLatch(1);
 		final List<Future<JoinReply>> pending = new ArrayList<>();
@@ -229,6 +236,7 @@ public class ChainHostJoinTest {
 
 			pending.add(eventLoops.submit(() -> {
 				assertThat(go.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(true));
+				beforeEachJoin.run();
 				return host.join(stream, request);
 			}));
 		}
@@ -685,12 +693,17 @@ public class ChainHostJoinTest {
 
 	@Example
 	public void refusesTheNextWriterOfAStreamAtItsLimitButRenewsTheOnesItHas() {
-		final ChainHost host = hostOf(new ChainFleet(20), "gn-3");
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
 		final EmbeddedChannel stream = new EmbeddedChannel();
 		final List<JoinReply> attached = IntStream.range(0, ChainHost.MAX_WRITERS_PER_STREAM)
 			.mapToObj(writer -> join(host, stream, writer)).toList();
 
 		assertThat(join(host, stream, 4), equalTo(refusal(4, JoinReply.Status.FULL)));
+
+		/* A stream may join only 8 times a second, so each burst of joins comes in a second of its own: 5 joins in
+		   the first, 4 and a renewal in the second and 8 renewals in the third */
+		fleet.clock.addAndGet(1000);
 
 		for (final ChainId chainId : host.hostedChains()) {
 			assertThat(join(host, stream, 4, chainId), equalTo(refusal(4, JoinReply.Status.FULL)));
@@ -698,6 +711,11 @@ public class ChainHostJoinTest {
 
 		assertThat(clientsOn(host, stream), is((long) ChainHost.MAX_WRITERS_PER_STREAM));
 		assertThat(isAttached(host, 4), is(false));
+
+		/* The second still has joins left, so the refusals above came from the limit of the stream */
+		assertThat(join(host, stream, 0).getStatus(), is(JoinReply.Status.JOINED));
+
+		fleet.clock.addAndGet(1000);
 
 		for (int writer = 0; writer < ChainHost.MAX_WRITERS_PER_STREAM; writer++) {
 			assertThat(join(host, stream, writer).getStatus(), is(JoinReply.Status.JOINED));
@@ -855,10 +873,13 @@ public class ChainHostJoinTest {
 
 	@Example
 	public void watchesAStreamOnceHoweverOftenItJoinsAndLeaves() {
-		final ChainHost host = hostOf(new ChainFleet(20), "gn-3");
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
 		final CountedStream stream = new CountedStream();
 
 		for (int round = 0; round < ROUNDS; round++) {
+			fleet.clock.addAndGet(1000);
+
 			final JoinReply first = join(host, stream, 0);
 			final JoinReply second = join(host, stream, 1);
 
@@ -1049,16 +1070,19 @@ public class ChainHostJoinTest {
 		}
 	}
 
+	/* Each join moves the clock on by a second first, so that nearly every join falls in a second of its own and the
+	   joins race for the places of the stream rather than for its joins of a second */
 	@Example @SneakyThrows
 	public void neverAttachesAStreamAsMoreWritersThanItMayWhenItJoinsAtOnce() {
 		final ExecutorService eventLoops = Executors.newFixedThreadPool(THREADS);
 
 		try {
 			for (int round = 0; round < ROUNDS; round++) {
-				final ChainHost host = hostOf(CHAINS, ATTEMPTS);
+				final ChainFleet fleet = new ChainFleet(20);
+				final ChainHost host = hostOf(fleet, "gn-3", CHAINS, ATTEMPTS);
 				final EmbeddedChannel stream = new EmbeddedChannel();
 				final List<JoinReply> replies = joinAtOnce(host, requests(ATTEMPTS, null),
-					Collections.nCopies(ATTEMPTS, stream), eventLoops);
+					Collections.nCopies(ATTEMPTS, stream), eventLoops, () -> fleet.clock.addAndGet(1000));
 
 				assertThat(count(replies, JoinReply.Status.JOINED), is((long) ChainHost.MAX_WRITERS_PER_STREAM));
 				assertThat(clientsOn(host, stream), is((long) ChainHost.MAX_WRITERS_PER_STREAM));
@@ -1083,6 +1107,48 @@ public class ChainHostJoinTest {
 				assertThat(clientsOf(host), is(1));
 			}
 		} finally {
+			eventLoops.shutdownNow();
+		}
+	}
+
+	/* The monitor of a chain is held by whatever verifies its entries, which a stream that floods forged entries can
+	   keep busy: a join that waits for the heads of that chain has attached its writer already, so no entry slips
+	   past it, and holds up no join to another chain */
+	@Example @SneakyThrows
+	public void attachesBeforeItWaitsForTheHeadsOfAChainAndHoldsUpNoJoinToAnother() {
+		final ChainHost host = hostOf(new ChainFleet(20), "gn-3");
+		final ChainId busy = host.hostedChains().get(0);
+		final ChainId other = host.hostedChains().get(1);
+		final CountDownLatch held = new CountDownLatch(1);
+		final CountDownLatch released = new CountDownLatch(1);
+		final ExecutorService eventLoops = Executors.newFixedThreadPool(3);
+
+		try {
+			eventLoops.submit(() -> {
+				synchronized (hostedOn(host, busy).getChain()) {
+					held.countDown();
+					return released.await(3 * TIMEOUT_SECONDS, TimeUnit.SECONDS);
+				}
+			});
+
+			awaitIn(held);
+
+			final Future<JoinReply> waiting = eventLoops.submit(() -> join(host, new EmbeddedChannel(), 1, busy));
+			final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+
+			while (!hostedOn(host, busy).isAttached(ChainFleet.writer(1)) && System.nanoTime() < deadline) {
+				Thread.onSpinWait();
+			}
+
+			assertThat(hostedOn(host, busy).isAttached(ChainFleet.writer(1)), is(true));
+			assertThat(eventLoops.submit(() -> join(host, new EmbeddedChannel(), 2, other))
+				.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).getStatus(), is(JoinReply.Status.JOINED));
+			assertThat(waiting.isDone(), is(false));
+
+			released.countDown();
+			assertThat(chainOf(waiting.get(TIMEOUT_SECONDS, TimeUnit.SECONDS)), equalTo(busy));
+		} finally {
+			released.countDown();
 			eventLoops.shutdownNow();
 		}
 	}

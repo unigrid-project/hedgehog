@@ -23,6 +23,7 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
+import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.service.chain.ChainService;
 
 @Sharable
@@ -31,11 +32,16 @@ public class JoinChainChannelHandler extends AbstractInboundHandler<JoinChain> {
 		super(JoinChain.class);
 	}
 
+	/* A stream that takes no more writes is sent no reply, as the replies to a peer that does not read would pile
+	   up in memory: its request times out instead */
 	@Override
 	public void typedChannelRead(final ChannelHandlerContext ctx, final JoinChain request) {
 		CDIUtil.resolveAndRun(ChainService.class, chains -> {
-			ctx.writeAndFlush(chains.join(ctx.channel(), request))
-				.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+			final JoinReply reply = chains.join(ctx.channel(), request);
+
+			if (ctx.channel().isWritable()) {
+				ctx.writeAndFlush(reply).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+			}
 		});
 	}
 }

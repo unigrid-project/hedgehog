@@ -191,9 +191,10 @@ final class ChainFleet {
 		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
 	}
 
-	/* One tick of the clocks: every online host does what it does each second, and what that sets going is
+	/* One second passes: every online host does what it does each second, and what that sets going is
 	   delivered */
 	void round() {
+		clock.addAndGet(1000);
 		hosts.forEach((id, host) -> {
 			if (!offline.contains(id)) {
 				host.tick();

@@ -32,11 +32,16 @@ public class ChainEntryChannelHandler extends AbstractInboundHandler<ChainEntry>
 		super(ChainEntry.class);
 	}
 
+	/* The entries are taken in whatever the stream does with its writes, but a refusal is only written while the stream
+	   takes more, as the refusals to a peer that does not read would pile up in memory */
 	@Override
 	public void typedChannelRead(final ChannelHandlerContext ctx, final ChainEntry entries) {
 		CDIUtil.resolveAndRun(ChainService.class, chains -> {
 			for (final EntryRefused refusal : chains.receive(ctx.channel(), entries)) {
-				ctx.writeAndFlush(refusal).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+				if (ctx.channel().isWritable()) {
+					ctx.writeAndFlush(refusal)
+						.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+				}
 			}
 		});
 	}

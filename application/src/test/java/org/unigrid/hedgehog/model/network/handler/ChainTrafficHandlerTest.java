@@ -23,6 +23,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.io.IOException;
@@ -177,6 +178,27 @@ public class ChainTrafficHandlerTest extends BaseMockedWeldTest {
 		};
 	}
 
+	/* Holds every flush back, so that what is written stays in the buffer of the stream */
+	private static ChannelHandler holdingFlushes() {
+		return new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void flush(final ChannelHandlerContext ctx) {
+				/* Held back */
+			}
+		};
+	}
+
+	/* A stream that has more written to it than it takes, and so takes no more writes until it is flushed; answers
+	   what it holds */
+	private static Object unwritable(final EmbeddedChannel channel) {
+		final Object held = "Not flushed";
+
+		channel.config().setWriteBufferWaterMark(new WriteBufferWaterMark(1, 2));
+		channel.write(held);
+		assertThat(channel.isWritable(), is(false));
+		return held;
+	}
+
 	private void assertPassesOn(final ChannelHandler handler, final Packet... others) {
 		final EmbeddedChannel channel = new EmbeddedChannel(handler);
 
@@ -282,6 +304,63 @@ public class ChainTrafficHandlerTest extends BaseMockedWeldTest {
 
 		assertThat(calls, contains(new Call(channel, refusal)));
 		assertWritten(channel, List.of());
+	}
+
+	@Property(tries = 10)
+	public void writesNoRefusalToAStreamThatTakesNoWrites(@ForAll("severalEntries") List<Entry> entries) {
+		final EmbeddedChannel channel = new EmbeddedChannel(new ChainEntryChannelHandler());
+		final Object held = unwritable(channel);
+		final ChainEntry packet = packetOf(entries);
+
+		channel.writeInbound(packet);
+
+		assertThat(calls, contains(new Call(channel, packet)));
+		assertWritten(channel, List.of());
+		assertThat(channel.isOpen(), is(true));
+
+		channel.flush();
+		assertThat(channel.readOutbound(), sameInstance(held));
+		assertWritten(channel, List.of());
+
+		channel.writeInbound(packet);
+		assertWritten(channel, refusalsOf(packet));
+	}
+
+	@Property(tries = 10)
+	public void writesNoMoreRefusalsOnceTheStreamTakesNoMoreWrites(@ForAll("severalEntries") List<Entry> entries) {
+		final ChannelHandler holding = holdingFlushes();
+		final EmbeddedChannel channel = new EmbeddedChannel(holding, new ChainEntryChannelHandler());
+		final ChainEntry packet = packetOf(entries);
+
+		channel.config().setWriteBufferWaterMark(new WriteBufferWaterMark(1, 2));
+		channel.writeInbound(packet);
+		channel.pipeline().remove(holding);
+		channel.flush();
+
+		assertWritten(channel, refusalsOf(packet).subList(0, 1));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Property(tries = 10)
+	public void writesNoFetchToAStreamThatTakesNoWrites(@ForAll("chainIds") ChainId chainId,
+		@ForAll("someHeads") Map<WriterId, Head> heads) {
+
+		final EmbeddedChannel channel = new EmbeddedChannel(new ChainHeadsChannelHandler());
+		final Object held = unwritable(channel);
+		final ChainHeads packet = ChainHeads.builder().chainId(chainId).heads(heads).build();
+
+		channel.writeInbound(packet);
+
+		assertThat(calls, contains(new Call(channel, packet)));
+		assertWritten(channel, List.of());
+		assertThat(channel.isOpen(), is(true));
+
+		channel.flush();
+		assertThat(channel.readOutbound(), sameInstance(held));
+		assertWritten(channel, List.of());
+
+		channel.writeInbound(packet);
+		assertWritten(channel, fetchFor(packet).stream().toList());
 	}
 
 	@Example

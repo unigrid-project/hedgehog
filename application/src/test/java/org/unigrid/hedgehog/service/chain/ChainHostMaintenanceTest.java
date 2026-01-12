@@ -447,15 +447,14 @@ public class ChainHostMaintenanceTest {
 			.entries(ChainFleet.write(writer, 5, ChainFleet.NOW + 20_000)).build());
 		fleet.deliver();
 
+		fleet.clock.addAndGet(15_000);
 		fleet.host("gn-3");
 		fleet.refreshAll();
-		fleet.clock.addAndGet(15_000);
-		IntStream.range(0, 20).forEach(round -> fleet.round());
+		IntStream.range(0, 5).forEach(round -> fleet.round());
 
 		assertThat(fleet.agree(chainId), is(false));
 
-		fleet.clock.addAndGet(RETENTION_MILLIS);
-		fleet.round();
+		IntStream.range(0, 20).forEach(round -> fleet.round());
 
 		assertThat(fleet.agree(chainId), is(true));
 		assertThat(fleet.host("gn-3").chain(chainId).orElseThrow().heads(), equalTo(fleet.host("gn-0")
