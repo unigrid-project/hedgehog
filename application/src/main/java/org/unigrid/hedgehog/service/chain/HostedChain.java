@@ -34,11 +34,12 @@ import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 
-/* One chain this node hosts, with what the host knows about it beyond the entries */
+/* One chain this node hosts or follows, with what the host knows about it beyond the entries */
 @RequiredArgsConstructor
 final class HostedChain {
 	/* A chain never forgets a feed head, so the writers it takes are bounded. The bound is what one packet of
@@ -74,13 +75,42 @@ final class HostedChain {
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
 	private final Set<WriterId> writers = ConcurrentHashMap.newKeySet();
 
-	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed.
-	   Replaced as a whole by an immutable list and never changed in place, volatile so that the netty threads
-	   which read it see the list the refresh thread has just written. */
+	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed, or
+	   for a chain the node follows, the streams to the members it follows the chain through. Replaced as a whole by
+	   an immutable list and never changed in place, volatile so that the netty threads which read it see the list
+	   the thread that replaced it has just written. */
 	@Getter @Setter private volatile List<Channel> memberStreams = List.of();
+
+	/* Whether what the chain takes in from other nodes is flooded on. A node that only follows a chain leaves that
+	   to the members, which flood to each other. */
+	@Getter @Setter private volatile boolean relaying = true;
 
 	HostedChain(final Chain chain, final Epoch epoch) {
 		this(chain, epoch, MAX_WRITERS);
+	}
+
+	synchronized void addMemberStream(final Channel stream) {
+		memberStreams = Stream.concat(memberStreams.stream(), Stream.of(stream)).distinct().toList();
+	}
+
+	synchronized void dropMemberStream(final Channel stream) {
+		memberStreams = memberStreams.stream().filter(member -> member != stream).toList();
+	}
+
+	/* Starts a feed after a head that a member named in a join reply. The feed counts as a writer like one an entry
+	   started, under the same lock and limit, but only once the chain took the head: one it refused, such as a head
+	   that no entry follows, holds no slot. */
+	boolean anchor(final WriterId writer, final Head head) {
+		synchronized (chain) {
+			final boolean anchored = writer != null && head != null && canTake(writer)
+				&& chain.anchor(writer, head);
+
+			if (anchored) {
+				writers.add(writer);
+			}
+
+			return anchored;
+		}
 	}
 
 	int clientCount() {

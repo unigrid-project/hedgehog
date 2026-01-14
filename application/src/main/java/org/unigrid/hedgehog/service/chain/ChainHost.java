@@ -47,6 +47,7 @@ import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,6 +96,9 @@ public class ChainHost implements ChainService {
 	   chain every second, so an idle one holds next to nothing, but the count is bounded all the same. */
 	static final int MAX_RETIRED_CHAINS = 1024;
 
+	/* A client follows the chain of the group it joined, and a few more while it tries other groups */
+	static final int MAX_FOLLOWED = 4;
+
 	/* What one fetch can ask for and what one answer can hold: a few packets full, however much a peer asks */
 	private static final int RANGE_ENTRIES = ChainCodecs.MAX_ENTRIES_PER_PACKET;
 	private static final int MAX_RANGES = 8;
@@ -120,6 +124,7 @@ public class ChainHost implements ChainService {
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final WriterPauses pauses = new WriterPauses();
 	private final StreamBudgets budgets;
+	private final FollowedChains followed = new FollowedChains(MAX_FOLLOWED);
 	private final Object joins = new Object();
 
 	/* Volatile so that the write which swaps in a finished hosting is seen whole by the netty threads that read it
@@ -222,9 +227,41 @@ public class ChainHost implements ChainService {
 		entryListeners.add(listener);
 	}
 
-	/* A packet may name no chain, which the map of a hosting that is off cannot be asked for */
+	/* A packet may name no chain, which neither the map of a hosting that is off nor the followed chains take */
 	Optional<HostedChain> hosted(final ChainId id) {
-		return Optional.ofNullable(id).flatMap(hosting::find);
+		return Optional.ofNullable(id).flatMap(named -> hosting.find(named).or(() -> followed.find(named)));
+	}
+
+	/* A node outside the group of a chain, such as a client, follows it through the members it joined at: it keeps a
+	   replica of the chain, anchored at the heads of their join replies, takes entries in from their streams like a
+	   member's and believes their refusals, and posts its own entries through all of them. It passes nothing on, as
+	   the members flood to each other. A node follows a few chains at most, none that it hosts itself, and none while
+	   the proxy is off or the clock reads before the origin, where there is no epoch to stamp a replica with. The
+	   anchors are as trustworthy as the member that sent them: they pin a feed to a head and use up writer slots, and
+	   a second member does not undo that, so pass only the join reply of a member the node chose. */
+	public boolean follow(final ChainId chainId, final Channel member, final Map<WriterId, Head> anchors) {
+		final Optional<ProxySettings> current = settings.current();
+		final long now = clock.getAsLong();
+
+		if (current.isEmpty() || now < 0 || chainId == null || hosting.find(chainId).isPresent()) {
+			return false;
+		}
+
+		return followed.follow(chainId, member, Objects.requireNonNullElse(anchors, Map.of()),
+			id -> replicaOf(id, current.get(), now));
+	}
+
+	public void unfollow(final ChainId chainId) {
+		followed.unfollow(chainId);
+	}
+
+	/* Stamped with the epoch it is made in like a hosted chain, though only a hosting retires a chain */
+	private HostedChain replicaOf(final ChainId id, final ProxySettings current, final long now) {
+		final HostedChain replica = new HostedChain(new Chain(id, current.chainLimits(), clock),
+			current.epochAt(now));
+
+		replica.setRelaying(false);
+		return replica;
 	}
 
 	public Optional<Chain> chain(final ChainId id) {
@@ -442,8 +479,8 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* Duplicates and entries of chains this node does not host are dropped without a word, like everything
-	   else a chain turns away: only a writer that is told the chain is full has something to do about it.
+	/* Duplicates and entries of chains this node neither hosts nor follows are dropped without a word, like
+	   everything else a chain turns away: only a writer that is told the chain is full has something to do about it.
 	   An entry from a stream that may not write it is dropped before anything is verified. What the chains
 	   appended is flooded on and offered to the entry listeners, once per chain for the whole packet, and what
 	   they refused is not. That is done on the thread of the stream, which holds no lock of the host, before this
@@ -452,14 +489,13 @@ public class ChainHost implements ChainService {
 	   verify than the stream has left of its second is dropped whole, before anything is verified. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
-		final Hosting current = hosting;
 		final List<Entry> packet = Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of());
 		final Map<HostedChain, List<Entry>> permitted = new LinkedHashMap<>();
 		final Set<Entry> full = Collections.newSetFromMap(new IdentityHashMap<>());
 		final List<Runnable> steps = new ArrayList<>();
 
 		for (final Entry entry : packet) {
-			current.find(entry.header().chainId()).filter(chain -> chain.accepts(peer, entry.header().writer()))
+			hosted(entry.header().chainId()).filter(chain -> chain.accepts(peer, entry.header().writer()))
 				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
 		}
 
@@ -573,9 +609,13 @@ public class ChainHost implements ChainService {
 		hosted.getDeliveries().drain(delivery -> deliver(hosted, delivery));
 	}
 
-	/* Floods first, so that no other node waits for what the listeners do */
+	/* Floods first, so that no other node waits for what the listeners do. A followed chain passes on nothing it took
+	   in from the members, as they flood to each other, but what this node writes itself goes out on every stream the
+	   chain is followed through. */
 	private void deliver(final HostedChain hosted, final Delivery delivery) {
-		flood(hosted, delivery.origin(), delivery.entries());
+		if (hosted.isRelaying() || delivery.origin() == null) {
+			flood(hosted, delivery.origin(), delivery.entries());
+		}
 
 		if (delivery.tell()) {
 			delivery.entries().forEach(entry -> entryListeners.tell(listener ->
@@ -640,9 +680,9 @@ public class ChainHost implements ChainService {
 	/* Run once a second: keeps the entries of every held chain within its retention and tells the listeners of the
 	   gaps that have grown too old to fill. A gap that nobody fills leaves a feed stuck, which the listeners break
 	   by dropping the sessions it belongs to. Every held chain is maintained, retired ones included, since a lagging
-	   member still reads them. */
+	   member still reads them, and followed ones, whose gaps stall the sessions of a client all the same. */
 	public void maintain() {
-		hosting.all().forEach(this::upkeep);
+		Stream.concat(hosting.all(), followed.all()).forEach(this::upkeep);
 	}
 
 	/* One chain that fails is logged by the class of the failure and does not keep the others from being kept up */
@@ -695,7 +735,8 @@ public class ChainHost implements ChainService {
 	}
 
 	/* The heads of a peer only say what to ask for: nothing is adopted from them, and no feed is anchored at a
-	   head a peer names, so a peer cannot pin a writer to a head that is not its own. A feed this chain has not
+	   head a peer names (follow is the one exception, and only for the member a client chose), so a peer cannot pin
+	   a writer to a head that is not its own. A feed this chain has not
 	   seen starts at its first entry, and if that entry is gone the entries that follow it wait until the gap
 	   expires. Only a member is answered, and only while its stream takes writes, as answers it does not read would
 	   pile up in memory, and only so many of its packets of heads in a second, counted before the heads of the chain
@@ -777,8 +818,9 @@ public class ChainHost implements ChainService {
 	}
 
 	/* Only a full chain asks the writer to wait, and only a member of that chain's group is believed, on a retired
-	   chain as on a current one since both still take entries. A refusal does not say whether the writer is one of
-	   this node's, so whatever owns a writer looks its pause up here. */
+	   chain as on a current one since both still take entries, and on a followed chain a member it is followed
+	   through. A refusal does not say whether the writer is one of this node's, so whatever owns a writer looks its
+	   pause up here. */
 	@Override
 	public void refused(final Channel peer, final EntryRefused refusal) {
 		if (refusal != null && refusal.getWriter() != null && refusal.getAdmission() == Admission.FULL
