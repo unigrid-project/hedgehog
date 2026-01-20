@@ -1,0 +1,250 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2025 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.proxy.socks;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.socksx.v5.DefaultSocks5CommandResponse;
+import io.netty.handler.codec.socksx.v5.Socks5CommandRequest;
+import io.netty.handler.codec.socksx.v5.Socks5CommandRequestDecoder;
+import io.netty.handler.codec.socksx.v5.Socks5CommandResponse;
+import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
+import io.netty.handler.codec.socksx.v5.Socks5CommandType;
+import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.EventExecutor;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import org.unigrid.hedgehog.proxy.session.SocksAddress;
+
+/* Serves the one command of a SOCKS5 connection: CONNECT opens a tunnel stream, the client hears the tunnel's
+   answer as its reply, and bytes then flow both ways until either side closes. Reads stop at the command and
+   resume when the stream opens, and stop again whenever the stream takes no more writes. */
+final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
+	private final Tunnel tunnel;
+	private final List<byte[]> early = new ArrayList<>();
+	private ChannelHandlerContext context;
+	private TunnelStream stream;
+	private boolean open;
+	private boolean ended;
+	private boolean refused;
+
+	SocksCommandHandler(Tunnel tunnel) {
+		this.tunnel = tunnel;
+	}
+
+	@Override
+	public void handlerAdded(ChannelHandlerContext ctx) {
+		context = ctx;
+	}
+
+	@Override
+	public void channelRead(ChannelHandlerContext ctx, Object message) {
+		if (message instanceof Socks5CommandRequest request) {
+			command(request);
+		} else if (message instanceof ByteBuf bytes) {
+			forward(bytes);
+		} else {
+			ReferenceCountUtil.release(message);
+		}
+	}
+
+	@Override
+	public void channelInactive(ChannelHandlerContext ctx) {
+		if (stream != null) {
+			stream.close();
+		}
+
+		ctx.fireChannelInactive();
+	}
+
+	private void command(Socks5CommandRequest request) {
+		context.channel().config().setAutoRead(false);
+		context.pipeline().remove(Socks5CommandRequestDecoder.class);
+
+		if (request.decoderResult().isFailure()) {
+			fail(TunnelFailure.GENERAL_FAILURE);
+		} else if (Socks5CommandType.CONNECT.equals(request.type())) {
+			connect(request);
+		} else {
+			/* BIND has no use behind an exit, and UDP ASSOCIATE is not relayed yet */
+			fail(TunnelFailure.COMMAND_UNSUPPORTED);
+		}
+	}
+
+	private void connect(Socks5CommandRequest request) {
+		final Optional<SocksAddress> destination = destination(request);
+
+		if (destination.isPresent()) {
+			openStream(destination.get());
+		} else {
+			fail(TunnelFailure.ADDRESS_UNSUPPORTED);
+		}
+	}
+
+	/* A tunnel that throws has no stream to give, and the client hears so rather than waiting for a reply */
+	private void openStream(SocksAddress destination) {
+		try {
+			stream = tunnel.open(destination, new Listener(context.executor()));
+		} catch (RuntimeException ex) {
+			fail(TunnelFailure.GENERAL_FAILURE);
+		}
+	}
+
+	/* Bytes behind a refused command or after the stream ended have nowhere to go */
+	private void forward(ByteBuf bytes) {
+		try {
+			if (relaying()) {
+				relay(ByteBufUtil.getBytes(bytes));
+				context.channel().config().setAutoRead(stream.isWritable());
+			} else if (awaitingTunnel()) {
+				early.add(ByteBufUtil.getBytes(bytes));
+			}
+		} finally {
+			bytes.release();
+		}
+	}
+
+	/* The client gets one reply only. It is built before anything changes, so that one that cannot be built does
+	   not leave the stream open with no reply sent. */
+	private void opened(SocksAddress bound) {
+		if (awaitingTunnel() && context.channel().isActive()) {
+			final Socks5CommandResponse reply = success(bound);
+
+			open = true;
+			context.writeAndFlush(reply);
+			early.forEach(this::relay);
+			early.clear();
+			context.channel().config().setAutoRead(stream.isWritable());
+		}
+	}
+
+	private void failed(TunnelFailure failure) {
+		if (awaitingTunnel()) {
+			fail(failure);
+		}
+	}
+
+	private void received(byte[] bytes) {
+		if (open) {
+			context.writeAndFlush(Unpooled.wrappedBuffer(bytes));
+		}
+	}
+
+	private void paced(boolean writable) {
+		if (relaying()) {
+			context.channel().config().setAutoRead(writable);
+		}
+	}
+
+	/* Whatever the destination sent is flushed before the client sees the end of the stream, and nothing the
+	   client sends meanwhile is read into a stream that ended */
+	private void closed() {
+		if (relaying()) {
+			ended = true;
+			context.channel().config().setAutoRead(false);
+			context.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
+		} else if (awaitingTunnel()) {
+			fail(TunnelFailure.GENERAL_FAILURE);
+		}
+	}
+
+	/* A stream that throws on a write is broken, and the client is hung up on rather than left sending into it */
+	private void relay(byte[] bytes) {
+		try {
+			stream.write(bytes);
+		} catch (RuntimeException ex) {
+			context.close();
+		}
+	}
+
+	private boolean awaitingTunnel() {
+		return stream != null && !open && !refused;
+	}
+
+	private boolean relaying() {
+		return open && !ended;
+	}
+
+	private void fail(TunnelFailure failure) {
+		refused = true;
+		context.writeAndFlush(response(failure.status(), SocksAddress.UNSPECIFIED))
+			.addListener(ChannelFutureListener.CLOSE);
+	}
+
+	/* An exit may report a bound name the reply cannot carry, such as one with a label over 63 characters. The
+	   stream is open all the same, so the client still hears of it, only without a bound address. */
+	private static Socks5CommandResponse success(SocksAddress bound) {
+		try {
+			return response(Socks5CommandStatus.SUCCESS, bound);
+		} catch (IllegalArgumentException ex) {
+			return response(Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED);
+		}
+	}
+
+	private static Socks5CommandResponse response(Socks5CommandStatus status, SocksAddress bound) {
+		return new DefaultSocks5CommandResponse(status, bound.type(), bound.host(), bound.port());
+	}
+
+	private static Optional<SocksAddress> destination(Socks5CommandRequest request) {
+		try {
+			return Optional.of(new SocksAddress(request.dstAddrType(), request.dstAddr(), request.dstPort()));
+		} catch (IllegalArgumentException ex) {
+			return Optional.empty();
+		}
+	}
+
+	/* Moves every call of the tunnel onto the channel's event loop, behind whatever runs there now */
+	private final class Listener implements TunnelListener {
+		private final EventExecutor loop;
+
+		Listener(EventExecutor loop) {
+			this.loop = loop;
+		}
+
+		@Override
+		public void connected(SocksAddress bound) {
+			loop.execute(() -> opened(bound));
+		}
+
+		@Override
+		public void failed(TunnelFailure failure) {
+			loop.execute(() -> SocksCommandHandler.this.failed(failure));
+		}
+
+		@Override
+		public void received(byte[] bytes) {
+			loop.execute(() -> SocksCommandHandler.this.received(bytes));
+		}
+
+		@Override
+		public void writabilityChanged(boolean writable) {
+			loop.execute(() -> paced(writable));
+		}
+
+		@Override
+		public void closed() {
+			loop.execute(SocksCommandHandler.this::closed);
+		}
+	}
+}
