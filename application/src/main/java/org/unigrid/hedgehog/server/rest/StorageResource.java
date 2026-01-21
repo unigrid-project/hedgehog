@@ -27,7 +27,6 @@ import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
@@ -53,12 +52,17 @@ import org.unigrid.hedgehog.service.storage.StorageService;
 @Path("/storage")
 public class StorageResource extends CDIBridgeResource {
 	public static final String FINGERPRINT_HEADER = "X-Fingerprint";
+	public static final String FILE_SIZE_HEADER = "X-File-Size";
 
 	@CDIBridgeInject
 	private StorageService storageService;
 
 	private interface StorageCall {
 		Response call() throws IOException, StorageException;
+	}
+
+	private interface FingerprintCall {
+		Response call(Fingerprint fingerprint) throws IOException, StorageException;
 	}
 
 	@POST
@@ -69,33 +73,45 @@ public class StorageResource extends CDIBridgeResource {
 			.entity(Map.of("fingerprint", storageService.store(body).encode())).build());
 	}
 
+	/* The size travels in its own header so that the body can stream chunked. A stripe lost after the first one can
+	   only end the stream early, so clients compare what arrived with the announced size. */
 	@GET
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	public Response retrieve(@NotNull @HeaderParam(FINGERPRINT_HEADER) final String fingerprint) {
-		return respond(() -> {
-			final Retrieval retrieval = storageService.open(Fingerprint.parse(fingerprint));
+		return withFingerprint(fingerprint, parsed -> {
+			final Retrieval retrieval = storageService.open(parsed);
 			final StreamingOutput stream = output -> write(retrieval, output);
 
-			return Response.ok(stream).header(HttpHeaders.CONTENT_LENGTH, retrieval.size()).build();
+			return Response.ok(stream).header(FILE_SIZE_HEADER, retrieval.size()).build();
 		});
 	}
 
 	@DELETE
 	public Response delete(@NotNull @HeaderParam(FINGERPRINT_HEADER) final String fingerprint) {
-		return respond(() -> {
-			storageService.delete(Fingerprint.parse(fingerprint));
+		return withFingerprint(fingerprint, parsed -> {
+			storageService.delete(parsed);
 			return Response.noContent().build();
 		});
 	}
 
-	/* Stripes are recovered while the body streams, after the status and Content-Length have gone out. A stripe
-	   lost at that point can only cut the body short, so clients compare what they received with the length. */
 	private static void write(final Retrieval retrieval, final OutputStream output) throws IOException {
 		try {
 			retrieval.writeTo(output);
 		} catch (StorageException ex) {
 			throw new IOException(ex.getMessage(), ex);
 		}
+	}
+
+	private static Response withFingerprint(final String encoded, final FingerprintCall call) {
+		final Fingerprint fingerprint;
+
+		try {
+			fingerprint = Fingerprint.parse(encoded);
+		} catch (IllegalArgumentException ex) {
+			return Response.status(Response.Status.BAD_REQUEST).entity("Malformed fingerprint").build();
+		}
+
+		return respond(() -> call.call(fingerprint));
 	}
 
 	private static Response respond(final StorageCall call) {
@@ -107,9 +123,7 @@ public class StorageResource extends CDIBridgeResource {
 			return Response.status(Response.Status.NOT_FOUND).build();
 		} catch (DataLossException ex) {
 			return Response.status(Response.Status.GONE).entity(ex.getMessage()).build();
-		} catch (IllegalArgumentException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).entity("Malformed fingerprint").build();
-		} catch (StorageException | IOException ex) {
+		} catch (StorageException | IOException | RuntimeException ex) {
 			log.atWarn().log("Storage request failed: {}", ex.getMessage());
 			return Response.serverError().build();
 		}
