@@ -39,10 +39,16 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* Serves the one command of a SOCKS5 connection: CONNECT opens a tunnel stream, the client hears the tunnel's
    answer as its reply, and bytes then flow both ways until either side closes. Reads stop at the command and
-   resume when the stream opens, and stop again whenever the stream takes no more writes. */
+   resume when the stream opens, and stop again whenever the stream takes no more writes; the stream in turn
+   holds back what the destination sends while the client takes no more. */
 final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
+	/* Reads stop at the command, so only what one read already held can arrive before the reply: at most
+	   64 KiB with Netty's default allocator. More than twice that means reads did not stop. */
+	static final int MAX_EARLY_BYTES = 128 * 1024;
+
 	private final Tunnel tunnel;
 	private final List<byte[]> early = new ArrayList<>();
+	private int earlyBytes;
 	private ChannelHandlerContext context;
 	private TunnelStream stream;
 	private boolean open;
@@ -76,6 +82,15 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		}
 
 		ctx.fireChannelInactive();
+	}
+
+	@Override
+	public void channelWritabilityChanged(ChannelHandlerContext ctx) {
+		if (relaying()) {
+			stream.setReadable(ctx.channel().isWritable());
+		}
+
+		ctx.fireChannelWritabilityChanged();
 	}
 
 	private void command(Socks5CommandRequest request) {
@@ -118,10 +133,20 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 				relay(ByteBufUtil.getBytes(bytes));
 				context.channel().config().setAutoRead(stream.isWritable());
 			} else if (awaitingTunnel()) {
-				early.add(ByteBufUtil.getBytes(bytes));
+				hold(bytes);
 			}
 		} finally {
 			bytes.release();
+		}
+	}
+
+	private void hold(ByteBuf bytes) {
+		if (bytes.readableBytes() > MAX_EARLY_BYTES - earlyBytes) {
+			early.clear();
+			context.close();
+		} else {
+			earlyBytes += bytes.readableBytes();
+			early.add(ByteBufUtil.getBytes(bytes));
 		}
 	}
 
@@ -145,9 +170,15 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		}
 	}
 
+	/* The tunnel may have sent these before it heard to hold back, so they are written all the same. A client
+	   that fell behind before the reply caused no writability change the stream heard of, so it is told here. */
 	private void received(byte[] bytes) {
 		if (open) {
 			context.writeAndFlush(Unpooled.wrappedBuffer(bytes));
+
+			if (!context.channel().isWritable()) {
+				stream.setReadable(false);
+			}
 		}
 	}
 
