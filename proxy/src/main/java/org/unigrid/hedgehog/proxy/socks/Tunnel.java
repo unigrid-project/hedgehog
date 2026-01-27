@@ -25,8 +25,9 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
 @FunctionalInterface
 public interface Tunnel {
 	/* Starts opening a stream and returns its handle at once. The listener hears connected or failed exactly
-	   once, then received and writabilityChanged until closed. Its calls may come from any thread, even
-	   from within open. */
+	   once, within a bounded time, then received and writabilityChanged until closed. A stream that goes silent
+	   ends with closed: the front end cuts nothing after the command, so the deadline is the tunnel's. Its calls
+	   may come from any thread, even from within open. */
 	TunnelStream open(SocksAddress destination, TunnelListener listener);
 
 	/* A tunnel that fails every stream for the same reason */
