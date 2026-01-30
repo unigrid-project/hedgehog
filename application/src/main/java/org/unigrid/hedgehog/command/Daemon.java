@@ -25,6 +25,7 @@ import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
@@ -37,6 +38,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
 	@Mixin private GridnodeOptions gridnodeOptions;
+	@Mixin private SocksOptions socksOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
