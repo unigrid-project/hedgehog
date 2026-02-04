@@ -39,6 +39,7 @@ module org.unigrid.hedgehog {
 	requires io.netty.incubator.codec.classes.quic;
 	requires io.netty.common;
 	requires io.netty.handler;
+	requires io.netty.codec.socks;
 	requires jersey.server;
 	requires jersey.client;
 	requires jersey.container.netty.http;
