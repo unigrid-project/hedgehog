@@ -26,10 +26,12 @@ import mockit.Expectations;
 import org.unigrid.hedgehog.command.option.GridnodeOptionsMockup;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
+import org.unigrid.hedgehog.server.socks.SocksServer;
 
 @ApplicationScoped
 public class TestServer {
@@ -39,12 +41,25 @@ public class TestServer {
 	@Inject @Getter
 	private RestServer rest;
 
+	@Inject @Getter
+	private SocksServer socks;
+
 	public static void mockProperties(TestServer server) {
 		//new GridnodeOptionsMockup();
 		mockProperties();
 
 		CDIUtil.instantiate(server.getP2p());
 		CDIUtil.instantiate(server.getRest());
+	}
+
+	/* Only for tests that mock SocksOptions, as BaseServerTest does: an unmocked option would be stale static state */
+	public static void mockSocksProperties(TestServer server) {
+		new Expectations() {{
+			SocksOptions.getHost(); result = "localhost";
+			SocksOptions.getPort(); result = FreePortFinder.findFreeLocalPort();
+		}};
+
+		CDIUtil.instantiate(server.getSocks());
 	}
 
 	public static void mockProperties() {

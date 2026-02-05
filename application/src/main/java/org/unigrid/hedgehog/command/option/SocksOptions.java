@@ -29,7 +29,8 @@ public class SocksOptions {
 
 	@Getter @Option(names = "--socks-host", scope = CommandLine.ScopeType.INHERIT,
 		description = "Hostname or IP the SOCKS5 proxy binds to (defaults to the loopback address "
-		+ "'${DEFAULT-VALUE}'). The proxy has no authentication, so any other address offers it to the network.",
+		+ "'${DEFAULT-VALUE}'). The proxy has no authentication, so any other address offers it to the network. "
+		+ "Ignored while --socks-port is 0.",
 		defaultValue = "127.0.0.1"
 	)
 	private static String host;

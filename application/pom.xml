@@ -374,6 +374,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.socks=weld.core.impl
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl

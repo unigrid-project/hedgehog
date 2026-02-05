@@ -31,6 +31,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import org.bitcoinj.core.ECKey;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
@@ -44,6 +45,9 @@ public class BaseServerTest extends BaseMockedWeldTest {
 
 	@Mocked
 	protected RestOptions restOptions;
+
+	@Mocked
+	protected SocksOptions socksOptions;
 
 	@Inject @Instances(NUM_SERVERS)
 	private List<TestServer> servers;
@@ -59,6 +63,7 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	public void before() {
 		for (TestServer s : servers) {
 			TestServer.mockProperties(s);
+			TestServer.mockSocksProperties(s);
 		}
 	}
 }
