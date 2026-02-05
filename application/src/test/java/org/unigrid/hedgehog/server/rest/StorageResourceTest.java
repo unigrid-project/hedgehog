@@ -75,9 +75,9 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
-import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
@@ -116,17 +116,27 @@ public class StorageResourceTest extends BaseRestClientTest {
 	@Inject
 	private SporkDatabase sporkDatabase;
 
-	@RequiredArgsConstructor
 	private enum Failure {
 		MALFORMED(Status.BAD_REQUEST, Status.BAD_REQUEST),
 		DISABLED(Status.SERVICE_UNAVAILABLE, Status.SERVICE_UNAVAILABLE),
 		NOT_FOUND(Status.NOT_FOUND, Status.NOT_FOUND),
 		FIRST_STRIPE_LOST(Status.GONE, Status.NO_CONTENT),
-		UNEXPECTED_ARGUMENT(Status.INTERNAL_SERVER_ERROR, Status.INTERNAL_SERVER_ERROR),
-		UNEXPECTED_STATE(Status.INTERNAL_SERVER_ERROR, Status.INTERNAL_SERVER_ERROR);
+		UNEXPECTED_ARGUMENT(Status.INTERNAL_SERVER_ERROR, Status.INTERNAL_SERVER_ERROR, IllegalArgumentException::new),
+		UNEXPECTED_STATE(Status.INTERNAL_SERVER_ERROR, Status.INTERNAL_SERVER_ERROR, IllegalStateException::new);
 
 		private final Status onRead;
 		private final Status onDelete;
+		private final Optional<Function<String, RuntimeException>> thrown;
+
+		Failure(final Status onRead, final Status onDelete) {
+			this(onRead, onDelete, null);
+		}
+
+		Failure(final Status onRead, final Status onDelete, final Function<String, RuntimeException> thrown) {
+			this.onRead = onRead;
+			this.onDelete = onDelete;
+			this.thrown = Optional.ofNullable(thrown);
+		}
 	}
 
 	/* Answers every request by throwing, the way a broken transport would */
@@ -398,29 +408,45 @@ public class StorageResourceTest extends BaseRestClientTest {
 		assertThat(Status.fromStatusCode(rawTarget().request().delete().getStatus()), equalTo(Status.BAD_REQUEST));
 	}
 
-	/* Brings the fleet into the state the failure describes and returns the fingerprint header to send */
+	/* Brings the fleet into the state the failure describes and returns the fingerprint header to send. Unexpected
+	   failures put the fingerprint into the exception on purpose, to prove it never reaches the response. */
 	private String arrange(final Failure failure, final StorageFleet fleet, final Fingerprint stored,
 		final int length) {
 
 		final String encoded = stored.encode();
-		final Function<Function<String, RuntimeException>, FragmentTransport> failing = cause
-			-> new FailingTransport(() -> cause.apply(encoded));
 
-		switch (failure) {
-			case MALFORMED -> {
-				return encoded.substring(1);
-			}
-			case DISABLED -> wire(fleet.directory("client"), fleet.getTransport(), Optional::empty);
-			case NOT_FOUND -> fleet.groups().forEach(fleet::forget);
-			case FIRST_STRIPE_LOST -> loseStripe(fleet, stored, length, 0);
-			case UNEXPECTED_ARGUMENT -> wire(fleet.directory("client"), failing.apply(IllegalArgumentException::new),
+		if (failure == Failure.MALFORMED) {
+			return encoded.substring(1);
+		}
+
+		if (failure.thrown.isPresent()) {
+			wire(fleet.directory("client"), new FailingTransport(() -> failure.thrown.get().apply(encoded)),
 				fleet::spork);
-			case UNEXPECTED_STATE -> wire(fleet.directory("client"), failing.apply(IllegalStateException::new),
-				fleet::spork);
-			default -> throw new IllegalArgumentException("Unknown failure");
+		} else {
+			damage(failure, fleet, stored, length);
 		}
 
 		return encoded;
+	}
+
+	private void damage(final Failure failure, final StorageFleet fleet, final Fingerprint stored, final int length) {
+		switch (failure) {
+			case DISABLED -> wire(fleet.directory("client"), fleet.getTransport(), Optional::empty);
+			case NOT_FOUND -> fleet.groups().forEach(fleet::forget);
+			case FIRST_STRIPE_LOST -> loseStripe(fleet, stored, length, 0);
+			default -> throw new IllegalArgumentException("Nothing to damage for " + failure);
+		}
+	}
+
+	private static void assertNothingEchoes(final Response response, final List<String> secrets) {
+		final String body = response.readEntity(String.class);
+
+		for (final String secret : secrets) {
+			assertThat(body, not(containsString(secret)));
+			response.getStringHeaders().values().forEach(values -> values.forEach(value -> {
+				assertThat(value, not(containsString(secret)));
+			}));
+		}
 	}
 
 	@SneakyThrows
@@ -435,10 +461,7 @@ public class StorageResourceTest extends BaseRestClientTest {
 			.method(read ? HttpMethod.GET : HttpMethod.DELETE);
 
 		assertThat(Status.fromStatusCode(response.getStatus()), equalTo(read ? failure.onRead : failure.onDelete));
-		assertThat(response.readEntity(String.class), not(containsString(stored.encode())));
-		response.getStringHeaders().values().forEach(values -> values.forEach(value -> {
-			assertThat(value, not(containsString(stored.encode())));
-		}));
+		assertNothingEchoes(response, List.of(stored.encode(), sent));
 	}
 
 	@SneakyThrows

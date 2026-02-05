@@ -124,7 +124,10 @@ public class StorageResource extends CDIBridgeResource {
 		} catch (DataLossException ex) {
 			return Response.status(Response.Status.GONE).entity(ex.getMessage()).build();
 		} catch (StorageException | IOException | RuntimeException ex) {
-			log.atWarn().log("Storage request failed: {}", ex.getMessage());
+			/* An unexpected exception may carry anything, the fingerprint included, so only its type is logged
+			   above trace */
+			log.atWarn().log("Storage request failed with {}", ex.getClass().getSimpleName());
+			log.atTrace().setCause(ex).log("Storage request failure");
 			return Response.serverError().build();
 		}
 	}
