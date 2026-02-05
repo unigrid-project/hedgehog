@@ -21,81 +21,112 @@ package org.unigrid.hedgehog.command.cli;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import java.io.ByteArrayInputStream;
-import java.lang.reflect.Field;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.internal.state.SavePoint;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
-import net.jqwik.api.lifecycle.AfterTry;
-import net.jqwik.api.lifecycle.BeforeTry;
+import net.jqwik.api.constraints.StringLength;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeContainer;
+import net.jqwik.api.lifecycle.PropagationMode;
 import net.jqwik.api.statistics.Statistics;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.server.rest.StorageResource;
+import picocli.CommandLine;
 
+@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class StorageGetTest {
-	private SavePoint mocks;
+	private static final String OUTPUT = "/files/output";
 
-	@BeforeTry
-	public void saveMocks() {
-		mocks = new SavePoint();
-	}
+	private static volatile InputStream body;
 
-	@AfterTry
-	public void restoreMocks() {
-		mocks.rollback();
-	}
-
-	/* Picocli would resolve the option on the default file system, and the package is not opened to reflection
-	   helpers, so the field is set from inside the module */
-	@SneakyThrows
-	private static void writeTo(final StorageGet command, final Path output) {
-		final Field field = StorageGet.class.getDeclaredField("output");
-
-		field.setAccessible(true);
-		field.set(command, output);
-	}
-
-	/* An outbound response carries the declared length but refuses to be read, so only reading it is faked */
-	private static Response responseOf(final byte[] body, final int declaredLength) {
-		final Response response = Response.ok().header(HttpHeaders.CONTENT_LENGTH, declaredLength).build();
-
-		new MockUp<Response>(response.getClass()) {
+	/* An outbound response carries headers but refuses to be read, so reading it is faked. The fake outlives every
+	   property anyway, so it is installed once and hands out whatever body the current try prepared. */
+	@BeforeContainer
+	private static void installFakes() {
+		new MockUp<Response>(Response.ok().build().getClass()) {
 			@Mock public Object readEntity(final Class<?> type) {
-				return new ByteArrayInputStream(body);
+				return body;
 			}
 		};
+	}
 
-		return response;
+	private static StorageGet storageGet(final FileSystem fs) {
+		final StorageGet command = new StorageGet();
+
+		new CommandLine(command).registerConverter(Path.class, fs::getPath).parseArgs("-f", "fingerprint", "-o", OUTPUT);
+		return command;
+	}
+
+	private static Response announcing(final long size) {
+		return Response.ok().header(StorageResource.FILE_SIZE_HEADER, size).build();
+	}
+
+	private static InputStream breakingAfter(final byte[] prefix) {
+		return new SequenceInputStream(new ByteArrayInputStream(prefix), new InputStream() {
+			@Override
+			public int read() throws IOException {
+				throw new IOException("Connection reset");
+			}
+		});
+	}
+
+	@SneakyThrows
+	private static Path prepare(final FileSystem fs, final Optional<byte[]> existing) {
+		final Path output = fs.getPath(OUTPUT);
+
+		Files.createDirectories(output.getParent());
+
+		if (existing.isPresent()) {
+			Files.write(output, existing.get());
+		}
+
+		return output;
+	}
+
+	/* Nothing but the output may be left beside it, and it must hold exactly what is expected */
+	@SneakyThrows
+	private static void assertHolds(final Path output, final Optional<byte[]> expected) {
+		try (Stream<Path> files = Files.list(output.getParent())) {
+			assertThat(files.collect(Collectors.toList()), equalTo(expected.map(content -> List.of(output))
+				.orElse(List.of())));
+		}
+
+		if (expected.isPresent()) {
+			assertThat(Files.readAllBytes(output), equalTo(expected.get()));
+		}
 	}
 
 	@SneakyThrows
 	@Property(tries = 50)
-	public void keepsOnlyCompleteFiles(@ForAll @Size(max = 4096) final byte[] body,
-		@ForAll @IntRange(max = 64) final int missing) {
+	public void replacesTheOutputOnlyWithACompleteFile(@ForAll @Size(max = 4096) final byte[] file,
+		@ForAll @IntRange(max = 64) final int missing, @ForAll final Optional<@Size(max = 64) byte[]> existing) {
 
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final Path output = fs.getPath("/file");
-			final StorageGet command = new StorageGet();
+			final Path output = prepare(fs, existing);
 
-			Files.write(output, new byte[] { 1 });
-			writeTo(command, output);
-			command.execute(responseOf(body, body.length + missing));
-
-			if (missing == 0) {
-				assertThat(Files.readAllBytes(output), equalTo(body));
-			} else {
-				assertThat(Files.exists(output), equalTo(false));
-			}
+			body = new ByteArrayInputStream(file, 0, file.length - Math.min(missing, file.length));
+			storageGet(fs).execute(announcing(file.length));
+			assertHolds(output, missing == 0 || file.length == 0 ? Optional.of(file) : existing);
 		}
 
 		Statistics.collect(missing == 0);
@@ -103,5 +134,39 @@ public class StorageGetTest {
 			coverage.check(true).count(count -> count > 0);
 			coverage.check(false).count(count -> count > 0);
 		});
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void keepsTheOutputWhenTheStreamBreaks(@ForAll @Size(max = 4096) final byte[] prefix,
+		@ForAll @IntRange(min = 1, max = 64) final int missing, @ForAll final Optional<@Size(max = 64) byte[]> existing) {
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path output = prepare(fs, existing);
+
+			body = breakingAfter(prefix);
+			storageGet(fs).execute(announcing(prefix.length + missing));
+			assertHolds(output, existing);
+		}
+	}
+
+	@Property(tries = 20)
+	public void takesTheFingerprintFromTheOptionOrAPrompt(
+		@ForAll @AlphaChars @StringLength(min = 1, max = 60) final String fingerprint,
+		@ForAll final boolean prompted, @ForAll final boolean delete) {
+
+		final InputStream console = System.in;
+		final CommandLine line = new CommandLine(delete ? new StorageDelete() : new StorageGet());
+		final List<String> arguments = Stream.of(Stream.of("-f"), prompted ? Stream.<String>empty() : Stream.of(fingerprint),
+			delete ? Stream.<String>empty() : Stream.of("-o", OUTPUT)).flatMap(s -> s).collect(Collectors.toList());
+
+		try {
+			System.setIn(new ByteArrayInputStream((fingerprint + "\n").getBytes(StandardCharsets.UTF_8)));
+			line.parseArgs(arguments.toArray(String[]::new));
+		} finally {
+			System.setIn(console);
+		}
+
+		assertThat(line.getCommandSpec().findOption("-f").getValue(), equalTo(fingerprint));
 	}
 }

@@ -20,41 +20,32 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Optional;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.server.rest.StorageResource;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 @Command(name = "storage-get", description = "Read a stored file back using its fingerprint.")
-public class StorageGet extends RestClientCommand {
-	@Option(names = { "-f", "--fingerprint" }, required = true, description = "Fingerprint returned when storing.")
-	private String fingerprint;
+public class StorageGet extends FingerprintCommand {
+	private static final String INCOMPLETE = "The file could not be read back completely";
 
 	@Option(names = { "-o", "--output" }, required = true, description = "Where to write the file.")
 	private Path output;
 
 	public StorageGet() {
-		super(HttpMethod.GET, "/storage");
+		super(HttpMethod.GET);
 	}
 
-	@Override
-	public void run() {
-		final MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
-
-		headers.add(StorageResource.FINGERPRINT_HEADER, fingerprint);
-		setHeaders(headers);
-		super.run();
-	}
-
-	/* A file that loses a stripe while streaming arrives short of its Content-Length, and a truncated file must
-	   never be mistaken for the stored one */
+	/* A stripe lost while streaming ends the body short of its announced size. The body therefore lands beside the
+	   output first and only replaces it once complete, so a failed read never destroys a file that was there. */
 	@Override
 	@SneakyThrows
 	protected void execute(final Response response) {
@@ -63,13 +54,25 @@ public class StorageGet extends RestClientCommand {
 			return;
 		}
 
-		try (InputStream body = response.readEntity(InputStream.class)) {
-			final long written = Files.copy(body, output, StandardCopyOption.REPLACE_EXISTING);
+		final Path partial = Files.createTempFile(output.toAbsolutePath().getParent(), ".storage-get-", ".part");
 
-			if (response.getLength() >= 0 && written != response.getLength()) {
-				Files.deleteIfExists(output);
-				System.err.println("The file could not be read back completely");
+		try (InputStream body = response.readEntity(InputStream.class)) {
+			final long received = Files.copy(body, partial, StandardCopyOption.REPLACE_EXISTING);
+
+			if (announcedSize(response).equals(Optional.of(received))) {
+				Files.move(partial, output, StandardCopyOption.ATOMIC_MOVE,
+					StandardCopyOption.REPLACE_EXISTING);
+			} else {
+				System.err.println(INCOMPLETE);
 			}
+		} catch (IOException | ProcessingException ex) {
+			System.err.println(INCOMPLETE);
+		} finally {
+			Files.deleteIfExists(partial);
 		}
+	}
+
+	private static Optional<Long> announcedSize(final Response response) {
+		return Optional.ofNullable(response.getHeaderString(StorageResource.FILE_SIZE_HEADER)).map(Long::parseLong);
 	}
 }

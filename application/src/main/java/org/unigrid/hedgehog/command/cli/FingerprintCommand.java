@@ -19,18 +19,28 @@
 
 package org.unigrid.hedgehog.command.cli;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.Response;
-import picocli.CommandLine.Command;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.server.rest.StorageResource;
+import picocli.CommandLine.Option;
 
-@Command(name = "storage-delete", description = "Delete a stored file using its fingerprint.")
-public class StorageDelete extends FingerprintCommand {
-	public StorageDelete() {
-		super(HttpMethod.DELETE);
+/* A bare -f prompts for the fingerprint with echo off, keeping the only key to a file out of shell history and the
+   process list */
+abstract class FingerprintCommand extends RestClientCommand {
+	@Option(names = { "-f", "--fingerprint" }, required = true, interactive = true, arity = "0..1",
+		description = "Fingerprint returned when storing, prompted for when given without a value.")
+	private String fingerprint;
+
+	FingerprintCommand(final String method) {
+		super(method, "/storage");
 	}
 
 	@Override
-	protected void execute(final Response response) {
-		System.out.println(response.getStatusInfo());
+	public void run() {
+		final MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
+
+		headers.add(StorageResource.FINGERPRINT_HEADER, fingerprint);
+		setHeaders(headers);
+		super.run();
 	}
 }
