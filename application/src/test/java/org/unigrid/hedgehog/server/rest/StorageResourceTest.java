@@ -22,6 +22,7 @@ package org.unigrid.hedgehog.server.rest;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
@@ -34,6 +35,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.SocketTimeoutException;
 import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -43,6 +45,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -67,11 +70,14 @@ import org.bitcoinj.core.Base58;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
@@ -98,6 +104,8 @@ public class StorageResourceTest extends BaseRestClientTest {
 	/* Jersey buffers this much of a response before it commits the status and starts streaming chunks */
 	private static final int COMMIT_BUFFER = 8192;
 	private static final Duration STALL_LIMIT = Duration.ofSeconds(15);
+	private static final Duration READ_LIMIT = Duration.ofMillis(250);
+	private static final Duration SLOW_REPLY = READ_LIMIT.multipliedBy(2);
 
 	private final Map<String, Object> originals = new HashMap<>();
 	private Client raw;
@@ -146,6 +154,36 @@ public class StorageResourceTest extends BaseRestClientTest {
 			final byte[] publicKey, final long timestamp, final byte[] signature) {
 
 			throw failure.get();
+		}
+	}
+
+	/* Holds every reply back longer than a read may wait, the way a slow network would */
+	@RequiredArgsConstructor
+	private static final class SlowTransport implements FragmentTransport {
+		private final FragmentTransport inner;
+		private final Executor later = CompletableFuture.delayedExecutor(SLOW_REPLY.toMillis(), TimeUnit.MILLISECONDS);
+
+		@Override
+		public CompletableFuture<StorageAck> store(final Gridnode target, final byte[] fragment) {
+			return inner.store(target, fragment).thenApplyAsync(Function.identity(), later);
+		}
+
+		@Override
+		public CompletableFuture<FragmentReply> fetch(final Gridnode target, final GroupId groupId) {
+			return inner.fetch(target, groupId).thenApplyAsync(Function.identity(), later);
+		}
+
+		@Override
+		public CompletableFuture<FragmentStatus> has(final Gridnode target, final List<GroupId> groupIds) {
+			return inner.has(target, groupIds).thenApplyAsync(Function.identity(), later);
+		}
+
+		@Override
+		public CompletableFuture<StorageAck> delete(final Gridnode target, final GroupId groupId,
+			final byte[] publicKey, final long timestamp, final byte[] signature) {
+
+			return inner.delete(target, groupId, publicKey, timestamp, signature)
+				.thenApplyAsync(Function.identity(), later);
 		}
 	}
 
@@ -319,6 +357,29 @@ public class StorageResourceTest extends BaseRestClientTest {
 			() -> client.getWithHeaders(URL, fingerprint(stored.encode()))).getMessage(), startsWith("410 "));
 		assertThat(Status.fromStatusCode(client.deleteWithHeaders(URL, fingerprint(stored.encode())).getStatus()),
 			equalTo(Status.NO_CONTENT));
+	}
+
+	/* The store answers only once the file is placed, so it may take longer than any read is allowed to */
+	@SneakyThrows
+	@Property(tries = 3)
+	public void waitsForAStoreLongerThanForARead(@ForAll @Size(min = 1, max = 512) final byte[] file) {
+		final StorageFleet fleet = new StorageFleet(StorageTestData.parameters(), StorageTestData.parameters().window());
+
+		wire(fleet.directory("client"), new SlowTransport(fleet.getTransport()), fleet::spork);
+
+		try (RestClient impatient = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true,
+			READ_LIMIT)) {
+
+			final long started = System.nanoTime();
+			final Response stored = impatient.post(URL, Entity.entity(file, MediaType.APPLICATION_OCTET_STREAM));
+			final Duration took = Duration.ofNanos(System.nanoTime() - started);
+			final String encoded = stored.readEntity(new GenericType<Map<String, String>>() { }).get("fingerprint");
+
+			assertThat(Status.fromStatusCode(stored.getStatus()), equalTo(Status.CREATED));
+			assertThat(took, greaterThan(READ_LIMIT));
+			assertThat(assertThrows(ProcessingException.class, () -> impatient.getWithHeaders(URL,
+				fingerprint(encoded))).getCause(), instanceOf(SocketTimeoutException.class));
+		}
 	}
 
 	@Property(tries = 20)

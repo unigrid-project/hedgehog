@@ -23,28 +23,37 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.client.Invocation;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
+import org.glassfish.jersey.client.ClientProperties;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 public class RestClient implements AutoCloseable {
-	/* A server that stops sending partway through a stream would otherwise hold the caller forever */
-	private static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
+	/* A server that stops sending partway through a stream would otherwise hold a read forever. Writes are left
+	   unbounded: a store answers only once every byte is placed, and giving up earlier would lose the fingerprint
+	   of a file that was stored anyway. */
+	public static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
 
 	private final Client client;
 	private final String baseUrl;
+	private final Duration readTimeout;
+
+	public RestClient(String host, int port, boolean isSecure) {
+		this(host, port, isSecure, READ_TIMEOUT);
+	}
 
 	@SneakyThrows
-	public RestClient(String host, int port, boolean isSecure) {
+	public RestClient(String host, int port, boolean isSecure, Duration readTimeout) {
+		this.readTimeout = readTimeout;
 		final ClientConfig clientConfig = new ClientConfig();
 
 		clientConfig.register(JacksonJaxbJsonProvider.class);
@@ -57,7 +66,6 @@ public class RestClient implements AutoCloseable {
 		client = ClientBuilder.newBuilder()
 			.hostnameVerifier((hostname, session) -> true) /* Accept all hostnames */
 			.sslContext(context)
-			.readTimeout(READ_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
 			.withConfig(clientConfig).build();
 
 		if (isSecure) {
@@ -77,19 +85,24 @@ public class RestClient implements AutoCloseable {
 		}
 	}
 
+	private Invocation.Builder read(String location) {
+		return client.target(String.format(baseUrl, location)).request()
+			.property(ClientProperties.READ_TIMEOUT, Math.toIntExact(readTimeout.toMillis()));
+	}
+
 	public Response get(String location) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().get();
+		final Response response = read(location).get();
 
 		throwResponseOddity(response);
 		return response;
 	}
 
 	public <T> T getEntity(String location, Class<T> clazz) throws ResponseOddityException {
-		return client.target(String.format(baseUrl, location)).request().get(clazz);
+		return read(location).get(clazz);
 	}
 
 	public Response delete(String location) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().delete();
+		final Response response = read(location).delete();
 
 		throwResponseOddity(response);
 		return response;
@@ -121,9 +134,7 @@ public class RestClient implements AutoCloseable {
 	public Response getWithHeaders(String location, MultivaluedMap<String, Object> headers)
 		throws ResponseOddityException {
 
-		final Response response = client.target(String.format(baseUrl, location)).request()
-			.headers(headers)
-			.get();
+		final Response response = read(location).headers(headers).get();
 
 		throwResponseOddity(response);
 		return response;
@@ -132,9 +143,7 @@ public class RestClient implements AutoCloseable {
 	public Response deleteWithHeaders(String location, MultivaluedMap<String, Object> headers)
 		throws ResponseOddityException {
 
-		final Response response = client.target(String.format(baseUrl, location)).request()
-			.headers(headers)
-			.delete();
+		final Response response = read(location).headers(headers).delete();
 
 		throwResponseOddity(response);
 		return response;
