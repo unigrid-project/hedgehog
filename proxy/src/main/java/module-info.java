@@ -31,4 +31,5 @@ module org.unigrid.hedgehog.proxy {
 	exports org.unigrid.hedgehog.proxy.group;
 	exports org.unigrid.hedgehog.proxy.session;
 	exports org.unigrid.hedgehog.proxy.socks;
+	exports org.unigrid.hedgehog.proxy.exit;
 }
