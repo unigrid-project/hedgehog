@@ -442,7 +442,8 @@ public class ExitRelayTest {
 		final SessionPair pair = new SessionPair(connect(PUBLIC_LITERAL));
 		final ExitRelay relay = relay(pair, ProxySettings.DEFAULTS, NEVER);
 		final StallingTarget target = new StallingTarget(new InetSocketAddress(address("192.0.2.7"), 40_000));
-		final List<Runnable> entries = List.of(relay::isOpen, relay::tick, () -> relay.close(CloseReason.DONE),
+		final List<Runnable> entries = List.of(relay::isOpen, relay::tick, () -> relay.setChainWritable(false),
+			() -> relay.close(CloseReason.DONE),
 			() -> relay.handle(new Close(CloseReason.DONE)),
 			() -> connector.last().listener().received(new byte[1]), () -> connector.last().listener().closed());
 

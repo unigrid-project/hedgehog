@@ -45,6 +45,11 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
    Connect the relay checks the spork's flags, admits the destination through the policy, connects to exactly
    the admitted addresses and answers Connected; then it relays the stream until either side closes. */
 public final class ExitRelay {
+	/* How far, in entries, the destination may fall behind the client before the session is dropped. The chain
+	   has no flow control per session, so this bound is what keeps a slow destination from holding the exit's
+	   memory without end. */
+	public static final int BACKLOG_ENTRIES = 64;
+
 	private static final Logger LOG = LoggerFactory.getLogger(ExitRelay.class);
 	private static final Set<Socks5CommandStatus> REFUSALS = Set.of(Socks5CommandStatus.FORBIDDEN,
 		Socks5CommandStatus.COMMAND_UNSUPPORTED, Socks5CommandStatus.ADDRESS_UNSUPPORTED);
@@ -53,6 +58,7 @@ public final class ExitRelay {
 	private final ExitContext context;
 	private State state = State.WAITING;
 	private Target target;
+	private boolean chainWritable = true;
 
 	private enum State {
 		/* Before the client's Connect */
@@ -78,7 +84,7 @@ public final class ExitRelay {
 		} else if (state == State.WAITING && message instanceof Connect connect) {
 			start(connect);
 		} else if (state == State.RELAYING && message instanceof Data data) {
-			target.write(data.bytes());
+			write(data.bytes());
 		} else {
 			/* A session carries one Connect, then Data once the exit replied, and nothing else */
 			close(CloseReason.BROKEN);
@@ -94,6 +100,16 @@ public final class ExitRelay {
 			if (!session.isOpen()) {
 				end();
 			}
+		}
+	}
+
+	/* The host calls it with false while its chain refuses sealed entries and with true once the chain takes
+	   them again; meanwhile no further read is started on the destination */
+	public synchronized void setChainWritable(boolean writable) {
+		chainWritable = writable;
+
+		if (state == State.RELAYING) {
+			target.setReadable(writable);
 		}
 	}
 
@@ -163,7 +179,7 @@ public final class ExitRelay {
 
 			/* The session may have closed under the send, which ended the relay and closed the target */
 			if (state == State.RELAYING) {
-				target.setReadable(true);
+				target.setReadable(chainWritable);
 			}
 		} else {
 			target.close();
@@ -173,6 +189,14 @@ public final class ExitRelay {
 	private synchronized void failed(Socks5CommandStatus status) {
 		if (state == State.CONNECTING) {
 			refuse(status);
+		}
+	}
+
+	private void write(byte[] bytes) {
+		target.write(bytes);
+
+		if (target.backlogBytes() > (long) BACKLOG_ENTRIES * session.maxDataBytes()) {
+			close(CloseReason.BROKEN);
 		}
 	}
 
