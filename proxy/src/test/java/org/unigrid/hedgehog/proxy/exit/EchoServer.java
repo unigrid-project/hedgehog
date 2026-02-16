@@ -59,6 +59,17 @@ final class EchoServer implements AutoCloseable {
 		return server.getLocalPort();
 	}
 
+	/* The port the first client connected from, once it has */
+	int peerPort() throws InterruptedException {
+		RecordingTargetListener.await(() -> !accepted.isEmpty());
+		return accepted.get(0).getPort();
+	}
+
+	/* Accepted connections that are still open */
+	long open() {
+		return accepted.stream().filter(socket -> !socket.isClosed()).count();
+	}
+
 	/* Bytes sent back so far, over all connections */
 	long echoed() {
 		return echoed.get();
