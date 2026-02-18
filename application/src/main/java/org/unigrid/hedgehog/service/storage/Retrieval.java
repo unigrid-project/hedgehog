@@ -122,8 +122,12 @@ public final class Retrieval {
 		}
 	}
 
+	/* Hands the prepared stripe over only once, so it is released before the next stripe is recovered */
 	private List<byte[]> preparedOr(final ChunkCipher cipher, final int stripe) throws DataLossException {
-		return stripe == 0 && first.isPresent() ? first.get() : plaintexts(cipher, stripe);
+		final Optional<List<byte[]>> prepared = stripe == 0 ? first : Optional.empty();
+
+		first = Optional.empty();
+		return prepared.isPresent() ? prepared.get() : plaintexts(cipher, stripe);
 	}
 
 	private List<byte[]> plaintexts(final ChunkCipher cipher, final int stripe) throws DataLossException {
