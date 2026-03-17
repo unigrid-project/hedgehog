@@ -50,7 +50,7 @@ public class NetworkKey {
 	}
 
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
-	private static class RandomSignableData implements Signable {
+	private static final class RandomSignableData implements Signable {
 		private static final int SIZE = 32;
 		@Getter private byte[] signable;
 		@Getter private byte[] signature;

@@ -48,7 +48,7 @@ public class RestClientCommand implements Runnable {
 		this.defaultSupplier = defaultSupplier;
 	}
 
-	private class MethodCallback {
+	private final class MethodCallback {
 		private void get(RestClient rest) throws ResponseOddityException {
 			final Response response = rest.get(getLocation());
 

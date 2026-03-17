@@ -19,6 +19,7 @@ package org.unigrid.hedgehog.nativeimage;
 import java.nio.file.Path;
 import lombok.Getter;
 import lombok.Setter;
+
 import org.apache.commons.exec.OS;
 
 public class NativeProperties {

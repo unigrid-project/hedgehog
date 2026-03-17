@@ -61,7 +61,7 @@ module org.unigrid.hedgehog {
 	requires net.harawata.appdirs;
 	requires org.graalvm.sdk;
 	requires org.unigrid.hedgehog.common;
-	requires jdk.crypto.ec;
+	//requires jdk.crypto.ec;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
 }
