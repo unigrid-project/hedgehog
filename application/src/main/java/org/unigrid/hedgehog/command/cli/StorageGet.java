@@ -56,19 +56,32 @@ public class StorageGet extends FingerprintCommand {
 
 		final Path partial = Files.createTempFile(output.toAbsolutePath().getParent(), ".storage-get-", ".part");
 
-		try (InputStream body = response.readEntity(InputStream.class)) {
-			final long received = Files.copy(body, partial, StandardCopyOption.REPLACE_EXISTING);
-
-			if (announcedSize(response).equals(Optional.of(received))) {
-				Files.move(partial, output, StandardCopyOption.ATOMIC_MOVE,
-					StandardCopyOption.REPLACE_EXISTING);
+		try {
+			if (isComplete(response, partial)) {
+				save(partial);
 			} else {
 				System.err.println(INCOMPLETE);
 			}
-		} catch (IOException | ProcessingException ex) {
-			System.err.println(INCOMPLETE);
 		} finally {
 			Files.deleteIfExists(partial);
+		}
+	}
+
+	private static boolean isComplete(final Response response, final Path partial) {
+		try (InputStream body = response.readEntity(InputStream.class)) {
+			final long received = Files.copy(body, partial, StandardCopyOption.REPLACE_EXISTING);
+
+			return announcedSize(response).equals(Optional.of(received));
+		} catch (IOException | ProcessingException ex) {
+			return false;
+		}
+	}
+
+	private void save(final Path partial) {
+		try {
+			Files.move(partial, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+		} catch (IOException ex) {
+			System.err.println("The file was read back but could not be saved to " + output);
 		}
 	}
 

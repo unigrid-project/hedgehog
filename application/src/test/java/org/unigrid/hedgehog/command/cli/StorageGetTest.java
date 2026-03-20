@@ -23,8 +23,10 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import jakarta.ws.rs.core.Response;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.io.SequenceInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
@@ -37,6 +39,7 @@ import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.AlphaChars;
@@ -48,6 +51,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.PropagationMode;
 import net.jqwik.api.statistics.Statistics;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.server.rest.StorageResource;
@@ -148,6 +152,32 @@ public class StorageGetTest {
 			storageGet(fs).execute(announcing(prefix.length + missing));
 			assertHolds(output, existing);
 		}
+	}
+
+	@SneakyThrows
+	@Example
+	public void reportsAnOutputThatCannotBeReplaced() {
+		final PrintStream console = System.err;
+		final ByteArrayOutputStream errors = new ByteArrayOutputStream();
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path output = fs.getPath(OUTPUT);
+
+			Files.createDirectories(output.resolve("occupied"));
+			body = new ByteArrayInputStream(new byte[] { 1, 2, 3 });
+			System.setErr(new PrintStream(errors, true, StandardCharsets.UTF_8));
+			storageGet(fs).execute(announcing(3));
+
+			try (Stream<Path> files = Files.list(output.getParent())) {
+				assertThat(files.collect(Collectors.toList()), equalTo(List.of(output)));
+			}
+
+			assertThat(Files.isDirectory(output.resolve("occupied")), equalTo(true));
+		} finally {
+			System.setErr(console);
+		}
+
+		assertThat(errors.toString(StandardCharsets.UTF_8), containsString("could not be saved"));
 	}
 
 	@Property(tries = 20)
