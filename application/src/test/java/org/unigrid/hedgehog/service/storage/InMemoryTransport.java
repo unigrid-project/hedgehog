@@ -43,6 +43,7 @@ public class InMemoryTransport implements FragmentTransport {
 	private final Set<String> offline = ConcurrentHashMap.newKeySet();
 	private final Set<String> silent = ConcurrentHashMap.newKeySet();
 	private final Map<String, UnaryOperator<byte[]>> tampering = new ConcurrentHashMap<>();
+	private final Map<String, UnaryOperator<List<FragmentStatus.Entry>>> lies = new ConcurrentHashMap<>();
 	@Getter private final List<byte[]> sent = new CopyOnWriteArrayList<>();
 	@Getter private final AtomicInteger fetches = new AtomicInteger();
 
@@ -85,10 +86,18 @@ public class InMemoryTransport implements FragmentTransport {
 		return call(target, keeper -> reply(target, keeper.fetch(groupId)));
 	}
 
+	/* A lying gridnode answers a census with whatever the change makes of its honest entries */
+	public void lie(String id, UnaryOperator<List<FragmentStatus.Entry>> change) {
+		lies.put(id, change);
+	}
+
 	@Override
 	public CompletableFuture<FragmentStatus> has(Gridnode target, List<GroupId> groupIds) {
+		final UnaryOperator<List<FragmentStatus.Entry>> change = lies.getOrDefault(target.getId(),
+			UnaryOperator.identity());
+
 		groupIds.forEach(groupId -> sent.add(groupId.bytes()));
-		return call(target, keeper -> FragmentStatus.builder().entries(keeper.census(groupIds)).build());
+		return call(target, keeper -> FragmentStatus.builder().entries(change.apply(keeper.census(groupIds))).build());
 	}
 
 	@Override

@@ -23,6 +23,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -45,6 +46,7 @@ import org.unigrid.hedgehog.service.storage.StorageArbitraries;
 import org.unigrid.hedgehog.service.storage.StorageDisabledException;
 import org.unigrid.hedgehog.service.storage.StorageFleet;
 import org.unigrid.hedgehog.service.storage.StorageService;
+import org.unigrid.hedgehog.service.storage.StorageTestData;
 
 public class StorageProducerTest {
 	@SneakyThrows
@@ -92,6 +94,14 @@ public class StorageProducerTest {
 		assertThrows(StorageDisabledException.class, () -> producer.storageService(
 			new TopologyGridnodeDirectory(List::of, () -> "self"), new InMemoryTransport())
 			.store(new ByteArrayInputStream(new byte[1])));
+	}
+
+	@Example
+	public void producesARepairerThatRestsWithoutAStorageSpork() {
+		final StorageFleet fleet = new StorageFleet(StorageTestData.parameters(), 1);
+
+		assertThat(producerOf(SporkDatabase.builder().build()).groupRepairer(fleet.getStores().get("gridnode-0"),
+			fleet.directory("gridnode-0"), fleet.getTransport()).currentEpoch(), equalTo(OptionalLong.empty()));
 	}
 
 	@Provide

@@ -92,6 +92,17 @@ public class StorageFleet {
 		return new StorageService(directory("client"), transport, this::spork, random, Duration.ZERO);
 	}
 
+	public GroupRepairer repairer(String id) {
+		return new GroupRepairer(stores.get(id), directory(id), transport, this::spork, clock);
+	}
+
+	public void runRepairEpochs(int epochs) {
+		for (int epoch = 0; epoch < epochs; epoch++) {
+			clock.advance(Duration.ofMinutes(parameters.getRepairIntervalMinutes()));
+			online().forEach(gridnode -> repairer(gridnode.getId()).runEpoch());
+		}
+	}
+
 	@SneakyThrows
 	public void forget(final GroupId groupId) {
 		for (final FragmentStore store : stores.values()) {

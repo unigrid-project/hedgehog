@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 import org.unigrid.hedgehog.service.storage.FragmentKeeper;
 import org.unigrid.hedgehog.service.storage.FragmentTransport;
+import org.unigrid.hedgehog.service.storage.GroupRepairer;
 import org.unigrid.hedgehog.service.storage.NettyFragmentTransport;
 import org.unigrid.hedgehog.service.storage.StorageService;
 
@@ -84,6 +85,13 @@ public class StorageProducer {
 	@Produces @Singleton
 	public StorageService storageService(final GridnodeDirectory directory, final FragmentTransport transport) {
 		return new StorageService(directory, transport, this::storageSpork, new SecureRandom(), SEND_JITTER);
+	}
+
+	@Produces @Singleton
+	public GroupRepairer groupRepairer(final FragmentStore store, final GridnodeDirectory directory,
+		final FragmentTransport transport) {
+
+		return new GroupRepairer(store, directory, transport, this::storageSpork, Clock.systemUTC());
 	}
 
 	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead */
