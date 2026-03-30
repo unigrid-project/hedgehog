@@ -30,8 +30,7 @@
 			<properties>
 				<executable.name>hedgehog</executable.name>
 				<extraNativeOption>-DNOP=true</extraNativeOption>
-                                <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_windows-x64_bin.zip</url>
-<!--                            <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-windows-amd64-${graal.version}.zip</url>-->
+                                <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-windows-amd64-${graal.version}.zip</url>
                                 <platform>windows</platform>
                                 <unzipLocation>${basedir}\target\unziped</unzipLocation>
                                 <downloadName>graal.zip</downloadName>
@@ -77,7 +76,7 @@
 								</execution>
 							</executions>
 						</plugin>
-<!--						<plugin>
+						<plugin>
 							<groupId>org.codehaus.mojo</groupId>
 							<artifactId>exec-maven-plugin</artifactId>
 							<executions>
@@ -93,12 +92,12 @@
 									</configuration>
 								</execution>
 							</executions>
-						</plugin>-->
+						</plugin>
 					</plugins>
 				</pluginManagement>
 			</build>
 		</profile>
-<!--		<profile>
+		<profile>
 			<id>MacOS</id>
 			<activation><os><family>Mac</family></os></activation>
 			<properties>
@@ -108,7 +107,7 @@
 				<arthur.nativeImage>native-image</arthur.nativeImage>
 				<arthur.buildStaticImage>false</arthur.buildStaticImage>
 			</properties>
-		</profile>-->
+		</profile>
 	</profiles>
 	<dependencies>
             
@@ -149,7 +148,7 @@
                 <dependency>
                         <groupId>org.projectlombok</groupId>
                         <artifactId>lombok</artifactId>
-                        <version>1.18.42</version> 
+                        <version>1.18.24</version> 
                         <scope>provided</scope>
                  </dependency>
 	
@@ -160,7 +159,6 @@
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
 			</plugin>
-                        
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>build-helper-maven-plugin</artifactId>
@@ -172,7 +170,7 @@
 				<configuration>
 					<argLine>
 						@{surefireArgLine}
-						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/2.1.0/jmockit-2.1.0.jar
+						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
 						-Dorg.jboss.netty.debug=true
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
@@ -193,7 +191,7 @@
                                             <path>
                                                 <groupId>org.projectlombok</groupId>
                                                 <artifactId>lombok</artifactId>
-                                                <version>1.18.42</version>
+                                                <version>1.18.24</version>
                                             </path>
                                         </annotationProcessorPaths>
 				</configuration>
@@ -249,7 +247,7 @@
 			<plugin>
 				<groupId>com.googlecode.maven-download-plugin</groupId>
 				<artifactId>download-maven-plugin</artifactId>
-				<version>1.13.0</version>
+				<version>1.6.8</version>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -259,17 +257,15 @@
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>exec-maven-plugin</artifactId>
-				<version>3.6.3</version>
+				<version>3.1.0</version>
 			</plugin>
-                        
-                        
-                        <plugin>
-				<groupId>org.graalvm.nativeimage</groupId>
-				<artifactId>native-image-maven-plugin</artifactId>
-				<version>20.3.17</version>
+			<plugin>
+				<groupId>org.apache.geronimo.arthur</groupId>
+				<artifactId>arthur-maven-plugin</artifactId>
+				<version>1.0.9</version>
 				<configuration>
 					<main>org.unigrid.hedgehog.nativeimage.NativeImage</main>
-					<graalVersion>${graal.version}</graalVersion>
+					<graalVersion>${graal.version}.r17</graalVersion>
 					<allowIncompleteClasspath>true</allowIncompleteClasspath>
 					<classpath>
 						<classpath>${org.unigrid.hedgehog:hedgehog-common:jar}</classpath>
@@ -308,10 +304,6 @@
 					</execution>
 				</executions>
 			</plugin>
-                        
-                        
-                        
-
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-checkstyle-plugin</artifactId>
