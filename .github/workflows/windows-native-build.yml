@@ -26,7 +26,7 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build with Maven
-      run: mvn clean package -DskipTests=${{ inputs.skip-tests }}
+      run: mvn package -DskipTests=${{ inputs.skip-tests }}
     - name: Output artifact
       uses: actions/upload-artifact@v4
       with:
