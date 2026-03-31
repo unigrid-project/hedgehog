@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, "EricFbranch-clean2", "EricFbranch-clean" ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Prepare download dir
+        run: |
+          mkdir -p native-image/bin/target/download
+
+      - name: Download graal.zip
+        env:
+          GRAAL_URL: https://example.com/path/to/graal.zip
+        run: |
+          if [ -z "$GRAAL_URL" ]; then echo "GRAAL_URL not set"; exit 1; fi
+          curl -L --fail -o native-image/bin/target/download/graal.zip "$GRAAL_URL"
+          ls -lh native-image/bin/target/download/
+
+      - name: Unpack graal (if needed)
+        run: |
+          if file native-image/bin/target/download/graal.zip | grep -iq 'Zip archive'; then
+            unzip -q native-image/bin/target/download/graal.zip -d native-image/bin/target/download/
+          fi
+
+      - name: Cache native-image download (optional)
+        uses: actions/cache@v4
+        with:
+          path: native-image/bin/target/download
+          key: graal-download-${{ runner.os }}-v1
+          restore-keys: |
+            graal-download-${{ runner.os }}-
+
+      - name: Build with Gradle
+        run: ./gradlew --no-daemon build
+        env:
+          CI: true
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
