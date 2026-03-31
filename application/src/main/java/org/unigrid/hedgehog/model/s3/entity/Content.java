@@ -17,38 +17,110 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.s3.entity;
+ package org.unigrid.hedgehog.model.s3.entity;
 
-import jakarta.xml.bind.annotation.XmlAccessType;
-import jakarta.xml.bind.annotation.XmlAccessorType;
-import jakarta.xml.bind.annotation.XmlElement;
-import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.*;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
 import java.io.Serializable;
 import java.time.Instant;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Objects;
 
-@Data
 @XmlRootElement
-@NoArgsConstructor
-@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Content implements Serializable {
-	@XmlElement(name = "Key")
-	private String key;
 
-	@XmlElement(name = "LastModified")
-	@XmlJavaTypeAdapter(InstantAdapter.class)
-	private Instant lastModified;
+    @XmlElement(name = "Key")
+    private String key;
 
-	@XmlElement(name = "ETag")
-	private String eTag;
+    @XmlElement(name = "LastModified")
+    @XmlJavaTypeAdapter(InstantAdapter.class)
+    private Instant lastModified;
 
-	@XmlElement(name = "Size")
-	private long size;
+    @XmlElement(name = "ETag")
+    private String eTag;
 
-	@XmlElement(name = "StorageClass")
-	private String storageClass;
+    @XmlElement(name = "Size")
+    private long size;
+
+    @XmlElement(name = "StorageClass")
+    private String storageClass;
+
+    public Content() {
+    }
+
+    public Content(String key, Instant lastModified, String eTag, long size, String storageClass) {
+        this.key = key;
+        this.lastModified = lastModified;
+        this.eTag = eTag;
+        this.size = size;
+        this.storageClass = storageClass;
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
+    public Instant getLastModified() {
+        return lastModified;
+    }
+
+    public void setLastModified(Instant lastModified) {
+        this.lastModified = lastModified;
+    }
+
+    public String getETag() {
+        return eTag;
+    }
+
+    public void setETag(String eTag) {
+        this.eTag = eTag;
+    }
+
+    public long getSize() {
+        return size;
+    }
+
+    public void setSize(long size) {
+        this.size = size;
+    }
+
+    public String getStorageClass() {
+        return storageClass;
+    }
+
+    public void setStorageClass(String storageClass) {
+        this.storageClass = storageClass;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Content)) return false;
+        Content content = (Content) o;
+        return size == content.size &&
+                Objects.equals(key, content.key) &&
+                Objects.equals(lastModified, content.lastModified) &&
+                Objects.equals(eTag, content.eTag) &&
+                Objects.equals(storageClass, content.storageClass);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, lastModified, eTag, size, storageClass);
+    }
+
+    @Override
+    public String toString() {
+        return "Content{" +
+                "key='" + key + '\'' +
+                ", lastModified=" + lastModified +
+                ", eTag='" + eTag + '\'' +
+                ", size=" + size +
+                ", storageClass='" + storageClass + '\'' +
+                '}';
+    }
 }

@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -26,70 +25,106 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Cleanup;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+
 import org.apache.commons.lang3.SerializationUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
-@Slf4j
-@Data @Builder
-@NoArgsConstructor
-@AllArgsConstructor
 public class SporkDatabase implements Serializable {
-	public static final String SPORK_DB_FILE = "spork.db";
 
-	private MintStorage mintStorage;
-	private MintSupply mintSupply;
-	private VestingStorage vestingStorage;
+    private static final long serialVersionUID = 1L;
 
-	private StatisticsPubKey statisticsPubKey;
+    public static final String SPORK_DB_FILE = "spork.db";
 
-	public static SporkDatabase load(Path path) throws IOException {
-		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
-		return SerializationUtils.deserialize(stream);
-	}
+    private MintStorage mintStorage;
+    private MintSupply mintSupply;
+    private VestingStorage vestingStorage;
+    private StatisticsPubKey statisticsPubKey;
 
-	public static void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
-		@Cleanup final OutputStream stream = Files.newOutputStream(path,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE
-		);
+    public SporkDatabase() {}
 
-		SerializationUtils.serialize(sporkDatabase, stream);
-	}
+    /* ================= LOAD / SAVE ================= */
 
-	public GridSpork get(Type gridSporkType) {
-		switch (gridSporkType) {
-			case MINT_STORAGE: return mintStorage;
-			case MINT_SUPPLY: return mintSupply;
-			case VESTING_STORAGE: return vestingStorage;
-			case STATISTICS_PUBKEY: return statisticsPubKey;
-			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
-		}
-	}
+    public static SporkDatabase load(Path path) throws IOException {
 
-	public void set(GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				mintStorage = (MintStorage) gridSpork;
-				break;
+        try (InputStream stream =
+                     Files.newInputStream(path, StandardOpenOption.READ)) {
 
-			case MINT_SUPPLY:
-				mintSupply = (MintSupply) gridSpork;
-				break;
+            return SerializationUtils.deserialize(stream);
+        }
+    }
 
-			case VESTING_STORAGE:
-				vestingStorage = (VestingStorage) gridSpork;
-				break;
+    public static void persist(Path path,
+                               SporkDatabase sporkDatabase) throws IOException {
 
-			case STATISTICS_PUBKEY:
-				statisticsPubKey = (StatisticsPubKey) gridSpork;
+        try (OutputStream stream =
+                     Files.newOutputStream(path,
+                             StandardOpenOption.CREATE,
+                             StandardOpenOption.TRUNCATE_EXISTING,
+                             StandardOpenOption.WRITE)) {
 
-			default:
-				throw new IllegalArgumentException("Unsupported spork type sent to database");
-		}
-	}
+            SerializationUtils.serialize(sporkDatabase, stream);
+        }
+    }
+
+    /* ================= GETTERS ================= */
+
+    public MintStorage getMintStorage() {
+        return mintStorage;
+    }
+
+    public MintSupply getMintSupply() {
+        return mintSupply;
+    }
+
+    public VestingStorage getVestingStorage() {
+        return vestingStorage;
+    }
+
+    public StatisticsPubKey getStatisticsPubKey() {
+        return statisticsPubKey;
+    }
+
+    /* ================= GET BY TYPE ================= */
+
+    public GridSpork get(GridSpork.Type type) {
+
+        if (type == null) {
+            throw new IllegalArgumentException("Spork type cannot be null");
+        }
+
+        return switch (type) {
+            case MINT_STORAGE -> mintStorage;
+            case MINT_SUPPLY -> mintSupply;
+            case VESTING_STORAGE -> vestingStorage;
+            case STATISTICS_PUBKEY -> statisticsPubKey;
+        };
+    }
+
+    /* ================= SET BY TYPE ================= */
+
+    public void set(GridSpork gridSpork) {
+
+        if (gridSpork == null) {
+            throw new IllegalArgumentException("GridSpork cannot be null");
+        }
+
+        switch (gridSpork.getType()) {
+
+            case MINT_STORAGE ->
+                    mintStorage = (MintStorage) gridSpork;
+
+            case MINT_SUPPLY ->
+                    mintSupply = (MintSupply) gridSpork;
+
+            case VESTING_STORAGE ->
+                    vestingStorage = (VestingStorage) gridSpork;
+
+            case STATISTICS_PUBKEY ->
+                    statisticsPubKey = (StatisticsPubKey) gridSpork;
+
+            default ->
+                    throw new IllegalArgumentException(
+                            "Unsupported spork type sent to database"
+                    );
+        }
+    }
 }

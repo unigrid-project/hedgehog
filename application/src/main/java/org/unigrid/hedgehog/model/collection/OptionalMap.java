@@ -17,24 +17,36 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.collection;
+    package org.unigrid.hedgehog.model.collection;
 
-import java.util.Map;
-import java.util.Optional;
-import org.apache.commons.collections4.map.AbstractMapDecorator;
-
-public class OptionalMap<K, V> extends AbstractMapDecorator<K, V> {
-	public OptionalMap(Map<K, V> map) {
-		super(map);
-	}
-
-	public Optional<V> getOptional(K key) {
-		final V value = get(key);
-
-		if (get(key) == null) {
-			return Optional.empty();
-		}
-
-		return Optional.of(value);
-	}
-}
+    import java.util.Map;
+    import java.util.Optional;
+    
+    /**
+     * Wrapper around a standard Map that provides Optional for safe access.
+     */
+    public class OptionalMap<K, V> {
+    
+        private final Map<K, V> map;
+    
+        public OptionalMap(Map<K, V> map) {
+            this.map = map;
+        }
+    
+        public Optional<V> getOptional(K key) {
+            return Optional.ofNullable(map.get(key));
+        }
+    
+        public void put(K key, V value) {
+            map.put(key, value);
+        }
+    
+        public boolean containsKey(K key) {
+            return map.containsKey(key);
+        }
+    
+        public Map<K, V> asMap() {
+            return map;
+        }
+    }
+    

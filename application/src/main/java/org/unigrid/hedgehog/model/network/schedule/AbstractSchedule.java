@@ -16,22 +16,28 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+import io.netty.channel.EventLoop;
+import java.util.concurrent.ScheduledFuture;
 
-@Data
-@RequiredArgsConstructor
-public abstract class AbstractSchedule implements Schedulable {
-	private final int period;
-	private final TimeUnit timeUnit;
-	private final boolean executeOnCreation;
+public abstract class AbstractSchedule implements Schedulable<Channel> {
 
-	@Override
-	public abstract Consumer<Channel> getConsumer();
+    private ScheduledFuture<?> future;
+
+    public final void start(EventLoop eventLoop, Channel channel) {
+        if (future != null && !future.isCancelled()) return;
+
+        future = eventLoop.scheduleAtFixedRate(
+                () -> getConsumer().accept(channel),
+                isExecuteOnCreation() ? 0 : getPeriod(),
+                getPeriod(),
+                getTimeUnit()
+        );
+    }
+
+    public final void stop() {
+        if (future != null) future.cancel(false);
+    }
 }

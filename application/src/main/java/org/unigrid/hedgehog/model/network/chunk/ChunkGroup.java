@@ -17,8 +17,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.chunk;
+    package org.unigrid.hedgehog.model.network.chunk;
 
-public enum ChunkGroup {
-	DEFAULT, GRIDSPORK
-}
+    /**
+     * Grupp av Chunkar.
+     */
+    public enum ChunkGroup {
+        DEFAULT,
+        GRIDSPORK
+    }
+    

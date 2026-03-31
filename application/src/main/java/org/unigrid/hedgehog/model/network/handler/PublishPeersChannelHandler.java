@@ -17,33 +17,39 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
-@Slf4j
+import java.util.Optional;
+
 @Sharable
 public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPeers> {
-	public PublishPeersChannelHandler() {
-		super(PublishPeers.class);
-	}
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext context, PublishPeers publishPeers) throws Exception {
-		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			log.atTrace().log("Received {} peers from {}",
-				publishPeers.getNodes().size(), context.channel().remoteAddress()
-			);
+    private static final Logger log = LoggerFactory.getLogger(PublishPeersChannelHandler.class);
 
-			for (Node newNode : publishPeers.getNodes()) {
-				topology.addNode(newNode);
-			}
-		});
-	}
+    public PublishPeersChannelHandler() {
+        super(PublishPeers.class);
+    }
+
+    @Override
+    public void typedChannelRead(ChannelHandlerContext context, PublishPeers publishPeers) throws Exception {
+        CDIUtil.resolveAndRun(Topology.class, topology -> {
+            log.trace("Received {} peers from {}",
+                    publishPeers.getNodes().size(),
+                    context.channel().remoteAddress()
+            );
+
+            for (Node newNode : publishPeers.getNodes()) {
+                topology.addNode(newNode);
+            }
+        });
+    }
 }

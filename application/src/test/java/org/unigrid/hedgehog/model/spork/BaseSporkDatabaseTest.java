@@ -17,70 +17,88 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+  package org.unigrid.hedgehog.model.spork;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import lombok.SneakyThrows;
+
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
+
+import org.apache.commons.lang3.reflect.FieldUtils;
+
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_STORAGE;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_SUPPLY;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.VESTING_STORAGE;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.STATISTICS_PUBKEY;
 
 public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
-	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
-	@BeforeContainer
-	private static void beforeContainer() {
-		new ApplicationDirectoryMockUp();
-	}
+    private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
 
-	@Provide(ignoreExceptions = IllegalArgumentException.class)
-	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
-		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
-		@ForAll Instant time, @ForAll Instant previousTime) {
+    @BeforeContainer
+    private static void beforeContainer() {
+        new ApplicationDirectoryMockUp();
+    }
 
-		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
-	}
+    @Provide(ignoreExceptions = IllegalArgumentException.class)
+    public Arbitrary<GridSpork> provideGridSpork(
+            @ForAll GridSpork.Type gridSporkType,
+            @ForAll @ShortRange(min = 0, max = 3) short flags,
+            @ForAll @Size(min = 50, max = 60) byte[] signature,
+            @ForAll Instant time,
+            @ForAll Instant previousTime) {
 
-	@SneakyThrows
-	protected SporkDatabase db(Path path) {
-		if (Files.exists(path)) {
-			return SporkDatabase.load(path);
-		} else {
-			return SporkDatabase.builder().build();
-		}
-	}
+        return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
+    }
 
-	protected static void set(SporkDatabase sporkDatabase, GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				sporkDatabase.setMintStorage((MintStorage) gridSpork);
-				break;
+    protected SporkDatabase db(Path path) {
 
-			case MINT_SUPPLY:
-				sporkDatabase.setMintSupply((MintSupply) gridSpork);
-				break;
+        try {
 
-			case VESTING_STORAGE:
-				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
-				break;
+            if (Files.exists(path)) {
+                return SporkDatabase.load(path);
+            }
 
-			case STATISTICS_PUBKEY:
-				sporkDatabase.setStatisticsPubKey((StatisticsPubKey) gridSpork);
-				break;
+            return new SporkDatabase();
 
-			default:
-				throw new IllegalArgumentException("Unsupported spork type passed.");
-		}
-	}
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected static void set(SporkDatabase sporkDatabase, GridSpork gridSpork) {
+
+        try {
+
+            switch (gridSpork.getType()) {
+
+                case MINT_STORAGE:
+                    FieldUtils.writeField(sporkDatabase, "mintStorage", gridSpork, true);
+                    break;
+
+                case MINT_SUPPLY:
+                    FieldUtils.writeField(sporkDatabase, "mintSupply", gridSpork, true);
+                    break;
+
+                case VESTING_STORAGE:
+                    FieldUtils.writeField(sporkDatabase, "vestingStorage", gridSpork, true);
+                    break;
+
+                case STATISTICS_PUBKEY:
+                    FieldUtils.writeField(sporkDatabase, "statisticsPubKey", gridSpork, true);
+                    break;
+
+                default:
+                    throw new IllegalArgumentException("Unsupported spork type passed.");
+            }
+
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }

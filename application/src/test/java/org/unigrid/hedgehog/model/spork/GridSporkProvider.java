@@ -16,97 +16,112 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
+
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 public class GridSporkProvider {
-	private ChunkData chunkData(GridSpork.Type gridSporkType) {
-		final int size = RandomUtils.nextInt(0, 50);
 
-		switch (gridSporkType) {
-			case MINT_STORAGE: {
-				final MintStorage.SporkData data = new MintStorage.SporkData();
-				final Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
+    private ChunkData chunkData(GridSpork.Type gridSporkType) {
 
-				for (int i = 0; i < size; i++) {
-					final Address address = Address.builder()
-						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
+        int size = RandomUtils.nextInt(0, 50);
 
-					final Location location = Location.builder()
-						.address(address).height(RandomUtils.nextInt()).build();
+        switch (gridSporkType) {
 
-					mints.put(location, BigDecimal.valueOf(RandomUtils.nextInt()));
-				}
+            case MINT_STORAGE: {
 
-				data.setMints(mints);
-				return data;
+                MintStorage.SporkData data = new MintStorage.SporkData();
+                Map<Location, BigDecimal> mints = new HashMap<>();
 
-			} case MINT_SUPPLY: {
-				final MintSupply.SporkData data = new MintSupply.SporkData();
-				data.setMaxSupply(BigDecimal.valueOf(RandomUtils.nextInt()));
-				return data;
+                for (int i = 0; i < size; i++) {
 
-			} case VESTING_STORAGE: {
-				final VestingStorage.SporkData data = new VestingStorage.SporkData();
-				final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
+                    MintStorage.Address address = new MintStorage.Address();
+                    address.setWif(RandomStringUtils.randomAlphanumeric(40));
 
-				for (int i = 0; i < size; i++) {
-					final Address address = Address.builder()
-						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
+                    Location location = new Location();
+                    location.setAddress(address);
+                    location.setHeight(RandomUtils.nextInt());
 
-					final Vesting vesting = Vesting.builder()
-						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
-						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
-						.parts(RandomUtils.nextInt(5, 100)).build();
+                    mints.put(location, BigDecimal.valueOf(RandomUtils.nextInt()));
+                }
 
-					vests.put(address, vesting);
-				}
+                data.setMints(mints);
+                return data;
+            }
 
-				data.setVestingAddresses(vests);
-				return data;
-			} case STATISTICS_PUBKEY: {
-				final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
-				final byte[] key = RandomUtils.nextBytes(140);
+            case MINT_SUPPLY: {
 
-				data.setPublicKey(Hex.encodeHexString(key));
-				return data;
-			}
-		}
+                MintSupply.SporkData data = new MintSupply.SporkData();
+                data.setMaxSupply(BigDecimal.valueOf(RandomUtils.nextInt()));
+                return data;
+            }
 
-		throw new IllegalArgumentException("Unsupported chunk type");
-	}
+            case VESTING_STORAGE: {
 
-	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
-		Instant time, Instant previousTime) throws IllegalArgumentException {
+                VestingStorage.SporkData data = new VestingStorage.SporkData();
+                HashMap<Address, Vesting> vests = new HashMap<>();
 
-		/* Limit amount of failures with "UNDEFINED" during data set generation by jqwik */
-		if (gridSporkType == GridSpork.Type.UNDEFINED && signature.length > 52) {
-			gridSporkType = GridSpork.Type.MINT_STORAGE;
-		}
+                for (int i = 0; i < size; i++) {
 
-		final GridSpork gridSpork = GridSpork.create(gridSporkType);
+                    Address address = new Address();
+                    address.setWif(RandomStringUtils.randomAlphanumeric(40));
 
-		gridSpork.setTimeStamp(time);
-		gridSpork.setPreviousTimeStamp(previousTime);
-		gridSpork.setData(chunkData(gridSporkType));
-		gridSpork.setPreviousData(chunkData(gridSporkType));
-		gridSpork.setSignature(signature);
+                    Vesting vesting = new Vesting();
+                    vesting.setStart(Instant.ofEpochSecond(RandomUtils.nextInt()));
+                    vesting.setDuration(Duration.ofSeconds(RandomUtils.nextInt()));
+                    vesting.setParts(RandomUtils.nextInt(5, 100));
 
-		return Arbitraries.of(gridSpork);
-	}
+                    vests.put(address, vesting);
+                }
+
+                data.setVestingAddresses(vests);
+                return data;
+            }
+
+            case STATISTICS_PUBKEY: {
+
+                StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
+                byte[] key = RandomUtils.nextBytes(140);
+
+                data.setPublicKey(Hex.encodeHexString(key));
+                return data;
+            }
+        }
+
+        throw new IllegalArgumentException("Unsupported chunk type");
+    }
+
+    public Arbitrary<GridSpork> provide(
+            GridSpork.Type gridSporkType,
+            short flags,
+            byte[] signature,
+            Instant time,
+            Instant previousTime) {
+
+        GridSpork gridSpork = GridSpork.create(gridSporkType);
+
+        gridSpork.setTimeStamp(time);
+        gridSpork.setPreviousTimeStamp(previousTime);
+        gridSpork.setData(chunkData(gridSporkType));
+        gridSpork.setPreviousData(chunkData(gridSporkType));
+        gridSpork.setSignature(signature);
+
+        return Arbitraries.of(gridSpork);
+    }
 }

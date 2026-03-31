@@ -17,35 +17,38 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
-@Data @ToString(callSuper = true)
-@EqualsAndHashCode(callSuper = false)
 public class StatisticsPubKey extends GridSpork implements Serializable {
-	public StatisticsPubKey() {
-		setType(Type.STATISTICS_PUBKEY);
 
-		final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
-		data.setPublicKey(StringUtils.EMPTY);
-		setData(data);
-	}
+    public StatisticsPubKey() {
+        setType(Type.STATISTICS_PUBKEY);
 
-	@Data
-	public static class SporkData implements ChunkData {
-		private String publicKey;
+        SporkData data = new SporkData();
+        data.setPublicKey(StringUtils.EMPTY);
+        setData(data);
+    }
 
-		public SporkData empty() {
-			final SporkData data = new SporkData();
+    public static class SporkData implements ChunkData {
 
-			data.setPublicKey(StringUtils.EMPTY);
-			return data;
-		}
-	}
+        private String publicKey;
+
+        public String getPublicKey() {
+            return publicKey;
+        }
+
+        public void setPublicKey(String publicKey) {
+            this.publicKey = publicKey;
+        }
+
+        public SporkData empty() {
+            SporkData data = new SporkData();
+            data.setPublicKey(StringUtils.EMPTY);
+            return data;
+        }
+    }
 }

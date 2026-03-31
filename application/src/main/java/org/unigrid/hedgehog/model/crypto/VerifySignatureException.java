@@ -17,10 +17,15 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.crypto;
+    package org.unigrid.hedgehog.model.crypto;
 
-public class VerifySignatureException extends Exception {
-	public VerifySignatureException(String msg, Throwable cause) {
-		super(msg, cause);
-	}
-}
+    public class VerifySignatureException extends Exception {
+        public VerifySignatureException(String message) {
+            super(message);
+        }
+    
+        public VerifySignatureException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+    

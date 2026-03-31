@@ -16,67 +16,87 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Objects;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.unigrid.hedgehog.model.util.ExceptionUtil;
 
-@Data
-@NoArgsConstructor
 public class SporkDatabaseInfo implements Serializable {
-	public static final String LASTCHANGED_NEVER = "never";
 
-	private Overview<Integer, String> mintStorageEntries = new Overview(0, LASTCHANGED_NEVER);
-	private Overview<BigDecimal, String> mintSupply = new Overview(BigDecimal.ZERO, LASTCHANGED_NEVER);
-	private Overview<Integer, String> vestingStoragEntries = new Overview(0, LASTCHANGED_NEVER);
+    public static final String LASTCHANGED_NEVER = "never";
 
-	public SporkDatabaseInfo(SporkDatabase sporkDatabase) {
-		ExceptionUtil.swallow(() -> {
-			if (Objects.nonNull(sporkDatabase.getMintStorage())) {
-				final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();
-				final int amount = data.getMints().size();
-				final Instant lastChanged = sporkDatabase.getMintStorage().getTimeStamp();
+    private Overview<Integer, String> mintStorageEntries =
+            new Overview<>(0, LASTCHANGED_NEVER);
 
-				mintStorageEntries.amount = amount;
-				mintStorageEntries.lastChanged = lastChanged.toString();
-			}
-		}, NullPointerException.class);
+    private Overview<BigDecimal, String> mintSupply =
+            new Overview<>(BigDecimal.ZERO, LASTCHANGED_NEVER);
 
-		ExceptionUtil.swallow(() -> {
-			if (Objects.nonNull(sporkDatabase.getMintSupply())) {
-				final MintSupply.SporkData data = sporkDatabase.getMintSupply().getData();
-				final Instant lastChanged = sporkDatabase.getMintSupply().getTimeStamp();
+    private Overview<Integer, String> vestingStorageEntries =
+            new Overview<>(0, LASTCHANGED_NEVER);
 
-				Objects.requireNonNull(data.getMaxSupply());
-				mintSupply.amount = data.getMaxSupply();
-				mintSupply.lastChanged = lastChanged.toString();
-			}
-		}, NullPointerException.class);
+    public SporkDatabaseInfo() {}
 
-		ExceptionUtil.swallow(() -> {
-			if (Objects.nonNull(sporkDatabase.getVestingStorage())) {
-				final VestingStorage.SporkData data = sporkDatabase.getVestingStorage().getData();
-				final int amount = data.getVestingAddresses().size();
-				final Instant lastChanged = sporkDatabase.getVestingStorage().getTimeStamp();
+    public SporkDatabaseInfo(SporkDatabase sporkDatabase) {
 
-				vestingStoragEntries.amount = amount;
-				vestingStoragEntries.lastChanged = lastChanged.toString();
-			}
-		}, NullPointerException.class);
-	}
+        if (sporkDatabase.getMintStorage() != null) {
 
-	@Data
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class Overview<T, D> {
-		private T amount;
-		private D lastChanged;
-	}
+            MintStorage.SporkData data =
+                    (MintStorage.SporkData)
+                            sporkDatabase.getMintStorage().getData();
+
+            int amount = data.getMints().size();
+            Instant lastChanged =
+                    sporkDatabase.getMintStorage().getTimeStamp();
+
+            mintStorageEntries =
+                    new Overview<>(amount, lastChanged.toString());
+        }
+
+        if (sporkDatabase.getMintSupply() != null) {
+
+            MintSupply.SporkData data =
+                    (MintSupply.SporkData)
+                            sporkDatabase.getMintSupply().getData();
+
+            BigDecimal supply = data.getMaxSupply();
+            Instant lastChanged =
+                    sporkDatabase.getMintSupply().getTimeStamp();
+
+            mintSupply =
+                    new Overview<>(supply, lastChanged.toString());
+        }
+
+        if (sporkDatabase.getVestingStorage() != null) {
+
+            VestingStorage.SporkData data =
+                    (VestingStorage.SporkData)
+                            sporkDatabase.getVestingStorage().getData();
+
+            int amount =
+                    data.getVestingAddresses().size();
+
+            Instant lastChanged =
+                    sporkDatabase.getVestingStorage().getTimeStamp();
+
+            vestingStorageEntries =
+                    new Overview<>(amount, lastChanged.toString());
+        }
+    }
+
+    public static class Overview<T, D> implements Serializable {
+
+        private T amount;
+        private D lastChanged;
+
+        public Overview() {}
+
+        public Overview(T amount, D lastChanged) {
+            this.amount = amount;
+            this.lastChanged = lastChanged;
+        }
+
+        public T getAmount() { return amount; }
+        public D getLastChanged() { return lastChanged; }
+    }
 }

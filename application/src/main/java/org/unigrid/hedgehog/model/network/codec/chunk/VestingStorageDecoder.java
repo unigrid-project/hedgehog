@@ -17,64 +17,98 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+	package org.unigrid.hedgehog.model.network.codec.chunk;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.Chunk;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.VestingStorage;
-
-@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage.SporkData> {
-	/*
-	    Chunk format:
-	    0..............................................................63
-	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [     n= num mints     ][               reserved               ]
-	   n[                     << address (0-term) >>                   ]
-	    [                     vesting start (seconds)                  ]
-	    [                    vesting duration (seconds)                ]
-	    [                          vesting parts                   ...n]
-	*/
-	@Override
-	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final VestingStorage.SporkData data = new VestingStorage.SporkData();
-		final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
-		final int entries = in.readMedium();
-
-		in.skipBytes(5 /* 40 bits */);
-
-		while (in.readableBytes() > 0 && vests.size() < entries) {
-			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
-			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
-
-			vesting.setStart(Instant.ofEpochSecond(in.readLong()));
-			vesting.setDuration(Duration.ofSeconds(in.readLong()));
-			vesting.setParts(in.readInt());
-
-			vests.put(address, vesting);
-		}
-
-		if (entries == vests.size()) {
-			data.setVestingAddresses(vests);
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	
+	import java.lang.reflect.Field;
+	import java.time.Duration;
+	import java.time.Instant;
+	import java.util.HashMap;
+	import java.util.Map;
+	import java.util.Optional;
+	
+	import org.unigrid.hedgehog.model.Address;
+	import org.unigrid.hedgehog.model.network.chunk.Chunk;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+	import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+	import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+	import org.unigrid.hedgehog.model.spork.GridSpork;
+	import org.unigrid.hedgehog.model.spork.VestingStorage;
+	
+	@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
+	public final class VestingStorageDecoder
+			implements TypedCodec<GridSpork.Type>,
+					   ChunkDecoder<VestingStorage.SporkData> {
+	
+		/*
+			Chunk format:
+			0..............................................................63
+			[         << Spork Header (AbstractGridSporkDecoder) >>        ]
+			[     n= num mints     ][               reserved               ]
+		   n[                     << address (0-term) >>                   ]
+			[                     vesting start (seconds)                  ]
+			[                    vesting duration (seconds)                ]
+			[                          vesting parts                   ...n]
+		*/
+	
+		@Override
+		public Optional<VestingStorage.SporkData> decodeChunk(
+				ChannelHandlerContext ctx,
+				ByteBuf in
+		) throws Exception {
+	
+			int entries = in.readMedium();
+			in.skipBytes(5); // reserved 40 bits
+	
+			Map<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
+	
+			while (in.readableBytes() > 0 && vests.size() < entries) {
+	
+				// --- Address ---
+				Address address = new Address();
+				setPrivate(address, "wif", ByteBufUtils.readNullTerminatedString(in));
+	
+				// --- Vesting ---
+				VestingStorage.SporkData.Vesting vesting =
+						new VestingStorage.SporkData.Vesting();
+	
+				setPrivate(vesting, "start",
+						Instant.ofEpochSecond(in.readLong()));
+				setPrivate(vesting, "duration",
+						Duration.ofSeconds(in.readLong()));
+				setPrivate(vesting, "parts", in.readInt());
+	
+				vests.put(address, vesting);
+			}
+	
+			if (vests.size() != entries) {
+				return Optional.empty();
+			}
+	
+			VestingStorage.SporkData data = new VestingStorage.SporkData();
+			setPrivate(data, "vestingAddresses", vests);
+	
 			return Optional.of(data);
 		}
-
-		return Optional.empty();
+	
+		@Override
+		public GridSpork.Type getCodecType() {
+			return GridSpork.Type.VESTING_STORAGE;
+		}
+	
+		// =========================
+		// Reflection helper
+		// =========================
+	
+		private static void setPrivate(Object target, String field, Object value)
+				throws Exception {
+	
+			Field f = target.getClass().getDeclaredField(field);
+			f.setAccessible(true);
+			f.set(target, value);
+		}
 	}
-
-	@Override
-	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.VESTING_STORAGE;
-	}
-}
+	

@@ -16,26 +16,31 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.packet;
+  package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class PublishSpork extends Packet implements Serializable {
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 3;
 
-	private GridSpork gridSpork;
+    private static final long serialVersionUID = 1L;
 
-	public PublishSpork() {
-		setType(Type.PUBLISH_SPORK);
-	}
+    private GridSpork gridSpork;
+
+    public PublishSpork() {
+        super(Type.PUBLISH_SPORK);
+    }
+
+    public PublishSpork(GridSpork gridSpork) {
+        super(Type.PUBLISH_SPORK);
+        this.gridSpork = gridSpork;
+    }
+
+    public GridSpork getGridSpork() {
+        return gridSpork;
+    }
+
+    public void setGridSpork(GridSpork gridSpork) {
+        this.gridSpork = gridSpork;
+    }
 }

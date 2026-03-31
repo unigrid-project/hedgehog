@@ -17,15 +17,26 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+    package org.unigrid.hedgehog.model.cdi;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ ElementType.FIELD, ElementType.TYPE, ElementType.METHOD, ElementType.PARAMETER })
-public @interface Eager {
-	/* Empty on purpose */
-}
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    /**
+     * Markerar CDI-beans som ska instansieras eagerly vid container-start.
+     *
+     * Används tillsammans med {@code EagerExtension}.
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({
+            ElementType.TYPE,
+            ElementType.FIELD,
+            ElementType.METHOD,
+            ElementType.PARAMETER
+    })
+    public @interface Eager {
+        /* Marker annotation */
+    }
+    

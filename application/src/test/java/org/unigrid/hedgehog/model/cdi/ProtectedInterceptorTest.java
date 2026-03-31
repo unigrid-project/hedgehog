@@ -17,17 +17,14 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+ package org.unigrid.hedgehog.model.cdi;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import lombok.Data;
-import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeContainer;
-import org.apache.commons.configuration2.sync.LockMode;
 import org.awaitility.Awaitility;
 import static org.awaitility.Awaitility.*;
 import static org.hamcrest.Matchers.*;
@@ -38,85 +35,98 @@ import org.unigrid.hedgehog.model.function.VoidFunctionE;
 
 @WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class })
 public class ProtectedInterceptorTest extends BaseMockedWeldTest {
-	@Data
-	@ApplicationScoped
-	public static class LockModeProtected {
-		@SneakyThrows @Protected @Lock(LockMode.READ)
-		void readProtect(VoidFunctionE function) {
-			function.apply();
-		}
 
-		@SneakyThrows @Protected @Lock(LockMode.WRITE)
-		void writeProtect(VoidFunctionE function) {
-			function.apply();
-		}
-	}
+    @ApplicationScoped
+    public static class LockModeProtected {
 
-	@Inject
-	private LockModeProtected lockModeProtected;
+        @Protected @Lock(LockMode.READ)
+        void readProtect(VoidFunctionE function) throws Exception {
+            function.apply();
+        }
 
-	@BeforeContainer
-	private static void before() {
-		Awaitility.setDefaultPollInterval(5, TimeUnit.MILLISECONDS);
-		Awaitility.setDefaultPollDelay(5, TimeUnit.MILLISECONDS);
-	}
+        @Protected @Lock(LockMode.WRITE)
+        void writeProtect(VoidFunctionE function) throws Exception {
+            function.apply();
+        }
 
-	@Example
-	public void shoulBeAbleToWriteProtectMethods() throws InterruptedException {
-		final AtomicInteger counter = new AtomicInteger();
+        // Getter/Setter om du behöver dem kan skrivas manuellt här
+    }
 
-		new Thread(() -> {
-			lockModeProtected.writeProtect(() -> {
-				counter.incrementAndGet();
-				Thread.sleep(200);
+    @Inject
+    private LockModeProtected lockModeProtected;
 
-				/* 1, because we should not have been able to lock from the main thread */
-				assertThat(counter.get(), is(1));
-				counter.incrementAndGet();
-			});
-		}).start();
+    @BeforeContainer
+    private static void before() {
+        Awaitility.setDefaultPollInterval(5, TimeUnit.MILLISECONDS);
+        Awaitility.setDefaultPollDelay(5, TimeUnit.MILLISECONDS);
+    }
 
-		/* Make sure the above thread has started and is locking */
-		await().untilAtomic(counter, is(1));
+    @Example
+    public void shoulBeAbleToWriteProtectMethods() throws InterruptedException {
+        final AtomicInteger counter = new AtomicInteger();
 
-		lockModeProtected.writeProtect(() -> {
-			counter.incrementAndGet();
-		});
+        new Thread(() -> {
+            try {
+                lockModeProtected.writeProtect(() -> {
+                    counter.incrementAndGet();
+                    Thread.sleep(200);
 
-		await().untilAtomic(counter, is(3));
-	}
+                    // 1, eftersom vi inte ska kunna låsa från main thread
+                    assertThat(counter.get(), is(1));
+                    counter.incrementAndGet();
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }).start();
 
-	@Example
-	public void shoulBeAbleToReadProtectMethods() throws InterruptedException {
-		final AtomicInteger counter = new AtomicInteger();
+        // Vänta tills första increment
+        await().untilAtomic(counter, is(1));
 
-		new Thread(() -> {
-			lockModeProtected.writeProtect(() -> {
-				counter.incrementAndGet();
-				Thread.sleep(200);
+        try {
+            lockModeProtected.writeProtect(() -> counter.incrementAndGet());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
-				/* 1, because we should not have been able to lock from the main thread */
-				assertThat(counter.get(), is(1));
-				counter.incrementAndGet();
-			});
+        await().untilAtomic(counter, is(3));
+    }
 
-			lockModeProtected.readProtect(() -> {
-				Thread.sleep(200);
+    @Example
+    public void shoulBeAbleToReadProtectMethods() throws InterruptedException {
+        final AtomicInteger counter = new AtomicInteger();
 
-				/* 3, because the read lock below should have passed */
-				assertThat(counter.get(), is(3));
-				counter.incrementAndGet();
-			});
-		}).start();
+        new Thread(() -> {
+            try {
+                lockModeProtected.writeProtect(() -> {
+                    counter.incrementAndGet();
+                    Thread.sleep(200);
 
-		/* Make sure the above thread has started and is locking */
-		await().untilAtomic(counter, is(1));
+                    assertThat(counter.get(), is(1));
+                    counter.incrementAndGet();
+                });
 
-		lockModeProtected.readProtect(() -> {
-			counter.incrementAndGet();
-			Thread.sleep(200);
-		});
+                lockModeProtected.readProtect(() -> {
+                    Thread.sleep(200);
+                    assertThat(counter.get(), is(3));
+                    counter.incrementAndGet();
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }).start();
 
-		await().untilAtomic(counter, is(4));
-	}
+        await().untilAtomic(counter, is(1));
+
+        try {
+            lockModeProtected.readProtect(() -> {
+                counter.incrementAndGet();
+                Thread.sleep(200);
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        await().untilAtomic(counter, is(4));
+    }
 }

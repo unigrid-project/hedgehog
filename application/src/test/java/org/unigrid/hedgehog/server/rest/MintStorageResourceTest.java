@@ -16,106 +16,127 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
-import lombok.SneakyThrows;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.From;
-import net.jqwik.api.Provide;
-import net.jqwik.api.Property;
-import net.jqwik.api.ShrinkingMode;
-import net.jqwik.api.constraints.AlphaChars;
-import net.jqwik.api.constraints.BigRange;
-import net.jqwik.api.constraints.StringLength;
-import net.jqwik.api.constraints.Positive;
-import net.jqwik.api.constraints.Size;
-import net.jqwik.api.constraints.UniqueElements;
+
+import net.jqwik.api.*;
+import net.jqwik.api.constraints.*;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
-import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
+import org.unigrid.hedgehog.client.ResponseOddityException;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 public class MintStorageResourceTest extends BaseRestClientTest {
-	@Provide
-	public Arbitrary<Location> provideLocation(@ForAll @AlphaChars @StringLength(36) String address,
-		@ForAll @Positive int height) {
 
-		return Arbitraries.of(Location.builder().height(height).address(
-			Address.builder().wif(address).build()
-		).build());
-	}
+    // --- Location class ---
+    public static class Location {
+        private final int height;
+        private final Address address;
 
-	@SneakyThrows
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
-	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
-		@ForAll @UniqueElements @Size(5) List<@From("provideLocation") Location> locations,
-		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal amount) {
+        public Location(int height, Address address) {
+            this.height = height;
+            this.address = address;
+        }
 
-		final String url = "/gridspork/mint-storage/";
-		final Response response = client.get(url);
-		int originalNumMints = 0;
-		int newMints = 0;
+        public int getHeight() { return height; }
+        public Address getAddress() { return address; }
+    }
 
-		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-			final MintStorage.SporkData data = response.readEntity(MintStorage.class).getData();
-			originalNumMints = data.getMints().size();
-		}
+    // --- Address class ---
+    public static class Address {
+        private final String wif;
 
-		for (Location l : locations) {
-			final Response putResponse = client.putWithHeaders(url + l.getAddress().getWif() + "/" + l.getHeight(),
-				Entity.text(amount), new MultivaluedHashMap(Map.of("privateKey",
-				signature.getPrivateKey()))
-			);
+        public Address(String wif) { this.wif = wif; }
+        public String getWif() { return wif; }
+    }
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-				newMints++;
-			}
-		}
+    // --- Arbitrary Location provider ---
+    @Provide
+    public Arbitrary<Location> provideLocation(
+            @ForAll @AlphaChars @StringLength(36) String address,
+            @ForAll @Positive int height
+    ) {
+        return Arbitraries.of(new Location(height, new Address(address)));
+    }
 
-		if (newMints > 0) {
-			final MintStorage.SporkData data = client.getEntity(url, MintStorage.class).getData();
-			assertThat(data.getMints().size(), equalTo(originalNumMints + newMints));
-		}
-	}
+    // --- Test: Verifiable in list ---
+    @Property(tries = 30)
+    public void shoulBeVerifiableInList(
+            @ForAll("provideSignature") Signature signature,
+            @ForAll @UniqueElements @Size(5) List<Location> locations,
+            @ForAll @BigRange(min = "0", max = "1000000") BigDecimal amount
+    ) throws ResponseOddityException {
 
-	@SneakyThrows
-	@Property(tries = 50)
-	public void shoulBeAbleToGetMintStorageSpork(@ForAll("provideSignature") Signature signature,
-		@ForAll("provideLocation") Location location, @ForAll @BigRange(min = "0") BigDecimal amount) {
+        final String url = "/gridspork/mint-storage/";
+        final Response response = client.get(url);
+        int originalNumMints = 0;
+        int newMints = 0;
 
-		final int height = location.getHeight();
-		final String wif = location.getAddress().getWif();
-		final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
+        if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
+            final SporkData data = client.getEntity(url, MintStorage.class).getData();
+            originalNumMints = data.getMints().size();
+        }
 
-		Status expectedStatusFromPut;
+        for (Location l : locations) {
+            MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
+            headers.putSingle("privateKey", signature.getPrivateKey());
 
-		if (Status.fromStatusCode(client.get(url).getStatus()) != Status.OK) {
-			expectedStatusFromPut = Status.OK;
-		} else {
-			expectedStatusFromPut = Status.NO_CONTENT;
-		}
+            final Response putResponse = client.putWithHeaders(
+                    url + l.getAddress().getWif() + "/" + l.getHeight(),
+                    Entity.text(amount),
+                    headers
+            );
 
-		final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+            if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
+                newMints++;
+            }
+        }
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()),
-			equalTo(expectedStatusFromPut)
-		);
+        if (newMints > 0) {
+            final SporkData data = client.getEntity(url, MintStorage.class).getData();
+            assertThat(data.getMints().size(), equalTo(originalNumMints + newMints));
+        }
+    }
 
-		TestFileOutput.outputJson(client.getEntity(url, String.class));
-	}
+    // --- Test: Get specific mint storage spork ---
+    @Property(tries = 50)
+    public void shoulBeAbleToGetMintStorageSpork(
+            @ForAll("provideSignature") Signature signature,
+            @ForAll("provideLocation") Location location,
+            @ForAll @BigRange(min = "0") BigDecimal amount
+    ) throws ResponseOddityException, JsonProcessingException {
+
+        final int height = location.getHeight();
+        final String wif = location.getAddress().getWif();
+        final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
+
+        Status expectedStatusFromPut;
+        if (Status.fromStatusCode(client.get(url).getStatus()) != Status.OK) {
+            expectedStatusFromPut = Status.OK;
+        } else {
+            expectedStatusFromPut = Status.NO_CONTENT;
+        }
+
+        MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
+        headers.putSingle("privateKey", signature.getPrivateKey());
+
+        final Response putResponse = client.putWithHeaders(url, Entity.text(amount), headers);
+
+        assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(expectedStatusFromPut));
+
+        TestFileOutput.outputJson(client.getEntity(url, String.class));
+    }
 }

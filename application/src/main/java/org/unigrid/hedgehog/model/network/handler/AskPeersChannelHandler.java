@@ -19,18 +19,34 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.network.packet.AskPeers;
+import org.unigrid.hedgehog.model.network.packet.Peers;
 
+@Slf4j
 @Sharable
 public class AskPeersChannelHandler extends AbstractInboundHandler<AskPeers> {
-	public AskPeersChannelHandler() {
-		super(AskPeers.class);
-	}
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext context, AskPeers askPeer) throws Exception {
-		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-	}
+    // Skapa en ny logger för den här klassen
+    private static final Logger log = LoggerFactory.getLogger(AskPeersChannelHandler.class);
+
+    public AskPeersChannelHandler() {
+        super(AskPeers.class);
+    }
+
+    @Override
+    protected void typedChannelRead(ChannelHandlerContext ctx, AskPeers packet) {
+        log.debug("Received AskPeers request: amount={}", packet.getAmount());
+
+        Peers peers = new Peers();
+        peers.setAmount(packet.getAmount());
+
+        ctx.writeAndFlush(peers)
+           .addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+    }
 }

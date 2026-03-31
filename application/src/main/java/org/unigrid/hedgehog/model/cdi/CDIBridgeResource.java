@@ -17,21 +17,63 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+    package org.unigrid.hedgehog.model.cdi;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.enterprise.inject.spi.CDI;
-import java.lang.reflect.Field;
-import lombok.SneakyThrows;
-
-public class CDIBridgeResource {
-	@SneakyThrows @PostConstruct
-	private void init() {
-		for (Field f : this.getClass().getDeclaredFields()) {
-			if (f.isAnnotationPresent(CDIBridgeInject.class)) {
-				f.setAccessible(true);
-				f.set(this, CDI.current().select(f.getType()).get());
-			}
-		}
-	}
-}
+    import jakarta.annotation.PostConstruct;
+    import jakarta.enterprise.inject.Any;
+    import jakarta.enterprise.inject.Instance;
+    import jakarta.enterprise.inject.spi.CDI;
+    import java.lang.annotation.Annotation;
+    import java.lang.reflect.Field;
+    
+    /**
+     * Bas-klass för resurser som behöver manuellt brygga CDI-injektion
+     * via {@link CDIBridgeInject}.
+     *
+     * Används när objekt inte skapas av CDI själv (ex. Netty, CLI, etc).
+     */
+    public abstract class CDIBridgeResource {
+    
+        @PostConstruct
+        private void init() {
+            for (Field field : this.getClass().getDeclaredFields()) {
+    
+                if (!field.isAnnotationPresent(CDIBridgeInject.class)) {
+                    continue;
+                }
+    
+                injectField(field);
+            }
+        }
+    
+        private void injectField(Field field) {
+            try {
+                field.setAccessible(true);
+    
+                Annotation[] qualifiers = field.getAnnotations();
+                Instance<?> instance = CDI.current().select(field.getType(), qualifiers);
+    
+                if (instance.isUnsatisfied()) {
+                    throw new IllegalStateException(
+                        "CDI injection failed: no bean found for field "
+                        + field.getName() + " of type " + field.getType().getName()
+                    );
+                }
+    
+                if (instance.isAmbiguous()) {
+                    throw new IllegalStateException(
+                        "CDI injection failed: ambiguous beans for field "
+                        + field.getName() + " of type " + field.getType().getName()
+                    );
+                }
+    
+                field.set(this, instance.get());
+    
+            } catch (IllegalAccessException ex) {
+                throw new RuntimeException(
+                    "Failed to inject CDI field: " + field.getName(), ex
+                );
+            }
+        }
+    }
+    

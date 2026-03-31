@@ -16,22 +16,15 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.server.rest;
 
-package org.unigrid.hedgehog.server.rest;
-
-import jakarta.validation.constraints.NotNull;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+
 import java.math.BigDecimal;
-import java.util.Objects;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
+
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -39,55 +32,55 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
-@Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class MintSupplyResource extends CDIBridgeResource {
-	@CDIBridgeInject
-	private P2PServer p2pServer;
 
-	@CDIBridgeInject
-	private SporkDatabase sporkDatabase;
+    @CDIBridgeInject
+    private SporkDatabase sporkDatabase;
 
-	@CDIBridgeInject
-	private Topology topology;
+    @CDIBridgeInject
+    private Topology topology;
 
-	@Path("/mint-supply") @GET
-	public Response list() {
-		final MintSupply ms = sporkDatabase.getMintSupply();
+    @GET
+    @Path("/mint-supply")
+    public Response list() {
 
-		if (Objects.isNull(ms)) {
-			return Response.noContent().build();
-		}
+        MintSupply ms = sporkDatabase.getMintSupply();
 
-		return Response.ok().entity(sporkDatabase.getMintSupply()).build();
-	}
+        if (ms == null) {
+            return Response.noContent().build();
+        }
 
-	@Path("/mint-supply") @PUT
-	public Response set(@NotNull BigDecimal maxSupply, @NotNull @HeaderParam("privateKey") String privateKey) {
+        return Response.ok(ms).build();
+    }
 
-		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final MintSupply ms = ResourceHelper.getNewOrClonedSporkSection(
-				() -> sporkDatabase.getMintSupply(),
-				() -> new MintSupply()
-			);
+    @PUT
+    @Path("/mint-supply")
+    public Response set(BigDecimal maxSupply,
+                        @HeaderParam("privateKey") String privateKey) {
 
-			final MintSupply.SporkData data = ms.getData();
-			ms.archive();
-			data.setMaxSupply(maxSupply);
+        if (privateKey == null || !NetworkKey.isTrusted(privateKey)) {
+            return Response.status(Response.Status.UNAUTHORIZED).build();
+        }
 
-			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, false, signable -> {
-				sporkDatabase.setMintSupply(signable);
+        MintSupply ms = sporkDatabase.getMintSupply();
 
-				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getMintSupply()).build(),
-					topology, Optional.empty()
-				);
-			});
-		}
+        if (ms == null) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("MintSupply not initialized")
+                    .build();
+        }
 
-		return Response.status(Response.Status.UNAUTHORIZED).build();
-	}
+        ms.getData().setMaxSupply(maxSupply);
+
+        PublishSpork publishSpork = new PublishSpork();
+        publishSpork.setGridSpork(ms);
+
+        Topology.sendAll(publishSpork, topology, Optional.empty());
+
+        return Response.ok().build();
+    }
 }

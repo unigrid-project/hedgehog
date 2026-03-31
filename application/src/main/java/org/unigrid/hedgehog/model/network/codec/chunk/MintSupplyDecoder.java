@@ -16,38 +16,56 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+	package org.unigrid.hedgehog.model.network.codec.chunk;
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.chunk.Chunk;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintSupply;
-
-@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
-	/*
-	    Chunk format:
-	    0..............................................................63
-	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	   n[ <max supply (0-term)>                                    ...n]
-	*/
-	@Override
-	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-		data.setMaxSupply(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
-		return Optional.of(data);
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	
+	import java.lang.reflect.Field;
+	import java.math.BigDecimal;
+	import java.util.Optional;
+	
+	import org.unigrid.hedgehog.model.network.chunk.Chunk;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+	import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+	import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+	import org.unigrid.hedgehog.model.spork.GridSpork;
+	import org.unigrid.hedgehog.model.spork.MintSupply;
+	
+	@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
+	public final class MintSupplyDecoder
+			implements TypedCodec<GridSpork.Type>,
+					   ChunkDecoder<MintSupply.SporkData> {
+	
+		@Override
+		public Optional<MintSupply.SporkData> decodeChunk(
+				ChannelHandlerContext ctx,
+				ByteBuf in
+		) throws Exception {
+	
+			BigDecimal maxSupply =
+					new BigDecimal(ByteBufUtils.readNullTerminatedString(in));
+	
+			MintSupply.SporkData data = new MintSupply.SporkData();
+			setPrivateField(data, "maxSupply", maxSupply);
+	
+			return Optional.of(data);
+		}
+	
+		@Override
+		public GridSpork.Type getCodecType() {
+			return GridSpork.Type.MINT_SUPPLY;
+		}
+	
+		private static void setPrivateField(
+				Object target,
+				String fieldName,
+				Object value
+		) throws Exception {
+			Field field = target.getClass().getDeclaredField(fieldName);
+			field.setAccessible(true);
+			field.set(target, value);
+		}
 	}
-
-	@Override
-	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.MINT_SUPPLY;
-	}
-}
+	

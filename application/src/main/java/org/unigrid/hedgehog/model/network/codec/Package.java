@@ -17,8 +17,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec;
+    package org.unigrid.hedgehog.model.network.codec;
 
-public class Package {
-	/* Empty on purpose. Just a placeholder for reflection */
-}
+    /**
+     * Marker class used for classpath scanning / reflection.
+     */
+    public final class Package {
+        private Package() {
+        }
+    }
+    

@@ -16,57 +16,62 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Map;
-import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork.Type;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.*;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
-@Slf4j
+import java.util.Optional;
+
 @Sharable
-public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSpork> {
-	public PublishSporkChannelHandler() {
-		super(PublishSpork.class);
-	}
+public class PublishSporkChannelHandler
+        extends AbstractInboundHandler<PublishSpork> {
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-			final GridSpork newSpork = publishSpork.getGridSpork();
+    private static final Logger log =
+            LoggerFactory.getLogger(PublishSporkChannelHandler.class);
 
-			final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.getMintStorage(),
-				MINT_SUPPLY, db.getMintSupply(),
-				VESTING_STORAGE, db.getVestingStorage(),
-				STATISTICS_PUBKEY, db.getStatisticsPubKey()
-			);
+    public PublishSporkChannelHandler() {
+        super(PublishSpork.class);
+    }
 
-			final GridSpork oldSpork = entries.get(newSpork.getType());
+    @Override
+    public void typedChannelRead(ChannelHandlerContext ctx,
+                                 PublishSpork publishSpork) {
 
-			if (!entries.containsKey(newSpork.getType())) {
-				log.atError().log("Received unsupported spork type - ignoring.");
-				return;
-				/* Bail out on unsupported type */
-			}
+        CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 
-			if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
-				db.set(newSpork);
+            GridSpork newSpork = publishSpork.getGridSpork();
 
-				CDIUtil.resolveAndRun(Topology.class, topology -> {
-					// TODO: Handle errors better rather than sending Optional.empty()
-					Topology.sendAll(publishSpork, topology, Optional.empty());
-				});
-			}
-		});
-	}
+            if (newSpork == null) {
+                log.error("Received null spork");
+                return;
+            }
+
+            GridSpork oldSpork =
+                    db.get(newSpork.getType());
+
+            if (newSpork.isNewerThan(oldSpork)
+                    && newSpork.isValidSignature()) {
+
+                db.set(newSpork);
+
+                CDIUtil.resolveAndRun(Topology.class, topology ->
+                        Topology.sendAll(
+                                publishSpork,
+                                topology,
+                                Optional.empty()
+                        )
+                );
+            }
+        });
+    }
 }

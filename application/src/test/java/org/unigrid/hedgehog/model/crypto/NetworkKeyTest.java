@@ -16,12 +16,10 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.crypto;
+ package org.unigrid.hedgehog.model.crypto;
 
 import java.util.ArrayList;
 import java.util.List;
-import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -35,33 +33,31 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
 public class NetworkKeyTest extends BaseMockedWeldTest {
-	private static final int NUM_SIGNATURES = 3;
-	private static final List<Signature> SIGNATURES = new ArrayList<>(NUM_SIGNATURES);
+    private static final int NUM_SIGNATURES = 3;
+    private static final List<Signature> SIGNATURES = new ArrayList<>(NUM_SIGNATURES);
 
-	@SneakyThrows
-	@BeforeProperty
-	private void mockBefore() {
-		for (int i = 0; i < NUM_SIGNATURES; i++) {
-			SIGNATURES.add(new Signature());
-		}
+    @BeforeProperty
+    private void mockBefore() throws Exception {
+        for (int i = 0; i < NUM_SIGNATURES; i++) {
+            SIGNATURES.add(new Signature());
+        }
 
-		new MockUp<NetworkKey>() {
-			@Mock public static String[] getPublicKeys() {
-				return SIGNATURES.stream().map(signature -> signature.getPublicKey()).toArray(String[]::new);
-			}
-		};
-	}
+        new MockUp<NetworkKey>() {
+            @Mock public static String[] getPublicKeys() {
+                return SIGNATURES.stream().map(signature -> signature.getPublicKey()).toArray(String[]::new);
+            }
+        };
+    }
 
-	@Example
-	@SneakyThrows
-	public void storedPublicKeysShoulBeValid() {
-		for (Signature signature : SIGNATURES) {
-			assertThat(NetworkKey.isTrusted(signature.getPrivateKey()), is(true));
-		}
-	}
+    @Example
+    public void storedPublicKeysShoulBeValid() throws Exception {
+        for (Signature signature : SIGNATURES) {
+            assertThat(NetworkKey.isTrusted(signature.getPrivateKey()), is(true));
+        }
+    }
 
-	@Property(tries = 10)
-	public void randomPublicKeysShouldBeInvalid(@ForAll @Size(65) byte[] privateKey) {
-		assertThat(NetworkKey.isTrusted(Hex.encodeHexString(privateKey)), is(false));
-	}
+    @Property(tries = 10)
+    public void randomPublicKeysShouldBeInvalid(@ForAll @Size(65) byte[] privateKey) {
+        assertThat(NetworkKey.isTrusted(Hex.encodeHexString(privateKey)), is(false));
+    }
 }

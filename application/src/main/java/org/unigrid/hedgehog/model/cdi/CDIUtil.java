@@ -17,31 +17,73 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+	package org.unigrid.hedgehog.model.cdi;
 
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
-import java.util.function.Consumer;
-import lombok.extern.slf4j.Slf4j;
-import org.jboss.weld.interceptor.util.proxy.TargetInstanceProxy;
-
-@Slf4j
-public class CDIUtil {
-	public static <T> void instantiate(T proxy) {
-		proxy.toString(); /* Will force CDI to instantiate this referenced insteance */
-	}
-
-	public static <T> T unproxy(T proxy) {
-		return (T) ((TargetInstanceProxy) proxy).weld_getTargetInstance();
-	}
-
-	public static <T> void resolveAndRun(Class<T> clazz, Consumer<T> consumer) {
-		final Instance<T> instance = CDI.current().select(clazz);
-
-		if (instance.isResolvable()) {
-			consumer.accept(instance.get());
-		} else {
-			log.atWarn().log("Unable to resolve instance {}", clazz);
+	import jakarta.enterprise.inject.Instance;
+	import jakarta.enterprise.inject.spi.CDI;
+	import org.jboss.weld.interceptor.util.proxy.TargetInstanceProxy;
+	
+	import java.util.function.Consumer;
+	import java.util.logging.Level;
+	import java.util.logging.Logger;
+	
+	/**
+	 * Hjälpmetoder för CDI i CLI / Netty / Weld SE-miljö.
+	 */
+	public final class CDIUtil {
+	
+		private static final Logger LOG = Logger.getLogger(CDIUtil.class.getName());
+	
+		private CDIUtil() {
+			/* Utility class */
+		}
+	
+		/**
+		 * Tvingar CDI att instansiera en proxad instans.
+		 * Används främst för eager-init i Weld SE.
+		 */
+		public static void instantiate(Object proxy) {
+			if (proxy != null) {
+				proxy.toString(); // Triggar proxy-instansiering
+			}
+		}
+	
+		/**
+		 * Tar bort Weld-proxy och returnerar den faktiska instansen.
+		 *
+		 * @throws IllegalArgumentException om objektet inte är en Weld-proxy
+		 */
+		@SuppressWarnings("unchecked")
+		public static <T> T unproxy(T proxy) {
+			if (proxy instanceof TargetInstanceProxy tip) {
+				return (T) tip.weld_getTargetInstance();
+			}
+	
+			throw new IllegalArgumentException(
+					"Object is not a Weld proxy: " + proxy.getClass()
+			);
+		}
+	
+		/**
+		 * Resolvar en CDI-bean och kör consumer om den finns.
+		 */
+		public static <T> void resolveAndRun(Class<T> clazz, Consumer<T> consumer) {
+			CDI<Object> cdi;
+	
+			try {
+				cdi = CDI.current();
+			} catch (IllegalStateException e) {
+				LOG.log(Level.WARNING, "CDI container not available");
+				return;
+			}
+	
+			Instance<T> instance = cdi.select(clazz);
+	
+			if (instance.isResolvable()) {
+				consumer.accept(instance.get());
+			} else {
+				LOG.log(Level.WARNING, "Unable to resolve CDI bean: {0}", clazz.getName());
+			}
 		}
 	}
-}
+	

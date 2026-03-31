@@ -16,24 +16,50 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.command.option;
+ package org.unigrid.hedgehog.command.option;
 
 import lombok.Getter;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
+/**
+ * CLI-options för REST-servern.
+ */
+@Getter
 public class RestOptions {
-	private static final String DEFAULT_PORT_STR = "52884";
-	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
 
-	@Getter @Option(names = { "-R", "--resthost" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "localhost"
-	)
-	private static String host;
+    private static final String DEFAULT_PORT_STR = "52884";
 
-	@Getter @Option(names = { "-r", "--restport" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
-	)
-	private static int port;
+    private static String host = "localhost";
+    private static int port = Integer.parseInt(DEFAULT_PORT_STR);
+
+    @Option(
+        names = {"-R", "--resthost"},
+        scope = CommandLine.ScopeType.INHERIT,
+        description = "Hostname or IP to bind to (default: ${DEFAULT-VALUE})",
+        defaultValue = "localhost"
+    )
+    public void setHost(String value) {
+        host = value;
+    }
+
+    @Option(
+        names = {"-r", "--restport"},
+        scope = CommandLine.ScopeType.INHERIT,
+        description = "REST communication port (default: ${DEFAULT-VALUE})",
+        defaultValue = DEFAULT_PORT_STR
+    )
+    public void setPort(int value) {
+        port = value;
+    }
+
+    /* ===== STATIC ACCESS ===== */
+
+    public static String getHost() {
+        return host;
+    }
+
+    public static int getPort() {
+        return port;
+    }
 }

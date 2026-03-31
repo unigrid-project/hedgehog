@@ -17,103 +17,123 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.client;
+	package org.unigrid.hedgehog.client;
 
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.client.ClientBuilder;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
-import java.util.List;
-import javax.net.ssl.SSLContext;
-import lombok.SneakyThrows;
-import org.glassfish.jersey.client.ClientConfig;
-import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
-import org.unigrid.hedgehog.model.JsonConfiguration;
-import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
+	import java.util.Objects;
+	import java.util.Set;
 
-public class RestClient implements AutoCloseable {
-	private final Client client;
-	private final String baseUrl;
+	import javax.net.ssl.SSLContext;
 
-	@SneakyThrows
-	public RestClient(String host, int port, boolean isSecure) {
-		final ClientConfig clientConfig = new ClientConfig();
+	import org.glassfish.jersey.jackson.JacksonFeature;
+	import org.unigrid.hedgehog.model.JsonConfiguration;
+	import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
-		clientConfig.register(JacksonJaxbJsonProvider.class);
-		clientConfig.register(new JsonConfiguration());
-		clientConfig.register(JsonExceptionMapper.class);
-
-		final SSLContext context = SSLContext.getInstance("ssl");
-		context.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), null);
-
-		client = ClientBuilder.newBuilder()
-			.hostnameVerifier((hostname, session) -> true) /* Accept all hostnames */
-			.sslContext(context)
-			.withConfig(clientConfig).build();
-
-		if (isSecure) {
-			baseUrl = String.format("https://%s:%d%%s", host, port);
-		} else {
-			baseUrl = String.format("http://%s:%d%%s", host, port);
+	import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+	import jakarta.ws.rs.client.Client;
+	import jakarta.ws.rs.client.ClientBuilder;
+	import jakarta.ws.rs.client.Entity;
+	import jakarta.ws.rs.core.MultivaluedMap;
+	import jakarta.ws.rs.core.Response;
+	import jakarta.ws.rs.core.Response.Status;
+	
+	public class RestClient implements AutoCloseable {
+	
+		private final Client client;
+		private final String baseUrl;
+	
+		public RestClient(String host, int port, boolean isSecure) throws Exception {
+			Objects.requireNonNull(host, "host must not be null");
+	
+			SSLContext context = SSLContext.getInstance("TLS");
+			context.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), null);
+	
+			client = ClientBuilder.newBuilder()
+					.hostnameVerifier((hostname, session) -> true)
+					.sslContext(context)
+					.build()
+					.register(JacksonFeature.class)
+					.register(new JsonConfiguration())
+					.register(JsonExceptionMapper.class);
+	
+			String protocol = isSecure ? "https" : "http";
+			baseUrl = String.format("%s://%s:%d%s", protocol, host, port, "%s");
+		}
+	
+		private void throwResponseOddity(Response response) throws ResponseOddityException {
+			final Set<Status> allowedStatuses = Set.of(
+					Status.ACCEPTED,
+					Status.CREATED,
+					Status.OK,
+					Status.NO_CONTENT,
+					Status.NOT_FOUND,
+					Status.UNAUTHORIZED
+			);
+	
+			Status status = Status.fromStatusCode(response.getStatus());
+			if (!allowedStatuses.contains(status)) {
+				throw new ResponseOddityException(
+						response.getStatus(),
+						response.getStatusInfo().getReasonPhrase()
+				);
+			}
+		}
+	
+		public Response get(String location) throws ResponseOddityException {
+			Response response = client.target(String.format(baseUrl, location))
+					.request()
+					.get();
+			throwResponseOddity(response);
+			return response;
+		}
+	
+		public <T> T getEntity(String location, Class<T> clazz) {
+			return client.target(String.format(baseUrl, location))
+					.request()
+					.get(clazz);
+		}
+	
+		public Response delete(String location) throws ResponseOddityException {
+			Response response = client.target(String.format(baseUrl, location))
+					.request()
+					.delete();
+			throwResponseOddity(response);
+			return response;
+		}
+	
+		public <T> Response post(String location, Entity<T> entity) throws ResponseOddityException {
+			Response response = client.target(String.format(baseUrl, location))
+					.request()
+					.post(entity);
+			throwResponseOddity(response);
+			return response;
+		}
+	
+		public <T> Response put(String location, Entity<T> entity) throws ResponseOddityException {
+			Response response = client.target(String.format(baseUrl, location))
+					.request()
+					.put(entity);
+			throwResponseOddity(response);
+			return response;
+		}
+	
+		public <T> Response putWithHeaders(
+				String location,
+				Entity<T> entity,
+				MultivaluedMap<String, Object> headers
+		) throws ResponseOddityException {
+	
+			Response response = client.target(String.format(baseUrl, location))
+					.request()
+					.headers(headers)
+					.put(entity);
+	
+			throwResponseOddity(response);
+			return response;
+		}
+	
+		@Override
+		public void close() {
+			client.close();
 		}
 	}
-
-	private void throwResponseOddity(Response response) throws ResponseOddityException {
-		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
-			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED
-		);
-
-		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
-			throw new ResponseOddityException(response.getStatusInfo());
-		}
-	}
-
-	public Response get(String location) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().get();
-
-		throwResponseOddity(response);
-		return response;
-	}
-
-	public <T> T getEntity(String location, Class<T> clazz) throws ResponseOddityException {
-		return client.target(String.format(baseUrl, location)).request().get(clazz);
-	}
-
-	public Response delete(String location) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().delete();
-
-		throwResponseOddity(response);
-		return response;
-	}
-
-	public <T> Response post(String location, Entity<T> entity) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().post(entity);
-		throwResponseOddity(response);
-		return response;
-	}
-
-	public <T> Response put(String location, Entity<T> entity) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().put(entity);
-		throwResponseOddity(response);
-		return response;
-	}
-
-	public <T> Response putWithHeaders(String location, Entity<T> entity, MultivaluedMap<String, Object> headers)
-		throws ResponseOddityException {
-
-		final Response response = client.target(String.format(baseUrl, location)).request()
-			.headers(headers)
-			.put(entity);
-
-		throwResponseOddity(response);
-		return response;
-	}
-
-	@Override
-	public void close() {
-		client.close();
-	}
-}
+	

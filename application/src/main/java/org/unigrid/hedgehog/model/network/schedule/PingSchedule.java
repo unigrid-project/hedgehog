@@ -17,28 +17,35 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Data
-@EqualsAndHashCode(callSuper = false)
-public class PingSchedule extends AbstractSchedule implements Schedulable {
-	public PingSchedule() {
-		super(Ping.HEARTBEAT_MINUTES, TimeUnit.MINUTES, true);
-	}
+public final class PingSchedule extends AbstractSchedule {
 
-	@Override
-	public Consumer<Channel> getConsumer() {
-		return channel -> {
-			final Ping ping = Ping.builder().build();
-			channel.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
-			channel.writeAndFlush(ping);
-		};
-	}
+    @Override
+    public int getPeriod() {
+        return 10;
+    }
+
+    @Override
+    public TimeUnit getTimeUnit() {
+        return TimeUnit.SECONDS;
+    }
+
+    @Override
+    public boolean isExecuteOnCreation() {
+        return true;
+    }
+
+    @Override
+    public Consumer<Channel> getConsumer() {
+        return channel -> {
+            if (channel != null && channel.isActive()) {
+                System.out.println("Ping executed on channel: " + channel.id());
+            }
+        };
+    }
 }

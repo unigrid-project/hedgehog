@@ -16,37 +16,63 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.packet;
+ package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class AskNodeDetails extends Packet implements Serializable {
-	@Builder.Default private boolean protocol = true;
-	@Builder.Default private boolean version = true;
 
-	public AskNodeDetails() {
-		setType(Type.ASK_NODE_DETAILS);
-	}
+    private boolean protocol = true;
+    private boolean version = true;
 
-	@RequiredArgsConstructor
-	public enum Flags {
-		PROTOCOL(0x01), VERSION(0x02);
+    public AskNodeDetails() {
+        super(Type.ASK_NODE_DETAILS);
+    }
 
-		@Getter private final int mask;
+    public boolean isProtocol() {
+        return protocol;
+    }
 
-		public boolean isSet(int flags) {
-			return (flags & mask) == mask;
-		}
-	}
+    public void setProtocol(boolean protocol) {
+        this.protocol = protocol;
+    }
+
+    public boolean isVersion() {
+        return version;
+    }
+
+    public void setVersion(boolean version) {
+        this.version = version;
+    }
+
+    public byte toFlags() {
+        int flags = 0;
+        if (protocol) flags |= Flags.PROTOCOL.mask;
+        if (version) flags |= Flags.VERSION.mask;
+        return (byte) flags;
+    }
+
+    public void fromFlags(byte flags) {
+        this.protocol = Flags.PROTOCOL.isSet(flags);
+        this.version = Flags.VERSION.isSet(flags);
+    }
+
+    public enum Flags {
+        PROTOCOL(0x01),
+        VERSION(0x02);
+
+        private final int mask;
+
+        Flags(int mask) {
+            this.mask = mask;
+        }
+
+        public int getMask() {
+            return mask;
+        }
+
+        public boolean isSet(int flags) {
+            return (flags & mask) == mask;
+        }
+    }
 }

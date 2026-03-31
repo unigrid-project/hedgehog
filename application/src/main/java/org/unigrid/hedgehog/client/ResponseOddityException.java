@@ -17,16 +17,46 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.client;
+    package org.unigrid.hedgehog.client;
 
-import jakarta.ws.rs.core.Response.Status;
-import jakarta.ws.rs.core.Response.StatusType;
-
-public class ResponseOddityException extends Exception {
-	public ResponseOddityException(StatusType status) {
-		super(String.format("%d %s (%s)",
-			status.getStatusCode(), Status.fromStatusCode(status.getStatusCode()),
-			status.getReasonPhrase())
-		);
-	}
-}
+    import java.io.Serial;
+    import java.util.Objects;
+    
+    /**
+     * Exception som används när ett oväntat HTTP-response status inträffar.
+     *
+     * Denna version är självständig och kräver inga externa Jakarta / JAX-RS beroenden.
+     */
+    public final class ResponseOddityException extends Exception {
+    
+        @Serial
+        private static final long serialVersionUID = 1L;
+    
+        private final int statusCode;
+        private final String reason;
+    
+        /**
+         * Skapar ett nytt undantag baserat på HTTP statuskod och en beskrivning.
+         *
+         * @param statusCode HTTP-statuskod
+         * @param reason     Beskrivning av status (t.ex. "Not Found")
+         */
+        public ResponseOddityException(int statusCode, String reason) {
+            super(formatStatus(statusCode, reason));
+            this.statusCode = statusCode;
+            this.reason = Objects.requireNonNullElse(reason, "No reason provided");
+        }
+    
+        private static String formatStatus(int code, String reason) {
+            return String.format("%d (%s)", code, Objects.requireNonNullElse(reason, "No reason provided"));
+        }
+    
+        public int getStatusCode() {
+            return statusCode;
+        }
+    
+        public String getReason() {
+            return reason;
+        }
+    }
+    

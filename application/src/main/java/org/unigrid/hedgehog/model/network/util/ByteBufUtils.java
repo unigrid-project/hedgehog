@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.util;
+ package org.unigrid.hedgehog.model.network.util;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.util.CharsetUtil;
@@ -27,36 +26,37 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class ByteBufUtils {
-	public static String readNullTerminatedString(ByteBuf src) {
-		final byte[] result = new byte[src.bytesBefore((byte) 0)];
 
-		src.readBytes(result);
-		src.skipBytes(1); /* Skip the null terminator */
+    public static String readNullTerminatedString(ByteBuf src) {
+        final byte[] result = new byte[src.bytesBefore((byte) 0)];
 
-		return new String(result, CharsetUtil.UTF_8);
-	}
+        src.readBytes(result);
+        src.skipBytes(1);
 
-	public static void writeNullTerminatedString(String src, ByteBuf dest) {
-		dest.writeBytes(src.getBytes(CharsetUtil.UTF_8));
-		dest.writeZero(1); /* Null terminate */
-	}
+        return new String(result, CharsetUtil.UTF_8);
+    }
 
-	public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader) {
-		final T length = reader.apply(src);
-		final List<String> strings = new ArrayList<>();
+    public static void writeNullTerminatedString(String src, ByteBuf dest) {
+        dest.writeBytes(src.getBytes(CharsetUtil.UTF_8));
+        dest.writeZero(1);
+    }
 
-		for (int i = 0; i < (int) length; i++) {
-			strings.add(readNullTerminatedString(src));
-		}
+    public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader) {
+        final T length = reader.apply(src);
+        final List<String> strings = new ArrayList<>();
 
-		return strings.toArray(new String[0]);
-	}
+        for (int i = 0; i < (int) length; i++) {
+            strings.add(readNullTerminatedString(src));
+        }
 
-	public static void writeNullTerminatedStringArray(String[] src, ByteBuf dest, Consumer<ByteBuf> writer) {
-		writer.accept(dest);
+        return strings.toArray(new String[0]);
+    }
 
-		for (String s : src) {
-			writeNullTerminatedString(s, dest);
-		}
-	}
-}
+    public static void writeNullTerminatedStringArray(String[] src, ByteBuf dest, Consumer<ByteBuf> writer) {
+        writer.accept(dest);
+
+        for (String s : src) {
+            writeNullTerminatedString(s, dest);
+        }
+    }
+} 

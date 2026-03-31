@@ -16,58 +16,61 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model.network.handler;
 
-package org.unigrid.hedgehog.model.network.handler;
-
-import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.incubator.codec.quic.QuicConnectionEvent;
 import io.netty.util.AttributeKey;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.CDI;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 
-@Slf4j
-@Sharable
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+
+@ChannelHandler.Sharable
 public class ConnectionHandler extends ChannelInboundHandlerAdapter {
-	public static final AttributeKey<InetSocketAddress> SOCKET_ADDRESS_KEY = AttributeKey.valueOf("SOCKET_ADDRESS");
 
-	private int getPort(ChannelHandlerContext ctx) {
-		final InetSocketAddress oldAddress = ctx.channel().attr(SOCKET_ADDRESS_KEY).get();
-		return Objects.isNull(oldAddress) ? NetOptions.getPort() : oldAddress.getPort();
-	}
+    private static final Logger log = LoggerFactory.getLogger(ConnectionHandler.class);
 
-	@Override
-	public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-		final Instance<Topology> topology = CDI.current().select(Topology.class);
+    public static final AttributeKey<InetSocketAddress> SOCKET_ADDRESS_KEY =
+            AttributeKey.valueOf("SOCKET_ADDRESS");
 
-		if (topology.isResolvable() && evt instanceof QuicConnectionEvent event) {
-			log.atDebug().log("New address (or change) detected");
+    private int resolvePort(ChannelHandlerContext ctx) {
+        InetSocketAddress existing = ctx.channel().attr(SOCKET_ADDRESS_KEY).get();
+        NetOptions netOptions = new NetOptions();
+        return existing != null ? existing.getPort() : netOptions.getPort();
+    }
 
-			final InetAddress addr = ((InetSocketAddress) event.newAddress()).getAddress();
-			final InetSocketAddress oldWPort = ctx.channel().attr(SOCKET_ADDRESS_KEY).get();
-			final InetSocketAddress newWPort = new InetSocketAddress(addr.getHostAddress(), getPort(ctx));
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (!(evt instanceof QuicConnectionEvent event)) {
+            ctx.fireUserEventTriggered(evt);
+            return;
+        }
 
-			if (Objects.nonNull(oldWPort)) {
-				final Node node = Node.builder().address(oldWPort).build();
+        Instance<Topology> topologyInstance = CDI.current().select(Topology.class);
+        if (!topologyInstance.isResolvable()) {
+            log.warn("Topology bean not resolvable");
+            return;
+        }
 
-				topology.get().modifyNode(node, n -> {
-					log.atTrace().log("Modifying node {} with new address {}", n, newWPort);
-					n.setAddress(newWPort);
-				});
-			}
+        InetAddress inetAddress = ((InetSocketAddress) event.newAddress()).getAddress();
+        InetSocketAddress newAddress = new InetSocketAddress(inetAddress.getHostAddress(), resolvePort(ctx));
+        InetSocketAddress oldAddress = ctx.channel().attr(SOCKET_ADDRESS_KEY).get();
 
-			log.atTrace().log("Stored new address {} on channel {}", newWPort, ctx.channel());
-			ctx.channel().attr(SOCKET_ADDRESS_KEY).set(newWPort);
-		} else {
-			log.atWarn().log("Unable to resolve Topology instance");
-		}
-	}
+        if (oldAddress != null) {
+            Node node = new Node(oldAddress);
+            topologyInstance.get().modifyNode(node, n -> n.setAddress(newAddress));
+        }
+
+        ctx.channel().attr(SOCKET_ADDRESS_KEY).set(newAddress);
+        log.debug("Channel {} updated address to {}", ctx.channel().id(), newAddress);
+    }
 }

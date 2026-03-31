@@ -16,28 +16,45 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.packet;
+ package org.unigrid.hedgehog.model.network.packet;
 
 import io.netty.util.AttributeKey;
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
-public class Ping extends Packet implements Serializable {
-	public static final AttributeKey<Long> PING_TIME_KEY = AttributeKey.valueOf("PING_TIME");
-	public static final int HEARTBEAT_MINUTES = 3;
+public final class Ping extends Packet implements Serializable {
 
-	private boolean response;
-	@Builder.Default private long nanoTime = System.nanoTime();
+    private static final long serialVersionUID = 1L;
 
-	public Ping() {
-		setType(Type.PING);
-	}
+    public static final AttributeKey<Long> PING_TIME_KEY =
+            AttributeKey.valueOf("PING_TIME");
+
+    private boolean response;
+    private long nanoTime;
+
+    public Ping() {
+        this(false, System.nanoTime());
+        setType(Type.PING);
+    }
+
+    public Ping(boolean response, long nanoTime) {
+        this.response = response;
+        this.nanoTime = nanoTime;
+        setType(Type.PING);
+    }
+
+    public boolean isResponse() {
+        return response;
+    }
+
+    public void setResponse(boolean response) {
+        this.response = response;
+    }
+
+    public long getNanoTime() {
+        return nanoTime;
+    }
+
+    public void setNanoTime(long nanoTime) {
+        this.nanoTime = nanoTime;
+    }
 }

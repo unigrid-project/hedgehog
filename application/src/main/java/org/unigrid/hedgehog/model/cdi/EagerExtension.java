@@ -17,38 +17,59 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+	package org.unigrid.hedgehog.model.cdi;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.event.Observes;
-import jakarta.enterprise.inject.spi.AfterDeploymentValidation;
-import jakarta.enterprise.inject.spi.Bean;
-import jakarta.enterprise.inject.spi.BeanManager;
-import jakarta.enterprise.inject.spi.Extension;
-import jakarta.enterprise.inject.spi.ProcessBean;
-import java.util.ArrayList;
-import java.util.List;
-import lombok.extern.slf4j.Slf4j;
-
-@Slf4j
-public class EagerExtension implements Extension {
-	private final List<Bean<?>> eagerBeansList = new ArrayList<>();
-
-	public <T> void collect(@Observes ProcessBean<T> event) {
-		if (event.getAnnotated().isAnnotationPresent(Eager.class)
-			&& event.getAnnotated().isAnnotationPresent(ApplicationScoped.class)) {
-
-			eagerBeansList.add(event.getBean());
+	import jakarta.enterprise.context.ApplicationScoped;
+	import jakarta.enterprise.event.Observes;
+	import jakarta.enterprise.inject.spi.AfterDeploymentValidation;
+	import jakarta.enterprise.inject.spi.Bean;
+	import jakarta.enterprise.inject.spi.BeanManager;
+	import jakarta.enterprise.inject.spi.Extension;
+	import jakarta.enterprise.inject.spi.ProcessBean;
+	import java.util.ArrayList;
+	import java.util.List;
+	import org.slf4j.Logger;
+	import org.slf4j.LoggerFactory;
+	
+	/**
+	 * CDI Extension som hanterar @Eager beans.
+	 *
+	 * Vid container-start kommer alla ApplicationScoped beans
+	 * med @Eager annotering att instansieras direkt.
+	 */
+	public class EagerExtension implements Extension {
+	
+		private static final Logger log = LoggerFactory.getLogger(EagerExtension.class);
+	
+		private final List<Bean<?>> eagerBeans = new ArrayList<>();
+	
+		/**
+		 * Samla alla beans som har @Eager + @ApplicationScoped.
+		 */
+		public <T> void collectEagerBeans(@Observes ProcessBean<T> event) {
+			if (event.getAnnotated().isAnnotationPresent(Eager.class) &&
+				event.getAnnotated().isAnnotationPresent(ApplicationScoped.class)) {
+				eagerBeans.add(event.getBean());
+			}
+		}
+	
+		/**
+		 * Efter container start, instansiera alla samlade beans.
+		 */
+		public void instantiateEagerBeans(@Observes AfterDeploymentValidation event, BeanManager beanManager) {
+			for (Bean<?> bean : eagerBeans) {
+				try {
+					log.debug("Instantiating @Eager bean: {}", bean.getBeanClass());
+					// Tvingar instansiering
+					beanManager.getReference(
+							bean,
+							bean.getBeanClass(),
+							beanManager.createCreationalContext(bean)
+					).toString();
+				} catch (Exception ex) {
+					log.warn("Failed to instantiate @Eager bean {}: {}", bean.getBeanClass(), ex.getMessage());
+				}
+			}
 		}
 	}
-
-	public void load(@Observes AfterDeploymentValidation event, BeanManager beanManager) {
-		eagerBeansList.forEach((bean) -> {
-			log.atDebug().log("@Eager instantiation detected on {}", bean);
-
-			beanManager.getReference(bean, bean.getBeanClass(),
-				beanManager.createCreationalContext(bean)
-			).toString();
-		});
-	}
-}
+	

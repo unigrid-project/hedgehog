@@ -14,45 +14,60 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
 */
 
-package org.unigrid.hedgehog.common.model;
+ package org.unigrid.hedgehog.common.model;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import net.harawata.appdirs.AppDirsFactory;
-import org.apache.commons.lang3.SystemUtils;
 
-@RequiredArgsConstructor
 public class ApplicationDirectory {
-	@Getter private final String author;
-	@Getter private final String name;
 
-	public Path getUserCacheDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserCacheDir(name, null, author));
-	}
+    private final String author;
+    private final String name;
 
-	public Path getUserConfigDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserConfigDir(name, null, author, true));
-	}
+    // Konstruktor
+    public ApplicationDirectory(String author, String name) {
+        this.author = author;
+        this.name = name;
+    }
 
-	public Path getUserDataDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserDataDir(name, null, author, true));
-	}
+    // Getter
+    public String getAuthor() {
+        return author;
+    }
 
-	public Path getUserLogDir() {
-		return Paths.get(AppDirsFactory.getInstance().getUserLogDir(name, null, author));
-	}
+    public String getName() {
+        return name;
+    }
 
-	public static ApplicationDirectory create() {
-		String author = Version.getAuthor();
-		String name = Version.getName();
+    // Directory-metoder (enkelt alternativ utan AppDirs)
+    public Path getUserCacheDir() {
+        return Paths.get(System.getProperty("user.home"), "." + name, "cache");
+    }
 
-		if (SystemUtils.IS_OS_UNIX && !SystemUtils.IS_OS_MAC) {
-			author = author.toLowerCase();
-			name = name.toLowerCase();
-		}
+    public Path getUserConfigDir() {
+        return Paths.get(System.getProperty("user.home"), "." + name, "config");
+    }
 
-		return new ApplicationDirectory(author, name);
-	}
+    public Path getUserDataDir() {
+        return Paths.get(System.getProperty("user.home"), "." + name, "data");
+    }
+
+    public Path getUserLogDir() {
+        return Paths.get(System.getProperty("user.home"), "." + name, "logs");
+    }
+
+    // Fabrikmetod
+    public static ApplicationDirectory create() {
+        String author = Version.getAuthor();
+        String name = Version.getName();
+
+        // Om Unix, gör små bokstäver
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("nix") || os.contains("nux")) {
+            author = author.toLowerCase();
+            name = name.toLowerCase();
+        }
+
+        return new ApplicationDirectory(author, name);
+    }
 }

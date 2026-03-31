@@ -17,43 +17,46 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
-import java.net.InetSocketAddress;
-import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import static org.unigrid.hedgehog.model.network.handler.ConnectionHandler.SOCKET_ADDRESS_KEY;
 import org.unigrid.hedgehog.model.network.packet.Hello;
 
-@Slf4j
+import java.net.InetSocketAddress;
+import java.util.Optional;
+
+import static org.unigrid.hedgehog.model.network.handler.ConnectionHandler.SOCKET_ADDRESS_KEY;
+
 @Sharable
 public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
-	public HelloChannelHandler() {
-		super(Hello.class);
-	}
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, Hello hello) throws Exception {
-		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
-			log.atTrace().log("HELLO with port {} from source {}", hello.getPort(), address.getAddress());
+    private static final Logger log = LoggerFactory.getLogger(HelloChannelHandler.class);
 
-			final ConnectionContainer container = ConnectionContainer.builder()
-				.channel((QuicStreamChannel) ctx.channel())
-				.build();
+    public HelloChannelHandler() {
+        super(Hello.class);
+    }
 
-			topology.addNode(Node.builder()
-				.address(new InetSocketAddress(address.getAddress(), hello.getPort()))
-				.connection(Optional.of(container))
-				.build()
-			);
-		});
-	}
+    @Override
+    public void typedChannelRead(ChannelHandlerContext ctx, Hello hello) throws Exception {
+        CDIUtil.resolveAndRun(Topology.class, topology -> {
+            final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
+            log.trace("HELLO with port {} from source {}", hello.getPort(), address.getAddress());
+
+            final ConnectionContainer container = new ConnectionContainer((QuicStreamChannel) ctx.channel());
+
+            topology.addNode(Node.builder()
+                    .address(new InetSocketAddress(address.getAddress(), hello.getPort()))
+                    .connection(Optional.of(container))
+                    .build()
+            );
+        });
+    }
 }

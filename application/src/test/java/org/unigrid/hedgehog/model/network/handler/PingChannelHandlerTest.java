@@ -16,14 +16,13 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import lombok.SneakyThrows;
+import java.util.function.BiConsumer;
 import mockit.Mocked;
 import mockit.Tested;
 import net.jqwik.api.Example;
@@ -34,60 +33,66 @@ import net.jqwik.api.ShrinkingMode;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.Connection;
-import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHandler> {
-	public PingChannelHandlerTest() {
-		super(PingChannelHandler.class);
-	}
 
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
-	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
-		@Mocked PingSchedule pingSchedule) throws Exception {
+    public PingChannelHandlerTest() {
+        super(PingChannelHandler.class);
+    }
 
-		final AtomicInteger invocations = new AtomicInteger();
-		int expectedInvocations = 0;
+    @Property(tries = 30, shrinking = ShrinkingMode.OFF)
+    public void shoulBeAbleToPingNetwork(
+            @ForAll("provideTestServers") List<TestServer> servers,
+            @ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
+            @Mocked PingSchedule pingSchedule) throws Exception {
 
-		setChannelCallback(Optional.of((ctx, ping) -> {
-			/* Only count triggers on the server-side  */
-			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
-				invocations.incrementAndGet();
-			}
-		}));
+        final AtomicInteger invocations = new AtomicInteger();
+        int expectedInvocations = 0;
 
-		for (TestServer server : servers) {
-			final String host = server.getP2p().getHostName();
-			final int port = server.getP2p().getPort();
-			final Connection connection = new P2PClient(host, port);
+        BiConsumer<ChannelHandlerContext, Ping> callback = (ctx, ping) -> {
+            if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
+                invocations.incrementAndGet();
+            }
+        };
 
-			for (int i = 0; i < pingsPerServer; i++) {
-				connection.send(Ping.builder().build());
-				expectedInvocations++;
-			}
+        setChannelCallback(Optional.of(callback));
 
-			await().untilAtomic(invocations, is(expectedInvocations));
-			connection.closeDirty();
-		}
+        for (TestServer server : servers) {
+            final String host = server.getP2p().getHostName();
+            final int port = server.getP2p().getPort();
+            final Connection connection = new P2PClient(host, port);
 
-		await().untilAtomic(invocations, is(expectedInvocations));
-	}
+            for (int i = 0; i < pingsPerServer; i++) {
+                connection.send(new Ping());
+                expectedInvocations++;
+            }
 
-	@Example
-	@SneakyThrows
-	public void shouldSetResponseFlagOnResponse(@Mocked ChannelHandlerContext context,
-		@Tested PingChannelHandler handler) {
+            await().untilAtomic(invocations, is(expectedInvocations));
+            connection.closeDirty();
+        }
 
-		final Ping ping = Ping.builder().build();
-		assertThat(ping.getNanoTime(), not(0));
-		assertThat(ping.isResponse(), is(false));
+        await().untilAtomic(invocations, is(expectedInvocations));
+    }
 
-		handler.typedChannelRead(context, ping);
-		assertThat(ping.isResponse(), is(true));
-	}
+    @Example
+    public void shouldSetResponseFlagOnResponse(
+            @Mocked ChannelHandlerContext context,
+            @Tested PingChannelHandler handler) throws Exception {
+
+        final Ping ping = new Ping();
+
+        assertThat(ping.getNanoTime(), not(0L));
+        assertThat(ping.isResponse(), is(false));
+
+        handler.typedChannelRead(context, ping);
+
+        assertThat(ping.isResponse(), is(true));
+    }
 }

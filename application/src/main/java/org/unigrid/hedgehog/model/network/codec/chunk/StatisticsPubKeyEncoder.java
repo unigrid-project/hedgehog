@@ -17,35 +17,76 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+	package org.unigrid.hedgehog.model.network.codec.chunk;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.chunk.Chunk;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
-
-@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class StatisticsPubKeyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<StatisticsPubKey.SporkData> {
-	/*
-	    Chunk format:
-	    0..............................................................63
-	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [                           reserved                           ]
-	    [                     << pubkey (0-term) >>                    ]
-	*/
-	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, StatisticsPubKey.SporkData data, ByteBuf out) throws Exception {
-		out.writeZero(8 /* 64 bits */);
-		ByteBufUtils.writeNullTerminatedString(data.getPublicKey(), out);
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	
+	import java.lang.reflect.Field;
+	
+	import org.unigrid.hedgehog.model.network.chunk.Chunk;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+	import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+	import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+	import org.unigrid.hedgehog.model.spork.GridSpork;
+	import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
+	
+	@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
+	public final class StatisticsPubKeyEncoder
+			implements TypedCodec<GridSpork.Type>,
+					   ChunkEncoder<StatisticsPubKey.SporkData> {
+	
+		/*
+			Chunk format:
+			0..............................................................63
+			[         << Spork Header (AbstractGridSporkDecoder) >>        ]
+			[                           reserved                           ]
+			[                     << pubkey (0-term) >>                    ]
+		*/
+	
+		@Override
+		public void encodeChunk(
+				ChannelHandlerContext ctx,
+				StatisticsPubKey.SporkData data,
+				ByteBuf out
+		) throws Exception {
+	
+			if (data == null) {
+				throw new IllegalArgumentException("StatisticsPubKey.SporkData is null");
+			}
+	
+			String publicKey = (String) getPrivateField(data, "publicKey");
+	
+			if (publicKey == null) {
+				throw new IllegalArgumentException("StatisticsPubKey publicKey is null");
+			}
+	
+			out.writeZero(8); // 64 bits reserved
+			ByteBufUtils.writeNullTerminatedString(publicKey, out);
+		}
+	
+		@Override
+		public GridSpork.Type getCodecType() {
+			return GridSpork.Type.STATISTICS_PUBKEY;
+		}
+	
+		// =========================
+		// Reflection helper
+		// =========================
+	
+		private static Object getPrivateField(Object target, String fieldName) {
+			try {
+				Field field = target.getClass().getDeclaredField(fieldName);
+				field.setAccessible(true);
+				return field.get(target);
+			} catch (Exception e) {
+				throw new IllegalStateException(
+						"Unable to read field '" + fieldName +
+						"' from " + target.getClass(),
+						e
+				);
+			}
+		}
 	}
-
-	@Override
-	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.STATISTICS_PUBKEY;
-	}
-}
+	

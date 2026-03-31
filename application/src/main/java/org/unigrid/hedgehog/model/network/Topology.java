@@ -16,111 +16,121 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model.network;
 
-package org.unigrid.hedgehog.model.network;
-
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+
 import java.net.URISyntaxException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.configuration2.sync.LockMode;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.Lock;
+import org.unigrid.hedgehog.model.cdi.LockMode;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Slf4j
 @ApplicationScoped
 public class Topology {
-	private HashSet<Node> nodes;
 
-	@Inject
-	@Getter private ChannelMap channels;
+    private static final Logger log = LoggerFactory.getLogger(Topology.class);
 
-	@PostConstruct
-	private void init() {
-		repopulate();
-	}
+    private HashSet<Node> nodes = new HashSet<>();
 
-	@Protected @Lock(LockMode.WRITE)
-	public void clear() {
-		nodes.clear();
-	}
+    @Inject
+    private ChannelMap channels;
 
-	@Protected @Lock(LockMode.READ)
-	public void repopulate() {
-		nodes = new HashSet<>();
-		channels.clear();
+    @PostConstruct
+    private void init() {
+        repopulate();
+    }
 
-		for (String address : Network.getSeeds()) {
-			try {
-				final Node node = Node.fromAddress(address);
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void clear() {
+        nodes.clear();
+    }
 
-				if (!node.isMe()) {
-					addNode(node);
-				}
-			} catch (URISyntaxException ex) {
-				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
-			}
-		}
-	}
+    @Protected
+    @Lock(LockMode.READ)
+    public void repopulate() {
+        nodes.clear();
+        channels.clear();
 
-	@Protected @Lock(LockMode.READ)
-	public void forEach(Consumer<Node> consumer) {
-		nodes.forEach(consumer);
-	}
+        for (String address : Network.getSeeds()) {
+            try {
+                final Node node = Node.fromAddress(address);
+                if (!node.isMe(NetOptions.getPort())) {
+                    addNode(node);
+                }
+            } catch (URISyntaxException ex) {
+                log.error("Invalid address format for seed node {}", address, ex);
+            }
+        }
+    }
 
-	public boolean isEmpty() {
-		return nodes.isEmpty();
-	}
+    @Protected
+    @Lock(LockMode.READ)
+    public void forEach(Consumer<Node> consumer) {
+        nodes.forEach(consumer);
+    }
 
-	@Protected @Lock(LockMode.WRITE)
-	public void modifyNode(Node node, Consumer<Node> consumer) {
-		nodes.forEach(n -> {
-			if (node.equals(n)) {
-				consumer.accept(n);
-			}
-		});
-	}
+    @Protected
+    @Lock(LockMode.WRITE)
+    public boolean addNode(Node node) {
+        if (!nodes.contains(node) && !node.isMe(NetOptions.getPort())) {
+            return nodes.add(node);
+        }
+        return false;
+    }
 
-	@Protected @Lock(LockMode.READ)
-	public Set<Node> cloneNodes() {
-		return new HashSet(nodes);
-	}
+    public boolean isEmpty() {
+        return nodes.isEmpty();
+    }
 
-	@Protected @Lock(LockMode.READ)
-	public boolean containsNode(Node node) {
-		return nodes.contains(node);
-	}
+    @Protected
+    @Lock(LockMode.READ)
+    public Set<Node> cloneNodes() {
+        return new HashSet<>(nodes);
+    }
 
-	@Protected @Lock(LockMode.WRITE)
-	public boolean addNode(Node node) {
-		if (!nodes.contains(node) && !node.isMe()) {
-			return nodes.add(node);
-		}
+    @Protected
+    @Lock(LockMode.READ)
+    public boolean containsNode(Node node) {
+        return nodes.contains(node);
+    }
 
-		return false;
-	}
+    @Protected
+    @Lock(LockMode.WRITE)
+    public boolean removeNode(Node node) {
+        return nodes.remove(node);
+    }
 
-	@Protected @Lock(LockMode.WRITE)
-	public boolean removeNode(Node node) {
-		return nodes.remove(node);
-	}
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void modifyNode(Node node, java.util.function.Consumer<Node> modifier) {
+        if (nodes.contains(node)) {
+            modifier.accept(node);
+        }
+    }
 
-	@Protected @Lock(LockMode.READ)
-	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
-		topology.forEach(node -> {
-			if (node.getConnection().isPresent()) {
-				Node.send(packet, node, consumer);
-			}
-		});
-	}
+    @Protected
+    @Lock(LockMode.READ)
+    public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future<?>>> consumer) {
+        topology.forEach(node -> {
+            if (node.getConnection().isPresent()) {
+                Node.send(packet, node, consumer);
+            }
+        });
+    }
 }

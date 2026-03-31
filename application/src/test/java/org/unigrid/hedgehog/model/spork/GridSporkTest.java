@@ -17,66 +17,78 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.time.Instant;
+
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.Example;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 
 public class GridSporkTest extends BaseMockedWeldTest {
-	final GridSpork gridSpork = new GridSpork();
 
-	@BeforeProperty
-	public void before() {
-		gridSpork.setTimeStamp(Instant.now());
-	}
+    final GridSpork gridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
 
-	@Example
-	public void shouldBeNewerIfOtherIsNull() {
-		assertThat(gridSpork.isNewerThan(null), is(true));
-	}
+    @BeforeProperty
+    public void before() {
+        gridSpork.setTimeStamp(Instant.now());
+    }
 
-	@Example
-	public void shouldBeNewerIfOtherTimeStampIsNull() {
-		final GridSpork otherGridSpork = new GridSpork();
+    @Example
+    public void shouldBeNewerIfOtherIsNull() {
+        assertThat(gridSpork.isNewerThan(null), is(true));
+    }
 
-		assertThat(gridSpork.isNewerThan(otherGridSpork), is(true));
-	}
+    @Example
+    public void shouldBeNewerIfOtherTimeStampIsNull() {
 
-	@Example
-	public void shouldBeNewerIfOtherIsOlder() {
-		final GridSpork otherGridSpork = new GridSpork();
-		otherGridSpork.setTimeStamp(gridSpork.getTimeStamp().minusSeconds(60));
+        GridSpork otherGridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
 
-		assertThat(gridSpork.isNewerThan(otherGridSpork), is(true));
-	}
+        assertThat(gridSpork.isNewerThan(otherGridSpork), is(true));
+    }
 
-	@Example
-	public void shouldNotBeNewerIfTimeStampIsNull() {
-		final GridSpork otherGridSpork = new GridSpork();
-		otherGridSpork.setTimeStamp(gridSpork.getTimeStamp());
-		gridSpork.setTimeStamp(null);
+    @Example
+    public void shouldBeNewerIfOtherIsOlder() {
 
-		assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
-	}
+        GridSpork otherGridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+        otherGridSpork.setTimeStamp(gridSpork.getTimeStamp().minusSeconds(60));
 
-	@Example
-	public void shouldNotBeNewerIfOtherIsNewer() {
-		final GridSpork otherGridSpork = new GridSpork();
-		otherGridSpork.setTimeStamp(gridSpork.getTimeStamp().plusSeconds(60));
+        assertThat(gridSpork.isNewerThan(otherGridSpork), is(true));
+    }
 
-		assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
-	}
+    @Example
+    public void shouldNotBeNewerIfTimeStampIsNull() {
 
-	@Example
-	public void shouldNotBeNewerIfAllTimeStampsNull() {
-		final GridSpork otherGridSpork = new GridSpork();
-		otherGridSpork.setTimeStamp(null);
-		gridSpork.setTimeStamp(null);
+        GridSpork otherGridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+        otherGridSpork.setTimeStamp(gridSpork.getTimeStamp());
 
-		assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
-	}
+        gridSpork.setTimeStamp(null);
+
+        assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
+    }
+
+    @Example
+    public void shouldNotBeNewerIfOtherIsNewer() {
+
+        GridSpork otherGridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+        otherGridSpork.setTimeStamp(gridSpork.getTimeStamp().plusSeconds(60));
+
+        assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
+    }
+
+    @Example
+    public void shouldNotBeNewerIfAllTimeStampsNull() {
+
+        GridSpork otherGridSpork = GridSpork.create(GridSpork.Type.MINT_STORAGE);
+
+        otherGridSpork.setTimeStamp(null);
+        gridSpork.setTimeStamp(null);
+
+        assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
+    }
 }
+ 

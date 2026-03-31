@@ -17,16 +17,20 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.chunk;
+    package org.unigrid.hedgehog.model.network.chunk;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Target;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-
-@Target(ElementType.TYPE)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface Chunk {
-	ChunkGroup group() default ChunkGroup.DEFAULT;
-	ChunkType type();
-}
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    /**
+     * Marker-annotation för Chunk-klasser.
+     */
+    @Target(ElementType.TYPE)
+    @Retention(RetentionPolicy.RUNTIME)
+    public @interface Chunk {
+        ChunkGroup group() default ChunkGroup.DEFAULT;
+        ChunkType type();
+    }
+    

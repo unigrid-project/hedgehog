@@ -16,63 +16,63 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
-@Data
-@Slf4j
-@EqualsAndHashCode(callSuper = false)
-public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Schedulable {
-	public PublishAndSaveSporkSchedule() {
-		super(PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
-	}
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
-	private void save(SporkDatabase sporkDatabase) {
-		CDIUtil.resolveAndRun(ApplicationDirectory.class, dir -> {
-			final Path path = Path.of(dir.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
+public final class PublishAndSaveSporkSchedule extends AbstractSchedule {
 
-			try {
-				Files.createDirectories(dir.getUserDataDir());
-				SporkDatabase.persist(path, sporkDatabase);
+    private static final Logger log = LoggerFactory.getLogger(PublishAndSaveSporkSchedule.class);
+    private static final int INTERVAL_SECONDS = 15 * 60;
 
-			} catch (Exception ex) {
-				log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
-				log.atTrace().log(() -> ex.toString());
-			}
-		});
-	}
+    @Override
+    public int getPeriod() {
+        return INTERVAL_SECONDS;
+    }
 
-	@Override
-	public Consumer<Channel> getConsumer() {
-		return channel -> {
-			CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-				writeAndFlush(channel, db);
-				save(db);
-			});
-		};
-	}
+    @Override
+    public TimeUnit getTimeUnit() {
+        return TimeUnit.SECONDS;
+    }
 
-	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase) {
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getMintStorage()).build());
+    @Override
+    public boolean isExecuteOnCreation() {
+        return true;
+    }
 
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getMintSupply()).build());
+    private void saveDb(SporkDatabase db) {
+        CDIUtil.resolveAndRun(ApplicationDirectory.class, dir -> {
+            try {
+                Path path = Path.of(dir.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
+                Files.createDirectories(dir.getUserDataDir());
+                SporkDatabase.persist(path, db);
+            } catch (Exception ex) {
+                log.warn("Saving of spork database failed", ex);
+            }
+        });
+    }
 
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getVestingStorage()).build());
-	}
+    @Override
+    public Consumer<Channel> getConsumer() {
+        return channel -> CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+            if (channel != null) {
+                channel.writeAndFlush(new PublishSpork(db.getMintStorage()));
+                channel.writeAndFlush(new PublishSpork(db.getMintSupply()));
+                channel.writeAndFlush(new PublishSpork(db.getVestingStorage()));
+                channel.writeAndFlush(new PublishSpork(db.getStatisticsPubKey()));
+            }
+            saveDb(db);
+        });
+    }
 }

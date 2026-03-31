@@ -16,55 +16,57 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model.network;
 
-package org.unigrid.hedgehog.model.network;
-
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
-import io.netty.incubator.codec.quic.QuicStreamChannel;
-import java.util.Optional;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.SneakyThrows;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
+import java.util.Optional;
+
 public class ConnectionContainer implements Connection {
-	@Getter protected QuicStreamChannel channel;
-	@Getter protected Optional<EventLoopGroup> group;
 
-	@Override
-	public ChannelFuture send(Packet packet) {
-		return channel.writeAndFlush(packet);
-	}
+    protected Optional<EventLoopGroup> group = Optional.empty();
+    protected Channel channel;
 
-	@SneakyThrows
-	public void close() {
-		if (!channel.isShutdown()) {
-			channel.shutdown().sync();
-		}
+    public ConnectionContainer(Channel channel) {
+        this.channel = channel;
+    }
 
-		if (group.isPresent()) {
-			if (!group.get().isShuttingDown()) {
-				group.get().shutdownGracefully().sync();
-			}
-		}
-	}
+    public ConnectionContainer(Channel channel, EventLoopGroup group) {
+        this.channel = channel;
+        this.group = Optional.ofNullable(group);
+    }
 
-	@SneakyThrows
-	public void closeDirty() {
-		if (!channel.isShutdown()) {
-			channel.shutdown();
-		}
+    @Override
+    public Channel getChannel() {
+        return channel;
+    }
 
-		if (group.isPresent()) {
-			if (!group.get().isShuttingDown()) {
-				group.get().shutdownGracefully();
-			}
-		}
-	}
-}
+    @Override
+    public ChannelFuture send(Packet packet) {
+        if (channel != null && channel.isActive()) {
+            return channel.writeAndFlush(packet);
+        }
+        throw new IllegalStateException("Channel is not active");
+    }
+
+    @Override
+    public void close() {
+        if (channel != null) {
+            channel.close();
+        }
+
+        group.ifPresent(EventLoopGroup::shutdownGracefully);
+    }
+
+    @Override
+    public void closeDirty() {
+        if (channel != null) {
+            channel.close();
+        }
+
+        group.ifPresent(EventLoopGroup::shutdownGracefully);
+    }
+} 

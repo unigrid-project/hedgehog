@@ -17,26 +17,65 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.s3.entity;
+ package org.unigrid.hedgehog.model.s3.entity;
 
-import jakarta.xml.bind.annotation.XmlAccessType;
-import jakarta.xml.bind.annotation.XmlAccessorType;
-import jakarta.xml.bind.annotation.XmlElement;
-import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.*;
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Objects;
 
-@Data
 @XmlRootElement
-@NoArgsConstructor
-@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Owner implements Serializable {
-	@XmlElement(name = "DisplayName")
-	private String displayName;
 
-	@XmlElement(name = "ID")
-	private String id;
+    @XmlElement(name = "DisplayName")
+    private String displayName;
+
+    @XmlElement(name = "ID")
+    private String id;
+
+    public Owner() {
+    }
+
+    public Owner(String displayName, String id) {
+        this.displayName = displayName;
+        this.id = id;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Owner)) return false;
+        Owner owner = (Owner) o;
+        return Objects.equals(displayName, owner.displayName) &&
+                Objects.equals(id, owner.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(displayName, id);
+    }
+
+    @Override
+    public String toString() {
+        return "Owner{" +
+                "displayName='" + displayName + '\'' +
+                ", id='" + id + '\'' +
+                '}';
+    }
 }

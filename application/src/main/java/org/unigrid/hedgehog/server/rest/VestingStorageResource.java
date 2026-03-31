@@ -16,100 +16,109 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.validation.constraints.NotNull;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.Objects;
+
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
+
 import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
+import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 
-@Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class VestingStorageResource extends CDIBridgeResource {
-	@CDIBridgeInject
-	private P2PServer p2pServer;
 
-	@CDIBridgeInject
-	private SporkDatabase sporkDatabase;
+    @CDIBridgeInject
+    private SporkDatabase sporkDatabase;
 
-	@CDIBridgeInject
-	private Topology topology;
+    @CDIBridgeInject
+    private Topology topology;
 
-	@Path("/vesting-storage") @GET
-	public Response list() {
-		final VestingStorage vs = sporkDatabase.getVestingStorage();
+    @GET
+    @Path("/vesting-storage")
+    public Response list() {
+        VestingStorage vs = sporkDatabase.getVestingStorage();
+        if (vs == null) {
+            return Response.noContent().build();
+        }
+        return Response.ok(vs).build();
+    }
 
-		if (Objects.isNull(vs)) {
-			return Response.noContent().build();
-		}
+    @GET
+    @Path("/vesting-storage/{address}")
+    public Response get(@NotNull @PathParam("address") String addressValue) {
+        VestingStorage vs = sporkDatabase.getVestingStorage();
+        if (vs == null) {
+            return Response.noContent().build();
+        }
 
-		return Response.ok().entity(sporkDatabase.getVestingStorage()).build();
-	}
+        Object rawData = vs.getData();
+        if (!(rawData instanceof SporkData)) {
+            return Response.serverError().build();
+        }
+        SporkData data = (SporkData) rawData;
 
-	@Path("/vesting-storage/{address}") @GET
-	public Response get(@NotNull @PathParam("address") String address) {
-		if (Objects.isNull(sporkDatabase.getVestingStorage())) {
-			return Response.noContent().build();
-		}
+        // ✅ Skapa Address med konstruktor som tar addressValue
+        Address address = new Address(addressValue);
 
-		final VestingStorage.SporkData data = sporkDatabase.getVestingStorage().getData();
-		final Vesting vesting = data.getVestingAddresses().get(Address.builder().wif(address).build());
+        Vesting vesting = data.getVestingAddresses().get(address);
+        if (vesting == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        return Response.ok(vesting).build();
+    }
 
-		if (Objects.isNull(vesting)) {
-			return Response.status(Response.Status.NOT_FOUND).build();
-		}
+    @PUT
+    @Path("/vesting-storage/{address}")
+    public Response grow(
+            @NotNull Vesting vesting,
+            @NotNull @PathParam("address") String addressValue,
+            @NotNull @HeaderParam("privateKey") String privateKey) {
 
-		return Response.ok().entity(vesting).build();
-	}
+        if (privateKey == null || !NetworkKey.isTrusted(privateKey)) {
+            return Response.status(Response.Status.UNAUTHORIZED).build();
+        }
 
-	@Path("/vesting-storage/{address}") @PUT
-	public Response grow(@NotNull Vesting vesting, @NotNull @PathParam("address") String address,
-		@NotNull @HeaderParam("privateKey") String privateKey) {
+        VestingStorage vs = sporkDatabase.getVestingStorage();
+        if (vs == null) {
+            vs = new VestingStorage();
+        }
 
-		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final VestingStorage vs = ResourceHelper.getNewOrClonedSporkSection(
-				() -> sporkDatabase.getVestingStorage(),
-				() -> new VestingStorage()
-			);
+        Object rawData = vs.getData();
+        if (!(rawData instanceof SporkData)) {
+            return Response.serverError().build();
+        }
+        SporkData data = (SporkData) rawData;
 
-			final VestingStorage.SporkData data = vs.getData();
-			final Vesting oldVesting = data.getVestingAddresses().get(Address.builder().wif(address).build());
-			final boolean isUpdate = Objects.nonNull(oldVesting);
+        //  Skapa Address med korrekt konstruktor
+        Address address = new Address(addressValue);
 
-			vs.archive();
-			data.getVestingAddresses().put(Address.builder().wif(address).build(), vesting);
+        boolean isUpdate = data.getVestingAddresses().containsKey(address);
+        data.getVestingAddresses().put(address, vesting);
 
-			return ResourceHelper.commitAndSign(vs, privateKey, sporkDatabase, isUpdate, signable -> {
-				sporkDatabase.setVestingStorage(signable);
+        // Spara till SporkDatabase
+        sporkDatabase.set(vs);
 
-				Topology.sendAll(PublishSpork.builder().gridSpork(
-					sporkDatabase.getVestingStorage()).build(), topology, Optional.empty()
-				);
-			});
-		}
+        // Broadcast
+        PublishSpork publishSpork = new PublishSpork();
+        publishSpork.setGridSpork(vs);
 
-		return Response.status(Response.Status.UNAUTHORIZED).build();
-	}
+        Topology.sendAll(publishSpork, topology, Optional.empty());
+
+        return isUpdate ? Response.noContent().build() : Response.ok().build();
+    }
 }

@@ -16,37 +16,52 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.model.Address;
+
 import net.jqwik.api.Example;
+
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
+
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 
 public class MintStorageTest {
-	@Example
-	@SneakyThrows
-	public void shouldSerialize() {
-		final MintStorage storage = new MintStorage();
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-		final Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
 
-		storage.setSignature(RandomUtils.nextBytes(16));
-		storage.setData(data);
-		data.setMints(mints);
+    @Example
+    public void shouldSerialize() {
 
-		for (int i = 0; i < 10; i++) {
-			final Address address = new Address(RandomStringUtils.randomAlphabetic(32) + i);
-			mints.put(new MintStorage.SporkData.Location(address, 1000 * i * 42), new BigDecimal(i));
-		}
+        try {
 
-		TestFileOutput.outputJson(storage);
-	}
-}
+            final MintStorage storage = new MintStorage();
+            final MintStorage.SporkData data = new MintStorage.SporkData();
+            final Map<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
+
+            storage.setSignature(RandomUtils.nextBytes(16));
+            storage.setData(data);
+            data.setMints(mints);
+
+            for (int i = 0; i < 10; i++) {
+
+                MintStorage.Address address =
+                        new MintStorage.Address(RandomStringUtils.randomAlphabetic(32) + i);
+
+                MintStorage.SporkData.Location location =
+                        new MintStorage.SporkData.Location();
+
+                location.setAddress(address);
+                location.setHeight(1000 * i * 42);
+
+                mints.put(location, new BigDecimal(i));
+            }
+
+            TestFileOutput.outputJson(storage);
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+} 

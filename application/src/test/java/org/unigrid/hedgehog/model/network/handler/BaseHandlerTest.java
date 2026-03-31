@@ -16,17 +16,13 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.handler;
+  package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
@@ -35,40 +31,52 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.server.BaseServerTest;
 
-@RequiredArgsConstructor
 public class BaseHandlerTest<T extends Packet, H> extends BaseServerTest {
-	@Getter @Setter private Optional<BiConsumer<ChannelHandlerContext, T>> channelCallback = Optional.empty();
-	private final Class<H> channelType;
 
-	@BeforeProperty
-	private void mockBefore() {
-		new MockUp<AbstractInboundHandler>() {
-			@Mock public void channelRead(Invocation invocation, ChannelHandlerContext ctx, Object obj)
-				throws Exception {
+    private final Class<H> channelType;
+    private Optional<BiConsumer<ChannelHandlerContext, T>> channelCallback = Optional.empty();
 
-				/* First, we call the real handler and take care of the packet ... */
-				invocation.proceed(ctx, obj);
+    public BaseHandlerTest(Class<H> channelType) {
+        this.channelType = channelType;
+    }
 
-				/* ... then we execute the callback */
-				if (channelType.equals(invocation.getInvokedInstance().getClass())) {
-					for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
-						if (entry.getValue().getClass().equals(channelType)) {
-							if (channelCallback.isPresent()) {
-								try {
-									channelCallback.get().accept(ctx, (T) obj);
-								} catch(ClassCastException ex) {
-									/* Silently skip packets not intended for this handler */
-								}
-							}
-						}
-					}
-				}
-			}
-		};
-	}
+    public void setChannelCallback(Optional<BiConsumer<ChannelHandlerContext, T>> callback) {
+        this.channelCallback = callback;
+    }
 
-	@AfterProperty
-	private void clearCallback() {
-		channelCallback = Optional.empty();
-	}
+    public Optional<BiConsumer<ChannelHandlerContext, T>> getChannelCallback() {
+        return channelCallback;
+    }
+
+    @BeforeProperty
+    private void mockBefore() {
+        new MockUp<AbstractInboundHandler>() {
+            @Mock
+            public void channelRead(Invocation invocation, ChannelHandlerContext ctx, Object obj) throws Exception {
+
+                // Call original method
+                invocation.proceed(ctx, obj);
+
+                // Callback for the right handler
+                if (channelType.equals(invocation.getInvokedInstance().getClass())) {
+                    for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
+                        if (entry.getValue().getClass().equals(channelType)) {
+                            if (channelCallback.isPresent()) {
+                                try {
+                                    channelCallback.get().accept(ctx, (T) obj);
+                                } catch (ClassCastException ex) {
+                                    // Ignore packets not for this handler
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    @AfterProperty
+    private void clearCallback() {
+        channelCallback = Optional.empty();
+    }
 }

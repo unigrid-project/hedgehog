@@ -17,7 +17,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,30 +25,33 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import lombok.extern.slf4j.Slf4j;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-@Slf4j
 @Provider
 public class JsonExceptionMapper implements ExceptionMapper<JsonMappingException> {
-	@Override
-	public Response toResponse(JsonMappingException exception) {
-		final ObjectNode json = new ObjectMapper().createObjectNode();
-		final StringWriter exceptionMessage = new StringWriter();
 
-		json.put("error", exception.getMessage());
+    private static final Logger log = Logger.getLogger(JsonExceptionMapper.class.getName());
 
-		log.atWarn().log(() -> {
-			exception.printStackTrace(new PrintWriter(exceptionMessage));
+    @Override
+    public Response toResponse(JsonMappingException exception) {
 
-			return String.format("Failed to map JSON, %s, %s",
-				exception.getMessage(),
-				exceptionMessage
-			);
-		});
+        ObjectNode json = new ObjectMapper().createObjectNode();
+        StringWriter exceptionMessage = new StringWriter();
 
-		return Response.status(Response.Status.BAD_REQUEST).entity(json.toPrettyString()).build();
-	}
+        exception.printStackTrace(new PrintWriter(exceptionMessage));
 
+        json.put("error", exception.getMessage());
+
+        log.log(Level.WARNING,
+                "Failed to map JSON: " + exception.getMessage() + "\n" + exceptionMessage
+        );
+
+        return Response.status(Response.Status.BAD_REQUEST)
+                .entity(json.toPrettyString())
+                .build();
+    }
 }

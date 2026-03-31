@@ -17,21 +17,38 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
-import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
+import org.unigrid.hedgehog.model.network.packet.NodeDetails;
 
-@Sharable
-public class AskNodeDetailsChannelHandler extends AbstractInboundHandler<AskNodeDetails> {
-	public AskNodeDetailsChannelHandler() {
-		super(AskNodeDetails.class);
-	}
+@ChannelHandler.Sharable
+public class AskNodeDetailsChannelHandler
+        extends AbstractInboundHandler<AskNodeDetails> {
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext context, AskNodeDetails askNodeDetails) throws Exception {
-		//TODO: Implement me
-		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-	}
+    private static final Logger log =
+            LoggerFactory.getLogger(AskNodeDetailsChannelHandler.class);
+
+    public AskNodeDetailsChannelHandler() {
+        super(AskNodeDetails.class);
+    }
+
+    @Override
+    protected void typedChannelRead(ChannelHandlerContext ctx,
+                                    AskNodeDetails packet) {
+
+        log.debug("Received AskNodeDetails");
+
+        NodeDetails response = new NodeDetails();
+        response.setProtocol(packet.isProtocol());
+        response.setVersion(packet.isVersion());
+
+        ctx.writeAndFlush(response)
+           .addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+    }
 }

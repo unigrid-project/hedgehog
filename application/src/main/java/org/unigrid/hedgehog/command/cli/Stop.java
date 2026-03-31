@@ -16,28 +16,35 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+    package org.unigrid.hedgehog.command.cli;
 
-package org.unigrid.hedgehog.command.cli;
-
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.Response;
-import picocli.CommandLine.Command;
-
-@Command(name = "stop")
-public class Stop extends RestClientCommand {
-	public Stop() {
-		super(HttpMethod.POST, "/stop");
-	}
-
-	@Override
-	protected <T> Entity<T> getEntity() {
-		return null; /* Should result in an empty body */
-	}
-
-	@Override
-	protected void execute(Response response) {
-		/* We don't need to do anything here - not even handle the response */
-	}
-}
+    import jakarta.ws.rs.client.Entity;
+    import jakarta.ws.rs.core.Response;
+    
+    import org.unigrid.hedgehog.command.util.RestClientCommand;
+    import picocli.CommandLine.Command;
+    
+    @Command(name = "stop")
+    public class Stop extends RestClientCommand {
+    
+        public Stop() {
+            super("POST", "/stop");
+        }
+    
+        @Override
+        protected String getLocation() {
+            return pathTemplate;
+        }
+    
+        @Override
+        protected Entity<?> getEntity() {
+            // Tom body – POST utan payload
+            return Entity.text("");
+        }
+    
+        @Override
+        protected void execute(Response response) {
+            // Ingen output behövs
+        }
+    }
+    

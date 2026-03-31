@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.util;
+ package org.unigrid.hedgehog.model.util;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -27,76 +26,67 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import org.apache.commons.lang3.reflect.MethodUtils;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-@Slf4j
 public class Reflection {
-	public static void resetIllegalAccessLogger() throws IllegalAccessException,
-		InvocationTargetException, NoSuchFieldException, NoSuchMethodException {
 
-		Class<?> unsafeClass;
-		Class<?> loggerClass;
+    private static final Logger log = Logger.getLogger(Reflection.class.getName());
 
-		try {
-			unsafeClass = Class.forName("sun.misc.Unsafe");
-			loggerClass = Class.forName("jdk.internal.module.IllegalAccessLogger");
+    public static void resetIllegalAccessLogger() throws IllegalAccessException,
+            InvocationTargetException, NoSuchFieldException, NoSuchMethodException {
 
-		} catch (ClassNotFoundException ex) {
-			log.warn("Unable to choke IllegalAccessLoger", ex);
-			return; /* Bail out, as it means we are on a Java release where we need to ignore this */
-		}
+        Class<?> unsafeClass;
+        Class<?> loggerClass;
 
-		final Field field = unsafeClass.getDeclaredField("theUnsafe");
+        try {
+            unsafeClass = Class.forName("sun.misc.Unsafe");
+            loggerClass = Class.forName("jdk.internal.module.IllegalAccessLogger");
+        } catch (ClassNotFoundException ex) {
+            log.log(Level.WARNING, "Unable to choke IllegalAccessLogger", ex);
+            return;
+        }
 
-		field.setAccessible(true);
-		Object unsafe = field.get(null);
+        final Field field = unsafeClass.getDeclaredField("theUnsafe");
+        field.setAccessible(true);
+        Object unsafe = field.get(null);
 
-		final Field loggerField = loggerClass.getDeclaredField("logger");
-		final Method staticFieldOffset = unsafeClass.getDeclaredMethod("staticFieldOffset", Field.class);
-		final Method putObjectVolatile = unsafeClass.getDeclaredMethod("putObjectVolatile",
-			Object.class, long.class, Object.class
-		);
+        final Field loggerField = loggerClass.getDeclaredField("logger");
+        final Method staticFieldOffset = unsafeClass.getDeclaredMethod("staticFieldOffset", Field.class);
+        final Method putObjectVolatile = unsafeClass.getDeclaredMethod("putObjectVolatile",
+                Object.class, long.class, Object.class);
 
-		final long offset = (long) staticFieldOffset.invoke(unsafe, loggerField);
-		putObjectVolatile.invoke(unsafe, loggerClass, offset, null);
-	}
+        final long offset = (long) staticFieldOffset.invoke(unsafe, loggerField);
+        putObjectVolatile.invoke(unsafe, loggerClass, offset, null);
+    }
 
-	public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
-		final Set<Field> fields = new HashSet<>();
+    public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
+        final Set<Field> fields = new HashSet<>();
+        fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+        if (Objects.nonNull(clazz.getSuperclass())) {
+            fields.addAll(getDeclaredFieldsWithParents(clazz.getSuperclass()));
+        }
+        return fields;
+    }
 
-		/* Class.getFields() only fetches public fields in the class hierarchy. On the other hand,
-		Class.getDeclaredFields() fetches all fields regardless of accessor. So, in order to get all fields in the
-		class hierarchy (not just the public ones), we have to loop through the hierachy and use
-		Class.getDeclaredFields(). */
+    public static Constructor<?> getConstructor(String name, Class<?>... classes)
+            throws ClassNotFoundException, NoSuchMethodException {
 
-		fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+        final Class<?> clazz = Class.forName(name);
+        final Constructor<?> constructor = clazz.getDeclaredConstructor(classes);
+        constructor.setAccessible(true);
+        return constructor;
+    }
 
-		if (Objects.nonNull(clazz.getSuperclass())) {
-			fields.addAll(getDeclaredFieldsWithParents(clazz.getSuperclass()));
-		}
+    public static <T, I> T invoke(I instance, String name, Object... arguments)
+            throws ClassNotFoundException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
 
-		return fields;
-	}
+        return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
+    }
 
-	public static Constructor<?> getConstructor(String name, Class<?>... classes)
-		throws ClassNotFoundException, NoSuchMethodException {
-
-		final Class<?> clazz = Class.forName(name);
-		final Constructor<?> constructor = clazz.getDeclaredConstructor(classes);
-
-		constructor.setAccessible(true);
-		return constructor;
-	}
-
-	public static <T, I> T invoke(I instance, String name, Object... arguments)
-		throws ClassNotFoundException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
-
-		return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
-	}
-
-	public static <R, T> R getFieldValue(T instance, String name) throws IllegalAccessException {
-		return (R) FieldUtils.getField((Class<T>) instance.getClass(), name, true).get(instance);
-	}
-}
+    public static <R, T> R getFieldValue(T instance, String name) throws IllegalAccessException {
+        return (R) FieldUtils.getField((Class<T>) instance.getClass(), name, true).get(instance);
+    }
+} 

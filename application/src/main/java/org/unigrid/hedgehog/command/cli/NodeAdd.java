@@ -17,31 +17,38 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+	package org.unigrid.hedgehog.command.cli;
 
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.Response;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Parameters;
-
-@Command(name = "node-add")
-public class NodeAdd extends RestClientCommand {
-	@Parameters(index = "0", description = "The ip:port combination of the node to add.")
-	private String address;
-
-	public NodeAdd() {
-		super(HttpMethod.POST, "/node");
+	import jakarta.ws.rs.client.Entity;
+	import jakarta.ws.rs.core.Response;
+	
+	import org.unigrid.hedgehog.command.util.RestClientCommand;
+	import picocli.CommandLine.Command;
+	import picocli.CommandLine.Parameters;
+	
+	@Command(name = "node-add")
+	public class NodeAdd extends RestClientCommand {
+	
+		@Parameters(index = "0", description = "The ip:port combination of the node to add.")
+		private String address;
+	
+		public NodeAdd() {
+			super("POST", "/node");
+		}
+	
+		@Override
+		protected String getLocation() {
+			return pathTemplate;
+		}
+	
+		@Override
+		protected Entity<?> getEntity() {
+			return Entity.text(address);
+		}
+	
+		@Override
+		protected void execute(Response response) {
+			System.out.println(response.getLocation());
+		}
 	}
-
-	@Override
-	protected <T> Entity<T> getEntity() {
-		return (Entity<T>) Entity.text(address);
-	}
-
-	@Override
-	protected void execute(Response response) {
-		System.out.println(response.getLocation());
-	}
-}
+	

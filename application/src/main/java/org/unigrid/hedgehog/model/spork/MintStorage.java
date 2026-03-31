@@ -17,78 +17,102 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.KeyDeserializer;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
-import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
-import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
-@Data @ToString(callSuper = true)
-@EqualsAndHashCode(callSuper = false)
+/**
+ * GridSpork för individuell lagring av mintade tokens
+ */
 public class MintStorage extends GridSpork implements Serializable {
-	public MintStorage() {
-		setType(Type.MINT_STORAGE);
 
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-		data.setMints(new HashMap<>());
-		setData(data);
-	}
+    public MintStorage() {
+        setType(Type.MINT_STORAGE);
 
-	@Data
-	public static class SporkData implements ChunkData {
-		@JsonSerialize(keyUsing = Location.Serializer.class)
-		@JsonDeserialize(keyUsing = Location.Deserializer.class)
-		private Map<Location, BigDecimal> mints;
+        SporkData data = new SporkData();
+        data.setMints(new HashMap<>());
+        setData(data);
+    }
 
-		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Location implements Serializable {
-			private Address address;
-			private int height;
+    // =============================
+    // SporkData
+    // =============================
+    public static class SporkData implements ChunkData, Serializable {
+        private Map<Location, BigDecimal> mints;
 
-			public static class Deserializer extends KeyDeserializer {
-				@Override
-				public Location deserializeKey(String key, DeserializationContext ctxt) throws IOException {
-					final String[] compoundKey = key.split("/");
+        public Map<Location, BigDecimal> getMints() {
+            return mints;
+        }
 
-					return new Location(new Address(compoundKey[0]),
-						Integer.parseInt(compoundKey[1])
-					);
-				}
-			}
+        public void setMints(Map<Location, BigDecimal> mints) {
+            this.mints = mints;
+        }
 
-			public static class Serializer extends StdKeySerializers.StringKeySerializer {
-				@Override
-				public void serialize(Object value, JsonGenerator generator, SerializerProvider provider)
-					throws IOException {
+        public SporkData empty() {
+            SporkData data = new SporkData();
+            data.setMints(new HashMap<>());
+            return data;
+        }
 
-					final Location location = (Location) value;
-					generator.writeFieldName(location.address.getWif() + "/" + location.height);
-				}
-			}
-		}
+        // =============================
+        // Location inuti SporkData
+        // =============================
+        public static class Location implements Serializable {
+            private Address address;
+            private int height;
 
-		public SporkData empty() {
-			final SporkData data = new SporkData();
+            public Address getAddress() {
+                return address;
+            }
 
-			data.setMints(new HashMap<>());
-			return data;
-		}
-	}
+            public void setAddress(Address address) {
+                this.address = address;
+            }
+
+            public int getHeight() {
+                return height;
+            }
+
+            public void setHeight(int height) {
+                this.height = height;
+            }
+        }
+    }
+
+    // =============================
+    // Typ-säker getData / setData
+    // =============================
+    @Override
+    public SporkData getData() {
+        return (SporkData) super.getData();
+    }
+
+    public void setData(SporkData data) {
+        super.setData(data);
+    }
+
+    // =============================
+    // Enkel Address-klass
+    // =============================
+    public static class Address implements Serializable {
+        private String wif;
+
+        public Address() {}
+
+        public Address(String wif) {
+            this.wif = wif;
+        }
+
+        public String getWif() {
+            return wif;
+        }
+
+        public void setWif(String wif) {
+            this.wif = wif;
+        }
+    }
 }

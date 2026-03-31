@@ -16,46 +16,58 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.cdi;
+ package org.unigrid.hedgehog.model.cdi;
 
 import jakarta.interceptor.AroundInvoke;
 import jakarta.interceptor.Interceptor;
 import jakarta.interceptor.InvocationContext;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import lombok.Cleanup;
-import org.apache.commons.configuration2.sync.LockMode;
 
-@Interceptor @Protected
+@Interceptor
+@Protected
 public class ProtectedInterceptor {
-	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-	private Lock getLockAnnotation(InvocationContext ctx) {
-		Lock lockAnnotation = ctx.getMethod().getAnnotation(Lock.class);
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
-		if (lockAnnotation == null) {
-			lockAnnotation = ctx.getTarget().getClass().getAnnotation(Lock.class);
-		}
+    private Lock getLockAnnotation(InvocationContext ctx) {
+        Lock lock = ctx.getMethod().getAnnotation(Lock.class);
+        if (lock == null) {
+            lock = ctx.getTarget().getClass().getAnnotation(Lock.class);
+        }
+        return lock;
+    }
 
-		return lockAnnotation;
-	}
+    @AroundInvoke
+    public Object protect(InvocationContext ctx) throws Exception {
 
-	@AroundInvoke
-	public Object protect(InvocationContext ctx) throws Exception {
-		final Lock lockAnnotation = getLockAnnotation(ctx);
-		Object returnValue = null;
+        Lock lock = getLockAnnotation(ctx);
 
-		if (LockMode.WRITE.equals(lockAnnotation.value())) {
-			@Cleanup("unlock") final ReentrantReadWriteLock.WriteLock handler = lock.writeLock();
+        if (lock == null) {
+            return ctx.proceed();
+        }
 
-			handler.lock();
-			returnValue = ctx.proceed();
-		} else {
-			@Cleanup("unlock") final ReentrantReadWriteLock.ReadLock handler = lock.readLock();
-			handler.lock();
-			returnValue = ctx.proceed();
-		}
+        if (lock.value() == LockMode.WRITE) {
 
-		return returnValue;
-	}
+            ReentrantReadWriteLock.WriteLock writeLock = rwLock.writeLock();
+            writeLock.lock();
+
+            try {
+                return ctx.proceed();
+            } finally {
+                writeLock.unlock();
+            }
+
+        } else {
+
+            ReentrantReadWriteLock.ReadLock readLock = rwLock.readLock();
+            readLock.lock();
+
+            try {
+                return ctx.proceed();
+            } finally {
+                readLock.unlock();
+            }
+
+        }
+    }
 }

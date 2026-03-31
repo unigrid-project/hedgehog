@@ -16,67 +16,78 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.producer;
+ package org.unigrid.hedgehog.model.producer;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
-@Slf4j
 @ApplicationScoped
 public class SporkDatabaseProducer {
-	@Inject private ApplicationDirectory applicationDirectory;
-	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
 
-	private Path path() {
-		return Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
-	}
+    private static final Logger log =
+            LoggerFactory.getLogger(SporkDatabaseProducer.class);
 
-	@Produces
-	private SporkDatabase produce() {
-		if (Objects.isNull(sporkDatabase.get())) {
-			try {
-				Files.createDirectories(applicationDirectory.getUserDataDir());
-				sporkDatabase.set(SporkDatabase.load(path()));
+    @Inject
+    private ApplicationDirectory applicationDirectory;
 
-			} catch (IOException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
-				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
-				log.atTrace().log(() -> ex.toString());
-			} catch (ClassCastException | SerializationException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
+    private final AtomicReference<SporkDatabase> sporkDatabase =
+            new AtomicReference<>(null);
 
-				log.atWarn().log("Database serialization incompatibility, defaulting to fresh"
-					+ " spork database: {}", ex.getMessage()
-				);
+    private Path path() {
+        return Path.of(
+                applicationDirectory.getUserDataDir().toString(),
+                SporkDatabase.SPORK_DB_FILE
+        );
+    }
 
-				log.atTrace().log(() -> ex.toString());
-			}
-		}
+    @Produces
+    private SporkDatabase produce() {
 
-		return sporkDatabase.get();
-	}
+        if (Objects.isNull(sporkDatabase.get())) {
 
-	@PreDestroy
-	private void destroy() {
-		try {
-			Files.createDirectories(applicationDirectory.getUserDataDir());
-			SporkDatabase.persist(path(), sporkDatabase.get());
+            try {
+                Files.createDirectories(applicationDirectory.getUserDataDir());
+                sporkDatabase.set(SporkDatabase.load(path()));
 
-		} catch (Exception ex) {
-			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
-			log.atTrace().log(() -> ex.toString());
-		}
-	}
+            } catch (IOException ex) {
+
+                sporkDatabase.set(new SporkDatabase());
+                log.warn("Creating fresh spork database: {}", ex.getMessage());
+
+            } catch (ClassCastException | SerializationException ex) {
+
+                sporkDatabase.set(new SporkDatabase());
+                log.warn("Database serialization incompatibility, using fresh database: {}",
+                        ex.getMessage());
+            }
+        }
+
+        return sporkDatabase.get();
+    }
+
+    @PreDestroy
+    private void destroy() {
+
+        try {
+            Files.createDirectories(applicationDirectory.getUserDataDir());
+            SporkDatabase.persist(path(), sporkDatabase.get());
+
+        } catch (Exception ex) {
+            log.warn("Saving of spork database failed: {}", ex.getMessage());
+        }
+    }
 }

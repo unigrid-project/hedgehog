@@ -16,18 +16,22 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+  package org.unigrid.hedgehog.model.network.schedule;
 
-package org.unigrid.hedgehog.model.network.schedule;
-
+import io.netty.channel.Channel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
@@ -35,42 +39,48 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void> {
-	public static final int PERIOD_MS = 75;
-	public static final int WAIT_TIME_MS = 3000;
-	public static final double TOLERANCE = 0.15; /* 15% */
 
-	public PingScheduleTest() {
-		super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);
-	}
+    public static final int PERIOD_MS = 75;
+    public static final int WAIT_TIME_MS = 3000;
+    public static final double TOLERANCE = 0.15; // 15%
 
-	@Property(tries = 5)
-	public void shoulBeAbleToSchedulePing(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
-		final AtomicInteger invocations = new AtomicInteger();
-		final List<Connection> connections = new ArrayList<>();
+    public PingScheduleTest() {
+        super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);
+    }
 
-		for (TestServer server : servers) {
-			final String host = server.getP2p().getHostName();
-			final int port = server.getP2p().getPort();
+    @Property(tries = 5)
+    public void shouldBeAbleToSchedulePing(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
+        final AtomicInteger invocations = new AtomicInteger();
+        final List<Connection> connections = new ArrayList<>();
 
-			connections.add(new P2PClient(host, port));
-		}
+        // Skapa anslutningar till alla testservrar
+        for (TestServer server : servers) {
+            final String host = server.getP2p().getHostName();
+            final int port = server.getP2p().getPort();
+            connections.add(new P2PClient(host, port));
+        }
 
-		setScheduleCallback(Optional.of(channel -> {
-			/* Only count scheduling in one directon */
-			if (RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
-				invocations.incrementAndGet();
-			}
-		}));
+        // Sätt schemaläggnings-callback korrekt
+        setScheduleCallback(Optional.of((Consumer<Channel>) channel -> {
+            if (RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
+                invocations.incrementAndGet();
+            }
+        }));
 
-		Thread.sleep(WAIT_TIME_MS);
-		setScheduleCallback(Optional.empty());
+        // Vänta att schemaläggningen körs
+        Thread.sleep(WAIT_TIME_MS);
 
-		for (Connection connection : connections) {
-			connection.close();
-		}
+        // Nollställ callback
+        setScheduleCallback(Optional.empty());
 
-		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
-		final double toleranceAmount = Math.round(expectedInvocations * TOLERANCE);
-		assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
-	}
+        // Stäng alla anslutningar
+        for (Connection connection : connections) {
+            connection.close();
+        }
+
+        // Kontrollera att antal invocations ligger inom tolerans
+        final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
+        final double toleranceAmount = Math.round(expectedInvocations * TOLERANCE);
+        assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
+    }
 }

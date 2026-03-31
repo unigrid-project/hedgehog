@@ -16,39 +16,40 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+	package org.unigrid.hedgehog.model.network.codec;
 
-package org.unigrid.hedgehog.model.network.codec;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
-import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-
-@ChannelCodec(priority = 11)
-public class PublishSporkDecoder extends AbstractGridSporkDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
-	/*
-	    Packet format:
-	    0.............................63.............................128
-	    [                << Frame Header (FrameDecoder) >>             ]
-	    [<<                       spork data                         >>]
-	*/
-	@Override
-	public Optional<PublishSpork> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final Optional<GridSpork> gridSpoork = decodeGridSpork(ctx, in);
-
-		if (gridSpoork.isPresent()) {
-			return Optional.of(PublishSpork.builder().gridSpork(gridSpoork.get()).build());
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	import java.util.Optional;
+	import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
+	import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
+	import org.unigrid.hedgehog.model.network.packet.Packet;
+	import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+	import org.unigrid.hedgehog.model.spork.GridSpork;
+	
+	@ChannelCodec(priority = 11)
+	public final class PublishSporkDecoder
+			extends AbstractGridSporkDecoder<PublishSpork>
+			implements PacketDecoder<PublishSpork> {
+	
+		@Override
+		public Optional<PublishSpork> typedDecode(
+				ChannelHandlerContext ctx,
+				ByteBuf in
+		) throws Exception {
+	
+			Optional<GridSpork> spork = decodeGridSpork(ctx, in);
+	
+			if (spork.isEmpty()) {
+				return Optional.empty();
+			}
+	
+			return Optional.of(new PublishSpork(spork.get()));
 		}
-
-		return Optional.empty();
+	
+		@Override
+		public Packet.Type getCodecType() {
+			return Packet.Type.PUBLISH_SPORK;
+		}
 	}
-
-	@Override
-	public Packet.Type getCodecType() {
-		return Packet.Type.PUBLISH_SPORK;
-	}
-}
+	

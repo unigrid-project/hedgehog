@@ -17,13 +17,30 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+    package org.unigrid.hedgehog.model.network.codec.api;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
-
-public interface ChunkDecoder<T extends ChunkData> {
-	Optional<T> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
-}
+    import io.netty.buffer.ByteBuf;
+    import io.netty.channel.ChannelHandlerContext;
+    import java.util.Optional;
+    import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+    
+    /**
+     * Decoder för ChunkData.
+     * Används i Netty inbound pipeline.
+     */
+    public interface ChunkDecoder<T extends ChunkData> {
+    
+        /**
+         * Försöker decoda ett Chunk från buffer.
+         *
+         * @param ctx Netty context
+         * @param in  inkommande ByteBuf
+         * @return Optional med ChunkData om tillräckligt data finns
+         * @throws Exception vid allvarliga decode-fel
+         */
+        Optional<T> decodeChunk(
+                ChannelHandlerContext ctx,
+                ByteBuf in
+        ) throws Exception;
+    }
+    

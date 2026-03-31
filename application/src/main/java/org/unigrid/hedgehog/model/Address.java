@@ -16,16 +16,46 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model;
+ package org.unigrid.hedgehog.model;
 
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Objects;
 
-@Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class Address implements Serializable {
-	private String wif;
+    private String wif;
+
+    public Address() {
+    }
+
+    public Address(String wif) {
+        this.wif = wif;
+    }
+
+    public String getWif() {
+        return wif;
+    }
+
+    public void setWif(String wif) {
+        this.wif = wif;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Address)) return false;
+        Address address = (Address) o;
+        return Objects.equals(wif, address.wif);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(wif);
+    }
+
+    @Override
+    public String toString() {
+        return "Address{" +
+                "wif='" + wif + '\'' +
+                '}';
+    }
 }

@@ -17,29 +17,68 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.s3.entity;
+ package org.unigrid.hedgehog.model.s3.entity;
 
-import jakarta.xml.bind.annotation.XmlAccessType;
-import jakarta.xml.bind.annotation.XmlAccessorType;
-import jakarta.xml.bind.annotation.XmlElement;
-import jakarta.xml.bind.annotation.XmlElementWrapper;
-import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.*;
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Objects;
 
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
 @XmlRootElement(name = "ListAllMyBucketsResult", namespace = "http://s3.amazonaws.com/doc/2006-03-01")
 @XmlAccessorType(XmlAccessType.FIELD)
 public class ListAllMyBucketsResult implements Serializable {
-	@XmlElementWrapper(name = "Buckets")
-	@XmlElement(name = "Bucket")
-	private List<Bucket> buckets;
 
-	@XmlElement(name = "Owner")
-	private Owner owner;
+    @XmlElementWrapper(name = "Buckets")
+    @XmlElement(name = "Bucket")
+    private List<Bucket> buckets = new ArrayList<>();
+
+    @XmlElement(name = "Owner")
+    private Owner owner;
+
+    public ListAllMyBucketsResult() {
+    }
+
+    public ListAllMyBucketsResult(List<Bucket> buckets, Owner owner) {
+        this.buckets = buckets;
+        this.owner = owner;
+    }
+
+    public List<Bucket> getBuckets() {
+        return buckets;
+    }
+
+    public void setBuckets(List<Bucket> buckets) {
+        this.buckets = buckets;
+    }
+
+    public Owner getOwner() {
+        return owner;
+    }
+
+    public void setOwner(Owner owner) {
+        this.owner = owner;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof ListAllMyBucketsResult)) return false;
+        ListAllMyBucketsResult that = (ListAllMyBucketsResult) o;
+        return Objects.equals(buckets, that.buckets) &&
+                Objects.equals(owner, that.owner);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(buckets, owner);
+    }
+
+    @Override
+    public String toString() {
+        return "ListAllMyBucketsResult{" +
+                "buckets=" + buckets +
+                ", owner=" + owner +
+                '}';
+    }
 }

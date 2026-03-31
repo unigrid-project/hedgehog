@@ -17,40 +17,49 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import jakarta.inject.Inject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.domains.Domain;
+
 import static com.shazam.shazamcrest.matcher.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
 
 public class SporkDatabaseTest extends BaseSporkDatabaseTest {
-	@Inject
-	private ApplicationDirectory applicationDirectory;
 
-	@SneakyThrows
-	@Property(tries = 100)
-	@Domain(SuiteDomain.class)
-	public void shouldRetainIntegrity(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) {
-		Files.createDirectories(applicationDirectory.getUserDataDir());
+    @Inject
+    private ApplicationDirectory applicationDirectory;
 
-		final Path path = Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
-		final SporkDatabase sporkDatabase = db(path);
+    @Property(tries = 100)
+    @Domain(SuiteDomain.class)
+    public void shouldRetainIntegrity(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
-		set(sporkDatabase, gridSpork);
-		SporkDatabase.persist(path, sporkDatabase);
-		final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
+        Files.createDirectories(applicationDirectory.getUserDataDir());
 
-		assertThat(deserializedSporkDatabase, sameBeanAs(sporkDatabase));
-		assertThat(deserializedSporkDatabase, equalTo(sporkDatabase));
-	}
+        final Path path = Path.of(
+                applicationDirectory.getUserDataDir().toString(),
+                SporkDatabase.SPORK_DB_FILE
+        );
+
+        final SporkDatabase sporkDatabase = db(path);
+
+        set(sporkDatabase, gridSpork);
+
+        SporkDatabase.persist(path, sporkDatabase);
+
+        final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
+
+        assertThat(deserializedSporkDatabase, sameBeanAs(sporkDatabase));
+        assertThat(deserializedSporkDatabase, equalTo(sporkDatabase));
+    }
 }

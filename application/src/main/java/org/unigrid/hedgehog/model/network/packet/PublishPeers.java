@@ -17,27 +17,48 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+ package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.network.Node;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class PublishPeers extends Packet implements Serializable {
-	public static final int DISTRIBUTION_FREQUENCY_MINUTES = 3;
 
-	@Builder.Default private Set<Node> nodes = new HashSet<>();
+    private static final long serialVersionUID = 1L;
+    private final Set<Node> nodes = new HashSet<>();
 
-	public PublishPeers() {
-		setType(Type.PUBLISH_PEERS);
-	}
+    public PublishPeers() {
+        super(Type.PUBLISH_PEERS);
+    }
+
+    public PublishPeers(Collection<Node> nodes) {
+        this();
+        if (nodes != null) {
+            this.nodes.addAll(nodes);
+        }
+    }
+
+    public Set<Node> getNodes() {
+        return nodes;
+    }
+
+    public void addNode(Node node) {
+        if (node != null) nodes.add(node);
+    }
+
+    public void addNodes(Collection<Node> nodes) {
+        if (nodes != null) this.nodes.addAll(nodes);
+    }
+
+    public boolean isEmpty() {
+        return nodes.isEmpty();
+    }
+
+    @Override
+    public String toString() {
+        return "PublishPeers{nodes=" + nodes.size() + '}';
+    }
 }

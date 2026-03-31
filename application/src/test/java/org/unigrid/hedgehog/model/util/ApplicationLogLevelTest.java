@@ -17,64 +17,84 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.util;
+ package org.unigrid.hedgehog.model.util;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.jul.JULHelper;
+
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.extern.java.Log;
+import java.util.logging.Logger;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Example;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+
 import org.apache.commons.lang3.RandomStringUtils;
 
-@Log
 public class ApplicationLogLevelTest {
-	private static class JunitHandler extends Handler {
-		@Getter @Setter private boolean dirty;
 
-		@Override
-		public void publish(LogRecord lr) {
-			dirty = true;
-		}
+    private static final Logger log =
+            Logger.getLogger(ApplicationLogLevelTest.class.getName());
 
-		@Override public void flush() { /* Ignored on purpose */ }
-		@Override public void close() throws SecurityException { /* Ignored on purpose */ }
-	}
+    private static class JunitHandler extends Handler {
 
-	@Property(tries = 10)
-	public boolean shouldOutputLogMessagesByLogLevel(@ForAll @IntRange(min = 1, max = 5) int logLevel,
-		@ForAll @IntRange(min = 0, max = 6) int messageLevel) {
+        private boolean dirty;
 
-		final java.util.logging.Level level = JULHelper.asJULLevel(
-			ApplicationLogLevel.getLevelFromVerbosity(messageLevel)
-		);
+        public boolean isDirty() {
+            return dirty;
+        }
 
-		ApplicationLogLevel.configure(logLevel);
+        public void setDirty(boolean dirty) {
+            this.dirty = dirty;
+        }
 
-		final JunitHandler handler = new JunitHandler();
-		log.addHandler(handler);
-		log.log(level, RandomStringUtils.randomAscii(8));
+        @Override
+        public void publish(LogRecord lr) {
+            dirty = true;
+        }
 
-		if (handler.isDirty()) {
-			return messageLevel <= logLevel;
-		} else {
-			return messageLevel > logLevel;
-		}
-	}
+        @Override
+        public void flush() { }
 
-	@Example
-	public boolean shouldThrowExceptionOnUnsupportedLevel() {
-		try {
-			ApplicationLogLevel.getVerbosityFromLevel(Level.ALL);
-		} catch (UnsupportedLogLevelException ex) {
-			return true;
-		}
+        @Override
+        public void close() throws SecurityException { }
+    }
 
-		return false;
-	}
-}
+    @Property(tries = 10)
+    public boolean shouldOutputLogMessagesByLogLevel(
+            @ForAll @IntRange(min = 1, max = 5) int logLevel,
+            @ForAll @IntRange(min = 0, max = 6) int messageLevel) {
+
+        final java.util.logging.Level level =
+                JULHelper.asJULLevel(
+                        ApplicationLogLevel.getLevelFromVerbosity(messageLevel)
+                );
+
+        ApplicationLogLevel.configure(logLevel);
+
+        final JunitHandler handler = new JunitHandler();
+        log.addHandler(handler);
+
+        log.log(level, RandomStringUtils.randomAscii(8));
+
+        if (handler.isDirty()) {
+            return messageLevel <= logLevel;
+        } else {
+            return messageLevel > logLevel;
+        }
+    }
+
+    @Example
+    public boolean shouldThrowExceptionOnUnsupportedLevel() {
+
+        try {
+            ApplicationLogLevel.getVerbosityFromLevel(Level.ALL);
+        } catch (UnsupportedLogLevelException ex) {
+            return true;
+        }
+
+        return false;
+    }
+} 

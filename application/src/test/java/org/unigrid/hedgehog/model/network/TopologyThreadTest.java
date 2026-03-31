@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network;
+ package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
 import java.util.Set;
@@ -25,9 +24,11 @@ import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
-import static org.awaitility.Awaitility.*;
+
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -38,35 +39,47 @@ import org.unigrid.hedgehog.server.TestServer;
 
 @WeldSetup({ TestServer.class, TopologyThread.class })
 public class TopologyThreadTest extends BaseMockedWeldTest {
-	@Mocked private Network network;
-	@Mocked private NetOptions netOptions;
-	@Mocked private RestOptions restOptions;
 
-	@Inject private Topology topology;
-	@Inject private TopologyThread topologyThread;
+    @Mocked private Network network;
+    @Mocked private NetOptions netOptions;
+    @Mocked private RestOptions restOptions;
 
-	@BeforeTry
-	public void before() {
-		TestServer.mockProperties();
-	}
+    @Inject private Topology topology;
+    @Inject private TopologyThread topologyThread;
 
-	@Example
-	public void shouldRepopulateWithSeedsIfEmpty() {
-		topology.clear();
-		topologyThread.start();
-		await().until(() -> topology.cloneNodes().size(), is(Network.getSeeds().length));
-	}
+    private TestServer testServer;
 
-	@Example
-	@SneakyThrows
-	public void shouldCloneUniqueList() {
-		final Set<Node> original = Reflection.getFieldValue(topology, "nodes");
-		final Set<Node> cloned = topology.cloneNodes();
+    @BeforeTry
+    public void before() {
+        testServer = new TestServer();
+        TestServer.mockProperties(testServer); // ✅ korrekt anrop
+    }
 
-		topology.forEach(n -> {
-			assertThat(cloned.contains(n), is(true));
-		});
+    @Example
+    public void shouldRepopulateWithSeedsIfEmpty() {
+        topology.clear();
+        topologyThread.start();
 
-		assertThat(original, not(equalTo(cloned)));
-	}
+        // Vänta tills topology har lika många noder som seeds
+        await().until(() -> topology.cloneNodes().size(), is(Network.getSeeds().length));
+    }
+
+    @Example
+    @SneakyThrows
+    public void shouldCloneUniqueList() {
+        final Set<Node> original;
+        try {
+            original = Reflection.getFieldValue(topology, "nodes");
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException("Failed to access private field 'nodes'", e);
+        }
+
+        final Set<Node> cloned = topology.cloneNodes();
+
+        // Kontrollera att alla noder finns i klonade listan
+        topology.forEach(n -> assertThat(cloned.contains(n), is(true)));
+
+        // Kontrollera att original och klon inte är samma objekt
+        assertThat(original, not(equalTo(cloned)));
+    }
 }

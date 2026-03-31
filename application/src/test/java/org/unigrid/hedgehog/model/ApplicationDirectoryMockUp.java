@@ -16,40 +16,46 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model;
 
-package org.unigrid.hedgehog.model;
-
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
+
 import mockit.Mock;
 import mockit.MockUp;
+
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class ApplicationDirectoryMockUp extends MockUp<ApplicationDirectory> {
-	private final Path userConfigDir;
-	private final Path userDataDir;
-	private final Path userLogDir;
 
-	@SneakyThrows
-	public ApplicationDirectoryMockUp() {
-		userConfigDir = Files.createTempDirectory("hhg-config-");
-		userDataDir = Files.createTempDirectory("hhg-data-");
-		userLogDir = Files.createTempDirectory("hhg.logs-");
-	}
+    private final Path userConfigDir;
+    private final Path userDataDir;
+    private final Path userLogDir;
 
-	@Mock
-	public Path getUserConfigDir() {
-		return userConfigDir;
-	}
+    public ApplicationDirectoryMockUp() {
 
-	@Mock
-	public Path getUserDataDir() {
-		return userDataDir;
-	}
+        try {
+            userConfigDir = Files.createTempDirectory("hhg-config-");
+            userDataDir = Files.createTempDirectory("hhg-data-");
+            userLogDir = Files.createTempDirectory("hhg-logs-");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
-	@Mock
-	public Path getUserLogDir() {
-		return userLogDir;
-	}
+    @Mock
+    public Path getUserConfigDir() {
+        return userConfigDir;
+    }
+
+    @Mock
+    public Path getUserDataDir() {
+        return userDataDir;
+    }
+
+    @Mock
+    public Path getUserLogDir() {
+        return userLogDir;
+    }
 }

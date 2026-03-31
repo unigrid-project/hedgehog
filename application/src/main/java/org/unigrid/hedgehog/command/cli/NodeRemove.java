@@ -17,33 +17,36 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+	package org.unigrid.hedgehog.command.cli;
 
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.GenericType;
-import jakarta.ws.rs.core.Response;
-import java.util.Set;
-import org.unigrid.hedgehog.model.network.Node;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-
-@Command(name = "node-remove")
-public class NodeRemove extends RestClientCommand {
-	@CommandLine.Parameters(index = "0", description = "The ip:port combination of the node to remove.")
-	private String address;
-
-	public NodeRemove() {
-		super(HttpMethod.DELETE);
+	import org.unigrid.hedgehog.command.util.RestClientCommand;
+	import jakarta.ws.rs.core.GenericType;
+	import jakarta.ws.rs.core.Response;
+	import java.util.Set;
+	
+	import org.unigrid.hedgehog.model.network.Node;
+	import picocli.CommandLine.Command;
+	import picocli.CommandLine.Parameters;
+	
+	@Command(name = "node-remove")
+	public class NodeRemove extends RestClientCommand {
+	
+		@Parameters(index = "0", description = "The ip:port combination of the node to remove.")
+		private String address;
+	
+		public NodeRemove() {
+			super("DELETE", "/node/%s");
+		}
+	
+		@Override
+		protected String getLocation() {
+			return pathTemplate.formatted(address);
+		}
+	
+		@Override
+		protected void execute(Response response) {
+			Set<Node> nodes = response.readEntity(new GenericType<>() {});
+			System.out.println(nodes);
+		}
 	}
-
-	@Override
-	protected String getLocation() {
-		return "/node/%s".formatted(address);
-	}
-
-	@Override
-	protected void execute(Response response) {
-		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
-	}
-}
+	

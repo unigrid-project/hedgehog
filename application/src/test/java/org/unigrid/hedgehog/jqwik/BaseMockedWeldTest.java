@@ -17,10 +17,8 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.jqwik;
+ package org.unigrid.hedgehog.jqwik;
 
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
 import net.jqwik.api.domains.Domain;
 import net.jqwik.api.domains.DomainContext;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
@@ -31,10 +29,12 @@ import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 @Domain(DomainContext.Global.class)
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = WeldHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BaseMockedWeldTest {
-	@BeforeContainer
-	private static void beforeContainer() {
-		new ApplicationDirectoryMockUp();
-	}
+
+    protected BaseMockedWeldTest() {}
+
+    @BeforeContainer
+    private static void beforeContainer() {
+        new ApplicationDirectoryMockUp();
+    }
 }

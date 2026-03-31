@@ -17,16 +17,22 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+    package org.unigrid.hedgehog.model.cdi;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import org.apache.commons.configuration2.sync.LockMode;
 
+/**
+ * Annotation för att ange låstyp (READ / WRITE).
+ */
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ ElementType.METHOD, ElementType.TYPE })
+@Target({ ElementType.TYPE, ElementType.METHOD, ElementType.FIELD })
 public @interface Lock {
-	LockMode value() default LockMode.READ;
+
+    /**
+     * LockMode som ska användas. Standard är READ.
+     */
+    LockMode value() default LockMode.READ;
 }

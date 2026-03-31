@@ -16,16 +16,19 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public interface Schedulable<T> {
-	int getPeriod();
-	TimeUnit getTimeUnit();
-	boolean isExecuteOnCreation();
-	Consumer<Channel> getConsumer();
+
+    int getPeriod();
+
+    TimeUnit getTimeUnit();
+
+    boolean isExecuteOnCreation();
+
+    Consumer<Channel> getConsumer();
 }

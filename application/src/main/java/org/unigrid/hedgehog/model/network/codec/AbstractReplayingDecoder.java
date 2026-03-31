@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.codec;
+ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -31,41 +30,46 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
 public abstract class AbstractReplayingDecoder<T extends Packet> extends ReplayingDecoder<T> {
-	@Override
-	protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
-		in.markReaderIndex();
 
-		final Packet.Type type = ctx.channel().attr(Packet.KEY).get();
-		boolean forward = true;
+    @Override
+    @SuppressWarnings("unchecked")
+    protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+        in.markReaderIndex();
 
-		if (TypedCodec.class.isAssignableFrom(getClass())) {
-			final TypedCodec<Packet.Type> object = (TypedCodec<Packet.Type>) this;
+        // Hämta Packet-objektet från kanalen
+        final Packet packet = ctx.channel().attr(Packet.KEY).get();
+        final Packet.Type type = packet != null ? packet.getType() : null;
 
-			if (object.getCodecType() == type) {
-				super.callDecode(ctx, in, out);
-				forward = false;
-			}
-		}
+        boolean forward = true;
 
-		/* Should we forward this packet on to the next decoder? */
-		if (forward) {
-			in.resetReaderIndex();
-			in.retain();
-			ctx.fireChannelRead(in);
-		}
-	}
+        if (TypedCodec.class.isAssignableFrom(getClass())) {
+            final TypedCodec<Packet.Type> object = (TypedCodec<Packet.Type>) this;
 
-	@Override
-	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		final Attribute<Integer> size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY);
-		final Optional<T> entity = typedDecode(ctx, in);
+            if (object.getCodecType() == type) {
+                super.callDecode(ctx, in, out);
+                forward = false;
+            }
+        }
 
-		if (entity.isPresent()) {
-			out.add(entity.get());
-		}
+        // Forwarda packet om det inte matchar vår codec
+        if (forward) {
+            in.resetReaderIndex();
+            in.retain();
+            ctx.fireChannelRead(in);
+        }
+    }
 
-		// TODO: Verify size with PACKET_SIZE_KEY
-	}
+    @Override
+    public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
+        final Attribute<Integer> size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY);
+        final Optional<T> entity = typedDecode(ctx, in);
 
-	public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
-}
+        if (entity.isPresent()) {
+            out.add(entity.get());
+        }
+
+        // TODO: Verify size with PACKET_SIZE_KEY
+    }
+
+    public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
+} 

@@ -16,21 +16,28 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+    package org.unigrid.hedgehog.model.network.channel;
 
-package org.unigrid.hedgehog.model.network.channel;
-
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-@Target(ElementType.TYPE)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface ChannelCodec {
-	enum Type {
-		CLIENT, SERVER;
-	}
-
-	Type[] value() default {ChannelCodec.Type.CLIENT, ChannelCodec.Type.SERVER};
-	int priority() default 0;
-}
+    import java.lang.annotation.Documented;
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Repeatable;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    @Documented
+    @Repeatable(ChannelCodecContainer.class)
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    public @interface ChannelCodec {
+    
+        enum Type {
+            CLIENT,
+            SERVER
+        }
+    
+        Type[] value() default { Type.CLIENT, Type.SERVER };
+    
+        int priority() default 0;
+    }
+    

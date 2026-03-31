@@ -17,27 +17,34 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+    package org.unigrid.hedgehog.command.cli;
 
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.GenericType;
-import jakarta.ws.rs.core.Response;
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
-import org.unigrid.hedgehog.model.Json;
-import org.unigrid.hedgehog.model.network.Node;
-import picocli.CommandLine.Command;
-
-@Command(name = "node-list")
-public class NodeList extends RestClientCommand {
-	public NodeList() {
-		super(HttpMethod.GET, "/node", Optional.of(() -> new HashSet<Node>()));
-	}
-
-	@Override
-	protected void execute(Response response) {
-		System.out.println(Json.parse(response.readEntity(new GenericType<Set<Node>>() { })));
-	}
-}
+    import jakarta.ws.rs.core.GenericType;
+    import jakarta.ws.rs.core.Response;
+    
+    import java.util.Set;
+    
+    import org.unigrid.hedgehog.command.util.RestClientCommand;
+    import org.unigrid.hedgehog.model.Json;
+    import org.unigrid.hedgehog.model.network.Node;
+    import picocli.CommandLine.Command;
+    
+    @Command(name = "node-list")
+    public class NodeList extends RestClientCommand {
+    
+        public NodeList() {
+            super("GET", "/node");
+        }
+    
+        @Override
+        protected String getLocation() {
+            return pathTemplate;
+        }
+    
+        @Override
+        protected void execute(Response response) {
+            Set<Node> nodes = response.readEntity(new GenericType<Set<Node>>() {});
+            System.out.println(Json.parse(nodes));
+        }
+    }
+    

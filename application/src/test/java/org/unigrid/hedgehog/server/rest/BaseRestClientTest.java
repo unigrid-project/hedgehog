@@ -17,10 +17,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
+import java.security.NoSuchAlgorithmException;
+import java.security.InvalidAlgorithmParameterException;
 import java.util.function.Supplier;
+
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.Mocked;
@@ -32,6 +35,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.AfterTry;
+
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -44,54 +48,72 @@ import org.unigrid.hedgehog.server.TestServer;
 
 @WeldSetup(TestServer.class)
 public class BaseRestClientTest extends BaseMockedWeldTest {
-	@Mocked
-	protected NetOptions netOptions;
 
-	@Mocked
-	protected RestOptions restOptions;
+    @Mocked
+    protected NetOptions netOptions;
 
-	@Inject
-	protected TestServer server;
+    @Mocked
+    protected RestOptions restOptions;
 
-	protected RestClient client;
+    @Inject
+    protected TestServer server;
 
-	@BeforeContainer
-	private static void beforeContainer() {
-		new ApplicationDirectoryMockUp();
-	}
+    protected RestClient client;
 
-	@Provide
-	@SneakyThrows
-	public Arbitrary<Signature> provideSignature() {
-		return Arbitraries.create(new Supplier<Signature>() {
-			@Override
-			@SneakyThrows
-			public Signature get() {
-				final Signature signature = new Signature();
+    @BeforeContainer
+    private static void beforeContainer() {
+        new ApplicationDirectoryMockUp();
+    }
 
-				new MockUp<NetworkKey>() {
-					@Mock public /* static */ String[] getPublicKeys() {
-						return new String[] { signature.getPublicKey() };
-					}
-				};
+    @Provide
+    public Arbitrary<Signature> provideSignature() {
+        return Arbitraries.create(new Supplier<Signature>() {
+            @Override
+            public Signature get() {
+                try {
+                    final Signature signature = new Signature();
 
-				return signature;
-			}
-		});
-	}
+                    new MockUp<NetworkKey>() {
+                        @Mock
+                        public /* static */ String[] getPublicKeys() {
+                            return new String[] { signature.getPublicKey() };
+                        }
+                    };
 
-	@BeforeProperty
-	public void before() {
-		TestServer.mockProperties(server);
-	}
+                    return signature;
+                } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+    }
 
-	@BeforeTry
-	public void beforeTry() {
-		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
-	}
+    @BeforeProperty
+    public void before() {
+        TestServer.mockProperties(server);
+    }
 
-	@AfterTry
-	public void afterTry() {
-		client.close();
-	}
+    @BeforeTry
+    public void beforeTry() {
+        try {
+            client = new RestClient(
+                    server.getRest().getHostName(),
+                    server.getRest().getPort(),
+                    true
+            );
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @AfterTry
+    public void afterTry() {
+        if (client != null) {
+            try {
+                client.close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
 }

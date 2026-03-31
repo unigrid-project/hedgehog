@@ -16,24 +16,48 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.server.rest.entity;
 
-package org.unigrid.hedgehog.server.rest.entity;
-
-import lombok.Builder;
-import lombok.Data;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.Network;
 
-@Data
-@Builder
-public class VersionResponse {
-	private String version;
-	private String[] protocols;
+import java.io.Serializable;
 
-	public static VersionResponse create() {
-		return VersionResponse.builder()
-			.version(Version.getVersionNumber())
-			.protocols(Network.getProtocols())
-			.build();
-	}
+public class VersionResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private String version;
+    private String[] protocols;
+
+    public VersionResponse() {
+    }
+
+    public VersionResponse(String version, String[] protocols) {
+        this.version = version;
+        this.protocols = protocols;
+    }
+
+    public String getVersion() {
+        return version;
+    }
+
+    public String[] getProtocols() {
+        return protocols;
+    }
+
+    public void setVersion(String version) {
+        this.version = version;
+    }
+
+    public void setProtocols(String[] protocols) {
+        this.protocols = protocols;
+    }
+
+    public static VersionResponse create() {
+        return new VersionResponse(
+                Version.getVersionNumber(),
+                Network.getProtocols()
+        );
+    }
 }

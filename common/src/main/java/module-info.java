@@ -14,12 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-module org.unigrid.hedgehog.common {
-	requires ch.qos.logback.classic;
-	requires static lombok;
-	requires org.apache.commons.lang3;
-	requires org.slf4j;
-	requires net.harawata.appdirs;
-
-	exports org.unigrid.hedgehog.common.model;
+ module org.unigrid.hedgehog.common {
+    // Endast standard Java krävs, inga externa moduler
+    exports org.unigrid.hedgehog.common.model;
 }

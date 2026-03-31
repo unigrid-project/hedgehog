@@ -17,17 +17,22 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+    package org.unigrid.hedgehog.model.cdi;
 
-import jakarta.interceptor.InterceptorBinding;
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-@InterceptorBinding
-@Retention(RetentionPolicy.RUNTIME)
-@Target({ ElementType.METHOD, ElementType.TYPE })
-public @interface Protected {
-	/* Empty on purpose */
-}
+    import jakarta.interceptor.InterceptorBinding;
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    /**
+     * Annotation för att markera metoder eller klasser som ska skyddas
+     * via en CDI-interceptor.
+     */
+    @InterceptorBinding
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ ElementType.TYPE, ElementType.METHOD })
+    public @interface Protected {
+        // Empty on purpose
+    }
+    

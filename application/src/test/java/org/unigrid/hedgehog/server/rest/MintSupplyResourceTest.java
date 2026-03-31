@@ -17,7 +17,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
@@ -33,32 +33,38 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.client.ResponseOddityException;
 
 public class MintSupplyResourceTest extends BaseRestClientTest {
-	@SneakyThrows
-	@Property(tries = 50)
-	public void shoulBeChangeable(@ForAll("provideSignature") Signature signature,
-		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal maxSupply) {
 
-		final String url = "/gridspork/mint-supply/";
-		final Response response = client.get(url);
-		BigDecimal originalMaxSupply = BigDecimal.ZERO;
+    @SneakyThrows
+    @Property(tries = 50)
+    public void shoulBeChangeable(
+            @ForAll("provideSignature") Signature signature,
+            @ForAll @BigRange(min = "0", max = "1000000") BigDecimal maxSupply
+    ) throws ResponseOddityException {
 
-		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-			final MintSupply.SporkData data = response.readEntity(MintSupply.class).getData();
-			originalMaxSupply = data.getMaxSupply();
-		}
+        final String url = "/gridspork/mint-supply/";
+        final Response response = client.get(url);
+        BigDecimal originalMaxSupply = BigDecimal.ZERO;
 
-		final Response putResponse = client.putWithHeaders(url, Entity.text(maxSupply),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+        if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
+            final MintSupply.SporkData data = response.readEntity(MintSupply.class).getData();
+            originalMaxSupply = data.getMaxSupply();
+        }
 
-		final MintSupply.SporkData data = client.getEntity(url, MintSupply.class).getData();
+        // Parameteriserad MultivaluedHashMap korrekt
+        MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
+        headers.putSingle("privateKey", signature.getPrivateKey());
 
-		if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-			assertThat(data.getMaxSupply(), equalTo(maxSupply));
-		} else {
-			assertThat(data.getMaxSupply(), equalTo(originalMaxSupply));
-		}
-	}
+        final Response putResponse = client.putWithHeaders(url, Entity.text(maxSupply), headers);
+
+        final MintSupply.SporkData data = client.getEntity(url, MintSupply.class).getData();
+
+        if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
+            assertThat(data.getMaxSupply(), equalTo(maxSupply));
+        } else {
+            assertThat(data.getMaxSupply(), equalTo(originalMaxSupply));
+        }
+    }
 }

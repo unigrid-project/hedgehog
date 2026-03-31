@@ -16,124 +16,222 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network;
+ package org.unigrid.hedgehog.model.network;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
 import jakarta.ws.rs.core.UriBuilder;
-import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
-import java.net.URI;
-import java.net.URISyntaxException;
+import org.unigrid.hedgehog.model.network.packet.Packet;
+
+import java.net.*;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.SneakyThrows;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Data
-@Slf4j
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class Node {
-	private InetSocketAddress address;
-	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
-	@Builder.Default private Details details = new Details();
-	private long nsPing;
 
-	@Data
-	@Builder
-	@NoArgsConstructor
-	@AllArgsConstructor
-	public static class Details {
-		private String[] protocols;
-		private int version;
-	}
+    private static final Logger log = LoggerFactory.getLogger(Node.class);
 
-	@SneakyThrows
-	public boolean isMe() {
-		final AtomicBoolean found = new AtomicBoolean();
+    public static final int DEFAULT_PORT = 9333;
 
-		try {
-			NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
-				ni.inetAddresses().forEach(a -> {
-					final InetSocketAddress socketAddress = new InetSocketAddress(a.getHostAddress(),
-						NetOptions.getPort()
-					);
+    private InetSocketAddress address;
 
-					if (equals(Node.builder().address(socketAddress).build())) {
-						found.set(true);
-					}
-				});
-			});
+    @JsonIgnore
+    private Optional<Connection> connection = Optional.empty();
 
-			if (!found.get()) {
-				final Node me = Node.fromAddress(NetOptions.getHost());
-				final String address = String.format("%s:%s", NetOptions.getHost(), NetOptions.getPort());
+    private Details details = new Details();
 
-				return equals(Node.fromAddress(address));
-			}
+    private long nsPing;
 
-		} catch (URISyntaxException ex) {
-			log.atTrace().log("Invalid host/address format {}", ex.getMessage());
-			return false;
-		}
+    public Node() {}
 
-		return found.get();
-	}
+    public Node(InetSocketAddress address) {
+        this.address = address;
+    }
 
-	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
-		if (node.getConnection().isPresent()) {
-			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
+    public Node(InetSocketAddress address, Optional<Connection> connection, Details details, long nsPing) {
+        this.address = address;
+        this.connection = connection;
+        this.details = details;
+        this.nsPing = nsPing;
+    }
 
-			out.addListener(f -> {
-				consumer.ifPresent(c -> {
-					c.accept(node, f);
-				});
-			});
-		}
-	}
+    public InetSocketAddress getAddress() {
+        return address;
+    }
 
-	public static Node fromURI(URI uri) throws URISyntaxException {
-		int port = uri.getPort();
+    public void setAddress(InetSocketAddress address) {
+        this.address = address;
+    }
 
-		if (uri.getPort() == -1) {
-			port = NetOptions.DEFAULT_PORT;
-		}
+    public Optional<Connection> getConnection() {
+        return connection;
+    }
 
-		return Node.builder().address(new InetSocketAddress(uri.getHost(), port)).build();
-	}
+    public void setConnection(Optional<Connection> connection) {
+        this.connection = connection;
+    }
 
-	public static Node fromAddress(String address) throws URISyntaxException {
-		return fromURI(new URI(null, address, null, null, null).parseServerAuthority());
-	}
+    public Details getDetails() {
+        return details;
+    }
 
-	public URI getURI() {
-		return UriBuilder.fromPath("/{host}:{port}").build(address.getAddress().getHostAddress(), address.getPort());
-	}
+    public void setDetails(Details details) {
+        this.details = details;
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		final URI me = getURI();
-		final URI other = ((Node) o).getURI();
-		final boolean isEqual = me.equals(other);
+    public long getNsPing() {
+        return nsPing;
+    }
 
-		log.atTrace().log("Comparing {} with {} = {}", me, other, isEqual);
-		return isEqual;
-	}
+    public void setNsPing(long nsPing) {
+        this.nsPing = nsPing;
+    }
 
-	@Override
-	public int hashCode() {
-		return getURI().hashCode();
-	}
+    public static class Details {
+
+        private String[] protocols;
+        private int version;
+
+        public Details() {}
+
+        public Details(String[] protocols, int version) {
+            this.protocols = protocols;
+            this.version = version;
+        }
+
+        public String[] getProtocols() {
+            return protocols;
+        }
+
+        public void setProtocols(String[] protocols) {
+            this.protocols = protocols;
+        }
+
+        public int getVersion() {
+            return version;
+        }
+
+        public void setVersion(int version) {
+            this.version = version;
+        }
+    }
+
+    public boolean isMe(int localPort) {
+
+        AtomicBoolean found = new AtomicBoolean(false);
+
+        try {
+
+            NetworkInterface.getNetworkInterfaces()
+                    .asIterator()
+                    .forEachRemaining(ni ->
+                            ni.inetAddresses().forEach(addr -> {
+
+                                InetSocketAddress socket =
+                                        new InetSocketAddress(addr.getHostAddress(), localPort);
+
+                                if (this.equals(new Node(socket))) {
+                                    found.set(true);
+                                }
+
+                            }));
+
+        } catch (Exception ex) {
+
+            log.trace("Failed to detect self node", ex);
+
+        }
+
+        return found.get();
+    }
+
+    public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future<?>>> consumer) {
+
+        node.getConnection().ifPresent(conn -> {
+
+            ChannelFuture future = conn.getChannel().writeAndFlush(packet);
+
+            future.addListener(f ->
+                    consumer.ifPresent(c -> c.accept(node, f)));
+
+        });
+
+    }
+
+    public static Node fromURI(URI uri) {
+
+        int port = uri.getPort() == -1 ? DEFAULT_PORT : uri.getPort();
+
+        return new Node(new InetSocketAddress(uri.getHost(), port));
+    }
+
+    public static Node fromAddress(String address) throws URISyntaxException {
+
+        return fromURI(new URI(null, address, null, null, null)
+                .parseServerAuthority());
+
+    }
+
+    public URI getURI() {
+
+        return UriBuilder.fromPath("/{host}:{port}")
+                .build(address.getAddress().getHostAddress(), address.getPort());
+
+    }
+
+    @Override
+    public boolean equals(Object o) {
+
+        if (this == o) return true;
+
+        if (!(o instanceof Node other)) return false;
+
+        return getURI().equals(other.getURI());
+    }
+
+    @Override
+    public int hashCode() {
+        return getURI().hashCode();
+    }
+
+    public static class NodeBuilder {
+
+        private InetSocketAddress address;
+        private Optional<Connection> connection = Optional.empty();
+        private Details details = new Details();
+        private long nsPing;
+
+        public NodeBuilder address(InetSocketAddress address) {
+            this.address = address;
+            return this;
+        }
+
+        public NodeBuilder connection(Optional<Connection> connection) {
+            this.connection = connection;
+            return this;
+        }
+
+        public NodeBuilder details(Details details) {
+            this.details = details;
+            return this;
+        }
+
+        public NodeBuilder nsPing(long nsPing) {
+            this.nsPing = nsPing;
+            return this;
+        }
+
+        public Node build() {
+            return new Node(address, connection, details, nsPing);
+        }
+    }
+
+    public static NodeBuilder builder() {
+        return new NodeBuilder();
+    }
 }

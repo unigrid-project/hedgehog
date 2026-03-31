@@ -16,50 +16,43 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.ReferenceCountUtil;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@Slf4j
-@RequiredArgsConstructor
-public abstract class AbstractInboundHandler<T extends Packet> extends ChannelInboundHandlerAdapter {
-	private final Class<T> clazz;
+public abstract class AbstractInboundHandler<T extends Packet>
+        extends ChannelInboundHandlerAdapter {
 
-	/* Special abstraction to clean up the default inbound handler and introduce generic types. Can and
-	   should be expanded to support more of the overridable methods in ChannelInboundHandlerAdapter as the
-	   code base needs it. */
+    private static final Logger log =
+            LoggerFactory.getLogger(AbstractInboundHandler.class);
 
-	@Override
-	public void channelRead(ChannelHandlerContext ctx, Object obj) throws Exception {
-		boolean release = true;
+    private final Class<T> clazz;
 
-		try {
-			if (clazz.isInstance(obj)) {
-				typedChannelRead(ctx, (T) obj);
-			} else {
-				release = false;
-				ctx.fireChannelRead(obj);
-			}
-		} finally {
-			if (release) {
-				//TODO: Do we actually need to do this?
-				ReferenceCountUtil.release(obj);
-			}
-		}
-	}
+    protected AbstractInboundHandler(Class<T> clazz) {
+        this.clazz = clazz;
+    }
 
-	@Override
-	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-		log.atWarn().log("{}:{}", cause.getMessage(), ExceptionUtils.getStackTrace(cause));
-		ctx.close();
-	}
+    @Override
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
 
-	public abstract void typedChannelRead(ChannelHandlerContext ctx, T obj) throws Exception;
+        if (clazz.isInstance(msg)) {
+            typedChannelRead(ctx, clazz.cast(msg));
+        } else {
+            ctx.fireChannelRead(msg);
+        }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.warn("Inbound handler exception: {}", cause.getMessage());
+        log.debug("Stacktrace:\n{}", ExceptionUtils.getStackTrace(cause));
+        ctx.close();
+    }
+
+    protected abstract void typedChannelRead(ChannelHandlerContext ctx, T packet) throws Exception;
 }

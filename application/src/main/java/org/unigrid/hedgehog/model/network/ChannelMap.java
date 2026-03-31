@@ -16,62 +16,62 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network;
+ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
-import org.apache.commons.configuration2.sync.LockMode;
+
 import org.unigrid.hedgehog.model.cdi.Lock;
+import org.unigrid.hedgehog.model.cdi.LockMode;
 import org.unigrid.hedgehog.model.cdi.Protected;
 
 @ApplicationScoped
 public class ChannelMap {
-	private Map<Channel, Node> channels;
 
-	@PostConstruct
-	private void init() {
-		channels = new HashMap<>();
-	}
+    private Map<Channel, Node> channels;
 
-	@Protected @Lock(LockMode.WRITE)
-	public void clear() {
-		channels.clear();
-	}
+    @PostConstruct
+    private void init() {
+        this.channels = new HashMap<>();
+    }
 
-	@Protected @Lock(LockMode.WRITE)
-	public void modify(Channel channel, BiConsumer<Channel, Node> consumer) {
-		final Node node = channels.get(channel);
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void clear() {
+        channels.clear();
+    }
 
-		if (Objects.nonNull(node)) {
-			consumer.accept(channel, node);
-		}
-	}
+    @Protected
+    @Lock(LockMode.READ)
+    public Optional<Node> get(Channel channel) {
+        return Optional.ofNullable(channels.get(channel));
+    }
 
-	@Protected @Lock(LockMode.READ)
-	public Optional<Node> get(Channel channel) {
-		final Node node = channels.get(channel);
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void set(Channel channel, Node node) {
+        channels.put(channel, node);
+    }
 
-		if (Objects.nonNull(node)) {
-			return Optional.of(node);
-		}
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void remove(Channel channel) {
+        channels.remove(channel);
+    }
 
-		return Optional.empty();
-	}
-
-	@Protected @Lock(LockMode.WRITE)
-	public void set(Channel channel, Node node) {
-		channels.put(channel, node);
-	}
-
-	@Protected @Lock(LockMode.WRITE)
-	public void remove(Channel channel) {
-		channels.remove(channel);
-	}
+    @Protected
+    @Lock(LockMode.WRITE)
+    public void modify(Channel channel, BiConsumer<Channel, Node> consumer) {
+        final Node node = channels.get(channel);
+        if (node != null) {
+            consumer.accept(channel, node);
+        }
+    }
 }

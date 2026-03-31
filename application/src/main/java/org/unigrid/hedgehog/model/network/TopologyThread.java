@@ -17,96 +17,115 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+  package org.unigrid.hedgehog.model.network;
 
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 
-@Slf4j
 public class TopologyThread extends Thread {
-	public static final int BASE_SECONDS_BETWEEN_RECONNECTS = 30;
-	public static final int ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE = 3;
 
-	private Object lock = new Object();
-	private boolean run = true;
+    private static final Logger log =
+            LoggerFactory.getLogger(TopologyThread.class);
 
-	@RequiredArgsConstructor
-	public class NodeConnectionHandler implements Consumer<Node> {
-		private final Topology topology;
+    public static final int BASE_SECONDS_BETWEEN_RECONNECTS = 30;
+    public static final int ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE = 3;
 
-		@Override
-		public void accept(Node node) {
-			log.atTrace().log("Handling connection {}", node);
+    private final Object lock = new Object();
+    private volatile boolean run = true;
 
-			try {
-				if (!node.getConnection().isPresent()) {
-					final P2PClient client = new P2PClient(node.getAddress().getHostName(),
-						node.getAddress().getPort()
-					);
+    private static class NodeConnectionHandler implements Consumer<Node> {
 
-					topology.modifyNode(node, n -> {
-						n.setConnection(Optional.of(client));
-						topology.getChannels().set(client.getChannel(), n);
-					});
-				}
-			} catch (CertificateException | ExecutionException | InterruptedException
-				| NoSuchAlgorithmException | TimeoutException ex) {
+        private final Topology topology;
 
-				log.atWarn().log("Node connection to {} failed", node, ex);
+        private NodeConnectionHandler(Topology topology) {
+            this.topology = topology;
+        }
 
-				node.getConnection().ifPresent(connection -> {
-					connection.closeDirty();
-					topology.getChannels().remove(connection.getChannel());
-				});
+        @Override
+        public void accept(Node node) {
 
-				topology.removeNode(node);
-				log.atTrace().log("Removed node {} from topology", node);
-			}
-		}
-	}
+            log.trace("Handling connection {}", node);
 
-	private long getReconnectionTime(long connections) {
-		return (BASE_SECONDS_BETWEEN_RECONNECTS
-			+ (ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE * (connections + 1)))
-			* 1000;
-	}
+            try {
 
-	@Override
-	public void run() {
-		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			while (run) {
-				/* If we have no connections, we try the seed nodes again! */
-				if (topology.isEmpty()) {
-					topology.repopulate();
-				}
+                if (node.getConnection().isEmpty()) {
 
-				final Set<Node> nodes = topology.cloneNodes();
-				nodes.forEach(new NodeConnectionHandler(topology));
+                    P2PClient client = new P2PClient(
+                            node.getAddress().getHostName(),
+                            node.getAddress().getPort()
+                    );
 
-				synchronized (lock) {
-					try {
-						lock.wait(getReconnectionTime(nodes.size()));
-					} catch (InterruptedException ex) {
-						return; /* At this point we know we are done and can just bail out */
-					}
-				}
-			}
-		});
-	}
+                    topology.modifyNode(node, n -> {
+                        n.setConnection(Optional.of(client));
 
-	public void exit() {
-		synchronized (lock) {
-			run = false;
-			lock.notify();
-		}
-	}
+                        CDIUtil.resolveAndRun(ChannelMap.class,
+                                channelMap ->
+                                        channelMap.set(client.getChannel(), n)
+                        );
+                    });
+                }
+
+            } catch (Exception ex) {   // ← FIX: inga unreachable exceptions
+
+                log.warn("Node connection to {} failed", node, ex);
+
+                node.getConnection().ifPresent(connection -> {
+
+                    connection.closeDirty();
+
+                    CDIUtil.resolveAndRun(ChannelMap.class,
+                            channelMap ->
+                                    channelMap.remove(connection.getChannel())
+                    );
+                });
+
+                topology.removeNode(node);
+                log.trace("Removed node {} from topology", node);
+            }
+        }
+    }
+
+    private long getReconnectionTime(long connections) {
+        return (BASE_SECONDS_BETWEEN_RECONNECTS
+                + (ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE * (connections + 1)))
+                * 1000L;
+    }
+
+    @Override
+    public void run() {
+
+        CDIUtil.resolveAndRun(Topology.class, topology -> {
+
+            while (run) {
+
+                if (topology.isEmpty()) {
+                    topology.repopulate();
+                }
+
+                Set<Node> nodes = topology.cloneNodes();
+                nodes.forEach(new NodeConnectionHandler(topology));
+
+                synchronized (lock) {
+                    try {
+                        lock.wait(getReconnectionTime(nodes.size()));
+                    } catch (InterruptedException ignored) {
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    public void exit() {
+        synchronized (lock) {
+            run = false;
+            lock.notify();
+        }
+    }
 }

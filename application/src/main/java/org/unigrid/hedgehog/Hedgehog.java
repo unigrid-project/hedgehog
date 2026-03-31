@@ -16,13 +16,12 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog;
+ package org.unigrid.hedgehog;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
-import lombok.Getter;
-import lombok.SneakyThrows;
+import java.lang.reflect.InvocationTargetException;
+
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
@@ -33,37 +32,57 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "hedgehog", mixinStandardHelpOptions = true, versionProvider = VersionProvider.class,
-	scope = CommandLine.ScopeType.INHERIT, header = {
-		"",
-		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
-		"    :   _.:.:.:.:.::.     © 2021-2023 The Unigrid Foundation, UGD Software AB",
-		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
-		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
-		""
-	}, subcommands = { CLI.class, Daemon.class, Util.class }
+@Command(
+    name = "hedgehog",
+    mixinStandardHelpOptions = true,
+    versionProvider = VersionProvider.class,
+    scope = CommandLine.ScopeType.INHERIT,
+    header = {
+        "",
+        "     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
+        "    :   _.:.:.:.:.::.     © 2021-2023 The Unigrid Foundation, UGD Software AB",
+        "   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
+        "  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
+        ""
+    },
+    subcommands = { CLI.class, Daemon.class, Util.class }
 )
 public class Hedgehog {
-	@Getter
-	private static boolean[] verbose;
 
-	@Option(names = { "-v", "--verbose" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Verbose mode. Multiple options increase verbosity."
-	)
-	public void setVerbose(boolean[] verbose) {
-		Hedgehog.verbose = verbose.clone();
-		ApplicationLogLevel.configure(verbose.length);
-	}
+    private static boolean[] verbose;
 
-	@SneakyThrows
-	public static void main(String[] args) {
-		final PrintStream stdout = System.out;
-		System.setOut(new PrintStream(OutputStream.nullOutputStream()));
+    @Option(
+        names = { "-v", "--verbose" },
+        scope = CommandLine.ScopeType.INHERIT,
+        description = "Verbose mode. Multiple options increase verbosity."
+    )
+    public void setVerbose(boolean[] verboseOption) {
+        if (verboseOption != null) {
+            verbose = verboseOption.clone();
+            ApplicationLogLevel.configure(verbose.length);
+        }
+    }
 
-		Reflection.resetIllegalAccessLogger(); /* Try to get rid of the "illegal reflective access..." nags */
-		ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
+    public static boolean[] getVerbose() {
+        return verbose;
+    }
 
-		System.setOut(stdout);
-		System.exit(new CommandLine(Hedgehog.class).execute(args));
-	}
+    public static void main(String[] args) {
+        final PrintStream stdout = System.out;
+        System.setOut(new PrintStream(OutputStream.nullOutputStream()));
+
+        try {
+            // Försök att stänga illegal access logger
+            Reflection.resetIllegalAccessLogger();
+        } catch (IllegalAccessException | InvocationTargetException | NoSuchFieldException | NoSuchMethodException e) {
+            e.printStackTrace();
+        }
+
+        // Starta med tyst loggnivå
+        ApplicationLogLevel.configure(0);
+
+        System.setOut(stdout);
+        int exitCode = new CommandLine(Hedgehog.class).execute(args);
+        System.exit(exitCode);
+    }
 }

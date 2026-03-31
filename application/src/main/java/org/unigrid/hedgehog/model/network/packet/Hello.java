@@ -17,22 +17,28 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+ package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class Hello extends Packet implements Serializable {
-	private int port;
 
-	public Hello() {
-		setType(Type.HELLO);
-	}
+    private int port;
+
+    public Hello() {
+        super(Type.HELLO);
+    }
+
+    public Hello(int port) {
+        this();
+        this.port = port;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
 }

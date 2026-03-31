@@ -16,77 +16,63 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
+ // File: SignatureTest.java
 package org.unigrid.hedgehog.model.crypto;
 
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Optional;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import net.jqwik.api.constraints.NotEmpty;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import org.apache.commons.codec.binary.Hex;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 
 public class SignatureTest extends BaseMockedWeldTest {
-	@SneakyThrows
-	@Property(tries = 100)
-	public boolean shouldSignAndVerify(@ForAll byte[] data) {
-		final Signature signature = new Signature();
-		final byte[] signatureData = signature.sign(data);
 
-		return signature.verify(data, signatureData);
-	}
+    @Property(tries = 100)
+    public boolean shouldSignAndVerify(@ForAll byte[] data) throws Exception {
+        final Signature signature = new Signature();
+        final byte[] signatureData = signature.sign(data);
+        return signature.verify(data, signatureData);
+    }
 
-	@SneakyThrows
-	@Property(tries = 50)
-	public boolean shouldSignAndVerifyWithOtherConstructor(@ForAll @NotEmpty byte[] data) {
-		final Signature signatureKeys = new Signature();
+    @Property(tries = 50)
+    public boolean shouldSignAndVerifyWithOtherConstructor(@ForAll @NotEmpty byte[] data) throws Exception {
+        final Signature signatureKeys = new Signature();
 
-		final Signature signatureSigner = new Signature(Optional.of(
-			signatureKeys.getPrivateKey()), Optional.empty()
-		);
+        final Signature signatureSigner = new Signature(Optional.of(signatureKeys.getPrivateKey()), Optional.empty());
+        final Signature signatureVerifier = new Signature(Optional.empty(), Optional.of(signatureKeys.getPublicKey()));
 
-		final Signature signatureVerifier = new Signature(Optional.empty(),
-			Optional.of(signatureKeys.getPublicKey())
-		);
+        final byte[] signatureData = signatureSigner.sign(data);
+        return signatureVerifier.verify(data, signatureData);
+    }
 
-		final byte[] signatureData = signatureSigner.sign(data);
-		return signatureVerifier.verify(data, signatureData);
-	}
+    @Property(tries = 50)
+    public boolean shouldThrowExceptionOnInvalidPrivateKeySize(@ForAll @Size(min = 50, max = 70) byte[] privateKey) {
+        try {
+            new Signature(Optional.of(Hex.encodeHexString(privateKey)), Optional.empty());
+        } catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+            return false;
+        } catch (IllegalArgumentException ex) {
+            return privateKey.length != Signature.PRIVATE_KEY_HEX_SIZE;
+        }
+        return privateKey.length == Signature.PRIVATE_KEY_HEX_SIZE;
+    }
 
-	@Property(tries = 50)
-	public boolean shouldThrowExceptionOnInvalidPrivateKeySize(@ForAll @Size(min = 50, max = 70) byte[] privateKey) {
-		try {
-			final Signature signatureSigner = new Signature(
-				Optional.of(Hex.encodeHexString(privateKey)), Optional.empty()
-			);
-		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
-			return false;
-		} catch (IllegalArgumentException ex) {
-			return privateKey.length != Signature.PRIVATE_KEY_HEX_SIZE;
-		}
-
-		return privateKey.length == Signature.PRIVATE_KEY_HEX_SIZE;
-	}
-
-	@Property(tries = 50)
-	public boolean shouldThrowExceptionOnInvalidPublicKeySize(@ForAll @Size(min = 120, max = 140) byte[] publicKey) {
-		try {
-			final Signature signatureSigner = new Signature(Optional.empty(),
-				Optional.of(Hex.encodeHexString(publicKey))
-			);
-		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
-			return false;
-		} catch (IllegalArgumentException ex) {
-			return publicKey.length != Signature.PUBLIC_KEY_HEX_SIZE;
-		} catch (RuntimeException ex) {
-			return true; /* Happens when we have weird input values in the public key, so lets ignore it */
-		}
-
-		return publicKey.length == Signature.PUBLIC_KEY_HEX_SIZE;
-	}
+    @Property(tries = 50)
+    public boolean shouldThrowExceptionOnInvalidPublicKeySize(@ForAll @Size(min = 120, max = 140) byte[] publicKey) {
+        try {
+            new Signature(Optional.empty(), Optional.of(Hex.encodeHexString(publicKey)));
+        } catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+            return false;
+        } catch (IllegalArgumentException ex) {
+            return publicKey.length != Signature.PUBLIC_KEY_HEX_SIZE;
+        } catch (RuntimeException ex) {
+            return true;
+        }
+        return publicKey.length == Signature.PUBLIC_KEY_HEX_SIZE;
+    }
 }

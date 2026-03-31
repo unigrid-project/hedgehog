@@ -16,44 +16,93 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+	package org.unigrid.hedgehog.model.network.chunk;
 
-package org.unigrid.hedgehog.model.network.chunk;
-
-import java.util.Map;
-import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.tuple.Pair;
-import org.reflections.Reflections;
-import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
-
-@Slf4j
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
-public class ChunkScanner {
-	public static <K, V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
-		final String packageName = TypedCodec.class.getPackageName();
-		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
-
-		final Set<Class<?>> filteredClasses = classes.stream().filter(clazz -> {
-			final Chunk chunk = clazz.getAnnotation(Chunk.class);
-			return chunk.type() == chunkType && chunk.group() == chunkGroup;
-		}).collect(Collectors.toSet());
-
-		final Map<K, V> chunks = (Map<K, V>) filteredClasses.stream().map(x -> {
-			try {
-				final TypedCodec<K> instance = (TypedCodec<K>) x.getDeclaredConstructor().newInstance();
-				return Pair.of(instance.getCodecType(), instance);
-			} catch (Exception ex) {
-				Logger.getLogger(ChunkScanner.class.getName()).log(Level.SEVERE, null, ex);
-				throw new IllegalStateException("Unable to instantiate chunk converter.", ex);
-			}
-		}).collect(Collectors.toMap(p -> p.getLeft(), p -> p.getRight()));
-
-		return new OptionalMap(chunks);
+	import java.lang.reflect.InvocationTargetException;
+	import java.util.Map;
+	import java.util.Set;
+	import java.util.logging.Level;
+	import java.util.logging.Logger;
+	import java.util.stream.Collectors;
+	
+	import org.reflections.Reflections;
+	import org.unigrid.hedgehog.model.collection.OptionalMap;
+	import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
+	
+	/**
+	 * Scanner för alla Chunk-annoterade klasser.
+	 */
+	public final class ChunkScanner {
+	
+		private static final Logger LOGGER =
+				Logger.getLogger(ChunkScanner.class.getName());
+	
+		private ChunkScanner() {
+			// utility class
+		}
+	
+		/**
+		 * Skannar alla Chunk-klasser med specifik typ och grupp.
+		 */
+		public static <K, V extends TypedCodec<K>> OptionalMap<K, V> scan(
+				ChunkType chunkType,
+				ChunkGroup chunkGroup
+		) {
+			final String packageName = TypedCodec.class.getPackageName();
+	
+			// Hämta alla klasser med @Chunk
+			final Set<Class<?>> annotatedClasses = new Reflections(packageName)
+					.getTypesAnnotatedWith(Chunk.class);
+	
+			final Map<K, V> chunks = annotatedClasses.stream()
+	
+					// Säkerställ att klassen implementerar TypedCodec
+					.filter(clazz -> TypedCodec.class.isAssignableFrom(clazz))
+	
+					// Filtrera på Chunk-attribut
+					.filter(clazz -> {
+						Chunk chunk = clazz.getAnnotation(Chunk.class);
+						return chunk.type() == chunkType
+								&& chunk.group() == chunkGroup;
+					})
+	
+					// Instansiera codecs
+					.map(clazz -> {
+						try {
+							@SuppressWarnings("unchecked")
+							Class<? extends TypedCodec<?>> codecClass =
+									(Class<? extends TypedCodec<?>>) clazz;
+	
+							@SuppressWarnings("unchecked")
+							V instance = (V) codecClass
+									.getDeclaredConstructor()
+									.newInstance();
+	
+							return Map.entry(instance.getCodecType(), instance);
+	
+						} catch (NoSuchMethodException |
+								 InstantiationException |
+								 IllegalAccessException |
+								 InvocationTargetException e) {
+	
+							LOGGER.log(
+									Level.SEVERE,
+									"Unable to instantiate chunk codec: " + clazz.getName(),
+									e
+							);
+							throw new IllegalStateException(
+									"Unable to instantiate chunk codec: " + clazz.getName(),
+									e
+							);
+						}
+					})
+	
+					.collect(Collectors.toMap(
+							Map.Entry::getKey,
+							Map.Entry::getValue
+					));
+	
+			return new OptionalMap<>(chunks);
+		}
 	}
-}
+	

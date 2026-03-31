@@ -17,136 +17,183 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server.rest;
+ package org.unigrid.hedgehog.server.rest;
 
 import io.findify.s3mock.S3Mock;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
 import lombok.SneakyThrows;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.Example;
-import net.jqwik.api.Disabled;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.constraints.AlphaChars;
-import net.jqwik.api.constraints.Size;
-import net.jqwik.api.lifecycle.BeforeProperty;
-import net.jqwik.api.lifecycle.AfterProperty;
+
+import net.jqwik.api.*;
+import net.jqwik.api.constraints.*;
+import net.jqwik.api.lifecycle.*;
+
 import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.client.ResponseOddityException;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
-import net.jqwik.api.constraints.NotBlank;
-import lombok.Data;
-import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 
 public class StorageBucketTest extends BaseRestClientTest {
-	S3Mock api;
 
-	@BeforeProperty
-	public void beforeEverything() {
-		api = new S3Mock.Builder().withPort(8001).withInMemoryBackend().build();
-		api.start();
-	}
+    S3Mock api;
 
-	@AfterProperty
-	public void afterEverything() {
-		api.shutdown();
-	}
+    @BeforeProperty
+    public void beforeEverything() {
+        api = new S3Mock.Builder().withPort(8001).withInMemoryBackend().build();
+        api.start();
+    }
 
-	@Data
-	public static class TestBucket {
-		private Bucket bucket;
-		private Bucket mockBucket;
-	}
+    @AfterProperty
+    public void afterEverything() {
+        api.shutdown();
+    }
 
-	@Provide
-	public Arbitrary<List<TestBucket>> provideBuckets(@ForAll
-		@Size(min = 1, max = 10) List<@NotBlank @AlphaChars String> bucketNames,
-		@ForAll @NotBlank @AlphaChars String configurationName) throws ResponseOddityException {
+    public static class TestBucket {
 
-		final RestClient clientMock = new RestClient(server.getRest().getHostName(), 8001, false);
+        private Bucket bucket;
+        private Bucket mockBucket;
 
-		final CreateBucketConfiguration config = new CreateBucketConfiguration(configurationName);
-		final List<TestBucket> testBuckets = new ArrayList<>();
+        public Bucket getBucket() {
+            return bucket;
+        }
 
-		for (String bucketName : bucketNames) {
-			Response response = client.put("/bucket/" + bucketName, Entity.xml(config));
-			Response mockResponse = clientMock.put("/" + bucketName, Entity.xml(config));
-			assertThat(response.getStatus(), equalTo(mockResponse.getStatus()));
-		}
+        public void setBucket(Bucket bucket) {
+            this.bucket = bucket;
+        }
 
-		final ListAllMyBucketsResult buckets = client.getEntity("/bucket/list", ListAllMyBucketsResult.class);
-		Response response = clientMock.get("/");
-		final ListAllMyBucketsResult mockBuckets = response.readEntity(ListAllMyBucketsResult.class);
+        public Bucket getMockBucket() {
+            return mockBucket;
+        }
 
-		List<Bucket> allBuckets = buckets.getBuckets();
-		List<Bucket> allMockBuckets = mockBuckets.getBuckets();
+        public void setMockBucket(Bucket mockBucket) {
+            this.mockBucket = mockBucket;
+        }
+    }
 
-		Collections.sort(allBuckets, (Bucket b1, Bucket b2) -> b1.getName().compareTo(b2.getName()));
-		Collections.sort(allMockBuckets, (Bucket b1, Bucket b2) -> b1.getName().compareTo(b2.getName()));
+    @Provide
+    public Arbitrary<List<TestBucket>> provideBuckets(
+            @ForAll @Size(min = 1, max = 10) List<@NotBlank @AlphaChars String> bucketNames,
+            @ForAll @NotBlank @AlphaChars String configurationName
+    ) throws Exception {
 
-		Response deleteResponse = client.delete("/bucket/" + allBuckets.get(0).getName());
-		Response mockDeleteResponse = clientMock.delete("/" + allMockBuckets.get(0).getName());
+        final RestClient clientMock =
+                new RestClient(server.getRest().getHostName(), 8001, false);
 
-		assertThat(deleteResponse.getLength(), equalTo(mockDeleteResponse.getLength()));
-		assertThat(deleteResponse.getStatus(), equalTo(mockDeleteResponse.getStatus()));
-		
-		for (int i = 0; i < allBuckets.size(); i++) {
-			final TestBucket testBucket = new TestBucket();
+        final CreateBucketConfiguration config = new CreateBucketConfiguration();
 
-			testBucket.setBucket(allBuckets.get(i));
-			testBucket.setMockBucket(allMockBuckets.get(i));
-			testBuckets.add(testBucket);
-		}
+        final List<TestBucket> testBuckets = new ArrayList<>();
 
-		clientMock.close();
-		return Arbitraries.shuffle(testBuckets);
-	}
+        for (String bucketName : bucketNames) {
 
-	@Disabled
-	@Property(tries = 5)
-	@SneakyThrows
-	public void shouldBe1(@ForAll("provideBuckets") List<TestBucket> testBuckets) {
-		for (TestBucket ts : testBuckets) {
-			assertThat(ts.bucket.getName(), is(equalTo(ts.mockBucket.getName())));
-		}
-	}
+            Response response = client.put("/bucket/" + bucketName, Entity.xml(config));
+            Response mockResponse = clientMock.put("/" + bucketName, Entity.xml(config));
 
-	@Example
-	@Disabled
-	@SneakyThrows
-	public void shouldBe2() {
-		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
+            assertThat(response.getStatus(), equalTo(mockResponse.getStatus()));
+        }
 
-		try {
-			client.put("/bucket/test", Entity.xml(""));
-		} catch (Exception e) {
-			assertThat(e, isA(ResponseOddityException.class));
-		}
+        final ListAllMyBucketsResult buckets =
+                client.getEntity("/bucket/list", ListAllMyBucketsResult.class);
 
-		client.close();
-	}
+        Response response = clientMock.get("/");
+        final ListAllMyBucketsResult mockBuckets =
+                response.readEntity(ListAllMyBucketsResult.class);
 
-	@Example
-	@Disabled
-	@SneakyThrows
-	public void shouldBe3() {
-		RestClient client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
+        List<Bucket> allBuckets = buckets.getBuckets();
+        List<Bucket> allMockBuckets = mockBuckets.getBuckets();
 
-		try {
-			client.delete("/bucketdelete");
-		} catch (Exception e) {
-			assertThat(e, isA(ResponseOddityException.class));
-		}
+        Collections.sort(allBuckets,
+                (Bucket b1, Bucket b2) -> b1.getName().compareTo(b2.getName()));
 
-		client.close();
-	}
+        Collections.sort(allMockBuckets,
+                (Bucket b1, Bucket b2) -> b1.getName().compareTo(b2.getName()));
+
+        Response deleteResponse =
+                client.delete("/bucket/" + allBuckets.get(0).getName());
+
+        Response mockDeleteResponse =
+                clientMock.delete("/" + allMockBuckets.get(0).getName());
+
+        assertThat(deleteResponse.getLength(),
+                equalTo(mockDeleteResponse.getLength()));
+
+        assertThat(deleteResponse.getStatus(),
+                equalTo(mockDeleteResponse.getStatus()));
+
+        for (int i = 0; i < allBuckets.size(); i++) {
+
+            final TestBucket testBucket = new TestBucket();
+
+            testBucket.setBucket(allBuckets.get(i));
+            testBucket.setMockBucket(allMockBuckets.get(i));
+
+            testBuckets.add(testBucket);
+        }
+
+        clientMock.close();
+
+        return Arbitraries.shuffle(testBuckets);
+    }
+
+    @Disabled
+    @Property(tries = 5)
+    @SneakyThrows
+    public void shouldBe1(@ForAll("provideBuckets") List<TestBucket> testBuckets) {
+
+        for (TestBucket ts : testBuckets) {
+            assertThat(
+                    ts.getBucket().getName(),
+                    is(equalTo(ts.getMockBucket().getName()))
+            );
+        }
+    }
+
+    @Example
+    @Disabled
+    public void shouldBe2() throws Exception {
+
+        RestClient client =
+                new RestClient(
+                        server.getRest().getHostName(),
+                        server.getRest().getPort(),
+                        true
+                );
+
+        try {
+            client.put("/bucket/test", Entity.xml(""));
+        } catch (Exception e) {
+            assertThat(e, isA(ResponseOddityException.class));
+        }
+
+        client.close();
+    }
+
+    @Example
+    @Disabled
+    public void shouldBe3() throws Exception {
+
+        RestClient client =
+                new RestClient(
+                        server.getRest().getHostName(),
+                        server.getRest().getPort(),
+                        true
+                );
+
+        try {
+            client.delete("/bucketdelete");
+        } catch (Exception e) {
+            assertThat(e, isA(ResponseOddityException.class));
+        }
+
+        client.close();
+    }
 }

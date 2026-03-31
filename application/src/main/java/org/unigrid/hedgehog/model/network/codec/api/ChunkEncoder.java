@@ -16,13 +16,30 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+    package org.unigrid.hedgehog.model.network.codec.api;
 
-package org.unigrid.hedgehog.model.network.codec.api;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
-
-public interface ChunkEncoder<T extends ChunkData> {
-	void encodeChunk(ChannelHandlerContext ctx, T chunkData, ByteBuf out) throws Exception;
-}
+    import io.netty.buffer.ByteBuf;
+    import io.netty.channel.ChannelHandlerContext;
+    import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+    
+    /**
+     * Encoder för ChunkData.
+     * Används i Netty outbound pipeline.
+     */
+    public interface ChunkEncoder<T extends ChunkData> {
+    
+        /**
+         * Encodar ett Chunk till buffer.
+         *
+         * @param ctx       Netty context
+         * @param chunkData data att encoda
+         * @param out       utgående ByteBuf
+         * @throws Exception vid encode-fel
+         */
+        void encodeChunk(
+                ChannelHandlerContext ctx,
+                T chunkData,
+                ByteBuf out
+        ) throws Exception;
+    }
+    

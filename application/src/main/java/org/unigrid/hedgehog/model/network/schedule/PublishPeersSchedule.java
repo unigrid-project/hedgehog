@@ -16,38 +16,44 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.packet.PublishPeers;
+
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.network.Node;
-import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 
-@Data
-@Slf4j
-@EqualsAndHashCode(callSuper = false)
-public class PublishPeersSchedule extends AbstractSchedule implements Schedulable {
-	public PublishPeersSchedule() {
-		super(PublishPeers.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
-	}
+public final class PublishPeersSchedule extends AbstractSchedule {
 
-	@Override
-	public Consumer<Channel> getConsumer() {
-		return channel -> {
-			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				final Set<Node> nodesToSend = topology.cloneNodes();
+    private static final int INTERVAL_SECONDS = 15 * 60;
 
-				log.atTrace().log("Publishing {} peers to {}", nodesToSend.size(), channel.remoteAddress());
-				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend).build());
-			});
-		};
-	}
+    @Override
+    public int getPeriod() {
+        return INTERVAL_SECONDS;
+    }
+
+    @Override
+    public TimeUnit getTimeUnit() {
+        return TimeUnit.SECONDS;
+    }
+
+    @Override
+    public boolean isExecuteOnCreation() {
+        return true;
+    }
+
+    @Override
+    public Consumer<Channel> getConsumer() {
+        return channel -> CDIUtil.resolveAndRun(Topology.class, topology -> {
+            Set<Node> nodesToSend = topology.cloneNodes();
+            if (channel != null) {
+                channel.writeAndFlush(new PublishPeers(nodesToSend));
+            }
+        });
+    }
 }

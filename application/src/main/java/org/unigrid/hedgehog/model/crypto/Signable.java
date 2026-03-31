@@ -17,11 +17,12 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.crypto;
+    package org.unigrid.hedgehog.model.crypto;
 
-public interface Signable {
-	byte[] getSignable();
-	byte[] getSignature();
-	void sign(String privateKeyHex) throws SigningException;
-	boolean isValidSignature();
-}
+    public interface Signable {
+        byte[] getSignable();
+        byte[] getSignature();
+        void sign(String privateKeyHex) throws SigningException;
+        boolean isValidSignature();
+    }
+    

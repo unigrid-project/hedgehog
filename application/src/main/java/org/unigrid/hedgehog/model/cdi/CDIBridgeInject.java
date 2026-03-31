@@ -17,15 +17,25 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.cdi;
+    package org.unigrid.hedgehog.model.cdi;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-@Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.FIELD)
-public @interface CDIBridgeInject {
-	/* Empty on purpose */
-}
+    import jakarta.inject.Qualifier;
+    import java.lang.annotation.Documented;
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    @Qualifier
+    @Documented
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({
+        ElementType.FIELD,
+        ElementType.PARAMETER,
+        ElementType.METHOD,
+        ElementType.CONSTRUCTOR
+    })
+    public @interface CDIBridgeInject {
+        /* Marker annotation – no members */
+    }
+    

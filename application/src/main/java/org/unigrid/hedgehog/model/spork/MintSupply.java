@@ -16,37 +16,50 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.spork;
+ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.ToString;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
-@Data @ToString(callSuper = true)
-@EqualsAndHashCode(callSuper = false)
+/**
+ * GridSpork för totalt max-utbud
+ */
 public class MintSupply extends GridSpork implements Serializable {
-	public MintSupply() {
-		setType(Type.MINT_SUPPLY);
-		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
 
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-		data.setMaxSupply(BigDecimal.ZERO);
-		setData(data);
-	}
+    public MintSupply() {
+        setType(Type.MINT_SUPPLY);
 
-	@Data
-	public static class SporkData implements ChunkData {
-		private BigDecimal maxSupply;
+        SporkData data = new SporkData();
+        data.setMaxSupply(BigDecimal.ZERO);
+        setData(data);
+    }
 
-		public SporkData empty() {
-			final SporkData data = new SporkData();
+    public static class SporkData implements ChunkData, Serializable {
+        private BigDecimal maxSupply;
 
-			data.setMaxSupply(BigDecimal.ZERO);
-			return data;
-		}
-	}
+        public BigDecimal getMaxSupply() {
+            return maxSupply;
+        }
+
+        public void setMaxSupply(BigDecimal maxSupply) {
+            this.maxSupply = maxSupply;
+        }
+
+        public SporkData empty() {
+            SporkData data = new SporkData();
+            data.setMaxSupply(BigDecimal.ZERO);
+            return data;
+        }
+    }
+
+    // Typ-säker getData / setData
+    @Override
+    public SporkData getData() {
+        return (SporkData) super.getData();
+    }
+
+    public void setData(SporkData data) {
+        super.setData(data);
+    }
 }

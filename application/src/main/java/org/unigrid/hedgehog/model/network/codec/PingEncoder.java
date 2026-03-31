@@ -16,43 +16,36 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+	package org.unigrid.hedgehog.model.network.codec;
 
-package org.unigrid.hedgehog.model.network.codec;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelHandler.Sharable;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
-import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.packet.Ping;
-
-@Sharable
-@ChannelCodec(priority = 2)
-public class PingEncoder extends AbstractMessageToByteEncoder<Ping> implements PacketEncoder<Ping> {
-	/*
-	    Packet format:
-	    R = Response flag ON/OFF
-	    0..............................................................63
-	    [                << Frame Header (FrameDecoder) >>             ]
-            [                       nano request time                      ]
-	    R[                           reserved                          ]
-	*/
-	@Override
-	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, Ping ping) throws Exception {
-		final ByteBuf out = Unpooled.buffer();
-
-		out.writeLong(ping.getNanoTime());
-		out.writeByte(ping.isResponse() ? 0x01 : 0x00);
-		out.writeZero(7 /* 56 bits */);
-
-		return Optional.of(out);
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	import io.netty.channel.ChannelHandler;
+	
+	import java.util.Optional;
+	
+	import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
+	import org.unigrid.hedgehog.model.network.packet.Packet;
+	import org.unigrid.hedgehog.model.network.packet.Ping;
+	
+	@ChannelHandler.Sharable
+	@ChannelCodec(priority = 2)
+	public final class PingEncoder
+			extends AbstractMessageToByteEncoder<Ping> {
+	
+		@Override
+		public Optional<ByteBuf> encode(ChannelHandlerContext ctx, Ping ping) {
+			// Skapa buffer
+			ByteBuf out = ctx.alloc().buffer();
+			out.writeLong(ping.getNanoTime());
+			out.writeByte(ping.isResponse() ? 1 : 0);
+			out.writeZero(7);
+			return Optional.of(out);
+		}
+	
+		@Override
+		public Packet.Type getCodecType() {
+			return Packet.Type.PING;
+		}
 	}
-
-	@Override
-	public Packet.Type getCodecType() {
-		return Packet.Type.PING;
-	}
-}
+	

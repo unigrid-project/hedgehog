@@ -17,73 +17,82 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.schedule;
+ package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import org.unigrid.hedgehog.model.network.handler.*;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import lombok.Getter;
-import lombok.Setter;
+import org.unigrid.hedgehog.model.network.handler.BaseHandlerTest;
+import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.jqwik.MockOn;
 import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import org.unigrid.hedgehog.jqwik.MockOn;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
-public class BaseScheduleTest<S extends Schedulable, T extends Packet, H> extends BaseHandlerTest<T, H> {
-	@Getter @Setter private Optional<Consumer<Channel>> scheduleCallback = Optional.empty();
-	private final Class<S> scheduleType;
-	private final int period;
-	private TimeUnit timeUnit;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
-	public BaseScheduleTest(int period, TimeUnit timeUnit, Class<S> scheduleType) {
-		this(period, timeUnit, scheduleType, (Class<H>) Void.class);
-	}
+@SuppressWarnings("unchecked")
+public class BaseScheduleTest<S extends Schedulable<Channel>, T extends Packet, H> 
+        extends BaseHandlerTest<T, H> {
 
-	public BaseScheduleTest(int period, TimeUnit timeUnit, Class<S> scheduleType, Class<H> channelType) {
-		super(channelType);
-		this.scheduleType = scheduleType;
-		this.period = period;
-		this.timeUnit = timeUnit;
-	}
+    private Optional<Consumer<Channel>> scheduleCallback = Optional.empty();
+    private final Class<S> scheduleType;
+    private final int period;
+    private final TimeUnit timeUnit;
 
-	@BeforeProperty
-	private void mockBefore() {
-		new MockUp<AbstractSchedule>() {
-			@Mock public int getPeriod(Invocation invocation) {
-				return MockOn.instance(scheduleType, invocation, period);
-			}
+    public BaseScheduleTest(int period, TimeUnit timeUnit, Class<S> scheduleType) {
+        this(period, timeUnit, scheduleType, (Class<H>) Void.class);
+    }
 
-			@Mock public TimeUnit getTimeUnit(Invocation invocation) {
-				return MockOn.instance(scheduleType, invocation, timeUnit);
-			}
+    public BaseScheduleTest(int period, TimeUnit timeUnit, Class<S> scheduleType, Class<H> channelType) {
+        super(channelType);
+        this.scheduleType = scheduleType;
+        this.period = period;
+        this.timeUnit = timeUnit;
+    }
 
-			@Mock public boolean executeOnCreation(Invocation invocation) {
-				return MockOn.instance(scheduleType, invocation, false);
-			}
-		};
+    public void setScheduleCallback(Optional<Consumer<Channel>> scheduleCallback) {
+        this.scheduleCallback = scheduleCallback;
+    }
 
-		new MockUp<S>() {
-			@Mock public Consumer<Channel> getConsumer(Invocation invocation) {
-				final Consumer<Channel> originalConsumer = invocation.proceed();
+    public Optional<Consumer<Channel>> getScheduleCallback() {
+        return scheduleCallback;
+    }
 
-				return channel -> {
-					originalConsumer.accept(channel);
-					
-					if (scheduleCallback.isPresent()) {
-						scheduleCallback.get().accept(channel);
-					}
-				};
-			}
-		};
-	}
+    @BeforeProperty
+    private void mockBefore() {
+        // Mocka schemaparametrar
+        new MockUp<AbstractSchedule>() {
+            @Mock public int getPeriod(Invocation invocation) {
+                return MockOn.instance(scheduleType, invocation, period);
+            }
 
-	@AfterProperty
-	private void clearCallback() {
-		scheduleCallback = Optional.empty();
-	}
+            @Mock public TimeUnit getTimeUnit(Invocation invocation) {
+                return MockOn.instance(scheduleType, invocation, timeUnit);
+            }
+
+            @Mock public boolean isExecuteOnCreation(Invocation invocation) {
+                return MockOn.instance(scheduleType, invocation, false);
+            }
+        };
+
+        // Mocka schemans consumer
+        new MockUp<S>() {
+            @Mock
+            public Consumer<Channel> getConsumer(Invocation invocation) {
+                Consumer<Channel> originalConsumer = invocation.proceed();
+                return channel -> {
+                    originalConsumer.accept(channel);
+                    scheduleCallback.ifPresent(cb -> cb.accept(channel));
+                };
+            }
+        };
+    }
+
+    @AfterProperty
+    private void clearCallback() {
+        scheduleCallback = Optional.empty();
+    }
 }

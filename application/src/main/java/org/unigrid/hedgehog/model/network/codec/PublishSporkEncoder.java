@@ -15,38 +15,36 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
- */
-
+ */ 
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
-import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 
-@Sharable
+@ChannelHandler.Sharable
 @ChannelCodec(priority = 10)
-public class PublishSporkEncoder extends AbstractGridSporkEncoder<PublishSpork> implements PacketEncoder<PublishSpork> {
-	/*
-	    Packet format:
-	    0.............................63.............................128
-	    [                << Frame Header (FrameDecoder) >>             ]
-	    [<<                       spork data                         >>]
-	*/
-	@Override
-	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		final ByteBuf out = Unpooled.buffer();
-		encodeGridSpork(ctx, publishSpork.getGridSpork(), out);
-		return Optional.of(out);
-	}
+public final class PublishSporkEncoder
+        extends AbstractGridSporkEncoder<PublishSpork> {
 
-	@Override
-	public Packet.Type getCodecType() {
-		return Packet.Type.PUBLISH_SPORK;
-	}
+    @Override
+    public Optional<ByteBuf> encode(
+            ChannelHandlerContext ctx,
+            PublishSpork entity
+    ) throws Exception {
+
+        ByteBuf out = Unpooled.buffer();
+        encodeGridSpork(ctx, entity.getGridSpork(), out);
+        return Optional.of(out);
+    }
+
+    @Override
+    public Packet.Type getCodecType() {
+        return Packet.Type.PUBLISH_SPORK;
+    }
 }

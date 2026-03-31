@@ -17,25 +17,89 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+    package org.unigrid.hedgehog.command.cli;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.GenericType;
-import jakarta.ws.rs.core.Response;
-import java.util.Optional;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.Json;
-import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
-import picocli.CommandLine.Command;
-
-@Command(name = "gridspork-list")
-public class GridSporkList extends RestClientCommand {
-	public GridSporkList() {
-		super(HttpMethod.GET, "/gridspork", Optional.of(() -> "No Content"));
-	}
-
-	@Override
-	protected void execute(Response response) {
-		System.out.println(Json.parse(response.readEntity(new GenericType<SporkDatabaseInfo>() { })));
-	}
-}
+    import io.netty.bootstrap.Bootstrap;
+    import io.netty.buffer.ByteBuf;
+    import io.netty.buffer.Unpooled;
+    import io.netty.channel.*;
+    import io.netty.channel.nio.NioEventLoopGroup;
+    import io.netty.channel.socket.nio.NioSocketChannel;
+    import io.netty.handler.codec.http.*;
+    import java.nio.charset.StandardCharsets;
+    
+    import org.unigrid.hedgehog.model.Json;
+    import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
+    import picocli.CommandLine.Command;
+    
+    /**
+     * CLI command: gridspork-list
+     *
+     * Netty 4–baserad implementation som ersätter Jakarta REST (JAX-RS).
+     * Kör ett HTTP GET-anrop mot /gridspork och skriver ut svaret som JSON.
+     */
+    @Command(name = "gridspork-list")
+    public class GridSporkList implements Runnable {
+    
+        private static final String HOST = "localhost"; // justera vid behov
+        private static final int PORT = 8080;
+    
+        @Override
+        public void run() {
+            EventLoopGroup group = new NioEventLoopGroup();
+    
+            try {
+                Bootstrap bootstrap = new Bootstrap();
+                bootstrap
+                    .group(group)
+                    .channel(NioSocketChannel.class)
+                    .handler(new ChannelInitializer<Channel>() {
+                        @Override
+                        protected void initChannel(Channel ch) {
+                            ChannelPipeline p = ch.pipeline();
+                            p.addLast(new HttpClientCodec());
+                            p.addLast(new HttpObjectAggregator(1_048_576));
+                            p.addLast(new SimpleChannelInboundHandler<FullHttpResponse>() {
+                                @Override
+                                protected void channelRead0(ChannelHandlerContext ctx, FullHttpResponse response) {
+                                    ByteBuf content = response.content();
+                                    String json = content.toString(StandardCharsets.UTF_8);
+    
+                                    SporkDatabaseInfo info =
+                                        Json.parse(json, SporkDatabaseInfo.class);
+    
+                                    System.out.println(Json.parse(info));
+                                }
+    
+                                @Override
+                                public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                                    cause.printStackTrace();
+                                    ctx.close();
+                                }
+                            });
+                        }
+                    });
+    
+                Channel channel = bootstrap.connect(HOST, PORT).sync().channel();
+    
+                FullHttpRequest request = new DefaultFullHttpRequest(
+                    HttpVersion.HTTP_1_1,
+                    HttpMethod.GET,
+                    "/gridspork",
+                    Unpooled.EMPTY_BUFFER
+                );
+    
+                request.headers().set(HttpHeaderNames.HOST, HOST);
+                request.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+    
+                channel.writeAndFlush(request).sync();
+                channel.closeFuture().sync();
+    
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } finally {
+                group.shutdownGracefully();
+            }
+        }
+    }
+    

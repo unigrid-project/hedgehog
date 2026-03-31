@@ -14,496 +14,531 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<surefireArgLine />
 	</properties>
-	<profiles>
-		<profile>
-			<id>Linux</id>
-			<activation><os><name>Linux</name></os></activation>
-			<dependencies>
-				<dependency>
-					<groupId>io.netty.incubator</groupId>
-					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
-					<classifier>linux-x86_64</classifier>
-				</dependency>
-			</dependencies>
-		</profile>
-		<profile>
-			<id>Windows</id>
-			<activation><os><family>Windows</family></os></activation>
-			<dependencies>
-				<dependency>
-					<groupId>io.netty.incubator</groupId>
-					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
-					<classifier>windows-x86_64</classifier>
-				</dependency>
-			</dependencies>
-		</profile>
-		<profile>
-			<id>Mac OS</id>
-			<activation><os><family>Mac</family></os></activation>
-			<dependencies>
-				<dependency>
-					<groupId>io.netty.incubator</groupId>
-					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
-					<classifier>osx-x86_64</classifier>
-				</dependency>
-			</dependencies>
-		</profile>
-	</profiles>
-	<dependencies>
-		<dependency>
-			<groupId>org.unigrid.hedgehog</groupId>
-			<artifactId>hedgehog-common</artifactId>
-			<version>0.0.8-SNAPSHOT</version>
-		</dependency>
-		<dependency>
-			<groupId>org.graalvm.sdk</groupId>
-			<artifactId>graal-sdk</artifactId>
-			<version>22.3.0</version>
-		</dependency>
-		<dependency>
-			<groupId>info.picocli</groupId>
-			<artifactId>picocli</artifactId>
-			<version>4.7.3</version>
-		</dependency>
-		<dependency>
-			<groupId>me.alexpanov</groupId>
-			<artifactId>free-port-finder</artifactId>
-			<version>1.1.1</version>
-		</dependency>
-		<dependency>
-			<groupId>commons-codec</groupId>
-			<artifactId>commons-codec</artifactId>
-			<version>1.15</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.commons</groupId>
-			<artifactId>commons-collections4</artifactId>
-			<version>4.4</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.commons</groupId>
-			<artifactId>commons-configuration2</artifactId>
-			<version>2.9.0</version>
-		</dependency>
-		<dependency>
-			<groupId>org.jboss.weld.se</groupId>
-			<artifactId>weld-se-core</artifactId>
-			<version>5.1.0.Final</version>
-		</dependency>
-		<dependency>
-			<groupId>org.projectlombok</groupId>
-			<artifactId>lombok</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.reflections</groupId>
-			<artifactId>reflections</artifactId>
-			<version>0.10.2</version>
-			<exclusions>
-				<exclusion>
-					<groupId>org.slf4j</groupId>
-					<artifactId>slf4j-api</artifactId>
-				</exclusion>
-				<exclusion>
-					<groupId>com.google.code.findbugs</groupId>
-					<artifactId>jsr305</artifactId>
-				</exclusion>
-			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.containers</groupId>
-			<artifactId>jersey-container-netty-http</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.containers</groupId>
-			<artifactId>jersey-container-jdk-http</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.media</groupId>
-			<artifactId>jersey-media-json-jackson</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.media</groupId>
-			<artifactId>jersey-media-jaxb</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.inject</groupId>
-			<artifactId>jersey-hk2</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jersey.ext</groupId>
-			<artifactId>jersey-bean-validation</artifactId>
-			<version>3.0.10</version>
-		</dependency>
-		<dependency>
-			<groupId>org.glassfish.jaxb</groupId>
-			<artifactId>jaxb-runtime</artifactId>
-			<version>3.0.2</version>
-		</dependency>
-		<dependency>
-			<groupId>com.fasterxml.jackson.datatype</groupId>
-			<artifactId>jackson-datatype-jsr310</artifactId>
-			<version>2.13.3</version>
-		</dependency>
-		<dependency>
-			<groupId>io.netty</groupId>
-			<artifactId>netty-all</artifactId>
-			<version>4.1.90.Final</version>
-			<exclusions>
-				<exclusion>
-					<groupId>*</groupId>
-					<artifactId>*</artifactId>
-				</exclusion>
-			</exclusions>
-		</dependency>
-		<dependency>
-			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcpkix-jdk15on</artifactId>
-			<version>1.70</version>
-		</dependency>
-		<dependency>
-			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcprov-jdk15on</artifactId>
-			<version>1.70</version>
-		</dependency>
-		<dependency>
-			<groupId>io.netty</groupId>
-			<artifactId>netty-codec-http</artifactId>
-			<version>4.1.90.Final</version>
-		</dependency>
-		<dependency>
-			<groupId>org.jboss</groupId>
-			<artifactId>jandex</artifactId>
-			<version>3.0.5</version>
-		</dependency>
-		<dependency>
-			<groupId>ch.qos.logback</groupId>
-			<artifactId>logback-classic</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.slf4j</groupId>
-			<artifactId>jul-to-slf4j</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.evolvedbinary.j8fu</groupId>
-			<artifactId>j8fu</artifactId>
-			<version>1.23.0</version>
-		</dependency>
-		<dependency>
-			<groupId>net.harawata</groupId>
-			<artifactId>appdirs</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.github.hazendaz.jmockit</groupId>
-			<artifactId>jmockit</artifactId>
-			<version>1.49.3</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>net.jqwik</groupId>
-			<artifactId>jqwik</artifactId>
-			<version>1.7.2</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>com.shazam</groupId>
-			<artifactId>shazamcrest</artifactId>
-			<version>0.11</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>com.github.javafaker</groupId>
-			<artifactId>javafaker</artifactId>
-			<version>1.0.2</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.awaitility</groupId>
-			<artifactId>awaitility</artifactId>
-			<version>4.2.0</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.jacoco</groupId>
-			<artifactId>org.jacoco.agent</artifactId>
-			<classifier>runtime</classifier>
-			<version>0.8.8</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>commons-io</groupId>
-			<artifactId>commons-io</artifactId>
-			<version>2.11.0</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>io.findify</groupId>
-			<artifactId>s3mock_2.13</artifactId>
-			<version>0.2.6</version>
-			<scope>test</scope>
-		</dependency>
-		<!-- Great library for analyzing modules
-		<dependency>
-			<groupId>org.burningwave</groupId>
-			<artifactId>core</artifactId>
-			<version>12.62.0</version>
-		</dependency> -->
-	</dependencies>
-	<build>
-		<plugins>
-			<plugin>
-				<groupId>org.jacoco</groupId>
-				<artifactId>jacoco-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>pre-unit-test</id>
-						<goals>
-							<goal>prepare-agent</goal>
-						</goals>
-						<configuration>
-							<destFile>${project.basedir}/target/jacoco.exec</destFile>
-							<propertyName>surefireArgLine</propertyName>
-							<append>true</append>
-						</configuration>
-					</execution>
-					<execution>
-						<id>pre-invoker-test</id>
-						<phase>pre-integration-test</phase>
-						<goals>
-							<goal>prepare-agent</goal>
-						</goals>
-						<configuration>
-							<destFile>${project.basedir}/target/jacoco.exec</destFile>
-							<propertyName>invoker.mavenOpts</propertyName>
-							<append>true</append>
-						</configuration>
-					</execution>
-					<execution>
-						<id>default-report</id>
-						<goals>
-							<goal>report</goal>
-						</goals>
-						<configuration>
-							<dataFile>${project.basedir}/target/jacoco.exec</dataFile>
-							<outputDirectory>${project.basedir}/target/jacoco-results/</outputDirectory>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-surefire-plugin</artifactId>
-				<configuration>
-					<argLine>
-						@{surefireArgLine}
-						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
-						-Dorg.jboss.netty.debug=true
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=info.picocli
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=com.fasterxml.jackson.databind
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=com.fasterxml.jackson.databind
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=com.fasterxml.jackson.databind
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=org.unigrid.hedgehog.common
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog=info.picocli
-						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.spork=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.option=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.util=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=org.apache.commons.lang3
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.packet=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
-                                                --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=org.apache.commons.lang3
-						--add-opens java.base/java.lang=ALL-UNNAMED
-						--add-opens java.base/java.math=ALL-UNNAMED
-						--add-opens java.base/java.net=ALL-UNNAMED
-						--add-opens java.base/java.time=ALL-UNNAMED
-						--add-opens java.base/java.util=ALL-UNNAMED
-						--add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog
-					</argLine>
-					<trimStackTrace>false</trimStackTrace>
-					<reuseForks>false</reuseForks>
-					<forkCount>${system.numcores}</forkCount>
-					<systemPropertyVariables>
-						<testoutput.target>${project.build.directory}</testoutput.target>
-					</systemPropertyVariables>
-					<enableAssertions>true</enableAssertions>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.codehaus.mojo</groupId>
-				<artifactId>build-helper-maven-plugin</artifactId>
-				<executions>
-					<execution>
-						<id>get-cpu-count</id>
-						<goals>
-							<goal>cpu-count</goal>
-						</goals>
-						<configuration>
-							<cpuCount>system.numcores</cpuCount>
-							<factor>0.2</factor>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.10.1</version>
-				<configuration>
-					<release>17</release>
-					<showDeprecation>true</showDeprecation>
-					<annotationProcessorPaths>
-						<path>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-							<version>1.18.24</version>
-						</path>
-						<path>
-							<groupId>info.picocli</groupId>
-							<artifactId>picocli-codegen</artifactId>
-							<version>4.7.0</version>
-						</path>
-					</annotationProcessorPaths>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-assembly-plugin</artifactId>
-				<executions>
-					<execution>
-						<phase>package</phase>
-						<goals>
-							<goal>single</goal>
-						</goals>
-						<configuration>
-							<archive>
-								<manifest>
-									<mainClass>
-										org.unigrid.hedgehog.Hedgehog
-									</mainClass>
-								</manifest>
-							</archive>
-							<descriptors>
-								<descriptor>assembly.xml</descriptor>
-							</descriptors>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.jboss.jandex</groupId>
-				<artifactId>jandex-maven-plugin</artifactId>
-				<version>1.2.3</version>
-				<executions>
-					<execution>
-						<id>make-index</id>
-						<goals>
-							<goal>jandex</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-checkstyle-plugin</artifactId>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-site-plugin</artifactId>
-				<version>3.12.0</version>
-			</plugin>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-project-info-reports-plugin</artifactId>
-				<version>3.3.0</version>
-			</plugin>
-			<plugin>
-				<groupId>pl.gdela</groupId>
-				<artifactId>socomo-maven</artifactId>
-				<dependencies>
-					<dependency>
-						<groupId>org.ow2.asm</groupId>
-						<artifactId>asm</artifactId>
-						<version>9.1</version>
-					</dependency>
-				</dependencies>
-				<executions>
-					<execution>
-						<goals>
-							<goal>analyze</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-		</plugins>
-		<resources>
-			<resource>
-				<directory>src/main/resources-filtered</directory>
-				<filtering>true</filtering>
-			</resource>
-			<resource>
-				<directory>src/main/resources</directory>
-				<filtering>false</filtering>
-			</resource>
-		</resources>
-		<testResources>
-			<testResource>
-				<directory>src/test/resources</directory>
-			</testResource>
-		</testResources>
-	</build>
-	<reporting>
-		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-pmd-plugin</artifactId>
-				<version>3.16.0</version>
-				<configuration>
-					<includeTests>true</includeTests>
-					<targetJdk>17</targetJdk>
-					<rulesets>
-						<ruleset>${project.basedir}/pmd.xml</ruleset>
-					</rulesets>
-				</configuration>
+   <profiles>
+        <profile>
+            <id>Linux</id>
+            <activation><os><name>Linux</name></os></activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty.incubator</groupId>
+                    <artifactId>netty-incubator-codec-native-quic</artifactId>
+                    <version>0.0.39.Final</version>
+                    <classifier>linux-x86_64</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>Windows</id>
+            <activation><os><family>Windows</family></os></activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty.incubator</groupId>
+                    <artifactId>netty-incubator-codec-native-quic</artifactId>
+                    <version>0.0.39.Final</version>
+                    <classifier>windows-x86_64</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>Mac OS</id>
+            <activation><os><family>Mac</family></os></activation>
+            <dependencies>
+                <dependency>
+                    <groupId>io.netty.incubator</groupId>
+                    <artifactId>netty-incubator-codec-native-quic</artifactId>
+                    <version>0.0.39.Final</version>
+                    <classifier>osx-x86_64</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 
-			</plugin>
-			<plugin>
-				<groupId>com.github.spotbugs</groupId>
-				<artifactId>spotbugs-maven-plugin</artifactId>
-				<version>4.6.0.0</version>
-			</plugin>
-		</plugins>
-	</reporting>
+    <dependencies>
+        <!-- Core dependencies -->
+        <dependency>
+            <groupId>org.unigrid.hedgehog</groupId>
+            <artifactId>hedgehog-common</artifactId>
+            <version>0.0.8-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.graalvm.sdk</groupId>
+            <artifactId>graal-sdk</artifactId>
+            <version>22.3.0</version>
+        </dependency>
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+            <version>4.7.3</version>
+        </dependency>
+        <dependency>
+            <groupId>me.alexpanov</groupId>
+            <artifactId>free-port-finder</artifactId>
+            <version>1.1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.15</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-collections4</artifactId>
+            <version>4.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-configuration2</artifactId>
+            <version>2.9.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jboss.weld.se</groupId>
+            <artifactId>weld-se-core</artifactId>
+            <version>5.1.0.Final</version>
+        </dependency>
+ 
+<dependencies>
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <scope>provided</scope>
+        <version>1.18.42</version> 
+    </dependency>
+</dependencies>
+
+        <dependency>
+            <groupId>org.reflections</groupId>
+            <artifactId>reflections</artifactId>
+            <version>0.10.2</version>
+            <exclusions>
+                <exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></exclusion>
+                <exclusion><groupId>com.google.code.findbugs</groupId><artifactId>jsr305</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Jersey dependencies -->
+        <dependency>
+            <groupId>org.glassfish.jersey.containers</groupId>
+            <artifactId>jersey-container-netty-http</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.containers</groupId>
+            <artifactId>jersey-container-jdk-http</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-json-jackson</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-jaxb</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.ext</groupId>
+            <artifactId>jersey-bean-validation</artifactId>
+            <version>3.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+            <version>3.0.2</version>
+        </dependency>
+
+        <!-- Jackson -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>2.13.3</version>
+        </dependency>
+
+        <!-- Netty -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.90.Final</version>
+            <exclusions>
+                <exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http</artifactId>
+            <version>4.1.90.Final</version>
+        </dependency>
+
+        <!-- BouncyCastle -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk15on</artifactId>
+            <version>1.70</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>1.70</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>jul-to-slf4j</artifactId>
+        </dependency>
+
+        <!-- Utility -->
+        <dependency>
+            <groupId>com.evolvedbinary.j8fu</groupId>
+            <artifactId>j8fu</artifactId>
+            <version>1.23.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.harawata</groupId>
+            <artifactId>appdirs</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>com.github.hazendaz.jmockit</groupId>
+            <artifactId>jmockit</artifactId>
+            <version>1.49.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.7.2</version>
+            <scope>test</scope>
+        </dependency> 
+<dependency>
+    <groupId>net.jqwik</groupId>
+    <artifactId>jqwik-engine</artifactId>
+    <version>1.7.2</version>
+    <scope>test</scope>
+</dependency>
+
+
+        <dependency>
+            <groupId>com.shazam</groupId>
+            <artifactId>shazamcrest</artifactId>
+            <version>0.11</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.javafaker</groupId>
+            <artifactId>javafaker</artifactId>
+            <version>1.0.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.2.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.agent</artifactId>
+            <classifier>runtime</classifier>
+            <version>0.8.8</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.11.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.findify</groupId>
+            <artifactId>s3mock_2.13</artifactId>
+            <version>0.2.6</version>
+            <scope>test</scope>
+        </dependency>
+<dependencies>
+    <!-- JUnit 5 -->
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-api</artifactId>
+        <version>5.10.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter-engine</artifactId>
+        <version>5.10.0</version>
+        <scope>test</scope>
+    </dependency>
+
+    <!-- Hamcrest -->
+    <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest</artifactId>
+        <version>2.2</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+    </dependencies>
+	 <build>
+    <plugins>
+        <!-- Jacoco Plugin -->
+        <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+                <execution>
+                    <id>pre-unit-test</id>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <configuration>
+                        <destFile>${project.build.directory}/jacoco.exec</destFile>
+                        <propertyName>surefireArgLine</propertyName>
+                        <append>true</append>
+                    </configuration>
+                </execution>
+                <execution>
+                    <id>pre-integration-test</id>
+                    <phase>pre-integration-test</phase>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                    <configuration>
+                        <destFile>${project.build.directory}/jacoco.exec</destFile>
+                        <propertyName>invoker.mavenOpts</propertyName>
+                        <append>true</append>
+                    </configuration>
+                </execution>
+                <execution>
+                    <id>report</id>
+                    <goals>
+                        <goal>report</goal>
+                    </goals>
+                    <configuration>
+                        <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                        <outputDirectory>${project.build.directory}/jacoco-results</outputDirectory>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+
+        <!-- Surefire Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>3.1.2</version>
+            <configuration>
+         <argLine>
+            @{surefireArgLine}
+            -javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
+            -Dorg.jboss.netty.debug=true
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=com.fasterxml.jackson.databind
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=com.fasterxml.jackson.databind
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=info.picocli
+            --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=jersey.server
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=info.picocli
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=ALL-UNNAMED
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
+            --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=ALL-UNNAMED
+            --add-opens java.base/java.lang=ALL-UNNAMED
+            --add-opens java.base/java.util=ALL-UNNAMED
+            --add-opens java.base/java.net=ALL-UNNAMED
+            --add-opens java.base/java.time=ALL-UNNAMED
+            --add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog
+        </argLine>
+                <trimStackTrace>false</trimStackTrace>
+                <reuseForks>false</reuseForks>
+                <forkCount>${system.numcores}</forkCount>
+                <systemPropertyVariables>
+                    <testoutput.target>${project.build.directory}</testoutput.target>
+                </systemPropertyVariables>
+                <enableAssertions>true</enableAssertions>
+            </configuration>
+        </plugin>
+
+        <!-- Build-helper Plugin -->
+        <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+                <execution>
+                    <id>get-cpu-count</id>
+                    <goals>
+                        <goal>cpu-count</goal>
+                    </goals>
+                    <configuration>
+                        <cpuCount>system.numcores</cpuCount>
+                        <factor>0.2</factor>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+
+        <!-- Compiler Plugin -->
+ <plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <version>3.10.1</version>
+    <configuration>
+        <release>17</release>
+        <showDeprecation>true</showDeprecation>
+        <parameters>true</parameters> <!-- Viktigt för reflection och Lombok -->
+        <annotationProcessorPaths>
+            <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>1.18.32</version> <!-- Håll samma version som dependency -->
+            </path>
+            <path>
+                <groupId>info.picocli</groupId>
+                <artifactId>picocli-codegen</artifactId>
+                <version>4.7.3</version>
+            </path>
+        </annotationProcessorPaths>
+        <compilerArgs>
+            <arg>-parameters</arg> <!-- Säkerställer att parameter-namn bibehålls för Picocli -->
+        </compilerArgs>
+    </configuration>
+</plugin>
+
+        <!-- Assembly Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <version>3.6.0</version>
+            <executions>
+                <execution>
+                    <id>make-assembly</id>
+                    <phase>package</phase>
+                    <goals>
+                        <goal>single</goal>
+                    </goals>
+                    <configuration>
+                        <archive>
+                            <manifest>
+                                <mainClass>org.unigrid.hedgehog.Hedgehog</mainClass>
+                            </manifest>
+                        </archive>
+                        <descriptors>
+                            <descriptor>assembly.xml</descriptor>
+                        </descriptors>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+
+        <!-- Jandex Plugin -->
+        <plugin>
+            <groupId>org.jboss.jandex</groupId>
+            <artifactId>jandex-maven-plugin</artifactId>
+            <version>1.2.3</version>
+            <executions>
+                <execution>
+                    <id>make-index</id>
+                    <goals>
+                        <goal>jandex</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+
+        <!-- Checkstyle Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-checkstyle-plugin</artifactId>
+            <version>3.2.2</version>
+        </plugin>
+
+        <!-- Site Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-site-plugin</artifactId>
+            <version>3.12.0</version>
+        </plugin>
+
+        <!-- Project Info Reports Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-project-info-reports-plugin</artifactId>
+            <version>3.3.0</version>
+        </plugin>
+
+        <!-- Socomo Plugin -->
+        <plugin>
+            <groupId>pl.gdela</groupId>
+            <artifactId>socomo-maven</artifactId>
+            <dependencies>
+                <dependency>
+                    <groupId>org.ow2.asm</groupId>
+                    <artifactId>asm</artifactId>
+                    <version>9.1</version>
+                </dependency>
+            </dependencies>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>analyze</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+
+    <resources>
+        <resource>
+            <directory>src/main/resources-filtered</directory>
+            <filtering>true</filtering>
+        </resource>
+        <resource>
+            <directory>src/main/resources</directory>
+            <filtering>false</filtering>
+        </resource>
+    </resources>
+
+    <testResources>
+        <testResource>
+            <directory>src/test/resources</directory>
+        </testResource>
+    </testResources>
+</build>
+
+<reporting>
+    <plugins>
+        <!-- PMD Plugin -->
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-pmd-plugin</artifactId>
+            <version>3.16.0</version>
+            <configuration>
+                <includeTests>true</includeTests>
+                <targetJdk>17</targetJdk>
+                <rulesets>
+                    <ruleset>${project.basedir}/pmd.xml</ruleset>
+                </rulesets>
+            </configuration>
+        </plugin>
+
+        <!-- SpotBugs Plugin -->
+        <plugin>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-maven-plugin</artifactId>
+            <version>4.6.0.0</version>
+        </plugin>
+    </plugins>
+</reporting>
 </project>

@@ -16,32 +16,46 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.command;
+ package org.unigrid.hedgehog.command;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
-import jakarta.inject.Inject;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
-import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
+import org.unigrid.hedgehog.command.option.NetOptions;
+
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Mixin;
 
-@ApplicationScoped
 @Command(name = "daemon")
-public class Daemon extends CDIContext implements Runnable {
-	@Mixin private NetOptions netOptions;
-	@Mixin private RestOptions restOptions;
+@ApplicationScoped
+public class Daemon {
 
-	@Inject private P2PServer p2pServer;
-	@Inject private RestServer restServer;
+    private final P2PServer p2pServer;
+    private final RestServer restServer;
 
-	@Override
-	protected void start(@Observes ContainerInitialized event) {
-		/* No need to do anything here, at the moment */
-	}
+    public Daemon() {
+        this.p2pServer = new P2PServer();
+        this.restServer = new RestServer();
+    }
+
+    public void onStart(@Observes ContainerInitialized event) throws Exception {
+
+        System.out.println("Starting P2P server...");
+
+        p2pServer.start(
+                NetOptions.getHost(),
+                NetOptions.getPort()
+        );
+
+        System.out.println("REST server is already started via CDI @PostConstruct");
+    }
+
+    public P2PServer getP2pServer() {
+        return p2pServer;
+    }
+
+    public RestServer getRestServer() {
+        return restServer;
+    }
 }

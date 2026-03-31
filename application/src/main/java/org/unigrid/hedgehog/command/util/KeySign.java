@@ -17,42 +17,58 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.util;
+	package org.unigrid.hedgehog.command.util;
 
-import java.security.InvalidAlgorithmParameterException;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidKeySpecException;
-import java.util.Optional;
-import lombok.Getter;
-import org.apache.commons.codec.DecoderException;
-import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.crypto.SigningException;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-
-@Command(name = "key-sign")
-public class KeySign implements Runnable {
-	@Getter @Option(names = { "-D", "--data" },
-		description = "Hex representation of data to sign.", required = true
-	)
-	private String data;
-
-	@Getter @Option(names = { "-k", "--key" }, required = true,
-		description = "Hex representation of private key to use."
-	)
-	private String key;
-
-	@Override
-	public void run() {
-		try {
-			final Signature signature = new Signature(Optional.of(key), Optional.empty());
-			System.out.println(Hex.encodeHexString(signature.sign(Hex.decodeHex(data))));
-
-		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeySpecException
-			| NoSuchAlgorithmException | SigningException ex) {
-
-			System.err.println(String.format("Failed to sign: %s", ex));
+	import java.security.InvalidAlgorithmParameterException;
+	import java.security.NoSuchAlgorithmException;
+	import java.security.spec.InvalidKeySpecException;
+	import java.util.Optional;
+	
+	import lombok.Getter;
+	import org.apache.commons.codec.DecoderException;
+	import org.apache.commons.codec.binary.Hex;
+	import org.unigrid.hedgehog.model.crypto.Signature;
+	import org.unigrid.hedgehog.model.crypto.SigningException;
+	import picocli.CommandLine.Command;
+	import picocli.CommandLine.Option;
+	
+	@Command(name = "key-sign", description = "Signs hex-encoded data with a private key")
+	public class KeySign implements Runnable {
+	
+		@Getter
+		@Option(
+			names = { "-D", "--data" },
+			description = "Hex representation of data to sign",
+			required = true
+		)
+		private String data;
+	
+		@Getter
+		@Option(
+			names = { "-k", "--key" },
+			description = "Hex representation of private key to use",
+			required = true
+		)
+		private String key;
+	
+		@Override
+		public void run() {
+			try {
+				Signature signature = new Signature(
+					Optional.of(key),
+					Optional.empty()
+				);
+	
+				byte[] signed = signature.sign(Hex.decodeHex(data));
+				System.out.println(Hex.encodeHexString(signed));
+	
+			} catch (DecoderException |
+					 InvalidAlgorithmParameterException |
+					 InvalidKeySpecException |
+					 NoSuchAlgorithmException |
+					 SigningException ex) {  // <-- Lägg till SigningException här
+				System.err.printf("Failed to sign: %s%n", ex.getMessage());
+			}
 		}
 	}
-}
+	

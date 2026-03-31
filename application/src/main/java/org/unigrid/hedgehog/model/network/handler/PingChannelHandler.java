@@ -17,33 +17,46 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.handler;
+ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.ChannelMap;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
 public class PingChannelHandler extends AbstractInboundHandler<Ping> {
-	public PingChannelHandler() {
-		super(Ping.class);
-	}
 
-	@Override
-	public void typedChannelRead(ChannelHandlerContext ctx, Ping ping) throws Exception {
-		if (!ping.isResponse()) {
-			ping.setResponse(true);
-			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-		} else {
-			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				topology.getChannels().get(ctx.channel()).ifPresent(n -> {
-					final long previousTime = ctx.channel().attr(Ping.PING_TIME_KEY).get();
-					n.setNsPing(System.nanoTime() - previousTime);
-				});
-			});
-		}
-	}
+    public PingChannelHandler() {
+        super(Ping.class);
+    }
+
+    @Override
+    public void typedChannelRead(ChannelHandlerContext ctx, Ping ping) {
+
+        if (!ping.isResponse()) {
+
+            ping.setResponse(true);
+            ctx.writeAndFlush(ping)
+               .addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+
+        } else {
+
+            CDIUtil.resolveAndRun(ChannelMap.class, channelMap -> {
+
+                channelMap.get(ctx.channel()).ifPresent(node -> {
+
+                    final Long previousTime =
+                            ctx.channel().attr(Ping.PING_TIME_KEY).get();
+
+                    if (previousTime != null) {
+                        node.setNsPing(System.nanoTime() - previousTime);
+                    }
+                });
+            });
+        }
+    }
 }

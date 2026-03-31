@@ -16,109 +16,113 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.server.rest;
 
-package org.unigrid.hedgehog.server.rest;
-
-import jakarta.validation.constraints.NotNull;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PUT;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+
 import java.math.BigDecimal;
-import java.util.Objects;
 import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.Address;
+
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
-@Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class MintStorageResource extends CDIBridgeResource {
-	@CDIBridgeInject
-	private P2PServer p2pServer;
 
-	@CDIBridgeInject
-	private SporkDatabase sporkDatabase;
+    @CDIBridgeInject
+    private SporkDatabase sporkDatabase;
 
-	@CDIBridgeInject
-	private Topology topology;
+    @CDIBridgeInject
+    private Topology topology;
 
-	@Path("/mint-storage") @GET
-	public Response list() {
-		final MintStorage ms = sporkDatabase.getMintStorage();
+    @GET
+    @Path("/mint-storage")
+    public Response list() {
 
-		if (Objects.isNull(ms)) {
-			return Response.noContent().build();
-		}
+        MintStorage ms = sporkDatabase.getMintStorage();
 
-		return Response.ok().entity(sporkDatabase.getMintStorage()).build();
-	}
+        if (ms == null) {
+            return Response.noContent().build();
+        }
 
-	@Path("/mint-storage/{address}/{height}") @GET
-	public Response get(@NotNull @PathParam("address") String address, @NotNull @PathParam("height") int height) {
-		if (Objects.isNull(sporkDatabase.getMintStorage())) {
-			return Response.noContent().build();
-		}
+        return Response.ok(ms).build();
+    }
 
-		final Location location = Location.builder()
-			.address(Address.builder().wif(address).build())
-			.height(height).build();
+    @GET
+    @Path("/mint-storage/{address}/{height}")
+    public Response get(@PathParam("address") String addressValue,
+                        @PathParam("height") int height) {
 
-		final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();
-		final BigDecimal mintAmount = data.getMints().get(location);
+        MintStorage ms = sporkDatabase.getMintStorage();
 
-		if (Objects.isNull(mintAmount)) {
-			return Response.status(Response.Status.NOT_FOUND).build();
-		}
+        if (ms == null) {
+            return Response.noContent().build();
+        }
 
-		return Response.ok().entity(mintAmount).build();
-	}
+        // 🔥 ANVÄND RÄTT ADDRESS-KLASS
+        MintStorage.Address address = new MintStorage.Address();
+        address.setWif(addressValue);
 
-	@Path("/mint-storage/{address}/{height}") @PUT
-	public Response grow(@NotNull BigDecimal mintAmount, @NotNull @PathParam("address") String address,
-		@NotNull @PathParam("height") int height, @NotNull @HeaderParam("privateKey") String privateKey) {
+        MintStorage.SporkData.Location location =
+                new MintStorage.SporkData.Location();
 
-		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final MintStorage ms = ResourceHelper.getNewOrClonedSporkSection(
-				() -> sporkDatabase.getMintStorage(),
-				() -> new MintStorage()
-			);
+        location.setAddress(address);
+        location.setHeight(height);
 
-			final Location location = Location.builder()
-				.address(Address.builder().wif(address).build())
-				.height(height).build();
+        BigDecimal mintAmount =
+                ms.getData().getMints().get(location);
 
-			final MintStorage.SporkData data = ms.getData();
-			final BigDecimal oldMintAmount = data.getMints().get(location);
-			final boolean isUpdate = Objects.nonNull(oldMintAmount);
+        if (mintAmount == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
 
-			ms.archive();
-			data.getMints().put(location, mintAmount);
+        return Response.ok(mintAmount).build();
+    }
 
-			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, isUpdate, signable -> {
-				sporkDatabase.setMintStorage(signable);
+    @PUT
+    @Path("/mint-storage/{address}/{height}")
+    public Response grow(BigDecimal mintAmount,
+                         @PathParam("address") String addressValue,
+                         @PathParam("height") int height,
+                         @HeaderParam("privateKey") String privateKey) {
 
-				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getMintStorage()).build(),
-					topology, Optional.empty()
-				);
-			});
-		}
+        if (privateKey == null || !NetworkKey.isTrusted(privateKey)) {
+            return Response.status(Response.Status.UNAUTHORIZED).build();
+        }
 
-		return Response.status(Response.Status.UNAUTHORIZED).build();
-	}
+        MintStorage ms = sporkDatabase.getMintStorage();
+
+        if (ms == null) {
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity("MintStorage not initialized")
+                    .build();
+        }
+
+        MintStorage.Address address = new MintStorage.Address();
+        address.setWif(addressValue);
+
+        MintStorage.SporkData.Location location =
+                new MintStorage.SporkData.Location();
+
+        location.setAddress(address);
+        location.setHeight(height);
+
+        ms.getData().getMints().put(location, mintAmount);
+
+        PublishSpork publishSpork = new PublishSpork();
+        publishSpork.setGridSpork(ms);
+
+        Topology.sendAll(publishSpork, topology, Optional.empty());
+
+        return Response.ok().build();
+    }
 }

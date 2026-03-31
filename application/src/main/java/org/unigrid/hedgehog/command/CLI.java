@@ -19,14 +19,14 @@
 
 package org.unigrid.hedgehog.command;
 
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGrow;
 import org.unigrid.hedgehog.command.cli.GridSporkList;
 import org.unigrid.hedgehog.command.cli.GridSporkSet;
 import org.unigrid.hedgehog.command.cli.NodeAdd;
 import org.unigrid.hedgehog.command.cli.NodeList;
 import org.unigrid.hedgehog.command.cli.NodeRemove;
 import org.unigrid.hedgehog.command.cli.Stop;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGet;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import picocli.CommandLine.Command;

@@ -16,16 +16,19 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network;
+ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public interface Connection {
-	Channel getChannel();
-	ChannelFuture send(Packet packet);
-	void close();
-	void closeDirty();
-}
+
+    Channel getChannel();
+
+    ChannelFuture send(Packet packet);
+
+    void close();
+
+    void closeDirty();
+} 

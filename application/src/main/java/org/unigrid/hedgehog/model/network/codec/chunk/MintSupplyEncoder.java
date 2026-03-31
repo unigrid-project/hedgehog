@@ -16,34 +16,58 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+	package org.unigrid.hedgehog.model.network.codec.chunk;
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.chunk.Chunk;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintSupply;
-
-@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply.SporkData> {
-	/*
-	    Chunk format:
-	    0..............................................................63
-	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	   n[ <max supply (0-term)>                                    ...n]
-	*/
-	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out) throws Exception {
-		ByteBufUtils.writeNullTerminatedString(data.getMaxSupply().toPlainString(), out);
+	import io.netty.buffer.ByteBuf;
+	import io.netty.channel.ChannelHandlerContext;
+	
+	import java.lang.reflect.Field;
+	import java.math.BigDecimal;
+	
+	import org.unigrid.hedgehog.model.network.chunk.Chunk;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+	import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+	import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+	import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+	import org.unigrid.hedgehog.model.spork.GridSpork;
+	import org.unigrid.hedgehog.model.spork.MintSupply;
+	
+	@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
+	public final class MintSupplyEncoder
+			implements TypedCodec<GridSpork.Type>,
+					   ChunkEncoder<MintSupply.SporkData> {
+	
+		@Override
+		public void encodeChunk(
+				ChannelHandlerContext ctx,
+				MintSupply.SporkData data,
+				ByteBuf out
+		) {
+			BigDecimal maxSupply = getPrivateField(data, "maxSupply");
+	
+			ByteBufUtils.writeNullTerminatedString(
+					maxSupply.toPlainString(),
+					out
+			);
+		}
+	
+		@Override
+		public GridSpork.Type getCodecType() {
+			return GridSpork.Type.MINT_SUPPLY;
+		}
+	
+		@SuppressWarnings("unchecked")
+		private static <T> T getPrivateField(Object target, String fieldName) {
+			try {
+				Field field = target.getClass().getDeclaredField(fieldName);
+				field.setAccessible(true);
+				return (T) field.get(target);
+			} catch (Exception e) {
+				throw new IllegalStateException(
+						"Unable to access field '" + fieldName + "' in " + target.getClass(),
+						e
+				);
+			}
+		}
 	}
-
-	@Override
-	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.MINT_SUPPLY;
-	}
-}
+	

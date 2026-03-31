@@ -17,25 +17,27 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+    package org.unigrid.hedgehog.command.cli.spork;
 
-import lombok.Getter;
-import org.unigrid.hedgehog.command.cli.spork.MintStorage;
-import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-
-@Command(name = "gridspork-grow", subcommands = MintStorage.class,
-	description = "Grow an already defined spork, expanding a defined data section. Previous data is unchanged."
-)
-public class GridSporkGrow {
-	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "JSON describing the spork data.", required = true
-	)
-	private static String data;
-
-	@Getter @Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hex representation of private key signing the spork.", required = true
-	)
-	private static String key;
-}
+    import picocli.CommandLine.Command;
+    
+    /**
+     * CLI-kommandot "gridspork-get" används för att läsa (GET) data från GridSpork.
+     * 
+     * Subkommandon:
+     * - MintSupply: Läs supply-parametrar
+     * - MintStorage: Läs mint-storage
+     *
+     * Uppdateringar jämfört med original:
+     * 1. Klass dokumenterad
+     * 2. Samma subkommandon
+     */
+    @Command(
+        name = "gridspork-get",
+        description = "CLI command for reading GridSpork data (GET operations)",
+        subcommands = { MintSupply.class, MintStorage.class }
+    )
+    public class GridSporkGet {
+        // Empty on purpose – all logic hanteras av subkommandon
+    }
+    

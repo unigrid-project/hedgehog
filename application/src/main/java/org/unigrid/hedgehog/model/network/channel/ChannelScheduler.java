@@ -17,20 +17,28 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.channel;
+    package org.unigrid.hedgehog.model.network.channel;
 
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
-
-@Target(ElementType.TYPE)
-@Retention(RetentionPolicy.RUNTIME)
-public @interface ChannelScheduler {
-	enum Type {
-		CLIENT, SERVER;
-	}
-
-	Type[] value() default {ChannelScheduler.Type.CLIENT, ChannelScheduler.Type.SERVER};
-	int priority() default 0;
-}
+    import java.lang.annotation.Documented;
+    import java.lang.annotation.ElementType;
+    import java.lang.annotation.Repeatable;
+    import java.lang.annotation.Retention;
+    import java.lang.annotation.RetentionPolicy;
+    import java.lang.annotation.Target;
+    
+    @Documented
+    @Repeatable(ChannelSchedulerContainer.class)
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    public @interface ChannelScheduler {
+    
+        enum Type {
+            CLIENT,
+            SERVER
+        }
+    
+        Type[] value() default { Type.CLIENT, Type.SERVER };
+    
+        int priority() default 0;
+    }
+    

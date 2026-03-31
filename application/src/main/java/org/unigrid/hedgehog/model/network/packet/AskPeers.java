@@ -17,23 +17,24 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+ package org.unigrid.hedgehog.model.network.packet;
 
 import java.io.Serializable;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 
-@Data
-@Builder
-@AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)
 public class AskPeers extends Packet implements Serializable {
-	private static final short DEFAULT_ASK_AMOUNT_OF_PEERS = 8;
-	@Builder.Default private short amount = DEFAULT_ASK_AMOUNT_OF_PEERS;
 
-	public AskPeers() {
-		setType(Type.ASK_PEERS);
-	}
+    private static final short DEFAULT_ASK_AMOUNT_OF_PEERS = 8;
+    private short amount = DEFAULT_ASK_AMOUNT_OF_PEERS;
+
+    public AskPeers() {
+        super(Type.ASK_PEERS);
+    }
+
+    public short getAmount() {
+        return amount;
+    }
+
+    public void setAmount(short amount) {
+        this.amount = amount;
+    }
 }

@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.server.p2p;
+ package org.unigrid.hedgehog.server.p2p;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -28,106 +27,73 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
-import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
-import io.netty.util.internal.logging.InternalLoggerFactory;
-import io.netty.util.internal.logging.Slf4JLoggerFactory;
+import io.netty.incubator.codec.quic.QuicSslContext;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
-import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.TopologyThread;
-import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
-import org.unigrid.hedgehog.model.network.codec.HelloDecoder;
-import org.unigrid.hedgehog.model.network.codec.PingDecoder;
-import org.unigrid.hedgehog.model.network.codec.PingEncoder;
-import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
-import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
-import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
-import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.ConnectionHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
-import org.unigrid.hedgehog.model.network.handler.HelloChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
-import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
+import org.unigrid.hedgehog.command.option.NetOptions;
 
-@Eager @ApplicationScoped
+import java.util.concurrent.TimeUnit;
+
+@ApplicationScoped
 public class P2PServer extends AbstractServer {
-	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	private TopologyThread topologyThread;
-	private Channel channel;
 
-	@Inject
-	private EncryptedTokenHandler encryptedTokenHandler;
+    private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
+    private TopologyThread topologyThread;
+    private Channel channel;
 
-	@PostConstruct @SneakyThrows
-	private void init() {
-		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
+    private final EncryptedTokenHandler encryptedTokenHandler = new EncryptedTokenHandler();
 
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
-		final QuicSslContext context = QuicSslContextBuilder.forServer(
-			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(Network.getProtocols()).build();
+    @PostConstruct
+    public void init() throws Exception {
+        start(NetOptions.getHost(), NetOptions.getPort());
+    }
 
-		// TODO: Add support for ChannelCollector
-		final ChannelHandler codec = new QuicServerCodecBuilder()
-			.sslContext(context)
-			.tokenHandler(encryptedTokenHandler)
-			.initialMaxData(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
-			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
-			.handler(new ConnectionHandler())
-			.streamHandler(new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
-					new FrameDecoder(),
-					new HelloDecoder(),
-					new PingEncoder(), new PingDecoder(),
-					new PublishSporkEncoder(), new PublishSporkDecoder(),
-					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new HelloChannelHandler(), new PublishPeersChannelHandler()
-				);
-			}, () -> {
-				return Arrays.asList(
-					new PingSchedule(),
-					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()
-				);
-			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
+    public void start(String host, int port) throws Exception {
+        final SelfSignedCertificate certificate = new SelfSignedCertificate();
+        final QuicSslContext context = QuicSslContextBuilder.forServer(
+                certificate.privateKey(), null, certificate.certificate())
+                .applicationProtocols(Network.getProtocols())
+                .build();
 
-		channel = new Bootstrap().group(group)
-			.channel(NioDatagramChannel.class)
-			.handler(codec)
-			.bind(NetOptions.getHost(), NetOptions.getPort())
-			.sync().channel();
+        final ChannelHandler codec = new QuicServerCodecBuilder()
+                .sslContext(context)
+                .tokenHandler(encryptedTokenHandler)
+                .initialMaxData(Network.MAX_DATA_SIZE)
+                .initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
+                .initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
+                .initialMaxStreamsBidirectional(Network.MAX_STREAMS)
+                .maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
+                .handler(new ConnectionHandler())
+                .build();
 
-		topologyThread = new TopologyThread();
-		topologyThread.start();
-	}
+        channel = new Bootstrap()
+                .group(group)
+                .channel(NioDatagramChannel.class)
+                .handler(codec)
+                .bind(host, port)
+                .sync()
+                .channel();
 
-	@Override
-	public Channel getChannel() {
-		return channel;
-	}
+        topologyThread = new TopologyThread();
+        topologyThread.start();
+    }
 
-	@PreDestroy
-	private void destroy() {
-		topologyThread.exit();
-		channel.close();
-		group.shutdownGracefully();
-	}
+    @Override
+    public Channel getChannel() {
+        return channel;
+    }
+
+    @PreDestroy
+    public void destroy() {
+        if (topologyThread != null) topologyThread.exit();
+        if (channel != null) channel.close();
+        group.shutdownGracefully();
+    }
 }

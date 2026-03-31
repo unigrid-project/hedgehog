@@ -17,28 +17,48 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model;
+	package org.unigrid.hedgehog.model;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
-
-@Slf4j
-public class Json {
-	public static <T> String parse(T object) {
-		final ObjectMapper mapper = new ObjectMapper();
-		String json = "Invalid JSON";
-
-		try {
-			if (object instanceof String s) {
-				json = mapper.readTree(s).toPrettyString();
-			} else {
-				json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
-			}
-		} catch (JsonProcessingException ex) {
-			log.atError().log("Failed to process JSON for {}", object);
+	import com.fasterxml.jackson.core.JsonProcessingException;
+	import com.fasterxml.jackson.databind.ObjectMapper;
+	import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+	
+	/**
+	 * Central JSON utility baserad på Jackson.
+	 *
+	 * - Serialisering: Object -> JSON
+	 * - Deserialisering: JSON -> Object
+	 */
+	public final class Json {
+	
+		private static final ObjectMapper MAPPER = new ObjectMapper()
+				.registerModule(new JavaTimeModule());
+	
+		private Json() {
+			// utility class
 		}
-
-		return json;
+	
+		/**
+		 * Serialisera objekt till JSON-sträng.
+		 */
+		public static String parse(Object object) {
+			try {
+				return MAPPER.writeValueAsString(object);
+			} catch (JsonProcessingException e) {
+				throw new IllegalStateException("Failed to serialize object to JSON", e);
+			}
+		}
+	
+		/**
+		 * Deserialisera JSON-sträng till objekt.
+		 */
+		public static <T> T parse(String json, Class<T> type) {
+			try {
+				return MAPPER.readValue(json, type);
+			} catch (Exception e) {
+				throw new IllegalStateException(
+						"Failed to deserialize JSON to " + type.getSimpleName(), e);
+			}
+		}
 	}
-}
+	

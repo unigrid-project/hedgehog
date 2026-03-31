@@ -17,147 +17,102 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.crypto;
+	package org.unigrid.hedgehog.model.crypto;
 
-import java.math.BigInteger;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.KeyFactory;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.security.SignatureException;
-import java.security.interfaces.ECPrivateKey;
-import java.security.interfaces.ECPublicKey;
-import java.security.spec.ECGenParameterSpec;
-import java.security.spec.ECParameterSpec;
-import java.security.spec.ECPoint;
-import java.security.spec.ECPrivateKeySpec;
-import java.security.spec.ECPublicKeySpec;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.KeySpec;
-import java.util.Optional;
-
-public class Signature {
-	private static final String KEYPAIR_NAME = "EC";
-	private static final String SIGNATURE_NAME = "SHA512WithECDSA";
-	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
-
-	public static final int PRIVATE_KEY_SIZE = 520;
-	public static final int PRIVATE_KEY_HEX_SIZE = 65;
-	public static final int PUBLIC_KEY_SIZE = 1042;
-	public static final int PUBLIC_KEY_HEX_SIZE = 131;
-
-	private ECPrivateKey privateKey;
-	private ECPublicKey publicKey;
-
-	public Signature() throws InvalidAlgorithmParameterException, NoSuchAlgorithmException {
-		final ECGenParameterSpec ec = new ECGenParameterSpec(EC_SEC_NAME);
-		final KeyPairGenerator generator = KeyPairGenerator.getInstance(KEYPAIR_NAME);
-
-		while (true) {
-			generator.initialize(ec, new SecureRandom());
-
-			final KeyPair keypair = generator.generateKeyPair();
-			publicKey = (ECPublicKey) keypair.getPublic();
-			privateKey = (ECPrivateKey) keypair.getPrivate();
-
-			final int xPubLength = publicKey.getW().getAffineX().bitLength();
-			final int yPubLength = publicKey.getW().getAffineY().bitLength();
-			final int privLength = privateKey.getS().bitLength();
-
-			/* We require a public key size of 1042 bits and a private key of 520 bits */
-			if (xPubLength == PUBLIC_KEY_SIZE / 2 && yPubLength == PUBLIC_KEY_SIZE / 2
-				&& privLength == PRIVATE_KEY_SIZE) {
-				break;
+	import java.math.BigInteger;
+	import java.security.*;
+	import java.security.interfaces.ECPrivateKey;
+	import java.security.interfaces.ECPublicKey;
+	import java.security.spec.*;
+	import java.util.Optional;
+	
+	/**
+	 * Hanterar ECDSA-signering (P-521) och verifiering.
+	 */
+	public class Signature {
+	
+		private static final String KEYPAIR_NAME = "EC";
+		private static final String SIGNATURE_NAME = "SHA512withECDSA";
+		private static final String EC_SEC_NAME = "secp521r1";
+	
+		private ECPrivateKey privateKey;
+		private ECPublicKey publicKey;
+	
+		public static final int PRIVATE_KEY_HEX_SIZE = 65;  // bytes
+		public static final int PUBLIC_KEY_HEX_SIZE = 131;  // bytes
+	
+		// Genererar ny nyckelpar
+		public Signature() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
+			KeyPairGenerator generator = KeyPairGenerator.getInstance(KEYPAIR_NAME);
+			ECGenParameterSpec ecSpec = new ECGenParameterSpec(EC_SEC_NAME);
+			generator.initialize(ecSpec, new SecureRandom());
+	
+			KeyPair keyPair = generator.generateKeyPair();
+			this.privateKey = (ECPrivateKey) keyPair.getPrivate();
+			this.publicKey = (ECPublicKey) keyPair.getPublic();
+		}
+	
+		// Skapar nycklar från hex-strängar
+		public Signature(Optional<String> privateKeyHex, Optional<String> publicKeyHex)
+				throws NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeySpecException {
+			this(); // genererar default
+	
+			KeyFactory factory = KeyFactory.getInstance(KEYPAIR_NAME);
+			ECParameterSpec params = privateKey.getParams();
+	
+			if (privateKeyHex.isPresent()) {
+				BigInteger s = new BigInteger(privateKeyHex.get(), 16);
+				ECPrivateKeySpec privSpec = new ECPrivateKeySpec(s, params);
+				privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);
+			}
+	
+			if (publicKeyHex.isPresent()) {
+				String hex = publicKeyHex.get();
+				int mid = hex.length() / 2;
+				BigInteger x = new BigInteger(hex.substring(0, mid), 16);
+				BigInteger y = new BigInteger(hex.substring(mid), 16);
+				ECPublicKeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), params);
+				publicKey = (ECPublicKey) factory.generatePublic(pubSpec);
+			}
+		}
+	
+		public String getPrivateKey() {
+			return privateKey.getS().toString(16);
+		}
+	
+		public String getPublicKey() {
+			return publicKey.getW().getAffineX().toString(16) + publicKey.getW().getAffineY().toString(16);
+		}
+	
+		public byte[] sign(byte[] data) throws SigningException {
+			try {
+				java.security.Signature sig = java.security.Signature.getInstance(SIGNATURE_NAME);
+				sig.initSign(privateKey);
+				sig.update(data);
+				return sig.sign();
+			} catch (NoSuchAlgorithmException | InvalidKeyException | java.security.SignatureException ex) {
+				throw new SigningException("Failed to sign data", ex);
+			}
+		}
+	
+		public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {
+			try {
+				java.security.Signature sig = java.security.Signature.getInstance(SIGNATURE_NAME);
+				sig.initVerify(publicKey);
+				sig.update(data);
+				return sig.verify(signatureData);
+			} catch (NoSuchAlgorithmException | InvalidKeyException | java.security.SignatureException ex) {
+				throw new VerifySignatureException("Failed to verify signature", ex);
+			}
+		}
+	
+		public static boolean verify(Signable signable, String publicKeyHex) throws VerifySignatureException {
+			try {
+				Signature sig = new Signature(Optional.empty(), Optional.of(publicKeyHex));
+				return sig.verify(signable.getSignable(), signable.getSignature());
+			} catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException | InvalidKeySpecException ex) {
+				throw new VerifySignatureException("Failed to create signature for verification", ex);
 			}
 		}
 	}
-
-	public Signature(Optional<String> privateKeyHex, Optional<String> publicKeyHex)
-		throws InvalidAlgorithmParameterException, InvalidKeySpecException, NoSuchAlgorithmException {
-		this();
-
-		final KeyFactory factory = KeyFactory.getInstance(KEYPAIR_NAME);
-		final ECParameterSpec params = privateKey.getParams();
-
-		if (privateKeyHex.isPresent()) {
-			if (privateKeyHex.get().length() / 2 != PRIVATE_KEY_HEX_SIZE) {
-				throw new IllegalArgumentException(
-					String.format("Private key is required to be %d bytes, but was %d bytes",
-					PRIVATE_KEY_HEX_SIZE, privateKeyHex.get().length() / 2)
-				);
-			}
-
-			final KeySpec privSpec = new ECPrivateKeySpec(new BigInteger(privateKeyHex.get(), 16), params);
-			privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);
-		}
-
-		if (publicKeyHex.isPresent()) {
-			final int midpoint = publicKeyHex.get().length() / 2;
-			final BigInteger x = new BigInteger(publicKeyHex.get().substring(0, midpoint), 16);
-			final BigInteger y = new BigInteger(publicKeyHex.get().substring(midpoint), 16);
-			final KeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), params);
-
-			publicKey = (ECPublicKey) factory.generatePublic(pubSpec);
-
-			final int xPubLength = publicKey.getW().getAffineX().bitLength();
-			final int yPubLength = publicKey.getW().getAffineY().bitLength();
-
-			if (publicKeyHex.get().length() / 2 != PUBLIC_KEY_HEX_SIZE) {
-				throw new IllegalArgumentException(
-					String.format("Public key is required to be %d bytes, but was %d bytes",
-					PUBLIC_KEY_HEX_SIZE, publicKeyHex.get().length() / 2)
-				);
-			}
-		}
-	}
-
-	public String getPrivateKey() {
-		return privateKey.getS().toString(16);
-	}
-
-	public String getPublicKey() {
-		return publicKey.getW().getAffineX().toString(16) + publicKey.getW().getAffineY().toString(16);
-	}
-
-	public byte[] sign(byte[] data) throws SigningException {
-		try {
-			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
-
-			signature.initSign(privateKey);
-			signature.update(data);
-			return signature.sign();
-
-		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
-			throw new SigningException("Failed to sign data", ex);
-		}
-	}
-
-	public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {
-		try {
-			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
-
-			signature.initVerify(publicKey);
-			signature.update(data);
-			return signature.verify(signatureData);
-
-		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
-			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
-				+ "with public key '%s'", publicKey), ex);
-		}
-	}
-
-	public static boolean verify(Signable signable, String key) throws VerifySignatureException {
-		try {
-			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
-			return signature.verify(signable.getSignable(), signable.getSignature());
-
-		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
-			throw new VerifySignatureException(String.format("Failed to create signature "
-				+ "with public key '%s'", key), ex
-			);
-		}
-	}
-}
+	

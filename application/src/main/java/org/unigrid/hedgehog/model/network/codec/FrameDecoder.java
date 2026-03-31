@@ -17,45 +17,50 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec;
+ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.util.AttributeKey;
-import org.unigrid.hedgehog.model.Network;
-import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
-@ChannelCodec(priority = -10)
-public class FrameDecoder extends LengthFieldBasedFrameDecoder {
-	public static final int MAGIC = 0xBABE;
-	public static final AttributeKey<Integer> PACKET_SIZE_KEY = AttributeKey.valueOf("PACKET_SIZE");
+import java.util.List;
 
-	/*
-	    Packet format:
-	    0..............................................................63
-	    [    0xBABE    ][     type     ][         packet size          ]
-	    [                  << packet specific data >>                  ]
-	*/
-	public FrameDecoder() {
-		super(Network.MAX_DATA_SIZE, 4, 4, 0, 8);
-	}
+public class FrameDecoder extends ByteToMessageDecoder {
 
-	@Override
-	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		in.markReaderIndex();
-		final int magic = in.readUnsignedShort();
+    public static final short MAGIC = (short) 0xCAFE;
 
-		if (MAGIC == magic) {
-			/* Tell the pipeline what packet to handle next */
-			ctx.channel().attr(Packet.KEY).set(Packet.Type.get(in.readShort()));
-			ctx.channel().attr(PACKET_SIZE_KEY).set(in.readInt());
+    public static final AttributeKey<Integer> PACKET_SIZE_KEY =
+            AttributeKey.valueOf("PACKET_SIZE");
 
-			in.resetReaderIndex();
-			return super.decode(ctx, in);
-		}
+    @Override
+    protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
 
-		throw new InvalidFrameMagicNumberException();
-	}
+        if (in.readableBytes() < 8) {
+            return;
+        }
+
+        in.markReaderIndex();
+
+        short magic = in.readShort();
+
+        if (magic != MAGIC) {
+            ctx.close();
+            return;
+        }
+
+        short type = in.readShort();
+        int size = in.readInt();
+
+        if (in.readableBytes() < size) {
+            in.resetReaderIndex();
+            return;
+        }
+
+        ByteBuf frame = in.readRetainedSlice(size);
+
+        ctx.channel().attr(PACKET_SIZE_KEY).set(size);
+
+        out.add(frame);
+    }
 }

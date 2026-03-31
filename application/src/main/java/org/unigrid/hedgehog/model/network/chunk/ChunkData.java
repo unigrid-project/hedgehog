@@ -17,23 +17,25 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.chunk;
+    package org.unigrid.hedgehog.model.network.chunk;
 
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonSubTypes.Type;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import java.io.Serializable;
-import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintSupply;
-import org.unigrid.hedgehog.model.spork.VestingStorage;
-
-@JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
-@JsonSubTypes({
-	@Type(MintStorage.SporkData.class),
-	@Type(MintSupply.SporkData.class),
-	@Type(VestingStorage.SporkData.class)
-})
-public interface ChunkData extends Serializable {
-	/* Empty on purpose */
-	ChunkData empty();
-}
+    import com.fasterxml.jackson.annotation.JsonSubTypes;
+    import com.fasterxml.jackson.annotation.JsonTypeInfo;
+    import java.io.Serializable;
+    import org.unigrid.hedgehog.model.spork.MintStorage;
+    import org.unigrid.hedgehog.model.spork.MintSupply;
+    import org.unigrid.hedgehog.model.spork.VestingStorage;
+    
+    /**
+     * Gemensamt gränssnitt för alla ChunkData.
+     */
+    @JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(MintStorage.SporkData.class),
+            @JsonSubTypes.Type(MintSupply.SporkData.class),
+            @JsonSubTypes.Type(VestingStorage.SporkData.class)
+    })
+    public interface ChunkData extends Serializable {
+        ChunkData empty();
+    }
+    

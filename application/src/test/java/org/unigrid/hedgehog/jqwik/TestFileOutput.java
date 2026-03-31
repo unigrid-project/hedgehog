@@ -17,55 +17,76 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.jqwik;
+ package org.unigrid.hedgehog.jqwik;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import net.jqwik.api.lifecycle.Lifespan;
+import net.jqwik.api.lifecycle.Store;
+import org.apache.commons.io.FileUtils;
+import org.unigrid.hedgehog.model.Json;
+
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
-import lombok.SneakyThrows;
-import net.jqwik.api.lifecycle.Lifespan;
-import org.apache.commons.io.FileUtils;
-import net.jqwik.api.lifecycle.Store;
-import org.unigrid.hedgehog.model.Json;
 
 public class TestFileOutput {
-	private static final String BUILD_DIRECTORY = System.getProperty("testoutput.target");
-	private static final String REPORT_DIRECTORY = "surefire-output";
 
-	@SneakyThrows
-	public static void output(String data) {
-		final StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+    private static final String BUILD_DIRECTORY =
+            System.getProperty("testoutput.target");
 
-		final Optional<StackTraceElement> element = walker.walk(frames ->
-			frames.map(StackWalker.StackFrame::toStackTraceElement).filter(e -> {
-				return !e.getClassName().endsWith(TestFileOutput.class.getSimpleName());
-			}).findFirst()
-		);
+    private static final String REPORT_DIRECTORY =
+            "surefire-output";
 
-		if (Objects.nonNull(BUILD_DIRECTORY) && element.isPresent()) {
-			final Path path = Path.of(BUILD_DIRECTORY, REPORT_DIRECTORY,
-				String.format("%s.%s.txt", element.get().getClassName(),
-				element.get().getMethodName())
-			);
+    public static void output(String data) {
 
-			/* Uses thje jqwik lifecycle system to not append to file on first run */
+        final StackWalker walker =
+                StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
 
-			final Store<AtomicInteger> invocations = Store.getOrCreate(path, Lifespan.RUN, () -> {
-				return new AtomicInteger(0);
-			});
+        final Optional<StackTraceElement> element =
+                walker.walk(frames ->
+                        frames.map(StackWalker.StackFrame::toStackTraceElement)
+                                .filter(e ->
+                                        !e.getClassName()
+                                                .endsWith(TestFileOutput.class.getSimpleName())
+                                )
+                                .findFirst()
+                );
 
-			FileUtils.writeStringToFile(path.toFile(), data.concat("\n"), StandardCharsets.UTF_8,
-				invocations.get().intValue() > 0
-			);
+        if (Objects.nonNull(BUILD_DIRECTORY) && element.isPresent()) {
 
-			invocations.get().incrementAndGet();
-		}
-	}
+            final Path path = Path.of(
+                    BUILD_DIRECTORY,
+                    REPORT_DIRECTORY,
+                    String.format("%s.%s.txt",
+                            element.get().getClassName(),
+                            element.get().getMethodName())
+            );
 
-	public static <T> void outputJson(T object) throws JsonProcessingException {
-		TestFileOutput.output(Json.parse(object));
-	}
+            final Store<AtomicInteger> invocations =
+                    Store.getOrCreate(path, Lifespan.RUN,
+                            () -> new AtomicInteger(0));
+
+            try {
+                FileUtils.writeStringToFile(
+                        path.toFile(),
+                        data.concat("\n"),
+                        StandardCharsets.UTF_8,
+                        invocations.get().get() > 0
+                );
+            } catch (IOException e) {
+                throw new RuntimeException("Failed writing test output file", e);
+            }
+
+            invocations.get().incrementAndGet();
+        }
+    }
+
+    public static <T> void outputJson(T object)
+            throws JsonProcessingException {
+
+        TestFileOutput.output(Json.parse(object));
+    }
 }

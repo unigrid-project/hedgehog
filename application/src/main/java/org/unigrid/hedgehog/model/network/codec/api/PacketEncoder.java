@@ -17,13 +17,32 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+    package org.unigrid.hedgehog.model.network.codec.api;
 
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.packet.Packet;
-
-public interface PacketEncoder<T> extends TypedCodec<Packet.Type> {
-	void encode(ChannelHandlerContext ctx, T entity, ByteBuf out) throws Exception;
-}
+    import io.netty.buffer.ByteBuf;
+    import io.netty.channel.ChannelHandlerContext;
+    import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
+    import org.unigrid.hedgehog.model.network.packet.Packet;
+    
+    /**
+     * Encoder för Packet-objekt.
+     * Registreras via TypedCodec.
+     */
+    public interface PacketEncoder<T>
+            extends TypedCodec<Packet.Type> {
+    
+        /**
+         * Encodar ett packet till buffer.
+         *
+         * @param ctx    Netty context
+         * @param entity packet payload
+         * @param out    utgående ByteBuf
+         * @throws Exception vid encode-fel
+         */
+        void encode(
+                ChannelHandlerContext ctx,
+                T entity,
+                ByteBuf out
+        ) throws Exception;
+    }
+    

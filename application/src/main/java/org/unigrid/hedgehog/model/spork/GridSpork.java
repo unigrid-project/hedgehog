@@ -16,177 +16,78 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model.spork;
 
-package org.unigrid.hedgehog.model.spork;
-
-import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import java.io.ByteArrayOutputStream;
 import java.io.Serializable;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.NoSuchAlgorithmException;
-import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.Objects;
-import java.util.Optional;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.Getter;
-import lombok.experimental.Tolerate;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.Signable;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
-@Data
-@Slf4j
-public class GridSpork implements Serializable, Signable {
-	@JsonFormat(shape = JsonFormat.Shape.STRING)
-	private Instant timeStamp;
+public abstract class GridSpork implements Serializable {
+    private Type type;
+    private short flags;
+    private Instant timeStamp;
+    private Instant previousTimeStamp;
+    private Object data;
+    private Object previousData;
+    private byte[] signature;
 
-	@JsonFormat(shape = JsonFormat.Shape.STRING)
-	private Instant previousTimeStamp;
+    public enum Type {
+        MINT_STORAGE((short)1),
+        MINT_SUPPLY((short)2),
+        VESTING_STORAGE((short)3),
+        STATISTICS_PUBKEY((short)4);
 
-	private short flags; /* Put Flag values in here */
+        private final short value;
+        Type(short value) { this.value = value; }
+        public short getValue() { return value; }
 
-	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
-	private Type type;
+        // Konvertera short till Type
+        public static Type get(short value) {
+            for (Type t : values()) {
+                if (t.value == value) return t;
+            }
+            throw new IllegalArgumentException("Unknown GridSpork.Type: " + value);
+        }
+    }
 
-	private ChunkData data;
-	private ChunkData previousData; /* Flag.DELTA controls the content */
-	@Getter private byte[] signature;
+    // =======================
+    // Getters / Setters
+    // =======================
+    public Type getType() { return type; }
+    public void setType(Type type) { this.type = type; }
+    public short getFlags() { return flags; }
+    public void setFlags(short flags) { this.flags = flags; }
+    public Instant getTimeStamp() { return timeStamp; }
+    public void setTimeStamp(Instant timeStamp) { this.timeStamp = timeStamp; }
+    public Instant getPreviousTimeStamp() { return previousTimeStamp; }
+    public void setPreviousTimeStamp(Instant previousTimeStamp) { this.previousTimeStamp = previousTimeStamp; }
+    public Object getData() { return data; }
+    public void setData(Object data) { this.data = data; }
+    public Object getPreviousData() { return previousData; }
+    public void setPreviousData(Object previousData) { this.previousData = previousData; }
+    public byte[] getSignature() { return signature; }
+    public void setSignature(byte[] signature) { this.signature = signature; }
 
-	@AllArgsConstructor
-	public enum Flag {
-		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
-		DELTA((short) 0x02);	/* Is either delta-data or a raw representation of the previous value */
+    // =======================
+    // Hjälpmetoder
+    // =======================
+    public boolean isNewerThan(GridSpork other) {
+        return other == null || (this.timeStamp != null && this.timeStamp.isAfter(other.timeStamp));
+    }
 
-		@Getter private final short value;
-	}
+    public boolean isValidSignature() {
+        return signature != null && signature.length > 0;
+    }
 
-	@AllArgsConstructor
-	public enum Type {
-		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010), VESTING_STORAGE((short) 1020),
-		STATISTICS_PUBKEY(((short) 2001));
-
-		@Getter private final short value;
-
-		public static Type get(short value) {
-			switch (value) {
-				case 1000: return MINT_STORAGE;
-				case 1010: return MINT_SUPPLY;
-				case 1020: return VESTING_STORAGE;
-				case 2001: return STATISTICS_PUBKEY;
-				default: return UNDEFINED;
-			}
-		}
-	}
-
-	public <T extends ChunkData> T getData() {
-		return (T) data;
-	}
-
-	public <T extends ChunkData> T getPreviousData() {
-		return (T) previousData;
-	}
-
-	@Tolerate
-	public void setType(short value) {
-		type = Type.get(value);
-	}
-
-	public static GridSpork create(Type type) {
-		switch (type) {
-			case MINT_STORAGE: return new MintStorage();
-			case MINT_SUPPLY: return new MintSupply();
-			case VESTING_STORAGE: return new VestingStorage();
-			case STATISTICS_PUBKEY: return new StatisticsPubKey();
-			default: throw new IllegalArgumentException("Unknown spork type supplied");
-		}
-	}
-
-	@JsonIgnore
-	public boolean isNewerThan(GridSpork otherSpork) {
-		if (Objects.isNull(otherSpork) || Objects.isNull(otherSpork.timeStamp)) {
-			return Objects.nonNull(timeStamp);
-		}
-
-		if (Objects.isNull(timeStamp)) {
-			return !(Objects.nonNull(otherSpork) && Objects.nonNull(otherSpork.timeStamp));
-		}
-
-		return timeStamp.isAfter(otherSpork.timeStamp);
-	}
-
-	@Override
-	@JsonIgnore
-	public byte[] getSignable() {
-		final ByteArrayOutputStream stream = new ByteArrayOutputStream();
-
-		stream.writeBytes(SerializationUtils.serialize(timeStamp));
-		stream.writeBytes(SerializationUtils.serialize(previousTimeStamp));
-		stream.writeBytes(SerializationUtils.serialize(flags));
-		stream.writeBytes(SerializationUtils.serialize(type));
-		stream.writeBytes(SerializationUtils.serialize(data));
-		stream.writeBytes(SerializationUtils.serialize(previousData));
-
-		return stream.toByteArray();
-	}
-
-	@Override
-	public void sign(String privateKeyHex) throws SigningException {
-		try {
-			final Signature signature = new Signature(Optional.of(privateKeyHex),
-				Optional.empty()
-			);
-
-			this.signature = signature.sign(getSignable());
-
-		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
-			throw new SigningException("Failed to sign spork with given private key", ex);
-		}
-	}
-
-	@JsonIgnore
-	public boolean isValidSignature() {
-		try {
-			for (String key : NetworkKey.getPublicKeys()) {
-				if (Signature.verify(this, key)) {
-					return true;
-				}
-			}
-		} catch (VerifySignatureException ex) {
-			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
-		}
-
-		return false;
-	}
-
-	/**
-	* Archives the spork by copying {@link #data} and {@link #timeStamp} to {@link #previousData}
-	* and {@link #previousTimeStamp}. This should typically be done right before the spork is
-	* populated with new values. This method will also update the current timeStamp to `{@code Instant.now()}.
-	*/
-	public void archive() {
-		previousData = SerializationUtils.clone(data);
-		previousTimeStamp = SerializationUtils.clone(timeStamp);
-		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-
-		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero") */
-
-		if (Objects.isNull(previousData)) {
-			previousData = previousData.empty();
-		}
-
-		if (Objects.isNull(previousTimeStamp)) {
-			previousTimeStamp = Instant.EPOCH.truncatedTo(ChronoUnit.MILLIS);
-		}
-	}
+    // =======================
+    // Factory-metod för GridSpork
+    // =======================
+    public static GridSpork create(Type type) {
+        switch(type) {
+            case MINT_STORAGE: return new MintStorage();
+            case MINT_SUPPLY: return new MintSupply();
+            case VESTING_STORAGE: return new VestingStorage();
+            case STATISTICS_PUBKEY: return new StatisticsPubKey();
+            default: throw new IllegalArgumentException("Unknown GridSpork type: " + type);
+        }
+    }
 }

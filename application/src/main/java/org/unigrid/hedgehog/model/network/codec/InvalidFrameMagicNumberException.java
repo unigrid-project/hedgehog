@@ -16,11 +16,16 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+    package org.unigrid.hedgehog.model.network.codec;
 
-package org.unigrid.hedgehog.model.network.codec;
-
-public class InvalidFrameMagicNumberException extends Exception {
-	public InvalidFrameMagicNumberException() {
-		super("Invalid magic number in frame");
-	}
-}
+    public final class InvalidFrameMagicNumberException extends Exception {
+    
+        public InvalidFrameMagicNumberException() {
+            super("Invalid magic number in frame");
+        }
+    
+        public InvalidFrameMagicNumberException(long received) {
+            super("Invalid magic number in frame: " + received);
+        }
+    }
+    

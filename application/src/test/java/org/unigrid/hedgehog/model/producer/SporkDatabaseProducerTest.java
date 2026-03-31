@@ -17,66 +17,94 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.producer;
+ package org.unigrid.hedgehog.model.producer;
 
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+
 import lombok.Cleanup;
 import lombok.Data;
-import lombok.SneakyThrows;
+
 import net.jqwik.api.Example;
-import static org.hamcrest.MatcherAssert.*;
-import static org.hamcrest.Matchers.*;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.equalTo;
+
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
+
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.BaseSporkDatabaseTest;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.util.Reflection;
 
 public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
-	@Inject
-	private ApplicationDirectory applicationDirectory;
 
-	@Data
-	public static class BrokenSporkDatabase implements Serializable {
-		private int justSomeRandomProperty = 42;
-	}
+    @Inject
+    private ApplicationDirectory applicationDirectory;
 
-	private static <D extends Serializable> void persist(Path path, D database) throws IOException {
-		@Cleanup final OutputStream stream = Files.newOutputStream(path,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE
-		);
+    @Data
+    public static class BrokenSporkDatabase implements Serializable {
+        private int justSomeRandomProperty = 42;
+    }
 
-		SerializationUtils.serialize(database, stream);
-	}
+    private static <D extends Serializable> void persist(Path path, D database) throws IOException {
 
-	@Example
-	@SneakyThrows
-	public void shouldReplaceIncompatibleDatabase() {
-		Files.createDirectories(applicationDirectory.getUserDataDir());
+        @Cleanup
+        OutputStream stream = Files.newOutputStream(
+                path,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE
+        );
 
-		final Path path = Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
-		final BrokenSporkDatabase brokenSporkDatabase = new BrokenSporkDatabase();
+        SerializationUtils.serialize(database, stream);
+    }
 
-		persist(path, brokenSporkDatabase);
-		final long originalFileSize = Files.size(path);
+    @Example
+    public void shouldReplaceIncompatibleDatabase() {
 
-		final SporkDatabaseProducer producer = new SporkDatabaseProducer();
-		FieldUtils.writeField(producer, "applicationDirectory", applicationDirectory, true);
-		final SporkDatabase db = Reflection.invoke(producer, "produce");
+        try {
 
-		persist(path, db);
-		final long newFileSize = Files.size(path);
+            Files.createDirectories(applicationDirectory.getUserDataDir());
 
-		/* When a problem is detected during deserialization, the spork database producer
-		   should create a fresh (correct) instance of the database. This new instance will be different,
-		   which means the size should no longer match */
-		assertThat(originalFileSize, not(equalTo(newFileSize)));
-	}
-}
+            Path path = Path.of(
+                    applicationDirectory.getUserDataDir().toString(),
+                    SporkDatabase.SPORK_DB_FILE
+            );
+
+            BrokenSporkDatabase brokenSporkDatabase = new BrokenSporkDatabase();
+
+            persist(path, brokenSporkDatabase);
+
+            long originalFileSize = Files.size(path);
+
+            SporkDatabaseProducer producer = new SporkDatabaseProducer();
+
+            FieldUtils.writeField(producer, "applicationDirectory", applicationDirectory, true);
+
+            SporkDatabase db = Reflection.invoke(producer, "produce");
+
+            persist(path, db);
+
+            long newFileSize = Files.size(path);
+
+            assertThat(originalFileSize, not(equalTo(newFileSize)));
+
+        } catch (
+                IOException |
+                IllegalAccessException |
+                InvocationTargetException |
+                NoSuchMethodException |
+                ClassNotFoundException e
+        ) {
+            throw new RuntimeException(e);
+        }
+    }
+} 

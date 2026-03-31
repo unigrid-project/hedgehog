@@ -17,87 +17,96 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+ package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
+import java.net.URISyntaxException;
 import lombok.SneakyThrows;
-import mockit.Capturing;
 import mockit.Expectations;
 import mockit.Mocked;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
-import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.server.TestServer;
+import org.unigrid.hedgehog.model.Network;
 
 public class NodeTest extends BaseMockedWeldTest {
-	@Mocked private Network network;
-	@Mocked private NetOptions netOptions;
-	@Mocked private RestOptions restOptions;
 
-	@Inject
-	private Topology topology;
+    @Mocked private Network network;
+    @Mocked private NetOptions netOptions;
+    @Mocked private RestOptions restOptions;
 
-	private enum Family {
-		IP4, IP6
-	}
+    @Inject
+    private Topology topology;
 
-	@Provide
-	@SneakyThrows
-	public Arbitrary<Node> provideNode(@ForAll Family family,
-		@ForAll @IntRange(min = 1024, max = 65535) int port) {
+    private TestServer testServer;
 
-		String address = switch (family) {
-			case IP4 -> ArbitraryGenerator.ip4();
-			case IP6 -> ArbitraryGenerator.ip6();
-		};
+    private enum Family {
+        IP4, IP6
+    }
 
-		Node node;
+    @BeforeTry
+    public void before() {
+        testServer = new TestServer();
+        TestServer.mockProperties(testServer); // korrekt anrop
+    }
 
-		if (port % 3 == 0) {
-			node = Node.fromAddress((family == Family.IP4 ? "%s" : "[%s]").formatted(address));
-		} else {
-			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
-		}
+    @Provide
+    @SneakyThrows
+    public Arbitrary<Node> provideNode(@ForAll Family family,
+                                       @ForAll @IntRange(min = 1024, max = 65535) int port) {
 
-		return Arbitraries.of(node);
-	}
+        String address = switch (family) {
+            case IP4 -> ArbitraryGenerator.ip4();
+            case IP6 -> ArbitraryGenerator.ip6();
+        };
 
-	@BeforeTry
-	public void before() {
-		TestServer.mockProperties();
-	}
+        Node node;
+        try {
+            if (port % 3 == 0) {
+                node = Node.fromAddress((family == Family.IP4 ? "%s" : "[%s]").formatted(address));
+            } else {
+                node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
+            }
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
 
-	@Property
-	@SneakyThrows
-	public void shouldBeAbleToCreateNodeFromAddress(@ForAll("provideNode") Node node) {
-		assertThat(node, notNullValue());
-	}
+        return Arbitraries.of(node);
+    }
 
-	@Property(tries = 100)
-	public void shouldFilterIfMe(@ForAll("provideNode") Node node, @ForAll boolean me) {
-		new Expectations(node) {{
-			node.isMe(); result = me;
-		}};
+    @Property
+    @SneakyThrows
+    public void shouldBeAbleToCreateNodeFromAddress(@ForAll("provideNode") Node node) {
+        assertThat(node, notNullValue());
+    }
 
-		final int originalSize = topology.cloneNodes().size();
+    @Property(tries = 100)
+    public void shouldFilterIfMe(@ForAll("provideNode") Node node, @ForAll boolean me) {
+        new Expectations(node) {{
+            node.isMe(anyInt); result = me;
+        }};
 
-		if (topology.containsNode(node) || me) {
-			topology.addNode(node);
-			assertThat(topology.cloneNodes().size(), is(originalSize));
-		} else {
-			topology.addNode(node);
-			assertThat(topology.cloneNodes().size(), is(originalSize + 1));
-		}
-	}
+        final int originalSize = topology.cloneNodes().size();
+
+        if (topology.containsNode(node) || me) {
+            topology.addNode(node);
+            assertThat(topology.cloneNodes().size(), is(originalSize));
+        } else {
+            topology.addNode(node);
+            assertThat(topology.cloneNodes().size(), is(originalSize + 1));
+        }
+    }
 }

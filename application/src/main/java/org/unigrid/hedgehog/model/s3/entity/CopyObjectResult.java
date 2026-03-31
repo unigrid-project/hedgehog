@@ -16,41 +16,68 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ package org.unigrid.hedgehog.model.s3.entity;
 
-package org.unigrid.hedgehog.model.s3.entity;
-
-import jakarta.xml.bind.annotation.XmlAccessType;
-import jakarta.xml.bind.annotation.XmlAccessorType;
-import jakarta.xml.bind.annotation.XmlElement;
-import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.*;
 import jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter;
+import java.io.Serializable;
 import java.time.Instant;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.Objects;
 
-@Data
 @XmlRootElement
-@NoArgsConstructor
-@AllArgsConstructor
 @XmlAccessorType(XmlAccessType.FIELD)
-public class CopyObjectResult {
-	@XmlElement(name = "ETag")
-	private String eTag;
+public class CopyObjectResult implements Serializable {
 
-	@XmlElement(name = "LastModified")
-	@XmlJavaTypeAdapter(InstantAdapter.class)
-	private Instant lastModified;
+    @XmlElement(name = "ETag")
+    private String eTag;
 
-	@XmlElement(name = "ChecksumCRC32")
-	private String checksumCRC32;
+    @XmlElement(name = "LastModified")
+    @XmlJavaTypeAdapter(InstantAdapter.class)
+    private Instant lastModified;
 
-	@XmlElement(name = "ChecksumCRC32C")
-	private String checksumCRC32C;
+    @XmlElement(name = "ChecksumCRC32")
+    private String checksumCRC32;
 
-	@XmlElement(name = "ChecksumSHA1")
-	private String checksumSHA1;
+    @XmlElement(name = "ChecksumCRC32C")
+    private String checksumCRC32C;
 
-	@XmlElement(name = "ChecksumSHA256")
-	private String checksumSHA256;
+    @XmlElement(name = "ChecksumSHA1")
+    private String checksumSHA1;
+
+    @XmlElement(name = "ChecksumSHA256")
+    private String checksumSHA256;
+
+    public CopyObjectResult() { }
+
+    public String getETag() { return eTag; }
+    public void setETag(String eTag) { this.eTag = eTag; }
+
+    public Instant getLastModified() { return lastModified; }
+    public void setLastModified(Instant lastModified) { this.lastModified = lastModified; }
+
+    public String getChecksumCRC32() { return checksumCRC32; }
+    public void setChecksumCRC32(String checksumCRC32) { this.checksumCRC32 = checksumCRC32; }
+
+    public String getChecksumCRC32C() { return checksumCRC32C; }
+    public void setChecksumCRC32C(String checksumCRC32C) { this.checksumCRC32C = checksumCRC32C; }
+
+    public String getChecksumSHA1() { return checksumSHA1; }
+    public void setChecksumSHA1(String checksumSHA1) { this.checksumSHA1 = checksumSHA1; }
+
+    public String getChecksumSHA256() { return checksumSHA256; }
+    public void setChecksumSHA256(String checksumSHA256) { this.checksumSHA256 = checksumSHA256; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof CopyObjectResult)) return false;
+        CopyObjectResult that = (CopyObjectResult) o;
+        return Objects.equals(eTag, that.eTag) &&
+               Objects.equals(lastModified, that.lastModified);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(eTag, lastModified);
+    }
 }

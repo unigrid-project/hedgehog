@@ -17,25 +17,57 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+ package org.unigrid.hedgehog.command.cli;
 
-import lombok.Getter;
-import org.unigrid.hedgehog.command.cli.spork.MintSupply;
-import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-set", subcommands = MintSupply.class,
-	description = "Set an existing spork. Redefines any existing definitions of the spork."
+/**
+ * CLI-kommando för att uppdatera mint-supply-parametrar.
+ * Data och privateKey hålls som statiska fält så de kan nås från MintSupply.
+ */
+@Command(
+        name = "spork-set",
+        description = "Set grid spork data and private key"
 )
-public class GridSporkSet {
-	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "JSON describing the spork data.", required = true
-	)
-	private static String data;
+public class GridSporkSet implements Runnable {
 
-	@Getter @Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hex representation of private key signing the spork.", required = true
-	)
-	private static String key;
+    /* ====== CLI OPTIONS ====== */
+
+    @Option(
+            names = {"-d", "--data"},
+            required = true,
+            description = "Spork data payload"
+    )
+    private String data;
+
+    @Option(
+            names = {"-k", "--key"},
+            required = true,
+            description = "Private key used for signing"
+    )
+    private String key;
+
+    /* ====== STATIC STORAGE ====== */
+
+    private static String storedData;
+    private static String storedKey;
+
+    @Override
+    public void run() {
+        storedData = data;
+        storedKey = key;
+
+        System.out.println("Spork data and key stored successfully.");
+    }
+
+    /* ====== STATIC ACCESSORS ====== */
+
+    public static String getData() {
+        return storedData;
+    }
+
+    public static String getKey() {
+        return storedKey;
+    }
 }

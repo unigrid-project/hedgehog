@@ -16,8 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
-package org.unigrid.hedgehog.model.network.codec;
+ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -25,40 +24,69 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.unigrid.hedgehog.jqwik.*;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 
 public class BaseCodecTest<T> extends BaseMockedWeldTest {
-	protected Optional<Pair<MutableInt, MutableInt>> getSizeHolder() {
-		return Optional.of(Pair.of(new MutableInt(), new MutableInt()));
-	}
 
-	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
-		ChannelHandlerContext context) throws Exception {
+    protected Optional<Pair<MutableInt, MutableInt>> getSizeHolder() {
+        return Optional.of(Pair.of(new MutableInt(), new MutableInt()));
+    }
 
-		return encodeDecode(entity, encoder, decoder, context, Optional.empty());
-	}
+    protected T encodeDecode(
+            T entity,
+            PacketEncoder<T> encoder,
+            PacketDecoder<T> decoder,
+            ChannelHandlerContext context
+    ) throws Exception {
+        return encodeDecode(entity, encoder, decoder, context, Optional.empty());
+    }
 
-	protected T encodeDecode(T entity, PacketEncoder<T> encoder, PacketDecoder<T> decoder,
-		ChannelHandlerContext context, Optional<Pair<MutableInt, MutableInt>> sizes) throws Exception {
+    @SuppressWarnings("unchecked")
+    protected T encodeDecode(
+            T entity,
+            PacketEncoder<T> encoder,
+            PacketDecoder<T> decoder,
+            ChannelHandlerContext context,
+            Optional<Pair<MutableInt, MutableInt>> sizes
+    ) throws Exception {
 
-		ByteBuf encodedData = Unpooled.buffer();
-		encoder.encode(context, entity, encodedData);
+        // 1. Encode entity to ByteBuf
+        ByteBuf encodedData = Unpooled.buffer();
+        encoder.encode(context, entity, encodedData);
 
-		final FrameDecoder frameDecoder = new FrameDecoder();
-		encodedData = (ByteBuf) frameDecoder.decode(context, encodedData);
+        // 2. Frame decode step
+        final FrameDecoder frameDecoder = new FrameDecoder();
+        final List<Object> framedOut = new ArrayList<>();
+        frameDecoder.decode(context, encodedData, framedOut);
 
-		final List<Object> out = new ArrayList<>();
-		decoder.decode(context, encodedData, out);
+        if (framedOut.isEmpty()) {
+            throw new IllegalStateException("FrameDecoder did not produce any output");
+        }
 
-		if (sizes.isPresent()) {
-			sizes.get().getLeft().setValue(encodedData.writerIndex());
-			sizes.get().getRight().setValue(encodedData.readerIndex());
-		}
+        ByteBuf framedData;
+        if (framedOut.get(0) instanceof ByteBuf) {
+            framedData = (ByteBuf) framedOut.get(0);
+        } else {
+            throw new IllegalStateException("FrameDecoder output is not ByteBuf");
+        }
 
-		return (T) out.get(0);
-	}
+        // 3. Packet decode step via typedDecode
+        Optional<T> decodedOpt = decoder.typedDecode(context, framedData);
+        if (!decodedOpt.isPresent()) {
+            throw new IllegalStateException("PacketDecoder did not produce any output");
+        }
+        T decoded = decodedOpt.get();
+
+        // 4. Sizes (optional)
+        if (sizes.isPresent()) {
+            sizes.get().getLeft().setValue(framedData.writerIndex());
+            sizes.get().getRight().setValue(framedData.readerIndex());
+        }
+
+        return decoded;
+    }
 }

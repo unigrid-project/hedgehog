@@ -16,46 +16,60 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+ // ======================================
+// File: org/unigrid/hedgehog/model/Network.java
+// ======================================
 
 package org.unigrid.hedgehog.model;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
-@Slf4j
-public class Network {
-	private static final String[] PROTOCOLS = {
-		"hedgehog/0.0.2",
-		"gridspork/0.0.2"
-	};
+/**
+ * Central konfigurationsklass för nätverksrelaterade konstanter.
+ */
+public final class Network {
 
-	private static final String[] SEEDS = {
-		"seed1.unigrid.org", "seed2.unigrid.org",
-		"seed3.unigrid.org", "seed4.unigrid.org",
-		"seed5.unigrid.org", "seed6.unigrid.org"
-	};
+    private static final Logger log = LoggerFactory.getLogger(Network.class);
 
-	public static final int COMMUNICATION_THREADS = 4;
-	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
+    private static final String[] PROTOCOLS = {
+        "hedgehog/0.0.2",
+        "gridspork/0.0.2"
+    };
 
-	public static final int MAX_STREAMS = 512;
-	public static final int IDLE_TIME_MINUTES = 15;
-	public static final int CONNECTION_TIMEOUT_MS = 2000;
+    private static final String[] SEEDS = {
+        "seed1.unigrid.org",
+        "seed2.unigrid.org",
+        "seed3.unigrid.org",
+        "seed4.unigrid.org",
+        "seed5.unigrid.org",
+        "seed6.unigrid.org"
+    };
 
-	public static String[] getProtocols() {
-		return PROTOCOLS;
-	}
+    public static final int COMMUNICATION_THREADS = 4;
+    public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; // 256 MB
+    public static final int MAX_STREAMS = 512;
+    public static final int IDLE_TIME_MINUTES = 15;
+    public static final int CONNECTION_TIMEOUT_MS = 2000;
 
-	public static String[] getSeeds() {
-		try {
-			if (NetOptions.isSeeds()) {
-				return SEEDS;
-			}
-		} catch (ClassCastException ex) {
-			// TODO: Some weird exception that only seems to happen during testing?
-			log.atError().log("Failed to get seeds {}", ex.getMessage());
-		}
+    private Network() { }
 
-		return new String[0];
-	}
-}
+    public static String[] getProtocols() {
+        return PROTOCOLS.clone();
+    }
+
+    /**
+     * Returnerar DNS-seeds baserat på NetOptions.
+     */
+    public static String[] getSeeds() {
+        try {
+            if (NetOptions.isSeeds()) {
+                return SEEDS.clone();
+            }
+        } catch (Exception ex) {
+            log.error("Failed to resolve seeds. Continuing without seeds.", ex);
+        }
+        return new String[0];
+    }
+} 

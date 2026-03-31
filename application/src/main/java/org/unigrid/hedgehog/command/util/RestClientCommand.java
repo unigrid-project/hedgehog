@@ -17,111 +17,67 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.util;
+	package org.unigrid.hedgehog.command.util;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
-import java.util.Optional;
-import java.util.function.Supplier;
-import lombok.RequiredArgsConstructor;
-import org.unigrid.hedgehog.client.ResponseOddityException;
-import org.unigrid.hedgehog.client.RestClient;
-import org.unigrid.hedgehog.command.option.RestOptions;
-
-@RequiredArgsConstructor
-public class RestClientCommand implements Runnable {
-	private final String method;
-	private String location;
-	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
-	private Optional<MultivaluedMap<String, Object>> headers = Optional.empty();
-
-	public RestClientCommand(String method, String location) {
-		this(method);
-		this.location = location;
-	}
-
-	public RestClientCommand(String method, String location, Optional<Supplier<?>> defaultSupplier) {
-		this(method, location);
-		this.defaultSupplier = defaultSupplier;
-	}
-
-	private class MethodCallback {
-		private void get(RestClient rest) throws ResponseOddityException {
-			final Response response = rest.get(getLocation());
-
-			if (Status.fromStatusCode(response.getStatus()) == Status.NO_CONTENT) {
-				defaultSupplier.ifPresentOrElse(s -> {
-					System.out.println(s.get());
-				}, () -> {
-					System.out.println(response.getStatusInfo());
-				});
-			} else {
-				execute(response);
+	import jakarta.ws.rs.client.Client;
+	import jakarta.ws.rs.client.ClientBuilder;
+	import jakarta.ws.rs.client.Entity;
+	import jakarta.ws.rs.client.Invocation;
+	import jakarta.ws.rs.core.MultivaluedMap;
+	import jakarta.ws.rs.core.Response;
+	
+	public abstract class RestClientCommand {
+	
+		protected final String httpMethod;
+		protected final String pathTemplate;
+	
+		private MultivaluedMap<String, Object> headers;
+	
+		protected RestClientCommand(String httpMethod, String pathTemplate) {
+			this.httpMethod = httpMethod;
+			this.pathTemplate = pathTemplate;
+		}
+	
+		/** MÅSTE implementeras av anonyma klasser */
+		protected abstract String getLocation();
+	
+		/** Override vid PUT/POST */
+		protected Entity<?> getEntity() {
+			return null;
+		}
+	
+		/** Override för resultathantering */
+		protected abstract void execute(Response response);
+	
+		public void setHeaders(MultivaluedMap<String, Object> headers) {
+			this.headers = headers;
+		}
+	
+		public final void run() {
+			Client client = ClientBuilder.newClient();
+	
+			Invocation.Builder builder = client
+					.target("http://localhost:8080")
+					.path(getLocation())
+					.request();
+	
+			if (headers != null) {
+				builder.headers(headers);
 			}
-		}
-
-		private void delete(RestClient rest) throws ResponseOddityException {
-			execute(rest.delete(getLocation()));
-		}
-
-		private void post(RestClient rest) throws ResponseOddityException {
-			execute(rest.post(getLocation(), getEntity()));
-		}
-
-		private void put(RestClient rest) throws ResponseOddityException {
+	
 			Response response;
-
-			if (headers.isPresent()) {
-				response = rest.putWithHeaders(getLocation(), getEntity(), headers.get());
+			Entity<?> entity = getEntity();
+	
+			if (entity != null) {
+				response = builder.method(httpMethod, entity);
 			} else {
-				response = rest.put(getLocation(), getEntity());
+				response = builder.method(httpMethod);
 			}
-
-			if (Status.fromStatusCode(response.getStatus()) == Status.UNAUTHORIZED) {
-				defaultSupplier.ifPresentOrElse(s -> {
-					System.out.println(s.get());
-				}, () -> {
-					System.out.println(response.getStatusInfo());
-				});
-			} else {
-				execute(response);
-			}
+	
+			execute(response);
+	
+			response.close();
+			client.close();
 		}
 	}
-
-	@Override
-	public void run() {
-		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true)) {
-			final MethodCallback callback = new MethodCallback();
-
-			switch (method) {
-				case HttpMethod.GET -> callback.get(rest);
-				case HttpMethod.POST -> callback.post(rest);
-				case HttpMethod.PUT -> callback.put(rest);
-				case HttpMethod.DELETE -> callback.delete(rest);
-				default -> throw new UnsupportedOperationException();
-			}
-		} catch (ResponseOddityException ex) {
-			System.err.println(ex.getMessage());
-		}
-	}
-
-	public void setHeaders(MultivaluedMap<String, Object> headers) {
-		this.headers = Optional.of(headers);
-	}
-
-	protected <T> Entity<T> getEntity() {
-		throw new UnsupportedOperationException();
-	}
-
-	protected String getLocation() {
-		return location;
-	}
-
-	protected void execute(Response response) {
-		throw new UnsupportedOperationException();
-	}
-}
+	
