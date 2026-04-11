@@ -19,21 +19,33 @@ package org.unigrid.hedgehog.nativeimage;
 import java.nio.file.Path;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
-import org.apache.commons.exec.OS;
-
+@Slf4j
 public class NativeProperties {
+
+	public static final String PROP_KEY = "hedgehog.native";
+
 	public static final String BIN_DIRECTORY = "bin";
 
-	@Getter @Setter private static String runScript;
-	@Getter @Setter private static Path bundledJlinkZip;
-	@Getter @Setter private static String hash;
+	@Getter @Setter
+	private static Path bundledJlinkZip;
+
+	@Getter @Setter
+	private static String hash;
+
+	private static boolean initialized = false;
 
 	static {
-		if (OS.isFamilyWindows()) {
-			runScript = "run.cmd";
-		} else {
-			runScript = "run.sh";
+		try {
+			String val = System.getProperty(PROP_KEY);
+			initialized = (val != null);
+		} catch (Exception e) {
+			log.error("Error initializing native properties", e);
 		}
+	}
+
+	public static boolean isInitialized() {
+		return initialized;
 	}
 }
