@@ -42,6 +42,8 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;
 @Slf4j
 @RequiredArgsConstructor
 public class FragmentKeeper {
+	static final int GROWTH_TOLERANCE = 16;
+
 	private final FragmentStore store;
 	private final Supplier<Optional<StorageSpork.SporkData>> spork;
 
@@ -61,8 +63,14 @@ public class FragmentKeeper {
 			return StorageStatus.DISABLED;
 		}
 
-		return decode(encoded).map(fragment -> put(fragment, encoded, parameters.get()))
-			.orElse(StorageStatus.INVALID);
+		return decode(encoded).filter(fragment -> isWithinGrowth(fragment, parameters.get()))
+			.map(fragment -> put(fragment, encoded, parameters.get())).orElse(StorageStatus.INVALID);
+	}
+
+	/* Groups sealed under an earlier spork stay storable after it shrinks the fragment size, but only within a
+	   bounded factor, since a validly signed group may otherwise claim any size at all */
+	private static boolean isWithinGrowth(final Fragment fragment, final StorageSpork.SporkData parameters) {
+		return fragment.getDescriptor().getFragmentSize() <= (long) GROWTH_TOLERANCE * parameters.getFragmentSize();
 	}
 
 	public Optional<byte[]> fetch(final GroupId groupId) {

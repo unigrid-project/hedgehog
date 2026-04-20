@@ -82,6 +82,20 @@ public class FragmentKeeperTest {
 		assertThat(keeper(store()).store(tampered), equalTo(StorageStatus.INVALID));
 	}
 
+	@Property(tries = 60)
+	public void refusesFragmentsFarLargerThanTheSporkAllows(@ForAll long seed,
+		@ForAll @IntRange(min = 1, max = 64) int sporkFragmentSize) {
+
+		final Random random = new Random(seed);
+		final StorageSpork.SporkData parameters = StorageTestData.parameters();
+		final Fragment fragment = StorageTestData.group(StorageTestData.key(random), random).get(0);
+
+		parameters.setFragmentSize(sporkFragmentSize);
+
+		assertThat(new FragmentKeeper(store(), () -> Optional.of(parameters)).store(fragment.encode()),
+			equalTo(fragment.getData().length > 16 * sporkFragmentSize ? StorageStatus.INVALID : StorageStatus.OK));
+	}
+
 	@Property(tries = 100)
 	public void rejectsArbitraryBytes(@ForAll @Size(max = 2048) byte[] garbage) {
 		assertThat(keeper(store()).store(garbage), equalTo(StorageStatus.INVALID));
