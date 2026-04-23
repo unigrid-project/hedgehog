@@ -35,29 +35,59 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 @ApplicationScoped
 public class RepairService {
 	private static final int CHECK_MINUTES = 1;
+	private static final String THREAD_NAME = "storage-repair";
 
 	@Inject
 	private GroupRepairer repairer;
 
 	private ScheduledExecutorService executor;
-	private long lastEpoch = -1;
+	private OptionalLong lastEpoch = OptionalLong.empty();
 
 	@PostConstruct
 	private void start() {
-		executor = Executors.newSingleThreadScheduledExecutor();
+		executor = Executors.newSingleThreadScheduledExecutor(RepairService::daemon);
 		executor.scheduleWithFixedDelay(this::tick, CHECK_MINUTES, CHECK_MINUTES, TimeUnit.MINUTES);
 	}
 
-	private void tick() {
-		try {
-			final OptionalLong epoch = repairer.currentEpoch();
+	private static Thread daemon(final Runnable task) {
+		final Thread thread = new Thread(task, THREAD_NAME);
 
-			if (epoch.isPresent() && epoch.getAsLong() != lastEpoch) {
-				lastEpoch = epoch.getAsLong();
-				repairer.runEpoch();
-			}
-		} catch (RuntimeException ex) {
-			log.atWarn().log("A storage repair round failed: {}", ex.getClass().getSimpleName());
+		thread.setDaemon(true);
+		return thread;
+	}
+
+	/* A scheduled task that throws is never run again, so nothing may escape a round */
+	void tick() {
+		try {
+			runDueRound();
+		} catch (Throwable failure) {
+			report(failure);
+		}
+	}
+
+	/* The first epoch seen only marks the start, so a restart waits a full interval for the topology to settle
+	   before it touches anything */
+	private void runDueRound() {
+		final OptionalLong epoch = repairer.currentEpoch();
+
+		if (epoch.isEmpty() || epoch.equals(lastEpoch)) {
+			return;
+		}
+
+		final boolean started = lastEpoch.isPresent();
+
+		lastEpoch = epoch;
+
+		if (started) {
+			repairer.runEpoch();
+		}
+	}
+
+	private static void report(final Throwable failure) {
+		if (failure instanceof Error) {
+			log.atError().log("A storage repair round failed: {}", failure.getClass().getSimpleName());
+		} else {
+			log.atWarn().log("A storage repair round failed: {}", failure.getClass().getSimpleName());
 		}
 	}
 
