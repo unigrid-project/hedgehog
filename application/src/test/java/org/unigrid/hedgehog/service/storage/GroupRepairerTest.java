@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
@@ -52,6 +53,7 @@ import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.placement.Placement;
+import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 
 public class GroupRepairerTest {
@@ -98,6 +100,17 @@ public class GroupRepairerTest {
 	private static List<Gridnode> holdersOf(StorageFleet fleet, GroupId groupId) {
 		return fleet.online().stream().filter(g -> fleet.getStores().get(g.getId()).holding(groupId).isPresent())
 			.collect(Collectors.toList());
+	}
+
+	private static int fragmentsIn(StorageFleet fleet) {
+		return fleet.getStores().values().stream().mapToInt(store -> store.groups().size()).sum();
+	}
+
+	private static void runAlone(StorageFleet fleet, GroupRepairer repairer, int epochs) {
+		for (int epoch = 0; epoch < epochs; epoch++) {
+			fleet.getClock().advance(Duration.ofMinutes(fleet.getParameters().getRepairIntervalMinutes()));
+			repairer.runEpoch();
+		}
 	}
 
 	private static DeleteProof forge(Forgery forgery, GroupKey key, GroupKey other, long timestamp) {
@@ -258,6 +271,37 @@ public class GroupRepairerTest {
 		fleet.runRepairEpochs(2 * parameters.window());
 
 		assertThat(fleet.groups().isEmpty(), is(true));
+	}
+
+	@Property(tries = 30)
+	public void touchesNothingUntilItSeesItselfActive(@ForAll("parameters") StorageSpork.SporkData parameters,
+		@ForAll long seed, @ForAll @IntRange(min = 1, max = 3) int joins) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+
+		storeSomething(fleet, random);
+		IntStream.range(0, joins).forEach(joined -> fleet.join());
+
+		final List<Gridnode> holders = fleet.getGridnodes().stream()
+			.filter(g -> !fleet.getStores().get(g.getId()).groups().isEmpty()).collect(Collectors.toList());
+		final String self = holders.get(random.nextInt(holders.size())).getId();
+		final FragmentStore store = fleet.getStores().get(self);
+		final Set<GroupId> held = store.groups();
+		final List<Gridnode> others = fleet.getGridnodes().stream().filter(g -> !g.getId().equals(self))
+			.collect(Collectors.toList());
+		final int fragments = fragmentsIn(fleet);
+
+		runAlone(fleet, new GroupRepairer(store, new TopologyGridnodeDirectory(() -> others, () -> self),
+			fleet.getTransport(), fleet::spork, fleet.getClock()), 2 * parameters.window());
+
+		assertThat(store.groups(), equalTo(held));
+		assertThat(fragmentsIn(fleet), equalTo(fragments));
+
+		runAlone(fleet, fleet.repairer(self), 2 * parameters.window());
+
+		assertThat(store.groups(), equalTo(held.stream().filter(groupId -> Placement.rankOf(groupId,
+			fleet.getGridnodes(), self).getAsInt() < parameters.window()).collect(Collectors.toSet())));
 	}
 
 	@Property(tries = 30)

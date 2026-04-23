@@ -120,17 +120,19 @@ public class GroupRepairer {
 			}
 		}
 
+		/* A node missing from its own view of the active gridnodes cannot tell where the window lies, as happens
+		   while the topology fills in after a restart. The other holders' repair covers a node that really left. */
 		private void tendOrFail(final GroupId groupId) throws IOException {
 			final Optional<FragmentStore.Holding> holding = store.holding(groupId);
+			final OptionalInt rank = Placement.rankOf(groupId, active, self);
 
-			if (holding.isEmpty()) {
+			if (holding.isEmpty() || rank.isEmpty()) {
 				return;
 			}
 
 			final int width = holding.get().getSlots() + parameters.getPlacementSlack();
-			final OptionalInt rank = Placement.rankOf(groupId, active, self);
 
-			if (rank.isEmpty() || rank.getAsInt() >= width) {
+			if (rank.getAsInt() >= width) {
 				relocate(groupId, width);
 			} else if (isDuty(groupId, rank.getAsInt(), epoch, width)) {
 				repair(groupId, width);
