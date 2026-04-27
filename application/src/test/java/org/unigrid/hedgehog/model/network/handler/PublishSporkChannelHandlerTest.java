@@ -81,9 +81,11 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		int expectedInvocations = 0;
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
-			/* Only count triggers on the server-side */
+			System.out.println("Received Spork on channel: " + ctx.channel());
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
+			} else {
+				System.out.println("Channel is NOT recognized as SERVER type!");
 			}
 		}));
 
