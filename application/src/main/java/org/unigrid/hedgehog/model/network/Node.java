@@ -47,8 +47,12 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @AllArgsConstructor
 public class Node {
 	private InetSocketAddress address;
-	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
-	@Builder.Default private Details details = new Details();
+	@JsonIgnore
+	@Builder.Default
+	@ToString.Exclude
+	private Optional<Connection> connection = Optional.empty();
+	@Builder.Default
+	private Details details = new Details();
 	private long nsPing;
 
 	@Data
@@ -68,8 +72,7 @@ public class Node {
 			NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
 				ni.inetAddresses().forEach(a -> {
 					final InetSocketAddress socketAddress = new InetSocketAddress(a.getHostAddress(),
-						NetOptions.getPort()
-					);
+							NetOptions.getPort());
 
 					if (equals(Node.builder().address(socketAddress).build())) {
 						found.set(true);
@@ -119,7 +122,12 @@ public class Node {
 	}
 
 	public URI getURI() {
-		return UriBuilder.fromPath("/{host}:{port}").build(address.getAddress().getHostAddress(), address.getPort());
+		String host = (address.getAddress() != null)
+				? address.getAddress().getHostAddress()
+				: address.getHostString();
+
+		return UriBuilder.fromPath("/{host}:{port}")
+				.build(host, address.getPort());
 	}
 
 	@Override

@@ -36,6 +36,7 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
@@ -56,7 +57,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	@BeforeProperty
 	private void mockBeforePublishSpork() {
 		new MockUp<GridSpork>() {
-			@Mock public boolean isValidSignature() {
+			@Mock
+			public boolean isValidSignature() {
 				return true;
 			}
 		};
@@ -64,8 +66,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 
 	@Provide(ignoreExceptions = IllegalArgumentException.class)
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
-		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
-		@ForAll Instant time, @ForAll Instant previousTime) {
+			@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
+			@ForAll Instant time, @ForAll Instant previousTime) {
 
 		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
@@ -73,7 +75,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	@Domain(SuiteDomain.class)
 	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
+			@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
 		int expectedInvocations = 0;
@@ -94,12 +96,15 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			connection.send(publishSpork);
 			expectedInvocations++;
 
-			/* We do greaterThanOrEqualTo() because it's difficult to predict exactly how these are distributed
-			   between the nodes. For example, the server might share it's connected nodes with some node(s) and
-			   instantly increase the amount of sends on the network... */
+			/*
+			 * We do greaterThanOrEqualTo() because it's difficult to predict exactly how
+			 * these are distributed
+			 * between the nodes. For example, the server might share it's connected nodes
+			 * with some node(s) and
+			 * instantly increase the amount of sends on the network...
+			 */
 
-			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
-			connection.closeDirty();
+			await().atMost(60, SECONDS).untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 		}
 
 		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));

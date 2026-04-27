@@ -40,7 +40,7 @@ public class Version {
 
 		try {
 			properties.load(Thread.currentThread().getContextClassLoader()
-				.getResourceAsStream("/application.properties"));
+				.getResourceAsStream("application.properties"));
 
 			name = Objects.requireNonNull(properties.getProperty("project.name"));
 			version = Objects.requireNonNull(properties.getProperty("project.version"));

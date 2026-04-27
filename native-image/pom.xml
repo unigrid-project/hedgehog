@@ -1,4 +1,6 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <name>Unigrid Hedgehog Native Image</name>
     <groupId>org.unigrid.hedgehog</groupId>
@@ -13,7 +15,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <graal.version>25.0.2</graal.version>
-        <native.maven.plugin.version>0.10.1</native.maven.plugin.version>
+        <native.maven.plugin.version>0.11.3</native.maven.plugin.version>
         <surefireArgLine />
     </properties>
     <profiles>
@@ -39,14 +41,14 @@
             <properties>
                 <executable.name>hedgehog</executable.name>
                 <extraNativeOption>-DNOP=true</extraNativeOption>
-                <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_windows-x64_bin.zip</url>
-                <!--                            <url>https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${graal.version}/graalvm-ce-java17-windows-amd64-${graal.version}.zip</url>-->
+                <url>
+                    https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_windows-x64_bin.zip</url>
                 <platform>windows</platform>
                 <unzipLocation>${basedir}\target\unziped</unzipLocation>
                 <downloadName>graal.zip</downloadName>
                 <downloadLocation>${basedir}\target\download/</downloadLocation>
-                <!--                <localInstaller>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\gu.cmd</localInstaller>-->
-                <arthur.nativeImage>${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\native-image.cmd</arthur.nativeImage>
+                <arthur.nativeImage>
+                    ${unzipLocation}\graalvm-ce-java17-${graal.version}\bin\native-image.cmd</arthur.nativeImage>
             </properties>
             <build>
                 <pluginManagement>
@@ -80,47 +82,30 @@
                                     </goals>
                                     <configuration>
                                         <target>
-                                            <unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}" />
+                                            <unzip src="${downloadLocation}${downloadName}"
+                                                dest="${unzipLocation}" />
                                         </target>
                                     </configuration>
                                 </execution>
                             </executions>
                         </plugin>
-                        <!--						<plugin>
-                                <groupId>org.codehaus.mojo</groupId>
-                                <artifactId>exec-maven-plugin</artifactId>
-                                <executions>
-                                        <execution>
-                                                <id>native-image-install</id>
-                                                <phase>package</phase>
-                                                <goals>
-                                                        <goal>exec</goal>
-                                                </goals>
-                                                <configuration>
-                                                        <executable>${localInstaller}</executable>
-                                                        <commandlineArgs>install native-image</commandlineArgs>
-                                                </configuration>
-                                        </execution>
-                                </executions>
-                        </plugin>-->
                     </plugins>
                 </pluginManagement>
             </build>
         </profile>
-        <!--		<profile>
-                <id>MacOS</id>
-                <activation><os><family>Mac</family></os></activation>
-                <properties>
-                        <executable.name>hedgehog.bin</executable.name>
-                        <extraNativeOption>-DNOP=true</extraNativeOption>
-                        <platform>macosx64</platform>
-                        <arthur.nativeImage>native-image</arthur.nativeImage>
-                        <arthur.buildStaticImage>false</arthur.buildStaticImage>
-                </properties>
-        </profile>-->
     </profiles>
     <dependencies>
-            
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.graalvm.sdk</groupId>
             <artifactId>graal-sdk</artifactId>
@@ -131,7 +116,7 @@
             <groupId>org.graalvm.nativeimage</groupId>
             <artifactId>svm</artifactId>
             <version>${graal.version}</version>
-            <scope>provided</scope>        
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.unigrid.hedgehog</groupId>
@@ -162,11 +147,10 @@
             <artifactId>lombok</artifactId>
             <type>jar</type>
         </dependency>
-	
+
     </dependencies>
     <build>
         <plugins>
-
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
@@ -182,7 +166,8 @@
                             <outputDirectory>${project.build.outputDirectory}</outputDirectory>
                             <resources>
                                 <resource>
-                                    <directory>${project.basedir}/../application/src/main/resources-filtered</directory>
+                                    <directory>
+                                        ${project.basedir}/../application/src/main/resources-filtered</directory>
                                     <includes>
                                         <include>application.properties</include>
                                     </includes>
@@ -192,12 +177,11 @@
                         </configuration>
                     </execution>
                 </executions>
-            </plugin>            
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
             </plugin>
-                        
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
@@ -298,8 +282,6 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.6.3</version>
             </plugin>
-                        
-                        
             <plugin>
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
@@ -314,27 +296,44 @@
                         <phase>package</phase>
                     </execution>
                 </executions>
-                <configuration>
-                    <imageName>${executable.name}</imageName>
-                    <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
-                    <fallback>false</fallback>
-                    <buildArgs>
-                        <buildArg>-H:+AllowDeprecatedBuilderClassesOnImageClasspath</buildArg>
-                        
-    
-                        <buildArg>--initialize-at-build-time=org.slf4j,ch.qos.logback,org.jboss.logging,net.harawata.appdirs,org.unigrid.hedgehog.nativeimage.NativeProperties,org.unigrid.hedgehog.nativeimage.BundleFeature</buildArg>
-    
-                        <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.common.model.Version</buildArg>
-                        
-                        <buildArg>-H:IncludeResources=.*\.properties$|.*\.zip$|.*-jlink\.zip$</buildArg>
-    
-                        <buildArg>--report-unsupported-elements-at-runtime</buildArg>
-                        <buildArg>--allow-incomplete-classpath</buildArg>
-                        <buildArg>--verbose</buildArg>
-                    </buildArgs>
-                </configuration>
+                    <configuration>
+                        <imageName>hedgehog</imageName>
+                        <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
+                        <fallback>false</fallback>
+                        <buildArgs>
+                            <buildArg>--no-fallback</buildArg>
+                            <buildArg>--allow-incomplete-classpath</buildArg>
+                            <buildArg>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</buildArg>
+                            <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
+                            <buildArg>--enable-http</buildArg>
+                            <buildArg>--enable-https</buildArg>
+
+                            <buildArg>--initialize-at-run-time=java.net.InetAddress,java.net.Inet4Address,java.net.Inet6Address,java.net.InetSocketAddress</buildArg>
+                            <buildArg>--initialize-at-run-time=java.net.InetAddress,java.net.Inet4Address,java.net.Inet6Address,java.net.InetSocketAddress,java.net.NetworkInterface</buildArg>
+
+                            <buildArg>--initialize-at-build-time=org.slf4j</buildArg>
+                            <buildArg>--initialize-at-build-time=ch.qos.logback</buildArg>
+                            <buildArg>--initialize-at-build-time=net.harawata.appdirs</buildArg>
+                            <buildArg>--initialize-at-build-time=org.apache.commons.exec</buildArg>
+                            <buildArg>--initialize-at-build-time=org.unigrid.hedgehog.nativeimage.windows.ShellFolderResolverPatch</buildArg>
+                            <buildArg>--initialize-at-build-time=com.sun.jna</buildArg>
+
+                            <buildArg>-H:IncludeResources=version.properties</buildArg>
+                            <buildArg>-H:IncludeResources=application.properties</buildArg>
+                            <buildArg>-H:IncludeResources=.*\.properties$</buildArg>
+                            <buildArg>-H:IncludeResources=.*\.zip$</buildArg>
+                            
+                            <buildArg>-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED</buildArg>
+                            <buildArg>-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED</buildArg>
+                            <buildArg>-J--add-opens=java.base/java.lang=ALL-UNNAMED</buildArg>
+                            <buildArg>-J--add-opens=java.base/java.util=ALL-UNNAMED</buildArg>
+                            <buildArg>-J--add-opens=java.base/java.nio=ALL-UNNAMED</buildArg>
+
+                            <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                        </buildArgs>
+                    </configuration>
             </plugin>
-        
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
