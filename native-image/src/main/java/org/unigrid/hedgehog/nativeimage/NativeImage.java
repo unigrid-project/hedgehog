@@ -16,41 +16,63 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.exec.ExecuteWatchdog;
+import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
-import org.unigrid.hedgehog.common.model.Version;
 
-@Slf4j
 public class NativeImage {
+	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 
-	public static void main(String[] args) {
+	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
+		final Path script = basePath.resolve(Path.of(
+			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
+		);
+
+		final CommandLine cmdLine = new CommandLine(script.toString());
+		cmdLine.addArguments(args);
+
+		final DefaultExecutor executor = new DefaultExecutor();
+		executor.setExitValue(0);
+
 		try {
-			// Initialize version properties
-			new Version().getVersion();
+			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
+			executor.setWatchdog(watchdog);
+			return executor.execute(cmdLine);
 
-			String author = Version.getAuthor();
-			String name = Version.getName();
-
-			log.info("Starting {} by {}", name, author);
-
-			try {
-				ApplicationDirectory.create();
-			} catch (Exception e) {
-				log.error("Failed to create application directory", e);
+		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
+		} catch (ExecuteException ex) {
+			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
+				throw ex;
 			}
 
-			Path appPath = Path.of(
-				System.getProperty("user.home"),
-				"." + name.toLowerCase()
-			);
-
-			if (appPath != null) {
-				log.info("Application path: {}", appPath);
-			}
-
-		} catch (Exception ex) {
-			log.error("Fatal error during startup", ex);
+			return ex.getExitValue();
 		}
+	}
+
+	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
+		final InputStream archive = Thread.currentThread().getContextClassLoader()
+			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
+
+		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
+		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(
+			Path.of(NativeProperties.getHash())
+		);
+
+		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
+			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
+			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
+		}
+
+		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
 	}
 }
