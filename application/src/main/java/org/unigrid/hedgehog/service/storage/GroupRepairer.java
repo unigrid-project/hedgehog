@@ -207,11 +207,14 @@ public class GroupRepairer {
 			return !isShort(local, claims);
 		}
 
-		/* A validly signed group may still claim 255 slots of any size, so a repairer never decodes one that
-		   could not even fit the quota of a single gridnode */
+		/* Rebuilding decodes the whole group, so a group the current spork could never have produced is left to
+		   those who can afford it: a validly signed group may still claim 255 slots of any size */
 		private boolean isAffordable(final GroupDescriptor descriptor) {
-			final long groupBytes = (long) descriptor.getMaxFragments() * descriptor.getFragmentSize();
-			return groupBytes <= parameters.getMaxBytesPerNode();
+			final LayoutParameters current = parameters.layout();
+			final long ceiling = Math.min(parameters.getMaxBytesPerNode(),
+				(long) FragmentKeeper.GROWTH_TOLERANCE * current.maxFragments() * current.getFragmentSize());
+
+			return (long) descriptor.getMaxFragments() * descriptor.getFragmentSize() <= ceiling;
 		}
 
 		/* Every claimant has to hand over its fragment, so an index is only counted once it verifies */
@@ -219,7 +222,7 @@ public class GroupRepairer {
 			final GroupDescriptor descriptor = local.getDescriptor();
 
 			if (!isAffordable(descriptor)) {
-				log.atDebug().log("Skipping the repair of a group larger than the per-node quota");
+				log.atDebug().log("Skipping the repair of a group beyond what this gridnode rebuilds");
 				return;
 			}
 

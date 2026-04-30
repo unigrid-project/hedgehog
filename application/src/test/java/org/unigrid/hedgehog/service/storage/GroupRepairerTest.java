@@ -264,7 +264,8 @@ public class GroupRepairerTest {
 
 	@Property(tries = 40)
 	public void neverRebuildsAGroupBeyondTheQuota(
-		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed) {
+		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed,
+		@ForAll boolean shrinkLayout) {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
@@ -276,8 +277,13 @@ public class GroupRepairerTest {
 		Collections.shuffle(holders, random);
 		holders.subList(0, layout.parityFragments()).forEach(g -> fleet.wipe(g.getId()));
 
-		parameters.setMaxBytesPerNode((long) layout.maxFragments() * layout.getFragmentSize() - 1
-			- random.nextInt(layout.getFragmentSize()));
+		if (shrinkLayout) {
+			parameters.setFragmentSize(1);
+			parameters.setChunkSize(layout.dataFragments());
+		} else {
+			parameters.setMaxBytesPerNode((long) layout.maxFragments() * layout.getFragmentSize() - 1
+				- random.nextInt(layout.getFragmentSize()));
+		}
 
 		fleet.runRepairEpochs(2 * parameters.window());
 
