@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.service.storage;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -39,6 +41,7 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -72,12 +75,16 @@ public class GroupRepairerTest {
 		});
 	}
 
-	@SneakyThrows
-	private static Fingerprint storeSomething(StorageFleet fleet, Random random) {
+	private static byte[] fileOf(StorageFleet fleet, Random random) {
 		final byte[] file = new byte[random.nextInt(2 * fleet.getParameters().layout().payloadSize()) + 1];
 
 		random.nextBytes(file);
-		return fleet.service(new SecureRandom()).store(new ByteArrayInputStream(file));
+		return file;
+	}
+
+	@SneakyThrows
+	private static Fingerprint storeSomething(StorageFleet fleet, Random random) {
+		return fleet.service(new SecureRandom()).store(new ByteArrayInputStream(fileOf(fleet, random)));
 	}
 
 	private static byte[] chunkOf(StorageFleet fleet, Random random) {
@@ -87,19 +94,27 @@ public class GroupRepairerTest {
 		return chunk;
 	}
 
-	private static GroupKey placeGroup(StorageFleet fleet, Random random) {
+	private static GroupKey placeGroup(StorageFleet fleet, GroupKey key, Random random) {
 		final StorageSpork.SporkData parameters = fleet.getParameters();
-		final GroupKey key = StorageTestData.key(random);
 
-		new GroupDistributor(fleet.getTransport(), random, Duration.ZERO).place(ChunkGroups.seal(chunkOf(fleet, random),
-			key, StorageFormat.current(), parameters.layout()),
+		new GroupDistributor(fleet.getTransport(), random, Duration.ZERO).place(ChunkGroups.seal(chunkOf(fleet,
+			random), key, StorageFormat.current(), parameters.layout()),
 			Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window()));
 		return key;
+	}
+
+	private static GroupKey placeGroup(StorageFleet fleet, Random random) {
+		return placeGroup(fleet, StorageTestData.key(random), random);
 	}
 
 	private static List<Gridnode> holdersOf(StorageFleet fleet, GroupId groupId) {
 		return fleet.online().stream().filter(g -> fleet.getStores().get(g.getId()).holding(groupId).isPresent())
 			.collect(Collectors.toList());
+	}
+
+	private static int triggerOf(StorageSpork.SporkData parameters) {
+		return Math.max(1, LayoutParameters.percentOf(parameters.layout().parityFragments(),
+			parameters.getRepairThresholdPercent()));
 	}
 
 	private static int fragmentsIn(StorageFleet fleet) {
@@ -111,6 +126,13 @@ public class GroupRepairerTest {
 			fleet.getClock().advance(Duration.ofMinutes(fleet.getParameters().getRepairIntervalMinutes()));
 			repairer.runEpoch();
 		}
+	}
+
+	/* A liar answers every census as if it held the given index */
+	private static void lieAbout(StorageFleet fleet, String liar, int index) {
+		fleet.getTransport().lie(liar, entries -> entries.stream()
+			.map(entry -> new FragmentStatus.Entry(entry.getGroupId(), FragmentStatus.State.HELD, index))
+			.collect(Collectors.toList()));
 	}
 
 	private static DeleteProof forge(Forgery forgery, GroupKey key, GroupKey other, long timestamp) {
@@ -146,8 +168,8 @@ public class GroupRepairerTest {
 
 	@Property(tries = 300)
 	public void repairsExactlyFromTheThreshold(@ForAll @IntRange(min = 1, max = 64) int dataFragments,
-		@ForAll @IntRange(min = 1, max = 64) int parityFragments, @ForAll @IntRange(min = 1, max = 100) int threshold,
-		@ForAll @IntRange(min = 0, max = 64) int lost) {
+		@ForAll @IntRange(min = 1, max = 64) int parityFragments,
+		@ForAll @IntRange(min = 1, max = 100) int threshold, @ForAll @IntRange(min = 0, max = 64) int lost) {
 
 		final GroupDescriptor descriptor = GroupDescriptor.builder().format(StorageFormat.current())
 			.dataFragments(dataFragments).parityFragments(parityFragments)
@@ -166,8 +188,6 @@ public class GroupRepairerTest {
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
 		final int guaranteed = parameters.layout().guaranteedFragments();
-		final int trigger = Math.max(1, (parameters.layout().parityFragments()
-			* parameters.getRepairThresholdPercent() + 99) / 100);
 
 		storeSomething(fleet, random);
 
@@ -179,12 +199,72 @@ public class GroupRepairerTest {
 		holders.subList(0, wiped).forEach(g -> fleet.wipe(g.getId()));
 		fleet.runRepairEpochs(2 * parameters.window());
 
-		assertThat(fleet.holdersOf(groupId), equalTo((long) (wiped >= trigger ? guaranteed : guaranteed - wiped)));
+		assertThat(fleet.holdersOf(groupId),
+			equalTo((long) (wiped >= triggerOf(parameters) ? guaranteed : guaranteed - wiped)));
 	}
 
-	@Property(tries = 30)
-	public void neverRebuildsAGroupBeyondTheQuota(@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters,
+	@Property(tries = 90)
+	public void repairsDespiteGridnodesClaimingFragmentsTheyLack(
+		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed,
+		@ForAll @IntRange(min = 1, max = 3) int liars) {
+
+		final LayoutParameters layout = parameters.layout();
+		final int lost = triggerOf(parameters) + liars - 1;
+
+		Assume.that(lost <= layout.parityFragments() && liars <= parameters.getPlacementSlack());
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
+		final GroupId groupId = placeGroup(fleet, random).groupId();
+		final List<Gridnode> holders = new ArrayList<>(holdersOf(fleet, groupId));
+
+		Collections.shuffle(holders, random);
+
+		for (Gridnode liar : holders.subList(0, liars)) {
+			lieAbout(fleet, liar.getId(), fleet.getStores().get(liar.getId()).holding(groupId).get().getIndex());
+		}
+
+		holders.subList(0, lost).forEach(g -> fleet.wipe(g.getId()));
+
+		for (int epoch = 0; epoch < 20 * parameters.window()
+			&& fleet.distinctIndicesOf(groupId, parameters.window()) < layout.guaranteedFragments(); epoch++) {
+
+			fleet.runRepairEpochs(1);
+		}
+
+		assertThat(fleet.distinctIndicesOf(groupId, parameters.window()),
+			equalTo((long) layout.guaranteedFragments()));
+	}
+
+	@Property(tries = 50)
+	public void ignoresClaimsOutsideTheGroup(@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters,
 		@ForAll long seed) {
+
+		/* A liar never counts as a free target, so the rebuilt fragments need room elsewhere in the window */
+		Assume.that(triggerOf(parameters) <= parameters.getPlacementSlack());
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
+		final LayoutParameters layout = parameters.layout();
+		final GroupId groupId = placeGroup(fleet, random).groupId();
+		final List<Gridnode> holders = new ArrayList<>(holdersOf(fleet, groupId));
+
+		Collections.shuffle(holders, random);
+
+		for (Gridnode liar : holders.subList(0, triggerOf(parameters))) {
+			lieAbout(fleet, liar.getId(), layout.maxFragments() + random.nextInt(256 - layout.maxFragments()));
+			fleet.wipe(liar.getId());
+		}
+
+		fleet.runRepairEpochs(2 * parameters.window());
+
+		assertThat(fleet.distinctIndicesOf(groupId, parameters.window()),
+			equalTo((long) layout.guaranteedFragments()));
+	}
+
+	@Property(tries = 40)
+	public void neverRebuildsAGroupBeyondTheQuota(
+		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed) {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
@@ -195,8 +275,10 @@ public class GroupRepairerTest {
 
 		Collections.shuffle(holders, random);
 		holders.subList(0, layout.parityFragments()).forEach(g -> fleet.wipe(g.getId()));
+
 		parameters.setMaxBytesPerNode((long) layout.maxFragments() * layout.getFragmentSize() - 1
 			- random.nextInt(layout.getFragmentSize()));
+
 		fleet.runRepairEpochs(2 * parameters.window());
 
 		assertThat(fleet.getTransport().getFetches().get(), equalTo(fetches));
@@ -206,18 +288,24 @@ public class GroupRepairerTest {
 	@Property(tries = 30)
 	@SneakyThrows
 	public void keepsRepairingPastAGroupItCannotRebuild(
-		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed) {
+		@ForAll("parametersWithoutExtras") StorageSpork.SporkData parameters, @ForAll long seed,
+		@ForAll boolean brokenFirst) {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
-		final GroupKey mixed = placeGroup(fleet, random);
-		final GroupId healthy = placeGroup(fleet, random).groupId();
+		final GroupKey first = StorageTestData.key(random);
+		final GroupKey second = StorageTestData.key(random);
+		final boolean firstSortsLower = first.groupId().toHex().compareTo(second.groupId().toHex()) < 0;
+		final GroupKey mixed = placeGroup(fleet, firstSortsLower == brokenFirst ? first : second, random);
+		final GroupId healthy = placeGroup(fleet, firstSortsLower == brokenFirst ? second : first, random).groupId();
 		final List<Gridnode> holders = new ArrayList<>(holdersOf(fleet, healthy));
 
 		fleet.replace(mixed.groupId(), ChunkGroups.seal(chunkOf(fleet, random), mixed, StorageFormat.current(),
 			parameters.layout()), gridnode -> random.nextBoolean());
 
-		for (Gridnode gridnode : holdersOf(fleet, mixed.groupId()).subList(0, parameters.layout().parityFragments())) {
+		final List<Gridnode> mixedHolders = holdersOf(fleet, mixed.groupId());
+
+		for (Gridnode gridnode : mixedHolders.subList(0, parameters.layout().parityFragments())) {
 			fleet.getStores().get(gridnode.getId()).remove(mixed.groupId());
 		}
 
@@ -229,8 +317,8 @@ public class GroupRepairerTest {
 	}
 
 	@Property(tries = 40)
-	public void deletesOnlyOnTombstonesSignedByTheGroupKey(@ForAll("parameters") StorageSpork.SporkData parameters,
-		@ForAll long seed, @ForAll Forgery forgery) {
+	public void deletesOnlyOnTombstonesSignedByTheGroupKey(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed, @ForAll Forgery forgery) {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 4);
@@ -311,7 +399,10 @@ public class GroupRepairerTest {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
-		final Fingerprint fingerprint = storeSomething(fleet, random);
+		final StorageService service = fleet.service(new SecureRandom());
+		final byte[] file = fileOf(fleet, random);
+		final Fingerprint fingerprint = service.store(new ByteArrayInputStream(file));
+		final ByteArrayOutputStream output = new ByteArrayOutputStream();
 
 		for (int wave = 0; wave < waves; wave++) {
 			for (int joined = 0; joined < parameters.getPlacementSlack(); joined++) {
@@ -328,6 +419,9 @@ public class GroupRepairerTest {
 				.getAsInt(), lessThan(parameters.window())));
 		}
 
-		fleet.service(new SecureRandom()).open(fingerprint);
+		fleet.groups().forEach(groupId -> assertThat(fleet.distinctIndicesOf(groupId, parameters.window()),
+			greaterThanOrEqualTo((long) parameters.layout().guaranteedFragments())));
+		service.retrieve(fingerprint, output);
+		assertThat(output.toByteArray(), equalTo(file));
 	}
 }

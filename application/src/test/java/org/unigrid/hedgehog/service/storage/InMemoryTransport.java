@@ -97,7 +97,8 @@ public class InMemoryTransport implements FragmentTransport {
 			UnaryOperator.identity());
 
 		groupIds.forEach(groupId -> sent.add(groupId.bytes()));
-		return call(target, keeper -> FragmentStatus.builder().entries(change.apply(keeper.census(groupIds))).build());
+		return call(target, keeper -> FragmentStatus.builder().entries(change.apply(keeper.census(groupIds)))
+			.build());
 	}
 
 	@Override

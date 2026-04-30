@@ -93,7 +93,8 @@ public class FragmentKeeperTest {
 		parameters.setFragmentSize(sporkFragmentSize);
 
 		assertThat(new FragmentKeeper(store(), () -> Optional.of(parameters)).store(fragment.encode()),
-			equalTo(fragment.getData().length > 16 * sporkFragmentSize ? StorageStatus.INVALID : StorageStatus.OK));
+			equalTo(fragment.getData().length > 16 * sporkFragmentSize
+				? StorageStatus.INVALID : StorageStatus.OK));
 	}
 
 	@Property(tries = 100)

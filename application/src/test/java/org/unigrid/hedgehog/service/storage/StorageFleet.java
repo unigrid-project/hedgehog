@@ -41,6 +41,7 @@ import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.TestClock;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
+import org.unigrid.hedgehog.model.storage.placement.Placement;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 
@@ -126,6 +127,13 @@ public class StorageFleet {
 
 	public long holdersOf(GroupId groupId) {
 		return online().stream().filter(gridnode -> stores.get(gridnode.getId()).holding(groupId).isPresent()).count();
+	}
+
+	/* Duplicates and copies outside the window never help a retrieval, so only distinct indices there count */
+	public long distinctIndicesOf(GroupId groupId, int width) {
+		return Placement.window(groupId, gridnodes, width).stream().filter(g -> transport.isOnline(g.getId()))
+			.map(g -> stores.get(g.getId()).holding(groupId)).flatMap(Optional::stream)
+			.map(FragmentStore.Holding::getIndex).distinct().count();
 	}
 
 	public Set<GroupId> groups() {

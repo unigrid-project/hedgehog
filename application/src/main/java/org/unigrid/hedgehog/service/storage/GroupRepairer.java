@@ -22,7 +22,10 @@ package org.unigrid.hedgehog.service.storage;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,7 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.Set;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
@@ -40,6 +43,7 @@ import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
@@ -77,6 +81,7 @@ public class GroupRepairer {
 		return spork.get().map(parameters -> OptionalLong.of(epochOf(parameters))).orElse(OptionalLong.empty());
 	}
 
+	/* A stable order lets shutdown stop between groups at a predictable point */
 	public void runEpoch() {
 		final Optional<StorageSpork.SporkData> parameters = spork.get();
 		final Optional<String> self = directory.self();
@@ -85,9 +90,11 @@ public class GroupRepairer {
 			return;
 		}
 
-		final Round round = new Round(parameters.get(), directory.active(), self.get(), epochOf(parameters.get()));
+		final Round round = new Round(parameters.get(), directory.active(), self.get(), epochOf(parameters.get()),
+			new Random(clock.millis() ^ self.get().hashCode()));
 
-		store.groups().forEach(round::tend);
+		store.groups().stream().sorted(Comparator.comparing(GroupId::toHex))
+			.takeWhile(groupId -> !Thread.currentThread().isInterrupted()).forEach(round::tend);
 		purgeTombstones();
 	}
 
@@ -109,13 +116,15 @@ public class GroupRepairer {
 		private final List<Gridnode> active;
 		private final String self;
 		private final long epoch;
-		private final GroupFetcher fetcher = new GroupFetcher(transport);
+		private final Random random;
 
 		/* Anyone can sign a group that fails to rebuild, so one bad group must never end the round */
 		void tend(final GroupId groupId) {
 			try {
 				tendOrFail(groupId);
-			} catch (IOException | RuntimeException ex) {
+			} catch (IOException ex) {
+				log.atWarn().log("Unable to tend a stored group: {}", ex.getClass().getSimpleName());
+			} catch (RuntimeException ex) {
 				log.atDebug().log("Tending a stored group failed: {}", ex.getClass().getSimpleName());
 			}
 		}
@@ -158,49 +167,44 @@ public class GroupRepairer {
 		private void repair(final GroupId groupId, final int width) throws IOException {
 			final Optional<Fragment> local = localFragment(groupId);
 
-			if (local.isPresent()) {
-				final List<Gridnode> window = Placement.window(groupId, active, width);
-				final Map<Gridnode, FragmentStatus.Entry> census = census(local.get(), window);
-				final Optional<DeleteProof> deletion = deletionOf(local.get(), census);
-				final Set<Integer> present = present(local.get(), census);
-
-				if (deletion.isPresent()) {
-					tombstone(groupId, deletion.get());
-				} else if (needsRepair(local.get().getDescriptor(), present.size(),
-					parameters.getRepairThresholdPercent())) {
-
-					rebuild(local.get(), census, present, window);
-				}
-			}
-		}
-
-		private void rebuild(final Fragment local, final Map<Gridnode, FragmentStatus.Entry> census,
-			final Set<Integer> present, final List<Gridnode> window) {
-
-			final GroupDescriptor descriptor = local.getDescriptor();
-
-			if (!isAffordable(descriptor)) {
-				log.atDebug().log("Skipping the repair of a group larger than the per-node quota");
+			if (local.isEmpty()) {
 				return;
 			}
 
-			final List<Gridnode> holders = census.entrySet().stream()
-				.filter(entry -> entry.getValue().getState() == FragmentStatus.State.HELD)
-				.map(Map.Entry::getKey).collect(Collectors.toList());
-			final Map<Integer, Fragment> sources = new LinkedHashMap<>();
+			final List<Gridnode> window = Placement.window(groupId, active, width);
+			final Map<Gridnode, FragmentStatus.Entry> census = census(local.get(), window);
+			final Optional<DeleteProof> deletion = deletionOf(local.get(), census);
+			final Map<Gridnode, Integer> claims = claimsOf(census);
 
-			sources.put(local.getIndex(), local);
-			fetcher.fetch(local.groupId(), holders, descriptor.getDataFragments(), local.format())
-				.forEach(fragment -> sources.putIfAbsent(fragment.getIndex(), fragment));
-
-			if (GroupFetcher.isComplete(sources.values())) {
-				final List<Integer> missing = IntStream.range(0, descriptor.getMaxFragments())
-					.filter(index -> !present.contains(index)).boxed().collect(Collectors.toList());
-				final Iterator<Gridnode> targets = free(window, census).iterator();
-
-				ChunkGroups.rebuild(sources.values(), missing)
-					.forEach(fragment -> deliver(fragment, targets));
+			if (deletion.isPresent()) {
+				tombstone(groupId, deletion.get());
+			} else if (isShort(local.get(), claims) || !spotCheck(local.get(), claims)) {
+				rebuild(local.get(), claims, free(window, census));
 			}
+		}
+
+		private boolean isShort(final Fragment local, final Map<Gridnode, Integer> claims) {
+			return needsRepair(local.getDescriptor(), presentOf(local, claims.values()).size(),
+				parameters.getRepairThresholdPercent());
+		}
+
+		/* A census claim is unauthenticated, so each duty round makes one random claimant prove it. A lone liar
+		   hiding a loss is caught after about as many duty rounds as there are claimants, and a caught liar counts
+		   as absent. L colluding liars can still hold repair back until the real losses reach the threshold plus
+		   L - 1, so the parity must outnumber the liars a window can hold. Returns whether the group still holds
+		   up without the claims that failed. */
+		private boolean spotCheck(final Fragment local, final Map<Gridnode, Integer> claims) {
+			if (!claims.isEmpty()) {
+				final List<Gridnode> claimants = new ArrayList<>(claims.keySet());
+				final Gridnode claimant = claimants.get(random.nextInt(claimants.size()));
+				final int claimed = claims.get(claimant);
+
+				if (verified(transport.fetch(claimant, local.groupId()), local, claimed).isEmpty()) {
+					claims.remove(claimant);
+				}
+			}
+
+			return !isShort(local, claims);
 		}
 
 		/* A validly signed group may still claim 255 slots of any size, so a repairer never decodes one that
@@ -208,6 +212,39 @@ public class GroupRepairer {
 		private boolean isAffordable(final GroupDescriptor descriptor) {
 			final long groupBytes = (long) descriptor.getMaxFragments() * descriptor.getFragmentSize();
 			return groupBytes <= parameters.getMaxBytesPerNode();
+		}
+
+		/* Every claimant has to hand over its fragment, so an index is only counted once it verifies */
+		private void rebuild(final Fragment local, final Map<Gridnode, Integer> claims, final List<Gridnode> free) {
+			final GroupDescriptor descriptor = local.getDescriptor();
+
+			if (!isAffordable(descriptor)) {
+				log.atDebug().log("Skipping the repair of a group larger than the per-node quota");
+				return;
+			}
+
+			final Map<Integer, Fragment> sources = fetchAll(local, claims);
+
+			if (GroupFetcher.isComplete(sources.values())) {
+				final List<Integer> missing = IntStream.range(0, descriptor.getMaxFragments())
+					.filter(index -> !sources.containsKey(index)).boxed().collect(Collectors.toList());
+				final Iterator<Gridnode> targets = free.iterator();
+
+				ChunkGroups.rebuild(sources.values(), missing)
+					.forEach(fragment -> deliver(fragment, targets));
+			}
+		}
+
+		private Map<Integer, Fragment> fetchAll(final Fragment local, final Map<Gridnode, Integer> claims) {
+			final Map<Gridnode, CompletableFuture<FragmentReply>> replies = new LinkedHashMap<>();
+			final Map<Integer, Fragment> sources = new LinkedHashMap<>();
+			final GroupId groupId = local.groupId();
+
+			claims.keySet().forEach(claimant -> replies.put(claimant, transport.fetch(claimant, groupId)));
+			sources.put(local.getIndex(), local);
+			replies.forEach((claimant, reply) -> verified(reply, local, claims.get(claimant))
+				.ifPresent(fragment -> sources.putIfAbsent(fragment.getIndex(), fragment)));
+			return sources;
 		}
 
 		private boolean deliver(final Fragment fragment, final Iterator<Gridnode> targets) {
@@ -249,14 +286,6 @@ public class GroupRepairer {
 			return window.stream().filter(gridnode -> isFree(census.get(gridnode))).collect(Collectors.toList());
 		}
 
-		private Set<Integer> present(final Fragment local, final Map<Gridnode, FragmentStatus.Entry> census) {
-			final Stream<Integer> held = census.values().stream()
-				.filter(entry -> entry.getState() == FragmentStatus.State.HELD)
-				.map(FragmentStatus.Entry::getIndex);
-
-			return Stream.concat(Stream.of(local.getIndex()), held).collect(Collectors.toSet());
-		}
-
 		private void tombstone(final GroupId groupId, final DeleteProof proof) throws IOException {
 			store.delete(groupId, Duration.ofDays(parameters.getTombstoneDays()), proof);
 		}
@@ -264,6 +293,33 @@ public class GroupRepairer {
 
 	private static boolean isFree(final FragmentStatus.Entry entry) {
 		return entry != null && entry.getState() == FragmentStatus.State.NONE;
+	}
+
+	private static Map<Gridnode, Integer> claimsOf(final Map<Gridnode, FragmentStatus.Entry> census) {
+		final Map<Gridnode, Integer> claims = new LinkedHashMap<>();
+
+		census.forEach((gridnode, entry) -> {
+			if (entry.getState() == FragmentStatus.State.HELD) {
+				claims.put(gridnode, entry.getIndex());
+			}
+		});
+
+		return claims;
+	}
+
+	private static Collection<Integer> presentOf(final Fragment local, final Collection<Integer> claimed) {
+		return Stream.concat(Stream.of(local.getIndex()), claimed.stream()).collect(Collectors.toSet());
+	}
+
+	private static Optional<Fragment> verified(final CompletableFuture<FragmentReply> reply, final Fragment local,
+		final int claimed) {
+
+		try {
+			return GroupFetcher.valid(local.groupId(), local.format(), reply.join())
+				.filter(fragment -> fragment.getIndex() == claimed);
+		} catch (CompletionException ex) {
+			return Optional.empty();
+		}
 	}
 
 	private static Optional<DeleteProof> deletionOf(final Fragment local,
@@ -279,15 +335,26 @@ public class GroupRepairer {
 			&& Arrays.equals(proof.getPublicKey(), local.getDescriptor().getPublicKey()));
 	}
 
-	/* A peer's answer is untrusted, so a tombstone it cannot prove counts as no answer at all */
+	/* A peer's answer is untrusted, so a claim outside the group or a tombstone it cannot prove counts as no
+	   answer at all */
+	private static boolean isCredible(final FragmentStatus.Entry entry, final Fragment local) {
+		return switch (entry.getState()) {
+			case HELD -> isSlotOf(local, entry.getIndex());
+			case TOMBSTONE -> proofOf(entry, local).isPresent();
+			case NONE -> true;
+		};
+	}
+
+	private static boolean isSlotOf(final Fragment local, final int index) {
+		return LayoutParameters.inRange(index, 0, local.getDescriptor().getMaxFragments() - 1);
+	}
+
 	private static Optional<FragmentStatus.Entry> entryOf(final CompletableFuture<FragmentStatus> reply,
 		final Fragment local) {
 
 		try {
 			return reply.join().getEntries().stream().findFirst()
-				.filter(entry -> local.groupId().equals(entry.getGroupId()))
-				.filter(entry -> entry.getState() != FragmentStatus.State.TOMBSTONE
-					|| proofOf(entry, local).isPresent());
+				.filter(entry -> local.groupId().equals(entry.getGroupId()) && isCredible(entry, local));
 		} catch (CompletionException ex) {
 			return Optional.empty();
 		}

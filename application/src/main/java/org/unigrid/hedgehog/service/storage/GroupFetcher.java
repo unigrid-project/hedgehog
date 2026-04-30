@@ -83,7 +83,7 @@ public class GroupFetcher {
 		}
 	}
 
-	private static Optional<Fragment> valid(final GroupId groupId, final StorageFormat format,
+	static Optional<Fragment> valid(final GroupId groupId, final StorageFormat format,
 		final FragmentReply reply) {
 
 		if (reply.getStatus() != StorageStatus.OK || reply.getFragment() == null) {
