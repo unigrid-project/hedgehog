@@ -5,7 +5,6 @@ on:
     inputs:
       skip-tests:
         type: boolean
-        description: Skip Test Suite
         default: false
 
 jobs:
@@ -13,23 +12,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up GraalVM JDK
+    - name: Set up GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
-        java-version: '25'
+        java-version: '17'
         distribution: 'graalvm'
-        github-token: ${{ secrets.GITHUB_TOKEN }}
         cache: maven
 
     - name: Build JAR
       run: |
         if [ "${{ inputs.skip-tests }}" = "true" ]; then
-          mvn -B clean package -DskipTests
+          mvn clean package -DskipTests
         else
-          mvn -B clean package
+          mvn clean package
         fi
 
     - name: Build Native Image
@@ -39,20 +36,13 @@ jobs:
           -H:Name=hedgehog \
           -H:Path=native-image
 
-    - name: Verify binary exists
-      run: |
-        ls -lah native-image
-        test -f native-image/hedgehog
-
-    - name: Make executable
-      run: chmod +x native-image/hedgehog
-
-    - name: Upload artifact
+    - name: Upload binary
       uses: actions/upload-artifact@v4
       with:
-        name: linux-amd64-native
+        name: linux-native
         path: native-image/hedgehog
 
-    - name: Smoke test binary (non-blocking)
+    - name: Run binary (safe)
       run: |
-        timeout 5s ./native-image/hedgehog || echo "Binary executed (or timed out safely)"
+        chmod +x native-image/hedgehog
+        timeout 5s ./native-image/hedgehog
