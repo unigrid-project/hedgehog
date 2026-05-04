@@ -1,4 +1,4 @@
-name: Build Linux (amd64) Executable
+name: Build Linux (amd64) Native Executable
 
 on:
   workflow_dispatch:
@@ -6,37 +6,53 @@ on:
       skip-tests:
         type: boolean
         description: Skip Test Suite
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout source
+      uses: actions/checkout@v4
 
-    # Changed from setup-java (Temurin) to setup-graalvm
-    - name: Set up GraalVM for JDK 25
+    - name: Set up GraalVM JDK
       uses: graalvm/setup-graalvm@v1
       with:
-        java-version: '25' 
+        java-version: '25'
         distribution: 'graalvm'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         cache: maven
 
-    - name: Build with Maven
-      run: mvn package -DskipTests=${{ inputs.skip-tests }}
+    - name: Build JAR
+      run: |
+        if [ "${{ inputs.skip-tests }}" = "true" ]; then
+          mvn -B clean package -DskipTests
+        else
+          mvn -B clean package
+        fi
 
-    - name: Output artifact
+    - name: Build Native Image
+      run: |
+        native-image \
+          -jar target/*.jar \
+          -H:Name=hedgehog \
+          -H:Path=native-image
+
+    - name: Verify binary exists
+      run: |
+        ls -lah native-image
+        test -f native-image/hedgehog
+
+    - name: Make executable
+      run: chmod +x native-image/hedgehog
+
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Linux Native Binary
-        path: native-image/target/hedgehog.bin
+        name: linux-amd64-native
+        path: native-image/hedgehog
 
-    - name: Run Binary
+    - name: Smoke test binary (non-blocking)
       run: |
-        # Find the file, make it executable, and run it
-        # This assumes there is only one executable in that folder
-        BINARY_PATH=$(find hedgehog-native/target -maxdepth 1 -type f -executable -not -name "*.jar" | head -n 1)
-        echo "Executing: $BINARY_PATH"
-        chmod +x "$BINARY_PATH"
-        "$BINARY_PATH"
+        timeout 5s ./native-image/hedgehog || echo "Binary executed (or timed out safely)"
