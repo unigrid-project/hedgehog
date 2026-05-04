@@ -1,85 +1,84 @@
 name: Build Linux (amd64) Native Executable
 
 on:
-workflow_dispatch:
-inputs:
-skip-tests:
-type: boolean
-description: Skip Test Suite
-default: false
+  workflow_dispatch:
+    inputs:
+      skip-tests:
+        type: boolean
+        description: Skip Test Suite
+        default: false
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-
-  - name: Set up GraalVM
-    uses: graalvm/setup-graalvm@v1
-    with:
-      java-version: '25'
-      distribution: 'graalvm'
-      cache: maven
-
-  - name: Build with Maven
-    run: |
-      if [ "${{ inputs.skip-tests }}" = "true" ]; then
-        echo "Skipping tests"
-        mvn -B clean package -DskipTests
-      else
-        echo "Running full build with tests"
-        mvn -B clean package
-      fi
-
-  - name: Locate built JAR (multi-module safe)
-    run: |
-      echo "Searching for JAR files..."
-
-      JAR_FILE=$(find . -type f -path "*/target/*.jar" \
-        ! -name "*sources.jar" \
-        ! -name "*javadoc.jar" \
-        | head -n 1)
-
-      if [ -z "$JAR_FILE" ]; then
-        echo "ERROR: No JAR file found after build"
-        exit 1
-      fi
-
-      echo "Found JAR: $JAR_FILE"
-      echo "JAR_FILE=$JAR_FILE" >> $GITHUB_ENV
-
-  - name: Build Native Image
-    run: |
-      echo "Building native image from $JAR_FILE"
-
-      native-image \
-        -jar "$JAR_FILE" \
-        -H:Name=hedgehog \
-        -H:Path=native-image
-
-  - name: Verify binary exists
-    run: |
-      echo "Checking native binary..."
-      ls -lah native-image
-
-      if [ ! -f native-image/hedgehog ]; then
-        echo "ERROR: Native binary not found"
-        exit 1
-      fi
-
-  - name: Make binary executable
-    run: chmod +x native-image/hedgehog
-
-  - name: Upload artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: linux-amd64-native
-      path: native-image/hedgehog
-
-  - name: Run binary (smoke test)
-    run: |
-      echo "Running binary (5s timeout)..."
-      timeout 5s ./native-image/hedgehog || echo "Binary executed or timed out safely"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+    
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: maven
+    
+      - name: Build with Maven
+        run: |
+          if [ "${{ inputs.skip-tests }}" = "true" ]; then
+            echo "Skipping tests"
+            mvn -B clean package -DskipTests
+          else
+            echo "Running full build with tests"
+            mvn -B clean package
+          fi
+    
+      - name: Locate built JAR (multi-module safe)
+        run: |
+          echo "Searching for JAR files..."
+    
+          JAR_FILE=$(find . -type f -path "*/target/*.jar" \
+            ! -name "*sources.jar" \
+            ! -name "*javadoc.jar" \
+            | head -n 1)
+    
+          if [ -z "$JAR_FILE" ]; then
+            echo "ERROR: No JAR file found after build"
+            exit 1
+          fi
+    
+          echo "Found JAR: $JAR_FILE"
+          echo "JAR_FILE=$JAR_FILE" >> $GITHUB_ENV
+    
+      - name: Build Native Image
+        run: |
+          echo "Building native image from $JAR_FILE"
+    
+          native-image \
+            -jar "$JAR_FILE" \
+            -H:Name=hedgehog \
+            -H:Path=native-image
+    
+      - name: Verify binary exists
+        run: |
+          echo "Checking native binary..."
+          ls -lah native-image
+    
+          if [ ! -f native-image/hedgehog ]; then
+            echo "ERROR: Native binary not found"
+            exit 1
+          fi
+    
+      - name: Make binary executable
+        run: chmod +x native-image/hedgehog
+    
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-native
+          path: native-image/hedgehog
+    
+      - name: Run binary (smoke test)
+        run: |
+          echo "Running binary (5s timeout)..."
+          timeout 5s ./native-image/hedgehog || echo "Binary executed or timed out safely"
