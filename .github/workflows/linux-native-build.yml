@@ -33,4 +33,10 @@ jobs:
         path: native-image/target/hedgehog.bin
 
     - name: Run Binary
-      run: chmod +x native-image/target/hedgehog.bin && ./native-image/target/hedgehog.bin
+      run: |
+        # Find the file, make it executable, and run it
+        # This assumes there is only one executable in that folder
+        BINARY_PATH=$(find hedgehog-native/target -maxdepth 1 -type f -executable -not -name "*.jar" | head -n 1)
+        echo "Executing: $BINARY_PATH"
+        chmod +x "$BINARY_PATH"
+        "$BINARY_PATH"
