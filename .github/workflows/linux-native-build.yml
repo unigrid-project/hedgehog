@@ -12,6 +12,7 @@ jobs:
 build:
 runs-on: ubuntu-latest
 
+```
 steps:
   - name: Checkout repository
     uses: actions/checkout@v4
@@ -82,4 +83,3 @@ steps:
     run: |
       echo "Running binary (5s timeout)..."
       timeout 5s ./native-image/hedgehog || echo "Binary executed or timed out safely"
-      
