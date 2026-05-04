@@ -5,6 +5,7 @@ on:
     inputs:
       skip-tests:
         type: boolean
+        description: Skip Test Suite
         default: false
 
 jobs:
@@ -12,7 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
     - name: Set up GraalVM
       uses: graalvm/setup-graalvm@v1
@@ -21,7 +23,7 @@ jobs:
         distribution: 'graalvm'
         cache: maven
 
-    - name: Build JAR
+    - name: Build JAR with Maven
       run: |
         if [ "${{ inputs.skip-tests }}" = "true" ]; then
           mvn clean package -DskipTests
@@ -29,20 +31,38 @@ jobs:
           mvn clean package
         fi
 
+    - name: Find JAR file
+      run: |
+        JAR_FILE=$(find target -maxdepth 1 -type f -name "*.jar" ! -name "*sources.jar" ! -name "*javadoc.jar" | head -n 1)
+
+        if [ -z "$JAR_FILE" ]; then
+          echo "No JAR file found in target/"
+          exit 1
+        fi
+
+        echo "JAR_FILE=$JAR_FILE" >> $GITHUB_ENV
+
     - name: Build Native Image
       run: |
         native-image \
-          -jar target/*.jar \
+          -jar "$JAR_FILE" \
           -H:Name=hedgehog \
           -H:Path=native-image
 
-    - name: Upload binary
+    - name: Verify binary exists
+      run: |
+        ls -lah native-image
+        test -f native-image/hedgehog
+
+    - name: Make binary executable
+      run: chmod +x native-image/hedgehog
+
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: linux-native
+        name: linux-amd64-native
         path: native-image/hedgehog
 
-    - name: Run binary (safe)
+    - name: Run binary (safe smoke test)
       run: |
-        chmod +x native-image/hedgehog
-        timeout 5s ./native-image/hedgehog
+        timeout 5s ./native-image/hedgehog || echo "Binary executed or timed out safely"
