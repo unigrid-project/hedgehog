@@ -45,11 +45,15 @@ public class StorageNetworkModel {
 	private final List<Fingerprint> deleted = new ArrayList<>();
 	private int damage;
 
-	/* Repair on the first missing fragment, so a heal restores full redundancy and the damage budget can reset. */
+	/* Repair on the first missing fragment, so a heal restores full redundancy and the damage budget can reset.
+	   Without extras, outer parity or spare manifest copies, the inner parity is the whole tolerance. */
 	private static StorageSpork.SporkData eagerRepair() {
 		final StorageSpork.SporkData parameters = StorageTestData.parameters();
 
 		parameters.setRepairThresholdPercent(1);
+		parameters.setMaxParityPercent(parameters.getInnerParityPercent());
+		parameters.setOuterParityPercent(0);
+		parameters.setManifestCopies(1);
 		return parameters;
 	}
 
@@ -106,13 +110,19 @@ public class StorageNetworkModel {
 		damage++;
 	}
 
+	/* Repair alone never restores what an offline gridnode holds, so the damage budget stays spent */
+	void repair(int epochs) {
+		fleet.runRepairEpochs(epochs);
+	}
+
 	void heal() {
 		fleet.getGridnodes().forEach(g -> fleet.getTransport().online(g.getId()));
 		fleet.runRepairEpochs(2 * PARAMETERS.window());
 		damage = 0;
 
-		deleted.forEach(fingerprint -> assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint)));
-		fleet.groups().forEach(groupId -> assertThat(fleet.holdersOf(groupId),
+		deleted.forEach(fingerprint -> assertThrows(FingerprintNotFoundException.class,
+			() -> service.open(fingerprint)));
+		fleet.groups().forEach(groupId -> assertThat(fleet.distinctIndicesOf(groupId, PARAMETERS.window()),
 			greaterThanOrEqualTo((long) PARAMETERS.layout().guaranteedFragments())));
 	}
 
@@ -128,6 +138,7 @@ public class StorageNetworkModel {
 
 	@Override
 	public String toString() {
-		return "StorageNetworkModel[files=" + live.size() + ", deleted=" + deleted.size() + ", damage=" + damage + "]";
+		return "StorageNetworkModel[files=" + live.size() + ", deleted=" + deleted.size() + ", damage=" + damage
+			+ "]";
 	}
 }

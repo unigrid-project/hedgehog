@@ -102,6 +102,14 @@ public class StorageNetworkStateTest {
 		}
 	}
 
+	private record Repair(int epochs) implements Action<StorageNetworkModel> {
+		@Override
+		public StorageNetworkModel run(StorageNetworkModel model) {
+			model.repair(epochs);
+			return model;
+		}
+	}
+
 	private record Heal() implements Action<StorageNetworkModel> {
 		@Override
 		public StorageNetworkModel run(StorageNetworkModel model) {
@@ -113,6 +121,7 @@ public class StorageNetworkStateTest {
 	@Provide
 	Arbitrary<ActionSequence<StorageNetworkModel>> churn() {
 		final Arbitrary<Integer> picks = Arbitraries.integers().greaterOrEqual(0);
+		final Arbitrary<Integer> epochs = Arbitraries.integers().between(1, StorageNetworkModel.PARAMETERS.window());
 
 		return Arbitraries.sequences(Arbitraries.frequencyOf(
 			Tuple.of(3, StorageArbitraries.files(StorageNetworkModel.PARAMETERS).map(Store::new)),
@@ -121,12 +130,15 @@ public class StorageNetworkStateTest {
 			Tuple.of(2, picks.map(Wipe::new)),
 			Tuple.of(1, picks.map(Revive::new)),
 			Tuple.of(1, Arbitraries.just(new Join())),
+			Tuple.of(1, epochs.map(Repair::new)),
 			Tuple.of(1, Arbitraries.just(new Heal()))
 		)).ofSize(30);
 	}
 
-	@Property(tries = 15)
-	public void keepsEveryLiveFileReadableThroughChurn(@ForAll("churn") ActionSequence<StorageNetworkModel> actions) {
+	@Property(tries = 25)
+	public void keepsEveryLiveFileReadableThroughChurn(
+		@ForAll("churn") ActionSequence<StorageNetworkModel> actions) {
+
 		actions.withInvariant("live files read back unchanged", StorageNetworkModel::assertLiveFilesReadBack)
 			.run(new StorageNetworkModel());
 	}
