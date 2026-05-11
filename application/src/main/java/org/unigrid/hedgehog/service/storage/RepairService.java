@@ -36,11 +36,13 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 public class RepairService {
 	private static final int CHECK_MINUTES = 1;
 	private static final String THREAD_NAME = "storage-repair";
+	private static final int SETTLING_EPOCHS = 2;
 
 	@Inject
 	private GroupRepairer repairer;
 
 	private ScheduledExecutorService executor;
+	private OptionalLong firstEpoch = OptionalLong.empty();
 	private OptionalLong lastEpoch = OptionalLong.empty();
 
 	@PostConstruct
@@ -65,20 +67,21 @@ public class RepairService {
 		}
 	}
 
-	/* The first epoch seen only marks the start, so a restart waits a full interval for the topology to settle
-	   before it touches anything */
+	/* Epochs follow the wall clock, so the one after the first seen may begin moments after a restart. Only the
+	   one after that guarantees a full interval for the topology to settle before anything is touched. */
 	private void runDueRound() {
 		final OptionalLong epoch = repairer.currentEpoch();
 
-		if (epoch.isEmpty() || epoch.equals(lastEpoch)) {
+		if (epoch.isEmpty()) {
 			return;
 		}
 
-		final boolean started = lastEpoch.isPresent();
+		if (firstEpoch.isEmpty()) {
+			firstEpoch = epoch;
+		}
 
-		lastEpoch = epoch;
-
-		if (started) {
+		if (epoch.getAsLong() >= firstEpoch.getAsLong() + SETTLING_EPOCHS && !epoch.equals(lastEpoch)) {
+			lastEpoch = epoch;
 			repairer.runEpoch();
 		}
 	}

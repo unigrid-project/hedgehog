@@ -75,14 +75,16 @@ public class RepairServiceTest {
 	}
 
 	@Property(tries = 200)
-	public void runsEveryLaterEpochOnceWhateverTheRoundsThrow(@ForAll @IntRange(min = 0, max = 3) int idleTicks,
+	public void runsEachEpochOnceAfterAFullIntervalWhateverTheRoundsThrow(
+		@ForAll @IntRange(min = 0, max = 3) int idleTicks,
 		@ForAll @Size(max = 40) List<@IntRange(min = 0, max = 2) Integer> advances,
 		@ForAll @Size(min = 1, max = 10) List<Outcome> outcomes) {
 
 		final ScriptedRepairer repairer = new ScriptedRepairer(outcomes);
 		final RepairService service = serviceOf(repairer);
 		final List<Long> expected = new ArrayList<>();
-		long epoch = 0;
+		final long start = 0;
+		long epoch = start;
 
 		IntStream.range(0, idleTicks).forEach(tick -> service.tick());
 		repairer.epoch = OptionalLong.of(epoch);
@@ -92,7 +94,7 @@ public class RepairServiceTest {
 			epoch += advance;
 			repairer.epoch = OptionalLong.of(epoch);
 
-			if (advance > 0) {
+			if (epoch >= start + 2 && (expected.isEmpty() || expected.get(expected.size() - 1) != epoch)) {
 				expected.add(epoch);
 			}
 
