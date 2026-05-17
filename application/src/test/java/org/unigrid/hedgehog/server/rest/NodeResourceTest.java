@@ -110,11 +110,11 @@ public class NodeResourceTest extends BaseRestClientTest {
 	public void shouldAddNodeWithMissingPort(@ForAll("provideAddress") InetSocketAddress address) {
 		try {
 			final String url = "/node";
-			final Response postResponse = postAssert(url, address.getHostName());
+			final Response postResponse = postAssert(url, address.getHostString());
 
 			if (Status.fromStatusCode(postResponse.getStatus()) == Status.CREATED) {
 				final InetSocketAddress addressWithDefaultPort = new InetSocketAddress(
-					address.getHostName(), DEFAULT_PORT
+					address.getHostString(), DEFAULT_PORT
 				);
 
 				final Node node = Node.builder().address(addressWithDefaultPort).build();
@@ -151,3 +151,4 @@ public class NodeResourceTest extends BaseRestClientTest {
 		}
 	}
 }
+

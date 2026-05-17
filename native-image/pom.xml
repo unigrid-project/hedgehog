@@ -73,17 +73,28 @@
                         <plugin>
                             <groupId>org.apache.maven.plugins</groupId>
                             <artifactId>maven-antrun-plugin</artifactId>
+                            <version>3.1.0</version>
                             <executions>
                                 <execution>
-                                    <id>default-cli</id>
-                                    <phase>package</phase>
+                                    <id>prepare-bundle</id>
+                                    <phase>prepare-package</phase>
                                     <goals>
                                         <goal>run</goal>
                                     </goals>
                                     <configuration>
                                         <target>
-                                            <unzip src="${downloadLocation}${downloadName}"
-                                                dest="${unzipLocation}" />
+                                            <mkdir dir="${project.build.outputDirectory}"/>
+
+                                            <copy file="${project.build.directory}/hedgehog-native-${project.version}-jlink.zip" 
+                                                tofile="${project.build.outputDirectory}/hedgehog-${project.version}-jlink.zip" 
+                                                failonerror="false" />
+
+                                            <unzip src="${project.build.directory}/hedgehog-native-${project.version}-jlink.zip"
+                                                dest="${project.build.directory}/unpacked-env" />
+                                                
+                                            <copy file="${project.build.directory}/hedgehog-native-${project.version}-jlink.zip" 
+                                                tofile="${project.build.directory}/hedgehog-${project.version}-jlink.zip" 
+                                                failonerror="false" />
                                         </target>
                                     </configuration>
                                 </execution>
@@ -109,12 +120,6 @@
         <dependency>
             <groupId>org.graalvm.sdk</groupId>
             <artifactId>graal-sdk</artifactId>
-            <version>${graal.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.graalvm.nativeimage</groupId>
-            <artifactId>svm</artifactId>
             <version>${graal.version}</version>
             <scope>provided</scope>
         </dependency>
@@ -147,6 +152,7 @@
             <artifactId>lombok</artifactId>
             <type>jar</type>
         </dependency>
+        
 
     </dependencies>
     <build>
@@ -208,7 +214,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <release>25</release>
+                    <release>21</release>
                     <showDeprecation>true</showDeprecation>
                     <annotationProcessorPaths>
                         <path>
@@ -299,39 +305,34 @@
                     <configuration>
                         <imageName>hedgehog</imageName>
                         <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
-                        <fallback>false</fallback>
-                        <buildArgs>
-                            <buildArg>--no-fallback</buildArg>
-                            <buildArg>--allow-incomplete-classpath</buildArg>
-                            <buildArg>--features=org.unigrid.hedgehog.nativeimage.BundleFeature</buildArg>
-                            <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
-                            <buildArg>--enable-http</buildArg>
-                            <buildArg>--enable-https</buildArg>
+                        <fallback>false</fallback>  
+                        
+                            <metadataRepository>
+                              <enabled>false</enabled>
+                            </metadataRepository>
+                                                   
+                            <buildArgs>
+                                <buildArg>--allow-incomplete-classpath</buildArg>
+                                <buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
+                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                                <buildArg>-J-Xmx8g</buildArg>
 
-                            <buildArg>--initialize-at-run-time=java.net.InetAddress,java.net.Inet4Address,java.net.Inet6Address,java.net.InetSocketAddress</buildArg>
-                            <buildArg>--initialize-at-run-time=java.net.InetAddress,java.net.Inet4Address,java.net.Inet6Address,java.net.InetSocketAddress,java.net.NetworkInterface</buildArg>
+                                <buildArg>-H:IncludeResources=.*\.properties$|.*\.zip$|.*\.xml$|.*\.json$|META-INF/services/.*$</buildArg>
+                                
+                                <buildArg>--verbose</buildArg>
+                                <buildArg>--enable-http</buildArg>
+                                <buildArg>--enable-https</buildArg>
+                                <buildArg>-Dio.netty.noUnsafe=true</buildArg>
 
-                            <buildArg>--initialize-at-build-time=org.slf4j</buildArg>
-                            <buildArg>--initialize-at-build-time=ch.qos.logback</buildArg>
-                            <buildArg>--initialize-at-build-time=net.harawata.appdirs</buildArg>
-                            <buildArg>--initialize-at-build-time=org.apache.commons.exec</buildArg>
-                            <buildArg>--initialize-at-build-time=org.unigrid.hedgehog.nativeimage.windows.ShellFolderResolverPatch</buildArg>
-                            <buildArg>--initialize-at-build-time=com.sun.jna</buildArg>
+                                <buildArg>--initialize-at-build-time=org.slf4j,ch.qos.logback,net.harawata.appdirs,org.apache.commons.exec,org.unigrid.hedgehog.nativeimage.NativeProperties</buildArg>
+                                
+                                <buildArg>--initialize-at-run-time=org.jboss.weld,org.jboss.logging,org.jboss.weld.probe.ProbeExtension,io.netty.handler.ssl.BouncyCastleAlpnSslUtils,io.netty.util.internal.logging.Log4JLogger,java.net.InetAddress,java.net.Inet4Address,java.net.Inet6Address,java.net.InetSocketAddress,java.net.NetworkInterface,com.sun.jna,com.sun.jna.Native</buildArg>
 
-                            <buildArg>-H:IncludeResources=version.properties</buildArg>
-                            <buildArg>-H:IncludeResources=application.properties</buildArg>
-                            <buildArg>-H:IncludeResources=.*\.properties$</buildArg>
-                            <buildArg>-H:IncludeResources=.*\.zip$</buildArg>
-                            
-                            <buildArg>-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED</buildArg>
-                            <buildArg>-J--add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED</buildArg>
-                            <buildArg>-J--add-opens=java.base/java.lang=ALL-UNNAMED</buildArg>
-                            <buildArg>-J--add-opens=java.base/java.util=ALL-UNNAMED</buildArg>
-                            <buildArg>-J--add-opens=java.base/java.nio=ALL-UNNAMED</buildArg>
-
-                            <buildArg>-H:+ReportExceptionStackTraces</buildArg>
-                        </buildArgs>
-                    </configuration>
+                                <buildArg>-J--add-opens=java.base/java.lang=ALL-UNNAMED</buildArg>
+                                <buildArg>-J--add-opens=java.base/java.util=ALL-UNNAMED</buildArg>
+                                <buildArg>-J--add-opens=java.base/java.nio=ALL-UNNAMED</buildArg>
+                            </buildArgs>
+                    </configuration>                 
             </plugin>
 
             <plugin>
@@ -382,7 +383,7 @@
                 <version>3.16.0</version>
                 <configuration>
                     <includeTests>true</includeTests>
-                    <targetJdk>25</targetJdk>
+                    <targetJdk>21</targetJdk>
                     <rulesets>
                         <ruleset>${project.basedir}/pmd.xml</ruleset>
                     </rulesets>

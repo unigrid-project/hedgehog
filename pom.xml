@@ -7,6 +7,7 @@
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+                <maven.compiler.release>21</maven.compiler.release>
 		<surefireArgLine />
 	</properties>
 	<scm>
@@ -228,7 +229,7 @@
 				<version>3.16.0</version>
 				<configuration>
 					<includeTests>true</includeTests>
-					<targetJdk>25</targetJdk>
+					<targetJdk>21</targetJdk>
 					<rulesets>
 						<ruleset>${project.basedir}/pmd.xml</ruleset>
 					</rulesets>

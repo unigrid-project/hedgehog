@@ -1,0 +1,14 @@
+#Tue May 12 23:25:16 CEST 2026
+/mnt/c/Dev2/hedgehog/application/src/main/resources-filtered/application.properties=1777376238059
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/BundleFeature.java=1777376238118
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/NativeImage.java=1777376238118
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/NativeProperties.java=1777376238120
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/Unzipper.java=1777376238120
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/KnownFolders.java=1777376238121
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/Ole32Wrapper.java=1777376238122
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/Shell32Wrapper.java=1777376238123
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/ShellFolderResolverPatch.java=1777376238123
+/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/WindowsException.java=1777376238123
+configuration*?=E6191B755372EF2D13D8573025B941B79A925CC2
+module-resource*?\:../checkstyle-suppress.xml=FB27505553870C597671CFE0D5E733D200FFD774
+module-resource*?\:checkstyle-suppress.xml=F04780F9CBCEAEA053F57E725D39B6DCB9A40D94

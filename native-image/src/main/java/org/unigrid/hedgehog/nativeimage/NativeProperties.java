@@ -16,7 +16,10 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.Properties;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.exec.OS;
@@ -29,10 +32,27 @@ public class NativeProperties {
 	@Getter @Setter private static String hash;
 
 	static {
-		if (OS.isFamilyWindows()) {
-			runScript = "run.cmd";
-		} else {
-			runScript = "run.sh";
+		// 1. OS-check
+		runScript = OS.isFamilyWindows() ? "run.cmd" : "run.sh";
+
+		// 2. Läs in properties - Vi använder NativeProperties.class direkt
+		Properties props = new Properties();
+		try (InputStream is = NativeProperties.class.getResourceAsStream("/hedgehog.properties")) {
+			if (is != null) {
+				props.load(is);
+				hash = props.getProperty("hedgehog.hash");
+				String zipName = props.getProperty("hedgehog.zipName");
+				if (zipName != null) {
+					bundledJlinkZip = Path.of(zipName);
+				}
+				// Logga ut under bygget så vi ser att det fungerar
+				System.out.println("[NATIVE-BUILD] Loaded hash: " + hash);
+			} else {
+				System.err.println("[NATIVE-BUILD] ERROR: /hedgehog.properties not found in classpath!");
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 }
+

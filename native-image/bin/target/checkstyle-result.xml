@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="13.3.0">
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/BundleFeature.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/NativeImage.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/NativeProperties.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/Unzipper.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/KnownFolders.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/Ole32Wrapper.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/Shell32Wrapper.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/ShellFolderResolverPatch.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/native-image/src/main/java/org/unigrid/hedgehog/nativeimage/windows/WindowsException.java">
+</file>
+<file name="/mnt/c/Dev2/hedgehog/application/src/main/resources-filtered/application.properties">
+</file>
+</checkstyle>

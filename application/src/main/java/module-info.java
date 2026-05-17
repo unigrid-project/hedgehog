@@ -16,52 +16,69 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
 module org.unigrid.hedgehog {
-	requires ch.qos.logback.classic;
-	requires static lombok;
-	requires info.picocli;
-	requires jakarta.cdi;
-	requires jakarta.inject;
-	requires jakarta.interceptor;
-	requires jakarta.ws.rs;
-	requires jakarta.annotation;
-	requires jakarta.validation;
-	requires jakarta.el;
-	requires com.fasterxml.jackson.databind;
-	requires com.fasterxml.jackson.datatype.jsr310;
-	requires com.fasterxml.jackson.core;
-	requires free.port.finder;
-	requires org.apache.commons.lang3;
-	requires org.apache.commons.codec;
-	requires io.netty.buffer;
-	requires io.netty.transport;
-	requires io.netty.codec;
-	requires io.netty.incubator.codec.classes.quic;
-	requires io.netty.common;
-	requires io.netty.handler;
-	requires jersey.server;
-	requires jersey.client;
-	requires jersey.container.netty.http;
-	requires jersey.media.json.jackson;
-	requires jersey.bean.validation;
-	requires jersey.common;
-	requires jersey.hk2;
-	requires org.reflections;
-	requires org.slf4j;
-	requires weld.se.core;
-	requires weld.core.impl;
-	requires weld.environment.common;
-	requires weld.spi;
-	requires org.apache.commons.configuration2;
-	requires org.apache.commons.collections4;
-	requires java.logging;
-	requires jakarta.xml.bind;
-	requires j8fu;
-	requires net.harawata.appdirs;
-	requires org.graalvm.sdk;
-	requires org.unigrid.hedgehog.common;
-	//requires jdk.crypto.ec;
+    requires ch.qos.logback.classic;
+    requires static lombok;
+    requires info.picocli;
+    requires jakarta.cdi;
+    requires jakarta.inject;
+    requires jakarta.interceptor;
+    requires jakarta.ws.rs;
+    requires jakarta.annotation;
+    requires jakarta.validation;
+    requires jakarta.el;
+    requires com.fasterxml.jackson.databind;
+    requires com.fasterxml.jackson.datatype.jsr310;
+    requires com.fasterxml.jackson.core;
+    requires free.port.finder;
+    requires org.apache.commons.lang3;
+    requires org.apache.commons.codec;
+    requires io.netty.buffer;
+    requires io.netty.transport;
+    requires io.netty.codec;
+    requires io.netty.incubator.codec.classes.quic;
+    requires io.netty.common;
+    requires io.netty.handler;
+    requires jersey.server;
+    requires jersey.client;
+    requires jersey.container.netty.http;
+    requires jersey.media.json.jackson;
+    requires jersey.bean.validation;
+    requires jersey.common;
+    requires jersey.hk2;
+    requires org.reflections;
+    requires org.slf4j;
+    requires weld.se.core;
+    requires weld.core.impl;
+    requires weld.environment.common;
+    requires weld.spi;
+    requires org.apache.commons.configuration2;
+    requires org.apache.commons.collections4;
+    requires java.logging;
+    requires jakarta.xml.bind;
+    requires j8fu;
+    requires net.harawata.appdirs;
+    requires org.graalvm.sdk;
+    requires org.unigrid.hedgehog.common;
 
-	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
+    exports org.unigrid.hedgehog.model;
+    exports org.unigrid.hedgehog.model.cdi to weld.core.impl;
+    exports org.unigrid.hedgehog.model.network.packet;
+    exports org.unigrid.hedgehog.command.option to info.picocli;
+
+    opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
+    
+    opens org.unigrid.hedgehog to info.picocli, weld.core.impl, org.reflections;
+    opens org.unigrid.hedgehog.model to info.picocli, weld.core.impl, jakarta.inject, com.fasterxml.jackson.databind;
+    opens org.unigrid.hedgehog.model.network.packet to info.picocli, weld.core.impl;
+    opens org.unigrid.hedgehog.command to info.picocli, weld.core.impl;
+    opens org.unigrid.hedgehog.command.cli to info.picocli, weld.core.impl;
+    opens org.unigrid.hedgehog.command.cli.spork to info.picocli, weld.core.impl;
+    opens org.unigrid.hedgehog.command.option to info.picocli, weld.core.impl;
+    opens org.unigrid.hedgehog.command.util to info.picocli, weld.core.impl;
+    
+    // Om dessa paket saknar klasser i src/main/java kommer bygget misslyckas.
+    // Jag har kommenterat bort .resource som orsakade felet nyss.
+    // opens org.unigrid.hedgehog.service to weld.core.impl, jakarta.inject;
+    // opens org.unigrid.hedgehog.resource to weld.core.impl, jakarta.inject, jersey.server;
 }

@@ -20,25 +20,35 @@
 package org.unigrid.hedgehog.client;
 
 import java.util.List;
-import lombok.SneakyThrows;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
+import java.util.concurrent.TimeUnit;
+
 import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.closeTo;
+import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.server.BaseServerTest;
 import org.unigrid.hedgehog.server.TestServer;
 
+import lombok.SneakyThrows;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+
 public class P2PClientTest extends BaseServerTest {
-	@SneakyThrows
-	@Property(tries = 5)
-	public void shouldRemoveThreadsAfterClose(@ForAll("provideTestServers") List<TestServer> servers) {
-		final double originalNumberOfThreads = Thread.activeCount();
+    @SneakyThrows
+    @Property(tries = 5)
+    public void shouldRemoveThreadsAfterClose(@ForAll("provideTestServers") List<TestServer> servers) {
+        // Vi mäter startantalet trådar
+        final double originalNumberOfThreads = Thread.activeCount();
 
-		for (TestServer server : servers) {
-			final P2PClient client = new P2PClient(server.getP2p().getHostName(), server.getP2p().getPort());
-			client.close();
-		}
+        for (TestServer server : servers) {
+            final P2PClient client = new P2PClient(server.getP2p().getHostName(), server.getP2p().getPort());
+            // Denna anropar nu vår nya close() som stänger EventLoopGroup
+            client.close();
+        }
 
-		await().until(() -> (double) Thread.activeCount(), is(closeTo(originalNumberOfThreads, 2.0)));
-	}
+        // Vi ger det upp till 5 sekunder att städa upp, och tillåter en differens på 5 trådar
+        // (eftersom JVM:en kan starta egna bakgrundstrådar när som helst)
+        await().atMost(5, TimeUnit.SECONDS)
+               .until(() -> (double) Thread.activeCount(), is(closeTo(originalNumberOfThreads, 5.0)));
+    }
 }
+

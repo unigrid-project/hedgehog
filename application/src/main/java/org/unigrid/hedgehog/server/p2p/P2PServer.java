@@ -74,6 +74,29 @@ public class P2PServer extends AbstractServer {
 
 	@PostConstruct @SneakyThrows
 	private void init() {
+		// --- WSL2 & PLATFORM FIX START ---
+		// 1. Force IPv4 at JVM level to bypass WSL2 broken IPv6/DNS lookups
+		System.setProperty("java.net.preferIPv4Stack", "true");
+		System.setProperty("sun.net.inetaddr.ttl", "0");
+
+		// 2. Verify if the port is already in use before Netty tries to bind it
+		try {
+			java.net.DatagramSocket serverSocket = new java.net.DatagramSocket(null);
+			serverSocket.setReuseAddress(true);
+			serverSocket.bind(new java.net.InetSocketAddress(
+					org.unigrid.hedgehog.command.option.NetOptions.getPort()));
+			serverSocket.close();
+		} catch (java.net.BindException e) {
+			System.err.println("\n[ERROR] Port "
+					+ org.unigrid.hedgehog.command.option.NetOptions.getPort()
+					+ " is already in use!");
+			System.err.println("[ERROR] Another instance of Hedgehog is running. Aborting.\n");
+			System.exit(1);
+		} catch (Exception e) {
+			// Ignore other exceptions and let Netty attempt the bind anyway
+		}
+		// --- WSL2 & PLATFORM FIX END ---
+
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
@@ -121,13 +144,34 @@ public class P2PServer extends AbstractServer {
 
 	@Override
 	public Channel getChannel() {
+		// Handle potential timing issues during startup
+		if (channel == null) {
+			int retries = 0;
+			while (channel == null && retries < 10) {
+				try {
+					Thread.sleep(100);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					break;
+				}
+				retries++;
+			}
+		}
 		return channel;
 	}
 
 	@PreDestroy
 	private void destroy() {
-		topologyThread.exit();
-		channel.close();
+		if (topologyThread != null) {
+			topologyThread.exit();
+		}
+		if (channel != null) {
+			channel.close();
+		}
 		group.shutdownGracefully();
 	}
 }
+
+
+
+

@@ -19,8 +19,12 @@ package org.unigrid.hedgehog.nativeimage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.stream.Stream;
+
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.exec.CommandLine;
@@ -30,49 +34,150 @@ import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
+/**
+ * Wrapper and Launcher for the Hedgehog Native Image.
+ * Handles environment extraction, script sanitization (CRLF to LF), and execution.
+ */
 public class NativeImage {
+	/** Watchdog timeout. */
 	public static final long WATCHDOG_TIMEOUT_MS = 60000;
 
-	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
-		final Path script = basePath.resolve(Path.of(
-			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
-		);
+	private final ApplicationDirectory appDir;
+	private final String zipName;
 
+	public NativeImage() {
+		this.appDir = ApplicationDirectory.create();
+		this.zipName = NativeProperties.getBundledJlinkZip().toString();
+	}
+
+	private int executePayload(Path basePath, String[] args)
+			throws ExecuteException, InterruptedException, IOException {
+
+		final Path binDir = basePath.resolve(NativeProperties.BIN_DIRECTORY);
+		final Path script = binDir.resolve(NativeProperties.getRunScript());
+
+		if (Files.notExists(script)) {
+			throw new IOException("Script missing: " + script.toAbsolutePath());
+		}
+
+		String content = Files.readString(script, StandardCharsets.UTF_8);
+		if (content.contains("\r\n")) {
+			System.out.println("[Hedgehog] Fixing line endings...");
+			Files.writeString(script, content.replace("\r\n", "\n"), StandardCharsets.UTF_8);
+		}
+
+		script.toFile().setExecutable(true);
 		final CommandLine cmdLine = new CommandLine(script.toString());
 		cmdLine.addArguments(args);
 
 		final DefaultExecutor executor = new DefaultExecutor();
+		executor.setWorkingDirectory(basePath.toFile());
 		executor.setExitValue(0);
 
 		try {
 			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
 			executor.setWatchdog(watchdog);
 			return executor.execute(cmdLine);
-
-		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
 		} catch (ExecuteException ex) {
 			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
 				throw ex;
 			}
-
 			return ex.getExitValue();
 		}
 	}
 
-	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		final InputStream archive = Thread.currentThread().getContextClassLoader()
-			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
+	private void sanitizeTopLevel(Path root) throws IOException {
+		try (Stream<Path> stream = Files.list(root)) {
+			var folderToRename = stream
+					.filter(Files::isDirectory)
+					.filter(p -> p.getFileName().toString().contains(":"))
+					.findFirst();
 
-		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
-		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(
-			Path.of(NativeProperties.getHash())
-		);
+			if (folderToRename.isPresent()) {
+				Path source = folderToRename.get();
+				String safeName = source.getFileName().toString().replace(":", "-");
+				Path target = source.getParent().resolve(safeName);
 
-		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
-			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
-			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
+				System.out.println("[Hedgehog] Sanitizing archive folder name...");
+				Files.move(source, target);
+			}
+		}
+	}
+
+	private InputStream getArchiveStream() throws IOException {
+		Path externalPath = Paths.get(zipName);
+		if (Files.exists(externalPath)) {
+			return Files.newInputStream(externalPath);
+		}
+		InputStream internal = NativeImage.class.getResourceAsStream("/" + zipName);
+		if (internal == null) {
+			internal = NativeImage.class.getClassLoader().getResourceAsStream(zipName);
+		}
+		if (internal == null) {
+			throw new IOException("Could not locate bundled ZIP: "
+					+ zipName);
+		}
+		return internal;
+	}
+
+	public void launch(String[] args) throws Exception {
+		if (NativeProperties.getHash() == null) {
+			throw new IllegalStateException("NativeProperties not initialized.");
 		}
 
-		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
+		String safeHash = NativeProperties.getHash().replace(":", "-");
+		final Path targetDist = appDir.getUserDataDir().resolve(safeHash);
+
+		if (Files.notExists(targetDist) || ArrayUtils.contains(args, "--force-unpack")) {
+			System.out.println("[Hedgehog] Extracting to: " + targetDist);
+			Files.createDirectories(targetDist);
+			try (InputStream archive = getArchiveStream()) {
+				final byte[] bytes = IOUtils.toByteArray(archive);
+				try (SeekableByteChannel ch = new SeekableInMemoryByteChannel(bytes)) {
+					Unzipper.unzip(ch, targetDist);
+				}
+			}
+			sanitizeTopLevel(targetDist);
+		}
+
+		Path finalPath = targetDist;
+		Path checkScript = finalPath.resolve(NativeProperties.BIN_DIRECTORY)
+				.resolve(NativeProperties.getRunScript());
+
+		if (Files.notExists(checkScript)) {
+			try (Stream<Path> stream = Files.list(targetDist)) {
+				var subDir = stream.filter(Files::isDirectory).findFirst();
+				if (subDir.isPresent()) {
+					finalPath = subDir.get();
+				}
+			}
+		}
+
+		System.out.println("[Hedgehog] Starting payload from: " + finalPath.getFileName());
+		int exitCode = executePayload(finalPath,
+				ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
+		System.exit(exitCode);
+	}
+
+	public static void main(String[] args) throws Exception {
+		NativeImage launcher = new NativeImage();
+		launcher.launch(args);
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

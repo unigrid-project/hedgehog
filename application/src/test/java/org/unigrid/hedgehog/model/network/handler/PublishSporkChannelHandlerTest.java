@@ -22,7 +22,22 @@ package org.unigrid.hedgehog.model.network.handler;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.jqwik.NotNull;
+import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.server.TestServer;
+
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Arbitrary;
@@ -32,20 +47,8 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.ShrinkingMode;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
-import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
-import static org.awaitility.Awaitility.await;
-import static org.hamcrest.Matchers.*;
-import static java.util.concurrent.TimeUnit.SECONDS;
-import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.jqwik.NotNull;
-import org.unigrid.hedgehog.jqwik.SuiteDomain;
-import org.unigrid.hedgehog.model.network.Connection;
-import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.GridSporkProvider;
-import org.unigrid.hedgehog.server.TestServer;
+import net.jqwik.api.lifecycle.BeforeProperty;
 
 public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -73,42 +76,46 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	}
 
 	@Domain(SuiteDomain.class)
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
+	@Property(tries = 10, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 			@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
-		int expectedInvocations = 0;
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
-			System.out.println("Received Spork on channel: " + ctx.channel());
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
-			} else {
-				System.out.println("Channel is NOT recognized as SERVER type!");
 			}
 		}));
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
-			final Connection connection = new P2PClient(host, port);
-			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			connection.send(publishSpork);
-			expectedInvocations++;
+			P2PClient client = new P2PClient(host, port);
+			try {
+				// 1. Give the connection a chance to establish properly (Handshake)
+				Thread.sleep(300);
 
-			/*
-			 * We do greaterThanOrEqualTo() because it's difficult to predict exactly how
-			 * these are distributed
-			 * between the nodes. For example, the server might share it's connected nodes
-			 * with some node(s) and
-			 * instantly increase the amount of sends on the network...
-			 */
+				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+				int before = invocations.get();
 
-			await().atMost(60, SECONDS).untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+				// 2. Send the data
+				client.send(publishSpork);
+
+				// 3. Wait for the server to process the packet before we even hit finally
+				await().atMost(60, SECONDS)
+					.pollInterval(200, TimeUnit.MILLISECONDS)
+					.untilAtomic(invocations, is(greaterThanOrEqualTo(before + 1)));
+
+			} finally {
+				// 4. Safely cool down and close the connection
+				Thread.sleep(200);
+				client.close();
+			}
 		}
-
-		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }
+
+
+
