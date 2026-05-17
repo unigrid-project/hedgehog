@@ -75,55 +75,53 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	}
 
 	@Domain(SuiteDomain.class)
-	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Maintained 5 tries to guarantee stability under limited CI cloud resources
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Maintained 5 tries for CI pipeline stability
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 			@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
-		final AtomicInteger invocations = new AtomicInteger();
-
-		setChannelCallback(Optional.of((ctx, spork) -> {
-			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
-				invocations.incrementAndGet();
-			}
-		}));
-
-		// Execute all test servers in parallel streams to prevent socket port blocking and racing conditions across OS environments
-		servers.parallelStream().forEach(server -> {
+		// We iterate through each server sequentially to prevent multi-threaded socket racing and CPU starvation in CI resources
+		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 
-			try {
-				// 1. Give the async QUIC context ample padding time to bind the port properly
-				Thread.sleep(800);
+			// Each execution lifecycle gets its own isolated, thread-safe counter to prevent state pollution
+			final AtomicInteger isolatedInvocations = new AtomicInteger(0);
 
-				P2PClient client = new P2PClient(host, port);
-				try {
-					Thread.sleep(500);
-
-					final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
-
-					// 2. Dispatch the network payload packet
-					client.send(publishSpork);
-
-					// 3. Brief post-send delay to let the buffers flush smoothly
-					Thread.sleep(500);
-				} finally {
-					// 4. Clean up connection references safely
-					client.close();
-					Thread.sleep(500);
+			setChannelCallback(Optional.of((ctx, spork) -> {
+				if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
+					isolatedInvocations.incrementAndGet();
 				}
-			} catch (Exception e) {
-				// Fail the individual pipeline stream context if any exceptions occur during transport execution
-				throw new RuntimeException("Asynchronous network stream execution failed for host: " + host, e);
-			}
-		});
+			}));
 
-		// 5. Finally, await the complete total count matching the exact amount of spun up test servers
-		await().atMost(60, SECONDS)
-			.pollInterval(500, TimeUnit.MILLISECONDS)
-			.untilAtomic(invocations, greaterThanOrEqualTo(servers.size()));
+			// Give the OS and Netty background worker threads time to breathe before initializing the client context
+			Thread.sleep(300);
+
+			P2PClient client = new P2PClient(host, port);
+			try {
+				// Allow the QUIC handshake to complete smoothly over the localized address bindings
+				Thread.sleep(400);
+
+				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+
+				// Send the generated packet payload
+				client.send(publishSpork);
+
+				// Await the local single packet arrival guarantee securely without multi-server interference
+				await().atMost(30, SECONDS)
+					.pollInterval(200, TimeUnit.MILLISECONDS)
+					.untilAtomic(isolatedInvocations, greaterThanOrEqualTo(1));
+
+			} finally {
+				// Gracefully teardown the current client socket environment and clear buffers before proceeding
+				Thread.sleep(200);
+				client.close();
+				setChannelCallback(Optional.empty());
+				Thread.sleep(200);
+			}
+		}
 	}
 }
+
 
 
 
