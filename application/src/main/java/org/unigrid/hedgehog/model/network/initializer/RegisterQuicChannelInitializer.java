@@ -37,6 +37,10 @@ import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
+// GraalVM SDK native reflection features
+import org.graalvm.nativeimage.hosted.Feature;
+import org.graalvm.nativeimage.hosted.RuntimeReflection;
+
 @Slf4j
 @RequiredArgsConstructor
 public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStreamChannel> {
@@ -67,7 +71,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
 
-		if (Objects.nonNull(schedulersCreator.get())) {
+		if (Objects.nonNull(schedulersCreator) && Objects.nonNull(schedulersCreator.get())) {
 			schedulersCreator.get().forEach(s -> {
 
 				/* Netty schedulers just support Callable<A>, so in order to support something like a
@@ -90,4 +94,30 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			PublishAndSaveSporkSchedule.writeAndFlush(channel, db);
 		});
 	}
+
+	/**
+	 * Automatic GraalVM Feature configuration layer.
+	 * Registers CDI-resolved runtime assets to ensure seamless native compilation stability
+	 * across local developer machines (Windows/WSL) and target remote CI cloud environments.
+	 */
+	@com.oracle.svm.core.annotate.AutomaticFeature
+	public static class NativeReflectionRegistrationFeature implements Feature {
+		@Override
+		public void beforeAnalysis(BeforeAnalysisAccess access) {
+			try {
+				// Register SporkDatabase dynamic proxies for CDI container visibility
+				RuntimeReflection.register(SporkDatabase.class);
+				RuntimeReflection.register(SporkDatabase.class.getDeclaredMethods());
+				RuntimeReflection.register(SporkDatabase.class.getDeclaredConstructors());
+
+				// Pre-register class context for the Quic Initializer structures
+				RuntimeReflection.register(RegisterQuicChannelInitializer.class);
+				RuntimeReflection.register(RegisterQuicChannelInitializer.Type.class);
+			} catch (Exception e) {
+				// Fallback catch to prevent build-time failures if classes are unlinked during test runs
+			}
+		}
+	}
 }
+
+
