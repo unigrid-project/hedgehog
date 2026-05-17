@@ -9,7 +9,6 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-20.04
 
     steps:
@@ -21,7 +20,8 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build with Maven
-      run: mvn package -DskipTests=${{ inputs.skip-tests }}
+      # Forced the Linux profile explicitly to guarantee expected dynamic/static bindings
+      run: mvn package -DskipTests=${{ inputs.skip-tests }} -PLinux
     - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
@@ -29,3 +29,4 @@ jobs:
         path: native-image/target/hedgehog.bin
     - name: Run Binary
       run: native-image/target/hedgehog.bin
+      

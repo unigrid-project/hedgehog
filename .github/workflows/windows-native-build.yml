@@ -28,9 +28,10 @@ jobs:
         cache: maven
 
     - name: Build with Maven
-      # Using 'shell: cmd' is often safer for MSVC path integration
       shell: cmd
-      run: mvn package -DskipTests=${{ github.event.inputs.skip-tests }} -Pnative
+      # 1. Changed -Pnative to -PWindows to match your pom.xml
+      # 2. Added -Dantrun.skip=true to bypass the broken unzip lifecycle in CI
+      run: mvn package -DskipTests=${{ github.event.inputs.skip-tests }} -PWindows -Dantrun.skip=true
 
     - name: Output artifact
       uses: actions/upload-artifact@v4
@@ -40,3 +41,4 @@ jobs:
 
     - name: Run Binary
       run: native-image/target/hedgehog.exe
+      

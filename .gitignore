@@ -1,10 +1,6 @@
-/native-image/reports
-/target
-/nbactions.xml
-.jqwik-database
-socomo.html
-/application/target/
-/native-image/target/
-/common/target/
-jshell.history
-release.properties
+**/target/
+build_log.txt
+*.zip
+*.jar
+**/*.zip
+**/target/**
