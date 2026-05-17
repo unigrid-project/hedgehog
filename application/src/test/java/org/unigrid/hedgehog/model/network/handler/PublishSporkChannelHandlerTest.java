@@ -76,7 +76,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	}
 
 	@Domain(SuiteDomain.class)
-	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Reduced tries to guarantee stability under cloud resources
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Maintained 5 tries for CI stability
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 			@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
@@ -92,34 +92,34 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 
-			// Explicit reset of invocation baseline per server loop to ensure pure results
-			invocations.set(0);
+			// Capture the snapshot of invocations before doing this specific request
+			int before = invocations.get();
 
 			P2PClient client = new P2PClient(host, port);
 			try {
-				// 1. Give the connection a chance to establish properly (Handshake)
-				// Increased sleep for GitHub Actions windows-runners stability
-				Thread.sleep(450);
+				// 1. Let the QUIC socket establish properly
+				Thread.sleep(500); 
 
 				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
 				// 2. Send the data
 				client.send(publishSpork);
 
-				// 3. Wait for the server to process the packet before we even hit finally
+				// 3. Await relative increment (before + 1) to remain immune to lifecycle overlaps
 				await().atMost(60, SECONDS)
 					.pollInterval(200, TimeUnit.MILLISECONDS)
-					.untilAtomic(invocations, is(greaterThanOrEqualTo(1)));
+					.untilAtomic(invocations, is(greaterThanOrEqualTo(before + 1)));
 
 			} finally {
-				// 4. Safely cool down and close the connection
+				// 4. Teardown and give the loop a reliable cooling padding
 				Thread.sleep(300);
 				client.close();
-				Thread.sleep(150); // Extra isolation buffer between sequential loops
+				Thread.sleep(300); 
 			}
 		}
 	}
 }
+
 
 
 
