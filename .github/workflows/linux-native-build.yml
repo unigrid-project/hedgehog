@@ -13,20 +13,24 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    
     - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
+        
     - name: Build with Maven
-      # Forced the Linux profile explicitly to guarantee expected dynamic/static bindings
+      # Vi kör ett rent bygge mot Linux-profilen som finns i din pom.xml
       run: mvn package -DskipTests=${{ inputs.skip-tests }} -PLinux
+      
     - name: Output artifact
       uses: actions/upload-artifact@v3
       with:
         name: Linux Native Binary
         path: native-image/target/hedgehog.bin
+        
     - name: Run Binary
       run: native-image/target/hedgehog.bin
       
