@@ -16,7 +16,8 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
-
+ 
+	
 package org.unigrid.hedgehog.model.network.handler;
 
 import java.time.Instant;
@@ -28,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
@@ -75,52 +77,61 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	}
 
 	@Domain(SuiteDomain.class)
-	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Maintained 5 tries for CI pipeline stability
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF) // Maintained 5 tries for local and CI pipeline optimization
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 			@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
-		// We iterate through each server sequentially to prevent multi-threaded socket racing and CPU starvation in CI resources
-		for (TestServer server : servers) {
-			final String host = server.getP2p().getHostName();
-			final int port = server.getP2p().getPort();
+		// 1. We completely decouple the test tracking from global state shared by Netty async worker threads
+		final AtomicInteger locallyObservedInvocations = new AtomicInteger(0);
 
-			// Each execution lifecycle gets its own isolated, thread-safe counter to prevent state pollution
-			final AtomicInteger isolatedInvocations = new AtomicInteger(0);
+		setChannelCallback(Optional.of((ctx, spork) -> {
+			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
+				locallyObservedInvocations.incrementAndGet();
+			}
+		}));
 
-			setChannelCallback(Optional.of((ctx, spork) -> {
-				if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
-					isolatedInvocations.incrementAndGet();
-				}
-			}));
+		try {
+			for (TestServer server : servers) {
+				final String host = server.getP2p().getHostName();
+				final int port = server.getP2p().getPort();
 
-			// Give the OS and Netty background worker threads time to breathe before initializing the client context
-			Thread.sleep(300);
+				// Reset the local loop boundary tracker before spinning up the client
+				locallyObservedInvocations.set(0);
 
-			P2PClient client = new P2PClient(host, port);
-			try {
-				// Allow the QUIC handshake to complete smoothly over the localized address bindings
+				// 2. Extra cooldown padding to clear stale socket allocations out of the WSL/Windows translation tables
 				Thread.sleep(400);
 
-				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+				P2PClient client = new P2PClient(host, port);
+				try {
+					// Give the asynchronous QUIC frame handling pipeline proper window to finish the handshake
+					Thread.sleep(600);
 
-				// Send the generated packet payload
-				client.send(publishSpork);
+					final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-				// Await the local single packet arrival guarantee securely without multi-server interference
-				await().atMost(30, SECONDS)
-					.pollInterval(200, TimeUnit.MILLISECONDS)
-					.untilAtomic(isolatedInvocations, greaterThanOrEqualTo(1));
+					// 3. Dispatch the payload structure
+					client.send(publishSpork);
 
-			} finally {
-				// Gracefully teardown the current client socket environment and clear buffers before proceeding
-				Thread.sleep(200);
-				client.close();
-				setChannelCallback(Optional.empty());
-				Thread.sleep(200);
+					// 4. A controlled 15 seconds await block - if it passes 0, it means it's working instantly.
+					// Long delays indicate socket dropped states rather than actual processing latency.
+					await().atMost(15, SECONDS)
+						.pollInterval(100, TimeUnit.MILLISECONDS)
+						.untilAtomic(locallyObservedInvocations, is(greaterThanOrEqualTo(1)));
+
+				} finally {
+					// 5. Explicit cleanup per iteration step to force free bounded thread execution allocations
+					Thread.sleep(300);
+					client.close();
+					Thread.sleep(300);
+				}
 			}
+		} finally {
+			// 6. Tear down the global callback references securely after the complete lifecycle loop concludes
+			setChannelCallback(Optional.empty());
 		}
 	}
 }
+
+
 
 
 
