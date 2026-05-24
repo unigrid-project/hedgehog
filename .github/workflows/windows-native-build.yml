@@ -29,15 +29,15 @@ jobs:
 
     - name: Build with Maven
       shell: cmd
-      # Vi exkluderar 'native-image' modulen på Windows i molnet (-pl !native-image).
-      # Detta gör att alla gemensamma moduler byggs och dina stabila integrationstester körs galant,
-      # men vi slipper Antrun-skriptet som saknar jlink.zip-filen.
-      run: mvn package -DskipTests=${{ github.event.inputs.skip-tests }} -pl !native-image
+      # Include the native-image module and activate the native profile (-Pnative)
+      # to compile the standalone native executable binary (.exe) via GraalVM.
+      run: mvn package -DskipTests=${{ github.event.inputs.skip-tests }} -Pnative
 
     - name: Output artifact
       uses: actions/upload-artifact@v4
       with:
         name: Windows Native Binary
-        path: application/target/hedgehog-*.jar
+        path: native-image/target/*.exe
+        
         
       

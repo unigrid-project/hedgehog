@@ -23,15 +23,16 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      # Excluded the native-image module (-pl !native-image) to validate all common code 
-      # and integration tests without failing on cloud dynamic CDI/reflection analysis.
-      run: mvn package -DskipTests=${{ inputs.skip-tests }} -PLinux -pl !native-image
+      # Include the native-image module and pass the -Pnative profile flag 
+      # to force the Linux runner to compile the codebase into an executable native binary.
+      run: mvn package -DskipTests=${{ inputs.skip-tests }} -PLinux -Pnative
       
     - name: Output artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Linux Jar Artifact
-        path: application/target/hedgehog-*.jar
+        name: Linux Native Binary
+        path: native-image/target/hedgehog-*
+        
         
       
 
