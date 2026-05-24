@@ -18,11 +18,15 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      # Runs clean install with standard native arguments. 
-      # Note: If this still fails, check the main method inside NativeImage.java 
-      # to ensure it doesn't rely on hardcoded local file paths.
+      # Runs clean install with proper native parameters to output the compiled 'hedgehog' binary.
       run: mvn clean install -PLinux -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback"
-      
+
+    - name: Output artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Linux Native Binary
+        path: native-image/target/hedgehog
+        
         
         
       
