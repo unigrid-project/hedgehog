@@ -22,19 +22,17 @@ jobs:
         distribution: 'graalvm'
         cache: maven
 
-    # Creates the target directory and a placeholder zip file to prevent 
-    # the maven-antrun-plugin from throwing a missing file exception.
-    - name: Pre-create Missing Ant Target Bundle
+    # FIX: Pre-create the target folder and a valid zip file structure 
+    # to stop maven-antrun-plugin from crashing during the clean install lifecycle.
+    - name: Mock Missing Jlink Bundle for Ant
       shell: powershell
       run: |
         New-Item -ItemType Directory -Force -Path "native-image/target"
-        Set-Content -Path "native-image/target/hedgehog-native-0.0.8-SNAPSHOT-jlink.zip" -Value "placeholder"
+        [System.IO.Compression.ZipFile]::CreateFromDirectory((New-Item -ItemType Directory -Force -Path "native-image/target/empty_mock"), "native-image/target/hedgehog-native-0.0.8-SNAPSHOT-jlink.zip")
 
     - name: Build with Maven
       shell: cmd
       run: mvn clean install -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback"
       
-
-        
         
       

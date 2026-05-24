@@ -18,14 +18,11 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      # Runs the standard clean install lifecycle. If the internal Java class 
-      # org.unigrid.hedgehog.nativeimage.NativeImage still fails, it means the källkod 
-      # inside that Java class requires local configuration files to build.
+      # Runs clean install with standard native arguments. 
+      # Note: If this still fails, check the main method inside NativeImage.java 
+      # to ensure it doesn't rely on hardcoded local file paths.
       run: mvn clean install -PLinux -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback"
       
-
-
-
         
         
       
