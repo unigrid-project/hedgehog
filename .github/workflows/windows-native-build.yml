@@ -25,9 +25,9 @@ jobs:
 
     - name: Build with Maven
       shell: cmd
-      # 'clean' wipes out old artifacts to avoid hidden bugs, 'install' runs all tests
-      # and forces GraalVM to compile the native target safely via workaround arguments.
-      run: mvn clean install -Dnative-image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime"
+      # We pass allow-incomplete-classpath inside the official graalvm property to bypass 
+      # the Weld/Netty static tracking faults during a strict clean install cycle.
+      run: mvn clean install -Dgraalvm.buildargs="--allow-incomplete-classpath --report-unsupported-elements-at-runtime"
 
     - name: Output artifact
       uses: actions/upload-artifact@v4
@@ -35,6 +35,7 @@ jobs:
         name: Windows Native Binary
         path: native-image/target/hedgehog.exe
         
+
         
         
       
