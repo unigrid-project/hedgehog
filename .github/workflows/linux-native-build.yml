@@ -2,10 +2,6 @@ name: Build Linux (amd64) Executable
 
 on:
   workflow_dispatch:
-    inputs:
-      skip-tests:
-        type: boolean
-        description: Skip Test Suite
 
 jobs:
   build:
@@ -23,15 +19,16 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      # Include the native-image module and pass the -Pnative profile flag 
-      # to force the Linux runner to compile the codebase into an executable native binary.
-      run: mvn package -DskipTests=${{ inputs.skip-tests }} -PLinux -Pnative
+      # 'clean' wipes out old artifacts to avoid hidden bugs, 'install' runs all tests
+      # and forces GraalVM to compile the native target safely via workaround arguments.
+      run: mvn clean install -PLinux -Dnative-image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime"
       
     - name: Output artifact
       uses: actions/upload-artifact@v4
       with:
         name: Linux Native Binary
-        path: native-image/target/hedgehog-*
+        path: native-image/target/hedgehog
+        
         
         
       

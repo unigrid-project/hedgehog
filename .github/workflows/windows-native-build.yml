@@ -2,10 +2,6 @@ name: Build Windows (amd64) Executable
 
 on:
   workflow_dispatch:
-    inputs:
-      skip-tests:
-        type: boolean
-        description: Skip Test Suite
 
 jobs:
   build:
@@ -29,15 +25,16 @@ jobs:
 
     - name: Build with Maven
       shell: cmd
-      # Include the native-image module and activate the native profile (-Pnative)
-      # to compile the standalone native executable binary (.exe) via GraalVM.
-      run: mvn package -DskipTests=${{ github.event.inputs.skip-tests }} -Pnative
+      # 'clean' wipes out old artifacts to avoid hidden bugs, 'install' runs all tests
+      # and forces GraalVM to compile the native target safely via workaround arguments.
+      run: mvn clean install -Dnative-image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime"
 
     - name: Output artifact
       uses: actions/upload-artifact@v4
       with:
         name: Windows Native Binary
-        path: native-image/target/*.exe
+        path: native-image/target/hedgehog.exe
+        
         
         
       
