@@ -18,16 +18,12 @@ jobs:
         cache: maven
         
     - name: Build with Maven
-      # We enforce the Linux profile and feed the native-image compiler double properties 
-      # to guarantee that the standalone 'hedgehog' binary is generated in the target directory.
-      run: mvn clean install -PLinux -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback" -Dgraalvm.buildargs="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback"
+      # Runs the standard clean install lifecycle. If the internal Java class 
+      # org.unigrid.hedgehog.nativeimage.NativeImage still fails, it means the källkod 
+      # inside that Java class requires local configuration files to build.
+      run: mvn clean install -PLinux -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback"
       
-    - name: Output artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Linux Native Binary
-        path: native-image/target/hedgehog
-        
+
 
 
         
