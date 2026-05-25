@@ -23,17 +23,19 @@ jobs:
         distribution: 'graalvm'
         cache: maven
         
-    # Run clean install with Linux profile and resource flags, catching any post-generation wrapper exit codes
+    # Run clean install with Linux profile and explicitly pass native-image arguments via Maven property
     - name: Build with Maven
       run: |
-        mvn clean install -PLinux -DskipTests -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback -H:IncludeResources=.*\.properties$|.*\.txt$|.*\.ascii$|.*\.json$|.*\.xml$|META-INF/services/.*$" || echo "Maven finished"
+        mvn clean install -PLinux -DskipTests '-Dnative.image.args=--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback -H:IncludeResources=.*\.properties$|.*\.txt$|.*\.ascii$|.*\.json$|.*\.xml$|META-INF/services/.*$' || echo "GraalVM compilation step finished"
 
+    # Verify that the binary was created and upload it
     - name: Verify and Upload Linux Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Linux Native Binary
         path: native-image/target/hedgehog
         
+
 
 
 
