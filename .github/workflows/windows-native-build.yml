@@ -22,12 +22,10 @@ jobs:
         distribution: 'graalvm'
         cache: maven
 
-    # Step 1: Run clean FIRST so it doesn't wipe out our mock files later
     - name: Maven Clean
       shell: cmd
       run: mvn clean
 
-    # Step 2: NOW we create the directory and the mock zip file
     - name: Mock Missing Jlink Bundle for Ant
       shell: powershell
       run: |
@@ -36,7 +34,6 @@ jobs:
         $emptyDir = New-Item -ItemType Directory -Force -Path "native-image/target/empty_mock"
         [System.IO.Compression.ZipFile]::CreateFromDirectory($emptyDir.FullName, "$($targetDir.FullName)\hedgehog-native-0.0.8-SNAPSHOT-jlink.zip")
 
-    # Step 3: Run install WITHOUT clean so the zip file stays alive!
     - name: Build with Maven
       shell: cmd
       run: mvn install -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback" -DskipTests
@@ -47,5 +44,6 @@ jobs:
         name: Windows Native Binary
         path: native-image/target/hedgehog.exe
         
+
         
       
