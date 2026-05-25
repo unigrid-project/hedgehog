@@ -10,7 +10,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    # Install Linux C-libraries required for JNA native access
     - name: Install Native Build Essential
       run: |
         sudo apt-get update
@@ -23,11 +22,13 @@ jobs:
         distribution: 'graalvm'
         cache: maven
 
-    # This regex modification injects .txt and .ascii file extensions directly into the pom.xml config
-    - name: Inject Hedgehog Resources into pom.xml
+    # 1. We inject our hedgehog text resources
+    # 2. We inject runtime initialization fixes to prevent Weld/Netty from crashing the Linux build phase
+    - name: Patch pom.xml for Linux Compatibility
       run: |
         sed -i 's/\.\*\\.json\$/.*\\.json$|.*\\.txt$|.*\\.ascii$/g' native-image/pom.xml
-        echo "Injected resource extensions into native-image/pom.xml successfully."
+        sed -i 's/<buildArg>--no-fallback<\/buildArg>/<buildArg>--no-fallback<\/buildArg><buildArg>--report-unsupported-elements-at-runtime<\/buildArg>/g' native-image/pom.xml
+        echo "Successfully patched pom.xml resources and compiler flags."
         
     - name: Build with Maven
       run: |
@@ -39,6 +40,7 @@ jobs:
         name: Linux Native Binary
         path: native-image/target/hedgehog
         
+
 
 
 
