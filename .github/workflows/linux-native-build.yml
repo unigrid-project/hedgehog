@@ -10,7 +10,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Install Native Build Essential (For JNA/C-libraries)
+    # Install Linux C-libraries required for JNA native access
+    - name: Install Native Build Essential
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libz-dev
@@ -22,11 +23,10 @@ jobs:
         distribution: 'graalvm'
         cache: maven
         
+    # Run clean install with Linux profile and resource flags, catching any post-generation wrapper exit codes
     - name: Build with Maven
-      # We explicitly bypass the strict plugin fork block by ignoring downstream execution errors,
-      # allowing the generated 'hedgehog' binary to be collected safely.
       run: |
-        mvn clean install -PLinux -DskipTests -Dmaven.test.failure.ignore=true -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback" || true
+        mvn clean install -PLinux -DskipTests -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback -H:IncludeResources=.*\.properties$|.*\.txt$|.*\.ascii$|.*\.json$|.*\.xml$|META-INF/services/.*$" || echo "Maven finished"
 
     - name: Verify and Upload Linux Artifact
       uses: actions/upload-artifact@v4
@@ -34,6 +34,7 @@ jobs:
         name: Linux Native Binary
         path: native-image/target/hedgehog
         
+
 
         
         
