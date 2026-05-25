@@ -16,7 +16,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential libz-dev
 
-    # WE UPGRADE TO JDK 25 JUST LIKE WINDOWS TO SOLVE THE WELD/NETTY COMPILATION ERROR
+    # Keep GraalVM JDK 25 since it successfully compiled the native image
     - name: Set up GraalVM JDK 25
       uses: actions/setup-java@v4
       with:
@@ -30,9 +30,10 @@ jobs:
         sed -i 's/\.\*\\.json\$/.*\\.json$|.*\\.txt$|.*\\.ascii$/g' native-image/pom.xml
         echo "Successfully patched pom.xml resources."
         
+    # We add -Dcyclonedx.skip=true to prevent the SBOM install plugin crash
     - name: Build with Maven
       run: |
-        mvn clean install -PLinux -DskipTests || echo "GraalVM compilation step finished"
+        mvn clean install -PLinux -DskipTests -Dcyclonedx.skip=true || echo "GraalVM compilation step finished"
 
     - name: Verify and Upload Linux Artifact
       uses: actions/upload-artifact@v4
