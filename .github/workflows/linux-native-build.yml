@@ -10,6 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    # Install Linux C-libraries required for JNA native access
     - name: Install Native Build Essential
       run: |
         sudo apt-get update
@@ -22,10 +23,10 @@ jobs:
         distribution: 'graalvm'
         cache: maven
         
-    # We use env here too. This bypasses the pom.xml restrictions and forces Linux to package the hedgehog
+    # We pass the resource inclusion patterns as separate arguments to avoid pipe character escaping bugs in Linux
     - name: Build with Maven
       env:
-        NATIVE_IMAGE_IMAGE_ARGS: "-H:IncludeResources=.*\\.txt$|.*\\.ascii$"
+        NATIVE_IMAGE_IMAGE_ARGS: "-H:IncludeResources=.*\\.txt$ -H:IncludeResources=.*\\.ascii$"
       run: |
         mvn clean install -PLinux -DskipTests || echo "GraalVM compilation step finished"
 
@@ -34,7 +35,6 @@ jobs:
       with:
         name: Linux Native Binary
         path: native-image/target/hedgehog
-        
         
 
 
