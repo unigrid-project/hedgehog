@@ -22,9 +22,13 @@ jobs:
         distribution: 'graalvm'
         cache: maven
 
-    # Pre-create the target directory and mock zip file so the maven-antrun-plugin 
-    # doesn't crash during the clean install lifecycle.
-    - name: Prepare Target Directory
+    # Step 1: Run clean first so the target folder is wiped out safely
+    - name: Maven Clean
+      shell: cmd
+      run: mvn clean
+
+    # Step 2: Create the mock zip file inside the newly wiped target directory
+    - name: Mock Missing Jlink Bundle for Ant
       shell: powershell
       run: |
         Add-Type -AssemblyName "System.IO.Compression.FileSystem"
@@ -32,10 +36,10 @@ jobs:
         $emptyDir = New-Item -ItemType Directory -Force -Path "native-image/target/empty_mock"
         [System.IO.Compression.ZipFile]::CreateFromDirectory($emptyDir.FullName, "$($targetDir.FullName)\hedgehog-native-0.0.8-SNAPSHOT-jlink.zip")
 
-    # Run clean install with full resource inclusion patterns to bundle the hedgehog graphics/text
+    # Step 3: Run install without clean so our mock file survives and gets picked up
     - name: Build with Maven
       shell: cmd
-      run: mvn clean install -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback -H:IncludeResources=.*\.properties$|.*\.txt$|.*\.ascii$|.*\.json$|.*\.xml$|META-INF/services/.*$" -DskipTests
+      run: mvn install -Dnative.image.args="--allow-incomplete-classpath --report-unsupported-elements-at-runtime --no-fallback -H:IncludeResources=.*\.properties$|.*\.txt$|.*\.ascii$|.*\.json$|.*\.xml$|META-INF/services/.*$" -DskipTests
 
     - name: Output artifact
       uses: actions/upload-artifact@v4
@@ -43,6 +47,7 @@ jobs:
         name: Windows Native Binary
         path: native-image/target/hedgehog.exe
         
+
 
 
         
