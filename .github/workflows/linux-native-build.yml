@@ -23,12 +23,10 @@ jobs:
         distribution: 'graalvm'
         cache: maven
         
-    # We pass the resource inclusion patterns as separate arguments to avoid pipe character escaping bugs in Linux
+    # We inject the build args directly into the maven system property using strict single quotes
     - name: Build with Maven
-      env:
-        NATIVE_IMAGE_IMAGE_ARGS: "-H:IncludeResources=.*\\.txt$ -H:IncludeResources=.*\\.ascii$"
       run: |
-        mvn clean install -PLinux -DskipTests || echo "GraalVM compilation step finished"
+        mvn clean install -PLinux -DskipTests '-Dnative-image.buildArgs=-H:IncludeResources=.*\.txt$ -H:IncludeResources=.*\.ascii$' || echo "GraalVM compilation step finished"
 
     - name: Verify and Upload Linux Artifact
       uses: actions/upload-artifact@v4
@@ -36,6 +34,7 @@ jobs:
         name: Linux Native Binary
         path: native-image/target/hedgehog
         
+
 
 
 
