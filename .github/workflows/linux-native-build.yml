@@ -10,25 +10,25 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    # Install Linux C-libraries required for JNA native access
     - name: Install Native Build Essential
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libz-dev
 
-    - name: Set up GraalVM JDK 21
+    # WE UPGRADE TO JDK 25 JUST LIKE WINDOWS TO SOLVE THE WELD/NETTY COMPILATION ERROR
+    - name: Set up GraalVM JDK 25
       uses: actions/setup-java@v4
       with:
-        java-version: '21'
+        java-version: '25'
         distribution: 'graalvm'
         cache: maven
 
-    # 1. We inject our hedgehog text resources
-    # 2. We inject runtime initialization fixes to prevent Weld/Netty from crashing the Linux build phase
+    # Keep the working text-resource injection patch
     - name: Patch pom.xml for Linux Compatibility
       run: |
         sed -i 's/\.\*\\.json\$/.*\\.json$|.*\\.txt$|.*\\.ascii$/g' native-image/pom.xml
-        sed -i 's/<buildArg>--no-fallback<\/buildArg>/<buildArg>--no-fallback<\/buildArg><buildArg>--report-unsupported-elements-at-runtime<\/buildArg>/g' native-image/pom.xml
-        echo "Successfully patched pom.xml resources and compiler flags."
+        echo "Successfully patched pom.xml resources."
         
     - name: Build with Maven
       run: |
@@ -40,7 +40,6 @@ jobs:
         name: Linux Native Binary
         path: native-image/target/hedgehog
         
-
 
 
 
