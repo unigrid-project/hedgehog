@@ -20,6 +20,7 @@
 package org.unigrid.hedgehog.service.storage;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -40,6 +41,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -58,13 +60,22 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 
 /* Every round waits on replies that arrive on the Netty event loops, so only the repair executor may run one */
 @Slf4j
-@RequiredArgsConstructor
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public class GroupRepairer {
 	private final FragmentStore store;
 	private final GridnodeDirectory directory;
 	private final FragmentTransport transport;
 	private final Supplier<Optional<StorageSpork.SporkData>> spork;
 	private final Clock clock;
+
+	/* A liar that could predict which claim gets checked would simply tell the truth that round */
+	private final Random random;
+
+	public GroupRepairer(final FragmentStore store, final GridnodeDirectory directory, final FragmentTransport transport,
+		final Supplier<Optional<StorageSpork.SporkData>> spork, final Clock clock) {
+
+		this(store, directory, transport, spork, clock, new SecureRandom());
+	}
 
 	/* One holder per group and epoch does the probing, so a group costs O(window) messages per interval,
 	   and a dead duty holder only delays the check by one epoch. */
@@ -90,8 +101,7 @@ public class GroupRepairer {
 			return;
 		}
 
-		final Round round = new Round(parameters.get(), directory.active(), self.get(), epochOf(parameters.get()),
-			new Random(clock.millis() ^ self.get().hashCode()));
+		final Round round = new Round(parameters.get(), directory.active(), self.get(), epochOf(parameters.get()));
 
 		store.groups().stream().sorted(Comparator.comparing(GroupId::toHex))
 			.takeWhile(groupId -> !Thread.currentThread().isInterrupted()).forEach(round::tend);
@@ -116,7 +126,6 @@ public class GroupRepairer {
 		private final List<Gridnode> active;
 		private final String self;
 		private final long epoch;
-		private final Random random;
 
 		/* Anyone can sign a group that fails to rebuild, so one bad group must never end the round */
 		void tend(final GroupId groupId) {

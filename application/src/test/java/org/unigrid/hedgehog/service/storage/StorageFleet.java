@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -93,8 +94,10 @@ public class StorageFleet {
 		return new StorageService(directory("client"), transport, this::spork, random, Duration.ZERO);
 	}
 
+	/* Seeded from the fleet's own clock, so a failing sample replays with the same spot checks */
 	public GroupRepairer repairer(String id) {
-		return new GroupRepairer(stores.get(id), directory(id), transport, this::spork, clock);
+		return new GroupRepairer(stores.get(id), directory(id), transport, this::spork, clock,
+			new Random(clock.millis() ^ id.hashCode()));
 	}
 
 	public void runRepairEpochs(int epochs) {
