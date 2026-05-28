@@ -124,10 +124,13 @@
                             <forkCount>1</forkCount>
                             <reuseForks>true</reuseForks>
                             <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
+                            <trimStackTrace>false</trimStackTrace>
+                            <printSummary>true</printSummary>
                             <argLine>
-                                -Xmx1536m 
+                                -Xmx4g 
                                 -XX:+UseSerialGC 
                                 -Dorg.jboss.netty.debug=false
+                                -XX:+HeapDumpOnOutOfMemoryError
                                 --add-opens java.base/java.lang=ALL-UNNAMED
                                 --add-opens java.base/java.util=ALL-UNNAMED
                                 --add-opens java.base/java.net=ALL-UNNAMED
@@ -135,7 +138,7 @@
                         </configuration>
                     </plugin>
                 <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
+                    <groupId>org.apache.maven.plugins</groupId> 
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.13.0</version>
                     <configuration>

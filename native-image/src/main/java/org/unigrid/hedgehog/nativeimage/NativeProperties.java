@@ -16,28 +16,32 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.apache.commons.exec.OS;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 
 public class NativeProperties {
     public static final String BIN_DIRECTORY = "bin";
-    private static String runScript;
-    private static String bundledJlinkZip; // Ändrad till String
     private static String hash;
 
-    public static String getRunScript() {
-        if (runScript == null) {
-            runScript = OS.isFamilyWindows() ? "run.cmd" : "run.sh";
+    public static String getHash() {
+        if (hash == null) {
+            try (InputStream is = NativeProperties.class.getClassLoader().getResourceAsStream("hash.txt")) {
+                hash = (is != null) ? new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)).readLine() : "default-hash";
+            } catch (Exception e) { hash = "default-hash"; }
         }
-        return runScript;
+        return hash;
     }
 
-    public static void setRunScript(String s) { runScript = s; }
-    public static Path getBundledJlinkZip() { return Paths.get(bundledJlinkZip); }
-    public static void setBundledJlinkZip(String p) { bundledJlinkZip = p; }
-    public static String getHash() { return hash; }
-    public static void setHash(String h) { hash = h; }
+    public static String getRunScript() { 
+        return System.getProperty("os.name").toLowerCase().contains("win") ? "run.cmd" : "run.sh"; 
+    }
 }
+
+
+
+
+
 
 

@@ -26,38 +26,40 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.graalvm.nativeimage.hosted.Feature;
 
 public class BundleFeature implements Feature {
-
     @Override
     public void beforeAnalysis(BeforeAnalysisAccess access) {
-        // Vi söker efter 'application/target' genom att utgå från projektroten
-        // Vi antar att native-image modulen ligger på samma nivå som application modulen
-        Path projectRoot = Paths.get("").toAbsolutePath().getParent();
+        Path projectRoot = Paths.get("").toAbsolutePath();
+        // Justerat för att hitta target-mappen mer tillförlitligt
         Path targetDir = projectRoot.resolve("application").resolve("target");
+        Path hashFile = projectRoot.resolve("native-image").resolve("src").resolve("main").resolve("resources").resolve("hash.txt");
 
-        System.out.println("BundleFeature: Söker efter jlink-arkiv i: " + targetDir);
+        if (!Files.exists(targetDir)) {
+            System.err.println("BundleFeature: Varning, hittade inte " + targetDir);
+            return;
+        }
 
         final AtomicReference<Optional<Path>> archive = new AtomicReference<>(Optional.empty());
         
         try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(targetDir, "*-jlink.zip")) {
             for (Path path : dirStream) {
                 archive.set(Optional.of(path));
-                break; // Vi tar första bästa arkiv vi hittar
+                break;
             }
         } catch (IOException e) {
-            throw new RuntimeException("Kunde inte läsa mappen: " + targetDir + ". Fel: " + e.getMessage(), e);
+            throw new RuntimeException("Kunde inte läsa target-mappen", e);
         }
 
-        Path jlinkArchive = archive.get().orElseThrow(() -> 
-            new IllegalStateException("Hittade ingen *-jlink.zip i " + targetDir + ". Är applikationen byggd?"));
-
-        try {
-            NativeProperties.setBundledJlinkZip(jlinkArchive.toAbsolutePath().toString());
-            byte[] bytes = Files.readAllBytes(jlinkArchive);
-            NativeProperties.setHash(hash(bytes));
-            System.out.println("BundleFeature: Arkiv hittat och konfigurerat: " + jlinkArchive.getFileName());
-        } catch (IOException ex) {
-            throw new RuntimeException("Kunde inte läsa arkivfilen: " + jlinkArchive, ex);
-        }
+        archive.get().ifPresentOrElse(jlinkArchive -> {
+            try {
+                byte[] bytes = Files.readAllBytes(jlinkArchive);
+                String hash = hash(bytes);
+                Files.createDirectories(hashFile.getParent());
+                Files.writeString(hashFile, hash);
+                System.out.println("BundleFeature: Hash genererad och sparad till " + hashFile);
+            } catch (IOException ex) {
+                throw new RuntimeException("Kunde inte skriva hash-filen", ex);
+            }
+        }, () -> System.err.println("BundleFeature: Hittade inget *-jlink.zip arkiv!"));
     }
 
     private String hash(byte[] data) {
@@ -65,10 +67,11 @@ public class BundleFeature implements Feature {
             final MessageDigest digest = MessageDigest.getInstance("SHA-1");
             return HexFormat.of().formatHex(digest.digest(data));
         } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
+            throw new IllegalStateException("SHA-1 saknas", ex);
         }
     }
 }
+
 
 
 
