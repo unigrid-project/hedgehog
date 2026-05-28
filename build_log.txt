@@ -1,0 +1,126 @@
+[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] Unigrid Hedgehog Parent                                            [pom]
+[INFO] Unigrid Hedgehog Common                                            [jar]
+[INFO] Unigrid Hedgehog                                                   [jar]
+[INFO] Unigrid Hedgehog Native Image                                      [jar]
+[INFO] 
+[INFO] ----------------< org.unigrid.hedgehog:hedgehog-parent >----------------
+[INFO] Building Unigrid Hedgehog Parent 0.0.8-SNAPSHOT                    [1/4]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog-parent ---
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog-parent ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] ----------------< org.unigrid.hedgehog:hedgehog-common >----------------
+[INFO] Building Unigrid Hedgehog Common 0.0.8-SNAPSHOT                    [2/4]
+[INFO]   from common/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog-common ---
+[INFO] Deleting /mnt/c/Project1/hedgehog/common/target
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog-common ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/common/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ hedgehog-common ---
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/main/resources-filtered
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/main/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ hedgehog-common ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 5 source files with javac [debug deprecation target 25 module-path] to target/classes
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
+WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ hedgehog-common ---
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ hedgehog-common ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:3.0.0-M7:test (default-test) @ hedgehog-common ---
+[INFO] Tests are skipped.
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ hedgehog-common ---
+[INFO] Building jar: /mnt/c/Project1/hedgehog/common/target/hedgehog-common-0.0.8-SNAPSHOT.jar
+[INFO] 
+[INFO] -------------------< org.unigrid.hedgehog:hedgehog >--------------------
+[INFO] Building Unigrid Hedgehog 0.0.8-SNAPSHOT                           [3/4]
+[INFO]   from application/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The artifact org.jboss:jandex:jar:3.0.5 has been relocated to io.smallrye:jandex:jar:3.0.5: Jandex has moved to SmallRye, see https://smallrye.io/blog/jandex-3-0-0/
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog ---
+[INFO] Deleting /mnt/c/Project1/hedgehog/application/target
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/application/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] --- build-helper:3.3.0:cpu-count (get-cpu-count) @ hedgehog ---
+[INFO] CPU count: 1
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ hedgehog ---
+[INFO] Copying 1 resource from src/main/resources-filtered to target/classes
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] The encoding used to copy filtered properties files have not been set. This means that the same encoding will be used to copy filtered properties files as when copying other filtered resources. This might not be what you want! Run your build with --debug to see which files might be affected. Read more at https://maven.apache.org/plugins/maven-resources-plugin/examples/filtering-properties-files.html
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ hedgehog ---
+[WARNING] Can't extract module name from jersey-container-jdk-http-3.0.10.jar: Provider class org.glassfish.jersey.server.internal.RuntimeDelegateImpl not in JAR file jersey-container-jdk-http-3.0.10.jar
+[INFO] Required filename-based automodules detected: [free-port-finder-1.1.1.jar, weld-se-core-5.1.0.Final.jar, weld-environment-common-5.1.0.Final.jar, weld-core-impl-5.1.0.Final.jar, weld-spi-5.0.SP3.jar, jersey-container-netty-http-3.0.10.jar, jersey-client-3.0.10.jar, jersey-common-3.0.10.jar, jersey-server-3.0.10.jar, jersey-media-json-jackson-3.0.10.jar, jersey-hk2-3.0.10.jar, jersey-bean-validation-3.0.10.jar, j8fu-1.23.0.jar]. Please don't publish this project to a public artifact repository!
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 163 source files with javac [debug deprecation target 25 module-path] to target/classes
+[WARNING] /mnt/c/Project1/hedgehog/application/src/main/java/module-info.java:[64,24] module jdk.crypto.ec has been deprecated and marked for removal
+[WARNING] /mnt/c/Project1/hedgehog/application/src/main/java/org/unigrid/hedgehog/bootstrap/BootstrapDownloader.java:[29,27] URL(java.lang.String) in java.net.URL has been deprecated
+[WARNING] /mnt/c/Project1/hedgehog/application/src/main/java/org/unigrid/hedgehog/server/AbstractServer.java:[34,33] URL(java.lang.String) in java.net.URL has been deprecated
+[WARNING] /mnt/c/Project1/hedgehog/application/src/main/java/org/unigrid/hedgehog/server/AbstractServer.java:[38,24] URL(java.lang.String,java.lang.String,int,java.lang.String) in java.net.URL has been deprecated
+[INFO] /mnt/c/Project1/hedgehog/application/src/main/java/org/unigrid/hedgehog/command/cli/NodeAdd.java: Some input files use unchecked or unsafe operations.
+[INFO] /mnt/c/Project1/hedgehog/application/src/main/java/org/unigrid/hedgehog/command/cli/NodeAdd.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- jandex:3.1.2:jandex (make-index) @ hedgehog ---
+[INFO] Saving Jandex index: /mnt/c/Project1/hedgehog/application/target/classes/META-INF/jandex.idx
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ hedgehog ---
+[INFO] Copying 1 resource from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ hedgehog ---
+[WARNING] Can't extract module name from s3mock_2.13-0.2.6.jar: s3mock.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from scala-java8-compat_2.13-0.9.0.jar: scala.java8.compat.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from scala-parser-combinators_2.13-1.1.2.jar: scala.parser.combinators.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from scala-collection-compat_2.13-2.1.6.jar: scala.collection.compat.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from scala-logging_2.13-3.9.2.jar: scala.logging.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from better-files_2.13-3.9.1.jar: better.files.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from scala-xml_2.13-1.3.0.jar: scala.xml.2.13: Invalid module name: '2' is not a Java identifier
+[WARNING] Can't extract module name from jersey-container-jdk-http-3.0.10.jar: Provider class org.glassfish.jersey.server.internal.RuntimeDelegateImpl not in JAR file jersey-container-jdk-http-3.0.10.jar
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 54 source files with javac [debug deprecation target 25 module-path] to target/test-classes
+[INFO] /mnt/c/Project1/hedgehog/application/src/test/java/org/unigrid/hedgehog/jqwik/WeldHook.java: Some input files use unchecked or unsafe operations.
+[INFO] /mnt/c/Project1/hedgehog/application/src/test/java/org/unigrid/hedgehog/jqwik/WeldHook.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- surefire:3.5.0:test (default-test) @ hedgehog ---
+[INFO] Tests are skipped.
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ hedgehog ---
+[INFO] Building jar: /mnt/c/Project1/hedgehog/application/target/hedgehog-0.0.8-SNAPSHOT.jar
+[INFO] 
+[INFO] --- assembly:3.7.1:single (default) @ hedgehog ---
+[INFO] Reading assembly descriptor: assembly.xml
+[INFO] Building jar: /mnt/c/Project1/hedgehog/application/target/hedgehog-0.0.8-SNAPSHOT-jar-with-dependencies.jar
+[INFO] 
+[INFO] --- socomo:2.3.1:analyze (default) @ hedgehog ---
+[WARNING] skipping socomo
+[INFO] 
+[INFO] ----------------< org.unigrid.hedgehog:hedgehog-native >----------------
+[INFO] Building Unigrid Hedgehog Native Image 0.0.8-SNAPSHOT              [4/4]
+[INFO]   from native-image/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog-native ---
+[INFO] Deleting /mnt/c/Project1/hedgehog/native-image/target
