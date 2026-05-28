@@ -16,63 +16,42 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import org.apache.commons.compress.utils.IOUtils;
-import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
-import org.apache.commons.exec.CommandLine;
-import org.apache.commons.exec.DefaultExecutor;
-import org.apache.commons.exec.ExecuteException;
-import org.apache.commons.exec.ExecuteWatchdog;
+import java.nio.file.*;
+import org.apache.commons.compress.utils.*;
+import org.apache.commons.exec.*;
 import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	public static final long WATCHDOG_TIMEOUT_MS = 60000;
+    public static void main(String[] args) throws Exception {
+        // Vi hämtar sökvägen och säkerställer att den tolkas korrekt
+        Path archivePath = Paths.get(NativeProperties.getBundledJlinkZip().toString());
+        
+        final ApplicationDirectory appDir = ApplicationDirectory.create();
+        final Path jlinkDist = appDir.getUserDataDir().resolve(NativeProperties.getHash());
 
-	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
-		final Path script = basePath.resolve(Path.of(
-			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
-		);
+        if (Files.notExists(jlinkDist) || ArrayUtils.contains(args, "--force-unpack")) {
+            try (var is = Files.newInputStream(archivePath)) {
+                SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(is));
+                Unzipper.unzip(channel, appDir.getUserDataDir());
+            }
+        }
+        
+        start(jlinkDist, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
+    }
 
-		final CommandLine cmdLine = new CommandLine(script.toString());
-		cmdLine.addArguments(args);
-
-		final DefaultExecutor executor = new DefaultExecutor();
-		executor.setExitValue(0);
-
-		try {
-			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
-			executor.setWatchdog(watchdog);
-			return executor.execute(cmdLine);
-
-		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
-		} catch (ExecuteException ex) {
-			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
-				throw ex;
-			}
-
-			return ex.getExitValue();
-		}
-	}
-
-	public static void main(String[] args) throws ExecuteException, InterruptedException, IOException {
-		final InputStream archive = Thread.currentThread().getContextClassLoader()
-			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
-
-		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
-		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(
-			Path.of(NativeProperties.getHash())
-		);
-
-		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
-			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));
-			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
-		}
-
-		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
-	}
+    private static void start(Path basePath, String[] args) throws Exception {
+        final Path script = basePath.resolve(NativeProperties.BIN_DIRECTORY).resolve(NativeProperties.getRunScript());
+        CommandLine cmdLine = new CommandLine(script.toString());
+        cmdLine.addArguments(args);
+        
+        DefaultExecutor executor = new DefaultExecutor();
+        executor.setWatchdog(new ExecuteWatchdog(60000));
+        executor.execute(cmdLine);
+    }
 }
+
+
+
+

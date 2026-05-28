@@ -19,10 +19,6 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import io.netty.channel.ChannelFuture;
-import io.netty.util.concurrent.Future;
-import jakarta.ws.rs.core.UriBuilder;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.URI;
@@ -30,6 +26,15 @@ import java.net.URISyntaxException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.network.packet.Packet;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import io.netty.channel.ChannelFuture;
+import io.netty.util.concurrent.Future;
+import jakarta.ws.rs.core.UriBuilder;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -37,8 +42,6 @@ import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Data
 @Slf4j
@@ -68,7 +71,7 @@ public class Node {
 			NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
 				ni.inetAddresses().forEach(a -> {
 					final InetSocketAddress socketAddress = new InetSocketAddress(a.getHostAddress(),
-						NetOptions.getPort()
+							NetOptions.getPort()
 					);
 
 					if (equals(Node.builder().address(socketAddress).build())) {
@@ -119,6 +122,20 @@ public class Node {
 	}
 
 	public URI getURI() {
+		// =========================================================================
+		// ADDED WORKAROUND & BYPASS: Always check address validation states.
+		// If address object exists, we use getHostString() which guarantees
+		// NO reverse DNS network lookups will be performed. This prevents the thread
+		// from hanging indefinitely in bridging networks like WSL2/Docker.
+		// =========================================================================
+		if (address != null) {
+			return UriBuilder.fromPath("/{host}:{port}").build(address.getHostString(), address.getPort());
+		}
+
+		if (address != null && address.getAddress() == null) {
+			return UriBuilder.fromPath("/{host}:{port}").build(address.getHostString(), address.getPort());
+		}
+
 		return UriBuilder.fromPath("/{host}:{port}").build(address.getAddress().getHostAddress(), address.getPort());
 	}
 
@@ -137,3 +154,7 @@ public class Node {
 		return getURI().hashCode();
 	}
 }
+
+
+
+

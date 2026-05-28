@@ -21,34 +21,37 @@ package org.unigrid.hedgehog;
 
 import java.io.OutputStream;
 import java.io.PrintStream;
-import lombok.Getter;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.Daemon;
+
+import org.unigrid.hedgehog.bootstrap.BootstrapManager;
 import org.unigrid.hedgehog.command.CLI;
+import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.Util;
 import org.unigrid.hedgehog.model.VersionProvider;
 import org.unigrid.hedgehog.model.util.ApplicationLogLevel;
 import org.unigrid.hedgehog.model.util.Reflection;
+
+import lombok.Getter;
+import lombok.SneakyThrows;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 @Command(name = "hedgehog", mixinStandardHelpOptions = true, versionProvider = VersionProvider.class,
-	scope = CommandLine.ScopeType.INHERIT, header = {
-		"",
-		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
-		"    :   _.:.:.:.:.::.     © 2021-2023 The Unigrid Foundation, UGD Software AB",
-		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
-		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
-		""
-	}, subcommands = { CLI.class, Daemon.class, Util.class }
+		scope = CommandLine.ScopeType.INHERIT, header = {
+			"",
+			"    .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
+			"   :   _.:.:.:.:.::.     © 2021-2023 The Unigrid Foundation, UGD Software AB",
+			"   /  0  .:.:.:.:.:::                          (A segmented blocktree network)",
+			" o____._:.oO:.:.oO:'                          Under an addended AGPL3 license",
+			""
+		}, subcommands = { CLI.class, Daemon.class, Util.class }
 )
 public class Hedgehog {
 	@Getter
 	private static boolean[] verbose;
 
 	@Option(names = { "-v", "--verbose" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Verbose mode. Multiple options increase verbosity."
+			description = "Verbose mode. Multiple options increase verbosity."
 	)
 	public void setVerbose(boolean[] verbose) {
 		Hedgehog.verbose = verbose.clone();
@@ -64,6 +67,14 @@ public class Hedgehog {
 		ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
 
 		System.setOut(stdout);
+
+		// Trigger the automatic download and database translation before launching the CLI
+		System.out.println("[+] Hedgehog is checking bootstrap data...");
+		BootstrapManager.startImport();
+
 		System.exit(new CommandLine(Hedgehog.class).execute(args));
 	}
 }
+
+
+

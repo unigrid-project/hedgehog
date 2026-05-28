@@ -15,11 +15,12 @@
  */
 
 module org.unigrid.hedgehog.common {
-	requires ch.qos.logback.classic;
-	requires static lombok;
-	requires org.apache.commons.lang3;
-	requires org.slf4j;
-	requires net.harawata.appdirs;
+    requires ch.qos.logback.classic;
+    requires static lombok;
+    requires org.apache.commons.lang3;
+    requires org.slf4j;
+    requires net.harawata.appdirs;
 
-	exports org.unigrid.hedgehog.common.model;
-}
+    exports org.unigrid.hedgehog.common.model;
+    exports org.unigrid.hedgehog.common.model.util;  
+} 

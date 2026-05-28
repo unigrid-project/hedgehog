@@ -19,23 +19,25 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import io.netty.util.concurrent.Future;
-import jakarta.annotation.PostConstruct;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import java.net.URISyntaxException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
+
 import org.apache.commons.configuration2.sync.LockMode;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.network.packet.Packet;
+
+import io.netty.util.concurrent.Future;
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @ApplicationScoped
@@ -45,8 +47,24 @@ public class Topology {
 	@Inject
 	@Getter private ChannelMap channels;
 
+	private final Set<String> localInterfaceAddressesCache = new HashSet<>();
+
 	@PostConstruct
 	private void init() {
+		try {
+			java.net.NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
+				ni.inetAddresses().forEach(a -> {
+					localInterfaceAddressesCache.add(a.getHostAddress().toLowerCase());
+					localInterfaceAddressesCache.add(a.getHostName().toLowerCase());
+				});
+			});
+			localInterfaceAddressesCache.add("127.0.0.1");
+			localInterfaceAddressesCache.add("localhost");
+			localInterfaceAddressesCache.add("0:0:0:0:0:0:0:1");
+		} catch (Exception e) {
+			log.atTrace().log("Could not warm up local address cache: {}", e.getMessage());
+		}
+
 		repopulate();
 	}
 
@@ -61,16 +79,36 @@ public class Topology {
 		channels.clear();
 
 		for (String address : Network.getSeeds()) {
-			try {
-				final Node node = Node.fromAddress(address);
-
-				if (!node.isMe()) {
-					addNode(node);
-				}
-			} catch (URISyntaxException ex) {
-				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
-			}
+			processSeedAddress(address);
 		}
+	}
+
+	private void processSeedAddress(String address) {
+		try {
+			String cleanAddress = address.contains(":") ? address.split(":")[0] : address;
+			if (localInterfaceAddressesCache.contains(cleanAddress.toLowerCase())) {
+				return;
+			}
+
+			final Node node = Node.fromAddress(address);
+			if (isLocalNode(node)) {
+				return;
+			}
+
+			if (!node.isMe()) {
+				addNode(node);
+			}
+		} catch (URISyntaxException ex) {
+			log.atError().log("Invalid address format for seed node {}: {}", address, ex);
+		}
+	}
+
+	private boolean isLocalNode(Node node) {
+		if (node.getAddress() != null) {
+			String host = node.getAddress().getHostString().toLowerCase();
+			return localInterfaceAddressesCache.contains(host);
+		}
+		return false;
 	}
 
 	@Protected @Lock(LockMode.READ)
@@ -103,6 +141,13 @@ public class Topology {
 
 	@Protected @Lock(LockMode.WRITE)
 	public boolean addNode(Node node) {
+		if (node != null && node.getAddress() != null) {
+			String nodeIp = node.getAddress().getHostString();
+			if (localInterfaceAddressesCache.contains(nodeIp.toLowerCase())) {
+				return false;
+			}
+		}
+
 		if (!nodes.contains(node) && !node.isMe()) {
 			return nodes.add(node);
 		}
@@ -124,3 +169,9 @@ public class Topology {
 		});
 	}
 }
+
+
+
+
+
+

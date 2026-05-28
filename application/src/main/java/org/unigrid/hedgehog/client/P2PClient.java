@@ -62,65 +62,71 @@ import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient extends ConnectionContainer {
-	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
-		NoSuchAlgorithmException, TimeoutException {
+    public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
+        NoSuchAlgorithmException, TimeoutException {
 
-		super();
-		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
-		group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
+        super();
+        InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
+        group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
 
-		final QuicSslContext context = QuicSslContextBuilder.forClient()
-			.trustManager(InsecureTrustManagerFactory.INSTANCE)
-			.applicationProtocols(Network.getProtocols())
-			.build();
+        final QuicSslContext context = QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Network.getProtocols())
+            .build();
 
-		final ChannelHandler codec = new QuicClientCodecBuilder()
-			.initialMaxData(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
-			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
-			.sslContext(context)
-			.build();
+        final ChannelHandler codec = new QuicClientCodecBuilder()
+            .initialMaxData(Network.MAX_DATA_SIZE)
+            .initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
+            .initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
+            .initialMaxStreamsBidirectional(Network.MAX_STREAMS)
+            .maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
+            .sslContext(context)
+            .build();
 
-		final Channel channelBootstrap = new Bootstrap().group(group.get())
-			.channel(NioDatagramChannel.class)
-			.handler(codec)
-			.bind(0).sync().channel();
+        final Channel channelBootstrap = new Bootstrap().group(group.get())
+            .channel(NioDatagramChannel.class)
+            .handler(codec)
+            .bind(0).sync().channel();
 
-		QuicChannel quicChannel;
+        QuicChannel quicChannel;
 
-		try {
-			quicChannel = QuicChannel.newBootstrap(channelBootstrap)
-				.streamHandler(new ChannelInboundHandlerAdapter())
-				.remoteAddress(new InetSocketAddress(hostname, port))
-				.connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        try {
+            quicChannel = QuicChannel.newBootstrap(channelBootstrap)
+                .streamHandler(new ChannelInboundHandlerAdapter())
+                .remoteAddress(new InetSocketAddress(hostname, port))
+                .connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
-		} catch (ExecutionException | TimeoutException ex)  {
-			group.get().shutdownGracefully();
-			throw ex;
-		}
+        } catch (ExecutionException | TimeoutException ex)  {
+            group.get().shutdownGracefully();
+            throw ex;
+        }
 
-		// We create new stream so we can support bidirectional communication (in case we expect a response)
-		// TODO: Add support for ChannelCollector
-		channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-			new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
-					new FrameDecoder(),
-					new HelloEncoder(),
-					new PingEncoder(), new PingDecoder(),
-					new PublishSporkEncoder(), new PublishSporkDecoder(),
-					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new PublishPeersChannelHandler()
-				);
-			}, () -> {
-				return Arrays.asList(
-					new PingSchedule(),
-					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()
-				);
-			}, RegisterQuicChannelInitializer.Type.CLIENT)
-		).sync().getNow();
-	}
+        try {
+            channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+                new RegisterQuicChannelInitializer(() -> {
+                    return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+                        new FrameDecoder(),
+                        new HelloEncoder(),
+                        new PingEncoder(), new PingDecoder(),
+                        new PublishSporkEncoder(), new PublishSporkDecoder(),
+                        new PublishPeersEncoder(), new PublishPeersDecoder(),
+                        new PingChannelHandler(), new PublishSporkChannelHandler(),
+                        new PublishPeersChannelHandler()
+                    );
+                }, () -> {
+                    return Arrays.asList(
+                        new PingSchedule(),
+                        new PublishPeersSchedule(),
+                        new PublishAndSaveSporkSchedule()
+                    );
+                }, RegisterQuicChannelInitializer.Type.CLIENT)
+            ).sync().getNow();
+        } catch (Exception e) {
+            if (group.isPresent()) {
+                group.get().shutdownGracefully();
+            }
+            throw e;
+        }
+    }
 }
+

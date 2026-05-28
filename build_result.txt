@@ -1,0 +1,92 @@
+[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] Unigrid Hedgehog Parent                                            [pom]
+[INFO] Unigrid Hedgehog Common                                            [jar]
+[INFO] Unigrid Hedgehog                                                   [jar]
+[INFO] Unigrid Hedgehog Native Image                                      [jar]
+[INFO] 
+[INFO] ----------------< org.unigrid.hedgehog:hedgehog-parent >----------------
+[INFO] Building Unigrid Hedgehog Parent 0.0.8-SNAPSHOT                    [1/4]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog-parent ---
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog-parent ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] --- jacoco:0.8.14:report (default-report) @ hedgehog-parent ---
+[INFO] Skipping JaCoCo execution due to missing execution data file.
+[INFO] 
+[INFO] --- install:3.1.2:install (default-install) @ hedgehog-parent ---
+[INFO] Installing /mnt/c/Project1/hedgehog/pom.xml to /home/eric/.m2/repository/org/unigrid/hedgehog/hedgehog-parent/0.0.8-SNAPSHOT/hedgehog-parent-0.0.8-SNAPSHOT.pom
+[INFO] 
+[INFO] ----------------< org.unigrid.hedgehog:hedgehog-common >----------------
+[INFO] Building Unigrid Hedgehog Common 0.0.8-SNAPSHOT                    [2/4]
+[INFO]   from common/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog-common ---
+[INFO] Deleting /mnt/c/Project1/hedgehog/common/target
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog-common ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/common/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ hedgehog-common ---
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/main/resources-filtered
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/main/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ hedgehog-common ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 5 source files with javac [debug deprecation target 25 module-path] to target/classes
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by lombok.permit.Permit
+WARNING: Please consider reporting this to the maintainers of class lombok.permit.Permit
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ hedgehog-common ---
+[INFO] skip non existing resourceDirectory /mnt/c/Project1/hedgehog/common/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ hedgehog-common ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:3.0.0-M7:test (default-test) @ hedgehog-common ---
+[INFO] Tests are skipped.
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ hedgehog-common ---
+[INFO] Building jar: /mnt/c/Project1/hedgehog/common/target/hedgehog-common-0.0.8-SNAPSHOT.jar
+[INFO] 
+[INFO] --- jacoco:0.8.14:report (default-report) @ hedgehog-common ---
+[INFO] Skipping JaCoCo execution due to missing execution data file.
+[INFO] 
+[INFO] --- install:3.1.2:install (default-install) @ hedgehog-common ---
+[INFO] Installing /mnt/c/Project1/hedgehog/common/pom.xml to /home/eric/.m2/repository/org/unigrid/hedgehog/hedgehog-common/0.0.8-SNAPSHOT/hedgehog-common-0.0.8-SNAPSHOT.pom
+[INFO] Installing /mnt/c/Project1/hedgehog/common/target/hedgehog-common-0.0.8-SNAPSHOT.jar to /home/eric/.m2/repository/org/unigrid/hedgehog/hedgehog-common/0.0.8-SNAPSHOT/hedgehog-common-0.0.8-SNAPSHOT.jar
+[INFO] 
+[INFO] -------------------< org.unigrid.hedgehog:hedgehog >--------------------
+[INFO] Building Unigrid Hedgehog 0.0.8-SNAPSHOT                           [3/4]
+[INFO]   from application/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The artifact org.jboss:jandex:jar:3.0.5 has been relocated to io.smallrye:jandex:jar:3.0.5: Jandex has moved to SmallRye, see https://smallrye.io/blog/jandex-3-0-0/
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ hedgehog ---
+[INFO] Deleting /mnt/c/Project1/hedgehog/application/target
+[INFO] 
+[INFO] --- jacoco:0.8.14:prepare-agent (pre-unit-test) @ hedgehog ---
+[INFO] surefireArgLine set to -javaagent:/home/eric/.m2/repository/org/jacoco/org.jacoco.agent/0.8.14/org.jacoco.agent-0.8.14-runtime.jar=destfile=/mnt/c/Project1/hedgehog/application/target/jacoco.exec,append=true,excludes=org/unigrid/hedgehog/model/network/**/*:**/ConnectionContainer*:**/TopologyThread*
+[INFO] 
+[INFO] --- build-helper:3.3.0:cpu-count (get-cpu-count) @ hedgehog ---
+[INFO] CPU count: 1
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ hedgehog ---
+[INFO] Copying 1 resource from src/main/resources-filtered to target/classes
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO] The encoding used to copy filtered properties files have not been set. This means that the same encoding will be used to copy filtered properties files as when copying other filtered resources. This might not be what you want! Run your build with --debug to see which files might be affected. Read more at https://maven.apache.org/plugins/maven-resources-plugin/examples/filtering-properties-files.html
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ hedgehog ---
+[WARNING] Can't extract module name from jersey-container-jdk-http-3.0.10.jar: Provider class org.glassfish.jersey.server.internal.RuntimeDelegateImpl not in JAR file jersey-container-jdk-http-3.0.10.jar
+[INFO] Required filename-based automodules detected: [free-port-finder-1.1.1.jar, weld-se-core-5.1.0.Final.jar, weld-environment-common-5.1.0.Final.jar, weld-core-impl-5.1.0.Final.jar, weld-spi-5.0.SP3.jar, jersey-container-netty-http-3.0.10.jar, jersey-client-3.0.10.jar, jersey-common-3.0.10.jar, jersey-server-3.0.10.jar, jersey-media-json-jackson-3.0.10.jar, jersey-hk2-3.0.10.jar, jersey-bean-validation-3.0.10.jar, j8fu-1.23.0.jar]. Please don't publish this project to a public artifact repository!
+[INFO] Recompiling the module because of changed dependency.
+[INFO] Compiling 163 source files with javac [debug deprecation target 25 module-path] to target/classes

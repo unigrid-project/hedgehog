@@ -18,11 +18,8 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import net.harawata.appdirs.impl.WindowsAppDirs;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
+import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.*;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
@@ -33,26 +30,37 @@ import org.graalvm.word.PointerBase;
 @Platforms(Platform.WINDOWS.class)
 @CContext(Shell32Wrapper.Header.class)
 public class KnownFolders {
-	public static final Map<WindowsAppDirs.FolderId, String> GUID_MAPPINGS = Map.of(
-		APPDATA, "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}",
-		LOCAL_APPDATA, "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}",
-		COMMON_APPDATA, "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}"
-	);
+    public static final Map<WindowsAppDirs.FolderId, String> GUID_MAPPINGS = Map.of(
+        APPDATA, "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}",
+        LOCAL_APPDATA, "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}",
+        COMMON_APPDATA, "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}"
+    );
 
-	@CStruct(value = "GUID", isIncomplete = true)
-	public interface GUID extends PointerBase {
-		/* We don't really care about the content, so lets leave it empty! */
-	}
+    @CStruct(value = "GUID", isIncomplete = true)
+    public interface GUID extends PointerBase {}
 
-	@RequiredArgsConstructor
-	public static class GUIDHolder implements AutoCloseable {
-		private static final int SIZE = 32;
-		@Getter private final GUID guid = UnmanagedMemory.calloc(SIZE);
-		@Getter private final String identifier;
+    public static class GUIDHolder implements AutoCloseable {
+        private static final int SIZE = 32;
+        private GUID guid;
+        @Getter private final String identifier;
 
-		@Override
-		public void close() {
-			UnmanagedMemory.free(guid);
-		}
-	}
+        public GUIDHolder(String identifier) {
+            this.identifier = identifier;
+        }
+
+        public GUID getGuid() {
+            if (guid == null) {
+                guid = UnmanagedMemory.calloc(SIZE);
+            }
+            return guid;
+        }
+
+        @Override
+        public void close() {
+            if (guid != null) UnmanagedMemory.free(guid);
+        }
+    }
 }
+
+
+

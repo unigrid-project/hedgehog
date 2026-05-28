@@ -16,100 +16,69 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.core.status.StatusBase;
-import ch.qos.logback.core.util.Loader;
-import ch.qos.logback.core.util.StatusPrinter;
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.commons.exec.OS;
 import org.graalvm.nativeimage.hosted.Feature;
-import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
-import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
-import org.graalvm.nativeimage.hosted.RuntimeClassInitialization;
-import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
-import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.common.model.Version;
 
 public class BundleFeature implements Feature {
-	@Override
-	public boolean isInConfiguration(IsInConfigurationAccess access) {
-		return true;
-	}
 
-	private Path findJlinkArchive() throws IOException {
-		String location = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+    @Override
+    public void beforeAnalysis(BeforeAnalysisAccess access) {
+        // Vi söker efter 'application/target' genom att utgå från projektroten
+        // Vi antar att native-image modulen ligger på samma nivå som application modulen
+        Path projectRoot = Paths.get("").toAbsolutePath().getParent();
+        Path targetDir = projectRoot.resolve("application").resolve("target");
 
-		if (OS.isFamilyWindows() && location.startsWith("/")) {
-			location = location.substring(1);
-		}
+        System.out.println("BundleFeature: Söker efter jlink-arkiv i: " + targetDir);
 
-		final Path targetDirectory = Paths.get(location).getParent();
-		final AtomicReference<Optional<Path>> archive = new AtomicReference(Optional.empty());
+        final AtomicReference<Optional<Path>> archive = new AtomicReference<>(Optional.empty());
+        
+        try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(targetDir, "*-jlink.zip")) {
+            for (Path path : dirStream) {
+                archive.set(Optional.of(path));
+                break; // Vi tar första bästa arkiv vi hittar
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Kunde inte läsa mappen: " + targetDir + ". Fel: " + e.getMessage(), e);
+        }
 
-		try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(targetDirectory, "*-jlink.zip")) {
-			dirStream.forEach(path -> {
-				archive.set(Optional.of(path));
-			});
-		}
+        Path jlinkArchive = archive.get().orElseThrow(() -> 
+            new IllegalStateException("Hittade ingen *-jlink.zip i " + targetDir + ". Är applikationen byggd?"));
 
-		if (archive.get().isEmpty()) {
-			throw new IllegalStateException("JLink archive is required for proper operation");
-		}
+        try {
+            NativeProperties.setBundledJlinkZip(jlinkArchive.toAbsolutePath().toString());
+            byte[] bytes = Files.readAllBytes(jlinkArchive);
+            NativeProperties.setHash(hash(bytes));
+            System.out.println("BundleFeature: Arkiv hittat och konfigurerat: " + jlinkArchive.getFileName());
+        } catch (IOException ex) {
+            throw new RuntimeException("Kunde inte läsa arkivfilen: " + jlinkArchive, ex);
+        }
+    }
 
-		return archive.get().get();
-	}
-
-	private String hash(byte[] data) {
-		try {
-			final MessageDigest digest = MessageDigest.getInstance("SHA");
-			return HexFormat.of().formatHex(digest.digest(data));
-		} catch (NoSuchAlgorithmException ex) {
-			ex.printStackTrace();
-			throw new IllegalStateException("SHA-1 not found in JVM, cannot create bundle", ex);
-		}
-	}
-
-	@Override
-	public void duringSetup(DuringSetupAccess access) {
-		try {
-			final Path jlinkArchive = findJlinkArchive();
-			System.out.println(String.format("Including JLink image at '%s'", jlinkArchive));
-			final byte[] data = Files.readAllBytes(jlinkArchive);
-
-			NativeProperties.setBundledJlinkZip(jlinkArchive.getFileName());
-			NativeProperties.setHash(hash(data));
-
-			RuntimeResourceAccess.addResource(getClass().getModule(),
-				jlinkArchive.getFileName().toString(), data
-			);
-
-			/* Primarily initializes Logback, SL4J & Commons Compress */
-
-			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
-			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
-			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
-			RuntimeClassInitialization.initializeAtBuildTime(Logger.class);
-			RuntimeClassInitialization.initializeAtBuildTime(NativeProperties.class);
-			RuntimeClassInitialization.initializeAtBuildTime(OS.class);
-			RuntimeClassInitialization.initializeAtBuildTime(StatusBase.class);
-			RuntimeClassInitialization.initializeAtBuildTime(StatusPrinter.class);
-			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
-			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
-
-		} catch (IllegalStateException | IOException ex) {
-			System.err.println("Failed to bundle required resources for archive");
-			ex.printStackTrace();
-			System.exit(0);
-		}
-	}
+    private String hash(byte[] data) {
+        try {
+            final MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            return HexFormat.of().formatHex(digest.digest(data));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

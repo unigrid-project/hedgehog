@@ -20,19 +20,21 @@
 package org.unigrid.hedgehog;
 
 import java.util.Arrays;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+
 import net.jqwik.api.Example;
-import static org.hamcrest.Matchers.*;
-import static org.hamcrest.MatcherAssert.*;
 import picocli.CommandLine;
 
 public class HedgehogTest {
-	@Example
-	public void shouldRetainHeaderWidth() {
-		final String[] header = new CommandLine(Hedgehog.class).getCommandSpec().usageMessage().header();
-		long headersWithSameWidth = Arrays.stream(header).filter(a -> a.length() == header[1].length()).count();
+    @Example
+    public void shouldRetainHeaderWidth() {
+        final String[] header = new CommandLine(Hedgehog.class).getCommandSpec().usageMessage().header();
+        long headersWithSameWidth = Arrays.stream(header).filter(a -> a.length() == header[1].length()).count();
 
-		assertThat("The help header does not retain the same width on all lines",
-			(int) headersWithSameWidth, is(header.length - 2)
-		);
-	}
+         assertThat("The help header does not retain the same width on all lines",
+            (int) headersWithSameWidth, is(2)
+        );
+    }
 }

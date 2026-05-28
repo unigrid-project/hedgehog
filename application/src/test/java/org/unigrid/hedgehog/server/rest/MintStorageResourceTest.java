@@ -49,73 +49,75 @@ import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
 public class MintStorageResourceTest extends BaseRestClientTest {
-	@Provide
-	public Arbitrary<Location> provideLocation(@ForAll @AlphaChars @StringLength(36) String address,
-		@ForAll @Positive int height) {
+    @Provide
+    public Arbitrary<Location> provideLocation(@ForAll @AlphaChars @StringLength(36) String address,
+        @ForAll @Positive int height) {
 
-		return Arbitraries.of(Location.builder().height(height).address(
-			Address.builder().wif(address).build()
-		).build());
-	}
+        return Arbitraries.of(Location.builder().height(height).address(
+            Address.builder().wif(address).build()
+        ).build());
+    }
 
-	@SneakyThrows
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
-	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
-		@ForAll @UniqueElements @Size(5) List<@From("provideLocation") Location> locations,
-		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal amount) {
+    @SneakyThrows
+    @Property(tries = 30, shrinking = ShrinkingMode.OFF)
+    public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
+        @ForAll @UniqueElements @Size(5) List<@From("provideLocation") Location> locations,
+        @ForAll @BigRange(min = "0", max = "1000000") BigDecimal amount) {
 
-		final String url = "/gridspork/mint-storage/";
-		final Response response = client.get(url);
-		int originalNumMints = 0;
-		int newMints = 0;
+        final String url = "/gridspork/mint-storage/";
+        final Response response = client.get(url);
+        int originalNumMints = 0;
+        int newMints = 0;
 
-		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-			final MintStorage.SporkData data = response.readEntity(MintStorage.class).getData();
-			originalNumMints = data.getMints().size();
-		}
+        if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
+            final MintStorage.SporkData data = response.readEntity(MintStorage.class).getData();
+            originalNumMints = data.getMints().size();
+        }
 
-		for (Location l : locations) {
-			final Response putResponse = client.putWithHeaders(url + l.getAddress().getWif() + "/" + l.getHeight(),
-				Entity.text(amount), new MultivaluedHashMap(Map.of("privateKey",
-				signature.getPrivateKey()))
-			);
+        for (Location l : locations) {
+            final Response putResponse = client.putWithHeaders(url + l.getAddress().getWif() + "/" + l.getHeight(),
+                Entity.text(amount), new MultivaluedHashMap(Map.of("privateKey",
+                    signature.getPrivateKey()))
+            );
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-				newMints++;
-			}
-		}
+            if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
+                newMints++;
+            }
+        }
 
-		if (newMints > 0) {
-			final MintStorage.SporkData data = client.getEntity(url, MintStorage.class).getData();
-			assertThat(data.getMints().size(), equalTo(originalNumMints + newMints));
-		}
-	}
+        if (newMints > 0) {
+            final MintStorage.SporkData data = client.getEntity(url, MintStorage.class).getData();
+            assertThat(data.getMints().size(), equalTo(originalNumMints + newMints));
+        }
+    }
 
-	@SneakyThrows
-	@Property(tries = 50)
-	public void shoulBeAbleToGetMintStorageSpork(@ForAll("provideSignature") Signature signature,
-		@ForAll("provideLocation") Location location, @ForAll @BigRange(min = "0") BigDecimal amount) {
+    @SneakyThrows
+    @Property(tries = 50)
+    public void shoulBeAbleToGetMintStorageSpork(@ForAll("provideSignature") Signature signature,
+        @ForAll("provideLocation") Location location, @ForAll @BigRange(min = "0") BigDecimal amount) {
 
-		final int height = location.getHeight();
-		final String wif = location.getAddress().getWif();
-		final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
+        final int height = location.getHeight();
+        final String wif = location.getAddress().getWif();
+        final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
 
-		Status expectedStatusFromPut;
+        Status expectedStatusFromPut;
 
-		if (Status.fromStatusCode(client.get(url).getStatus()) != Status.OK) {
-			expectedStatusFromPut = Status.OK;
-		} else {
-			expectedStatusFromPut = Status.NO_CONTENT;
-		}
+        if (Status.fromStatusCode(client.get(url).getStatus()) != Status.OK) {
+            expectedStatusFromPut = Status.OK;
+        } else {
+            expectedStatusFromPut = Status.NO_CONTENT;
+        }
 
-		final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+        final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
+            new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
+        );
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()),
-			equalTo(expectedStatusFromPut)
-		);
+        assertThat(Status.fromStatusCode(putResponse.getStatus()),
+            equalTo(expectedStatusFromPut)
+        );
 
-		TestFileOutput.outputJson(client.getEntity(url, String.class));
-	}
+        TestFileOutput.outputJson(client.getEntity(url, String.class));
+    }
 }
+
+

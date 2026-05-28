@@ -17,22 +17,27 @@
 package org.unigrid.hedgehog.nativeimage;
 
 import java.nio.file.Path;
-import lombok.Getter;
-import lombok.Setter;
+import java.nio.file.Paths;
 import org.apache.commons.exec.OS;
 
 public class NativeProperties {
-	public static final String BIN_DIRECTORY = "bin";
+    public static final String BIN_DIRECTORY = "bin";
+    private static String runScript;
+    private static String bundledJlinkZip; // Ändrad till String
+    private static String hash;
 
-	@Getter @Setter private static String runScript;
-	@Getter @Setter private static Path bundledJlinkZip;
-	@Getter @Setter private static String hash;
+    public static String getRunScript() {
+        if (runScript == null) {
+            runScript = OS.isFamilyWindows() ? "run.cmd" : "run.sh";
+        }
+        return runScript;
+    }
 
-	static {
-		if (OS.isFamilyWindows()) {
-			runScript = "run.cmd";
-		} else {
-			runScript = "run.sh";
-		}
-	}
+    public static void setRunScript(String s) { runScript = s; }
+    public static Path getBundledJlinkZip() { return Paths.get(bundledJlinkZip); }
+    public static void setBundledJlinkZip(String p) { bundledJlinkZip = p; }
+    public static String getHash() { return hash; }
+    public static void setHash(String h) { hash = h; }
 }
+
+
