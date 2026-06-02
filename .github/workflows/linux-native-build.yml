@@ -28,18 +28,21 @@ jobs:
           restore-keys: ${{ runner.os }}-m2
 
       - name: Run Tests
-        # Citattecken runt -D parametrar för att undvika tolkningsfel
+        # CI=true aktiverar väntetidslogiken i din Java-kod
         run: mvn test -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
+        env:
+          CI: "true"
         
       - name: Build Native Image
-        run: mvn package -Pnative -DskipTests=true
+        # Fixar classpath-felet genom att begränsa till native-image modulen
+        run: mvn package -Pnative -DskipTests=true -pl native-image -am
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux
-          # GraalVM på Linux skapar binären utan filändelse
           path: native-image/target/hedgehog
+          
           
           
           
