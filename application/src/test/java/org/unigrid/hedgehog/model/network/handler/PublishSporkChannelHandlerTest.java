@@ -16,6 +16,7 @@
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
+
 package org.unigrid.hedgehog.model.network.handler;
 
 import java.time.Duration;
@@ -72,9 +73,13 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
         final AtomicInteger invocations = new AtomicInteger();
         final int required = Math.max(1, (int) (servers.size() * 0.9));
         
-        // Adaptiv styrning för att hantera WSL-nätverksstress
-        int currentSleep = 20; 
-        int successCount = 0;
+        // Miljöanpassad faktor: CI-miljöer (GitHub Actions) är långsammare än lokala maskiner
+        boolean isCI = System.getenv("CI") != null;
+        int envFactor = isCI ? 5 : 1; 
+        
+        // Dynamisk timeout och paus baserat på miljö för att undvika fork-timeouts
+        Duration maxWait = Duration.ofSeconds(60 * envFactor);
+        long baseSleep = 20 * envFactor;
 
         setChannelCallback(Optional.of((ctx, spork) -> {
             if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
@@ -90,35 +95,28 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
                     connections.add(conn);
                     conn.send(PublishSpork.builder().gridSpork(gridSpork).build());
                     
-                    Thread.sleep(currentSleep);
-                    
-                    // Om anslutningen går bra, trimma hastigheten
-                    successCount++;
-                    if (successCount > 5 && currentSleep > 10) {
-                        currentSleep -= 5;
-                        successCount = 0;
-                    }
+                    // Adaptiv väntetid baserad på miljö
+                    Thread.sleep(baseSleep);
                 } catch (Exception e) {
-                    // Vid nätverksfel, backa av exponentiellt
-                    currentSleep = Math.min(currentSleep * 2, 500);
-                    successCount = 0;
-                    System.err.println("Nätverksstörning detekterad, adaptiv paus ökad: " + currentSleep + "ms");
+                    // Vid nätverksstörning, ge systemet extra tid att återhämta sig
+                    Thread.sleep(baseSleep * 10);
                 }
             }
 
-            // Vänta på spridning med tätare polling
-            await().atMost(Duration.ofSeconds(60))
-                .pollInterval(Duration.ofMillis(100))
+            // Await med miljöanpassad timeout och polling-intervall
+            await().atMost(maxWait)
+                .pollInterval(Duration.ofMillis(100 * envFactor))
                 .untilAtomic(invocations, is(greaterThanOrEqualTo(required)));
                 
         } finally {
-            // Frigör resurser parallellt för att undvika "socket exhaustion"
+            // Frigör resurser parallellt för att undvika "socket exhaustion" vid CI-körningar
             connections.parallelStream().forEach(conn -> {
                 try { conn.closeDirty(); } catch (Exception ignored) {}
             });
         }
     }
 }
+
 
 
 
