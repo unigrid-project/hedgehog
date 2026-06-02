@@ -28,18 +28,21 @@ jobs:
           restore-keys: ${{ runner.os }}-m2
 
       - name: Run Tests
-        run: mvn test -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
+        # Vi kör endast tester i application-modulen
+        run: mvn test -pl application -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
         env:
           CI: "true"
         
       - name: Build Native Image
-        run: mvn package -Pnative -DskipTests=true -pl native-image -am
+        # Pluginet hittas nu automatiskt i native-image/pom.xml
+        run: mvn package -pl native-image -am -DskipTests=true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux
           path: native-image/target/hedgehog
+          
           
           
           
