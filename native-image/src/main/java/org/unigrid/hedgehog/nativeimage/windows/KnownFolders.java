@@ -17,15 +17,19 @@
 package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
-import lombok.Getter;
-import net.harawata.appdirs.impl.WindowsAppDirs;
-import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.*;
+
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
 import org.graalvm.word.PointerBase;
+
+import lombok.Getter;
+import net.harawata.appdirs.impl.WindowsAppDirs;
+import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.APPDATA;
+import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.COMMON_APPDATA;
+import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
 
 @Platforms(Platform.WINDOWS.class)
 @CContext(Shell32Wrapper.Header.class)
@@ -49,7 +53,7 @@ public class KnownFolders {
         }
 
         public GUID getGuid() {
-            if (guid == null) {
+            if (guid == null || guid.isNull()) {
                 guid = UnmanagedMemory.calloc(SIZE);
             }
             return guid;
@@ -57,10 +61,15 @@ public class KnownFolders {
 
         @Override
         public void close() {
-            if (guid != null) UnmanagedMemory.free(guid);
+            // Här fixar vi Word vs Object felet genom att använda isNull()
+            if (guid != null && !guid.isNull()) {
+                UnmanagedMemory.free(guid);
+                guid = null;
+            }
         }
     }
 }
+
 
 
 
