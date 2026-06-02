@@ -28,13 +28,11 @@ jobs:
           restore-keys: ${{ runner.os }}-m2
 
       - name: Run Tests
-        # CI=true aktiverar väntetidslogiken i din Java-kod
         run: mvn test -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
         env:
           CI: "true"
         
       - name: Build Native Image
-        # Fixar classpath-felet genom att begränsa till native-image modulen
         run: mvn package -Pnative -DskipTests=true -pl native-image -am
 
       - name: Upload Artifact
@@ -42,6 +40,7 @@ jobs:
         with:
           name: hedgehog-linux
           path: native-image/target/hedgehog
+          
           
           
           
