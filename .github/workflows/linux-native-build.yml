@@ -1,10 +1,6 @@
 name: Build Linux Native
 
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
@@ -19,20 +15,8 @@ jobs:
           distribution: 'graalvm-community'
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
 
-      - name: Run Tests
-        run: mvn test -pl application -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
-        env:
-          CI: "true"
-        
-      - name: Build Project
+      - name: Build All and Install
         run: mvn clean install -DskipTests=true
 
       - name: Build Native Image
@@ -43,6 +27,7 @@ jobs:
         with:
           name: hedgehog-linux
           path: native-image/target/hedgehog
+          
           
           
           

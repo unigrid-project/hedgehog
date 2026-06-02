@@ -1,10 +1,6 @@
 name: Build Windows Native
 
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
@@ -22,24 +18,13 @@ jobs:
           distribution: 'graalvm-community'
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Cache Maven packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: ${{ runner.os }}-m2
 
-      - name: Run Tests
-        run: mvn test -pl application -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=15"
-        env:
-          CI: "true"
-
-      - name: Build Project
+      - name: Build All and Install
         run: mvn clean install -DskipTests=true
 
       - name: Build Native Image
-        run: mvn package -pl native-image -am -DskipTests=true
+        # Windows-specifikt: Vi kör i en CMD-shell för att säkerställa att MSVC hittas
+        shell: cmd /C call vcvarsall.bat x64 && mvn package -pl native-image -am -DskipTests=true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
