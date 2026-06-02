@@ -28,13 +28,14 @@ jobs:
           restore-keys: ${{ runner.os }}-m2
 
       - name: Run Tests
-        # Vi kör endast tester i application-modulen
         run: mvn test -pl application -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
         env:
           CI: "true"
         
+      - name: Build Project
+        run: mvn clean install -DskipTests=true
+
       - name: Build Native Image
-        # Pluginet hittas nu automatiskt i native-image/pom.xml
         run: mvn package -pl native-image -am -DskipTests=true
 
       - name: Upload Artifact
