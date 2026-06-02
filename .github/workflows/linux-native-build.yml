@@ -9,9 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      
       - name: Setup GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -27,23 +27,19 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      # 1. Kör tester separat med CI-profilen
       - name: Run Tests
-        run: mvn test -Pci -Dtest.threshold=0.3 -Dtest.envFactor=10
+        # Citattecken runt -D parametrar för att undvika tolkningsfel
+        run: mvn test -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=10"
         
-      # 2. Bygg binären separat
       - name: Build Native Image
         run: mvn package -Pnative -DskipTests=true
-
-      - name: Prepare Test Environment
-        run: |
-          mkdir -p native-image/target/bootstrap
-          cp path/to/bootstrap.tar.xz native-image/target/bootstrap/ 2>/dev/null || echo "Ingen bootstrap hittades"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux
+          # GraalVM på Linux skapar binären utan filändelse
           path: native-image/target/hedgehog
+          
           
           

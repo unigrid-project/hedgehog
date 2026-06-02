@@ -9,11 +9,12 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
+        
       - name: Setup GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -29,23 +30,18 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      # 1. Kör tester separat med CI-profilen (stabila)
       - name: Run Tests
-        run: mvn test -Pci -Dtest.threshold=0.3 -Dtest.envFactor=15
+        run: mvn test -Pci "-Dtest.threshold=0.3" "-Dtest.envFactor=15"
 
-      # 2. Bygg binären separat
       - name: Build Native Image
         run: mvn package -Pnative -DskipTests=true
-
-      - name: Prepare Test Environment
-        run: |
-          mkdir -p native-image/target/bootstrap
-          if exist path\to\bootstrap.tar.xz copy path\to\bootstrap.tar.xz native-image\target\bootstrap\
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-windows
+          # På Windows skapar GraalVM automatiskt en .exe fil
           path: native-image/target/hedgehog.exe
+          
           
           
