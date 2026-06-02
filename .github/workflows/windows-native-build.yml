@@ -23,7 +23,6 @@ jobs:
         run: mvn clean install -DskipTests=true
 
       - name: Build Native Image
-        # Windows-specifikt: Vi kör i en CMD-shell för att säkerställa att MSVC hittas
         shell: cmd /C call vcvarsall.bat x64 && mvn package -pl native-image -am -DskipTests=true
 
       - name: Upload Artifact
@@ -32,4 +31,5 @@ jobs:
           name: hedgehog-windows
           path: native-image/target/hedgehog.exe
           
+
           
