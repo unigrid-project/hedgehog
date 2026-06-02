@@ -72,14 +72,15 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 
         final AtomicInteger invocations = new AtomicInteger();
         
-        // CI-inställningar
+        // Stabiliserad logik för CI: Vi minskar envFactor drastiskt för att undvika timeouts
         boolean isCI = System.getenv("CI") != null;
-        int envFactor = isCI ? 50 : 1; 
+        int envFactor = isCI ? 2 : 1; 
         double threshold = isCI ? 0.2 : 0.6;
         
         final int required = Math.max(1, (int) (servers.size() * threshold));
-        Duration maxWait = Duration.ofSeconds(60 * envFactor);
-        long baseSleep = 20 * envFactor;
+        // Max 120 sekunder är mer än nog för ett nätverkstest i CI
+        Duration maxWait = Duration.ofSeconds(120);
+        long baseSleep = 100;
 
         setChannelCallback(Optional.of((ctx, spork) -> {
             if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
@@ -96,21 +97,25 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
                     conn.send(PublishSpork.builder().gridSpork(gridSpork).build());
                     Thread.sleep(baseSleep);
                 } catch (Exception e) {
-                    Thread.sleep(baseSleep * 10);
+                    // Logga felet istället för att sova i evighet
+                    System.err.println("Testuppkoppling misslyckades: " + e.getMessage());
                 }
             }
 
+            // Awaitility kollar nu aktivt och hänger inte i 50 minuter
             await().atMost(maxWait)
-                .pollInterval(Duration.ofMillis(200 * envFactor))
+                .pollInterval(Duration.ofMillis(200))
                 .untilAtomic(invocations, is(greaterThanOrEqualTo(required)));
                 
         } finally {
+            // Säker nedstängning av alla anslutningar
             connections.parallelStream().forEach(conn -> {
                 try { conn.closeDirty(); } catch (Exception ignored) {}
             });
         }
     }
 }
+
 
 
 
