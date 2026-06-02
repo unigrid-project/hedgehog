@@ -61,7 +61,7 @@ public class KnownFolders {
 
         @Override
         public void close() {
-            // Här fixar vi Word vs Object felet genom att använda isNull()
+            // Här är fixen: isNull() säkerställer att vi inte jämför minne med Java-objekt
             if (guid != null && !guid.isNull()) {
                 UnmanagedMemory.free(guid);
                 guid = null;
@@ -69,6 +69,7 @@ public class KnownFolders {
         }
     }
 }
+
 
 
 
