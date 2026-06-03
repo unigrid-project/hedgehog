@@ -1,29 +1,37 @@
 name: Build Windows
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
-      
-      - name: Locate and Prepare Resources
-        shell: cmd
+
+      - name: Prepare Resources
+        shell: bash
         run: |
-          if not exist "native-image\src\main\resources" mkdir "native-image\src\main\resources"
-          for /r %i in (jlink.zip) do copy "%i" "native-image\src\main\resources\"
-          for /r %i in (application.properties) do copy "%i" "native-image\src\main\resources\"
-          dir "native-image\src\main\resources\"
-          
+          mkdir -p native-image/src/main/resources
+          cp jlink.zip native-image/src/main/resources/ || echo "Warning: jlink.zip missing"
+          cp application.properties native-image/src/main/resources/ || echo "Warning: properties missing"
+          cp hash.txt native-image/src/main/resources/ || echo "Warning: hash.txt missing"
+
       - run: mvn clean install -DskipTests=true
-      - shell: cmd
+      - name: Build Native Image
+        shell: cmd
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
-        
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hedgehog-win
+          path: native-image/target/hedgehog.exe
+          
+
+
 
 
 

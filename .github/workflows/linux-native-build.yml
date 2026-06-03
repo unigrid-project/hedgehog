@@ -1,5 +1,5 @@
 name: Build Linux
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -7,21 +7,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
-      
-      - name: Locate and Prepare Resources
+
+      - name: Prepare Resources
         run: |
           mkdir -p native-image/src/main/resources
-          # Sök igenom hela projektet efter jlink.zip och kopiera den
-          find . -name "jlink.zip" -exec cp {} native-image/src/main/resources/ \;
-          find . -name "application.properties" -exec cp {} native-image/src/main/resources/ \;
-          ls -R native-image/src/main/resources/
-          
+          cp jlink.zip native-image/src/main/resources/ || echo "Warning: jlink.zip missing"
+          cp application.properties native-image/src/main/resources/ || echo "Warning: properties missing"
+          cp hash.txt native-image/src/main/resources/ || echo "Warning: hash.txt missing"
+
       - run: mvn clean install -DskipTests=true
       - run: mvn package -pl native-image -am -DskipTests=true
       - name: Verify
         run: |
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hedgehog-lin
+          path: native-image/target/hedgehog
+          
+
 
 
 

@@ -234,17 +234,16 @@
                             <configuration>
                                 <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
                                 <imageName>hedgehog</imageName>
-  
-                                        <buildArgs>
-                                            <buildArg>--no-server</buildArg>
-                                            <buildArg>-H:-ParseOnce</buildArg>
-                                            <buildArg>--allow-incomplete-classpath</buildArg>
-                                            <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
-                                            <buildArg>-H:IncludeResources=application.properties,hash.txt,jlink.zip</buildArg>
-                                            <buildArg>-J-Xmx3g</buildArg>
-                                            <buildArg>--gc=serial</buildArg>
-                                            <buildArg>--no-fallback</buildArg>
-                                        </buildArgs>
+                                            <buildArgs>
+                                                <buildArg>--no-server</buildArg>
+                                                <buildArg>-H:-ParseOnce</buildArg>
+                                                <buildArg>--allow-incomplete-classpath</buildArg>
+                                                <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
+                                                <buildArg>-H:IncludeResources=application\.properties|hash\.txt|jlink\.zip</buildArg>
+                                                <buildArg>-J-Xmx3g</buildArg>
+                                                <buildArg>--gc=serial</buildArg>
+                                                <buildArg>--no-fallback</buildArg>
+                                            </buildArgs>
                                         
                             </configuration>
                         </plugin>
