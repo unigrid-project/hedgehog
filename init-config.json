@@ -1,9 +1,0 @@
-{
-  "buildTimeClasses": [
-    "org.slf4j.helpers.Util",
-    "org.slf4j.LoggerFactory"
-  ],
-  "runTimeClasses": [
-    "org.slf4j.helpers.NOP_FallbackServiceProvider"
-  ]
-}

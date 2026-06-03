@@ -9,25 +9,26 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
 
-      - name: Build and Locate Resources
-        shell: bash
-        run: |
-          mvn clean install -DskipTests=true
-          mkdir -p native-image/src/main/resources
-          echo "Letar efter jlink.zip i native-image/target/..."
-          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip || echo "Jlink saknas!"
-          cp application.properties native-image/src/main/resources/ || echo "Props saknas!"
-          cp hash.txt native-image/src/main/resources/ || echo "Hash saknas!"
-          ls -la native-image/src/main/resources/
-
-      - name: Build Native Image
+      - name: Prepare and Build
         shell: cmd
         run: |
           call vcvarsall.bat x64
-          mvn package -pl native-image -am -DskipTests=true
+          mvn clean install -DskipTests=true
+          mkdir native-image\src\main\resources
+          copy native-image\target\*-jlink.zip native-image\src\main\resources\jlink.zip
+          copy application.properties native-image\src\main\resources\
+          copy hash.txt native-image\src\main\resources\
+          
+          echo {"resources": {"includes": [{"pattern": "jlink.zip"}, {"pattern": "application.properties"}, {"pattern": "hash.txt"}]}} > native-image\src\main\resources\resource-config.json
+          
+          mkdir native-image\target\classes
+          copy native-image\src\main\resources\* native-image\target\classes\
+          
+          mvn package -pl native-image -am -DskipTests=true -Dnative.build.args="--verbose -H:ResourceConfigurationFiles=resource-config.json"
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
+        
         
 
 
