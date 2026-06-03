@@ -17,78 +17,83 @@
 package org.unigrid.hedgehog.common.model;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import java.util.Properties;
+
+import org.apache.commons.lang3.StringUtils;
+
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
 public class Version {
-	public static final String VERSION_PROPERTY_NAME = "HEDGEHOG_VERSION";
-	public static final String VERSION_PAD_PROPERTY_NAME = "HEDGEHOG_VERSION_PAD";
+    public static final String VERSION_PROPERTY_NAME = "HEDGEHOG_VERSION";
+    public static final String VERSION_PAD_PROPERTY_NAME = "HEDGEHOG_VERSION_PAD";
 
-	private static final int VERSION_PAD_WIDTH = 42;
-	private static final String DEFAULT_AUTHOR = "Unigrid";
-	private static final String DEFAULT_NAME = "Hedgehog";
-	private static final String DEFAULT_VERSION = "0.0.0-BASTARD";
+    private static final int VERSION_PAD_WIDTH = 42;
+    private static final String DEFAULT_AUTHOR = "Unigrid";
+    private static final String DEFAULT_NAME = "Hedgehog";
+    private static final String DEFAULT_VERSION = "0.0.0-BASTARD";
 
-	public String[] getVersion() throws Exception {
-		final Properties properties = new Properties();
-		String name = String.format("%s %s", DEFAULT_AUTHOR, DEFAULT_NAME);
-		String version  = DEFAULT_VERSION;
+    public String[] getVersion() throws Exception {
+        final Properties properties = new Properties();
+        String name = String.format("%s %s", DEFAULT_AUTHOR, DEFAULT_NAME);
+        String version  = DEFAULT_VERSION;
 
-		try {
-			properties.load(Thread.currentThread().getContextClassLoader()
-				.getResourceAsStream("application.properties"));
+        try (InputStream is = Thread.currentThread().getContextClassLoader()
+                .getResourceAsStream("application.properties")) {
+            
+            if (is != null) {
+                properties.load(is);
+                name = Objects.requireNonNull(properties.getProperty("project.name"));
+                version = Objects.requireNonNull(properties.getProperty("project.version"));
+            } else {
+                log.atWarn().log("application.properties hittades inte via ClassLoader, använder defaults.");
+            }
+        } catch (IOException | NullPointerException ex) {
+            log.atError().log("Unable to determine version via property file", ex);
+        }
 
-			name = Objects.requireNonNull(properties.getProperty("project.name"));
-			version = Objects.requireNonNull(properties.getProperty("project.version"));
-		} catch (IOException | NullPointerException ex) {
-			log.atError().log("Unable to determine version via property file", ex);
-		}
+        final String completeVersion = String.format("%s %s", name, version);
 
-		final String completeVersion = String.format("%s %s", name, version);
+        System.setProperty(VERSION_PROPERTY_NAME, completeVersion);
+        System.setProperty(VERSION_PAD_PROPERTY_NAME,
+            StringUtils.rightPad(" ", VERSION_PAD_WIDTH - completeVersion.length())
+        );
 
-		/* Right-aligns the output of the version string for the header output. With this implementation, the maximum
-		   length of completeVersion is VERSION_PAD_WIDTH. */
+        return new String[] { completeVersion };
+    }
 
-		System.setProperty(VERSION_PROPERTY_NAME, completeVersion);
-		System.setProperty(VERSION_PAD_PROPERTY_NAME,
-			StringUtils.rightPad(" ", VERSION_PAD_WIDTH - completeVersion.length())
-		);
+    private static String getAtIndex(int i) throws Exception {
+        return new Version().getVersion()[0].split(" ")[i];
+    }
 
-		return new String[] { completeVersion };
-	}
+    @SneakyThrows
+    public static String getAuthor() {
+        try {
+            return getAtIndex(0);
+        } catch (IndexOutOfBoundsException ex) {
+            return DEFAULT_AUTHOR;
+        }
+    }
 
-	private static String getAtIndex(int i) throws Exception {
-		return new Version().getVersion()[0].split(" ")[i];
-	}
+    @SneakyThrows
+    public static String getName() {
+        try {
+            return getAtIndex(1);
+        } catch (IndexOutOfBoundsException ex) {
+            return DEFAULT_NAME;
+        }
+    }
 
-	@SneakyThrows
-	public static String getAuthor() {
-		try {
-			return getAtIndex(0);
-		} catch (IndexOutOfBoundsException ex) {
-			return DEFAULT_AUTHOR;
-		}
-	}
-
-	@SneakyThrows
-	public static String getName() {
-		try {
-			return getAtIndex(1);
-		} catch (IndexOutOfBoundsException ex) {
-			return DEFAULT_NAME;
-		}
-	}
-
-	@SneakyThrows
-	public static String getVersionNumber() {
-		try {
-			return getAtIndex(2);
-		} catch (IndexOutOfBoundsException ex) {
-			return DEFAULT_VERSION;
-		}
-	}
+    @SneakyThrows
+    public static String getVersionNumber() {
+        try {
+            return getAtIndex(2);
+        } catch (IndexOutOfBoundsException ex) {
+            return DEFAULT_VERSION;
+        }
+    }
 }
+
