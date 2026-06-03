@@ -8,23 +8,24 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
 
-      - run: mvn clean install -DskipTests=true
-
-      - name: Prepare Resources from Target
+      - name: Build and Locate Resources
         run: |
+          mvn clean install -DskipTests=true
           mkdir -p native-image/src/main/resources
-          # Kopierar från target-mappen där de skapades
-          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip
-          cp application.properties native-image/src/main/resources/ || echo "Application properties saknas"
-          cp hash.txt native-image/src/main/resources/ || echo "Hash saknas"
+          echo "Letar efter jlink.zip i native-image/target/..."
+          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip || echo "Jlink saknas!"
+          cp application.properties native-image/src/main/resources/ || echo "Props saknas!"
+          cp hash.txt native-image/src/main/resources/ || echo "Hash saknas!"
+          ls -la native-image/src/main/resources/
 
-      - run: mvn package -pl native-image -am -DskipTests=true
+      - name: Build Native Image
+        run: mvn package -pl native-image -am -DskipTests=true
       
       - name: Verify
         run: |
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
-          
+
 
 
 

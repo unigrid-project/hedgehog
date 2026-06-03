@@ -9,22 +9,26 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
 
-      - run: mvn clean install -DskipTests=true
-      - shell: bash
+      - name: Build and Locate Resources
+        shell: bash
         run: |
+          mvn clean install -DskipTests=true
           mkdir -p native-image/src/main/resources
-          # Kopierar från target-mappen
-          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip
-          cp application.properties native-image/src/main/resources/
-          cp hash.txt native-image/src/main/resources/
+          echo "Letar efter jlink.zip i native-image/target/..."
+          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip || echo "Jlink saknas!"
+          cp application.properties native-image/src/main/resources/ || echo "Props saknas!"
+          cp hash.txt native-image/src/main/resources/ || echo "Hash saknas!"
+          ls -la native-image/src/main/resources/
 
-      - shell: cmdgit add .github/workflows/linux.yml
+      - name: Build Native Image
+        shell: cmd
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
+        
 
 
 
