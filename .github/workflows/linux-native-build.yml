@@ -9,6 +9,10 @@ jobs:
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
       - run: mvn clean install -DskipTests=true
       - run: mvn package -pl native-image -am -DskipTests=true
+      - name: Kopiera resurser till target
+        run: |
+          cp jlink.zip native-image/target/
+          cp application.properties native-image/target/
       - name: Kör Igelkotten
         run: |
           chmod +x native-image/target/hedgehog
@@ -18,6 +22,7 @@ jobs:
           name: hedgehog-linux-output
           path: native-image/target/hedgehog
           
+
           
           
           
