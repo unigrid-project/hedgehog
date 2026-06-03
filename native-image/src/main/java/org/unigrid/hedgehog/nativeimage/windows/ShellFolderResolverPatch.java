@@ -16,38 +16,43 @@
 
 package org.unigrid.hedgehog.nativeimage.windows;
 
-import com.oracle.svm.core.annotate.Substitute;
-import com.oracle.svm.core.annotate.TargetClass;
 import java.util.Objects;
-import net.harawata.appdirs.AppDirsException;
-import net.harawata.appdirs.impl.ShellFolderResolver;
-import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
+
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUID;
 import org.unigrid.hedgehog.nativeimage.windows.KnownFolders.GUIDHolder;
 
+import com.oracle.svm.core.annotate.Substitute;
+import com.oracle.svm.core.annotate.TargetClass;
+
+import net.harawata.appdirs.AppDirsException;
+import net.harawata.appdirs.impl.ShellFolderResolver;
+import net.harawata.appdirs.impl.WindowsAppDirs.FolderId;
+
 @Platforms(Platform.WINDOWS.class)
 @TargetClass(ShellFolderResolver.class)
 public final class ShellFolderResolverPatch {
-	@Substitute
-	public String resolveFolder(FolderId folderId) {
-		final String identifier = KnownFolders.GUID_MAPPINGS.get(folderId);
+    @Substitute
+    public String resolveFolder(FolderId folderId) {
+        // FIX: Anropar nu den publika metoden för att komma åt mappen
+        final String identifier = KnownFolders.getGuidMappings().get(folderId);
 
-		if (Objects.isNull(identifier)) {
-			throw new AppDirsException("Unmapped folder ID " + folderId + " was specified.");
-		}
+        if (Objects.isNull(identifier)) {
+            throw new AppDirsException("Unmapped folder ID " + folderId + " was specified.");
+        }
 
-		try (GUIDHolder holder = new GUIDHolder(identifier)) {
-			final GUID guid = Ole32Wrapper.getFolder(holder);
-			return Shell32Wrapper.getKnownFolderPath(guid);
-		} catch (WindowsException ex) {
-			throw new AppDirsException(ex.getMessage());
-		}
-	}
+        try (GUIDHolder holder = new GUIDHolder(identifier)) {
+            final GUID guid = Ole32Wrapper.getFolder(holder);
+            return Shell32Wrapper.getKnownFolderPath(guid);
+        } catch (WindowsException ex) {
+            throw new AppDirsException(ex.getMessage());
+        }
+    }
 
-	@Substitute
-	protected int convertFolderIdToCsidl(FolderId folderId) {
-		throw new IllegalStateException("Not supported.");
-	}
+    @Substitute
+    protected int convertFolderIdToCsidl(FolderId folderId) {
+        throw new IllegalStateException("Not supported.");
+    }
 }
+
