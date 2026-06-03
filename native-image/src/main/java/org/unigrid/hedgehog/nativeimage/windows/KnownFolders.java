@@ -19,12 +19,13 @@ package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
 
+import org.graalvm.nativeimage.ImageInfo;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
-import org.graalvm.word.PointerBase;
+import org.graalvm.word.PointerBase; // Viktig import
 
 import lombok.Getter;
 import net.harawata.appdirs.impl.WindowsAppDirs;
@@ -49,30 +50,27 @@ public class KnownFolders {
         private GUID guid;
         @Getter private final String identifier;
 
-        public GUIDHolder(String identifier) {
-            this.identifier = identifier;
-        }
+        public GUIDHolder(String identifier) { this.identifier = identifier; }
 
         public GUID getGuid() {
-            if (guid == null || guid.isNull()) {
-                guid = UnmanagedMemory.calloc(SIZE);
-            }
+            if (guid == null || guid.isNull()) { guid = UnmanagedMemory.calloc(SIZE); }
             return guid;
         }
 
         @Override
         public void close() {
-            // Fix för GraalVM Native Image analys
             if (guid != null) {
                 GUID temp = guid;
                 guid = null; 
-                if (!temp.isNull()) {
+                // Runtime-check: Frigör endast när appen körs, ALDRIG under bygget!
+                if (!temp.isNull() && ImageInfo.inImageRuntimeCode()) {
                     UnmanagedMemory.free(temp);
                 }
             }
         }
     }
 }
+
 
 
 
