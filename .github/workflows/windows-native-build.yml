@@ -23,6 +23,7 @@ jobs:
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
+          
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
       - uses: actions/upload-artifact@v4
@@ -30,6 +31,7 @@ jobs:
           name: hedgehog-win
           path: native-image/target/hedgehog.exe
           
+
 
 
 
