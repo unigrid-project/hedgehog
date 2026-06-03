@@ -1,6 +1,10 @@
 name: Build Linux (amd64) Executable
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,6 +31,7 @@ jobs:
           path: native-image/target/hedgehog
           retention-days: 5
           
+
 
           
           

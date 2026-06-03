@@ -14,6 +14,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
+    
 package org.unigrid.hedgehog.nativeimage.windows;
 
 import java.util.Map;
@@ -61,14 +62,18 @@ public class KnownFolders {
 
         @Override
         public void close() {
-            // Här är fixen: isNull() säkerställer att vi inte jämför minne med Java-objekt
-            if (guid != null && !guid.isNull()) {
-                UnmanagedMemory.free(guid);
-                guid = null;
+            // Fix för GraalVM Native Image analys
+            if (guid != null) {
+                GUID temp = guid;
+                guid = null; 
+                if (!temp.isNull()) {
+                    UnmanagedMemory.free(temp);
+                }
             }
         }
     }
 }
+
 
 
 
