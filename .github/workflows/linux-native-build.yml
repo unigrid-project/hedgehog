@@ -8,17 +8,16 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
 
-      # 1. FLYTTA FILERNA INNAN NÅGOT BYGGE STARTAR
-      - name: Prepare Resources
+      - run: mvn clean install -DskipTests=true
+
+      - name: Prepare Resources from Target
         run: |
           mkdir -p native-image/src/main/resources
-          cp jlink.zip native-image/src/main/resources/
-          cp application.properties native-image/src/main/resources/
-          cp hash.txt native-image/src/main/resources/
-          echo "Resurser är nu på plats i native-image/src/main/resources/"
+          # Kopierar från target-mappen där de skapades
+          cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip
+          cp application.properties native-image/src/main/resources/ || echo "Application properties saknas"
+          cp hash.txt native-image/src/main/resources/ || echo "Hash saknas"
 
-      # 2. NU KAN MAVEN SE FILERNA
-      - run: mvn clean install -DskipTests=true
       - run: mvn package -pl native-image -am -DskipTests=true
       
       - name: Verify
@@ -26,6 +25,7 @@ jobs:
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
           
+
 
 
 
