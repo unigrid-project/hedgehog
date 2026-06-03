@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <name>Unigrid Hedgehog Parent</name>
+    <groupId>org.unigrid.hedgehog</groupId>
+    <artifactId>hedgehog-parent</artifactId>
+    <version>0.0.8-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <surefireArgLine />
+        <socomo.skip>true</socomo.skip>
+        <system.numcores>4</system.numcores>
+    </properties>
+
+    <scm>
+        <developerConnection>scm:git:https://github.com/unigrid-project/hedgehog.git</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
+
+    <modules>
+        <module>application</module>
+        <module>common</module>
+        <module>native-image</module>
+    </modules>
+
+            <dependencyManagement>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.unigrid.hedgehog</groupId>
+                            <artifactId>hedgehog-common</artifactId>
+                            <version>${project.version}</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>org.unigrid.hedgehog</groupId>
+                            <artifactId>hedgehog-application</artifactId>
+                            <version>${project.version}</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.30</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>ch.qos.logback</groupId>
+                            <artifactId>logback-classic</artifactId>
+                            <version>1.4.14</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>org.slf4j</groupId>
+                            <artifactId>jul-to-slf4j</artifactId>
+                            <version>2.0.9</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>org.apache.commons</groupId>
+                            <artifactId>commons-compress</artifactId>
+                            <version>1.26.1</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>net.harawata</groupId>
+                            <artifactId>appdirs</artifactId>
+                            <version>1.2.1</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>org.jboss.weld.se</groupId>
+                            <artifactId>weld-se-core</artifactId>
+                            <version>5.1.2.Final</version>
+                        </dependency>
+                    </dependencies>
+            </dependencyManagement>
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>3.0.0</version>
+                    <configuration>
+                        <tagNameFormat>v@{project.version}</tagNameFormat>
+                        <autoVersionSubmodules>true</autoVersionSubmodules>
+                        <preparationGoals />
+                        <pushChanges>false</pushChanges>
+                        <scmDevelopmentCommitComment>@{prefix} Prepare for next development iteration</scmDevelopmentCommitComment>
+                        <scmReleaseCommitComment>@{prefix} Prepare release @{releaseLabel}</scmReleaseCommitComment>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>0.8.14</version>
+                    <configuration>
+                        <excludes>
+                            <exclude>org/unigrid/hedgehog/model/network/**/*</exclude>
+                            <exclude>**/ConnectionContainer*</exclude>
+                            <exclude>**/TopologyThread*</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.3.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.0</version>
+                    <configuration>
+                        <forkCount>1</forkCount>
+                        <reuseForks>false</reuseForks>
+                        <forkedProcessTimeoutInSeconds>300</forkedProcessTimeoutInSeconds>
+                        <forkedProcessExitTimeoutInSeconds>60</forkedProcessExitTimeoutInSeconds>
+                        <trimStackTrace>false</trimStackTrace>
+                        <printSummary>true</printSummary>
+                        <redirectTestOutputToFile>false</redirectTestOutputToFile>
+                        <argLine>
+                            -Xmx4g 
+                            -XX:+UseSerialGC 
+                            -Dorg.jboss.netty.debug=false
+                            -XX:+HeapDumpOnOutOfMemoryError
+                            --add-opens java.base/java.lang=ALL-UNNAMED
+                            --add-opens java.base/java.util=ALL-UNNAMED
+                            --add-opens java.base/java.net=ALL-UNNAMED
+                        </argLine>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration>
+                        <source>25</source>
+                        <target>25</target>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>3.5.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>10.18.0</version>
+                        </dependency>
+                    </dependencies>
+                </plugin>
+                <plugin>
+                    <groupId>pl.gdela</groupId>
+                    <artifactId>socomo-maven</artifactId>
+                    <version>2.3.1</version>
+                    <configuration>
+                        <skip>${socomo.skip}</skip>
+                    </configuration>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.ow2.asm</groupId>
+                            <artifactId>asm</artifactId>
+                            <version>9.7</version>
+                        </dependency>
+                    </dependencies>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.8.6.2</version>
+            </plugin>
+        </plugins>
+    </reporting>
+
+    <profiles>
+        <profile>
+            <id>ci</id>
+            <properties>
+                <test.threshold>0.3</test.threshold>
+                <test.envFactor>10</test.envFactor>
+            </properties>
+        </profile>
+    </profiles>
+</project>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
