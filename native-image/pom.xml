@@ -250,7 +250,8 @@
                                         <buildArg>--gc=serial</buildArg>
                                         <buildArg>--no-fallback</buildArg>
                                         <buildArg>--verbose</buildArg>
-                                        <buildArg>-H:IncludeResources=application\.properties|hash\.txt</buildArg>
+                                        
+                                        <buildArg>-H:IncludeResources=application\.properties|hash\.txt|jlink\.zip</buildArg>
                                     </buildArgs>
  
                             </configuration>

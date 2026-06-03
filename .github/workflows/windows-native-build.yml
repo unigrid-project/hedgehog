@@ -14,17 +14,14 @@ jobs:
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
-      - name: Kopiera resurser till target
-        run: |
-          copy jlink.zip native-image\target\
-          copy application.properties native-image\target\
-      - name: Kör Igelkotten
+      - name: Run Hedgehog (Verify)
         run: .\native-image\target\hedgehog.exe --version
       - uses: actions/upload-artifact@v4
         with:
           name: hedgehog-windows-output
           path: native-image/target/hedgehog.exe
-          
+
+
 
           
           
