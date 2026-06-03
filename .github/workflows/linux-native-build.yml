@@ -1,20 +1,13 @@
 name: Build Linux Native
 
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup GraalVM
-        uses: graalvm/setup-graalvm@v1
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
           distribution: 'graalvm-community'
@@ -27,11 +20,15 @@ jobs:
       - name: Build Native Image
         run: mvn package -pl native-image -am -DskipTests=true
 
+      - name: Verify Output
+        run: find native-image/target -name "hedgehog*"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux
           path: native-image/target/hedgehog
+          
           
 
           

@@ -239,12 +239,11 @@
                                 <buildArg>-H:-ParseOnce</buildArg>
                                 <buildArg>--allow-incomplete-classpath</buildArg>
                                 <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
-                                <buildArg>-J-Xmx14g</buildArg>
+                                <buildArg>-J-Xmx4g</buildArg>
                                 <buildArg>--gc=serial</buildArg>
                                 <buildArg>--no-fallback</buildArg>
                                 <buildArg>--verbose</buildArg>
-                                <buildArg>-H:IncludeResources=application\.properties</buildArg>
-                                <buildArg>-H:IncludeResources=hash\.txt</buildArg>
+                                <buildArg>-H:IncludeResources=application\.properties|hash\.txt</buildArg>
                             </buildArgs>
                         </configuration>
                     </plugin>

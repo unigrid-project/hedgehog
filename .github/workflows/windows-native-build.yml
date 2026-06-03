@@ -1,23 +1,14 @@
 name: Build Windows Native
 
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Setup GraalVM
-        uses: graalvm/setup-graalvm@v1
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
           distribution: 'graalvm-community'
@@ -33,11 +24,16 @@ jobs:
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
 
+      - name: Verify Output
+        shell: cmd
+        run: dir /s native-image\target\hedgehog*.exe
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-windows
-          path: native-image/target/hedgehog.exe
+          path: native-image/target/hedgehog*.exe
+          
           
 
 
