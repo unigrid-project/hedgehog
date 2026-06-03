@@ -1,5 +1,11 @@
 name: Build Linux (amd64) Executable
-on: [push, pull_request, workflow_dispatch]
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,17 +17,21 @@ jobs:
           distribution: 'graalvm-community'
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and Install
         run: mvn clean install -DskipTests=true
+
       - name: Build Native Image
         run: mvn package -pl native-image -am -DskipTests=true
+
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux-output
-          path: native-image/target/hedgehog*
+          path: native-image/target/hedgehog
           retention-days: 5
+          
           
           
 

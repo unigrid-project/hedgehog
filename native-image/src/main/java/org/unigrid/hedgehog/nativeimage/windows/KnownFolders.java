@@ -25,7 +25,8 @@ import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
-import org.graalvm.word.PointerBase; // Viktig import
+import org.graalvm.word.Pointer;
+import org.graalvm.word.PointerBase;
 
 import lombok.Getter;
 import net.harawata.appdirs.impl.WindowsAppDirs;
@@ -62,14 +63,17 @@ public class KnownFolders {
             if (guid != null) {
                 GUID temp = guid;
                 guid = null; 
-                // Runtime-check: Frigör endast när appen körs, ALDRIG under bygget!
-                if (!temp.isNull() && ImageInfo.inImageRuntimeCode()) {
-                    UnmanagedMemory.free(temp);
+                if (ImageInfo.inImageRuntimeCode()) {
+                    Pointer p = (Pointer) temp;
+                    if (p.isNonNull()) {
+                        UnmanagedMemory.free(temp);
+                    }
                 }
             }
         }
     }
 }
+
 
 
 
