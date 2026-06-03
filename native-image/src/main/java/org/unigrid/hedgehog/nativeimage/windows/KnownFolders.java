@@ -25,8 +25,8 @@ import org.graalvm.nativeimage.Platforms;
 import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
-import org.graalvm.word.Pointer;
 import org.graalvm.word.PointerBase;
+import org.graalvm.word.WordFactory; // Viktig för att stoppa Word-to-Object fel
 
 import lombok.Getter;
 import net.harawata.appdirs.impl.WindowsAppDirs;
@@ -60,19 +60,17 @@ public class KnownFolders {
 
         @Override
         public void close() {
-            if (guid != null) {
-                GUID temp = guid;
-                guid = null; 
+            // Fix: Använd WordFactory.nullPointer() för att jämföra pekare
+            if (!WordFactory.nullPointer().equal(guid)) {
                 if (ImageInfo.inImageRuntimeCode()) {
-                    Pointer p = (Pointer) temp;
-                    if (p.isNonNull()) {
-                        UnmanagedMemory.free(temp);
-                    }
+                    UnmanagedMemory.free(guid);
                 }
+                guid = null;
             }
         }
     }
 }
+
 
 
 
