@@ -11,15 +11,14 @@ jobs:
       - name: Prepare and Build
         run: |
           mvn clean install -DskipTests=true
-          # Skapa mappstruktur för resurser och GraalVM-konfiguration
           mkdir -p native-image/src/main/resources/META-INF/native-image
           
-          # Kopiera resurser till källkodsmappen (där Maven plockar upp dem)
+          # Kopiera från korrekta källor
+          cp application/src/main/resources/application.properties native-image/src/main/resources/
+          cp application/src/main/resources/hash.txt native-image/src/main/resources/
           cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip
-          cp application.properties native-image/src/main/resources/
-          cp hash.txt native-image/src/main/resources/
           
-          # Skapa resurs-konfigurationen på rätt plats (automatiskt upptäckt av GraalVM)
+          # Skapa resurs-konfiguration
           echo '{"resources": {"includes": [{"pattern": "jlink.zip"}, {"pattern": "application.properties"}, {"pattern": "hash.txt"}]}}' > native-image/src/main/resources/META-INF/native-image/resource-config.json
           
           # Bygg projektet
@@ -30,6 +29,7 @@ jobs:
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
           
+
 
 
 

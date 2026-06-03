@@ -15,23 +15,19 @@ jobs:
           call vcvarsall.bat x64
           mvn clean install -DskipTests=true
           
-          REM Skapa mappstruktur
           mkdir native-image\src\main\resources\META-INF\native-image
           
-          REM Kopiera resurser
+          copy application\src\main\resources\application.properties native-image\src\main\resources\
+          copy application\src\main\resources\hash.txt native-image\src\main\resources\
           copy native-image\target\*-jlink.zip native-image\src\main\resources\jlink.zip
-          copy application.properties native-image\src\main\resources\
-          copy hash.txt native-image\src\main\resources\
           
-          REM Skapa konfiguration
           echo {"resources": {"includes": [{"pattern": "jlink.zip"}, {"pattern": "application.properties"}, {"pattern": "hash.txt"}]}} > native-image\src\main\resources\META-INF\native-image\resource-config.json
           
-          REM Bygg
           mvn package -pl native-image -am -DskipTests=true
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
-        
+
 
         
 
