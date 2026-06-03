@@ -1,4 +1,4 @@
-name: Build Linux Native
+name: Build Linux (amd64) Executable
 
 on: [push, pull_request, workflow_dispatch]
 
@@ -14,20 +14,20 @@ jobs:
           components: 'native-image'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build All and Install
+      - name: Build and Install
         run: mvn clean install -DskipTests=true
 
       - name: Build Native Image
         run: mvn package -pl native-image -am -DskipTests=true
-
-      - name: Verify Output
-        run: find native-image/target -name "hedgehog*"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: hedgehog-linux
           path: native-image/target/hedgehog
+          retention-days: 5
+          
+
           
           
 

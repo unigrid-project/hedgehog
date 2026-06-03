@@ -217,36 +217,37 @@
                             </execution>
                         </executions>
                     </plugin>
-                    <plugin>
-                        <groupId>org.graalvm.buildtools</groupId>
-                        <artifactId>native-maven-plugin</artifactId>
-                        <version>0.10.3</version>
-                        <extensions>true</extensions>
-                        <executions>
-                            <execution>
-                                <id>build-native</id>
-                                <goals>
-                                    <goal>compile-no-fork</goal>
-                                </goals>
-                                <phase>package</phase>
-                            </execution>
-                        </executions>
-                        <configuration>
-                            <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
-                            <imageName>hedgehog</imageName>
-                            <buildArgs>
-                                <buildArg>--no-server</buildArg>
-                                <buildArg>-H:-ParseOnce</buildArg>
-                                <buildArg>--allow-incomplete-classpath</buildArg>
-                                <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
-                                <buildArg>-J-Xmx4g</buildArg>
-                                <buildArg>--gc=serial</buildArg>
-                                <buildArg>--no-fallback</buildArg>
-                                <buildArg>--verbose</buildArg>
-                                <buildArg>-H:IncludeResources=application\.properties|hash\.txt</buildArg>
-                            </buildArgs>
-                        </configuration>
-                    </plugin>
+                        <plugin>
+                            <groupId>org.graalvm.buildtools</groupId>
+                            <artifactId>native-maven-plugin</artifactId>
+                            <version>0.10.3</version>
+                            <extensions>true</extensions>
+                            <executions>
+                                <execution>
+                                    <id>build-native</id>
+                                    <goals>
+                                        <goal>compile-no-fork</goal>
+                                    </goals>
+                                    <phase>package</phase>
+                                </execution>
+                            </executions>
+                            <configuration>
+                                <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
+                                <imageName>hedgehog</imageName>
+                                <buildArgs>
+                                    <buildArg>--no-server</buildArg>
+                                    <buildArg>-H:-ParseOnce</buildArg>
+                                    <buildArg>--allow-incomplete-classpath</buildArg>
+                                    <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
+                                    <buildArg>-J-Xmx3g</buildArg>
+                                    <buildArg>-J-Xms3g</buildArg>
+                                    <buildArg>--gc=serial</buildArg>
+                                    <buildArg>--no-fallback</buildArg>
+                                    <buildArg>--verbose</buildArg>
+                                    <buildArg>-H:IncludeResources=application\.properties|hash\.txt</buildArg>
+                                </buildArgs>
+                            </configuration>
+                        </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-checkstyle-plugin</artifactId>
