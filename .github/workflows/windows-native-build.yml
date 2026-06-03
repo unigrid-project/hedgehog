@@ -13,7 +13,12 @@ jobs:
         shell: cmd
         run: |
           call vcvarsall.bat x64
+          # Öka sidfilen för att förhindra OOM-krascher
+          wmic pagefileset where name="C:\\pagefile.sys" set InitialSize=8192,MaximumSize=8192
+          
           mvn clean install -DskipTests=true
+          
+          if exist native-image\target\graalvm-reachability-metadata rmdir /s /q native-image\target\graalvm-reachability-metadata
           
           mkdir native-image\src\main\resources\META-INF\native-image
           
@@ -27,6 +32,8 @@ jobs:
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
+        
+
 
 
         
