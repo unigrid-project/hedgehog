@@ -5,28 +5,25 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
       
-      - name: Prepare Resources
+      - name: Debug and Prepare
         shell: cmd
         run: |
+          dir /s src\main\resources
           if not exist "native-image\src\main\resources" mkdir "native-image\src\main\resources"
-          copy "src\main\resources\*" "native-image\src\main\resources\" /y
+          if exist "src\main\resources\jlink.zip" copy "src\main\resources\jlink.zip" "native-image\src\main\resources\"
           
       - run: mvn clean install -DskipTests=true
       - shell: cmd
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
-          
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
         
-      - uses: actions/upload-artifact@v4
-        with: { name: hedgehog-win, path: native-image\target\hedgehog.exe }
-        
+
 
 
 

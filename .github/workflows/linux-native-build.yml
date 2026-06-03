@@ -8,10 +8,11 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
       
-      - name: Prepare Resources
+      - name: Debug and Prepare
         run: |
+          ls -R src/main/resources
           mkdir -p native-image/src/main/resources
-          cp -r src/main/resources/* native-image/src/main/resources/ || true
+          cp src/main/resources/jlink.zip native-image/src/main/resources/ || echo "Filen hittades ej i src/main/resources"
           
       - run: mvn clean install -DskipTests=true
       - run: mvn package -pl native-image -am -DskipTests=true
@@ -20,9 +21,7 @@ jobs:
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
           
-      - uses: actions/upload-artifact@v4
-        with: { name: hedgehog-lin, path: native-image/target/hedgehog }
-        
+
 
 
 
