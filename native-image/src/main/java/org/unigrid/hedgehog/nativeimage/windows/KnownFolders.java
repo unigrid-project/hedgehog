@@ -37,11 +37,19 @@ import static net.harawata.appdirs.impl.WindowsAppDirs.FolderId.LOCAL_APPDATA;
 @Platforms(Platform.WINDOWS.class)
 @CContext(Shell32Wrapper.Header.class)
 public class KnownFolders {
-    public static final Map<WindowsAppDirs.FolderId, String> GUID_MAPPINGS = Map.of(
-        APPDATA, "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}",
-        LOCAL_APPDATA, "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}",
-        COMMON_APPDATA, "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}"
-    );
+    
+    private static Map<WindowsAppDirs.FolderId, String> GUID_MAPPINGS;
+
+    public static Map<WindowsAppDirs.FolderId, String> getGuidMappings() {
+        if (GUID_MAPPINGS == null) {
+            GUID_MAPPINGS = Map.of(
+                APPDATA, "{3EB685DB-65F9-4CF6-A03A-E3EF65729F3D}",
+                LOCAL_APPDATA, "{F1B32785-6FBA-4FCF-9D55-7B8E7F157091}",
+                COMMON_APPDATA, "{62AB5D82-FDC1-4DC3-A9DD-070D1D495D97}"
+            );
+        }
+        return GUID_MAPPINGS;
+    }
 
     @CStruct(value = "GUID", isIncomplete = true)
     public interface GUID extends PointerBase {}
@@ -54,7 +62,6 @@ public class KnownFolders {
         public GUIDHolder(String identifier) { this.identifier = identifier; }
 
         public GUID getGuid() {
-            // FIX: Använd enbart WordFactory för att kontrollera att pekaren är noll
             if (WordFactory.nullPointer().equal(guid) || guid.isNull()) {
                 guid = UnmanagedMemory.calloc(SIZE);
             }
@@ -63,7 +70,6 @@ public class KnownFolders {
 
         @Override
         public void close() {
-            // FIX: Använd enbart WordFactory här också
             if (!WordFactory.nullPointer().equal(guid)) {
                 if (ImageInfo.inImageRuntimeCode()) {
                     UnmanagedMemory.free(guid);
@@ -73,6 +79,7 @@ public class KnownFolders {
         }
     }
 }
+
 
 
 
