@@ -1,5 +1,5 @@
-name: Build Linux (amd64) Executable
-on: [push, pull_request, workflow_dispatch]
+name: Build Linux
+on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -7,17 +7,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
+      
+      - name: Prepare Resources
+        run: |
+          mkdir -p native-image/src/main/resources
+          cp -r src/main/resources/* native-image/src/main/resources/ || true
+          
       - run: mvn clean install -DskipTests=true
       - run: mvn package -pl native-image -am -DskipTests=true
-      - name: Run Hedgehog (Verify)
+      - name: Verify
         run: |
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hedgehog-linux-output
-          path: native-image/target/hedgehog
           
+      - uses: actions/upload-artifact@v4
+        with: { name: hedgehog-lin, path: native-image/target/hedgehog }
+        
+
 
 
 

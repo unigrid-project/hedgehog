@@ -21,43 +21,42 @@ import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Properties;
 
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
-import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
     public static void main(String[] args) throws Exception {
+        // Försök ladda properties utan att krascha direkt
+        try (InputStream is = NativeImage.class.getResourceAsStream("/application.properties")) {
+            if (is == null) {
+                System.err.println("VARNING: application.properties hittades inte i resurser!");
+            } else {
+                Properties props = new Properties();
+                props.load(is);
+            }
+        }
+
         String hash = NativeProperties.getHash();
         final ApplicationDirectory appDir = ApplicationDirectory.create();
         final Path jlinkDist = appDir.getUserDataDir().resolve(hash);
 
         if (Files.notExists(jlinkDist) || ArrayUtils.contains(args, "--force-unpack")) {
-            Path localZip = Paths.get("jlink.zip");
-            
-            if (Files.exists(localZip)) {
-                // Local execution: file exists on disk
-                try (SeekableByteChannel channel = Files.newByteChannel(localZip)) {
-                    Unzipper.unzip(channel, appDir.getUserDataDir());
-                }
-            } else {
-                // Native Image execution: extract from internal resources
-                try (InputStream is = NativeImage.class.getClassLoader().getResourceAsStream("jlink.zip")) {
-                    if (is != null) {
-                        Path tempZip = Files.createTempFile("hedgehog-jlink", ".zip");
-                        Files.copy(is, tempZip, StandardCopyOption.REPLACE_EXISTING);
-                        
-                        try (SeekableByteChannel channel = Files.newByteChannel(tempZip)) {
-                            Unzipper.unzip(channel, appDir.getUserDataDir());
-                        }
-                        Files.deleteIfExists(tempZip);
-                    } else {
-                        throw new RuntimeException("Could not find jlink.zip neither locally nor in resources: " + localZip.toAbsolutePath());
+            try (InputStream is = NativeImage.class.getResourceAsStream("/jlink.zip")) {
+                if (is != null) {
+                    Path tempZip = Files.createTempFile("hedgehog-jlink", ".zip");
+                    Files.copy(is, tempZip, StandardCopyOption.REPLACE_EXISTING);
+                    try (SeekableByteChannel channel = Files.newByteChannel(tempZip)) {
+                        Unzipper.unzip(channel, appDir.getUserDataDir());
                     }
+                    Files.deleteIfExists(tempZip);
+                } else {
+                    // Om vi hamnar här, finns inte filen i den kompilerade binären
+                    throw new RuntimeException("Kunde inte hitta /jlink.zip i resurserna. Kolla pom.xml!");
                 }
             }
         }
@@ -66,24 +65,18 @@ public class NativeImage {
 
     private static void start(Path basePath, String[] args) throws Exception {
         Path script = basePath.resolve(NativeProperties.BIN_DIRECTORY).resolve(NativeProperties.getRunScript());
+        if (!Files.exists(script)) throw new IOException("Start script missing at: " + script.toAbsolutePath());
         
-        if (!Files.exists(script)) {
-            throw new IOException("Start script missing at: " + script.toAbsolutePath());
-        }
-
-        CommandLine cmdLine = new CommandLine("/bin/sh");
-        cmdLine.addArgument(script.toString());
+        CommandLine cmdLine = new CommandLine(System.getProperty("os.name").toLowerCase().contains("win") ? "cmd.exe" : "/bin/sh");
+        if (!cmdLine.getExecutable().equals("cmd.exe")) cmdLine.addArgument(script.toString());
         cmdLine.addArguments(args);
         
-        System.out.println("Executing: /bin/sh " + script.toAbsolutePath());
-        
         DefaultExecutor executor = new DefaultExecutor();
-        // Allow 143 (SIGTERM) and 2 (syntax errors) as valid exit codes
         executor.setExitValues(new int[]{0, 143, 2});
-        executor.setWatchdog(new ExecuteWatchdog(ExecuteWatchdog.INFINITE_TIMEOUT));
         executor.execute(cmdLine);
     }
 }
+
 
 
 
