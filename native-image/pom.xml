@@ -234,6 +234,9 @@
                             <configuration>
                                 <mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>
                                 <imageName>hedgehog</imageName>
+                                            <metadataRepository>
+                                                <enabled>false</enabled>
+                                            </metadataRepository>
                                             <buildArgs>
                                                 <buildArg>--no-fallback</buildArg>
                                                 <buildArg>--initialize-at-run-time=org.unigrid.hedgehog.nativeimage.NativeImage</buildArg>
@@ -242,7 +245,6 @@
                                                 <buildArg>--gc=serial</buildArg>
                                                 <buildArg>-H:TraceClassInitialization=true</buildArg>
                                             </buildArgs>
-                                         
                             </configuration>
                         </plugin>
                     <plugin>

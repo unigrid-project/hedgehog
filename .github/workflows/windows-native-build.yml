@@ -14,25 +14,19 @@ jobs:
         run: |
           call vcvarsall.bat x64
           wmic pagefileset where name="C:\\pagefile.sys" set InitialSize=8192,MaximumSize=8192
-          
-          # Inaktivera metadata-repo för att undvika krockar
           mvn clean install -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
-          
           if exist native-image\target\graalvm-reachability-metadata rmdir /s /q native-image\target\graalvm-reachability-metadata
-          
           mkdir native-image\src\main\resources\META-INF\native-image
-          
           copy application\src\main\resources\application.properties native-image\src\main\resources\
           copy application\src\main\resources\hash.txt native-image\src\main\resources\
           copy native-image\target\*-jlink.zip native-image\src\main\resources\jlink.zip
-          
           echo {"resources": {"includes": [{"pattern": "jlink.zip"}, {"pattern": "application.properties"}, {"pattern": "hash.txt"}]}} > native-image\src\main\resources\META-INF\native-image\resource-config.json
-          
-          mvn package -pl native-image -am -DskipTests=true
+          mvn package -pl native-image -am -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
         
+
 
 
 

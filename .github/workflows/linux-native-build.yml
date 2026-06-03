@@ -10,25 +10,21 @@ jobs:
 
       - name: Prepare and Build
         run: |
-          # Inaktivera metadata-repo för att undvika krockar
           mvn clean install -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
           rm -rf native-image/target/graalvm-reachability-metadata/
-          
           mkdir -p native-image/src/main/resources/META-INF/native-image
-          
           cp application/src/main/resources/application.properties native-image/src/main/resources/
           cp application/src/main/resources/hash.txt native-image/src/main/resources/
           cp native-image/target/*-jlink.zip native-image/src/main/resources/jlink.zip
-          
           echo '{"resources": {"includes": [{"pattern": "jlink.zip"}, {"pattern": "application.properties"}, {"pattern": "hash.txt"}]}}' > native-image/src/main/resources/META-INF/native-image/resource-config.json
-          
-          mvn package -pl native-image -am -DskipTests=true
+          mvn package -pl native-image -am -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
       
       - name: Verify
         run: |
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
           
+
 
 
 
