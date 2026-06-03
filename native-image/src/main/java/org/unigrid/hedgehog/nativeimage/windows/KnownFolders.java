@@ -26,7 +26,7 @@ import org.graalvm.nativeimage.UnmanagedMemory;
 import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.struct.CStruct;
 import org.graalvm.word.PointerBase;
-import org.graalvm.word.WordFactory; // Viktig för att stoppa Word-to-Object fel
+import org.graalvm.word.WordFactory;
 
 import lombok.Getter;
 import net.harawata.appdirs.impl.WindowsAppDirs;
@@ -54,13 +54,16 @@ public class KnownFolders {
         public GUIDHolder(String identifier) { this.identifier = identifier; }
 
         public GUID getGuid() {
-            if (guid == null || guid.isNull()) { guid = UnmanagedMemory.calloc(SIZE); }
+            // FIX: Använd enbart WordFactory för att kontrollera att pekaren är noll
+            if (WordFactory.nullPointer().equal(guid) || guid.isNull()) {
+                guid = UnmanagedMemory.calloc(SIZE);
+            }
             return guid;
         }
 
         @Override
         public void close() {
-            // Fix: Använd WordFactory.nullPointer() för att jämföra pekare
+            // FIX: Använd enbart WordFactory här också
             if (!WordFactory.nullPointer().equal(guid)) {
                 if (ImageInfo.inImageRuntimeCode()) {
                     UnmanagedMemory.free(guid);
@@ -70,6 +73,7 @@ public class KnownFolders {
         }
     }
 }
+
 
 
 
