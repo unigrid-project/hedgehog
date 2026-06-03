@@ -8,12 +8,13 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
       
-      - name: Debug and Prepare
+      - name: Locate and Prepare Resources
         shell: cmd
         run: |
-          dir /s src\main\resources
           if not exist "native-image\src\main\resources" mkdir "native-image\src\main\resources"
-          if exist "src\main\resources\jlink.zip" copy "src\main\resources\jlink.zip" "native-image\src\main\resources\"
+          for /r %i in (jlink.zip) do copy "%i" "native-image\src\main\resources\"
+          for /r %i in (application.properties) do copy "%i" "native-image\src\main\resources\"
+          dir "native-image\src\main\resources\"
           
       - run: mvn clean install -DskipTests=true
       - shell: cmd
@@ -23,6 +24,7 @@ jobs:
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
         
+
 
 
 
