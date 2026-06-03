@@ -74,11 +74,13 @@ public class KnownFolders {
                 if (ImageInfo.inImageRuntimeCode()) {
                     UnmanagedMemory.free(guid);
                 }
-                guid = null;
+                // FIX: Använd WordFactory.nullPointer() istället för Java null
+                guid = WordFactory.nullPointer();
             }
         }
     }
 }
+
 
 
 
