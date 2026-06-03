@@ -246,7 +246,7 @@
                                 <buildArg>-H:IncludeResources=application\.properties</buildArg>
                                 <buildArg>-H:IncludeResources=hash\.txt</buildArg>
                             </buildArgs>
-                            </configuration>
+                        </configuration>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>

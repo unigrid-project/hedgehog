@@ -1,13 +1,18 @@
 name: Build Linux Native
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Setup GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -28,6 +33,7 @@ jobs:
           name: hedgehog-linux
           path: native-image/target/hedgehog
           
+
           
           
           
