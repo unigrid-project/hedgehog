@@ -31,10 +31,10 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
     public static void main(String[] args) throws Exception {
-        // Försök ladda properties utan att krascha direkt
-        try (InputStream is = NativeImage.class.getResourceAsStream("/application.properties")) {
+        // Ändrat till "application.properties" utan inledande /
+        try (InputStream is = NativeImage.class.getClassLoader().getResourceAsStream("application.properties")) {
             if (is == null) {
-                System.err.println("VARNING: application.properties hittades inte i resurser!");
+                System.err.println("VARNING: application.properties hittades inte!");
             } else {
                 Properties props = new Properties();
                 props.load(is);
@@ -46,7 +46,8 @@ public class NativeImage {
         final Path jlinkDist = appDir.getUserDataDir().resolve(hash);
 
         if (Files.notExists(jlinkDist) || ArrayUtils.contains(args, "--force-unpack")) {
-            try (InputStream is = NativeImage.class.getResourceAsStream("/jlink.zip")) {
+            // Ändrat till "jlink.zip" utan inledande /
+            try (InputStream is = NativeImage.class.getClassLoader().getResourceAsStream("jlink.zip")) {
                 if (is != null) {
                     Path tempZip = Files.createTempFile("hedgehog-jlink", ".zip");
                     Files.copy(is, tempZip, StandardCopyOption.REPLACE_EXISTING);
@@ -55,8 +56,8 @@ public class NativeImage {
                     }
                     Files.deleteIfExists(tempZip);
                 } else {
-                    // Om vi hamnar här, finns inte filen i den kompilerade binären
-                    throw new RuntimeException("Kunde inte hitta /jlink.zip i resurserna. Kolla pom.xml!");
+                    // Ändrat felmeddelande utan /
+                    throw new RuntimeException("Kunde inte hitta jlink.zip i resurserna!");
                 }
             }
         }
@@ -76,6 +77,7 @@ public class NativeImage {
         executor.execute(cmdLine);
     }
 }
+
 
 
 
