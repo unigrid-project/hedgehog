@@ -9,28 +9,27 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with: { java-version: '25', distribution: 'graalvm-community', components: 'native-image' }
 
+      # 1. FLYTTA FILERNA INNAN NÅGOT BYGGE STARTAR
       - name: Prepare Resources
         shell: bash
         run: |
           mkdir -p native-image/src/main/resources
-          cp jlink.zip native-image/src/main/resources/ || echo "Warning: jlink.zip missing"
-          cp application.properties native-image/src/main/resources/ || echo "Warning: properties missing"
-          cp hash.txt native-image/src/main/resources/ || echo "Warning: hash.txt missing"
+          cp jlink.zip native-image/src/main/resources/
+          cp application.properties native-image/src/main/resources/
+          cp hash.txt native-image/src/main/resources/
+          echo "Resurser är nu på plats i native-image/src/main/resources/"
 
+      # 2. NU KAN MAVEN SE FILERNA
       - run: mvn clean install -DskipTests=true
-      - name: Build Native Image
-        shell: cmd
+      - shell: cmd
         run: |
           call vcvarsall.bat x64
           mvn package -pl native-image -am -DskipTests=true
           
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hedgehog-win
-          path: native-image/target/hedgehog.exe
-          
+        
+
 
 
 
