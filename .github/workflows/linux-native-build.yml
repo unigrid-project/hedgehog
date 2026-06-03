@@ -10,7 +10,8 @@ jobs:
 
       - name: Prepare and Build
         run: |
-          mvn clean install -DskipTests=true
+          # Inaktivera metadata-repo för att undvika krockar
+          mvn clean install -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
           rm -rf native-image/target/graalvm-reachability-metadata/
           
           mkdir -p native-image/src/main/resources/META-INF/native-image
@@ -28,6 +29,7 @@ jobs:
           chmod +x native-image/target/hedgehog
           ./native-image/target/hedgehog --version
           
+
 
 
 

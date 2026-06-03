@@ -13,10 +13,10 @@ jobs:
         shell: cmd
         run: |
           call vcvarsall.bat x64
-          # Öka sidfilen för att förhindra OOM-krascher
           wmic pagefileset where name="C:\\pagefile.sys" set InitialSize=8192,MaximumSize=8192
           
-          mvn clean install -DskipTests=true
+          # Inaktivera metadata-repo för att undvika krockar
+          mvn clean install -DskipTests=true -Dnative.maven.plugin.metadata.repository.enabled=false
           
           if exist native-image\target\graalvm-reachability-metadata rmdir /s /q native-image\target\graalvm-reachability-metadata
           
@@ -33,6 +33,7 @@ jobs:
       - name: Verify
         run: .\native-image\target\hedgehog.exe --version
         
+
 
 
 
