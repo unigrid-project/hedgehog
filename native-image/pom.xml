@@ -13,7 +13,7 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<graal.version>22.3.0</graal.version>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<profiles>
 		<profile>
@@ -70,7 +70,7 @@
 									</goals>
 									<configuration>
 										<target>
-											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}" />
+											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
 										</target>
 									</configuration>
 								</execution>
@@ -133,7 +133,7 @@
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-compress</artifactId>
-			<version>1.22</version>
+			<version>1.26.2</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.commons</groupId>
