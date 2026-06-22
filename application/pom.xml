@@ -12,7 +12,7 @@
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<profiles>
 		<profile>
@@ -176,7 +176,7 @@
 		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-codec-http</artifactId>
-			<version>4.1.90.Final</version>
+			<version>4.1.115.Final</version>
 		</dependency>
 		<dependency>
 			<groupId>org.jboss</groupId>
