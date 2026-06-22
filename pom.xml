@@ -7,7 +7,7 @@
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<scm>
 		<developerConnection>scm:git:https://github.com/unigrid-project/hedgehog.git</developerConnection>
@@ -33,7 +33,7 @@
 			<dependency>
 				<groupId>ch.qos.logback</groupId>
 				<artifactId>logback-classic</artifactId>
-				<version>1.3.0-alpha16</version>
+				<version>1.5.6</version>
 			</dependency>
 			<dependency>
 				<groupId>org.slf4j</groupId>
@@ -53,7 +53,7 @@
 						<tagNameFormat>v@{project.version}</tagNameFormat>
 						<autoVersionSubmodules>true</autoVersionSubmodules>
 						<dryRun>${dryRun}</dryRun>
-						<preparationGoals />
+						<preparationGoals/>
 						<pushChanges>false</pushChanges>
 						<scmDevelopmentCommitComment>@{prefix} Prepare for next development iteration</scmDevelopmentCommitComment>
 						<scmReleaseCommitComment>@{prefix} Prepare release @{releaseLabel}</scmReleaseCommitComment>
