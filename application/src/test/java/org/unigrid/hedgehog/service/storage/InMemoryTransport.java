@@ -44,6 +44,7 @@ public class InMemoryTransport implements FragmentTransport {
 	private final Set<String> silent = ConcurrentHashMap.newKeySet();
 	private final Map<String, UnaryOperator<byte[]>> tampering = new ConcurrentHashMap<>();
 	private final Map<String, UnaryOperator<List<FragmentStatus.Entry>>> lies = new ConcurrentHashMap<>();
+	private final Set<String> discarding = ConcurrentHashMap.newKeySet();
 	@Getter private final List<byte[]> sent = new CopyOnWriteArrayList<>();
 	@Getter private final AtomicInteger fetches = new AtomicInteger();
 
@@ -73,10 +74,16 @@ public class InMemoryTransport implements FragmentTransport {
 		tampering.put(id, change);
 	}
 
+	/* A discarding gridnode acknowledges every store and keeps nothing */
+	public void discard(String id) {
+		discarding.add(id);
+	}
+
 	@Override
 	public CompletableFuture<StorageAck> store(Gridnode target, byte[] fragment) {
 		sent.add(fragment.clone());
-		return call(target, keeper -> StorageAck.builder().status(keeper.store(fragment)).build());
+		return call(target, keeper -> StorageAck.builder().status(discarding.contains(target.getId())
+			? StorageStatus.OK : keeper.store(fragment)).build());
 	}
 
 	@Override

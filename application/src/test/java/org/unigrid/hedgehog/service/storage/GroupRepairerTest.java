@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -396,6 +397,25 @@ public class GroupRepairerTest {
 
 		assertThat(store.groups(), equalTo(held.stream().filter(groupId -> Placement.rankOf(groupId,
 			fleet.getGridnodes(), self).getAsInt() < parameters.window()).collect(Collectors.toSet())));
+	}
+
+	@Property(tries = 30)
+	public void keepsFragmentsNoTargetReallyStored(@ForAll("parameters") StorageSpork.SporkData parameters,
+		@ForAll long seed, @ForAll @IntRange(min = 1, max = 3) int joins) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
+
+		storeSomething(fleet, random);
+		IntStream.range(0, joins).forEach(joined -> fleet.join());
+
+		final Map<String, Set<GroupId>> held = fleet.getStores().entrySet().stream()
+			.collect(Collectors.toMap(Map.Entry::getKey, store -> store.getValue().groups()));
+
+		fleet.getGridnodes().forEach(gridnode -> fleet.getTransport().discard(gridnode.getId()));
+		fleet.runRepairEpochs(2 * parameters.window());
+
+		held.forEach((id, groups) -> assertThat(fleet.getStores().get(id).groups(), equalTo(groups)));
 	}
 
 	@Property(tries = 30)

@@ -167,7 +167,7 @@ public class GroupRepairer {
 
 				if (deletion.isPresent()) {
 					tombstone(groupId, deletion.get());
-				} else if (deliver(local.get(), free(window, census).iterator())) {
+				} else if (handOver(local.get(), free(window, census))) {
 					store.remove(groupId);
 				}
 			}
@@ -257,6 +257,19 @@ public class GroupRepairer {
 			replies.forEach((claimant, reply) -> verified(reply, local, claims.get(claimant))
 				.ifPresent(fragment -> sources.putIfAbsent(fragment.getIndex(), fragment)));
 			return sources;
+		}
+
+		/* An acknowledgement costs a peer nothing, so the local copy only goes once the target serves it back */
+		private boolean handOver(final Fragment fragment, final List<Gridnode> targets) {
+			final byte[] encoded = fragment.encode();
+
+			return targets.stream().anyMatch(target -> GroupDistributor.stored(transport.store(target, encoded))
+				&& servesBack(target, fragment));
+		}
+
+		private boolean servesBack(final Gridnode target, final Fragment fragment) {
+			final CompletableFuture<FragmentReply> reply = transport.fetch(target, fragment.groupId());
+			return verified(reply, fragment, fragment.getIndex()).isPresent();
 		}
 
 		private boolean deliver(final Fragment fragment, final Iterator<Gridnode> targets) {
