@@ -167,6 +167,24 @@ public class GroupRepairerTest {
 		}
 	}
 
+	@Property(tries = 200)
+	public void spotChecksEveryHolderOnceInEveryFewDutyVisits(@ForAll @Size(32) byte[] group, @ForAll long start,
+		@ForAll @IntRange(min = 1, max = 300) int width) {
+
+		final GroupId groupId = GroupId.of(group);
+		final long firstEpoch = Math.floorMod(start, Long.MAX_VALUE / 2);
+		final int cycle = GroupRepairer.SPOT_CHECK_EVERY * width;
+
+		for (int rank = 0; rank < width; rank++) {
+			final int candidate = rank;
+			final long checks = LongStream.range(firstEpoch, firstEpoch + cycle)
+				.filter(epoch -> GroupRepairer.isDuty(groupId, candidate, epoch, width)
+					&& GroupRepairer.isSpotCheckDue(groupId, epoch, width)).count();
+
+			assertThat(checks, equalTo(1L));
+		}
+	}
+
 	@Property(tries = 300)
 	public void repairsExactlyFromTheThreshold(@ForAll @IntRange(min = 1, max = 64) int dataFragments,
 		@ForAll @IntRange(min = 1, max = 64) int parityFragments,
@@ -227,7 +245,7 @@ public class GroupRepairerTest {
 
 		holders.subList(0, lost).forEach(g -> fleet.wipe(g.getId()));
 
-		for (int epoch = 0; epoch < 20 * parameters.window()
+		for (int epoch = 0; epoch < 80 * parameters.window()
 			&& fleet.distinctIndicesOf(groupId, parameters.window()) < layout.guaranteedFragments(); epoch++) {
 
 			fleet.runRepairEpochs(1);

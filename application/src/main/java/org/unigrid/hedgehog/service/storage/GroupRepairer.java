@@ -62,6 +62,8 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 @Slf4j
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public class GroupRepairer {
+	static final int SPOT_CHECK_EVERY = 4;
+
 	private final FragmentStore store;
 	private final GridnodeDirectory directory;
 	private final FragmentTransport transport;
@@ -81,6 +83,15 @@ public class GroupRepairer {
 	   and a dead duty holder only delays the check by one epoch. */
 	public static boolean isDuty(final GroupId groupId, final int rank, final long epoch, final int width) {
 		return rank == Math.floorMod(epoch + Integer.toUnsignedLong(groupId.prefix()), width);
+	}
+
+	/* A spot check moves a whole fragment where a census answer is a few bytes, so checking on every duty visit
+	   would add a fragment transfer per group and interval. Every fourth visit cuts that to a quarter, while a liar
+	   is still caught within about four times as many visits. Knowing the schedule does not help a liar: answering
+	   NONE in a checked round only makes the loss visible. */
+	static boolean isSpotCheckDue(final GroupId groupId, final long epoch, final int width) {
+		final long cycle = Math.floorDiv(epoch + Integer.toUnsignedLong(groupId.prefix()), width);
+		return Math.floorMod(cycle, SPOT_CHECK_EVERY) == 0;
 	}
 
 	public static boolean needsRepair(final GroupDescriptor descriptor, final int present, final int thresholdPercent) {
@@ -187,7 +198,9 @@ public class GroupRepairer {
 
 			if (deletion.isPresent()) {
 				tombstone(groupId, deletion.get());
-			} else if (isShort(local.get(), claims) || !spotCheck(local.get(), claims)) {
+			} else if (isShort(local.get(), claims)
+				|| (isSpotCheckDue(groupId, epoch, width) && !spotCheck(local.get(), claims))) {
+
 				rebuild(local.get(), claims, free(window, census));
 			}
 		}
@@ -197,8 +210,8 @@ public class GroupRepairer {
 				parameters.getRepairThresholdPercent());
 		}
 
-		/* A census claim is unauthenticated, so each duty round makes one random claimant prove it. A lone liar
-		   hiding a loss is caught after about as many duty rounds as there are claimants, and a caught liar counts
+		/* A census claim is unauthenticated, so a spot check makes one random claimant prove it. A lone liar
+		   hiding a loss is caught after about as many spot checks as there are claimants, and a caught liar counts
 		   as absent. L colluding liars can still hold repair back until the real losses reach the threshold plus
 		   L - 1, so the parity must outnumber the liars a window can hold. Returns whether the group still holds
 		   up without the claims that failed. */
