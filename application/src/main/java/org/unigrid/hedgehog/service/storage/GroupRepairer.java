@@ -243,8 +243,9 @@ public class GroupRepairer {
 		private void rebuild(final Fragment local, final Map<Gridnode, Integer> claims, final List<Gridnode> free) {
 			final GroupDescriptor descriptor = local.getDescriptor();
 
+			/* Loud on purpose: after a steep spork shrink no holder may repair the group, so it starves */
 			if (!isAffordable(descriptor)) {
-				log.atDebug().log("Skipping the repair of a group beyond what this gridnode rebuilds");
+				log.atWarn().log("Skipping the repair of a group beyond what this gridnode rebuilds");
 				return;
 			}
 
