@@ -82,18 +82,19 @@ public class FragmentKeeperTest {
 		assertThat(keeper(store()).store(tampered), equalTo(StorageStatus.INVALID));
 	}
 
-	@Property(tries = 60)
-	public void refusesFragmentsFarLargerThanTheSporkAllows(@ForAll long seed,
-		@ForAll @IntRange(min = 1, max = 64) int sporkFragmentSize) {
+	@Property(tries = 100)
+	public void refusesFragmentsFarFromTheSporkSize(@ForAll long seed,
+		@ForAll @IntRange(min = 1, max = 5000) int sporkFragmentSize) {
 
 		final Random random = new Random(seed);
 		final StorageSpork.SporkData parameters = StorageTestData.parameters();
 		final Fragment fragment = StorageTestData.group(StorageTestData.key(random), random).get(0);
+		final int size = fragment.getDescriptor().getFragmentSize();
 
 		parameters.setFragmentSize(sporkFragmentSize);
 
 		assertThat(new FragmentKeeper(store(), () -> Optional.of(parameters)).store(fragment.encode()),
-			equalTo(fragment.getData().length > 16 * sporkFragmentSize
+			equalTo(size > 16 * sporkFragmentSize || size < Math.max(1, sporkFragmentSize / 16)
 				? StorageStatus.INVALID : StorageStatus.OK));
 	}
 
@@ -145,7 +146,7 @@ public class FragmentKeeperTest {
 		final GroupKey key = StorageTestData.key(random);
 		final byte[] encoded = StorageTestData.group(key, random).get(index).encode();
 		final StorageSpork.SporkData parameters = StorageTestData.parameters();
-		parameters.setMaxBytesPerNode(room % encoded.length);
+		parameters.setMaxBytesPerNode(room % Math.max(encoded.length, FragmentStore.MIN_ENTRY_COST));
 
 		final FragmentKeeper keeper = new FragmentKeeper(store(), () -> Optional.of(parameters));
 

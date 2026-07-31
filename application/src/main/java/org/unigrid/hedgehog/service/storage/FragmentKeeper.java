@@ -67,10 +67,14 @@ public class FragmentKeeper {
 			.map(fragment -> put(fragment, encoded, parameters.get())).orElse(StorageStatus.INVALID);
 	}
 
-	/* Groups sealed under an earlier spork stay storable after it shrinks the fragment size, but only within a
-	   bounded factor, since a validly signed group may otherwise claim any size at all */
+	/* Groups sealed under an earlier spork stay storable after it changes the fragment size, but only within a
+	   bounded factor either way: a validly signed group may otherwise claim any size at all, and a flood of tiny
+	   fragments costs far more in files and bookkeeping than in bytes */
 	private static boolean isWithinGrowth(final Fragment fragment, final StorageSpork.SporkData parameters) {
-		return fragment.getDescriptor().getFragmentSize() <= (long) GROWTH_TOLERANCE * parameters.getFragmentSize();
+		final long size = fragment.getDescriptor().getFragmentSize();
+
+		return size >= Math.max(1, parameters.getFragmentSize() / GROWTH_TOLERANCE)
+			&& size <= (long) GROWTH_TOLERANCE * parameters.getFragmentSize();
 	}
 
 	public Optional<byte[]> fetch(final GroupId groupId) {

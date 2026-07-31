@@ -62,7 +62,8 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;
 public class FragmentStoreTest {
 	private static final StorageFormat FORMAT = StorageFormat.current();
 	private static final int SLOTS = 32;
-	private static final long UNLIMITED = 1_000_000;
+	private static final long UNLIMITED = 1L << 40;
+	private static final long COST = FragmentStore.MIN_ENTRY_COST;
 	private static final int HEADER_SIZE = 12;
 	private static final int POOL_OF_IDS = 8;
 	private static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
@@ -138,7 +139,7 @@ public class FragmentStoreTest {
 			Tuple.of(2, Kind.DELETE), Tuple.of(1, Kind.PURGE), Tuple.of(2, Kind.ADVANCE), Tuple.of(1, Kind.RESTART));
 
 		return Combinators.combine(kinds, Arbitraries.integers().between(0, POOL_OF_IDS - 1), Arbitraries.of(Tier.class),
-			Arbitraries.integers().between(0, 60), Arbitraries.integers().between(1, 3000))
+			Arbitraries.integers().between(0, 3 * (int) COST), Arbitraries.integers().between(1, 3000))
 			.as(Operation::new).list().ofMaxSize(80);
 	}
 
@@ -153,7 +154,7 @@ public class FragmentStoreTest {
 		@ForAll @IntRange(min = 0, max = 255) int index, @ForAll @IntRange(min = 0, max = 255) int slots,
 		@ForAll Tier tier) {
 
-		final FragmentStore store = store(root(), new TestClock(), 1000, 50);
+		final FragmentStore store = store(root(), new TestClock(), UNLIMITED, 50);
 		final GroupId id = group();
 
 		assertThat(store.put(id, FORMAT, slots, tier, index, payload), equalTo(PutResult.STORED));
@@ -165,7 +166,7 @@ public class FragmentStoreTest {
 
 	@Property(tries = 100)
 	public void rejectsSlotsAndIndicesOutsideAByte(@ForAll("outsideAByte") int value) {
-		final FragmentStore store = store(root(), new TestClock(), 1000, 50);
+		final FragmentStore store = store(root(), new TestClock(), UNLIMITED, 50);
 
 		assertThrows(IllegalArgumentException.class,
 			() -> store.put(group(), FORMAT, value, Tier.GUARANTEED, 0, new byte[1]));
@@ -226,7 +227,7 @@ public class FragmentStoreTest {
 		final TestClock clock = new TestClock();
 		final GroupId id = group();
 		final DeleteProof proof = proof();
-		FragmentStore store = store(root, clock, 1000, 50);
+		FragmentStore store = store(root, clock, UNLIMITED, 50);
 		long elapsed = 0;
 
 		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
@@ -243,7 +244,7 @@ public class FragmentStoreTest {
 			}
 
 			if (restart) {
-				store = store(root, clock, 1000, 50);
+				store = store(root, clock, UNLIMITED, 50);
 			}
 
 			assertThat(store.isTombstoned(id), is(elapsed < keepMinutes));
@@ -288,6 +289,30 @@ public class FragmentStoreTest {
 		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
 	}
 
+	@SneakyThrows
+	@Property(tries = 50)
+	public void boundsTheCountOfHoldingsByTheQuota(@ForAll @IntRange(max = 64) int entries,
+		@ForAll @IntRange(max = (int) COST - 1) int slack, @ForAll @IntRange(max = 100) int extraPoolPercent,
+		@ForAll @Size(min = 70, max = 90) List<@IntRange(max = 100) Integer> sizes) {
+
+		final long maxBytes = entries * COST + slack;
+		final FragmentStore store = store(root(), new TestClock(), maxBytes, extraPoolPercent);
+
+		for (int size : sizes) {
+			store.put(group(), FORMAT, SLOTS, size % 2 == 0 ? Tier.GUARANTEED : Tier.EXTRA, 0, new byte[size]);
+			assertThat((long) store.groups().size(), lessThanOrEqualTo(maxBytes / COST));
+		}
+
+		store.limits(maxBytes, 0);
+
+		for (int size : sizes) {
+			store.put(group(), FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[size]);
+		}
+
+		assertThat(store.groups().size(), equalTo(entries));
+		assertThat(store.usedBytes(), equalTo(entries * COST));
+	}
+
 	@Provide
 	public Arbitrary<DeleteProof> malformedProofs() {
 		final Arbitrary<byte[]> anyBytes = Arbitraries.bytes().array(byte[].class).ofMaxSize(2 * GroupKey.SIGNATURE_SIZE);
@@ -300,7 +325,7 @@ public class FragmentStoreTest {
 	@Property(tries = 50)
 	public void refusesMalformedProofs(@ForAll("malformedProofs") DeleteProof malformed) {
 		final Path root = root();
-		final FragmentStore store = store(root, new TestClock(), 1000, 50);
+		final FragmentStore store = store(root, new TestClock(), UNLIMITED, 50);
 		final GroupId id = group();
 
 		store.put(id, FORMAT, SLOTS, Tier.GUARANTEED, 0, new byte[4]);
@@ -314,7 +339,7 @@ public class FragmentStoreTest {
 	}
 
 	@Property(tries = 200)
-	public void behavesLikeItsModel(@ForAll @IntRange(min = 10, max = 400) int maxBytes,
+	public void behavesLikeItsModel(@ForAll @IntRange(min = (int) COST / 2, max = 24 * (int) COST) int maxBytes,
 		@ForAll @IntRange(min = 0, max = 100) int extraPoolPercent, @ForAll("operations") List<Operation> operations) {
 
 		final Harness harness = new Harness(maxBytes, extraPoolPercent);
@@ -339,7 +364,7 @@ public class FragmentStoreTest {
 
 		long bytes(Tier... tiers) {
 			return holdings.values().stream().filter(holding -> Arrays.asList(tiers).contains(holding.getTier()))
-				.mapToLong(Holding::getSize).sum();
+				.mapToLong(holding -> Math.max(holding.getSize(), COST)).sum();
 		}
 
 		boolean isTombstoned(GroupId id, Instant now) {
@@ -349,16 +374,17 @@ public class FragmentStoreTest {
 
 		PutResult put(GroupId id, Tier tier, int size, Instant now) {
 			final long room = maxBytes - bytes(Tier.GUARANTEED);
+			final long cost = Math.max(size, COST);
 
 			if (isTombstoned(id, now)) {
 				return PutResult.TOMBSTONE;
 			} else if (holdings.containsKey(id)) {
 				return PutResult.DUPLICATE;
-			} else if (size > (tier == Tier.GUARANTEED ? room : Math.min(room, extraLimit))) {
+			} else if (cost > (tier == Tier.GUARANTEED ? room : Math.min(room, extraLimit))) {
 				return PutResult.QUOTA;
 			}
 
-			while (bytes(Tier.values()) + size > maxBytes || tier == Tier.EXTRA && bytes(Tier.EXTRA) + size > extraLimit) {
+			while (bytes(Tier.values()) + cost > maxBytes || tier == Tier.EXTRA && bytes(Tier.EXTRA) + cost > extraLimit) {
 				holdings.remove(oldestExtra());
 			}
 

@@ -68,6 +68,10 @@ public class FragmentStore {
 		private final DeleteProof proof;
 	}
 
+	/* Every entry costs a file, an inode and a heap entry whatever its size, so charging at least this much lets
+	   the quota bound how many entries there are as well as how many bytes they hold */
+	public static final long MIN_ENTRY_COST = 4096;
+
 	private static final String FRAGMENT_SUFFIX = ".frag";
 	private static final String TEMPORARY_SUFFIX = ".tmp";
 	private static final String TOMBSTONES = "tombstones";
@@ -117,7 +121,7 @@ public class FragmentStore {
 			return PutResult.DUPLICATE;
 		}
 
-		if (!makeRoom(tier, payload.length)) {
+		if (!makeRoom(tier, costOf(payload.length))) {
 			return PutResult.QUOTA;
 		}
 
@@ -149,10 +153,10 @@ public class FragmentStore {
 			return false;
 		}
 
-		usedBytes -= holding.getSize();
+		usedBytes -= costOf(holding.getSize());
 
 		if (holding.getTier() == Tier.EXTRA) {
-			extraBytes -= holding.getSize();
+			extraBytes -= costOf(holding.getSize());
 			extrasByAge.remove(holding.getSequence());
 		}
 
@@ -212,6 +216,10 @@ public class FragmentStore {
 		}
 	}
 
+	private static long costOf(long size) {
+		return Math.max(size, MIN_ENTRY_COST);
+	}
+
 	private long extraLimit() {
 		return Math.min(maxBytes, maxBytes * extraPoolPercent / 100);
 	}
@@ -238,10 +246,10 @@ public class FragmentStore {
 
 	private void track(GroupId id, Holding holding) {
 		holdings.put(id, holding);
-		usedBytes += holding.getSize();
+		usedBytes += costOf(holding.getSize());
 
 		if (holding.getTier() == Tier.EXTRA) {
-			extraBytes += holding.getSize();
+			extraBytes += costOf(holding.getSize());
 			extrasByAge.put(holding.getSequence(), id);
 		}
 	}
