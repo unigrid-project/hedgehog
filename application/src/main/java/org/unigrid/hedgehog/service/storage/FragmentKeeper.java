@@ -90,7 +90,8 @@ public class FragmentKeeper {
 		return groupIds.stream().map(this::entryOf).collect(Collectors.toList());
 	}
 
-	/* The proof is self-certifying, so a node that never held the group keeps the tombstone as well */
+	/* The proof is self-certifying, so a node that never held the group keeps the tombstone as well, as long as
+	   the store's tombstone budget allows */
 	public StorageStatus delete(final GroupId groupId, final byte[] publicKey, final long timestamp,
 		final byte[] signature) {
 
@@ -110,7 +111,7 @@ public class FragmentKeeper {
 			return StorageStatus.INVALID;
 		}
 
-		return tombstone(groupId, proof, parameters.get().getTombstoneDays());
+		return tombstone(groupId, proof, parameters.get());
 	}
 
 	private StorageStatus put(final Fragment fragment, final byte[] encoded, final StorageSpork.SporkData parameters) {
@@ -127,10 +128,14 @@ public class FragmentKeeper {
 		}
 	}
 
-	private StorageStatus tombstone(final GroupId groupId, final DeleteProof proof, final int tombstoneDays) {
+	private StorageStatus tombstone(final GroupId groupId, final DeleteProof proof,
+		final StorageSpork.SporkData parameters) {
+
+		store.limits(parameters.getMaxBytesPerNode(), parameters.getExtraPoolPercent());
+
 		try {
-			store.delete(groupId, Duration.ofDays(tombstoneDays), proof);
-			return StorageStatus.OK;
+			final boolean kept = store.delete(groupId, Duration.ofDays(parameters.getTombstoneDays()), proof);
+			return kept ? StorageStatus.OK : StorageStatus.QUOTA;
 		} catch (IOException ex) {
 			warn("Unable to tombstone a group", ex);
 			return StorageStatus.ERROR;

@@ -71,6 +71,7 @@ public class FragmentStore {
 	/* Every entry costs a file, an inode and a heap entry whatever its size, so charging at least this much lets
 	   the quota bound how many entries there are as well as how many bytes they hold */
 	public static final long MIN_ENTRY_COST = 4096;
+	public static final int TOMBSTONE_BUDGET_PERCENT = 1;
 
 	private static final String FRAGMENT_SUFFIX = ".frag";
 	private static final String TEMPORARY_SUFFIX = ".tmp";
@@ -164,10 +165,16 @@ public class FragmentStore {
 		return true;
 	}
 
-	/* [expiry u64][timestamp i64][public key 32 bytes][signature 64 bytes] */
-	public synchronized void delete(GroupId id, Duration keepTombstone, DeleteProof proof) throws IOException {
+	/* [expiry u64][timestamp i64][public key 32 bytes][signature 64 bytes]
+	   A valid proof costs anyone only a fresh key, so a group this node does not hold is tombstoned only within
+	   a budget, while a held group always is, in exchange for the room its fragment frees. */
+	public synchronized boolean delete(GroupId id, Duration keepTombstone, DeleteProof proof) throws IOException {
 		if (!proof.isWellFormed()) {
 			throw new IllegalArgumentException("A delete proof has a 32-byte key and a 64-byte signature");
+		}
+
+		if (!holdings.containsKey(id) && !tombstones.containsKey(id) && !admitsTombstone()) {
+			return false;
 		}
 
 		final Instant expiry = clock.instant().plus(keepTombstone);
@@ -175,8 +182,9 @@ public class FragmentStore {
 		write(tombstoneDirectory.resolve(id.toHex()), ByteBuffer.allocate(TOMBSTONE_SIZE)
 			.putLong(expiry.toEpochMilli()).putLong(proof.getTimestamp()).put(proof.getPublicKey())
 			.put(proof.getSignature()).array());
-		tombstones.put(id, new Tombstone(expiry, proof));
 		remove(id);
+		keep(id, new Tombstone(expiry, proof));
+		return true;
 	}
 
 	public synchronized Optional<DeleteProof> tombstone(GroupId id) {
@@ -194,6 +202,7 @@ public class FragmentStore {
 
 		for (GroupId id : expired) {
 			tombstones.remove(id);
+			usedBytes -= MIN_ENTRY_COST;
 			Files.deleteIfExists(tombstoneDirectory.resolve(id.toHex()));
 		}
 	}
@@ -218,6 +227,17 @@ public class FragmentStore {
 
 	private static long costOf(long size) {
 		return Math.max(size, MIN_ENTRY_COST);
+	}
+
+	private boolean admitsTombstone() throws IOException {
+		return (tombstones.size() + 1) * MIN_ENTRY_COST <= maxBytes / 100 * TOMBSTONE_BUDGET_PERCENT
+			&& makeRoom(Tier.GUARANTEED, MIN_ENTRY_COST);
+	}
+
+	private void keep(GroupId id, Tombstone tombstone) {
+		if (tombstones.put(id, tombstone) == null) {
+			usedBytes += MIN_ENTRY_COST;
+		}
 	}
 
 	private long extraLimit() {
@@ -330,7 +350,7 @@ public class FragmentStore {
 
 		for (Path file : files) {
 			try {
-				tombstones.put(groupOf(file, ""), readTombstone(file));
+				keep(groupOf(file, ""), readTombstone(file));
 			} catch (IllegalArgumentException ex) {
 				discard(file, "tombstone");
 			}

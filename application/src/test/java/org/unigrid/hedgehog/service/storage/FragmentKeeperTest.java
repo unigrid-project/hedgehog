@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
@@ -210,6 +212,38 @@ public class FragmentKeeperTest {
 		assertThat(entry.getProof(), equalTo(Optional.of(new DeleteProof(key.publicKey(), timestamp, signature))));
 		assertThat(entry.getProof().get().verifies(key.groupId()), is(true));
 		assertThat(keeper.store(fragment.encode()), equalTo(StorageStatus.TOMBSTONE));
+	}
+
+	@Property(tries = 30)
+	public void tombstonesUnheldGroupsOnlyWithinTheBudget(@ForAll long seed, @ForAll @IntRange(min = 1, max = 8) int budget,
+		@ForAll @IntRange(max = 20) int flood, @ForAll @IntRange(max = 4) int held) {
+
+		final Random random = new Random(seed);
+		final StorageSpork.SporkData parameters = StorageTestData.parameters();
+		final List<GroupKey> holdings = Stream.generate(() -> StorageTestData.key(random)).limit(held)
+			.collect(Collectors.toList());
+
+		parameters.setMaxBytesPerNode(budget * FragmentStore.MIN_ENTRY_COST * 100 / FragmentStore.TOMBSTONE_BUDGET_PERCENT);
+		final FragmentKeeper keeper = new FragmentKeeper(store(), () -> Optional.of(parameters));
+
+		for (GroupKey key : holdings) {
+			assertThat(keeper.store(StorageTestData.group(key, random).get(0).encode()), equalTo(StorageStatus.OK));
+		}
+
+		for (int i = 0; i < flood; i++) {
+			final GroupKey key = StorageTestData.key(random);
+
+			assertThat(keeper.delete(key.groupId(), key.publicKey(), i, key.signDelete(i)),
+				equalTo(i < budget ? StorageStatus.OK : StorageStatus.QUOTA));
+			assertThat(keeper.census(List.of(key.groupId())).get(0).getState(),
+				equalTo(i < budget ? FragmentStatus.State.TOMBSTONE : FragmentStatus.State.NONE));
+		}
+
+		for (GroupKey key : holdings) {
+			assertThat(keeper.delete(key.groupId(), key.publicKey(), 1, key.signDelete(1)), equalTo(StorageStatus.OK));
+			assertThat(keeper.fetch(key.groupId()).isPresent(), is(false));
+			assertThat(keeper.census(List.of(key.groupId())).get(0).getState(), equalTo(FragmentStatus.State.TOMBSTONE));
+		}
 	}
 
 	@Property(tries = 30)

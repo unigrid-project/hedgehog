@@ -338,8 +338,15 @@ public class FragmentStoreTest {
 		}
 	}
 
+	/* Small quotas fill up and evict, while only large ones leave a tombstone budget worth exhausting */
+	@Provide
+	public Arbitrary<Long> quotas() {
+		return Arbitraries.oneOf(Arbitraries.longs().between(COST / 2, 24 * COST),
+			Arbitraries.longs().between(100 * COST, 400 * COST));
+	}
+
 	@Property(tries = 200)
-	public void behavesLikeItsModel(@ForAll @IntRange(min = (int) COST / 2, max = 24 * (int) COST) int maxBytes,
+	public void behavesLikeItsModel(@ForAll("quotas") long maxBytes,
 		@ForAll @IntRange(min = 0, max = 100) int extraPoolPercent, @ForAll("operations") List<Operation> operations) {
 
 		final Harness harness = new Harness(maxBytes, extraPoolPercent);
@@ -355,11 +362,17 @@ public class FragmentStoreTest {
 		private final Map<GroupId, DeleteProof> proofs = new HashMap<>();
 		private final long maxBytes;
 		private final long extraLimit;
+		private final long tombstoneBudget;
 		private long sequence;
 
 		Model(long maxBytes, int extraPoolPercent) {
 			this.maxBytes = maxBytes;
 			this.extraLimit = maxBytes * extraPoolPercent / 100;
+			this.tombstoneBudget = maxBytes * FragmentStore.TOMBSTONE_BUDGET_PERCENT / 100;
+		}
+
+		long used() {
+			return bytes(Tier.values()) + tombstones.size() * COST;
 		}
 
 		long bytes(Tier... tiers) {
@@ -373,7 +386,7 @@ public class FragmentStoreTest {
 		}
 
 		PutResult put(GroupId id, Tier tier, int size, Instant now) {
-			final long room = maxBytes - bytes(Tier.GUARANTEED);
+			final long room = maxBytes - bytes(Tier.GUARANTEED) - tombstones.size() * COST;
 			final long cost = Math.max(size, COST);
 
 			if (isTombstoned(id, now)) {
@@ -384,13 +397,42 @@ public class FragmentStoreTest {
 				return PutResult.QUOTA;
 			}
 
-			while (bytes(Tier.values()) + cost > maxBytes || tier == Tier.EXTRA && bytes(Tier.EXTRA) + cost > extraLimit) {
+			while (used() + cost > maxBytes || tier == Tier.EXTRA && bytes(Tier.EXTRA) + cost > extraLimit) {
 				holdings.remove(oldestExtra());
 			}
 
 			holdings.put(id, Holding.builder().format(FORMAT).slots(SLOTS).tier(tier).index(0).size(size)
 				.sequence(sequence++).build());
 			return PutResult.STORED;
+		}
+
+		boolean delete(GroupId id, Instant expiry, DeleteProof proof) {
+			if (!holdings.containsKey(id) && !tombstones.containsKey(id) && !admitsTombstone()) {
+				return false;
+			}
+
+			holdings.remove(id);
+			tombstones.put(id, expiry);
+			proofs.put(id, proof);
+			return true;
+		}
+
+		private boolean admitsTombstone() {
+			if ((tombstones.size() + 1) * COST > tombstoneBudget
+				|| COST > maxBytes - bytes(Tier.GUARANTEED) - tombstones.size() * COST) {
+
+				return false;
+			}
+
+			while (used() + COST > maxBytes) {
+				holdings.remove(oldestExtra());
+			}
+
+			return true;
+		}
+
+		void purge(Instant now) {
+			tombstones.keySet().removeIf(id -> !isTombstoned(id, now));
 		}
 
 		/* A restarted store only needs its new sequences to be younger than the fragments it still holds. */
@@ -429,7 +471,7 @@ public class FragmentStoreTest {
 				case PUT -> put(id, operation.tier(), operation.size());
 				case REMOVE -> assertThat(store.remove(id), is(model.holdings.remove(id) != null));
 				case DELETE -> delete(id, Duration.ofMinutes(operation.minutes()));
-				case PURGE -> store.purgeTombstones();
+				case PURGE -> purge();
 				case ADVANCE -> clock.advance(Duration.ofMinutes(operation.minutes()));
 				default -> restart();
 			}
@@ -449,6 +491,12 @@ public class FragmentStoreTest {
 			}
 		}
 
+		@SneakyThrows
+		private void purge() {
+			store.purgeTombstones();
+			model.purge(clock.instant());
+		}
+
 		private void restart() {
 			store = store(root, clock, maxBytes, extraPoolPercent);
 			model.restart();
@@ -458,15 +506,12 @@ public class FragmentStoreTest {
 		private void delete(GroupId id, Duration keep) {
 			final DeleteProof proof = proof();
 
-			model.tombstones.put(id, clock.instant().plus(keep));
-			model.proofs.put(id, proof);
-			model.holdings.remove(id);
-			store.delete(id, keep, proof);
+			assertThat(store.delete(id, keep, proof), is(model.delete(id, clock.instant().plus(keep), proof)));
 		}
 
 		private void verify() {
 			assertThat(snapshot(store), equalTo(model.holdings));
-			assertThat(store.usedBytes(), equalTo(model.bytes(Tier.values())));
+			assertThat(store.usedBytes(), equalTo(model.used()));
 			assertThat(store.extraBytes(), equalTo(model.bytes(Tier.EXTRA)));
 			assertThat(store.usedBytes(), lessThanOrEqualTo(maxBytes));
 			assertThat(store.extraBytes(), lessThanOrEqualTo(model.extraLimit));
