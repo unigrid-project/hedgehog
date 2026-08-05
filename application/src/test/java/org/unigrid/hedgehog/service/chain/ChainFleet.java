@@ -42,12 +42,15 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
+import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
+import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -82,6 +85,7 @@ final class ChainFleet {
 	final List<Delivery> deliveries = new ArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
 	private final Map<String, ManualScheduler> schedulers = new LinkedHashMap<>();
+	private final Map<String, PendingRequests> pendings = new LinkedHashMap<>();
 	private final Map<Link, EmbeddedChannel> streams = new LinkedHashMap<>();
 	private final Set<String> offline = new HashSet<>();
 
@@ -139,7 +143,20 @@ final class ChainFleet {
 	}
 
 	ChainHost host(final String id) {
-		return hosts.computeIfAbsent(id, own -> hostOver(own, peer -> streamBetween(own, peer)));
+		return hosts.computeIfAbsent(id, own -> hostOver(own, transport(own)));
+	}
+
+	GridnodeDirectory directory(final String own) {
+		return new TopologyGridnodeDirectory(() -> gridnodes, () -> own);
+	}
+
+	ChainTransport transport(final String own) {
+		return peer -> streamBetween(own, peer);
+	}
+
+	/* What the packet handlers of a node complete with the replies it receives */
+	PendingRequests pending(final String id) {
+		return pendings.computeIfAbsent(id, own -> new PendingRequests());
 	}
 
 	/* A host that is not one of the fleet, for a transport the test supplies */
@@ -149,8 +166,8 @@ final class ChainFleet {
 
 	/* The same, for a test that decides which member the host picks */
 	ChainHost hostOver(final String id, final ChainTransport transport, final RandomGenerator picks) {
-		return new ChainHost(settings::get, new TopologyGridnodeDirectory(() -> gridnodes, () -> id), transport,
-			clock::get, picks, schedulers.computeIfAbsent(id, scheduler -> new ManualScheduler()));
+		return new ChainHost(settings::get, directory(id), transport, clock::get, picks,
+			schedulers.computeIfAbsent(id, scheduler -> new ManualScheduler()));
 	}
 
 	ManualScheduler scheduler(final String id) {
@@ -250,14 +267,18 @@ final class ChainFleet {
 	private void route(final Link from, final Object packet) {
 		if (hosts.containsKey(from.peer()) && !offline.contains(from.peer())) {
 			deliveries.add(new Delivery(from.owner(), from.peer(), packet));
-			dispatch(hosts.get(from.peer()), stream(from.peer(), from.owner()), packet);
+			dispatch(from.peer(), stream(from.peer(), from.owner()), packet);
 		}
 	}
 
 	/* What the packet handlers do with each packet: hand it to the host and write back what it answers */
-	private static void dispatch(final ChainHost host, final Channel stream, final Object packet) {
+	private void dispatch(final String id, final Channel stream, final Object packet) {
+		final ChainHost host = hosts.get(id);
+
 		if (packet instanceof EntryRefused refusal) {
 			host.refused(stream, refusal);
+		} else if (packet instanceof JoinReply reply) {
+			pending(id).complete(stream, reply);
 		} else if (packet instanceof LeaveChain leave) {
 			host.leave(stream, leave);
 		} else {
