@@ -834,6 +834,35 @@ public class ChainHost implements ChainService {
 		return pauses;
 	}
 
+	/* Offers the entries of a writer of this node again, from the lowest sequence number a member refused, to every
+	   member and attached client, and lets the writer go on. Whoever has them already drops the duplicates without
+	   a word, so nothing is amplified. The pause is lifted before they go out, so that a refusal they draw pauses the
+	   writer again, and it is lifted for a chain that is gone all the same, as nothing else would ever lift it. */
+	public void resend(final ChainId chainId, final WriterId writer) {
+		pauses.refusedFrom(chainId, writer).ifPresent(seq -> {
+			pauses.resume(chainId, writer);
+			hosted(chainId).ifPresent(hosted -> queueAgain(hosted, writer, seq));
+		});
+	}
+
+	/* The chain holds the entries already, so they are queued without an offer, and go out like a post: in the order
+	   of the queue, by the delivery executor, to every stream, and told to no listener */
+	private void queueAgain(final HostedChain hosted, final WriterId writer, final long seq) {
+		final boolean beginsFullEpisode;
+
+		synchronized (hosted.getDeliveryLock()) {
+			final List<Entry> retained = hosted.getChain().range(writer, seq, Long.MAX_VALUE);
+
+			beginsFullEpisode = queue(hosted, new Delivery(retained, null, false));
+		}
+
+		if (beginsFullEpisode) {
+			log.warn("A chain delivery queue is full");
+		}
+
+		handOver(hosted);
+	}
+
 	/* A leave is unsigned, so it is only believed from the stream the writer attached through */
 	@Override
 	public void leave(final Channel peer, final LeaveChain leave) {
