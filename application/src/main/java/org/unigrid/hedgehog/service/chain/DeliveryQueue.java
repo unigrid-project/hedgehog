@@ -39,18 +39,17 @@ final class DeliveryQueue {
 		/* One step of the chain's feed on its way out */
 	}
 
-	private final Queue<Delivery> pending;
-	private final AtomicBoolean draining = new AtomicBoolean();
+	private final OrderedDrain<Delivery> pending;
 	private final AtomicBoolean full = new AtomicBoolean();
 
 	/* The queue is a parameter so that a test can bound it or watch it, and decides how much may wait: the
 	   thread that adds to a full one is told, and the delivery is not kept */
 	DeliveryQueue(final Queue<Delivery> pending) {
-		this.pending = pending;
+		this.pending = new OrderedDrain<>(pending);
 	}
 
 	boolean add(final Delivery delivery) {
-		return pending.offer(delivery);
+		return pending.add(delivery);
 	}
 
 	/* Answers true for the first delivery dropped since a delivery was last taken from the queue, so that the log
@@ -59,20 +58,12 @@ final class DeliveryQueue {
 		return full.compareAndSet(false, true);
 	}
 
-	/* Handles the deliveries one at a time, in order, on the calling thread when no other thread is handling them, and
-	   returns at once when one is, as that thread goes on until the queue is empty. The queue is checked again after
-	   the claim is given up, since a delivery added after the last poll found it empty would otherwise wait for the
-	   next one. An Error from the handler gives the claim up too, and what is left waits for the next drain. */
+	/* Handles the deliveries one at a time, in order, as OrderedDrain does; a delivery taken from the queue ends a
+	   stretch in which it stayed full */
 	void drain(final Consumer<Delivery> handler) {
-		while (!pending.isEmpty() && draining.compareAndSet(false, true)) {
-			try {
-				for (Delivery next = pending.poll(); next != null; next = pending.poll()) {
-					full.set(false);
-					handler.accept(next);
-				}
-			} finally {
-				draining.set(false);
-			}
-		}
+		pending.drain(next -> {
+			full.set(false);
+			handler.accept(next);
+		});
 	}
 }
