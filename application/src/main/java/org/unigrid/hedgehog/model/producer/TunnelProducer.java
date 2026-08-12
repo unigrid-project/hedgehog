@@ -21,15 +21,48 @@ package org.unigrid.hedgehog.model.producer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import java.security.SecureRandom;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import org.unigrid.hedgehog.model.network.PendingRequests;
+import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.proxy.socks.Tunnel;
-import org.unigrid.hedgehog.proxy.socks.TunnelFailure;
+import org.unigrid.hedgehog.service.chain.ChainClient;
+import org.unigrid.hedgehog.service.chain.ChainHost;
+import org.unigrid.hedgehog.service.chain.ChainTransport;
+import org.unigrid.hedgehog.service.chain.ChainTunnel;
+import org.unigrid.hedgehog.service.chain.ClientSessions;
+import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
 @ApplicationScoped
 public class TunnelProducer {
-	/* Until a client drives sessions over the shard group chains, the SOCKS proxy answers every request as it
-	   does without a communication spork: connection not allowed by ruleset */
+	/* Streams run over client sessions on the shard group chains. The tunnel reads the communication spork for every
+	   stream, so it needs no restart when the spork arrives, and refuses every stream as not allowed by ruleset until
+	   then. */
 	@Produces @Singleton
-	public Tunnel tunnel() {
-		return Tunnel.refusing(TunnelFailure.NOT_ALLOWED);
+	public Tunnel tunnel(final ChainHost host, final ChainTransport transport, final GridnodeDirectory directory,
+		final ProxySettingsSource settings, final PendingRequests pending) {
+
+		final SecureRandom random = new SecureRandom();
+		final ScheduledThreadPoolExecutor scheduler = scheduler();
+		final ChainClient client = new ChainClient(settings, directory, transport, host, pending,
+			System::currentTimeMillis, random);
+
+		return new ChainTunnel(settings, new ClientSessions(client, host, settings, System::currentTimeMillis,
+			random, scheduler), scheduler);
+	}
+
+	/* One thread for the tick of the sessions and the deadlines of the streams. It is a daemon that starts with the
+	   first stream, so a node needs no disposer to end, and a stream that ends takes its deadline out of the queue
+	   rather than staying reachable until the deadline would have run. */
+	static ScheduledThreadPoolExecutor scheduler() {
+		final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, body -> {
+			final Thread thread = new Thread(body, "chain-client");
+
+			thread.setDaemon(true);
+			return thread;
+		});
+
+		scheduler.setRemoveOnCancelPolicy(true);
+		return scheduler;
 	}
 }
