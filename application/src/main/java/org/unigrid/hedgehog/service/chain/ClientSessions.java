@@ -228,9 +228,10 @@ public final class ClientSessions implements SessionOpener {
 			ask(() -> session.tick());
 		}
 
+		/* Any writer can leave a gap that names any fingerprint, so only the gap of the exit's own feed counts */
 		private void lost(final Gap gap) {
-			ask(() -> session.fingerprint().filter(gap.fingerprints()::contains)
-				.flatMap(broken -> session.close(CloseReason.BROKEN)));
+			ask(() -> session.exitWriter().filter(gap.writer()::equals).flatMap(exit -> session.fingerprint())
+				.filter(gap.fingerprints()::contains).flatMap(broken -> session.close(CloseReason.BROKEN)));
 		}
 
 		/* The session is asked under the lock of the handle, and what it produced is told with no lock held, as the

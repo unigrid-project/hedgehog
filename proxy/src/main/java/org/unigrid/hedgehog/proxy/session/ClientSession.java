@@ -32,6 +32,7 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryHeader;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 /* The client's side of a session: posts OPEN naming the exit it chose, completes the handshake on that
    fingerprint's ACCEPT and sends its Connect at once. An OPEN that nobody answers in time is posted again with
@@ -92,6 +93,12 @@ public final class ClientSession {
 
 	public synchronized Optional<String> exit() {
 		return Optional.ofNullable(attempt).map(Attempt::exit);
+	}
+
+	/* The feed the exit answered from, known once its ACCEPT confirmed the handshake: what the chain gives up on in
+	   that feed is what this session lost */
+	public synchronized Optional<WriterId> exitWriter() {
+		return Optional.ofNullable(session).map(Session::peer);
 	}
 
 	/* Takes any entry of the chain: the ACCEPT that completes the handshake, then the exit's sealed messages */

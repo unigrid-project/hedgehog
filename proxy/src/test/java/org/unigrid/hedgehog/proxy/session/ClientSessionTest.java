@@ -387,6 +387,25 @@ public class ClientSessionTest {
 		assertThat(client.receive(wire.posted.pollLast()), equalTo(Optional.empty()));
 	}
 
+	/* What the chain gives up on in the feed of the exit is what the session lost, so the client side needs to know
+	   whose feed that is, and only the ACCEPT that completed the handshake tells it */
+	@Example
+	public void shouldKnowTheFeedOfItsExitOnceTheAcceptCompletedTheHandshake() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+		assertThat(client.exitWriter(), equalTo(Optional.empty()));
+
+		final Entry open = wire.posted.poll();
+		final Answer impostor = answer(wire, wire.context(3), open);
+		final Answer exit = answer(wire, wire.exitContext, open);
+
+		client.receive(exit.accept());
+		client.receive(impostor.accept());
+		assertThat(client.exitWriter(), equalTo(Optional.of(wire.exitContext.writer().writer())));
+	}
+
 	@Example
 	public void shouldIgnoreAnAcceptWhoseTranscriptDiffersInOneField() throws HandshakeException {
 		final SessionWire wire = new SessionWire(EXIT_ID);

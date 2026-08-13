@@ -184,9 +184,21 @@ public class ClientSessionsTest {
 			fleet.deliver();
 		}
 
+		/* The exit's feed loses an entry, and the chain gives up on it once the entry after it, which belongs to the
+		   session, has waited for the retention window */
+		private void lose(final Fingerprint fingerprint) {
+			final ChainAttachment attachment = attachment();
+			final Entry later = answering().skipOne(attachment.chainId(), fingerprint);
+
+			fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder().entries(List.of(later))
+				.build());
+			fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
+			fleet.host(CLIENT).maintain();
+		}
+
 		/* A writer the client has not heard of writes three entries of the session and the middle one never
 		   arrives, until the client's chain gives up on it */
-		private void lose(final Fingerprint fingerprint) {
+		private void strangerLoses(final Fingerprint fingerprint) {
 			final ChainAttachment attachment = attachment();
 			final FeedWriter stranger = new FeedWriter(ChainFleet.key(200 + strangers++), attachment.chainId());
 			final List<Entry> written = Stream.generate(() -> stranger.write(fleet.clock.get(), fingerprint,
@@ -453,28 +465,60 @@ public class ClientSessionsTest {
 			new Close(CloseReason.BROKEN))));
 	}
 
-	/* A retry changes the fingerprint, and a gap of the one given up on is none of the session's business */
+	/* The exit loses an entry of the second session only, and the chain gives up on it: the first is whole */
 	@Example
-	public void closesASessionForAGapOfItsCurrentFingerprintOnly() {
+	public void closesOnlyTheSessionsWhoseEntriesTheGapOfTheirExitDropped() {
+		final Rig rig = new Rig(ChainFleet.group());
+		final Listener kept = new Listener();
+		final Listener lost = new Listener();
+
+		rig.mute(true);
+		rig.sessions.open(CONNECT, kept);
+		rig.sessions.open(CONNECT, lost);
+		rig.fleet.deliver();
+
+		final ChainAttachment attachment = rig.attachment();
+		final List<Entry> posted = new ArrayList<>();
+		final SessionContext exit = new SessionContext(new FeedWriter(ChainFleet.key(200), attachment.chainId()),
+			posted::add, rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
+		final List<Session> sessions = rig.opens().stream()
+			.map(open -> Session.accept(exit, open, Rig.exitOf(open)).orElseThrow()).toList();
+
+		sessions.forEach(session -> session.send(CONNECTED));
+		sessions.get(0).send(data(1));
+		sessions.get(1).send(data(2));
+		sessions.get(1).send(data(3));
+
+		final List<Entry> arrived = Stream.of(0, 1, 2, 3, 4, 6).map(posted::get).toList();
+
+		rig.fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder().entries(arrived).build());
+		rig.fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
+		rig.fleet.host(CLIENT).maintain();
+
+		assertThat(List.of(kept.messages, lost.messages), containsInAnyOrder(List.of(CONNECTED, data(1)),
+			List.of(CONNECTED, new Close(CloseReason.BROKEN))));
+	}
+
+	/* Any writer can leave a gap that names any fingerprint, so the gap of a writer that is not the session's exit
+	   breaks nothing, be the session opening, which a retry replaces, or established */
+	@Example
+	public void leavesASessionAloneForAGapOfAWriterThatIsNotItsExit() {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
 
 		rig.mute(true);
 		rig.sessions.open(CONNECT, listener);
 		rig.fleet.deliver();
-		rig.mute(false);
-		rig.after(ClientSession.ACCEPT_TIMEOUT_MILLIS);
-
-		final List<Entry> opens = rig.opens();
-
-		rig.lose(opens.get(0).header().fingerprint());
+		rig.strangerLoses(rig.opens().get(0).header().fingerprint());
 		assertThat(listener.messages, equalTo(List.of()));
 
-		rig.lose(opens.get(1).header().fingerprint());
+		rig.mute(false);
+		rig.after(ClientSession.ACCEPT_TIMEOUT_MILLIS);
+		rig.strangerLoses(rig.opens().get(0).header().fingerprint());
 		rig.fleet.deliver();
 
-		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.BROKEN))));
-		assertThat(rig.answering().received, equalTo(List.of(CONNECT, new Close(CloseReason.BROKEN))));
+		assertThat(listener.messages, equalTo(List.of()));
+		assertThat(rig.answering().received, equalTo(List.of(CONNECT)));
 	}
 
 	/* Whatever ends a session, the listener hears of it once and last, and of nothing once the opener closed */

@@ -55,6 +55,16 @@ final class ExitStub {
 		return sessions.values().iterator().next();
 	}
 
+	/* Writes an entry of the stub's feed that nobody gets and returns the one after it: a chain that is handed only
+	   the second gives up on the first once the second has waited long enough, and the gap names the fingerprint of
+	   the second */
+	synchronized Entry skipOne(final ChainId chainId, final Fingerprint fingerprint) {
+		final FeedWriter feed = context(chainId).writer();
+
+		feed.write(fleet.clock.get(), fingerprint, EntryKind.SEALED, new byte[1]);
+		return feed.write(fleet.clock.get(), fingerprint, EntryKind.SEALED, new byte[1]);
+	}
+
 	private synchronized void appended(final ChainId chainId, final Entry entry) {
 		final Session known = sessions.get(entry.header().fingerprint());
 
