@@ -66,8 +66,8 @@ public class StorageProducer {
 	}
 
 	@Produces @Singleton
-	public FragmentKeeper fragmentKeeper(final FragmentStore store) {
-		return new FragmentKeeper(store, this::storageSpork);
+	public FragmentKeeper fragmentKeeper(final FragmentStore store, final GridnodeDirectory directory) {
+		return new FragmentKeeper(store, this::storageSpork, directory::self);
 	}
 
 	@Produces @Singleton

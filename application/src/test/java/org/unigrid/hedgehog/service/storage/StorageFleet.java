@@ -75,7 +75,7 @@ public class StorageFleet {
 			clock);
 
 		stores.put(id, store);
-		transport.attach(id, new FragmentKeeper(store, this::spork));
+		transport.attach(id, new FragmentKeeper(store, this::spork, () -> Optional.of(id)));
 	}
 
 	public List<Gridnode> online() {
@@ -123,7 +123,8 @@ public class StorageFleet {
 
 			if (holding.isPresent()) {
 				store.remove(groupId);
-				new FragmentKeeper(store, this::spork).store(sealed.get(holding.get().getIndex()).encode());
+				new FragmentKeeper(store, this::spork, () -> Optional.of(gridnode.getId()))
+					.store(sealed.get(holding.get().getIndex()).encode());
 			}
 		}
 	}

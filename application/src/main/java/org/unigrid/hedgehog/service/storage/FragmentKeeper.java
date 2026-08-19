@@ -46,6 +46,7 @@ public class FragmentKeeper {
 
 	private final FragmentStore store;
 	private final Supplier<Optional<StorageSpork.SporkData>> spork;
+	private final Supplier<Optional<String>> selfId;
 
 	public static Optional<Fragment> decode(final byte[] encoded) {
 		try {
@@ -56,10 +57,12 @@ public class FragmentKeeper {
 		}
 	}
 
+	/* A node without a gridnode identity is never in a window and never repairs, so whatever it stored would only
+	   take up its disk */
 	public StorageStatus store(final byte[] encoded) {
 		final Optional<StorageSpork.SporkData> parameters = spork.get();
 
-		if (parameters.isEmpty()) {
+		if (parameters.isEmpty() || selfId.get().isEmpty()) {
 			return StorageStatus.DISABLED;
 		}
 

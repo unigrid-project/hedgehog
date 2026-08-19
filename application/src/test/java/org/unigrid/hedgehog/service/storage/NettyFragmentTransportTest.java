@@ -211,9 +211,9 @@ public class NettyFragmentTransportTest {
 		final StorageSpork.SporkData parameters = StorageTestData.parameters();
 		final TestClock clock = new TestClock();
 		final FragmentKeeper local = new FragmentKeeper(new FragmentStore(Jimfs.newFileSystem(Configuration.unix())
-			.getPath("/fragments"), clock), () -> Optional.of(parameters));
+			.getPath("/fragments"), clock), () -> Optional.of(parameters), () -> Optional.of(SELF.getId()));
 		final FragmentKeeper twin = new FragmentKeeper(new FragmentStore(Jimfs.newFileSystem(Configuration.unix())
-			.getPath("/fragments"), clock), () -> Optional.of(parameters));
+			.getPath("/fragments"), clock), () -> Optional.of(parameters), () -> Optional.of(SELF.getId()));
 		final EmbeddedChannel channel = new EmbeddedChannel();
 		final FragmentTransport transport = new NettyFragmentTransport(() -> Set.of(nodeWith(channel, SELF)),
 			new PendingRequests(), () -> Optional.of(SELF.getId()), () -> local);

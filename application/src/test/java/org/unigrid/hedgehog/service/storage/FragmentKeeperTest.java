@@ -52,8 +52,14 @@ public class FragmentKeeperTest {
 		return new FragmentStore(Jimfs.newFileSystem(Configuration.unix()).getPath("/fragments"), new TestClock());
 	}
 
+	private static final String SELF = "gridnode-self";
+
+	private static FragmentKeeper keeper(final FragmentStore store, final StorageSpork.SporkData parameters) {
+		return new FragmentKeeper(store, () -> Optional.of(parameters), () -> Optional.of(SELF));
+	}
+
 	private static FragmentKeeper keeper(final FragmentStore store) {
-		return new FragmentKeeper(store, () -> Optional.of(StorageTestData.parameters()));
+		return keeper(store, StorageTestData.parameters());
 	}
 
 	@Property(tries = 50)
@@ -95,7 +101,7 @@ public class FragmentKeeperTest {
 
 		parameters.setFragmentSize(sporkFragmentSize);
 
-		assertThat(new FragmentKeeper(store(), () -> Optional.of(parameters)).store(fragment.encode()),
+		assertThat(keeper(store(), parameters).store(fragment.encode()),
 			equalTo(size > 16 * sporkFragmentSize || size < Math.max(1, sporkFragmentSize / 16)
 				? StorageStatus.INVALID : StorageStatus.OK));
 	}
@@ -109,10 +115,23 @@ public class FragmentKeeperTest {
 	public void refusesEverythingWithoutASpork(@ForAll long seed) {
 		final Random random = new Random(seed);
 		final GroupKey key = StorageTestData.key(random);
-		final FragmentKeeper keeper = new FragmentKeeper(store(), Optional::empty);
+		final FragmentKeeper keeper = new FragmentKeeper(store(), Optional::empty, () -> Optional.of(SELF));
 
 		assertThat(keeper.store(StorageTestData.group(key, random).get(0).encode()), equalTo(StorageStatus.DISABLED));
 		assertThat(keeper.delete(key.groupId(), key.publicKey(), 1, key.signDelete(1)), equalTo(StorageStatus.DISABLED));
+	}
+
+	@Property(tries = 20)
+	public void storesNothingOnANodeThatIsNoGridnode(@ForAll long seed, @ForAll @IntRange(min = 0, max = 15) int index) {
+		final Random random = new Random(seed);
+		final GroupKey key = StorageTestData.key(random);
+		final FragmentStore store = store();
+		final FragmentKeeper keeper = new FragmentKeeper(store, () -> Optional.of(StorageTestData.parameters()),
+			Optional::empty);
+
+		assertThat(keeper.store(StorageTestData.group(key, random).get(index).encode()), equalTo(StorageStatus.DISABLED));
+		assertThat(store.groups().isEmpty(), is(true));
+		assertThat(keeper.census(List.of(key.groupId())).get(0).getState(), equalTo(FragmentStatus.State.NONE));
 	}
 
 	@Property(tries = 50)
@@ -150,7 +169,7 @@ public class FragmentKeeperTest {
 		final StorageSpork.SporkData parameters = StorageTestData.parameters();
 		parameters.setMaxBytesPerNode(room % Math.max(encoded.length, FragmentStore.MIN_ENTRY_COST));
 
-		final FragmentKeeper keeper = new FragmentKeeper(store(), () -> Optional.of(parameters));
+		final FragmentKeeper keeper = keeper(store(), parameters);
 
 		assertThat(keeper.store(encoded), equalTo(StorageStatus.QUOTA));
 		assertThat(keeper.census(List.of(key.groupId())).get(0).getState(), equalTo(FragmentStatus.State.NONE));
@@ -224,7 +243,7 @@ public class FragmentKeeperTest {
 			.collect(Collectors.toList());
 
 		parameters.setMaxBytesPerNode(budget * FragmentStore.MIN_ENTRY_COST * 100 / FragmentStore.TOMBSTONE_BUDGET_PERCENT);
-		final FragmentKeeper keeper = new FragmentKeeper(store(), () -> Optional.of(parameters));
+		final FragmentKeeper keeper = keeper(store(), parameters);
 
 		for (GroupKey key : holdings) {
 			assertThat(keeper.store(StorageTestData.group(key, random).get(0).encode()), equalTo(StorageStatus.OK));
