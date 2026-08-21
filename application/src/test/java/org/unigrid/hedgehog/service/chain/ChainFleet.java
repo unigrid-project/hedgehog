@@ -27,6 +27,7 @@ import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -63,7 +65,8 @@ import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 /* Gridnodes that share one clock, one topology and one set of settings, each with its own host. A stream
-   between two hosts is an embedded channel at each end. */
+   between two hosts is an embedded channel at each end. Threads may share a fleet once its hosts are made: any of
+   them may write to the streams, look them up and read what was delivered, and one at a time delivers. */
 final class ChainFleet {
 	static final long NOW = 1_750_000_000_000L;
 	static final int MEMBERS = 4;
@@ -82,11 +85,11 @@ final class ChainFleet {
 	final AtomicReference<Optional<ProxySettings>> settings = new AtomicReference<>(Optional.of(ProxySettings.DEFAULTS));
 	final List<Gridnode> gridnodes = new CopyOnWriteArrayList<>();
 	final Random random = new Random(1);
-	final List<Delivery> deliveries = new ArrayList<>();
+	final List<Delivery> deliveries = new CopyOnWriteArrayList<>();
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
 	private final Map<String, ManualScheduler> schedulers = new LinkedHashMap<>();
-	private final Map<String, PendingRequests> pendings = new LinkedHashMap<>();
-	private final Map<Link, EmbeddedChannel> streams = new LinkedHashMap<>();
+	private final Map<String, PendingRequests> pendings = new ConcurrentHashMap<>();
+	private final Map<Link, EmbeddedChannel> streams = Collections.synchronizedMap(new LinkedHashMap<>());
 	private final Set<String> offline = new HashSet<>();
 
 	ChainFleet(final int size) {
@@ -205,7 +208,7 @@ final class ChainFleet {
 	}
 
 	EmbeddedChannel stream(final String owner, final String peer) {
-		return streams.computeIfAbsent(new Link(owner, peer), link -> new EmbeddedChannel());
+		return streams.computeIfAbsent(new Link(owner, peer), link -> new SynchronizedChannel());
 	}
 
 	/* One second passes: every online host does what it does each second, and what that sets going is
@@ -228,30 +231,43 @@ final class ChainFleet {
 	}
 
 	/* Hands over what the hosts have written to each other, a round of hops at a time so that the order does not
-	   depend on the streams, until the fleet is quiet. A fleet that talks for many rounds, or whose rounds keep
-	   growing, passes the same packets around in circles, which a test must fail on and not wait for. */
-	void deliver() {
+	   depend on the streams, until the fleet is quiet. A fleet that talks for many rounds passes the same packets
+	   around in circles, which a test must fail on and not wait for. */
+	synchronized void deliver() {
 		for (int round = 0; round < MAX_ROUNDS; round++) {
-			final List<Map.Entry<Link, Object>> written = drain();
-
-			if (written.isEmpty()) {
+			if (!hop()) {
 				return;
 			}
-
-			if (written.size() > MAX_PACKETS_PER_ROUND) {
-				break;
-			}
-
-			written.forEach(sent -> route(sent.getKey(), sent.getValue()));
 		}
 
 		throw new IllegalStateException("The fleet keeps passing packets around");
 	}
 
+	/* One round of hops: hands over what the hosts have written so far and answers whether there was any. A thread
+	   that delivers while others write calls this, as the fleet is then never quiet for long. A round that holds
+	   more than any test sends at once is packets that keep growing as they go round, and it throws rather than
+	   drop them, so the caller must not swallow it. */
+	synchronized boolean hop() {
+		final List<Map.Entry<Link, Object>> written = drain();
+
+		if (written.size() > MAX_PACKETS_PER_ROUND) {
+			throw new IllegalStateException("A round of the fleet holds more packets than a test sends");
+		}
+
+		written.forEach(sent -> route(sent.getKey(), sent.getValue()));
+		return !written.isEmpty();
+	}
+
+	/* In the order the streams were made, whichever thread made them */
 	private List<Map.Entry<Link, Object>> drain() {
 		final List<Map.Entry<Link, Object>> written = new ArrayList<>();
+		final Map<Link, EmbeddedChannel> made;
 
-		streams.forEach((link, stream) -> {
+		synchronized (streams) {
+			made = new LinkedHashMap<>(streams);
+		}
+
+		made.forEach((link, stream) -> {
 			for (Object packet = stream.readOutbound(); packet != null; packet = stream.readOutbound()) {
 				written.add(Map.entry(link, packet));
 			}
