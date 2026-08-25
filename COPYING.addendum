@@ -1,7 +1,7 @@
                GNU AFFERO GENERAL PUBLIC LICENSE ADDENDUM
                              27 January 2023
 
- Copyright (C) 2021-2023 Stiftelsen The Unigrid Foundation, UGD Software AB
+ Copyright (C) 2021-2023 Stiftelsen The Unigrid Foundation
 <http://www.unigrid.org/>. Everyone is permitted to copy and distribute
 verbatim copies of this license document, but changing it is not allowed.
 
@@ -22,12 +22,11 @@ distributed by this software, as well as any binary distributions of the
 software.
 
   As used herein, "Unigrid website" refers to any links to web resources
-associated with the Unigrid Foundation and UGD Software AB. Examples
-include [http://www.unigrid.org] and [https://unigrid.org].
+associated with the Unigrid Foundation. Examples include
+[http://www.unigrid.org] and [https://unigrid.org].
 
   As used herein, "this network" refers to the physical Hedgehog network as
-a running entity and as defined by The Unigrid Foundation and UGD Software
-AB.
+a running entity and as defined by The Unigrid Foundation.
 
   As used herein, "CLI header" refers to the license and header information
 displayed in this code and when the application is started with "--help"
@@ -43,34 +42,32 @@ this addendum complements the additional terms with the following conditions;
    network.
 
    b) This code and CLI header must clearly and visibly attribute The Unigrid
-   Foundation and UGD Software AB.
+   Foundation.
 
-   c) Any mention of The Unigrid Foundation, UGD Software AB or links to any
-   Unigrid website may not be removed from the code itself or any of the
-   accompanying documents.
+   c) Any mention of The Unigrid Foundation or links to any Unigrid website
+   may not be removed from the code itself or any of the accompanying
+   documents.
 
    d) You may not use any non-direct or direct means to purposely hide
-   references to the website of The Unigrid Foundation or UGD Software AB.
+   references to the website of The Unigrid Foundation.
 
    e) The conditions described in 1a, 1b, 1c and 1d of this document can be
    exempted if a written permission is received from an official
-   representative or from one of the boards of The Unigrid Foundation or
-   UGD Software AB.
+   representative or from one of the boards of The Unigrid Foundation.
 
    f) Anybody contributing code or other work in the form of pull requests,
    git commits or any other means to the official Hedgehog repository
    [https://github.com/unigrid-project/hedgehog] agrees to grant The Unigrid
-   Foundation and UGD Software AB shared copyright for that contributed work
-   and to accept the license terms of this software as outlined by the
-   original GNU Affero General Public License and this addendum.
+   Foundation shared copyright for that contributed work and to accept the
+   license terms of this software as outlined by the original GNU Affero
+   General Public License and this addendum.
 
    g) Any work contributed to this repository by a contributor as described
    in section f of this document that is under a license or patent as
    outlined by section 11 of the original GNU Affero General Public License,
-   grants The Unigrid Foundation and UGD Software AB a perpetual sublicense
-   or subpatent to indefinetly use that contribution in this code. The
-   contributor also ensures that they are the current owner of that license
-   or patent.
+   grants The Unigrid Foundation a perpetual sublicense or subpatent to
+   indefinetly use that contribution in this code. The contributor also
+   ensures that they are the current owner of that license or patent.
 
                      END OF TERMS AND CONDITIONS
 
@@ -86,11 +83,10 @@ state the exclusion of warranty; and each file should have at least
 the "copyright" line and a pointer to where the full notice is found.
 
     Unigrid Hedgehog
-    Copyright © <year> Stiftelsen The Unigrid Foundation, UGD Software AB
+    Copyright © <year> Stiftelsen The Unigrid Foundation
     Copyright © <year> <Additional author name>
 
     Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
-    UGD Software AB (org. nr: 559339-5824)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the addended GNU Affero General Public License as

@@ -1315,22 +1315,22 @@ directory. The root `README.md` links to all six from a `## Documentation` secti
 | --- | --- |
 | `COPYING` | The GNU Affero General Public License, version 3, verbatim (623 lines). |
 | `COPYING.addendum` | The Unigrid addendum, dated 27 January 2023, invoking AGPL section 7b. |
-| `COPYING.header` | The 18-line comment block every Java source file is expected to carry. |
+| `COPYING.header` | The 17-line comment block every Java source file is expected to carry. |
 
 The addendum adds attribution terms that a contributor should read before submitting a patch. In
 summary: it prohibits using the software to run a separate network that communicates independently of
 the Hedgehog network (1a); requires the code and the CLI header to visibly attribute The Unigrid
-Foundation and UGD Software AB (1b); forbids removing or obscuring references to either organization or
-their websites (1c, 1d); allows written exemption from those clauses (1e); and states that anybody
-contributing via pull request, commit or otherwise grants The Unigrid Foundation and UGD Software AB
-shared copyright and a perpetual sublicense for that contribution (1f, 1g). Clause 1b is why the picocli
+Foundation (1b); forbids removing or obscuring references to the Foundation or its websites (1c, 1d);
+allows written exemption from those clauses (1e); and states that anybody contributing via pull
+request, commit or otherwise grants The Unigrid Foundation shared copyright and a perpetual
+sublicense for that contribution (1f, 1g). Clause 1b is why the picocli
 header in `application/src/main/java/org/unigrid/hedgehog/Hedgehog.java` carries the copyright line and
 the "Under an addended AGPL3 license" strip — that block is license-bearing text, not decoration.
 
 Every `.java` file in the repository opens with a variant of that block. Of the 226 Java files outside
-`target/`, 214 carry the current text — the one that names `Stiftelsen The Unigrid Foundation` and both
-organization numbers (`802482-2408`, `559339-5824`). Twelve carry an older variant that drops the
-`Stiftelsen` prefix and the two organization-number lines: all nine files under
+`target/`, 214 carry the current text — the one that names `Stiftelsen The Unigrid Foundation` and its
+organization number (`802482-2408`). Twelve carry an older variant that drops the
+`Stiftelsen` prefix and the organization-number line: all nine files under
 `native-image/src/main/java/`, both classes in
 `common/src/main/java/org/unigrid/hedgehog/common/model/`, and `common/src/main/java/module-info.java`
 (still dated `2021-2022`). New files should be started by copying `COPYING.header` verbatim.
