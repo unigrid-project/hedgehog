@@ -22,7 +22,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
+					<version>0.0.50.Final</version>
 					<classifier>linux-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -34,7 +34,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
+					<version>0.0.50.Final</version>
 					<classifier>windows-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -46,7 +46,7 @@
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
-					<version>0.0.39.Final</version>
+					<version>0.0.50.Final</version>
 					<classifier>osx-x86_64</classifier>
 				</dependency>
 			</dependencies>
@@ -86,7 +86,7 @@
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-configuration2</artifactId>
-			<version>2.9.0</version>
+			<version>2.15.1</version>
 		</dependency>
 		<dependency>
 			<groupId>org.jboss.weld.se</groupId>
@@ -155,7 +155,7 @@
 		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-all</artifactId>
-			<version>4.1.90.Final</version>
+			<version>4.1.137.Final</version>
 			<exclusions>
 				<exclusion>
 					<groupId>*</groupId>
@@ -165,18 +165,18 @@
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcpkix-jdk15on</artifactId>
-			<version>1.70</version>
+			<artifactId>bcpkix-jdk18on</artifactId>
+			<version>1.85</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcprov-jdk15on</artifactId>
-			<version>1.70</version>
+			<artifactId>bcprov-jdk18on</artifactId>
+			<version>1.85</version>
 		</dependency>
 		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-codec-http</artifactId>
-			<version>4.1.90.Final</version>
+			<version>4.1.137.Final</version>
 		</dependency>
 		<dependency>
 			<groupId>org.jboss</groupId>
@@ -240,7 +240,7 @@
 		<dependency>
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
-			<version>2.11.0</version>
+			<version>2.20.0</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -351,6 +351,7 @@
 						--add-opens java.base/java.time=ALL-UNNAMED
 						--add-opens java.base/java.util=ALL-UNNAMED
 						--add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog
+						--add-reads org.unigrid.hedgehog=org.apache.commons.io
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>

@@ -31,15 +31,21 @@ declares `module org.unigrid.hedgehog` and `common/src/main/java/module-info.jav
 `module org.unigrid.hedgehog.common`, which `exports org.unigrid.hedgehog.common.model`. The
 `native-image` module has no `module-info.java`.
 
-Four versions are pinned centrally in the parent `<dependencyManagement>` and referenced without a
+Five versions are pinned centrally in the parent `<dependencyManagement>` and referenced without a
 version by the modules that need them:
 
 | Artifact | Version |
 | --- | ---: |
 | `net.harawata:appdirs` | `1.2.1` |
 | `org.projectlombok:lombok` | `1.18.24` |
-| `ch.qos.logback:logback-classic` | `1.3.0-alpha16` |
-| `org.slf4j:jul-to-slf4j` | `2.0.0-alpha7` |
+| `ch.qos.logback:logback-classic` | `1.3.16` |
+| `org.slf4j:slf4j-api` | `2.0.18` |
+| `org.slf4j:jul-to-slf4j` | `2.0.18` |
+
+`slf4j-api` is managed even though no module declares it directly: `logback-classic` and
+`jul-to-slf4j` each carry their own transitive pin, and without the managed entry the nearest-wins
+rule resolves the API at the version `logback-classic` happens to depend on rather than the one
+`jul-to-slf4j` was compiled against.
 
 Central pinning is not uniform. `native-image/pom.xml:15` declares its own
 `<graal.version>22.3.0</graal.version>` property, which is the single point that drives the
@@ -150,10 +156,10 @@ Surefire also sets `<trimStackTrace>false</trimStackTrace>` and the system prope
 
 ### The surefire JPMS flag block
 
-`application/pom.xml` replaces the inherited surefire configuration wholesale and appends 46 JPMS
-flags — 36 `--add-opens`, nine `--add-exports` and one `--add-reads` — plus
-`<enableAssertions>true</enableAssertions>` (the flags at `application/pom.xml:304-354`,
-`enableAssertions` at `application/pom.xml:361`). This block is the single place where the module
+`application/pom.xml` replaces the inherited surefire configuration wholesale and appends 47 JPMS
+flags — 36 `--add-opens`, nine `--add-exports` and two `--add-reads` — plus
+`<enableAssertions>true</enableAssertions>` (the flags at `application/pom.xml:304-355`,
+`enableAssertions` at `application/pom.xml:362`). This block is the single place where the module
 boundaries declared in `application/src/main/java/module-info.java` are opened up, and both
 [Architecture overview](architecture.md) and
 [CDI container and component lifecycle](cdi-and-lifecycle.md) refer back to it.
@@ -177,9 +183,14 @@ The nine `--add-exports` name compile-visible packages rather than reflective on
 (`model` and the root package), one each to `ALL-UNNAMED` (`jqwik`), `weld.core.impl` (`model.cdi`),
 `jersey.server` (`server.rest`) and `org.unigrid.hedgehog.common` (`model`).
 
-The single `--add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog` reverses the normal
-dependency direction so that `common` can read back into `application`, which is what
-`ApplicationDirectoryMockUp` needs in order to mock `ApplicationDirectory` from the test tree.
+The two `--add-reads` cover opposite problems. `org.unigrid.hedgehog.common=org.unigrid.hedgehog`
+reverses the normal dependency direction so that `common` can read back into `application`, which is
+what `ApplicationDirectoryMockUp` needs in order to mock `ApplicationDirectory` from the test tree.
+`org.unigrid.hedgehog=org.apache.commons.io` is required because Commons IO ships a real module
+descriptor, and `TestFileOutput` calls `FileUtils.writeStringToFile` from inside the named module
+while `module-info.java` — which describes the main sources only — has no reason to require a
+test-scoped dependency. Without it the four tests that write sample output through `TestFileOutput`
+fail with `IllegalAccessError`.
 
 Introducing a package under `org.unigrid.hedgehog` that Weld, picocli or Jackson must reflect over
 normally means adding a corresponding line to this block; a missing line surfaces as an
@@ -495,7 +506,7 @@ cd native-image && mvn package
 
 ### `application/pom.xml`
 
-The QUIC native binding is selected by OS profile — `io.netty.incubator:netty-incubator-codec-native-quic:0.0.39.Final`
+The QUIC native binding is selected by OS profile — `io.netty.incubator:netty-incubator-codec-native-quic:0.0.50.Final`
 with classifier `linux-x86_64`, `windows-x86_64` or `osx-x86_64`, activated by `<os><name>Linux</name>`,
 `<os><family>Windows</family>` and `<os><family>Mac</family>` respectively. Only x86-64 classifiers exist,
 so aarch64 hosts (Apple Silicon, ARM Linux) are not covered by the current profiles.
@@ -508,7 +519,7 @@ so aarch64 hosts (Apple Silicon, ARM Linux) are not covered by the current profi
 | `me.alexpanov:free-port-finder` | 1.1.1 | `FreePortFinder.findFreeLocalPort(...)` in `server/AbstractServer.java`, and in `TestServer` to give each test server a free port. |
 | `commons-codec:commons-codec` | 1.15 | `Hex`, `DigestUtils` in the crypto and spork code. |
 | `org.apache.commons:commons-collections4` | 4.4 | `AbstractMapDecorator`, `MapUtils` in the network model. |
-| `org.apache.commons:commons-configuration2` | 2.9.0 | `sync.LockMode` — the read/write lock mode named by the `@Lock` annotation `ProtectedInterceptor` reads. |
+| `org.apache.commons:commons-configuration2` | 2.15.1 | `sync.LockMode` — the read/write lock mode named by the `@Lock` annotation `ProtectedInterceptor` reads. |
 | `org.jboss.weld.se:weld-se-core` | 5.1.0.Final | The CDI container (Weld SE). |
 | `org.projectlombok:lombok` | managed | `@Getter`, `@Builder`, `@Slf4j`, `@SneakyThrows` throughout; `requires static lombok`. |
 | `org.reflections:reflections` | 0.10.2 | Classpath scanning for handlers/codecs; `slf4j-api` and `jsr305` excluded to avoid duplicates. |
@@ -520,9 +531,9 @@ so aarch64 hosts (Apple Silicon, ARM Linux) are not covered by the current profi
 | `org.glassfish.jersey.ext:jersey-bean-validation` | 3.0.10 | `ValidationFeature` on the resource config. |
 | `org.glassfish.jaxb:jaxb-runtime` | 3.0.2 | JAXB implementation for the `org.unigrid.hedgehog.model.s3.entity` classes. |
 | `com.fasterxml.jackson.datatype:jackson-datatype-jsr310` | 2.13.3 | `JavaTimeModule` — `Instant`/`Duration` in sporks and REST payloads. |
-| `io.netty:netty-all` | 4.1.90.Final | Netty, with a wildcard `<exclusion>` of everything transitive. |
-| `io.netty:netty-codec-http` | 4.1.90.Final | Re-added explicitly because the wildcard exclusion above strips it; required by the Jersey Netty container. |
-| `org.bouncycastle:bcpkix-jdk15on` / `bcprov-jdk15on` | 1.70 | No source file imports BouncyCastle; they provide the certificate-generation backend Netty's `SelfSignedCertificate` picks up at runtime, in `P2PServer` (`application/src/main/java/org/unigrid/hedgehog/server/p2p/P2PServer.java:79`) for QUIC and in `RestServer` (`application/src/main/java/org/unigrid/hedgehog/server/rest/RestServer.java:97`) for TLS. |
+| `io.netty:netty-all` | 4.1.137.Final | Declared with a wildcard `<exclusion>` of everything transitive. Since 4.1.x the `netty-all` artifact is a 4 KB aggregator jar holding only manifest entries, so with its transitives excluded this declaration contributes nothing to the classpath; the Netty classes arrive through `netty-codec-http` and the QUIC binding instead. |
+| `io.netty:netty-codec-http` | 4.1.137.Final | Re-added explicitly because the wildcard exclusion above strips it; required by the Jersey Netty container. |
+| `org.bouncycastle:bcpkix-jdk18on` / `bcprov-jdk18on` | 1.85 | No source file imports BouncyCastle; they provide the certificate-generation backend Netty's `SelfSignedCertificate` picks up at runtime, in `P2PServer` (`application/src/main/java/org/unigrid/hedgehog/server/p2p/P2PServer.java:79`) for QUIC and in `RestServer` (`application/src/main/java/org/unigrid/hedgehog/server/rest/RestServer.java:97`) for TLS. |
 | `org.jboss:jandex` | 3.0.5 | Runtime reader for the `META-INF/jandex.idx` index used by Weld discovery. |
 | `ch.qos.logback:logback-classic` | managed | Logging backend; `ApplicationLogLevel` drives it directly. |
 | `org.slf4j:jul-to-slf4j` | managed | Bridges `java.util.logging` (Jersey, JDK internals) onto SLF4J. |
@@ -539,7 +550,7 @@ Test scope:
 | `com.github.javafaker:javafaker` | 1.0.2 | Declared; no source file imports it. |
 | `org.awaitility:awaitility` | 4.2.0 | `await().untilAtomic(...)` for the asynchronous network tests; also the transitive source of Hamcrest on the test classpath. |
 | `org.jacoco:org.jacoco.agent` (classifier `runtime`) | 0.8.8 | Coverage agent artifact. |
-| `commons-io:commons-io` | 2.11.0 | `FileUtils` in `TestFileOutput`. |
+| `commons-io:commons-io` | 2.20.0 | `FileUtils` in `TestFileOutput`. |
 | `io.findify:s3mock_2.13` | 0.2.6 | In-memory S3 server the storage-bucket/object tests compare Hedgehog's own S3 surface against. |
 
 A commented-out `org.burningwave:core` block sits at the end of the dependency list.
@@ -548,7 +559,7 @@ A commented-out `org.burningwave:core` block sits at the end of the dependency l
 
 | Dependency | Version | Used for |
 | --- | ---: | --- |
-| `org.apache.commons:commons-lang3` | 3.12.0 | `StringUtils.rightPad` in `Version`, `SystemUtils` in `ApplicationDirectory`. |
+| `org.apache.commons:commons-lang3` | 3.18.0 | `StringUtils.rightPad` in `Version`, `SystemUtils` in `ApplicationDirectory`. |
 | `net.harawata:appdirs` | managed | `AppDirsFactory` — the whole point of `ApplicationDirectory`. |
 | `org.projectlombok:lombok` | managed | `@Getter`, `@SneakyThrows`, `@Slf4j`. |
 | `ch.qos.logback:logback-classic` | managed | Logging backend. |
@@ -565,7 +576,7 @@ directory at all.
 | `org.graalvm.nativeimage:svm` | 22.3.0 | `@TargetClass`/`@Substitute` — required for `ShellFolderResolverPatch`. |
 | `org.unigrid.hedgehog:hedgehog` | project | The application the jlink image runs. |
 | `org.unigrid.hedgehog:hedgehog-common` | project | `ApplicationDirectory`, `Version` inside the launcher. |
-| `org.apache.commons:commons-compress` | 1.22 | `ZipFile`, `SeekableInMemoryByteChannel` for unpacking the embedded jlink zip. |
+| `org.apache.commons:commons-compress` | 1.28.0 | `ZipFile`, `SeekableInMemoryByteChannel` for unpacking the embedded jlink zip. |
 | `org.apache.commons:commons-exec` | 1.3 | `CommandLine`, `DefaultExecutor`, `ExecuteWatchdog`, `OS` for spawning the runner script. |
 | `net.harawata:appdirs` | managed | Where the jlink image is unpacked. |
 
@@ -1378,6 +1389,21 @@ Collected in one place, all verifiable from the sources cited above.
   `shouldHaveInputStream` and `shouldContainHeader` running. What remains compares against an
   `io.findify:s3mock` instance hard-bound to port `8001`, so it cannot run in parallel with anything
   else holding that port.
+- **`Unzipper` and `NativeImage` build on deprecated Commons Compress APIs.** Four call sites warn
+  under `showDeprecation`: `new ZipFile(SeekableByteChannel)` (superseded by `ZipFile.builder()`),
+  `IOUtils.copy`, `IOUtils.closeQuietly` and `IOUtils.toByteArray`, the last three having moved to
+  `commons-io`. They still compile and run, but the `org.apache.commons.compress.utils.IOUtils`
+  helpers are slated for removal.
+- **`PublishSporkChannelHandlerTest.shoulBeAbleToPublishSpork` is flaky.** It opens a `P2PClient`
+  per generated `TestServer`, sends one `PublishSpork` and waits on an Awaitility condition for the
+  server-side callback. Run repeatedly against an unchanged tree with `application/.jqwik-database`
+  removed between runs, it fails roughly half the time with
+  `ConditionTimeoutException: ... expected a value equal to or greater than <1> but <0> was less
+  than <1> within 10 seconds`. Because jqwik defaults to `after-failure = SAMPLE_FIRST` and records
+  the failing sample in `application/.jqwik-database`, the first failure then replays on every
+  subsequent run, which makes an intermittent fault look like a permanent one — deleting that file
+  resets it. Treat a single failure of this test as unproven until it reproduces from a clean
+  database.
 - **Two test classes assert nothing.** `MintStorageTest` and `ChannelCollectorTest` build their
   subject and print or dump the result; neither makes a claim a failure could break. `ChannelCollector`
   is in addition unused by both servers, which carry a `// TODO: Add support for ChannelCollector`.
