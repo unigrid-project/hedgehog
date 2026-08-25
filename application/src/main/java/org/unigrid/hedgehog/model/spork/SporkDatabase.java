@@ -86,6 +86,7 @@ public class SporkDatabase implements Serializable {
 
 			case STATISTICS_PUBKEY:
 				statisticsPubKey = (StatisticsPubKey) gridSpork;
+				break;
 
 			default:
 				throw new IllegalArgumentException("Unsupported spork type sent to database");

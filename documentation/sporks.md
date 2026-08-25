@@ -304,8 +304,8 @@ peer-to-peer hop.
 `model/spork/StatisticsPubKey.java`. Data model: a single `String publicKey`, defaulted to
 `StringUtils.EMPTY`. It holds the public key of whatever statistics service the network trusts. No
 code in this repository reads it; it exists to be distributed. It is also the least wired-up of the
-four types — it is missing from `SporkDatabaseInfo`, from `ChunkData`'s `@JsonSubTypes`, from the
-scheduled publish, and it trips a fall-through bug in `SporkDatabase.set` (below).
+four types — it is missing from `SporkDatabaseInfo`, from `ChunkData`'s `@JsonSubTypes` and from the
+scheduled publish.
 
 ## Signing and trust
 
@@ -547,23 +547,18 @@ persist/load round trip, comparing with shazamcrest's `sameBeanAs`.
 `SporkDatabase.get(Type)` returns the matching field or throws `IllegalArgumentException`. It has no
 caller in the main sources.
 
-`SporkDatabase.set(GridSpork)` dispatches on `gridSpork.getType()` and **is missing a `break` in the
-last case**:
+`SporkDatabase.set(GridSpork)` dispatches on `gridSpork.getType()`, assigns the matching field and
+breaks out of the switch; an unrecognised type falls to `default` and throws
+`IllegalArgumentException`. Its only caller is `PublishSporkChannelHandler`.
 
-```java
-case STATISTICS_PUBKEY:
-	statisticsPubKey = (StatisticsPubKey) gridSpork;
-
-default:
-	throw new IllegalArgumentException("Unsupported spork type sent to database");
-```
-
-Setting a `STATISTICS_PUBKEY` spork therefore assigns the field and then throws. Its only caller is
-`PublishSporkChannelHandler`, so an inbound statistics-pubkey spork that passes the freshness and
-signature checks propagates an unchecked exception out of `typedChannelRead`, which
-`AbstractInboundHandler.exceptionCaught` logs at warn level before closing the channel. The test
-suite does not exercise this: `BaseSporkDatabaseTest` defines its own `set(...)` helper with the
-missing `break` restored, and every database test uses that instead.
+The `STATISTICS_PUBKEY` branch used to lack its `break` and fell into `default`, so storing a
+statistics-pubkey spork assigned the field and then threw — reachable from the network by any peer
+holding a validly signed statistics spork. No database test caught it, because
+`BaseSporkDatabaseTest` carried its own copy of this dispatch with the `break` present and every
+database test used that instead. Both the missing `break` and the duplicate helper are gone:
+`SporkDatabaseTest` and `SporkDatabaseInfoTest` now call `SporkDatabase.set` directly, so a
+regression in any branch of the switch surfaces as a failing property rather than as a runtime fault
+on an inbound packet.
 
 ### `SporkDatabaseProducer`
 
@@ -746,8 +741,7 @@ What matters for the spork model is what that gate implies. Rejection is complet
 or badly signed spork produces no log line at all, so a node that is quietly refusing every update
 from the network looks identical to a node that is up to date. The freshness half of the gate is also
 what terminates the flood, since a peer that already holds the value will not forward it again.
-Acceptance runs `db.set(...)`, which means the `STATISTICS_PUBKEY` fall-through described above is
-reachable from the network by any peer holding a validly signed statistics spork.
+Acceptance runs `db.set(...)`, which stores the spork in the field matching its type.
 
 The whole handler body runs inside `CDIUtil.resolveAndRun(SporkDatabase.class, ...)`
 (`model/cdi/CDIUtil.java`), which checks `Instance.isResolvable()` and, when the bean cannot be
@@ -903,10 +897,6 @@ proxy and forces nothing. See [CDI container and component lifecycle](cdi-and-li
 
 Collected here so a reader does not have to rediscover them.
 
-- **`SporkDatabase.set` falls through from `STATISTICS_PUBKEY` into `default`.** The field is
-  assigned and then an `IllegalArgumentException` is thrown, so storing a statistics-pubkey spork
-  always fails after the fact — reachable from the network through `PublishSporkChannelHandler`
-  (`model/spork/SporkDatabase.java`).
 - **`GridSpork.archive()` dereferences `previousData` inside its own null check.** Unreachable
   today only because `data` is never null (`model/spork/GridSpork.java`).
 - **`Vesting.amount` is neither encoded nor decoded.** A vesting entry arrives at a peer with a null

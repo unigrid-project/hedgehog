@@ -45,7 +45,7 @@ public class SporkDatabaseTest extends BaseSporkDatabaseTest {
 		final Path path = Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 		final SporkDatabase sporkDatabase = db(path);
 
-		set(sporkDatabase, gridSpork);
+		sporkDatabase.set(gridSpork);
 		SporkDatabase.persist(path, sporkDatabase);
 		final SporkDatabase deserializedSporkDatabase = SporkDatabase.load(path);
 

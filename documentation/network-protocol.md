@@ -677,9 +677,8 @@ The reserved eight bytes come first, unlike every other chunk.
 
 Note that `PublishAndSaveSporkSchedule` publishes only `MINT_STORAGE`, `MINT_SUPPLY` and
 `VESTING_STORAGE`; the statistics public key spork has full codec support but is never sent on the
-wire by the current code. It can still arrive from a peer, and `SporkDatabase.set` has no `break` on
-its `STATISTICS_PUBKEY` case, so storing one falls through to `default` and throws
-`IllegalArgumentException` — see [Grid sporks](sporks.md).
+wire by the current code. It can still arrive from a peer, and is stored like any other type — see
+[Grid sporks](sporks.md).
 
 ## Buffer primitives
 
@@ -821,9 +820,6 @@ Resolves `SporkDatabase`, builds a map of the four known spork types to their cu
    via `Topology.sendAll(publishSpork, topology, Optional.empty())`. `isNewerThan` treats a null or
    timestamp-less `oldSpork` as older than anything with a timestamp, which is what lets a node with an
    empty database accept the first spork it is offered.
-
-`db.set(...)` is where a `STATISTICS_PUBKEY` spork falls through a missing `break` into `default` and
-throws `IllegalArgumentException`; the ramifications of that are in [Grid sporks](sporks.md).
 
 The re-broadcast has no origin suppression and no hop limit; loops are broken only by the
 `isNewerThan` timestamp check on the receiving side. The `Optional.empty()` consumer carries a

@@ -29,7 +29,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
-import static org.unigrid.hedgehog.model.spork.BaseSporkDatabaseTest.set;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo.Overview;
 
 public class SporkDatabaseInfoTest extends BaseSporkDatabaseTest {
@@ -54,7 +53,7 @@ public class SporkDatabaseInfoTest extends BaseSporkDatabaseTest {
 	@Domain(SuiteDomain.class)
 	public void shouldSetOverviewOnPopulatedDatabase(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) {
 		final SporkDatabase sporkDatabase = SporkDatabase.builder().build();
-		set(sporkDatabase, gridSpork);
+		sporkDatabase.set(gridSpork);
 
 		final SporkDatabaseInfo info = new SporkDatabaseInfo(sporkDatabase);
 

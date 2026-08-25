@@ -1394,16 +1394,12 @@ Collected in one place, all verifiable from the sources cited above.
   `IOUtils.copy`, `IOUtils.closeQuietly` and `IOUtils.toByteArray`, the last three having moved to
   `commons-io`. They still compile and run, but the `org.apache.commons.compress.utils.IOUtils`
   helpers are slated for removal.
-- **`PublishSporkChannelHandlerTest.shoulBeAbleToPublishSpork` is flaky.** It opens a `P2PClient`
-  per generated `TestServer`, sends one `PublishSpork` and waits on an Awaitility condition for the
-  server-side callback. Run repeatedly against an unchanged tree with `application/.jqwik-database`
-  removed between runs, it fails roughly half the time with
-  `ConditionTimeoutException: ... expected a value equal to or greater than <1> but <0> was less
-  than <1> within 10 seconds`. Because jqwik defaults to `after-failure = SAMPLE_FIRST` and records
-  the failing sample in `application/.jqwik-database`, the first failure then replays on every
-  subsequent run, which makes an intermittent fault look like a permanent one — deleting that file
-  resets it. Treat a single failure of this test as unproven until it reproduces from a clean
-  database.
+- **A failing property replays until its recorded sample is cleared.** jqwik defaults to
+  `after-failure = SAMPLE_FIRST` and writes the failing sample to `application/.jqwik-database`
+  (gitignored), so the first failure of a property is replayed on every subsequent run. An
+  intermittent fault therefore looks like a permanent one, and a fix looks ineffective until that
+  file is deleted. Delete it before judging whether a property test still fails, and re-run several
+  times from a clean database rather than trusting a single green run.
 - **Two test classes assert nothing.** `MintStorageTest` and `ChannelCollectorTest` build their
   subject and print or dump the result; neither makes a claim a failure could break. `ChannelCollector`
   is in addition unused by both servers, which carry a `// TODO: Add support for ChannelCollector`.

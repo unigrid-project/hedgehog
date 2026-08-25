@@ -30,10 +30,6 @@ import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_STORAGE;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_SUPPLY;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.VESTING_STORAGE;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.STATISTICS_PUBKEY;
 
 public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -57,29 +53,6 @@ public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 			return SporkDatabase.load(path);
 		} else {
 			return SporkDatabase.builder().build();
-		}
-	}
-
-	protected static void set(SporkDatabase sporkDatabase, GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				sporkDatabase.setMintStorage((MintStorage) gridSpork);
-				break;
-
-			case MINT_SUPPLY:
-				sporkDatabase.setMintSupply((MintSupply) gridSpork);
-				break;
-
-			case VESTING_STORAGE:
-				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
-				break;
-
-			case STATISTICS_PUBKEY:
-				sporkDatabase.setStatisticsPubKey((StatisticsPubKey) gridSpork);
-				break;
-
-			default:
-				throw new IllegalArgumentException("Unsupported spork type passed.");
 		}
 	}
 }
