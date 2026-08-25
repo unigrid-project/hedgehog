@@ -1403,10 +1403,6 @@ Collected in one place, all verifiable from the sources cited above.
 - **Two test classes assert nothing.** `MintStorageTest` and `ChannelCollectorTest` build their
   subject and print or dump the result; neither makes a claim a failure could break. `ChannelCollector`
   is in addition unused by both servers, which carry a `// TODO: Add support for ChannelCollector`.
-- **Three `*.original~` files are tracked in git**:
-  `application/src/main/java/org/unigrid/hedgehog/server/rest/StorageBucket.java.original~`,
-  `application/src/main/java/org/unigrid/hedgehog/service/BucketService.java.original~` and
-  `application/src/test/java/org/unigrid/hedgehog/server/rest/StorageBucketTest.java.original~`.
 - **The README's artifact path is slightly off** — it says
   `target/hedgehog-<version>-SNAPSHOT-jar-with-dependencies.jar`, while the file is produced under
   `application/target/` and the project version already carries the `-SNAPSHOT` suffix.

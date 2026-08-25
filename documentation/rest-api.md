@@ -839,5 +839,3 @@ on the surefire plugin in `application/pom.xml`; see
   exception additionally sends `Location: /`.
 - **The S3 surface has no authentication, no S3 error documents, no nested keys**, and reports "now"
   as every object's `LastModified`.
-- **Stray `.original~` editor backups are tracked in git** beside `StorageBucket`, `BucketService`
-  and `StorageBucketTest`; they are listed in [Build, testing and native image](build-and-native-image.md).
