@@ -22,6 +22,16 @@ __Features slated for 2023:__
 __Secondary goals:__
 - Replacement of the network and consensus chain in the [legacy daemon](https://github.com/unigrid-project/daemon), including complete or partial migration to Hedgehog. We are currently investigating different options for the network and what direction makes the most sense for the Unigrid network out of a go-to-market perspective.
 
+## Documentation
+In-depth documentation of the codebase lives in [documentation/](documentation/README.md):
+
+- [Architecture overview](documentation/architecture.md)
+- [Peer-to-peer network protocol](documentation/network-protocol.md)
+- [Grid sporks](documentation/sporks.md)
+- [REST interface](documentation/rest-api.md)
+- [CDI container and component lifecycle](documentation/cdi-and-lifecycle.md)
+- [Build, testing and native image](documentation/build-and-native-image.md)
+
 ## For developers that want to build Hedgehog
 Hedgehog requires Java 17+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
 
