@@ -51,9 +51,9 @@ public class TunnelProducer {
 			random, scheduler), scheduler);
 	}
 
-	/* One thread for the tick of the sessions and the deadlines of the streams. It is a daemon that starts with the
-	   first stream, so a node needs no disposer to end, and a stream that ends takes its deadline out of the queue
-	   rather than staying reachable until the deadline would have run. */
+	/* One thread for the tick of the sessions and the deadlines of the streams and associations. It is a daemon
+	   that starts with the first session, so a node needs no disposer to end, and a session that ends takes its
+	   deadline out of the queue rather than staying reachable until the deadline would have run. */
 	static ScheduledThreadPoolExecutor scheduler() {
 		final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, body -> {
 			final Thread thread = new Thread(body, "chain-client");

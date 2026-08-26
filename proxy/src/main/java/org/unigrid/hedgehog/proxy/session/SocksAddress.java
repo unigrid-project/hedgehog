@@ -67,6 +67,13 @@ public record SocksAddress(Socks5AddressType type, String host, int port) {
 		throw new IllegalArgumentException("Address type " + type + " has no fixed size");
 	}
 
+	/* The length of its SOCKS5 form, as a sealed Datagram and a UDP request header carry it: [type u8], then 4 or 16
+	   bytes or [length u8][ASCII], then [port u16] */
+	public int encodedSize() {
+		return Byte.BYTES + (Socks5AddressType.DOMAIN.equals(type) ? Byte.BYTES + host.length() : sizeOf(type))
+			+ Short.BYTES;
+	}
+
 	private static String literal(Socks5AddressType type, String host) {
 		final byte[] bytes = NetUtil.createByteArrayFromIpAddressString(host);
 

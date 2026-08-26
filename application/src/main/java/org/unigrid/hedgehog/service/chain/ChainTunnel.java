@@ -27,6 +27,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -35,16 +37,20 @@ import org.unigrid.hedgehog.proxy.session.CloseReason;
 import org.unigrid.hedgehog.proxy.session.Connect;
 import org.unigrid.hedgehog.proxy.session.Connected;
 import org.unigrid.hedgehog.proxy.session.Data;
+import org.unigrid.hedgehog.proxy.session.Datagram;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
+import org.unigrid.hedgehog.proxy.socks.AssociationListener;
+import org.unigrid.hedgehog.proxy.socks.AssociationStream;
 import org.unigrid.hedgehog.proxy.socks.Tunnel;
 import org.unigrid.hedgehog.proxy.socks.TunnelFailure;
 import org.unigrid.hedgehog.proxy.socks.TunnelListener;
 import org.unigrid.hedgehog.proxy.socks.TunnelStream;
 
 /* The tunnel of the SOCKS front end over client sessions: each stream is a session towards an exit that carries
-   the destination. The spork is read for every stream, and while it is absent or does not allow CONNECT the stream
-   is refused as not allowed and no session is started. */
+   the destination, and each UDP association a session whose datagrams the exit relays. The spork is read for each,
+   and while it is absent or does not allow CONNECT for a stream, or UDP for an association, it is refused as not
+   allowed and no session is started. */
 @Slf4j
 @RequiredArgsConstructor
 public final class ChainTunnel implements Tunnel {
@@ -54,74 +60,206 @@ public final class ChainTunnel implements Tunnel {
 
 	/* The join waits up to ten seconds for each member it asks, the session five seconds for each of three exits
 	   and the exit may try eight addresses of a name for ten seconds each, so two minutes lets such a slow path
-	   answer and still ends a stream that nothing will answer. */
+	   answer and still ends a stream or an association that nothing will answer. */
 	static final long DEADLINE_MILLIS = 120_000;
 
 	private final ProxySettingsSource settings;
 	private final SessionOpener sessions;
 	private final ScheduledExecutorService timers;
 
-	/* Never throws: a stream that cannot start is failed, so that the front end has a reply to give */
 	@Override
 	public TunnelStream open(final SocksAddress destination, final TunnelListener listener) {
 		final ChainStream stream = new ChainStream(listener);
 
-		try {
-			if (settings.current().filter(ProxySettings::connectAllowed).isPresent()) {
-				stream.deadline = timers.schedule(stream::expire, DEADLINE_MILLIS, TimeUnit.MILLISECONDS);
-				stream.attach(sessions.open(new Connect(Socks5CommandType.CONNECT, destination), stream));
-			} else {
-				stream.fail(TunnelFailure.NOT_ALLOWED);
-			}
-		} catch (RuntimeException ex) {
-			log.warn("Opening a tunnel stream failed with {}", ex.getClass().getName());
-			stream.fail(TunnelFailure.GENERAL_FAILURE);
-		}
-
+		start(stream, ProxySettings::connectAllowed, Socks5CommandType.CONNECT, destination);
 		return stream;
 	}
 
-	/* A failure is logged by its class alone, as its message may quote what the stream carries, and the stream goes
-	   on with its next call */
+	/* The exit relays the datagrams from a socket of its own, so it needs no address from the client */
+	@Override
+	public AssociationStream associate(final AssociationListener listener) {
+		final ChainAssociation association = new ChainAssociation(listener);
+
+		start(association, ProxySettings::udpAllowed, Socks5CommandType.UDP_ASSOCIATE, SocksAddress.UNSPECIFIED);
+		return association;
+	}
+
+	/* What cannot start is failed, so that the front end has a reply to give */
+	private void start(final TunnelSession opening, final Predicate<ProxySettings> allowed,
+		final Socks5CommandType command, final SocksAddress destination) {
+
+		try {
+			if (settings.current().filter(allowed).isPresent()) {
+				opening.deadline = timers.schedule(opening::expire, DEADLINE_MILLIS, TimeUnit.MILLISECONDS);
+				opening.attach(sessions.open(new Connect(command, destination), opening));
+			} else {
+				opening.fail(TunnelFailure.NOT_ALLOWED);
+			}
+		} catch (RuntimeException ex) {
+			log.warn("Opening a session of the tunnel failed with {}", ex.getClass().getName());
+			opening.fail(TunnelFailure.GENERAL_FAILURE);
+		}
+	}
+
+	/* A failure is logged by its class alone, as its message may quote what the session carries, and the stream or
+	   the association goes on with its next call */
 	private static void guarded(final Runnable call) {
 		try {
 			call.run();
 		} catch (RuntimeException ex) {
-			log.warn("A call out of a tunnel stream failed with {}", ex.getClass().getName());
+			log.warn("A call out of the tunnel failed with {}", ex.getClass().getName());
 		}
 	}
 
-	/* One stream: what the session produces reaches the front end in order, and what the front end writes is cut into
-	   messages that one entry carries. Every change is decided under the lock of the stream, and the calls it makes
-	   on the listener and the session are made with no lock of the stream held, the listener's one at a time and in
-	   the order they were decided, so either may call back in. */
-	private static final class ChainStream implements TunnelStream, SessionListener {
-		private final TunnelListener listener;
-		private final Queue<byte[]> held = new ArrayDeque<>();
-		private final OrderedDrain<Runnable> tells = new OrderedDrain<>(new ConcurrentLinkedQueue<>());
+	/* What a stream and an association share: the session that carries it, the reply of the exit with its deadline,
+	   and the end. Every change is decided under the lock of the stream or the association, and the calls it makes on
+	   the front end and the session are made with no such lock held, the front end's one at a time and in the order
+	   they were decided, so either may call back in. */
+	private abstract static class TunnelSession implements SessionListener {
+		protected final OrderedDrain<Runnable> tells = new OrderedDrain<>(new ConcurrentLinkedQueue<>());
+		protected volatile SessionHandle session;
+		protected volatile boolean connected;
+		protected volatile boolean ended;
+		private final Consumer<Connected> tellOpened;
+		private final Consumer<TunnelFailure> tellFailed;
+		private final Runnable tellClosed;
 		private volatile Future<?> deadline;
-		private volatile SessionHandle session;
 		private volatile CloseReason closing;
-		private volatile boolean ended;
-		private boolean connected;
-		private boolean readable = true;
-		private int heldBytes;
 
-		private ChainStream(final TunnelListener listener) {
-			this.listener = listener;
+		TunnelSession(final Consumer<Connected> tellOpened, final Consumer<TunnelFailure> tellFailed,
+			final Runnable tellClosed) {
+
+			this.tellOpened = tellOpened;
+			this.tellFailed = tellFailed;
+			this.tellClosed = tellClosed;
 		}
+
+		/* What the session carries besides the reply and the end */
+		abstract void carried(SealedMessage message);
 
 		@Override
 		public void received(final SealedMessage message) {
 			if (message instanceof Connected reply) {
 				answered(reply);
-			} else if (message instanceof Data data && overflows(data.bytes())) {
-				closeSession(CloseReason.BROKEN);
 			} else if (message instanceof Close close) {
 				finished(close.reason());
+			} else {
+				carried(message);
 			}
 
 			drain();
+		}
+
+		/* A second reply is not the exit's to give */
+		private synchronized void answered(final Connected reply) {
+			if (!reply.status().isSuccess()) {
+				failed(TunnelFailure.of(reply.status()));
+			} else if (!connected && !ended) {
+				connected = true;
+				cancelDeadline();
+				tells.add(() -> tellOpened.accept(reply));
+			}
+		}
+
+		synchronized void finished(final CloseReason reason) {
+			if (connected) {
+				ended(tellClosed);
+			} else {
+				failed(TunnelFailure.of(reason));
+			}
+		}
+
+		/* What no exit answered in time is ended and its session closed, as the front end cuts nothing after the
+		   command; what got its reply is left to the idle limit of its session */
+		private void expire() {
+			if (failed(TunnelFailure.TTL_EXPIRED)) {
+				closeSession(CloseReason.DONE);
+			}
+
+			drain();
+		}
+
+		private void fail(final TunnelFailure failure) {
+			failed(failure);
+			drain();
+		}
+
+		private synchronized boolean failed(final TunnelFailure failure) {
+			return !connected && ended(() -> tellFailed.accept(failure));
+		}
+
+		boolean ended(final Runnable last) {
+			final boolean stopped = stop();
+
+			if (stopped) {
+				tells.add(last);
+			}
+
+			return stopped;
+		}
+
+		/* False when it had ended already */
+		boolean stop() {
+			final boolean open = !ended;
+
+			ended = true;
+			cancelDeadline();
+			return open;
+		}
+
+		private void cancelDeadline() {
+			Optional.ofNullable(deadline).ifPresent(timer -> timer.cancel(false));
+		}
+
+		void drain() {
+			tells.drain(ChainTunnel::guarded);
+		}
+
+		/* The session may tell its end before open hands its handle over, and the front end may end what it carries
+		   before then */
+		private void attach(final SessionHandle handle) {
+			session = handle;
+			Optional.ofNullable(closing).ifPresent(this::closeSession);
+		}
+
+		void closeSession(final CloseReason reason) {
+			closing = reason;
+			Optional.ofNullable(session).ifPresent(open -> guarded(() -> open.close(reason)));
+		}
+
+		/* The front end hears nothing more, not even what was decided before and is not told yet */
+		public void close() {
+			final boolean open;
+
+			synchronized (this) {
+				tells.clear();
+				open = stop();
+			}
+
+			if (open) {
+				closeSession(CloseReason.DONE);
+			}
+		}
+	}
+
+	/* One stream: what the destination sends waits while the client reads slowly, and what the front end writes is
+	   cut into messages that one entry carries */
+	private static final class ChainStream extends TunnelSession implements TunnelStream {
+		private final TunnelListener listener;
+		private final Queue<byte[]> held = new ArrayDeque<>();
+		private boolean readable = true;
+		private int heldBytes;
+
+		private ChainStream(final TunnelListener listener) {
+			super(reply -> listener.connected(reply.bound()), listener::failed, listener::closed);
+			this.listener = listener;
+		}
+
+		@Override
+		void carried(final SealedMessage message) {
+			if (message instanceof Data data && overflows(data.bytes())) {
+				closeSession(CloseReason.BROKEN);
+			}
 		}
 
 		/* The front end reads the writability of the stream when it hears the reply, so a change before then is
@@ -135,17 +273,6 @@ public final class ChainTunnel implements Tunnel {
 			}
 
 			drain();
-		}
-
-		/* A second reply is not the exit's to give */
-		private synchronized void answered(final Connected reply) {
-			if (!reply.status().isSuccess()) {
-				failed(TunnelFailure.of(reply.status()));
-			} else if (!connected && !ended) {
-				connected = true;
-				cancelDeadline();
-				tells.add(() -> listener.connected(reply.bound()));
-			}
 		}
 
 		/* What the client cannot take yet waits in order. True when that took the stream beyond what it holds and
@@ -168,78 +295,26 @@ public final class ChainTunnel implements Tunnel {
 
 		/* What the destination sent before it closed reaches the client first, held back or not, as nothing is left
 		   to release it once the front end heard the end */
-		private synchronized void finished(final CloseReason reason) {
+		@Override
+		synchronized void finished(final CloseReason reason) {
 			if (connected) {
 				release();
-				ended(listener::closed);
-			} else {
-				failed(TunnelFailure.of(reason));
-			}
-		}
-
-		/* A stream that no exit answered in time is ended and its session closed, as the front end cuts nothing
-		   after the command; one that got its reply is left to the idle limit of its session */
-		private void expire() {
-			if (failed(TunnelFailure.TTL_EXPIRED)) {
-				closeSession(CloseReason.DONE);
 			}
 
-			drain();
+			super.finished(reason);
 		}
 
-		private void fail(final TunnelFailure failure) {
-			failed(failure);
-			drain();
-		}
-
-		private synchronized boolean failed(final TunnelFailure failure) {
-			return !connected && ended(() -> listener.failed(failure));
-		}
-
-		private boolean ended(final Runnable last) {
-			final boolean stopped = stop();
-
-			if (stopped) {
-				tells.add(last);
-			}
-
-			return stopped;
-		}
-
-		/* Nothing is held once the stream ended, so nothing can be released after the last call of the listener.
-		   False when the stream had ended already. */
-		private boolean stop() {
-			final boolean open = !ended;
-
-			ended = true;
+		/* Nothing is held once the stream ended, so nothing can be released after the last call of the listener */
+		@Override
+		boolean stop() {
 			held.clear();
-			cancelDeadline();
-			return open;
-		}
-
-		private void cancelDeadline() {
-			Optional.ofNullable(deadline).ifPresent(timer -> timer.cancel(false));
+			return super.stop();
 		}
 
 		private void release() {
 			held.forEach(bytes -> tells.add(() -> listener.received(bytes)));
 			held.clear();
 			heldBytes = 0;
-		}
-
-		private void drain() {
-			tells.drain(ChainTunnel::guarded);
-		}
-
-		/* The session may tell its end before open hands its handle over, and the stream may end it before then */
-		private void attach(final SessionHandle handle) {
-			session = handle;
-			Optional.ofNullable(closing).ifPresent(this::closeSession);
-		}
-
-		private void closeSession(final CloseReason reason) {
-			closing = reason;
-			Optional.ofNullable(session).ifPresent(open -> guarded(() -> open.close(reason)));
 		}
 
 		@Override
@@ -277,20 +352,56 @@ public final class ChainTunnel implements Tunnel {
 
 			drain();
 		}
+	}
 
-		/* The listener hears nothing more, not even what was decided before and is not told yet */
+	/* One UDP association: each datagram is one sealed message, sent whole or dropped and never queued, as UDP
+	   tolerates loss and a queue would only add delay */
+	private static final class ChainAssociation extends TunnelSession implements AssociationStream {
+		private final AssociationListener listener;
+
+		private ChainAssociation(final AssociationListener listener) {
+			super(reply -> listener.opened(), listener::failed, listener::closed);
+			this.listener = listener;
+		}
+
+		/* The exit relays no datagram before it has set the association up, and the front end has no association to
+		   hand one to before the reply, so a datagram that comes earlier is dropped */
 		@Override
-		public void close() {
-			final boolean open;
+		synchronized void carried(final SealedMessage message) {
+			if (message instanceof Datagram datagram && connected && !ended) {
+				tells.add(() -> listener.received(datagram.address(), datagram.bytes()));
+			}
+		}
 
-			synchronized (this) {
-				tells.clear();
-				open = stop();
+		@Override
+		public void writabilityChanged(final boolean writable) {
+			/* A datagram is dropped while the chain has no room, so nothing waits for it */
+		}
+
+		/* Sent with no lock held, as the session is never posted to under one: what ends the association meanwhile
+		   leaves the session to refuse the datagram */
+		@Override
+		public boolean send(final SocksAddress destination, final byte[] bytes) {
+			final SessionHandle open = session;
+
+			if (open == null || !takes(open, destination, bytes)) {
+				return false;
 			}
 
-			if (open) {
-				closeSession(CloseReason.DONE);
+			try {
+				open.send(new Datagram(destination, bytes));
+				return true;
+			} catch (IllegalStateException ex) {
+				/* The session ended under the send, and its Close tells the listener so */
+				return false;
 			}
+		}
+
+		/* A datagram the session would refuse as too large for one entry is dropped here, so an
+		   IllegalArgumentException out of the session is a fault and is left to the caller */
+		private boolean takes(final SessionHandle open, final SocksAddress destination, final byte[] bytes) {
+			return connected && !ended && open.isWritable()
+				&& bytes.length <= open.maxDataBytes() - destination.encodedSize();
 		}
 	}
 }

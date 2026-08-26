@@ -145,4 +145,55 @@ public class TunnelTest {
 			}
 		};
 	}
+
+	/* What the front end heard once associate returned; the handle it got takes no datagram and the front end hears
+	   nothing more, whatever it does with it */
+	private static List<String> associated(Tunnel tunnel) {
+		final List<String> heard = new ArrayList<>();
+		final AssociationStream association = tunnel.associate(new AssociationListener() {
+			@Override
+			public void opened() {
+				heard.add("opened");
+			}
+
+			@Override
+			public void failed(TunnelFailure failure) {
+				heard.add("failed " + failure);
+			}
+
+			@Override
+			public void received(SocksAddress source, byte[] bytes) {
+				heard.add("received");
+			}
+
+			@Override
+			public void closed() {
+				heard.add("closed");
+			}
+		});
+		final List<String> told = List.copyOf(heard);
+
+		assertThat(association.send(TARGET, new byte[] { 1 }), is(false));
+		assertThat(association.send(TARGET, new byte[0]), is(false));
+		association.close();
+		association.close();
+		assertThat(heard, equalTo(told));
+		return told;
+	}
+
+	@Example
+	public void shouldFailEveryAssociationOfARefusingTunnelAtOnceWithItsOwnFailure() {
+		for (TunnelFailure failure : TunnelFailure.values()) {
+			assertThat(associated(Tunnel.refusing(failure)), equalTo(List.of("failed " + failure)));
+		}
+	}
+
+	@Example
+	public void shouldRefuseEveryAssociationOfATunnelThatRelaysNoDatagrams() {
+		final Tunnel streamsOnly = (destination, listener) -> {
+			throw new AssertionError("An association opened a stream");
+		};
+
+		assertThat(associated(streamsOnly), equalTo(List.of("failed COMMAND_UNSUPPORTED")));
+	}
 }

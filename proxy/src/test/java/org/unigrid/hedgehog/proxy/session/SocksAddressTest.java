@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.GenerationMode;
@@ -38,6 +39,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import org.unigrid.hedgehog.proxy.Expect;
+import org.unigrid.hedgehog.proxy.socks.UdpHeaderCodec;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
@@ -374,5 +376,51 @@ public class SocksAddressTest {
 		assertThat(SocksAddress.sizeOf(Socks5AddressType.IPv6), is(16));
 		Expect.assertThrows(IllegalArgumentException.class, () -> SocksAddress.sizeOf(Socks5AddressType.DOMAIN));
 		Expect.assertThrows(IllegalArgumentException.class, () -> SocksAddress.sizeOf(UNKNOWN_TYPE));
+	}
+
+	@Example
+	public void shouldCountTheBytesOfItsSocksForm() {
+		assertThat(ipv4("192.0.2.1").encodedSize(), is(7));
+		assertThat(ipv4("255.255.255.255").encodedSize(), is(7));
+		assertThat(ipv6("::1").encodedSize(), is(19));
+		assertThat(ipv6("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff").encodedSize(), is(19));
+		assertThat(domain("example.org").encodedSize(), is(15));
+		assertThat(domain("a").encodedSize(), is(5));
+		assertThat(domain("a".repeat(SocksAddress.MAX_DOMAIN_LENGTH - 1)).encodedSize(), is(258));
+	}
+
+	/* The longest address is all a SOCKS5 UDP request header holds after its reserved and fragment bytes */
+	@Example
+	public void shouldCountTheLongestAddressAsTheRestOfTheLongestUdpHeader() {
+		final SocksAddress longest = new SocksAddress(Socks5AddressType.DOMAIN,
+			"a".repeat(SocksAddress.MAX_DOMAIN_LENGTH), SocksAddress.MAX_PORT);
+
+		assertThat(longest.encodedSize(), is(259));
+		assertThat(longest.encodedSize(), is(UdpHeaderCodec.MAX_HEADER_BYTES - UdpHeaderCodec.PREFIX_BYTES));
+	}
+
+	@Provide
+	Arbitrary<SocksAddress> addresses() {
+		final Arbitrary<Integer> ports = Arbitraries.integers().between(0, SocksAddress.MAX_PORT);
+		final Arbitrary<String> names = Arbitraries.strings().withCharRange('a', 'z').ofMinLength(1)
+			.ofMaxLength(SocksAddress.MAX_DOMAIN_LENGTH);
+
+		return Arbitraries.oneOf(
+			Combinators.combine(Arbitraries.bytes().array(byte[].class).ofSize(4), ports).as((bytes, port) ->
+				new SocksAddress(Socks5AddressType.IPv4, NetUtil.bytesToIpAddress(bytes), port)),
+			Combinators.combine(Arbitraries.bytes().array(byte[].class).ofSize(16), ports).as((bytes, port) ->
+				new SocksAddress(Socks5AddressType.IPv6, NetUtil.bytesToIpAddress(bytes), port)),
+			Combinators.combine(names, ports).as((name, port) ->
+				new SocksAddress(Socks5AddressType.DOMAIN, name, port)));
+	}
+
+	/* A sealed Datagram puts its type byte in front of the address, a UDP request header its reserved and fragment
+	   bytes */
+	@Property(tries = 300)
+	public void shouldCountWhatTheCodecsWrite(@ForAll("addresses") SocksAddress address) {
+		final Datagram empty = new Datagram(address, new byte[0]);
+
+		assertThat(address.encodedSize(), is(SealedCodec.encode(empty).length - 1));
+		assertThat(address.encodedSize(), is(UdpHeaderCodec.encode(empty).length - UdpHeaderCodec.PREFIX_BYTES));
 	}
 }

@@ -21,9 +21,9 @@ package org.unigrid.hedgehog.proxy.socks;
 import java.util.Objects;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
-/* Fails every stream before open returns, so a caller must not assume it holds the handle when failed is told; the
-   stream it hands back takes nothing and ends nothing */
-final class RefusingTunnel implements Tunnel, TunnelStream {
+/* Fails every stream and association before open or associate returns, so a caller must not assume it holds the
+   handle when failed is told; the handle it hands back takes nothing and ends nothing */
+final class RefusingTunnel implements Tunnel, TunnelStream, AssociationStream {
 	private final TunnelFailure failure;
 
 	RefusingTunnel(TunnelFailure failure) {
@@ -34,6 +34,17 @@ final class RefusingTunnel implements Tunnel, TunnelStream {
 	public TunnelStream open(SocksAddress destination, TunnelListener listener) {
 		listener.failed(failure);
 		return this;
+	}
+
+	@Override
+	public AssociationStream associate(AssociationListener listener) {
+		listener.failed(failure);
+		return this;
+	}
+
+	@Override
+	public boolean send(SocksAddress destination, byte[] bytes) {
+		return false;
 	}
 
 	@Override
