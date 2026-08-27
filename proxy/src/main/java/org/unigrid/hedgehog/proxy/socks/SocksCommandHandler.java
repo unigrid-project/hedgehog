@@ -40,23 +40,35 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
 /* Serves the one command of a SOCKS5 connection: CONNECT opens a tunnel stream, the client hears the tunnel's
    answer as its reply, and bytes then flow both ways until either side closes. Reads stop at the command and
    resume when the stream opens, and stop again whenever the stream takes no more writes; the stream in turn
-   holds back what the destination sends while the client takes no more. */
+   holds back what the destination sends while the client takes no more. UDP ASSOCIATE opens a UDP association
+   instead, which lasts as long as this connection does. */
 final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	/* Reads stop at the command, so only what one read already held can arrive before the reply: at most
 	   64 KiB with Netty's default allocator. More than twice that means reads did not stop. */
 	static final int MAX_EARLY_BYTES = 128 * 1024;
 
 	private final Tunnel tunnel;
+	private final UdpBinder binder;
 	private final List<byte[]> early = new ArrayList<>();
 	private int earlyBytes;
 	private ChannelHandlerContext context;
 	private TunnelStream stream;
+	private UdpAssociation association;
 	private boolean open;
 	private boolean ended;
 	private boolean refused;
 
 	SocksCommandHandler(Tunnel tunnel) {
+		this(tunnel, UdpBinder.NIO);
+	}
+
+	SocksCommandHandler(Tunnel tunnel, UdpBinder binder) {
 		this.tunnel = tunnel;
+		this.binder = binder;
+	}
+
+	UdpAssociation association() {
+		return association;
 	}
 
 	@Override
@@ -66,7 +78,9 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 
 	@Override
 	public void channelRead(ChannelHandlerContext ctx, Object message) {
-		if (message instanceof Socks5CommandRequest request) {
+		if (message instanceof Socks5CommandRequest request && association != null) {
+			commandAfterAssociation(request);
+		} else if (message instanceof Socks5CommandRequest request) {
 			command(request);
 		} else if (message instanceof ByteBuf bytes) {
 			forward(bytes);
@@ -79,6 +93,10 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	public void channelInactive(ChannelHandlerContext ctx) {
 		if (stream != null) {
 			stream.close();
+		}
+
+		if (association != null) {
+			association.close();
 		}
 
 		ctx.fireChannelInactive();
@@ -95,6 +113,12 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 
 	private void command(Socks5CommandRequest request) {
 		context.channel().config().setAutoRead(false);
+
+		if (isAssociate(request)) {
+			associate(request.dstPort());
+			return;
+		}
+
 		context.pipeline().remove(Socks5CommandRequestDecoder.class);
 
 		if (request.decoderResult().isFailure()) {
@@ -102,8 +126,25 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		} else if (Socks5CommandType.CONNECT.equals(request.type())) {
 			connect(request);
 		} else {
-			/* BIND has no use behind an exit, and UDP ASSOCIATE is not relayed yet */
+			/* BIND has no use behind an exit */
 			fail(TunnelFailure.COMMAND_UNSUPPORTED);
+		}
+	}
+
+	/* The control connection of an association carries no payload, so a fresh decoder reads on, the rest of this
+	   read included, to notice a second command. The association exists first, so that such a command meets it even
+	   if a decoder forwards it while it is being replaced. */
+	private void associate(int clientPort) {
+		association = new UdpAssociation(context, binder, clientPort);
+		context.pipeline().replace(Socks5CommandRequestDecoder.class, null, new Socks5CommandRequestDecoder());
+		association.start(tunnel);
+	}
+
+	/* A second command is a protocol violation; bytes the decoder cannot read as one are ignored, and so is
+	   everything after them */
+	private void commandAfterAssociation(Socks5CommandRequest request) {
+		if (request.decoderResult().isSuccess()) {
+			context.close();
 		}
 	}
 
@@ -235,6 +276,10 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 
 	private static Socks5CommandResponse response(Socks5CommandStatus status, SocksAddress bound) {
 		return new DefaultSocks5CommandResponse(status, bound.type(), bound.host(), bound.port());
+	}
+
+	private static boolean isAssociate(Socks5CommandRequest request) {
+		return request.decoderResult().isSuccess() && Socks5CommandType.UDP_ASSOCIATE.equals(request.type());
 	}
 
 	private static Optional<SocksAddress> destination(Socks5CommandRequest request) {

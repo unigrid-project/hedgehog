@@ -23,6 +23,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import org.unigrid.hedgehog.proxy.session.Datagram;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* A tunnel whose every stream leads to an echo in memory: what the front end writes comes back, except while
@@ -30,6 +31,7 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
    writes or breaks, and every call reaches the listener on the test's own thread. */
 final class EchoTunnel implements Tunnel {
 	final List<EchoStream> streams = new ArrayList<>();
+	final List<EchoAssociation> associations = new ArrayList<>();
 
 	@Override
 	public TunnelStream open(SocksAddress destination, TunnelListener listener) {
@@ -42,6 +44,76 @@ final class EchoTunnel implements Tunnel {
 	/* The stream opened last */
 	EchoStream stream() {
 		return streams.get(streams.size() - 1);
+	}
+
+	@Override
+	public AssociationStream associate(AssociationListener listener) {
+		final EchoAssociation association = new EchoAssociation(listener);
+
+		associations.add(association);
+		return association;
+	}
+
+	/* The association opened last */
+	EchoAssociation association() {
+		return associations.get(associations.size() - 1);
+	}
+
+	/* Keeps the datagrams the front end sends; the test decides when the association opens, fails, ends or breaks,
+	   and what comes back from the exit. It notes a call made while the front end held its listener's lock. */
+	static final class EchoAssociation implements AssociationStream {
+		final AssociationListener listener;
+		final List<Datagram> sent = new ArrayList<>();
+		boolean accepting = true;
+		boolean closed;
+		boolean broken;
+		boolean closeBroken;
+		boolean calledUnderLock;
+
+		EchoAssociation(AssociationListener listener) {
+			this.listener = listener;
+		}
+
+		void open() {
+			listener.opened();
+		}
+
+		void fail(TunnelFailure failure) {
+			listener.failed(failure);
+		}
+
+		void deliver(SocksAddress source, byte[] bytes) {
+			listener.received(source, bytes);
+		}
+
+		void finish() {
+			listener.closed();
+		}
+
+		@Override
+		public boolean send(SocksAddress destination, byte[] bytes) {
+			calledUnderLock |= Thread.holdsLock(listener);
+
+			if (broken) {
+				throw new IllegalStateException("The association is broken");
+			}
+
+			if (accepting) {
+				sent.add(new Datagram(destination, bytes));
+			}
+
+			return accepting;
+		}
+
+		@Override
+		public void close() {
+			calledUnderLock |= Thread.holdsLock(listener);
+			closed = true;
+
+			if (closeBroken) {
+				throw new IllegalStateException("The association cannot be closed");
+			}
+		}
 	}
 
 	static final class EchoStream implements TunnelStream {

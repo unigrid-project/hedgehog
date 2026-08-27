@@ -273,20 +273,23 @@ public class SocksCommandTest {
 	}
 
 	@Example
-	public void shouldRefuseEveryCommandButConnect() {
-		for (Socks5CommandType type : new Socks5CommandType[] { Socks5CommandType.BIND,
-			Socks5CommandType.UDP_ASSOCIATE, Socks5CommandType.valueOf((byte) 9) }) {
-			final EmbeddedChannel refused = new EmbeddedChannel(new Socks5CommandRequestDecoder(),
-				new SocksCommandHandler(tunnel));
-
-			refused.writeInbound(request(type, TARGET));
-			assertReply(refused.readOutbound(), Socks5CommandStatus.COMMAND_UNSUPPORTED,
-				SocksAddress.UNSPECIFIED);
-			assertThat(refused.readOutbound(), is(nullValue()));
-			assertThat(refused.isOpen(), is(false));
-		}
-
+	public void shouldRefuseToBindOnBehalfOfTheClient() {
+		channel.writeInbound(request(Socks5CommandType.BIND, TARGET));
+		assertReply(reply(), Socks5CommandStatus.COMMAND_UNSUPPORTED, SocksAddress.UNSPECIFIED);
+		assertThat(channel.readOutbound(), is(nullValue()));
+		assertThat(channel.isOpen(), is(false));
 		assertThat(tunnel.streams, is(empty()));
+		assertThat(tunnel.associations, is(empty()));
+	}
+
+	@Example
+	public void shouldRefuseACommandSocksDoesNotDefine() {
+		channel.writeInbound(request(Socks5CommandType.valueOf((byte) 9), TARGET));
+		assertReply(reply(), Socks5CommandStatus.COMMAND_UNSUPPORTED, SocksAddress.UNSPECIFIED);
+		assertThat(channel.readOutbound(), is(nullValue()));
+		assertThat(channel.isOpen(), is(false));
+		assertThat(tunnel.streams, is(empty()));
+		assertThat(tunnel.associations, is(empty()));
 	}
 
 	/* The refusal is held back, as a socket that has not sent it yet would, so that the bytes behind the command
