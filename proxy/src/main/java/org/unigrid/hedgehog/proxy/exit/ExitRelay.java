@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.proxy.session.CloseReason;
 import org.unigrid.hedgehog.proxy.session.Connect;
 import org.unigrid.hedgehog.proxy.session.Connected;
 import org.unigrid.hedgehog.proxy.session.Data;
+import org.unigrid.hedgehog.proxy.session.Datagram;
 import org.unigrid.hedgehog.proxy.session.DestinationRefusedException;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.Session;
@@ -43,7 +44,8 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
 /* The exit's end of one session. The host hands it every message the session opens, and the Close the session
    produced, through handle; it calls tick on its schedule and close when it drops the session. On the client's
    Connect the relay checks the spork's flags, admits the destination through the policy, connects to exactly
-   the admitted addresses and answers Connected; then it relays the stream until either side closes. */
+   the admitted addresses and answers Connected; then it relays the stream until either side closes. A UDP
+   association is relayed the same way, over a datagram socket and through DatagramRelay. */
 public final class ExitRelay {
 	/* How far, in entries, the destination may fall behind the client before the session is dropped. The chain
 	   has no flow control per session, so this bound is what keeps a slow destination from holding the exit's
@@ -56,8 +58,10 @@ public final class ExitRelay {
 
 	private final Session session;
 	private final ExitContext context;
+	private final Logger log;
 	private State state = State.WAITING;
 	private Target target;
+	private DatagramRelay datagrams;
 	private boolean chainWritable = true;
 
 	private enum State {
@@ -65,30 +69,74 @@ public final class ExitRelay {
 		WAITING,
 		/* Admitting the destination and connecting to it */
 		CONNECTING,
+		/* Opening the datagram socket of an association */
+		OPENING,
 		RELAYING,
+		/* Relaying the datagrams of an association */
+		ASSOCIATED,
 		CLOSED
 	}
 
 	public ExitRelay(Session session, ExitContext context) {
+		this(session, context, LOG);
+	}
+
+	ExitRelay(Session session, ExitContext context, Logger log) {
 		this.session = Objects.requireNonNull(session, "session");
 		this.context = Objects.requireNonNull(context, "context");
+		this.log = log;
 	}
 
 	public synchronized boolean isOpen() {
 		return state != State.CLOSED;
 	}
 
-	public synchronized void handle(SealedMessage message) {
+	/* How many datagrams of the association were dropped: those its destinations refused or could not hold, those
+	   the socket did not take, and replies from strangers or too large for an entry */
+	public synchronized long droppedDatagrams() {
+		return datagrams == null ? 0 : datagrams.dropped();
+	}
+
+	/* The socket of an association is opened once the lock is released, as a connector may answer at once and on
+	   a thread of its own */
+	public void handle(SealedMessage message) {
+		if (take(message) == State.OPENING) {
+			open();
+		}
+	}
+
+	private synchronized State take(SealedMessage message) {
 		if (message instanceof Close) {
 			end();
-		} else if (state == State.WAITING && message instanceof Connect connect) {
-			start(connect);
-		} else if (state == State.RELAYING && message instanceof Data data) {
-			write(data.bytes());
-		} else {
-			/* A session carries one Connect, then Data once the exit replied, and nothing else */
+		} else if (!(takeStream(message) || takeDatagram(message))) {
+			/* A session carries one Connect, then Data or Datagrams once the exit replied, and nothing else */
 			close(CloseReason.BROKEN);
 		}
+
+		return state;
+	}
+
+	private boolean takeStream(SealedMessage message) {
+		if (state == State.WAITING && message instanceof Connect connect) {
+			start(connect);
+			return true;
+		}
+
+		if (state == State.RELAYING && message instanceof Data data) {
+			write(data.bytes());
+			return true;
+		}
+
+		return false;
+	}
+
+	private boolean takeDatagram(SealedMessage message) {
+		if (state == State.ASSOCIATED && message instanceof Datagram datagram) {
+			datagrams.forward(datagram);
+			return true;
+		}
+
+		return false;
 	}
 
 	/* Runs on the host's schedule: a session without traffic either way for sessionIdleSeconds closes */
@@ -110,6 +158,8 @@ public final class ExitRelay {
 
 		if (state == State.RELAYING) {
 			target.setReadable(writable);
+		} else if (state == State.ASSOCIATED) {
+			datagrams.setReadable(writable);
 		}
 	}
 
@@ -124,8 +174,10 @@ public final class ExitRelay {
 	}
 
 	private void start(Connect connect) {
-		if (!Socks5CommandType.CONNECT.equals(connect.command())) {
-			/* UDP ASSOCIATE is not relayed yet */
+		if (Socks5CommandType.UDP_ASSOCIATE.equals(connect.command())) {
+			associate();
+		} else if (!Socks5CommandType.CONNECT.equals(connect.command())) {
+			/* BIND is not relayed */
 			refuse(Socks5CommandStatus.COMMAND_UNSUPPORTED);
 		} else if (!context.settings().connectAllowed()) {
 			refuse(Socks5CommandStatus.FORBIDDEN);
@@ -135,12 +187,33 @@ public final class ExitRelay {
 		}
 	}
 
+	/* The spork's flag is read at the Connect, as CONNECT's is. Opening a socket never waits, so it does not queue
+	   behind the lookups of the resolving executor, which a stranger's slow names may fill. */
+	private void associate() {
+		if (context.settings().udpAllowed()) {
+			state = State.OPENING;
+		} else {
+			refuse(Socks5CommandStatus.FORBIDDEN);
+		}
+	}
+
+	/* Runs with the lock released. A connector that throws would otherwise leave the client waiting for a reply
+	   that never comes; the message is left out as it may quote an address. */
+	private void open() {
+		try {
+			context.udp().open(new DatagramEvents());
+		} catch (RuntimeException ex) {
+			log.warn("Opening a datagram socket failed with {}", ex.getClass().getName());
+			failed(Socks5CommandStatus.FAILURE);
+		}
+	}
+
 	/* An executor that is full or shut down refuses the lookup, and the client must still get its reply */
 	private void resolve(SocksAddress destination) {
 		try {
 			context.resolving().execute(() -> admit(destination));
 		} catch (RejectedExecutionException ex) {
-			LOG.warn("Admitting a destination failed with {}", ex.getClass().getName());
+			log.warn("Admitting a destination failed with {}", ex.getClass().getName());
 			refuse(Socks5CommandStatus.FAILURE);
 		}
 	}
@@ -161,7 +234,7 @@ public final class ExitRelay {
 			/* A resolver that answers null or throws, or a connector that refuses the work, would otherwise
 			   leave the relay waiting for a reply that never comes. The message is left out as it may quote
 			   the name. */
-			LOG.warn("Admitting a destination failed with {}", ex.getClass().getName());
+			log.warn("Admitting a destination failed with {}", ex.getClass().getName());
 			failed(Socks5CommandStatus.FAILURE);
 		}
 	}
@@ -175,7 +248,7 @@ public final class ExitRelay {
 		if (state == State.CONNECTING) {
 			this.target = target;
 			state = State.RELAYING;
-			send(new Connected(Socks5CommandStatus.SUCCESS, bound(target.localAddress())));
+			send(new Connected(Socks5CommandStatus.SUCCESS, addressOf(target.localAddress())));
 
 			/* The session may have closed under the send, which ended the relay and closed the target */
 			if (state == State.RELAYING) {
@@ -187,7 +260,7 @@ public final class ExitRelay {
 	}
 
 	private synchronized void failed(Socks5CommandStatus status) {
-		if (state == State.CONNECTING) {
+		if (state == State.CONNECTING || state == State.OPENING) {
 			refuse(status);
 		}
 	}
@@ -215,6 +288,39 @@ public final class ExitRelay {
 		}
 	}
 
+	/* The exit's address stays with the exit: the client's own proxy answers its client with its local socket */
+	private synchronized void associated(UdpConnector.Socket socket) {
+		if (state == State.OPENING) {
+			datagrams = new DatagramRelay(session, context, socket, log);
+			state = State.ASSOCIATED;
+			send(new Connected(Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED));
+
+			/* The session may have closed under the send, which ended the relay and closed the socket */
+			if (state == State.ASSOCIATED) {
+				datagrams.setReadable(chainWritable);
+			}
+		} else {
+			socket.close();
+		}
+	}
+
+	private synchronized void fromRemote(InetSocketAddress source, byte[] bytes) {
+		if (state == State.ASSOCIATED) {
+			datagrams.reply(source, bytes).ifPresent(this::send);
+		}
+	}
+
+	private synchronized void socketClosed() {
+		if (state == State.ASSOCIATED) {
+			close(CloseReason.DONE);
+		}
+	}
+
+	/* Asked on the connector's thread before it copies a datagram, which anyone can send to the socket */
+	private synchronized boolean accepted(InetSocketAddress source) {
+		return state == State.ASSOCIATED && datagrams.accepts(source);
+	}
+
 	private void refuse(Socks5CommandStatus status) {
 		send(new Connected(status, SocksAddress.UNSPECIFIED));
 		close(REFUSALS.contains(status) ? CloseReason.REFUSED : CloseReason.UNREACHABLE);
@@ -235,14 +341,20 @@ public final class ExitRelay {
 			target = null;
 		}
 
+		/* The socket goes once, and the association's count stays */
+		if (datagrams != null && state != State.CLOSED) {
+			datagrams.close();
+		}
+
 		state = State.CLOSED;
 	}
 
-	private static SocksAddress bound(InetSocketAddress local) {
-		final Socks5AddressType type = local.getAddress() instanceof Inet4Address ? Socks5AddressType.IPv4
+	/* A socket address in its SOCKS5 form, as an IP literal */
+	static SocksAddress addressOf(InetSocketAddress socket) {
+		final Socks5AddressType type = socket.getAddress() instanceof Inet4Address ? Socks5AddressType.IPv4
 			: Socks5AddressType.IPv6;
 
-		return new SocksAddress(type, NetUtil.toAddressString(local.getAddress()), local.getPort());
+		return new SocksAddress(type, NetUtil.toAddressString(socket.getAddress()), socket.getPort());
 	}
 
 	private final class Listener implements TargetListener {
@@ -264,6 +376,33 @@ public final class ExitRelay {
 		@Override
 		public void closed() {
 			targetClosed();
+		}
+	}
+
+	private final class DatagramEvents implements UdpConnector.Listener {
+		@Override
+		public void opened(UdpConnector.Socket socket) {
+			associated(socket);
+		}
+
+		@Override
+		public void failed(Socks5CommandStatus status) {
+			ExitRelay.this.failed(status);
+		}
+
+		@Override
+		public boolean accepts(InetSocketAddress source) {
+			return accepted(source);
+		}
+
+		@Override
+		public void received(InetSocketAddress source, byte[] bytes) {
+			fromRemote(source, bytes);
+		}
+
+		@Override
+		public void closed() {
+			socketClosed();
 		}
 	}
 }

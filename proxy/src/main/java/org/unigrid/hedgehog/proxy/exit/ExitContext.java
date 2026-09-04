@@ -20,17 +20,21 @@ package org.unigrid.hedgehog.proxy.exit;
 
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.function.LongSupplier;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.Resolver;
 
 /* What the exit relays of one node share: the spork's settings, the destination policy, the resolver and the
-   executor it blocks on, and the connector. The policy is the only gate between a stranger's request and a
-   connection, so production code passes DestinationPolicy.publicOnly() and nothing configures another. The executor
-   runs a lookup on a thread of its own and rejects when full: one that runs it on the caller's thread would
-   block the host under the relay's lock. */
+   executor it blocks on, the connectors for streams and for datagrams, and a monotonic clock in milliseconds that
+   ages an association's destinations, as a wall clock that steps back would stop forgetting them. The policy is the
+   only gate between a stranger's request and a connection, so production code passes DestinationPolicy.publicOnly()
+   and nothing configures another. The executor runs a lookup on a thread of its own and rejects when full: one that
+   runs it on the caller's thread would block the host under the relay's lock. */
 public record ExitContext(ProxySettings settings, DestinationPolicy policy, Resolver resolver, Executor resolving,
-	ExitConnector connector) {
+	ExitConnector connector, UdpConnector udp, LongSupplier clock) {
+
+	public static final LongSupplier MONOTONIC_MILLIS = () -> System.nanoTime() / 1_000_000;
 
 	public ExitContext {
 		Objects.requireNonNull(settings, "settings");
@@ -38,5 +42,14 @@ public record ExitContext(ProxySettings settings, DestinationPolicy policy, Reso
 		Objects.requireNonNull(resolver, "resolver");
 		Objects.requireNonNull(resolving, "resolving");
 		Objects.requireNonNull(connector, "connector");
+		Objects.requireNonNull(udp, "udp");
+		Objects.requireNonNull(clock, "clock");
+	}
+
+	/* A context of a node that relays streams and no datagrams, on the system's monotonic clock */
+	public ExitContext(ProxySettings settings, DestinationPolicy policy, Resolver resolver, Executor resolving,
+		ExitConnector connector) {
+
+		this(settings, policy, resolver, resolving, connector, UdpConnector.unsupported(), MONOTONIC_MILLIS);
 	}
 }

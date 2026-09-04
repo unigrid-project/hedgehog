@@ -33,12 +33,14 @@ import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.proxy.exit.ExitConnector;
 import org.unigrid.hedgehog.proxy.exit.ExitContext;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
+import org.unigrid.hedgehog.proxy.exit.NettyUdpConnector;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
+import org.unigrid.hedgehog.proxy.exit.UdpConnector;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.Resolver;
 
-/* What the exit relays of a node share besides the spork: the destination policy, the connector and the executor
+/* What the exit relays of a node share besides the spork: the destination policy, the connectors and the executor
    names are looked up on. The policy is the only gate between a stranger's request and a connection, so the one
    way to get these in production is `production()`, which never allows what `publicOnly` refuses. Tests build
    their own with the package-private constructor. */
@@ -53,6 +55,14 @@ final class ExitContexts {
 	private final ExitConnector connector;
 	private final Executor resolving;
 	private final Runnable release;
+	private final UdpConnector udp;
+
+	/* A node that relays streams and no datagrams */
+	ExitContexts(final DestinationPolicy policy, final ExitConnector connector, final Executor resolving,
+		final Runnable release) {
+
+		this(policy, connector, resolving, release, UdpConnector.unsupported());
+	}
 
 	/* The container starts the exit at every daemon start, also with the proxy off, so no thread of either starts
 	   before a relay needs one */
@@ -63,7 +73,7 @@ final class ExitContexts {
 		return new ExitContexts(DestinationPolicy.publicOnly(), connector, resolving, () -> {
 			resolving.shutdownNow();
 			connector.release();
-		});
+		}, new NettyUdpConnector(connector::group));
 	}
 
 	/* A lookup blocks for as long as the name server takes, and the client chooses the names, so a stranger that asks
@@ -79,41 +89,60 @@ final class ExitContexts {
 	}
 
 	ExitContext of(final ProxySettings settings) {
-		return new ExitContext(settings, policy, Resolver.system(), resolving, connector);
+		return new ExitContext(settings, policy, Resolver.system(), resolving, connector, udp,
+			ExitContext.MONOTONIC_MILLIS);
 	}
 
 	void close() {
 		release.run();
 	}
 
-	/* The event loops start with the first connection a relay asks for, and none start once the exit stopped */
+	/* The event loops start with the first connection or datagram a relay asks for, and none start once the exit
+	   stopped */
 	private static final class LazyConnector implements ExitConnector {
 		private static final ExitConnector RELEASED = (addresses, port, listener) ->
 			listener.failed(Socks5CommandStatus.FAILURE);
 
 		private EventLoopGroup group;
 		private ExitConnector connector;
+		private boolean released;
 
 		@Override
 		public void connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
 			connector().connect(addresses, port, listener);
 		}
 
-		private synchronized ExitConnector connector() {
-			if (connector == null) {
+		/* The datagram connector shares these loops; once released there are none, and it fails what it is asked */
+		synchronized EventLoopGroup group() {
+			if (released) {
+				return null;
+			}
+
+			if (group == null) {
 				group = new NioEventLoopGroup(CONNECTOR_THREADS,
 					new DefaultThreadFactory("chain-exit-connector", true));
-				connector = new NettyExitConnector(group, CONNECT_TIMEOUT_MILLIS);
+			}
+
+			return group;
+		}
+
+		private synchronized ExitConnector connector() {
+			if (released) {
+				return RELEASED;
+			}
+
+			if (connector == null) {
+				connector = new NettyExitConnector(group(), CONNECT_TIMEOUT_MILLIS);
 			}
 
 			return connector;
 		}
 
-		/* A connector on a group that is shut down fails what it is asked for, as the released one does */
+		/* After the release every connect and every datagram open fails at once, whether or not a group was built */
 		private synchronized void release() {
-			if (group == null) {
-				connector = RELEASED;
-			} else {
+			released = true;
+
+			if (group != null) {
 				group.shutdownGracefully();
 			}
 		}

@@ -188,7 +188,7 @@ public class ExitRelayTest {
 	}
 
 	@Example
-	public void shouldNotRelayDatagramsYet() {
+	public void shouldRefuseAnAssociationWhenTheNodeRelaysNoDatagrams() {
 		final SessionPair pair = new SessionPair(new Connect(Socks5CommandType.UDP_ASSOCIATE, PUBLIC_LITERAL));
 
 		relay(pair, ProxySettings.DEFAULTS, NEVER);
