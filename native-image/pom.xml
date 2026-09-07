@@ -13,7 +13,7 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<graal.version>22.3.0</graal.version>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<profiles>
 		<profile>
@@ -70,7 +70,7 @@
 									</goals>
 									<configuration>
 										<target>
-											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}" />
+											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
 										</target>
 									</configuration>
 								</execution>
@@ -138,7 +138,7 @@
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-exec</artifactId>
-			<version>1.3</version>
+			<version>1.4.0</version>
 		</dependency>
 		<dependency>
 			<groupId>net.harawata</groupId>
