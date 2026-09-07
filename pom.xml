@@ -7,7 +7,7 @@
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<scm>
 		<developerConnection>scm:git:https://github.com/unigrid-project/hedgehog.git</developerConnection>
@@ -23,7 +23,7 @@
 			<dependency>
 				<groupId>net.harawata</groupId>
 				<artifactId>appdirs</artifactId>
-				<version>1.2.1</version>
+				<version>1.2.2</version>
 			</dependency>
 			<dependency>
 				<groupId>org.projectlombok</groupId>
@@ -58,7 +58,7 @@
 						<tagNameFormat>v@{project.version}</tagNameFormat>
 						<autoVersionSubmodules>true</autoVersionSubmodules>
 						<dryRun>${dryRun}</dryRun>
-						<preparationGoals />
+						<preparationGoals/>
 						<pushChanges>false</pushChanges>
 						<scmDevelopmentCommitComment>@{prefix} Prepare for next development iteration</scmDevelopmentCommitComment>
 						<scmReleaseCommitComment>@{prefix} Prepare release @{releaseLabel}</scmReleaseCommitComment>
