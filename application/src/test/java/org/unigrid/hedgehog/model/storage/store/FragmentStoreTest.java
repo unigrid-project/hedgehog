@@ -45,6 +45,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tuple;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -312,6 +313,19 @@ public class FragmentStoreTest {
 
 		assertThat(store.groups().size(), equalTo(entries));
 		assertThat(store.usedBytes(), equalTo(entries * COST));
+	}
+
+	@SneakyThrows
+	@Property(tries = 100)
+	public void keepsItsSharesOfEvenTheLargestQuotas(@ForAll @LongRange(min = Long.MAX_VALUE / 100) long maxBytes,
+		@ForAll @IntRange(min = 1, max = 100) int extraPoolPercent, @ForAll @Size(max = 100) byte[] payload) {
+
+		final FragmentStore store = store(root(), new TestClock(), maxBytes, extraPoolPercent);
+
+		assertThat(store.put(group(), FORMAT, SLOTS, Tier.EXTRA, 0, payload), equalTo(PutResult.STORED));
+		assertThat(store.delete(group(), Duration.ofDays(1), proof()), is(true));
+		assertThat(store.usedBytes(), equalTo(2 * COST));
+		assertThat(store.extraBytes(), equalTo(COST));
 	}
 
 	@SneakyThrows

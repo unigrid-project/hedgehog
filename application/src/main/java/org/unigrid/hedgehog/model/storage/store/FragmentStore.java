@@ -80,6 +80,7 @@ public class FragmentStore {
 	private static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
 	private static final int HEX_DIRECTORY = 2;
 	private static final int UNSIGNED_BYTE_MAX = 0xFF;
+	private static final int PERCENT = 100;
 
 	private final Path root;
 	private final Path tombstoneDirectory;
@@ -230,7 +231,7 @@ public class FragmentStore {
 	}
 
 	private boolean admitsTombstone() throws IOException {
-		return (tombstones.size() + 1) * MIN_ENTRY_COST <= maxBytes / 100 * TOMBSTONE_BUDGET_PERCENT
+		return (tombstones.size() + 1) * MIN_ENTRY_COST <= percentOf(maxBytes, TOMBSTONE_BUDGET_PERCENT)
 			&& makeRoom(Tier.GUARANTEED, MIN_ENTRY_COST);
 	}
 
@@ -241,7 +242,13 @@ public class FragmentStore {
 	}
 
 	private long extraLimit() {
-		return Math.min(maxBytes, maxBytes * extraPoolPercent / 100);
+		return percentOf(maxBytes, extraPoolPercent);
+	}
+
+	/* Splits off the whole hundreds first, so even a quota near Long.MAX_VALUE cannot overflow */
+	private static long percentOf(long amount, int percent) {
+		final int bounded = Math.max(0, Math.min(percent, PERCENT));
+		return amount / PERCENT * bounded + amount % PERCENT * bounded / PERCENT;
 	}
 
 	private boolean fits(Tier tier, long size) {
