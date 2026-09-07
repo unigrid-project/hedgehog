@@ -12,7 +12,7 @@
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<surefireArgLine />
+		<surefireArgLine/>
 	</properties>
 	<profiles>
 		<profile>
@@ -61,7 +61,7 @@
 		<dependency>
 			<groupId>org.graalvm.sdk</groupId>
 			<artifactId>graal-sdk</artifactId>
-			<version>22.3.0</version>
+			<version>24.0.2</version>
 		</dependency>
 		<dependency>
 			<groupId>info.picocli</groupId>
