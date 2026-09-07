@@ -22,6 +22,7 @@ package org.unigrid.hedgehog.model.storage.store;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -311,6 +312,35 @@ public class FragmentStoreTest {
 
 		assertThat(store.groups().size(), equalTo(entries));
 		assertThat(store.usedBytes(), equalTo(entries * COST));
+	}
+
+	@SneakyThrows
+	private static Path link(Path file, Path target) {
+		Files.createDirectories(file.getParent());
+		return Files.createSymbolicLink(file, target);
+	}
+
+	@SneakyThrows
+	@Property(tries = 30)
+	public void skipsFilesItCannotReadOnStartup(@ForAll("fragments") List<Fragment> fragments) {
+		final Path root = root();
+		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
+		final Path elsewhere = Files.createDirectories(root.getFileSystem().getPath("/elsewhere"));
+
+		putAll(before, fragments);
+
+		final List<Path> unreadable = List.of(link(fragmentPath(root, group()), elsewhere),
+			link(fragmentPath(root, group()), elsewhere.resolve("missing")),
+			Files.createDirectories(root.resolve("tombstones").resolve(group().toHex())));
+
+		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
+
+		for (Path file : unreadable) {
+			assertThat(Files.exists(file, LinkOption.NOFOLLOW_LINKS), is(true));
+		}
+
+		assertThat(snapshot(after), equalTo(snapshot(before)));
+		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
 	}
 
 	@Provide

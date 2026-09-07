@@ -292,7 +292,7 @@ public class FragmentStore {
 	private void scanFragments() throws IOException {
 		final List<Path> files;
 
-		try (Stream<Path> paths = Files.find(root, 3, (path, attributes) -> attributes.isRegularFile()
+		try (Stream<Path> paths = Files.find(root, 3, (path, attributes) -> !attributes.isDirectory()
 			&& path.getFileName().toString().endsWith(FRAGMENT_SUFFIX))) {
 
 			files = paths.collect(Collectors.toList());
@@ -305,11 +305,13 @@ public class FragmentStore {
 		sequence = holdings.values().stream().mapToLong(Holding::getSequence).max().orElse(-1) + 1;
 	}
 
-	private void load(Path file) throws IOException {
+	private void load(Path file) {
 		try {
 			track(groupOf(file, FRAGMENT_SUFFIX), readHolding(file));
 		} catch (IllegalArgumentException | IndexOutOfBoundsException | BufferUnderflowException ex) {
 			discard(file, "fragment");
+		} catch (IOException ex) {
+			skip(file, "fragment", ex);
 		}
 	}
 
@@ -328,10 +330,22 @@ public class FragmentStore {
 	}
 
 	/* Repair restores the redundancy an unreadable file held, so keeping it would only waste quota. */
-	private static void discard(Path file, String kind) throws IOException {
+	private static void discard(Path file, String kind) {
 		log.atWarn().log("Removing an unreadable {} file", kind);
 		log.atTrace().log("Unreadable {} file {}", kind, file.getFileName());
-		Files.deleteIfExists(file);
+
+		try {
+			Files.deleteIfExists(file);
+		} catch (IOException ex) {
+			skip(file, kind, ex);
+		}
+	}
+
+	/* A file the node cannot read right now may still be sound, so it stays where it is, and a single one must never
+	   keep the store, and with it the whole daemon, from starting */
+	private static void skip(Path file, String kind, IOException ex) {
+		log.atWarn().log("Skipping a {} file that cannot be read: {}", kind, ex.getClass().getSimpleName());
+		log.atTrace().log("Skipped {} file {}", kind, file.getFileName());
 	}
 
 	private static byte[] readHeader(Path file) throws IOException {
@@ -349,11 +363,17 @@ public class FragmentStore {
 		}
 
 		for (Path file : files) {
-			try {
-				keep(groupOf(file, ""), readTombstone(file));
-			} catch (IllegalArgumentException ex) {
-				discard(file, "tombstone");
-			}
+			loadTombstone(file);
+		}
+	}
+
+	private void loadTombstone(Path file) {
+		try {
+			keep(groupOf(file, ""), readTombstone(file));
+		} catch (IllegalArgumentException ex) {
+			discard(file, "tombstone");
+		} catch (IOException ex) {
+			skip(file, "tombstone", ex);
 		}
 	}
 
