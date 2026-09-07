@@ -12,8 +12,8 @@
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<graal.version>22.3.0</graal.version>
-		<surefireArgLine />
+		<graal.version>22.3.5</graal.version>
+		<surefireArgLine/>
 	</properties>
 	<profiles>
 		<profile>
@@ -70,7 +70,7 @@
 									</goals>
 									<configuration>
 										<target>
-											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}" />
+											<unzip src="${downloadLocation}${downloadName}" dest="${unzipLocation}"/>
 										</target>
 									</configuration>
 								</execution>
