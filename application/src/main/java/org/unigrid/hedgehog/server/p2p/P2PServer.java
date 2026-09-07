@@ -44,7 +44,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
-import org.unigrid.hedgehog.model.network.ChainPipeline;
 import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -64,7 +63,10 @@ import org.unigrid.hedgehog.model.network.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
+import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.initializer.StreamRouter;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
@@ -100,7 +102,7 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
 			.handler(new ConnectionHandler())
-			.streamHandler(new RegisterQuicChannelInitializer(() -> {
+			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> {
 				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 					new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
@@ -115,7 +117,7 @@ public class P2PServer extends AbstractServer {
 				));
 
 				handlers.addAll(StoragePipeline.handlers());
-				handlers.addAll(ChainPipeline.handlers());
+				handlers.add(new UnclaimedFrameHandler());
 				return handlers;
 			}, () -> {
 				return Arrays.asList(
@@ -124,7 +126,8 @@ public class P2PServer extends AbstractServer {
 					new PublishAndSaveSporkSchedule(),
 					new PublishGridnodeSchedule()
 				);
-			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
+			}, RegisterQuicChannelInitializer.Type.SERVER),
+				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)

@@ -26,12 +26,22 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 
-/* The stream this node holds to a gridnode: the connection of the topology node at the gridnode's address */
+/* The streams this node holds to a gridnode: those of the connection of the topology node at the gridnode's
+   address, the main stream and the one chain traffic has to itself */
 @RequiredArgsConstructor
 public class GridnodeChannels {
 	private final Supplier<Set<Node>> nodes;
 
 	public Optional<Channel> of(final Gridnode target) {
+		return connectionOf(target).map(Connection::getChannel);
+	}
+
+	/* A closed chain stream is not handed out again: the peer has none for chain traffic until it connects anew */
+	public Optional<Channel> chainOf(final Gridnode target) {
+		return connectionOf(target).flatMap(Connection::getChainChannel).filter(Channel::isActive);
+	}
+
+	private Optional<Connection> connectionOf(final Gridnode target) {
 		if (target.getHostName() == null) {
 			return Optional.empty();
 		}
@@ -42,7 +52,7 @@ public class GridnodeChannels {
 			return Optional.of(wanted).filter(GridnodeChannels::isResolved)
 				.flatMap(node -> nodes.get().stream().filter(GridnodeChannels::isResolved)
 					.filter(node::equals).findFirst())
-				.flatMap(GridnodeChannels::connectionOf).map(Connection::getChannel);
+				.flatMap(GridnodeChannels::connectionOf);
 		} catch (URISyntaxException | IllegalArgumentException ex) {
 			return Optional.empty();
 		}

@@ -291,7 +291,8 @@ public class ChainProducerTest {
 	@Example
 	public void findsTheStreamToAGridnodeInTheTopologyItWasGiven() {
 		final EmbeddedChannel channel = new EmbeddedChannel();
-		final Topology topology = topologyOf(Set.of(NodeConnections.connected("10.0.0.1:52883", channel)),
+		final Topology topology = topologyOf(Set.of(NodeConnections.connected("10.0.0.1:52883",
+			new EmbeddedChannel(), channel)),
 			Set.of(Gridnode.builder().id("alpha").hostName("10.0.0.1:52883").build()));
 		final ChainTransport transport = producerOver(topology).chainTransport();
 
@@ -308,7 +309,7 @@ public class ChainProducerTest {
 
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.empty()));
 
-		nodes.add(NodeConnections.connected("10.0.0.1:52883", channel));
+		nodes.add(NodeConnections.connected("10.0.0.1:52883", new EmbeddedChannel(), channel));
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(channel)));
 	}
 }

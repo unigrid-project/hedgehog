@@ -65,7 +65,7 @@ import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.service.chain.ChainHost;
 
 public class ChainPipelineTest extends BaseServerTest {
-	private static final int WAIT_SECONDS = 10;
+	private static final int WAIT_SECONDS = 5;
 	private final BlockingQueue<EntryRefused> refusals = new LinkedBlockingQueue<>();
 	private final BlockingQueue<ChainEntry> received = new LinkedBlockingQueue<>();
 	private final BlockingQueue<ChainHeads> reconciled = new LinkedBlockingQueue<>();
@@ -174,9 +174,10 @@ public class ChainPipelineTest extends BaseServerTest {
 		   the container the reply handler resolves from */
 		final PendingRequests pendingRequests = CDI.current().select(PendingRequests.class).get();
 		final long id = pendingRequests.nextRequestId();
-		final CompletableFuture<JoinReply> reply = pendingRequests.register(id, client.getChannel(), JoinReply.class);
+		final Channel stream = client.getChainChannel().orElseThrow();
+		final CompletableFuture<JoinReply> reply = pendingRequests.register(id, stream, JoinReply.class);
 
-		client.send(JoinChain.builder().requestId(id).writer(writer).build());
+		stream.writeAndFlush(JoinChain.builder().requestId(id).writer(writer).build());
 
 		assertThat(reply.get(WAIT_SECONDS, TimeUnit.SECONDS),
 			equalTo(JoinReply.builder().requestId(id).status(JoinReply.Status.DISABLED).build()));
@@ -184,7 +185,7 @@ public class ChainPipelineTest extends BaseServerTest {
 
 	@SneakyThrows
 	private void assertEntriesAreRefused(final P2PClient client, final List<Entry> entries) {
-		client.send(ChainEntry.builder().entries(entries).build());
+		client.getChainChannel().orElseThrow().writeAndFlush(ChainEntry.builder().entries(entries).build());
 
 		for (Entry entry : entries) {
 			assertThat(refusals.poll(WAIT_SECONDS, TimeUnit.SECONDS), equalTo(EntryRefused.of(entry, Admission.FULL)));
@@ -196,7 +197,7 @@ public class ChainPipelineTest extends BaseServerTest {
 		final FetchEntries wanted) {
 
 		reconciliation = Optional.of(wanted);
-		client.send(heads);
+		client.getChainChannel().orElseThrow().writeAndFlush(heads);
 
 		assertThat(awaited("the heads", reconciled), equalTo(heads));
 		assertThat(awaited("the fetch the heads asked for", fetches), equalTo(wanted));
@@ -207,7 +208,7 @@ public class ChainPipelineTest extends BaseServerTest {
 		final List<Entry> entries) {
 
 		retained = entries;
-		client.send(request);
+		client.getChainChannel().orElseThrow().writeAndFlush(request);
 
 		assertThat(awaited("the fetch", fetches), equalTo(request));
 
@@ -222,7 +223,7 @@ public class ChainPipelineTest extends BaseServerTest {
 
 	@SneakyThrows
 	private void assertLeaveIsReported(final P2PClient client, final LeaveChain leave) {
-		client.send(leave);
+		client.getChainChannel().orElseThrow().writeAndFlush(leave);
 
 		assertThat(awaited("the leave", leaves), equalTo(leave));
 	}

@@ -41,14 +41,34 @@ public class NettyChainTransportTest {
 	}
 
 	@Example
-	public void reachesAGridnodeThroughTheConnectionToItsAddress() {
+	public void reachesAGridnodeThroughTheChainStreamOfTheConnectionToItsAddress() {
 		final EmbeddedChannel alpha = new EmbeddedChannel();
 		final EmbeddedChannel bravo = new EmbeddedChannel();
-		final ChainTransport transport = transportOver(NodeConnections.connected("10.0.0.1:52883", alpha),
-			NodeConnections.connected("10.0.0.2:52883", bravo));
+		final ChainTransport transport = transportOver(
+			NodeConnections.connected("10.0.0.1:52883", new EmbeddedChannel(), alpha),
+			NodeConnections.connected("10.0.0.2:52883", new EmbeddedChannel(), bravo));
 
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(alpha)));
 		assertThat(transport.streamTo("bravo"), equalTo(Optional.of(bravo)));
+	}
+
+	@Example
+	public void hasNoStreamToAGridnodeWhoseConnectionHasNoChainStreamYet() {
+		final ChainTransport transport = transportOver(NodeConnections.connected("10.0.0.1:52883",
+			new EmbeddedChannel()));
+
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void hasNoStreamToAGridnodeWhoseChainStreamHasClosed() {
+		final EmbeddedChannel chain = new EmbeddedChannel();
+		final ChainTransport transport = transportOver(NodeConnections.connected("10.0.0.1:52883",
+			new EmbeddedChannel(), chain));
+
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(chain)));
+		chain.close();
+		assertThat(transport.streamTo("alpha"), equalTo(Optional.empty()));
 	}
 
 	@Example
@@ -70,7 +90,7 @@ public class NettyChainTransportTest {
 
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.empty()));
 
-		nodes.set(Set.of(NodeConnections.connected("10.0.0.1:52883", alpha)));
+		nodes.set(Set.of(NodeConnections.connected("10.0.0.1:52883", new EmbeddedChannel(), alpha)));
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(alpha)));
 
 		nodes.set(Set.of());
@@ -82,8 +102,8 @@ public class NettyChainTransportTest {
 		final EmbeddedChannel alpha = new EmbeddedChannel();
 		final List<Gridnode> gridnodes = List.of(Gridnode.builder().hostName("10.0.0.3:52883").build(),
 			GRIDNODES.get(0));
-		final ChainTransport transport = new NettyChainTransport(
-			() -> Set.of(NodeConnections.connected("10.0.0.1:52883", alpha)), () -> gridnodes);
+		final ChainTransport transport = new NettyChainTransport(() -> Set.of(
+			NodeConnections.connected("10.0.0.1:52883", new EmbeddedChannel(), alpha)), () -> gridnodes);
 
 		assertThat(transport.streamTo("alpha"), equalTo(Optional.of(alpha)));
 	}

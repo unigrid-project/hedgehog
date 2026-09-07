@@ -20,10 +20,17 @@ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import java.util.Optional;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public interface Connection {
 	Channel getChannel();
+
+	/* The stream chain traffic uses, which is not getChannel's; empty while there is none or it has closed */
+	default Optional<Channel> getChainChannel() {
+		return Optional.empty();
+	}
+
 	ChannelFuture send(Packet packet);
 	void close();
 	void closeDirty();

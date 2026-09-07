@@ -39,6 +39,6 @@ public class NettyChainTransport implements ChainTransport {
 	@Override
 	public Optional<Channel> streamTo(final String gridnodeId) {
 		return gridnodes.get().stream().filter(gridnode -> gridnodeId.equals(gridnode.getId())).findFirst()
-			.flatMap(channels::of);
+			.flatMap(channels::chainOf);
 	}
 }

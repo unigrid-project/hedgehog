@@ -19,7 +19,9 @@
 package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.ChannelHandler;
+import java.util.ArrayList;
 import java.util.List;
+import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.codec.ChainEntryDecoder;
 import org.unigrid.hedgehog.model.network.codec.ChainEntryEncoder;
 import org.unigrid.hedgehog.model.network.codec.ChainHeadsDecoder;
@@ -28,19 +30,24 @@ import org.unigrid.hedgehog.model.network.codec.EntryRefusedDecoder;
 import org.unigrid.hedgehog.model.network.codec.EntryRefusedEncoder;
 import org.unigrid.hedgehog.model.network.codec.FetchEntriesDecoder;
 import org.unigrid.hedgehog.model.network.codec.FetchEntriesEncoder;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.JoinChainDecoder;
 import org.unigrid.hedgehog.model.network.codec.JoinChainEncoder;
 import org.unigrid.hedgehog.model.network.codec.JoinReplyDecoder;
 import org.unigrid.hedgehog.model.network.codec.JoinReplyEncoder;
 import org.unigrid.hedgehog.model.network.codec.LeaveChainDecoder;
 import org.unigrid.hedgehog.model.network.codec.LeaveChainEncoder;
+import org.unigrid.hedgehog.model.network.codec.PingDecoder;
+import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.ChainEntryChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.ChainHeadsChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.EntryRefusedChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.FetchEntriesChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.JoinChainChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.LeaveChainChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.StorageResponseChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.packet.JoinReply;
 
 public final class ChainPipeline {
@@ -48,8 +55,8 @@ public final class ChainPipeline {
 		/* Static helpers only */
 	}
 
-	/* Appended after the storage stages for the same reason those follow the base ones: decoders forward what
-	   they do not own and handlers ignore foreign packets, so every earlier packet keeps its path */
+	/* The chain stages: decoders forward what they do not own and handlers ignore foreign packets. They run on the
+	   stream chain traffic has to itself, see streamHandlers. */
 	public static List<ChannelHandler> handlers() {
 		return List.of(new JoinChainEncoder(), new JoinChainDecoder(),
 			new JoinReplyEncoder(), new JoinReplyDecoder(),
@@ -62,5 +69,17 @@ public final class ChainPipeline {
 			new ChainEntryChannelHandler(), new ChainHeadsChannelHandler(),
 			new FetchEntriesChannelHandler(), new EntryRefusedChannelHandler(),
 			new StorageResponseChannelHandler<>(JoinReply.class));
+	}
+
+	/* The pipeline of the stream chain traffic has to itself: frames, the ping that opens the stream, and the chain
+	   packets. Frames are held to the limit of a batch of entries, since the stream is open to any peer, and those
+	   of any other type are dropped. */
+	public static List<ChannelHandler> streamHandlers() {
+		final List<ChannelHandler> handlers = new ArrayList<>(List.of(new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES),
+			new PingEncoder(), new PingDecoder(), new PingChannelHandler()));
+
+		handlers.addAll(handlers());
+		handlers.add(new UnclaimedFrameHandler());
+		return handlers;
 	}
 }

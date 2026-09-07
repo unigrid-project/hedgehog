@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
@@ -27,6 +28,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Builder
@@ -35,6 +37,15 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 public class ConnectionContainer implements Connection {
 	@Getter protected QuicStreamChannel channel;
 	@Getter protected Optional<EventLoopGroup> group;
+
+	/* Found through the QUIC connection that both streams belong to. A closed one is not handed out: it stays
+	   remembered until the listener on its close has run. */
+	@Override
+	public Optional<Channel> getChainChannel() {
+		return Optional.ofNullable(channel).map(QuicStreamChannel::parent)
+			.<Channel>map(connection -> connection.attr(ChainStreamInitializer.CHAIN_STREAM_KEY).get())
+			.filter(Channel::isActive);
+	}
 
 	@Override
 	public ChannelFuture send(Packet packet) {

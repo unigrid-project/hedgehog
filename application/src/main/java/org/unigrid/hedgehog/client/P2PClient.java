@@ -30,6 +30,7 @@ import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicClientCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.incubator.codec.quic.QuicStreamType;
 import java.net.InetSocketAddress;
 import java.security.cert.CertificateException;
@@ -38,6 +39,7 @@ import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
+import io.netty.util.concurrent.Future;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,8 +47,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Network;
-import org.unigrid.hedgehog.model.network.ChainPipeline;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -62,12 +64,15 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
+import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
+@Slf4j
 public class P2PClient extends ConnectionContainer {
 	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
 		NoSuchAlgorithmException, TimeoutException {
@@ -125,7 +130,7 @@ public class P2PClient extends ConnectionContainer {
 				));
 
 				handlers.addAll(StoragePipeline.handlers());
-				handlers.addAll(ChainPipeline.handlers());
+				handlers.add(new UnclaimedFrameHandler());
 				return handlers;
 			}, () -> {
 				return Arrays.asList(
@@ -136,5 +141,19 @@ public class P2PClient extends ConnectionContainer {
 				);
 			}, RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();
+
+		openChainStream(quicChannel);
+	}
+
+	/* The main stream carries everything else, so a connection that cannot open a stream for chain traffic is kept.
+	   QUIC fails the opening with a checked exception, for the stream limit of the peer as for a connection that is
+	   gone, so the failure is read off the future instead of caught. */
+	private static void openChainStream(final QuicChannel quicChannel) throws InterruptedException {
+		final Future<QuicStreamChannel> opened = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+			new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.CLIENT)).await();
+
+		if (!opened.isSuccess()) {
+			log.warn("Could not open the chain stream: {}", opened.cause().getClass().getName());
+		}
 	}
 }

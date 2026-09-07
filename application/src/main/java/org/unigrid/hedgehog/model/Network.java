@@ -37,6 +37,9 @@ public class Network {
 	public static final int COMMUNICATION_THREADS = 4;
 	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
 
+	/* The second stream a client opens, after the main one: client-initiated bidirectional streams are 0, 4, 8, ... */
+	public static final long CHAIN_STREAM_ID = 4;
+
 	public static final int MAX_STREAMS = 512;
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;

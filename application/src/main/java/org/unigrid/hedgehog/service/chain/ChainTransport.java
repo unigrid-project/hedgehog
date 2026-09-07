@@ -23,6 +23,7 @@ import java.util.Optional;
 
 @FunctionalInterface
 public interface ChainTransport {
-	/* The stream this node holds to a gridnode, empty while it has none */
+	/* The stream this node holds to a gridnode for chain traffic, which is not its main stream: the gridnode's chain
+	   packets arrive on it, so a member is recognized by it. Empty while there is none or it has closed. */
 	Optional<Channel> streamTo(String gridnodeId);
 }

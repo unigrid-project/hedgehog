@@ -248,4 +248,45 @@ public class GridnodeChannelsTest {
 		assertThat(streamIn(TARGET, listed(nodes.toArray(Node[]::new))),
 			equalTo(withMatch ? Optional.of(channel) : Optional.empty()));
 	}
+
+	@Example
+	public void findsTheChainStreamBesideTheMainStreamOfTheNode() {
+		final EmbeddedChannel main = new EmbeddedChannel();
+		final EmbeddedChannel chain = new EmbeddedChannel();
+		final GridnodeChannels channels = new GridnodeChannels(() -> Set.of(
+			NodeConnections.connected("10.0.0.2:52883", new EmbeddedChannel(), new EmbeddedChannel()),
+			NodeConnections.connected(ADDRESS, main, chain)));
+
+		assertThat(channels.of(TARGET), equalTo(Optional.of(main)));
+		assertThat(channels.chainOf(TARGET), equalTo(Optional.of(chain)));
+	}
+
+	@Example
+	public void hasNoChainStreamBeforeThePeerHasOpenedOne() {
+		final GridnodeChannels channels = new GridnodeChannels(() -> Set.of(NodeConnections.connected(ADDRESS,
+			new EmbeddedChannel())));
+
+		assertThat(channels.chainOf(TARGET), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void hasNoChainStreamForAConnectionWithoutAStream() {
+		final Node node = NodeConnections.unconnected(ADDRESS);
+
+		node.setConnection(Optional.of(ConnectionContainer.builder().build()));
+		assertThat(new GridnodeChannels(() -> Set.of(node)).chainOf(TARGET), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void hasNoChainStreamWhenTheChainStreamHasClosed() {
+		final EmbeddedChannel main = new EmbeddedChannel();
+		final EmbeddedChannel chain = new EmbeddedChannel();
+
+		chain.close();
+		final GridnodeChannels channels = new GridnodeChannels(() -> Set.of(
+			NodeConnections.connected(ADDRESS, main, chain)));
+
+		assertThat(channels.of(TARGET), equalTo(Optional.of(main)));
+		assertThat(channels.chainOf(TARGET), equalTo(Optional.empty()));
+	}
 }

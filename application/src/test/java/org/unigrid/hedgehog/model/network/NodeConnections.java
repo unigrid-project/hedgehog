@@ -36,11 +36,20 @@ public final class NodeConnections {
 	}
 
 	public static Node connected(final String address, final Channel channel) {
+		return connected(address, channel, null);
+	}
+
+	/* A node whose connection has a stream for chain traffic besides its main one, as a QUIC connection has */
+	public static Node connected(final String address, final Channel channel, final Channel chain) {
 		final Node node = unconnected(address);
 
 		node.setConnection(Optional.of(new Connection() {
 			@Override public Channel getChannel() {
 				return channel;
+			}
+
+			@Override public Optional<Channel> getChainChannel() {
+				return Optional.ofNullable(chain);
 			}
 
 			@Override public ChannelFuture send(Packet packet) {

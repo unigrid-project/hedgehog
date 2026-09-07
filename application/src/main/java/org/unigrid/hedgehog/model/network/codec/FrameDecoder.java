@@ -30,6 +30,7 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	public static final int MAGIC = 0xBABE;
 	public static final AttributeKey<Integer> PACKET_SIZE_KEY = AttributeKey.valueOf("PACKET_SIZE");
+	private static final int HEADER_BYTES = 8;
 
 	/*
 	    Packet format:
@@ -38,11 +39,21 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		super(Network.MAX_DATA_SIZE, 4, 4, 0, 8);
+		this(Network.MAX_DATA_SIZE);
+	}
+
+	/* A stream any peer may open takes frames of a limit of its own, header included */
+	public FrameDecoder(final int maxFrameBytes) {
+		super(maxFrameBytes, 4, 4, 0, HEADER_BYTES);
 	}
 
 	@Override
 	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		/* A read may end inside a header, whose rest comes with the next one */
+		if (in.readableBytes() < HEADER_BYTES) {
+			return null;
+		}
+
 		in.markReaderIndex();
 		final int magic = in.readUnsignedShort();
 
@@ -51,6 +62,8 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			ctx.channel().attr(Packet.KEY).set(Packet.Type.get(in.readShort()));
 			ctx.channel().attr(PACKET_SIZE_KEY).set(in.readInt());
 
+			/* The header is read here, ahead of the superclass, so its discard mode can never run: the bytes
+			   behind a frame over the limit are dropped only because the exception closes the stream */
 			in.resetReaderIndex();
 			return super.decode(ctx, in);
 		}
