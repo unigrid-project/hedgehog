@@ -266,16 +266,19 @@ public class FragmentStoreTest {
 
 		final Path root = root();
 		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
-		final byte[] badFormat = garbage.clone();
 		final byte[] unknownTier = garbage.clone();
 
 		putAll(before, fragments);
-		badFormat[0] = 0;
 		unknownTier[0] = FORMAT.getId();
+
+		if (truncated.length > 0) {
+			truncated[0] = FORMAT.getId();
+		}
+
 		unknownTier[2] = (byte) badTier;
 
 		final List<Path> planted = List.of(plant(fragmentPath(root, group()), truncated),
-			plant(fragmentPath(root, group()), badFormat), plant(fragmentPath(root, group()), unknownTier),
+			plant(fragmentPath(root, group()), unknownTier),
 			plant(root.resolve("00").resolve("00").resolve("not-hex.frag"), new byte[HEADER_SIZE]),
 			plant(root.resolve("tombstones").resolve(group().toHex()), shortTombstone),
 			plant(root.resolve("tombstones").resolve(group().toHex()), longTombstone),
@@ -285,6 +288,36 @@ public class FragmentStoreTest {
 
 		for (Path file : planted) {
 			assertThat(Files.exists(file), is(false));
+		}
+
+		assertThat(snapshot(after), equalTo(snapshot(before)));
+		assertThat(after.usedBytes(), equalTo(before.usedBytes()));
+	}
+
+	/* A rollback to an older build must not destroy what a newer one stored */
+	@SneakyThrows
+	@Property(tries = 50)
+	public void leavesFilesOfAnUnknownFormatUntouched(@ForAll("fragments") List<Fragment> fragments,
+		@ForAll @Size(min = 1, max = 4) List<@Size(min = 1, max = 40) byte[]> foreign) {
+
+		final Path root = root();
+		final FragmentStore before = store(root, new TestClock(), UNLIMITED, 100);
+		final Map<Path, byte[]> planted = new HashMap<>();
+
+		putAll(before, fragments);
+
+		for (byte[] content : foreign) {
+			if (StorageFormat.find(content[0] & 0xFF).isPresent()) {
+				content[0] = 0;
+			}
+
+			planted.put(plant(fragmentPath(root, group()), content), content);
+		}
+
+		final FragmentStore after = store(root, new TestClock(), UNLIMITED, 100);
+
+		for (Map.Entry<Path, byte[]> file : planted.entrySet()) {
+			assertThat(Files.readAllBytes(file.getKey()), equalTo(file.getValue()));
 		}
 
 		assertThat(snapshot(after), equalTo(snapshot(before)));

@@ -305,21 +305,37 @@ public class FragmentStore {
 			files = paths.collect(Collectors.toList());
 		}
 
-		for (Path file : files) {
-			load(file);
+		final long foreign = files.stream().filter(file -> !load(file)).count();
+
+		if (foreign > 0) {
+			log.atWarn().log("Leaving {} fragment files of a storage format this build does not know", foreign);
 		}
 
 		sequence = holdings.values().stream().mapToLong(Holding::getSequence).max().orElse(-1) + 1;
 	}
 
-	private void load(Path file) {
+	/* False for a file of a format this build does not know: a newer build wrote it and may run here again */
+	private boolean load(Path file) {
 		try {
-			track(groupOf(file, FRAGMENT_SUFFIX), readHolding(file));
+			final GroupId id = groupOf(file, FRAGMENT_SUFFIX);
+			final byte[] header = readHeader(file);
+
+			if (isForeign(header)) {
+				return false;
+			}
+
+			track(id, holdingOf(header, Files.size(file) - HEADER_SIZE));
 		} catch (IllegalArgumentException | IndexOutOfBoundsException | BufferUnderflowException ex) {
 			discard(file, "fragment");
 		} catch (IOException ex) {
 			skip(file, "fragment", ex);
 		}
+
+		return true;
+	}
+
+	private static boolean isForeign(byte[] header) {
+		return header.length > 0 && StorageFormat.find(header[0] & UNSIGNED_BYTE_MAX).isEmpty();
 	}
 
 	private static GroupId groupOf(Path file, String suffix) {
@@ -327,13 +343,12 @@ public class FragmentStore {
 		return GroupId.fromHex(name.substring(0, name.length() - suffix.length()));
 	}
 
-	private static Holding readHolding(Path file) throws IOException {
-		final ByteBuffer header = ByteBuffer.wrap(readHeader(file));
+	private static Holding holdingOf(byte[] header, long size) {
+		final ByteBuffer buffer = ByteBuffer.wrap(header);
 
-		return Holding.builder().format(StorageFormat.of(header.get() & UNSIGNED_BYTE_MAX))
-			.slots(header.get() & UNSIGNED_BYTE_MAX).tier(Tier.values()[header.get()])
-			.index(header.get() & UNSIGNED_BYTE_MAX).sequence(header.getLong())
-			.size(Files.size(file) - HEADER_SIZE).build();
+		return Holding.builder().format(StorageFormat.of(buffer.get() & UNSIGNED_BYTE_MAX))
+			.slots(buffer.get() & UNSIGNED_BYTE_MAX).tier(Tier.values()[buffer.get()])
+			.index(buffer.get() & UNSIGNED_BYTE_MAX).sequence(buffer.getLong()).size(size).build();
 	}
 
 	/* Repair restores the redundancy an unreadable file held, so keeping it would only waste quota. */

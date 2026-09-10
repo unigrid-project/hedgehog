@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.storage;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Optional;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -31,8 +32,11 @@ public enum StorageFormat {
 	@Getter private final byte id;
 
 	public static StorageFormat of(int id) {
-		return Arrays.stream(values()).filter(format -> (format.id & 0xFF) == id).findFirst()
-			.orElseThrow(() -> new IllegalArgumentException("Unsupported storage format " + id));
+		return find(id).orElseThrow(() -> new IllegalArgumentException("Unsupported storage format " + id));
+	}
+
+	public static Optional<StorageFormat> find(int id) {
+		return Arrays.stream(values()).filter(format -> (format.id & 0xFF) == id).findFirst();
 	}
 
 	public static StorageFormat current() {
