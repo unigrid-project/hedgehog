@@ -34,8 +34,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Combinators;
@@ -56,6 +59,7 @@ import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.Manifest;
+import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.StorageLayout;
 import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
@@ -245,6 +249,33 @@ public class StorageServiceTest {
 		}
 
 		assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint));
+	}
+
+	/* Only one format exists so far, so a manifest of another one can only be faked. A fake is never torn down
+	   within this class, so it answers that one format again once the property is done with it. */
+	@SneakyThrows
+	@Property(tries = 20)
+	public void findsNothingBehindAManifestOfAnotherFormat(
+		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
+
+		final StorageService service = fleet(scenario.get1(), new Random(seed)).service(new SecureRandom());
+		final Fingerprint fingerprint = store(service, scenario.get2());
+		final AtomicBoolean foreign = new AtomicBoolean(true);
+
+		new MockUp<Manifest>() {
+			@Mock
+			StorageFormat getFormat() {
+				return foreign.get() ? null : StorageFormat.current();
+			}
+		};
+
+		try {
+			assertThrows(FingerprintNotFoundException.class, () -> service.open(fingerprint));
+		} finally {
+			foreign.set(false);
+		}
+
+		assertThat(retrieve(service, fingerprint), equalTo(scenario.get2()));
 	}
 
 	@Property(tries = 40)

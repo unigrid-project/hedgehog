@@ -33,6 +33,7 @@ import org.unigrid.hedgehog.model.storage.ChunkGroups;
 import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.Manifest;
+import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.StorageLayout;
 import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.crypto.FingerprintKeys;
@@ -83,7 +84,7 @@ public final class Retrieval {
 
 		for (int copy = 0; copy < copies; copy++) {
 			final GroupId groupId = new GroupKey(keys.manifestSeed(copy)).groupId();
-			final Optional<Manifest> manifest = readManifest(cipher, copy, fetcher.fetch(groupId,
+			final Optional<Manifest> manifest = readManifest(cipher, copy, keys.format(), fetcher.fetch(groupId,
 				Placement.window(groupId, gridnodes, width), expectedData, keys.format()));
 
 			if (manifest.isPresent()) {
@@ -213,8 +214,9 @@ public final class Retrieval {
 		}
 	}
 
-	/* A manifest that decrypts yet describes a file no layout can address counts as unreadable, like a lost copy */
-	private static Optional<Manifest> readManifest(final ChunkCipher cipher, final int copy,
+	/* A manifest that decrypts yet describes a file no layout can address, or claims a format other than the
+	   fingerprint's, counts as unreadable, like a lost copy */
+	private static Optional<Manifest> readManifest(final ChunkCipher cipher, final int copy, final StorageFormat format,
 		final List<Fragment> fragments) {
 
 		if (!GroupFetcher.isComplete(fragments)) {
@@ -225,7 +227,7 @@ public final class Retrieval {
 			final Manifest manifest = Manifest.decode(cipher.open(copy, ChunkGroups.open(fragments)));
 
 			StorageLayout.of(manifest.getLayout(), manifest.getFileSize());
-			return Optional.of(manifest);
+			return Optional.of(manifest).filter(read -> read.getFormat() == format);
 		} catch (GeneralSecurityException | IllegalArgumentException | BufferUnderflowException ex) {
 			return Optional.empty();
 		}
