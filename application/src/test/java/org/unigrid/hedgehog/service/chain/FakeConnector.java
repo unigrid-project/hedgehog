@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.unigrid.hedgehog.proxy.exit.ExitConnector;
 import org.unigrid.hedgehog.proxy.exit.Target;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
@@ -36,10 +37,13 @@ final class FakeConnector implements ExitConnector {
 
 	static final class FakeTarget implements Target {
 		final ByteArrayOutputStream written = new ByteArrayOutputStream();
+		final AtomicInteger closes = new AtomicInteger();
 		volatile boolean readable;
 		volatile boolean closed;
 		volatile boolean failingWrites;
 		volatile boolean failingClose;
+		volatile Error closeError;
+		volatile Runnable closing = () -> { };
 
 		@Override
 		public InetSocketAddress localAddress() {
@@ -67,10 +71,16 @@ final class FakeConnector implements ExitConnector {
 
 		@Override
 		public void close() {
+			closing.run();
 			closed = true;
+			closes.incrementAndGet();
 
 			if (failingClose) {
 				throw new IllegalStateException("The destination failed to close");
+			}
+
+			if (closeError != null) {
+				throw closeError;
 			}
 		}
 	}

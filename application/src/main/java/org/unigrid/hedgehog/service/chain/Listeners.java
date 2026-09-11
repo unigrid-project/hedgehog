@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.service.chain;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 
 /* The listeners of one kind. One that fails is logged and the others are still told. */
@@ -32,6 +33,21 @@ final class Listeners<T> {
 		registered.add(listener);
 	}
 
+	/* Whether any listener answers yes. The question is always whether to keep something, so one that fails counts
+	   as a yes. */
+	boolean any(final Predicate<T> test) {
+		return registered.stream().anyMatch(listener -> answers(listener, test));
+	}
+
+	private boolean answers(final T listener, final Predicate<T> test) {
+		try {
+			return test.test(listener);
+		} catch (RuntimeException ex) {
+			log.warn("A chain listener failed with {}", ex.getClass().getName());
+			return true;
+		}
+	}
+
 	void tell(final Consumer<T> call) {
 		for (final T listener : registered) {
 			try {
@@ -40,5 +56,29 @@ final class Listeners<T> {
 				log.warn("A chain listener failed with {}", ex.getClass().getName());
 			}
 		}
+	}
+
+	/* Tells every listener, whatever one of them throws, and answers whether each of them returned. An Error is no
+	   failure to carry on from, so the first one is thrown, but only once the others were told. */
+	boolean tellEach(final Consumer<T> call) {
+		boolean returned = true;
+		Error first = null;
+
+		for (final T listener : registered) {
+			try {
+				call.accept(listener);
+			} catch (RuntimeException ex) {
+				log.warn("A chain listener failed with {}", ex.getClass().getName());
+				returned = false;
+			} catch (Error ex) {
+				first = first == null ? ex : first;
+			}
+		}
+
+		if (first != null) {
+			throw first;
+		}
+
+		return returned;
 	}
 }

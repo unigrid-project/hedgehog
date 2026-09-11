@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -91,6 +92,15 @@ public class ChainHost implements ChainService {
 	   rebuild its hosting since. */
 	static final int RETIRED_EPOCHS = 4;
 
+	/* How long the sessions on a retired chain may run on before they are ended and the chain is dropped. A chain
+	   is never kept longer than the epoch it ended, whatever the spork says, so a node holds or follows the current
+	   chain and one that drains, and no more. */
+	static final long DRAIN_GRACE_MILLIS = TimeUnit.MINUTES.toMillis(10);
+
+	/* A drain that failed to end the sessions of a chain is told again at every tick, until the chain has been
+	   retired for this many graces: then it goes all the same, as one broken drain must not keep chains for good */
+	static final int GRACES_UNTIL_DROPPED = 2;
+
 	/* The most retired chains held, whatever their age, as a node must not end up holding every chain it ever
 	   hosted: the oldest epoch goes first, and within it the chain that retired first. Maintenance trims a retired
 	   chain every second, so an idle one holds next to nothing, but the count is bounded all the same. */
@@ -122,6 +132,7 @@ public class ChainHost implements ChainService {
 	private final Executor deliveryExecutor;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
+	private final Listeners<ChainDrain> drains = new Listeners<>();
 	private final WriterPauses pauses = new WriterPauses();
 	private final StreamBudgets budgets;
 	private final FollowedChains followed = new FollowedChains(MAX_FOLLOWED);
@@ -185,10 +196,12 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* One tick follows the spork, the topology and the clock, then keeps the chains in shape and only then talks to
-	   the members, so that a fetch it sets going is never served from entries past the retention window. */
+	/* One tick follows the spork, the topology and the clock, drops the retired chains that are done, then keeps the
+	   chains in shape and only then talks to the members, so that a fetch it sets going is never served from entries
+	   past the retention window. */
 	public void tick() {
 		guarded("refresh", this::refresh);
+		guarded("drain", this::drain);
 		guarded("maintain", this::maintain);
 		guarded("reconcile", this::reconcileRound);
 	}
@@ -225,6 +238,15 @@ public class ChainHost implements ChainService {
 
 	public void addEntryListener(final EntryListener listener) {
 		entryListeners.add(listener);
+	}
+
+	public void addDrain(final ChainDrain drain) {
+		drains.add(drain);
+	}
+
+	/* The client sessions end theirs after the same grace, as they drain on a timer of their own */
+	static long graceMillis(final ProxySettings proxy) {
+		return Math.min(DRAIN_GRACE_MILLIS, TimeUnit.SECONDS.toMillis(proxy.reorganizePeriodSeconds()));
 	}
 
 	/* A packet may name no chain, which neither the map of a hosting that is off nor the followed chains take */
@@ -321,6 +343,10 @@ public class ChainHost implements ChainService {
 				.orElseGet(() -> new HostedChain(new Chain(id, limits, clock), basis.epoch())));
 		}
 
+		/* Only the chains that retire now: one that stays retired over later rebuilds keeps the time it retired */
+		previous.current().entrySet().stream().filter(chain -> !chains.containsKey(chain.getKey()))
+			.forEach(chain -> chain.getValue().setRetiredAt(now));
+
 		return new Hosting(Optional.of(basis), group, peersOf(view, group, basis.own()),
 			Collections.unmodifiableMap(chains), retiredBy(previous, chains.keySet(), basis.epoch()));
 	}
@@ -329,7 +355,7 @@ public class ChainHost implements ChainService {
 	   again leaves them to be a current one, and one whose epoch is more than RETIRED_EPOCHS behind the current
 	   epoch is dropped. An epoch ahead of the current one, as after a clock that stepped back, is not behind. This
 	   runs when a hosting is rebuilt and only then, since the wanted chains and the epoch change only then: a
-	   reused hosting has the retired chains it had. */
+	   reused hosting has the retired chains it had, less those the drain dropped. */
 	private static Map<ChainId, HostedChain> retiredBy(final Hosting previous, final Set<ChainId> wanted,
 		final Epoch now) {
 
@@ -694,6 +720,78 @@ public class ChainHost implements ChainService {
 		} catch (RuntimeException ex) {
 			log.warn("The upkeep of a chain failed with {}", ex.getClass().getName());
 		}
+	}
+
+	/* Drops the retired chains that are done, by two rules. A chain nothing runs on, with no client attached to it
+	   here and no session of this node on it, goes once it has been retired for the retention window, as a node
+	   whose clock runs a little behind still writes to it for a moment. Any chain goes once its grace is over, after
+	   every drain was told while the chain is still hosted, so that the Close of each session a drain ends is flooded
+	   on; a drain that failed is told again at the next tick. The rules follow the spork as it reads now. One that is
+	   absent or cannot be read means the proxy is off, as it does to the client sessions: no grace runs out and no
+	   drain is told, and the retired chains nothing runs on go by the retention window the hosting was built with.
+
+	   No lock of this host is held while a drain is asked or told: a drain that ends its sessions posts into this host
+	   under locks of its own (its relay's, its session's and its outbox's, then the delivery lock of the chain), and
+	   the lock of refresh is taken under none of them. It is taken for the swap alone. */
+	public void drain() {
+		final Hosting previous = hosting;
+
+		if (previous.retired().isEmpty()) {
+			return;
+		}
+
+		final Optional<ProxySettings> spork = sporkNow();
+
+		previous.settings().ifPresent(built -> dropDone(previous, spork, spork.orElse(built), clock.getAsLong()));
+	}
+
+	/* A spork that cannot be read fails the refresh of the same tick, which logs it */
+	private Optional<ProxySettings> sporkNow() {
+		try {
+			return settings.current();
+		} catch (RuntimeException ex) {
+			return Optional.empty();
+		}
+	}
+
+	private void dropDone(final Hosting previous, final Optional<ProxySettings> spork, final ProxySettings proxy,
+		final long now) {
+
+		final Set<ChainId> drop = new LinkedHashSet<>();
+
+		spork.ifPresent(on -> drop.addAll(expire(previous, graceMillis(on), now)));
+		previous.retiredFor(now, TimeUnit.SECONDS.toMillis(proxy.retentionSeconds())).stream()
+			.filter(id -> !isInUse(previous.retired().get(id), id)).forEach(drop::add);
+		swapOut(previous, drop);
+	}
+
+	/* Tells the drains of every chain whose grace is over and answers the chains that go: those whose drains all
+	   returned, and those retired for GRACES_UNTIL_DROPPED graces whatever their drains did */
+	private Set<ChainId> expire(final Hosting previous, final long grace, final long now) {
+		final Set<ChainId> expired = new LinkedHashSet<>(previous.retiredFor(now, GRACES_UNTIL_DROPPED * grace));
+
+		for (final ChainId id : previous.retiredFor(now, grace)) {
+			if (drains.tellEach(draining -> draining.expired(id))) {
+				expired.add(id);
+			}
+		}
+
+		return expired;
+	}
+
+	/* Under the lock of refresh, so the swap never falls between the read and the write of one. A refresh that
+	   replaced the hosting meanwhile may have taken a chain back or retired it anew, so the drop is left to the next
+	   tick, which decides again on the hosting that refresh built. */
+	private synchronized void swapOut(final Hosting previous, final Set<ChainId> drop) {
+		if (hosting == previous && !drop.isEmpty()) {
+			hosting = previous.without(drop);
+		}
+	}
+
+	/* A client attached to the chain, or a session of this node on it, is what a chain past the retention window
+	   but inside its grace is kept for */
+	private boolean isInUse(final HostedChain hosted, final ChainId id) {
+		return hosted.clientCount() > 0 || drains.any(draining -> draining.holds(id));
 	}
 
 	/* Run once a second: each chain with entries tells one random member how far it has got, so a member that

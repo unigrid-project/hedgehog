@@ -19,12 +19,16 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
@@ -58,6 +62,21 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 	   by id, but take no new clients and are not among the chains the host is hosting. */
 	Stream<HostedChain> all() {
 		return Stream.concat(current.values().stream(), retired.values().stream());
+	}
+
+	/* The retired chains that have been retired for at least that long, in the order they retired */
+	Set<ChainId> retiredFor(final long now, final long millis) {
+		return retired.entrySet().stream().filter(chain -> now - chain.getValue().getRetiredAt() >= millis)
+			.map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedHashSet::new));
+	}
+
+	/* The same hosting without some of its retired chains: the current ones and the basis stay, so the next refresh
+	   reuses it */
+	Hosting without(final Set<ChainId> dropped) {
+		final Map<ChainId, HostedChain> kept = new LinkedHashMap<>(retired);
+
+		kept.keySet().removeAll(dropped);
+		return new Hosting(basis, group, peers, current, Collections.unmodifiableMap(kept));
 	}
 
 	Optional<HostedChain> find(final ChainId id) {

@@ -28,6 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -48,7 +49,7 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
 /* Runs the client sessions of this node over the chains it joined: opens each on the current attachment, hands
    it the entries the host takes in, runs the accept timeout, the retry and the idle check once a second, and
    closes the sessions of a gap that the chain gave up on. A chain of an earlier epoch is left once no session
-   runs on it.
+   runs on it, and the sessions on it end when the grace of the host is over.
 
    A handle holds its own lock while it calls its session, which takes the writer's lock and the outbox's. The map
    of attachments is locked for an instant only, never around a call into the client, the host or a handle, and no
@@ -57,8 +58,12 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
 public final class ClientSessions implements SessionOpener {
 	private static final long TICK_SECONDS = 1;
 
-	private record Attached(SessionContext context, ChainOutbox outbox, List<Handle> handles) {
-		/* The sessions on one attachment and what they share */
+	/* What an attachment notes while it is the one in use, in place of the time it stopped being so */
+	private static final long IN_USE = Long.MIN_VALUE;
+
+	private record Attached(SessionContext context, ChainOutbox outbox, List<Handle> handles, AtomicLong unusedSince) {
+		/* The sessions on one attachment, what they share, and since when the attachment is no longer in use. The
+		   time goes with the attachment, so nothing of it is left once the attachment is let go. */
 	}
 
 	private final ChainClient client;
@@ -110,12 +115,41 @@ public final class ClientSessions implements SessionOpener {
 
 			chain.outbox().tick();
 			chain.handles().forEach(handle -> guarded(handle::tick));
+			endWhenDrained(chain, current);
 			chain.handles().removeIf(handle -> handle.ended);
 
 			if (!current && dropped(attachment)) {
 				client.release(attachment);
 			}
 		});
+	}
+
+	/* The sessions on an attachment that is no longer the one in use, as the epoch moved on or the chain was lost,
+	   run on for the grace of the host from the first tick that found it so, and then end in order, as the exit ends
+	   its own on the chain at about the same time. An attachment in use again starts over. */
+	private void endWhenDrained(final Attached chain, final boolean current) {
+		if (current) {
+			chain.unusedSince().set(IN_USE);
+			return;
+		}
+
+		final long now = clock.getAsLong();
+
+		chain.unusedSince().compareAndSet(IN_USE, now);
+
+		if (isGraceOver(now - chain.unusedSince().get())) {
+			chain.handles().forEach(handle -> guarded(handle::expire));
+		}
+	}
+
+	/* The grace follows the spork as it reads now. A spork that is absent or cannot be read means the proxy is off,
+	   as it does to the client: no grace runs out then, and the sessions end on their idle limit. */
+	private boolean isGraceOver(final long unusedMillis) {
+		try {
+			return settings.current().filter(proxy -> unusedMillis >= ChainHost.graceMillis(proxy)).isPresent();
+		} catch (RuntimeException ex) {
+			return false;
+		}
 	}
 
 	/* Taken out of the map under the same lock that enrolls a session, so that a session enrolled meanwhile keeps
@@ -185,7 +219,8 @@ public final class ClientSessions implements SessionOpener {
 		final ChainOutbox outbox = new ChainOutbox(host, attachment.chainId(), attachment.writerId(),
 			writable -> handles.forEach(handle -> handle.writabilityChanged(writable)));
 
-		return new Attached(new SessionContext(attachment.writer(), outbox, clock, random, proxy), outbox, handles);
+		return new Attached(new SessionContext(attachment.writer(), outbox, clock, random, proxy), outbox, handles,
+			new AtomicLong(IN_USE));
 	}
 
 	private final class Handle implements SessionHandle {
@@ -226,6 +261,11 @@ public final class ClientSessions implements SessionOpener {
 
 		private void tick() {
 			ask(() -> session.tick());
+		}
+
+		/* The grace of the chain is over: the exit is sent a Close, and the listener is told it like any message */
+		private void expire() {
+			ask(() -> session.close(CloseReason.DONE));
 		}
 
 		/* Any writer can leave a gap that names any fingerprint, so only the gap of the exit's own feed counts */

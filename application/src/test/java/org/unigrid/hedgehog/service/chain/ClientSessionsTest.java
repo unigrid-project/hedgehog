@@ -125,10 +125,17 @@ public class ClientSessionsTest {
 		private Rig(final ChainFleet fleet, final LongSupplier clock, final ProxySettingsSource settings,
 			final SecureRandom random) {
 
+			this(fleet, fleet.settings::get, clock, settings, random);
+		}
+
+		/* The client reads the settings through a source of its own as well, which a test may watch */
+		private Rig(final ChainFleet fleet, final ProxySettingsSource clientSettings, final LongSupplier clock,
+			final ProxySettingsSource settings, final SecureRandom random) {
+
 			this.fleet = fleet;
 			exits = IntStream.range(0, ChainFleet.MEMBERS).mapToObj(number -> new ExitStub(fleet, number))
 				.toList();
-			client = new ChainClient(fleet.settings::get, fleet.directory(CLIENT), fleet.transport(CLIENT),
+			client = new ChainClient(clientSettings, fleet.directory(CLIENT), fleet.transport(CLIENT),
 				fleet.host(CLIENT), fleet.pending(CLIENT), fleet.clock::get, new SecureRandom(),
 				Runnable::run);
 			sessions = new ClientSessions(client, fleet.host(CLIENT), settings, clock, random, scheduler);
@@ -924,5 +931,233 @@ public class ClientSessionsTest {
 
 		assertThat(rig.scheduler.schedules, is(1));
 		assertThat(rig.exitReceived(), equalTo(Collections.nCopies(openers, CONNECT)));
+	}
+
+	/* An idle limit longer than an epoch and its grace, so that the grace and not the idle check ends the session */
+	private static ProxySettings epochOf(final long periodSeconds) {
+		return new ProxySettings(ChainFleet.MEMBERS, periodSeconds, 4, 16, 32L * 1024 * 1024, 30, 16 * 1024, 10_000,
+			ProxySettings.CONNECT | ProxySettings.UDP);
+	}
+
+	@Example
+	public void letsTheSessionsOfAnEarlierEpochRunOnForTheGraceAndThenEndsThem() {
+		final Rig rig = new Rig(ChainFleet.group(epochOf(3600)));
+		final Listener draining = new Listener();
+		final Listener fresh = new Listener();
+
+		rig.sessions.open(CONNECT, draining);
+		rig.fleet.deliver();
+
+		final ChainAttachment earlier = rig.attachment();
+
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.fleet.refreshAll();
+		rig.sessions.tick();
+		rig.sessions.open(CONNECT, fresh);
+		rig.fleet.deliver();
+
+		assertThat(rig.attachment().chainId(), not(equalTo(earlier.chainId())));
+
+		rig.after(ChainHost.DRAIN_GRACE_MILLIS - 1);
+		assertThat(draining.messages, equalTo(List.of()));
+		assertThat(rig.fleet.host(CLIENT).chain(earlier.chainId()).isPresent(), is(true));
+
+		rig.after(1);
+		assertThat(draining.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+		assertThat(fresh.messages, equalTo(List.of()));
+		assertThat(rig.fleet.host(CLIENT).chain(earlier.chainId()), equalTo(Optional.empty()));
+		assertThat(rig.fleet.host(CLIENT).chain(rig.attachment().chainId()).isPresent(), is(true));
+	}
+
+	@Example
+	public void followsNoMoreThanTheCurrentChainAndTheOneThatDrainsWhenEpochsAreShort() {
+		final Rig rig = new Rig(ChainFleet.group(epochOf(60)));
+		final List<ChainAttachment> attachments = new ArrayList<>();
+
+		for (int epoch = 0; epoch < 6; epoch++) {
+			rig.sessions.open(CONNECT, new Listener());
+			rig.fleet.deliver();
+			attachments.add(rig.attachment());
+			rig.fleet.clock.addAndGet(60_000);
+			rig.fleet.refreshAll();
+			rig.sessions.tick();
+			rig.fleet.deliver();
+
+			assertThat(attachments.stream().filter(attachment -> rig.fleet.host(CLIENT).chain(attachment.chainId())
+				.isPresent()).count() <= 2, is(true));
+		}
+
+		assertThat(rig.fleet.host(CLIENT).chain(attachments.get(0).chainId()), equalTo(Optional.empty()));
+	}
+
+	/* The sessions read the spork through a source the test sets, the members and the client through the fleet's */
+	private static Rig withSpork(final ChainFleet fleet, final AtomicReference<Optional<ProxySettings>> spork) {
+		return new Rig(fleet, fleet.clock::get, spork::get, new SecureRandom());
+	}
+
+	/* The epoch turns, and the tick right after it finds the attachment of the earlier one no longer in use */
+	private static void turnTheEpoch(final Rig rig) {
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.fleet.refreshAll();
+		rig.after(0);
+	}
+
+	/* The grace ends a session once, as the close of its opener would, and its listener is told with no lock of the
+	   handle held; a session its opener closed meanwhile is told nothing, and the attachment is let go */
+	@Example
+	public void endsTheSessionsOfAnEarlierAttachmentOnceTheGraceIsOverAndTellsEachOnce() {
+		final Rig rig = new Rig(ChainFleet.group(epochOf(3600)));
+		final AtomicReference<SessionHandle> handle = new AtomicReference<>();
+		final List<Boolean> locked = new CopyOnWriteArrayList<>();
+		final Listener ending = new Listener() {
+			@Override
+			public void received(final SealedMessage message) {
+				super.received(message);
+				locked.add(Thread.holdsLock(handle.get()));
+			}
+		};
+		final Listener closing = new Listener();
+
+		handle.set(rig.sessions.open(CONNECT, ending));
+
+		final SessionHandle closed = rig.sessions.open(CONNECT, closing);
+
+		rig.fleet.deliver();
+
+		final ChainAttachment earlier = rig.attachment();
+
+		turnTheEpoch(rig);
+		rig.after(ChainHost.DRAIN_GRACE_MILLIS - 1);
+		assertThat(ending.messages, is(empty()));
+		assertThat(rig.follows(earlier), is(true));
+
+		closed.close(CloseReason.DONE);
+		rig.after(1);
+		assertThat(ending.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+		assertThat(locked, equalTo(List.of(false)));
+		assertThat(closing.messages, is(empty()));
+		assertThat(rig.exitReceived(), containsInAnyOrder(CONNECT, CONNECT, new Close(CloseReason.DONE),
+			new Close(CloseReason.DONE)));
+
+		rig.after(1000);
+		assertThat(ending.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+		assertThat(rig.follows(earlier), is(false));
+		assertThat(rig.sent(LeaveChain.class), is((long) earlier.streams().size()));
+	}
+
+	/* The grace is the lesser of ten minutes and the epoch of the spork as it reads at each tick */
+	@Example
+	public void endsTheSessionsByTheGraceOfTheSporkAsItReadsAtTheTick() {
+		final ChainFleet fleet = ChainFleet.group(epochOf(3600));
+		final AtomicReference<Optional<ProxySettings>> spork = new AtomicReference<>(fleet.settings.get());
+		final Rig rig = withSpork(fleet, spork);
+		final Listener listener = new Listener();
+
+		rig.sessions.open(CONNECT, listener);
+		rig.fleet.deliver();
+		turnTheEpoch(rig);
+		spork.set(Optional.of(epochOf(120)));
+
+		rig.after(119_999);
+		assertThat(listener.messages, is(empty()));
+
+		rig.after(1);
+		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+	}
+
+	/* While the spork is absent the proxy is off and no grace runs out, but the time the attachment went out of use is
+	   kept: once the spork is back, a grace that is over ends the sessions at once */
+	@Example
+	public void endsNoSessionByTheGraceWhileTheSporkIsAbsent() {
+		final ChainFleet fleet = ChainFleet.group(epochOf(3600));
+		final AtomicReference<Optional<ProxySettings>> spork = new AtomicReference<>(fleet.settings.get());
+		final Rig rig = withSpork(fleet, spork);
+		final Listener listener = new Listener();
+
+		rig.sessions.open(CONNECT, listener);
+		rig.fleet.deliver();
+		spork.set(Optional.empty());
+		turnTheEpoch(rig);
+		rig.after(ChainHost.DRAIN_GRACE_MILLIS);
+		assertThat(listener.messages, is(empty()));
+
+		spork.set(fleet.settings.get());
+		rig.after(0);
+		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+	}
+
+	/* A spork that cannot be read counts as one that is absent, and the rest of the tick goes on */
+	@Example
+	public void endsNoSessionByTheGraceWhileTheSporkCannotBeReadAndGoesOnTicking() {
+		final ChainFleet fleet = ChainFleet.group(epochOf(3600));
+		final AtomicBoolean unreadable = new AtomicBoolean();
+		final Rig rig = new Rig(fleet, fleet.clock::get, () -> {
+			if (unreadable.get()) {
+				throw new IllegalStateException("The spork cannot be read");
+			}
+
+			return fleet.settings.get();
+		}, new SecureRandom());
+		final Listener listener = new Listener();
+		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+
+		rig.fleet.deliver();
+
+		final ChainAttachment earlier = rig.attachment();
+
+		unreadable.set(true);
+		turnTheEpoch(rig);
+		rig.after(ChainHost.DRAIN_GRACE_MILLIS);
+		assertThat(listener.messages, is(empty()));
+
+		handle.close(CloseReason.DONE);
+		rig.after(0);
+		assertThat(rig.follows(earlier), is(false));
+		assertThat(rig.sent(LeaveChain.class), is((long) earlier.streams().size()));
+	}
+
+	/* An attachment in use again, as when the clock stepped back over the turn of the epoch, starts its grace over */
+	@Example
+	public void startsTheGraceOverForAnAttachmentThatIsInUseAgain() {
+		final Rig rig = new Rig(ChainFleet.group(epochOf(3600)));
+		final Listener listener = new Listener();
+
+		rig.sessions.open(CONNECT, listener);
+		rig.fleet.deliver();
+		rig.after(EPOCH_MILLIS);
+		rig.after(-EPOCH_MILLIS);
+		rig.after(EPOCH_MILLIS + 1000);
+
+		rig.after(ChainHost.DRAIN_GRACE_MILLIS - 1);
+		assertThat(listener.messages, is(empty()));
+
+		rig.after(1);
+		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.DONE))));
+	}
+
+	/* The client reads the spork and its clock to tell whether an attachment is in use, so a tick asks it once for
+	   each attachment */
+	@Example
+	public void asksWhetherEachAttachmentIsInUseOnceATick() {
+		final ChainFleet fleet = ChainFleet.group(epochOf(3600));
+		final AtomicInteger reads = new AtomicInteger();
+		final Rig rig = new Rig(fleet, () -> {
+			reads.incrementAndGet();
+			return fleet.settings.get();
+		}, fleet.clock::get, fleet.settings::get, new SecureRandom());
+
+		rig.sessions.open(CONNECT, new Listener());
+		rig.fleet.deliver();
+		reads.set(0);
+		rig.sessions.tick();
+		assertThat(reads.get(), is(1));
+
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.fleet.refreshAll();
+		rig.sessions.open(CONNECT, new Listener());
+		rig.fleet.deliver();
+		reads.set(0);
+		rig.sessions.tick();
+		assertThat(reads.get(), is(2));
 	}
 }

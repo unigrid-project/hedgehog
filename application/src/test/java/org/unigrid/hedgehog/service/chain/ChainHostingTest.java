@@ -531,7 +531,12 @@ public class ChainHostingTest {
 		final Hosting before = host.snapshot();
 
 		host.refresh();
-		host.tick();
+
+		/* The steps of a tick but its drain, which drops retired chains by rules of its own */
+		host.refresh();
+		host.maintain();
+		host.reconcileRound();
+
 		host.maintain();
 
 		assertThat(host.snapshot(), sameInstance(before));

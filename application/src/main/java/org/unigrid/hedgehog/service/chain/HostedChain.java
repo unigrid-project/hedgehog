@@ -85,6 +85,9 @@ final class HostedChain {
 	   to the members, which flood to each other. */
 	@Getter @Setter private volatile boolean relaying = true;
 
+	/* What the host's clock read when the hosting stopped wanting the chain, set when it retires and only then */
+	@Getter @Setter private volatile long retiredAt;
+
 	HostedChain(final Chain chain, final Epoch epoch) {
 		this(chain, epoch, MAX_WRITERS);
 	}

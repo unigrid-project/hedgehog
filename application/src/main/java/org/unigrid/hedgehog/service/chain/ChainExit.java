@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,7 +63,7 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
    worst case the exit holds one second of what all its destinations send. */
 @Slf4j @Eager @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
-public class ChainExit {
+public class ChainExit implements ChainDrain {
 	/* A first estimate of what one gridnode relays at once: each relay holds a connection to a destination and up
 	   to ExitRelay.BACKLOG_ENTRIES entries of what the client sent it. An OPEN beyond it is left unanswered, so
 	   the client tries another exit. */
@@ -137,6 +138,7 @@ public class ChainExit {
 	void start() {
 		host.addEntryListener(this::appended);
 		host.addGapListener(this::gapped);
+		host.addDrain(this);
 		scheduler.scheduleWithFixedDelay(() -> guarded(this::tick), TICK_SECONDS, TICK_SECONDS, TimeUnit.SECONDS);
 	}
 
@@ -200,6 +202,42 @@ public class ChainExit {
 		}
 	}
 
+	/* Ends the sessions this node relays on one chain and tells their clients why, each through its relay's own close,
+	   which lets go of the destination whatever becomes of the Close; the tick then forgets the relay and frees its
+	   place. A close that fails keeps no other from running, and the first Error is thrown once all of them ran. */
+	public void closeChain(final ChainId chainId, final CloseReason reason) {
+		if (stopped) {
+			return;
+		}
+
+		Error first = null;
+
+		for (final Relayed relayed : relaysOn(chainId).toList()) {
+			try {
+				guarded(() -> relayed.relay().close(reason));
+			} catch (Error ex) {
+				first = first == null ? ex : first;
+			}
+		}
+
+		if (first != null) {
+			throw first;
+		}
+	}
+
+	/* A stopped exit runs no session, whatever its relays were left in */
+	@Override
+	public boolean holds(final ChainId chainId) {
+		return !stopped && relaysOn(chainId).anyMatch(relayed -> relayed.relay().isOpen());
+	}
+
+	/* The sessions end in order: the destination sees a close, the client's connection closes, and a session still
+	   waiting for its reply fails as a general failure */
+	@Override
+	public void expired(final ChainId chainId) {
+		closeChain(chainId, CloseReason.DONE);
+	}
+
 	/* Run once a second: ends the sessions of the chains the host dropped or rebuilt, places what the outboxes hold,
 	   ticks every relay and forgets the relays that ended */
 	void tick() {
@@ -248,6 +286,11 @@ public class ChainExit {
 
 	private long held(final Predicate<Relayed> which) {
 		return relays.values().stream().filter(which).count();
+	}
+
+	/* The relays this node holds on one chain */
+	private Stream<Relayed> relaysOn(final ChainId chainId) {
+		return relays.values().stream().filter(relayed -> relayed.feed().chain().id().equals(chainId));
 	}
 
 	/* The relay hears whether the chain takes what it sends before it hears the client */

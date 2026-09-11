@@ -23,6 +23,7 @@ import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -43,12 +44,15 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
@@ -75,6 +79,7 @@ import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.exit.Target;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
+import org.unigrid.hedgehog.proxy.exit.UdpConnector;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.Close;
@@ -88,9 +93,11 @@ import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SessionState;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
+import org.unigrid.hedgehog.proxy.socks.TunnelFailure;
 
 public class ChainExitTest {
 	private static final String EXIT = "gn-1";
+	private static final long EPOCH_MILLIS = 3_600_000;
 	private static final int WAIT_SECONDS = 5;
 	private static final int DEADLOCK_SECONDS = 30;
 	private static final SecureRandom RANDOM = new SecureRandom();
@@ -100,6 +107,10 @@ public class ChainExitTest {
 		new SocksAddress(Socks5AddressType.IPv4, "127.0.0.1", 40_000));
 	private static final Close BROKEN = new Close(CloseReason.BROKEN);
 	private static final Close IDLE = new Close(CloseReason.IDLE);
+	private static final Close DONE = new Close(CloseReason.DONE);
+	private static final Connect ASSOCIATE = new Connect(Socks5CommandType.UDP_ASSOCIATE, SocksAddress.UNSPECIFIED);
+	private static final Connected ASSOCIATED_REPLY = new Connected(Socks5CommandStatus.SUCCESS,
+		SocksAddress.UNSPECIFIED);
 
 	/* A node with one writer on one chain, whose sessions name the exit it is given. Its entries are handed to the
 	   exit's host as a member would flood them, and what the exit floods to gn-0 is read from the exit's end of that
@@ -107,21 +118,25 @@ public class ChainExitTest {
 	private static final class Caller {
 		private final Rig rig;
 		private final String exitId;
+		private final Connect connect;
 		private final SessionContext context;
 		private final List<Entry> posted = new ArrayList<>();
 		private final List<SealedMessage> received = new ArrayList<>();
 		private final List<ClientSession> sessions = new ArrayList<>();
 
-		private Caller(final Rig rig, final int number, final String exitId, final ChainId chainId) {
+		private Caller(final Rig rig, final int number, final String exitId, final ChainId chainId,
+			final Connect connect) {
+
 			this.rig = rig;
 			this.exitId = exitId;
+			this.connect = connect;
 			context = new SessionContext(new FeedWriter(ChainFleet.key(300 + number), chainId), posted::add,
 				rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
 			sessions.add(newSession());
 		}
 
 		private ClientSession newSession() {
-			return new ClientSession(context, (fingerprint, excluded) -> Optional.of(exitId), CONNECT);
+			return new ClientSession(context, (fingerprint, excluded) -> Optional.of(exitId), connect);
 		}
 
 		private ClientSession session() {
@@ -171,6 +186,7 @@ public class ChainExitTest {
 		private final AtomicBoolean released = new AtomicBoolean();
 		private final List<Caller> callers = new ArrayList<>();
 		private final Map<List<Object>, FeedWriter> strangers = new HashMap<>();
+		private final List<FakeSocket> sockets = new ArrayList<>();
 		private final EmbeddedChannel stream;
 		private final ChainExit exit;
 
@@ -181,7 +197,8 @@ public class ChainExitTest {
 			exit.start();
 		}
 
-		/* An exit that may connect to loopback, looks names up on the caller's thread and connects to nothing */
+		/* An exit that may connect to loopback, looks names up on the caller's thread, connects to nothing and opens
+		   a datagram socket of its own at once for every association */
 		private Rig(final ChainFleet fleet) {
 			this(fleet, rig -> rig.exit(fleet.clock::get, Runnable::run));
 		}
@@ -193,7 +210,14 @@ public class ChainExitTest {
 		private ChainExit exit(final LongSupplier clock, final Executor resolving) {
 			return new ChainExit(fleet.host(EXIT), fleet.settings::get, fleet.directory(EXIT), clock,
 				new SecureRandom(), new ExitContexts(DestinationPolicy.allowLoopback(), connector, resolving,
-				() -> released.set(true)), scheduler);
+				() -> released.set(true), this::associate), scheduler);
+		}
+
+		private void associate(final UdpConnector.Listener listener) {
+			final FakeSocket socket = new FakeSocket();
+
+			sockets.add(socket);
+			listener.opened(socket);
 		}
 
 		/* The chains of the group in index order, the first of which the callers join */
@@ -206,7 +230,11 @@ public class ChainExitTest {
 		}
 
 		private Caller caller(final int number, final String exitId, final ChainId chainId) {
-			final Caller caller = new Caller(this, number, exitId, chainId);
+			return caller(number, exitId, chainId, CONNECT);
+		}
+
+		private Caller caller(final int number, final String exitId, final ChainId chainId, final Connect connect) {
+			final Caller caller = new Caller(this, number, exitId, chainId, connect);
 
 			callers.add(caller);
 			return caller;
@@ -277,6 +305,90 @@ public class ChainExitTest {
 		private int accepts() {
 			return entries(fleet.chain(), EntryKind.ACCEPT).size();
 		}
+	}
+
+	/* The datagram socket of an association, which counts how often it is closed */
+	private static final class FakeSocket implements UdpConnector.Socket {
+		private final AtomicInteger closes = new AtomicInteger();
+
+		@Override
+		public boolean send(final InetAddress address, final int port, final byte[] bytes) {
+			return true;
+		}
+
+		@Override
+		public InetSocketAddress localAddress() {
+			return new InetSocketAddress(InetAddress.getLoopbackAddress(), 40_001);
+		}
+
+		@Override
+		public void setReadable(final boolean readable) {
+			/* Nothing arrives at it */
+		}
+
+		@Override
+		public void close() {
+			closes.incrementAndGet();
+		}
+	}
+
+	/* How far a session has got at the exit, what its client was told so far, and whether its relay holds anything of
+	   the destination */
+	private enum Stage {
+		WAITING(CONNECT, List.of(), false),
+		CONNECTING(CONNECT, List.of(), true),
+		RELAYING(CONNECT, List.of(CONNECTED), true),
+		ASSOCIATED(ASSOCIATE, List.of(ASSOCIATED_REPLY), true);
+
+		private final Connect connect;
+		private final List<SealedMessage> told;
+		private final boolean holdsADestination;
+
+		Stage(final Connect connect, final List<SealedMessage> told, final boolean holdsADestination) {
+			this.connect = connect;
+			this.told = told;
+			this.holdsADestination = holdsADestination;
+		}
+
+		private List<SealedMessage> thenClosed(final CloseReason reason) {
+			final List<SealedMessage> all = new ArrayList<>(told);
+
+			all.add(new Close(reason));
+			return all;
+		}
+	}
+
+	private record Reached(Caller caller, IntSupplier closes) {
+		/* A caller whose session got to a stage, and how often what its relay held of the destination was closed */
+	}
+
+	/* A caller on the first chain whose session got that far. A destination that answers after the session ended is
+	   closed at once by the relay, so the closes of a session still connecting are counted on a late connection. */
+	private static Reached reach(final Rig rig, final Stage stage) {
+		final Caller caller = rig.caller(2, EXIT, rig.chain(0), stage.connect);
+
+		if (stage == Stage.WAITING) {
+			caller.session().open();
+			caller.send();
+			rig.handOut();
+			caller.posted.clear();
+			return new Reached(caller, () -> 0);
+		}
+
+		caller.open();
+
+		if (stage == Stage.CONNECTING) {
+			return new Reached(caller, () -> rig.connector.connect().closes.get());
+		}
+
+		if (stage == Stage.RELAYING) {
+			final FakeConnector.FakeTarget target = rig.connector.connect();
+
+			rig.drive();
+			return new Reached(caller, target.closes::get);
+		}
+
+		return new Reached(caller, rig.sockets.get(0).closes::get);
 	}
 
 	private static Fingerprint fingerprint() {
@@ -1075,6 +1187,212 @@ public class ChainExitTest {
 
 		assertThat(caller.received, contains(new Connected(Socks5CommandStatus.FORBIDDEN, SocksAddress.UNSPECIFIED),
 			new Close(CloseReason.REFUSED)));
+	}
+
+	@Example
+	public void closesTheSessionsOfOneChainWithTheReasonGivenAndNoOthers() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+
+		final FakeConnector.FakeTarget target = rig.connector.connect();
+
+		rig.exit.closeChain(rig.fleet.host(EXIT).hostedChains().get(1), CloseReason.DONE);
+		assertThat(target.closed, is(false));
+		assertThat(rig.exit.openRelays(), is(1));
+
+		rig.exit.closeChain(rig.fleet.chain(), CloseReason.DONE);
+		rig.drive();
+
+		assertThat(target.closed, is(true));
+		assertThat(caller.received, contains(CONNECTED, new Close(CloseReason.DONE)));
+		assertThat(rig.exit.openRelays(), is(0));
+	}
+
+	@Example
+	public void tellsTheHostWhetherASessionStillRunsOnAChain() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+
+		assertThat(rig.exit.holds(rig.fleet.chain()), is(true));
+		assertThat(rig.exit.holds(rig.fleet.host(EXIT).hostedChains().get(1)), is(false));
+
+		caller.session().close(CloseReason.DONE);
+		rig.drive();
+		assertThat(rig.exit.holds(rig.fleet.chain()), is(false));
+	}
+
+	@Example
+	public void endsItsSessionsWhenTheHostDropsTheirChainAfterTheGrace() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+		rig.connector.connect();
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.fleet.host(EXIT).refresh();
+		rig.fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS);
+		rig.fleet.host(EXIT).drain();
+		rig.drive();
+
+		assertThat(caller.received, contains(CONNECTED, new Close(CloseReason.DONE)));
+		assertThat(rig.fleet.host(EXIT).retiredChains(), is(empty()));
+	}
+
+	/* Wherever its session got, a relay of the chain ends with the reason given and lets go of what it held of the
+	   destination once, through its own close, the tick frees its place, and the relay of another chain goes on */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void closesEverySessionOfTheChainWithTheReasonGivenWhereverItGot(@ForAll Stage stage,
+		@ForAll CloseReason reason) {
+
+		final Rig rig = new Rig();
+		final Caller other = rig.caller(1, EXIT, rig.chain(1));
+
+		other.open();
+
+		final FakeConnector.FakeTarget kept = rig.connector.connect();
+
+		rig.drive();
+
+		final Reached reached = reach(rig, stage);
+
+		assertThat(reached.caller().received, equalTo(stage.told));
+		assertThat(rig.exit.holds(rig.chain(0)), is(true));
+
+		rig.exit.closeChain(rig.chain(0), reason);
+		rig.handOut();
+		assertThat(reached.caller().received, equalTo(stage.thenClosed(reason)));
+		assertThat(rig.exit.holds(rig.chain(0)), is(false));
+
+		rig.exit.closeChain(rig.chain(0), reason);
+		rig.exit.tick();
+		rig.handOut();
+
+		assertThat(reached.caller().received, equalTo(stage.thenClosed(reason)));
+		assertThat(reached.closes().getAsInt(), is(stage.holdsADestination ? 1 : 0));
+		assertThat(rig.exit.heldRelays(), is(1));
+		assertThat(rig.exit.holds(rig.chain(1)), is(true));
+		assertThat(kept.closes.get(), is(0));
+		assertThat(other.received, contains(CONNECTED));
+	}
+
+	/* The exit holds a retired chain while a session runs on it, and the host tells it when the grace is over: the
+	   sessions end in order wherever they got, the destination sees a close and a client still waiting for its reply
+	   takes the Close as a general failure */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void endsEverySessionOfAChainInOrderOnceItsGraceIsOver(@ForAll Stage stage) {
+		final Rig rig = new Rig();
+		final Reached reached = reach(rig, stage);
+		final ChainHost host = rig.fleet.host(EXIT);
+
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		rig.fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS - 1);
+		host.drain();
+		rig.handOut();
+		assertThat(host.retiredChains(), contains(rig.fleet.chain()));
+		assertThat(reached.caller().received, equalTo(stage.told));
+
+		rig.fleet.clock.addAndGet(1);
+		host.drain();
+		rig.handOut();
+
+		assertThat(host.retiredChains(), is(empty()));
+		assertThat(reached.caller().received, equalTo(stage.thenClosed(CloseReason.DONE)));
+		assertThat(reached.closes().getAsInt(), is(stage.holdsADestination ? 1 : 0));
+		assertThat(TunnelFailure.of(CloseReason.DONE), is(TunnelFailure.GENERAL_FAILURE));
+	}
+
+	@Example
+	public void closesTheRelaysOfAChainWhoseGraceIsOverWithNoLockOfTheHostHeld() {
+		final Rig rig = new Rig();
+		final AtomicBoolean locked = new AtomicBoolean(true);
+
+		rig.caller(1).open();
+
+		final FakeConnector.FakeTarget target = rig.connector.connect();
+
+		target.closing = () -> locked.set(Thread.holdsLock(rig.fleet.host(EXIT)));
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.fleet.host(EXIT).refresh();
+		rig.fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS);
+		rig.fleet.host(EXIT).tick();
+
+		assertThat(target.closes.get(), is(1));
+		assertThat(locked.get(), is(false));
+	}
+
+	@Example
+	public void closesEveryRelayOfTheChainWhenTheCloseOfOneFails() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+
+		final FakeConnector.FakeTarget first = rig.connector.connect();
+
+		caller.another();
+
+		final FakeConnector.FakeTarget second = rig.connector.connect();
+
+		rig.drive();
+		first.failingClose = true;
+		second.failingClose = true;
+		rig.exit.closeChain(rig.fleet.chain(), CloseReason.DONE);
+		rig.handOut();
+
+		assertThat(List.of(first.closes.get(), second.closes.get()), everyItem(is(1)));
+		assertThat(caller.received, contains(CONNECTED, CONNECTED, DONE, DONE));
+	}
+
+	@Example
+	public void closesEveryRelayOfTheChainWhenTheCloseOfOneEndsWithAnErrorAndThenThrowsIt() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+
+		final FakeConnector.FakeTarget first = rig.connector.connect();
+
+		caller.another();
+
+		final FakeConnector.FakeTarget second = rig.connector.connect();
+
+		rig.drive();
+		first.closeError = new StackOverflowError();
+		second.closeError = new StackOverflowError();
+
+		Expect.assertThrows(StackOverflowError.class, () -> rig.exit.closeChain(rig.fleet.chain(), CloseReason.DONE));
+		rig.handOut();
+
+		assertThat(List.of(first.closes.get(), second.closes.get()), everyItem(is(1)));
+		assertThat(caller.received, contains(CONNECTED, CONNECTED, DONE, DONE));
+	}
+
+	/* The host keeps its drains, so a stopped exit holds no chain and what it is told changes nothing */
+	@Example
+	public void holdsNoChainAndEndsNothingOnceTheDaemonStops() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+
+		final FakeConnector.FakeTarget target = rig.connector.connect();
+
+		rig.drive();
+		rig.exit.stop();
+
+		assertThat(rig.exit.holds(rig.fleet.chain()), is(false));
+
+		rig.exit.expired(rig.fleet.chain());
+		rig.exit.closeChain(rig.fleet.chain(), CloseReason.BROKEN);
+		rig.handOut();
+
+		assertThat(target.closes.get(), is(0));
+		assertThat(caller.received, contains(CONNECTED));
 	}
 
 	/* The host keeps its listeners, so what it tells a stopped exit must change nothing */
