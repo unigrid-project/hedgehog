@@ -27,6 +27,7 @@ import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
@@ -53,6 +54,7 @@ import org.unigrid.hedgehog.service.storage.StorageService;
 public class StorageResource extends CDIBridgeResource {
 	public static final String FINGERPRINT_HEADER = "X-Fingerprint";
 	public static final String FILE_SIZE_HEADER = "X-File-Size";
+	public static final long MAX_UPLOAD_BYTES = 64L << 30;
 
 	@CDIBridgeInject
 	private StorageService storageService;
@@ -65,10 +67,20 @@ public class StorageResource extends CDIBridgeResource {
 		Response call(Fingerprint fingerprint) throws IOException, StorageException;
 	}
 
+	/* The container queues a body faster than a store consumes it, so only an upload that announces a length
+	   within the cap is read at all */
 	@POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
 	@Produces(MediaType.APPLICATION_JSON)
-	public Response store(final InputStream body) {
+	public Response store(@HeaderParam(HttpHeaders.CONTENT_LENGTH) final Long length, final InputStream body) {
+		if (length == null) {
+			return Response.status(Response.Status.LENGTH_REQUIRED).build();
+		}
+
+		if (length > MAX_UPLOAD_BYTES) {
+			return Response.status(Response.Status.REQUEST_ENTITY_TOO_LARGE).build();
+		}
+
 		return respond(() -> Response.status(Response.Status.CREATED)
 			.entity(Map.of("fingerprint", storageService.store(body).encode())).build());
 	}

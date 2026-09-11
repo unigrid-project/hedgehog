@@ -32,10 +32,14 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -62,6 +66,7 @@ import net.jqwik.api.Tuple;
 import net.jqwik.api.Tuple.Tuple2;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -72,6 +77,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
@@ -390,6 +396,43 @@ public class StorageResourceTest extends BaseRestClientTest {
 			assertThat(assertThrows(ProcessingException.class, () -> impatient.getWithHeaders(URL,
 				fingerprint(encoded))).getCause(), instanceOf(SocketTimeoutException.class));
 		}
+	}
+
+	/* Sent over a bare socket, as no HTTP client lets a caller choose the framing of a request */
+	@SneakyThrows
+	private String rawStatus(final String framing, final String body) {
+		final SSLContext context = SSLContext.getInstance("TLS");
+
+		context.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), null);
+
+		try (Socket socket = context.getSocketFactory().createSocket(server.getRest().getHostName(),
+			server.getRest().getPort())) {
+
+			socket.setSoTimeout(Math.toIntExact(STALL_LIMIT.toMillis()));
+			socket.getOutputStream().write(("POST " + URL + " HTTP/1.1\r\nHost: localhost\r\nContent-Type: "
+				+ MediaType.APPLICATION_OCTET_STREAM + "\r\n" + framing + "\r\n\r\n" + body)
+				.getBytes(StandardCharsets.US_ASCII));
+			socket.getOutputStream().flush();
+			return new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII))
+				.readLine();
+		}
+	}
+
+	@Property(tries = 5)
+	public void requiresTheLengthOfAnUpload(@ForAll @AlphaChars @StringLength(min = 1, max = 200) final String content) {
+		final StorageFleet fleet = wireFleet(StorageTestData.parameters());
+		final String chunks = Integer.toHexString(content.length()) + "\r\n" + content + "\r\n0\r\n\r\n";
+
+		assertThat(rawStatus("Transfer-Encoding: chunked", chunks), startsWith("HTTP/1.1 411"));
+		assertThat(fleet.groups().isEmpty(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void refusesUploadsOverTheCap(@ForAll @LongRange(min = StorageResource.MAX_UPLOAD_BYTES + 1) final long length) {
+		final StorageFleet fleet = wireFleet(StorageTestData.parameters());
+
+		assertThat(rawStatus("Content-Length: " + length, ""), startsWith("HTTP/1.1 413"));
+		assertThat(fleet.groups().isEmpty(), is(true));
 	}
 
 	@Property(tries = 20)
