@@ -34,7 +34,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SnapshotFormat {
 	public static final byte[] MAGIC = "UGDSNAP1".getBytes(StandardCharsets.US_ASCII);
-	public static final int VERSION = 1;
+	public static final int VERSION = 2;
 
 	public static final int HEADER_SIZE = 128;
 	public static final int ADDRESS_RECORD_SIZE = 40;

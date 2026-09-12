@@ -43,6 +43,7 @@ public final class SnapshotReader {
 
 	private SnapshotReader(FileChannel channel) throws IOException {
 		this.header = map(channel, 0, SnapshotFormat.HEADER_SIZE);
+		verifyFormat();
 
 		final int addressCount = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET);
 		final long entryCount = header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET);
@@ -165,6 +166,23 @@ public final class SnapshotReader {
 	private int entryCountAt(int record) {
 		return addresses.getInt(record * SnapshotFormat.ADDRESS_RECORD_SIZE
 			+ SnapshotFormat.ADDRESS_ENTRY_COUNT_OFFSET);
+	}
+
+	private void verifyFormat() throws IOException {
+		final byte[] magic = new byte[SnapshotFormat.MAGIC.length];
+
+		header.duplicate().position(0).get(magic);
+
+		if (!Arrays.equals(SnapshotFormat.MAGIC, magic)) {
+			throw new IOException("Not a legacy chain snapshot");
+		}
+
+		final int version = header.getInt(SnapshotFormat.VERSION_OFFSET);
+
+		if (version != SnapshotFormat.VERSION) {
+			throw new IOException("Snapshot is format version " + version + ", this build reads "
+				+ SnapshotFormat.VERSION + "; re-import the bootstrap");
+		}
 	}
 
 	private static ByteBuffer map(FileChannel channel, long offset, long size) throws IOException {

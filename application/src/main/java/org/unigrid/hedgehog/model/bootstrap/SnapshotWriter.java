@@ -25,7 +25,6 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
 import java.util.Arrays;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
@@ -83,7 +82,8 @@ public final class SnapshotWriter {
 		buffer.putInt(SnapshotFormat.ADDRESS_COUNT_OFFSET, order.length);
 		buffer.putLong(SnapshotFormat.ENTRY_COUNT_OFFSET, ledger.getEntries().getSize());
 		buffer.putLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET, ledger.getTransactionIds().getSize());
-		buffer.putLong(SnapshotFormat.BUILT_AT_OFFSET, Instant.now().getEpochSecond());
+		buffer.putLong(SnapshotFormat.BUILT_AT_OFFSET,
+			Integer.toUnsignedLong(chain.timeAt(chain.getTipHeight())));
 		buffer.putLong(SnapshotFormat.ADDRESS_TABLE_OFFSET, addressTableOffset);
 		buffer.putLong(SnapshotFormat.BLOCK_TIME_TABLE_OFFSET, blockTimeTableOffset);
 		buffer.putLong(SnapshotFormat.ENTRY_TABLE_OFFSET, entryTableOffset);
