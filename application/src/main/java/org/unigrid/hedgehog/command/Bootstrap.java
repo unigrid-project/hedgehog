@@ -23,6 +23,7 @@ import org.unigrid.hedgehog.command.bootstrap.BootstrapHistory;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapImport;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapInfo;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapSign;
+import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
@@ -33,5 +34,6 @@ import picocli.CommandLine.Mixin;
 	description = "Convert the legacy chain bootstrap into a snapshot and query addresses in it."
 )
 public class Bootstrap {
+	@Mixin private NetOptions netOptions;
 	@Mixin private SnapshotOptions snapshotOptions;
 }
