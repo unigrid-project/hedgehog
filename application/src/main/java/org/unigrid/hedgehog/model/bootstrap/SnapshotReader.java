@@ -40,6 +40,7 @@ public final class SnapshotReader {
 	private final ByteBuffer blockTimes;
 	private final ByteBuffer entries;
 	private final ByteBuffer transactions;
+	private SignatureStatus signature;
 
 	private SnapshotReader(FileChannel channel) throws IOException {
 		this.header = map(channel, 0, SnapshotFormat.HEADER_SIZE);
@@ -61,9 +62,21 @@ public final class SnapshotReader {
 	}
 
 	public static SnapshotReader open(Path path) throws IOException {
+		final SnapshotReader reader;
+
 		try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
-			return new SnapshotReader(channel);
+			reader = new SnapshotReader(channel);
 		}
+
+		final SignatureStatus status = SnapshotSignature.read(path).getStatus();
+
+		if (status == SignatureStatus.INVALID) {
+			throw new IOException("The snapshot at " + path + " has a signature that does not "
+				+ "verify against any trusted key and will not be used");
+		}
+
+		reader.signature = status;
+		return reader;
 	}
 
 	public SnapshotInfo getInfo() {
@@ -78,7 +91,8 @@ public final class SnapshotReader {
 			.transactionCount(header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET))
 			.totalUnspent(Coin.toDecimal(header.getLong(SnapshotFormat.TOTAL_UNSPENT_OFFSET)))
 			.zerocoinMinted(Coin.toDecimal(header.getLong(SnapshotFormat.ZEROCOIN_MINTED_OFFSET)))
-			.built(Instant.ofEpochSecond(header.getLong(SnapshotFormat.BUILT_AT_OFFSET))).build();
+			.built(Instant.ofEpochSecond(header.getLong(SnapshotFormat.BUILT_AT_OFFSET)))
+			.signature(signature).build();
 	}
 
 	public Optional<AddressBalance> balanceOf(String address) {

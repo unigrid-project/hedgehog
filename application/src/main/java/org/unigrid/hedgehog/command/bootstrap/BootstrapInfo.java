@@ -39,6 +39,7 @@ public class BootstrapInfo implements Callable<Integer> {
 		System.out.println("Total unspent:     " + info.getTotalUnspent());
 		System.out.println("Zerocoin minted:   " + info.getZerocoinMinted());
 		System.out.println("Built:             " + info.getBuilt());
+		System.out.println("Signature:         " + info.getSignature());
 		return 0;
 	}
 }

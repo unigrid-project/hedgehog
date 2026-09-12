@@ -54,6 +54,11 @@ public final class BootstrapSnapshot {
 			reader.set(SnapshotReader.open(path));
 			log.atInfo().log("Opened the legacy chain snapshot at {}", path);
 
+			if (reader.get().getInfo().getSignature() == SignatureStatus.UNSIGNED) {
+				log.atWarn().log("The legacy chain snapshot at {} carries no signature and has"
+					+ " not been verified", path);
+			}
+
 		} catch (IOException ex) {
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}

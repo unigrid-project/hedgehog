@@ -35,4 +35,5 @@ public class SnapshotInfo {
 	private BigDecimal totalUnspent;
 	private BigDecimal zerocoinMinted;
 	private Instant built;
+	private SignatureStatus signature;
 }
