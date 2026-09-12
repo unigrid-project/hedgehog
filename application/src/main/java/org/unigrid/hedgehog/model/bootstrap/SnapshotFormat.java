@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -63,4 +64,9 @@ public final class SnapshotFormat {
 	public static final int ENTRY_HEIGHT_OFFSET = 8;
 	public static final int ENTRY_TRANSACTION_OFFSET = 12;
 	public static final int ENTRY_KIND_OFFSET = 16;
+
+	public static long contentLength(ByteBuffer header) {
+		return header.getLong(TRANSACTION_TABLE_OFFSET)
+			+ header.getLong(TRANSACTION_COUNT_OFFSET) * Hashing.HASH_SIZE;
+	}
 }
