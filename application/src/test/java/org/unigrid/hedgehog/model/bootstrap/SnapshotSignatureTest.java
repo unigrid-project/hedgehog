@@ -20,8 +20,12 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import lombok.Cleanup;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -85,6 +89,67 @@ public class SnapshotSignatureTest {
 		SnapshotSignature.signAndAppend(snapshot, stranger.getPrivateKey());
 
 		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRejectATruncatedSignatureHeader() {
+		final Path snapshot = snapshot();
+
+		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
+		truncateTrailingBlock(snapshot, SnapshotFormat.SIGNATURE_HEADER_SIZE - 1);
+
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRejectASignatureBlockWithBadMagic() {
+		final Path snapshot = snapshot();
+
+		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
+		corruptByteAfterContent(snapshot, 0);
+
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRejectASignatureBlockWithAnInvalidLength() {
+		final Path snapshot = snapshot();
+
+		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
+		writeSignatureLength(snapshot, 0);
+
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+	}
+
+	@SneakyThrows
+	private static void truncateTrailingBlock(Path snapshot, int trailingBytes) {
+		final long content = SnapshotDigest.contentLengthOf(snapshot);
+
+		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.WRITE);
+
+		channel.truncate(content + trailingBytes);
+	}
+
+	@SneakyThrows
+	private static void corruptByteAfterContent(Path snapshot, int offsetInBlock) {
+		final byte[] contents = Files.readAllBytes(snapshot);
+		final int index = (int) SnapshotDigest.contentLengthOf(snapshot) + offsetInBlock;
+
+		contents[index] ^= 0x01;
+		Files.write(snapshot, contents);
+	}
+
+	@SneakyThrows
+	private static void writeSignatureLength(Path snapshot, int length) {
+		final byte[] contents = Files.readAllBytes(snapshot);
+		final int offset = (int) SnapshotDigest.contentLengthOf(snapshot)
+			+ SnapshotFormat.SIGNATURE_LENGTH_OFFSET;
+
+		ByteBuffer.wrap(contents, offset, Integer.BYTES).putInt(length);
+		Files.write(snapshot, contents);
 	}
 
 	@SneakyThrows

@@ -45,16 +45,27 @@ import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
 */
 @Slf4j
 public final class SnapshotSignature implements Signable {
-	@Getter private byte[] signable;
+	@Getter private final byte[] signable;
 	@Getter private byte[] signature;
+	private final boolean malformed;
 
-	private SnapshotSignature(byte[] signable, byte[] signature) {
+	private SnapshotSignature(byte[] signable, byte[] signature, boolean malformed) {
 		this.signable = signable;
 		this.signature = signature;
+		this.malformed = malformed;
 	}
 
 	public static SnapshotSignature read(Path snapshot) throws IOException {
-		return new SnapshotSignature(SnapshotDigest.of(snapshot), readBlock(snapshot));
+		final byte[] signable = SnapshotDigest.of(snapshot);
+		final long content = SnapshotDigest.contentLengthOf(snapshot);
+		final long trailing = Files.size(snapshot) - content;
+
+		if (trailing == 0) {
+			return new SnapshotSignature(signable, null, false);
+		}
+
+		final byte[] signature = readBlock(snapshot, content, trailing);
+		return new SnapshotSignature(signable, signature, signature == null);
 	}
 
 	public static void signAndAppend(Path snapshot, String privateKeyHex)
@@ -72,6 +83,10 @@ public final class SnapshotSignature implements Signable {
 	}
 
 	public SignatureStatus getStatus() {
+		if (malformed) {
+			return SignatureStatus.INVALID;
+		}
+
 		if (!isPresent()) {
 			return SignatureStatus.UNSIGNED;
 		}
@@ -109,14 +124,15 @@ public final class SnapshotSignature implements Signable {
 			.allocate(SnapshotFormat.SIGNATURE_HEADER_SIZE + signature.length)
 			.order(ByteOrder.BIG_ENDIAN);
 
-		return block.put(SnapshotFormat.SIGNATURE_MAGIC).putInt(signature.length)
-			.put(signature).array();
+		block.put(SnapshotFormat.SIGNATURE_MAGIC);
+		block.putInt(SnapshotFormat.SIGNATURE_LENGTH_OFFSET, signature.length);
+		block.position(SnapshotFormat.SIGNATURE_HEADER_SIZE);
+
+		return block.put(signature).array();
 	}
 
-	private static byte[] readBlock(Path snapshot) throws IOException {
-		final long content = SnapshotDigest.contentLengthOf(snapshot);
-
-		if (Files.size(snapshot) <= content + SnapshotFormat.SIGNATURE_HEADER_SIZE) {
+	private static byte[] readBlock(Path snapshot, long content, long trailing) throws IOException {
+		if (trailing <= SnapshotFormat.SIGNATURE_HEADER_SIZE) {
 			return null;
 		}
 
@@ -132,12 +148,10 @@ public final class SnapshotSignature implements Signable {
 
 		header.get(magic);
 
-		final int length = header.getInt();
+		final int length = header.getInt(SnapshotFormat.SIGNATURE_LENGTH_OFFSET);
 
-		if (!Arrays.equals(SnapshotFormat.SIGNATURE_MAGIC, magic) || length <= 0
-			|| length > SnapshotFormat.MAXIMUM_SIGNATURE_SIZE) {
-
-			log.atWarn().log("Ignoring an unrecognisable block after the snapshot content");
+		if (!isWellFormedHeader(magic, length)) {
+			log.atWarn().log("Rejecting an unrecognisable block after the snapshot content");
 			return null;
 		}
 
@@ -145,5 +159,10 @@ public final class SnapshotSignature implements Signable {
 
 		channel.read(bytes);
 		return bytes.array();
+	}
+
+	private static boolean isWellFormedHeader(byte[] magic, int length) {
+		return Arrays.equals(SnapshotFormat.SIGNATURE_MAGIC, magic)
+			&& length > 0 && length <= SnapshotFormat.MAXIMUM_SIGNATURE_SIZE;
 	}
 }
