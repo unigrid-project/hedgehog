@@ -20,9 +20,12 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
@@ -65,6 +68,35 @@ public class BootstrapSnapshotTest {
 		Files.write(path, contents);
 
 		assertThat(new BootstrapSnapshot(path).getReader().isPresent(), equalTo(false));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldOpenARefusedSnapshotOnlyOnce() {
+		final Path path = snapshot();
+
+		SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+
+		final byte[] contents = Files.readAllBytes(path);
+
+		contents[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
+		Files.write(path, contents);
+
+		final AtomicInteger opens = new AtomicInteger();
+
+		new MockUp<SnapshotReader>() {
+			@Mock
+			public SnapshotReader open(Invocation invocation, Path invocationPath) throws IOException {
+				opens.incrementAndGet();
+				return invocation.proceed();
+			}
+		};
+
+		final BootstrapSnapshot snapshot = new BootstrapSnapshot(path);
+
+		assertThat(snapshot.getReader().isPresent(), equalTo(false));
+		assertThat(snapshot.getReader().isPresent(), equalTo(false));
+		assertThat(opens.get(), equalTo(1));
 	}
 
 	@Example

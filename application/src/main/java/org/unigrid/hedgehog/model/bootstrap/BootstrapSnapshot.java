@@ -21,10 +21,12 @@ package org.unigrid.hedgehog.model.bootstrap;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
 /*
@@ -36,17 +38,24 @@ import lombok.extern.slf4j.Slf4j;
 public final class BootstrapSnapshot {
 	@Getter private final Path path;
 	private final AtomicReference<SnapshotReader> reader = new AtomicReference<>();
+	private final AtomicReference<FileIdentity> refusal = new AtomicReference<>();
 
 	public Optional<SnapshotReader> getReader() {
-		if (reader.get() == null && Files.exists(path)) {
+		if (reader.get() == null && Files.exists(path) && !matchesRefusal()) {
 			open();
 		}
 
 		return Optional.ofNullable(reader.get());
 	}
 
+	private boolean matchesRefusal() {
+		final FileIdentity previous = refusal.get();
+
+		return previous != null && FileIdentity.of(path).map(previous::equals).orElse(false);
+	}
+
 	private synchronized void open() {
-		if (reader.get() != null) {
+		if (reader.get() != null || matchesRefusal()) {
 			return;
 		}
 
@@ -58,9 +67,28 @@ public final class BootstrapSnapshot {
 				log.atWarn().log("The legacy chain snapshot at {} carries no signature and has"
 					+ " not been verified", path);
 			}
-
 		} catch (IOException ex) {
+			refusal.set(FileIdentity.of(path).orElse(null));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
+		}
+	}
+
+	/*
+	   A refused snapshot is cached by size and modification time rather than outright, so a
+	   persistently broken file is digested only once, while a file replaced in place by
+	   `bootstrap fetch` is picked up on the next request without a restart.
+	*/
+	@Value
+	private static class FileIdentity {
+		private long size;
+		private FileTime modified;
+
+		static Optional<FileIdentity> of(Path path) {
+			try {
+				return Optional.of(new FileIdentity(Files.size(path), Files.getLastModifiedTime(path)));
+			} catch (IOException ex) {
+				return Optional.empty();
+			}
 		}
 	}
 }
