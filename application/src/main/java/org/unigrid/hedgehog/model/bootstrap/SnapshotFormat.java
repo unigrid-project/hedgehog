@@ -31,6 +31,7 @@ import lombok.NoArgsConstructor;
    block times     4 bytes per height, so an entry only has to carry a height to have a date
    entry table     20 bytes per credit or debit, grouped per address and ordered by height
    transaction ids 32 bytes each, referenced by index from the entries
+   signature       optional, appended after the content: magic, length, the DER signature
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SnapshotFormat {
@@ -64,6 +65,11 @@ public final class SnapshotFormat {
 	public static final int ENTRY_HEIGHT_OFFSET = 8;
 	public static final int ENTRY_TRANSACTION_OFFSET = 12;
 	public static final int ENTRY_KIND_OFFSET = 16;
+
+	public static final byte[] SIGNATURE_MAGIC = "UGDSIGN1".getBytes(StandardCharsets.US_ASCII);
+	public static final int SIGNATURE_HEADER_SIZE = 12;
+	public static final int SIGNATURE_LENGTH_OFFSET = 8;
+	public static final int MAXIMUM_SIGNATURE_SIZE = 256;
 
 	public static long contentLength(ByteBuffer header) {
 		return header.getLong(TRANSACTION_TABLE_OFFSET)
