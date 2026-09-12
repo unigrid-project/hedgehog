@@ -22,12 +22,14 @@ import org.unigrid.hedgehog.command.bootstrap.BootstrapBalance;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapHistory;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapImport;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapInfo;
+import org.unigrid.hedgehog.command.bootstrap.BootstrapSign;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 
 @Command(name = "bootstrap",
-	subcommands = { BootstrapImport.class, BootstrapInfo.class, BootstrapBalance.class, BootstrapHistory.class },
+	subcommands = { BootstrapImport.class, BootstrapInfo.class, BootstrapBalance.class,
+		BootstrapHistory.class, BootstrapSign.class },
 	description = "Convert the legacy chain bootstrap into a snapshot and query addresses in it."
 )
 public class Bootstrap {
