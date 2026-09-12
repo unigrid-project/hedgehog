@@ -1332,8 +1332,7 @@ Every `.java` file in the repository opens with a variant of that block. Of the 
 organization number (`802482-2408`). Twelve carry an older variant that drops the
 `Stiftelsen` prefix and the organization-number line: all nine files under
 `native-image/src/main/java/`, both classes in
-`common/src/main/java/org/unigrid/hedgehog/common/model/`, and `common/src/main/java/module-info.java`
-(still dated `2021-2022`). New files should be started by copying `COPYING.header` verbatim.
+`common/src/main/java/org/unigrid/hedgehog/common/model/`, and `common/src/main/java/module-info.java`. New files should be started by copying `COPYING.header` verbatim.
 
 Markdown files in the repository carry no license header.
 
