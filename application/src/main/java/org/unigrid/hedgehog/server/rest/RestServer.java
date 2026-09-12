@@ -62,6 +62,7 @@ public class RestServer extends AbstractServer {
 
 	private ResourceConfig getResourceConfig() {
 		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
+			BootstrapResource.class,
 			MintStorageResource.class,
 			MintSupplyResource.class,
 			NodeResource.class,

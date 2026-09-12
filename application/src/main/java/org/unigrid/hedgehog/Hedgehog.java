@@ -22,6 +22,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import lombok.Getter;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.command.Bootstrap;
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
@@ -40,7 +41,7 @@ import picocli.CommandLine.Option;
 		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
 		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""
-	}, subcommands = { CLI.class, Daemon.class, Util.class }
+	}, subcommands = { Bootstrap.class, CLI.class, Daemon.class, Util.class }
 )
 public class Hedgehog {
 	@Getter

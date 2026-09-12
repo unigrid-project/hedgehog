@@ -317,6 +317,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.bootstrap=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.spork=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.option=info.picocli
@@ -324,6 +325,8 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.bootstrap=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.bootstrap=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
