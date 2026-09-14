@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.server.rest;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.startsWith;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
@@ -34,6 +33,7 @@ import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
+import org.unigrid.hedgehog.model.bootstrap.BlockParser;
 import org.unigrid.hedgehog.model.bootstrap.Chain;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.EntryKind;
@@ -114,7 +114,9 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		assertThat(page.size(), equalTo(2));
 		assertThat(page.get(0).getHeight(), equalTo(1));
 		assertThat(page.get(1).getHeight(), equalTo(2));
-		assertThat(page.get(0).getAmount().signum(), greaterThan(0));
+		assertThat(page.get(0).getAmount(), equalTo(Coin.toDecimal(AMOUNT)));
+		assertThat(page.get(0).getKind(), equalTo(EntryKind.RECEIVED));
+		assertThat(page.get(0).getTransaction(), equalTo(BlockParser.toDisplayString(identifierAt(1))));
 	}
 
 	@SneakyThrows
@@ -136,10 +138,7 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		final int address = addresses.idOf(ADDRESS_HASH);
 
 		for (int height = 0; height < HEIGHTS; height++) {
-			final byte[] identifier = new byte[Hashing.HASH_SIZE];
-
-			identifier[0] = (byte) height;
-			entries.add(address, AMOUNT, height, transactionIds.add(identifier), EntryKind.RECEIVED);
+			entries.add(address, AMOUNT, height, transactionIds.add(identifierAt(height)), EntryKind.RECEIVED);
 		}
 
 		return Ledger.builder().addresses(addresses).entries(entries).transactionIds(transactionIds)
@@ -155,6 +154,13 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		}
 
 		return new Chain(empty, empty, empty, times, new byte[Hashing.HASH_SIZE], HEIGHTS);
+	}
+
+	private static byte[] identifierAt(int height) {
+		final byte[] identifier = new byte[Hashing.HASH_SIZE];
+
+		identifier[0] = (byte) height;
+		return identifier;
 	}
 
 	private static byte[] absentHash() {
