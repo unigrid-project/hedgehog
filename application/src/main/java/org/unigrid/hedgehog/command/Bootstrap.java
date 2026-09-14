@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command;
 
 import org.unigrid.hedgehog.command.bootstrap.BootstrapBalance;
+import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapHistory;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapImport;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapInfo;
@@ -30,7 +31,7 @@ import picocli.CommandLine.Mixin;
 
 @Command(name = "bootstrap",
 	subcommands = { BootstrapImport.class, BootstrapInfo.class, BootstrapBalance.class,
-		BootstrapHistory.class, BootstrapSign.class },
+		BootstrapHistory.class, BootstrapSign.class, BootstrapFetch.class },
 	description = "Convert the legacy chain bootstrap into a snapshot and query addresses in it."
 )
 public class Bootstrap {
