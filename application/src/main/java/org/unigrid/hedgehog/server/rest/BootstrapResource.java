@@ -89,7 +89,7 @@ public class BootstrapResource extends CDIBridgeResource {
 
 		try {
 			final List<AddressTransaction> transactions = reader.get().transactionsOf(address,
-				Math.max(0, offset), Math.min(MAXIMUM_PAGE_SIZE, Math.max(0, limit)));
+				offset, Math.min(MAXIMUM_PAGE_SIZE, Math.max(0, limit)));
 
 			return Response.ok().entity(transactions).build();
 

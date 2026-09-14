@@ -95,6 +95,17 @@ public final class SnapshotReader {
 			.signature(signature).build();
 	}
 
+	public long totalBalance() {
+		final int addressCount = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET);
+		long total = 0;
+
+		for (int record = 0; record < addressCount; record++) {
+			total += balanceAt(record);
+		}
+
+		return total;
+	}
+
 	public Optional<AddressBalance> balanceOf(String address) {
 		final int record = find(LegacyAddress.decode(address));
 
@@ -114,12 +125,13 @@ public final class SnapshotReader {
 			return List.of();
 		}
 
-		final int available = Math.max(0, entryCountAt(record) - offset);
-		final int count = Math.min(limit, available);
+		final int clampedOffset = Math.max(0, offset);
+		final int available = Math.max(0, entryCountAt(record) - clampedOffset);
+		final int count = Math.max(0, Math.min(limit, available));
 		final List<AddressTransaction> result = new ArrayList<>(count);
 
 		for (int i = 0; i < count; i++) {
-			result.add(transactionAt(firstEntryAt(record) + offset + i));
+			result.add(transactionAt(firstEntryAt(record) + clampedOffset + i));
 		}
 
 		return result;

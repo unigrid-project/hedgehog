@@ -101,6 +101,69 @@ public class SnapshotRoundTripTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldReadBackDistinctValuesAgainstTheRightAddress() {
+		final byte[] first = addressHash((byte) 0x01);
+		final byte[] second = addressHash((byte) 0x02);
+		final byte[] third = addressHash((byte) 0x03);
+
+		final AddressRegistry addresses = new AddressRegistry();
+		final int firstId = addresses.idOf(first);
+		final int secondId = addresses.idOf(second);
+		final int thirdId = addresses.idOf(third);
+
+		final LedgerEntries entries = new LedgerEntries(16);
+		final TransactionIdTable transactionIds = new TransactionIdTable();
+
+		addEntry(entries, transactionIds, firstId, 0, 10, EntryKind.MINED);
+		addEntry(entries, transactionIds, secondId, 0, 20, EntryKind.RECEIVED);
+		addEntry(entries, transactionIds, secondId, 1, -5, EntryKind.SENT);
+		addEntry(entries, transactionIds, thirdId, 0, 7, EntryKind.STAKED);
+		addEntry(entries, transactionIds, thirdId, 1, 3, EntryKind.RECEIVED);
+		addEntry(entries, transactionIds, thirdId, 2, 2, EntryKind.RECEIVED);
+
+		final Path path = Files.createTempFile("hhg-snapshot-", ".dat");
+
+		path.toFile().deleteOnExit();
+		SnapshotWriter.write(path, chain(), Ledger.builder().addresses(addresses).entries(entries)
+			.transactionIds(transactionIds).balances(new long[] {10, 15, 12}).totalUnspent(37).build());
+
+		final SnapshotReader reader = SnapshotReader.open(path);
+
+		assertAddress(reader, first, firstId, 10, List.of(entry(0, 10, EntryKind.MINED)));
+		assertAddress(reader, second, secondId, 15,
+			List.of(entry(0, 20, EntryKind.RECEIVED), entry(1, -5, EntryKind.SENT)));
+		assertAddress(reader, third, thirdId, 12, List.of(entry(0, 7, EntryKind.STAKED),
+			entry(1, 3, EntryKind.RECEIVED), entry(2, 2, EntryKind.RECEIVED)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldClampANegativeOffsetToTheStartOfHistoryInsteadOfLeakingThePrecedingAddress() {
+		final byte[] first = new byte[Hashing.ADDRESS_HASH_SIZE];
+		final byte[] second = new byte[Hashing.ADDRESS_HASH_SIZE];
+
+		second[0] = 0x01;
+
+		final Fixture fixture = write(List.of(first, second), 1, HEIGHTS);
+		final String secondAddress = LegacyAddress.encode(second);
+
+		assertThat(fixture.reader.transactionsOf(secondAddress, -3, HEIGHTS),
+			equalTo(fixture.reader.transactionsOf(secondAddress, 0, HEIGHTS)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotThrowForANegativeOffsetOnTheAlphabeticallyFirstAddress() {
+		final byte[] first = new byte[Hashing.ADDRESS_HASH_SIZE];
+		final Fixture fixture = write(List.of(first), 1, HEIGHTS);
+		final String address = LegacyAddress.encode(first);
+
+		assertThat(fixture.reader.transactionsOf(address, -3, HEIGHTS),
+			equalTo(fixture.reader.transactionsOf(address, 0, HEIGHTS)));
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldCarryTheChainSummaryInTheHeader() {
 		final Fixture fixture = write(List.of(new byte[Hashing.ADDRESS_HASH_SIZE]), 7);
 		final SnapshotInfo info = fixture.reader.getInfo();
@@ -157,6 +220,49 @@ public class SnapshotRoundTripTest {
 			.totalUnspent(amount * entriesPerAddress * balances.length).build());
 
 		return new Fixture(distinct, SnapshotReader.open(path));
+	}
+
+	private static byte[] addressHash(byte marker) {
+		final byte[] hash = new byte[Hashing.ADDRESS_HASH_SIZE];
+
+		hash[0] = marker;
+		return hash;
+	}
+
+	private static void addEntry(LedgerEntries entries, TransactionIdTable transactionIds,
+		int address, int height, long amount, EntryKind kind) {
+
+		entries.add(address, amount, height, transactionIds.add(identifier(address, height)), kind);
+	}
+
+	private static ExpectedEntry entry(int height, long amount, EntryKind kind) {
+		return new ExpectedEntry(height, amount, kind);
+	}
+
+	private static void assertAddress(SnapshotReader reader, byte[] hash, int addressId,
+		long balance, List<ExpectedEntry> expected) {
+
+		final String address = LegacyAddress.encode(hash);
+		final List<AddressTransaction> history = reader.transactionsOf(address, 0, expected.size());
+
+		assertThat(reader.balanceOf(address).orElseThrow().getBalance(), equalTo(Coin.toDecimal(balance)));
+		assertThat(reader.balanceOf(address).orElseThrow().getTransactionCount(), equalTo(expected.size()));
+		assertThat(history.size(), equalTo(expected.size()));
+
+		for (int i = 0; i < expected.size(); i++) {
+			assertExpectedEntry(history.get(i), expected.get(i), addressId);
+		}
+	}
+
+	private static void assertExpectedEntry(AddressTransaction actual, ExpectedEntry expected, int addressId) {
+		assertThat(actual.getHeight(), equalTo(expected.height()));
+		assertThat(actual.getAmount(), equalTo(Coin.toDecimal(expected.amount())));
+		assertThat(actual.getKind(), equalTo(expected.kind()));
+		assertThat(actual.getTransaction(),
+			equalTo(BlockParser.toDisplayString(identifier(addressId, expected.height()))));
+	}
+
+	private record ExpectedEntry(int height, long amount, EntryKind kind) {
 	}
 
 	private static byte[] identifier(int address, int height) {

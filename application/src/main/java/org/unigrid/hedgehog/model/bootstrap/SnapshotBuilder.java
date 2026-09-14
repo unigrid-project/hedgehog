@@ -33,6 +33,7 @@ public final class SnapshotBuilder {
 
 		verify(ledger);
 		SnapshotWriter.write(output, chain, ledger);
+		verifyWritten(output, ledger);
 		return report(chain, ledger);
 	}
 
@@ -48,8 +49,9 @@ public final class SnapshotBuilder {
 	}
 
 	/*
-	   The balance held in the unspent map at the tip and the sum of every dated entry for an address are
-	   arrived at by completely different routes, so disagreement between them means the replay is wrong.
+	   The balance held in the unspent map at the tip and the sum of every dated entry for an address both
+	   come from the same credit and debit calls in the replay, so disagreement between them means one of
+	   those calls recorded an entry without updating the map, or the other way around.
 	*/
 	private static void verify(Ledger ledger) {
 		final LedgerEntries entries = ledger.getEntries();
@@ -78,6 +80,32 @@ public final class SnapshotBuilder {
 			throw new IllegalStateException("Address " + name + " holds "
 				+ Coin.toDecimal(ledger.getBalances()[address]) + " unspent but its entries sum to "
 				+ Coin.toDecimal(summed[address]));
+		}
+	}
+
+	/*
+	   Reopens the file that was just written and checks it the same way a reader would, so a defect in
+	   the writer itself, such as an inverted rank/address-id indirection, is caught here rather than by
+	   a user relying on the wrong balance.
+	*/
+	private static void verifyWritten(Path output, Ledger ledger) throws IOException {
+		final SnapshotReader reader = SnapshotReader.open(output);
+		final SnapshotInfo info = reader.getInfo();
+		final long writtenTotal = reader.totalBalance();
+
+		if (info.getAddressCount() != ledger.getAddresses().size()) {
+			throw new IllegalStateException("Snapshot has " + info.getAddressCount()
+				+ " addresses, the ledger has " + ledger.getAddresses().size());
+		}
+
+		if (info.getEntryCount() != ledger.getEntries().getSize()) {
+			throw new IllegalStateException("Snapshot has " + info.getEntryCount()
+				+ " entries, the ledger has " + ledger.getEntries().getSize());
+		}
+
+		if (writtenTotal != ledger.getTotalUnspent()) {
+			throw new IllegalStateException("Snapshot address table sums to " + Coin.toDecimal(writtenTotal)
+				+ ", the ledger total unspent is " + Coin.toDecimal(ledger.getTotalUnspent()));
 		}
 	}
 }
