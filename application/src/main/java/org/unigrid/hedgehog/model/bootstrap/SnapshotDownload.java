@@ -33,47 +33,65 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /*
-   The snapshot lands beside its destination so the final move stays on one filesystem and is
-   therefore atomic, and it is only moved into place once its signature verifies. A download
-   that cannot be verified never replaces a snapshot that could be.
+   The snapshot is written to an unpredictable name beside its destination, so the final move stays
+   on one filesystem and is therefore atomic and no other local process can substitute the file
+   between the moment it verifies and the moment it lands. It is only moved into place once it
+   opens as a snapshot this build understands and its signature verifies against a trusted key. A
+   download that cannot be verified never replaces a snapshot that could be.
+
+   The size ceiling matters because authenticity is established only after the bytes are on disk.
+   Without it a small compressed body that expands without end fills the disk before anything is
+   checked.
 */
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SnapshotDownload {
 	public static final String COMPRESSED_SUFFIX = ".gz";
+	public static final long MAXIMUM_SIZE = 2L << 30;
 
+	private static final String PARTIAL_PREFIX = "snapshot-";
 	private static final String PARTIAL_SUFFIX = ".part";
 	private static final long PROGRESS_INTERVAL = 32L << 20;
 	private static final int CONNECT_TIMEOUT_MILLIS = 30_000;
 	private static final int READ_TIMEOUT_MILLIS = 120_000;
 
 	public static void install(URL source, Path target) throws IOException {
-		final Path partial = target.resolveSibling(target.getFileName() + PARTIAL_SUFFIX);
+		install(source, target, MAXIMUM_SIZE);
+	}
 
+	/* The ceiling is a parameter so a test can prove the guard fires without moving two gibibytes. */
+	static void install(URL source, Path target, long maximumSize) throws IOException {
 		Files.createDirectories(target.toAbsolutePath().getParent());
 
+		final Path partial = Files.createTempFile(target.toAbsolutePath().getParent(),
+			PARTIAL_PREFIX, PARTIAL_SUFFIX);
+
 		try {
-			copy(source, partial);
+			copy(source, partial, maximumSize);
 			verify(partial, source);
 			Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING,
 				StandardCopyOption.ATOMIC_MOVE);
 			log.atInfo().log("Installed the legacy chain snapshot at {}", target);
 
 		} finally {
-			Files.deleteIfExists(partial);
+			discard(partial);
 		}
 	}
 
+	/*
+	   Opening the file is what proves it: SnapshotReader checks the magic and the format version and
+	   refuses a signature that does not verify, so a version this build cannot read never installs.
+	*/
 	private static void verify(Path partial, URL source) throws IOException {
-		final SignatureStatus status = SnapshotSignature.read(partial).getStatus();
+		final SignatureStatus status = SnapshotReader.open(partial).getInfo().getSignature();
 
 		if (status != SignatureStatus.SIGNED) {
-			throw new IOException("The snapshot at " + source + " is " + status
-				+ " and was not installed");
+			throw new IOException("The snapshot at " + source + " carries no signature from a"
+				+ " trusted key and was not installed");
 		}
 	}
 
-	private static void copy(URL source, Path partial) throws IOException {
+	private static void copy(URL source, Path partial, long maximumSize) throws IOException {
 		@Cleanup final InputStream stream = open(source);
 		@Cleanup final OutputStream out = Files.newOutputStream(partial);
 		final byte[] buffer = new byte[1 << 16];
@@ -81,13 +99,29 @@ public final class SnapshotDownload {
 		long reported = 0;
 
 		for (int read = stream.read(buffer); read > 0; read = stream.read(buffer)) {
-			out.write(buffer, 0, read);
 			total += read;
+
+			if (total > maximumSize) {
+				throw new IOException("The download from " + source + " passed " + maximumSize
+					+ " bytes and was abandoned");
+			}
+
+			out.write(buffer, 0, read);
 
 			if (total - reported >= PROGRESS_INTERVAL) {
 				reported = total;
 				log.atInfo().log("Downloaded {} MiB", total >> 20);
 			}
+		}
+	}
+
+	/* Cleanup must never replace the failure that caused it with one about the leftover file. */
+	private static void discard(Path partial) {
+		try {
+			Files.deleteIfExists(partial);
+		} catch (IOException ex) {
+			log.atWarn().log("Could not remove the partial download at {}: {}", partial,
+				ex.getMessage());
 		}
 	}
 

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -43,6 +44,63 @@ public class SnapshotDownloadTest {
 		SnapshotDownload.install(source.toUri().toURL(), target);
 
 		assertThat(Files.mismatch(source, target), equalTo(-1L));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldAbandonADownloadThatPassesItsCeiling() {
+		final Path source = signedSnapshot();
+		final Path target = target();
+
+		try {
+			SnapshotDownload.install(source.toUri().toURL(), target, 1024);
+			throw new AssertionError("An oversized download was installed");
+
+		} catch (IOException expected) {
+			assertThat(expected.getMessage(), containsString("was abandoned"));
+			assertThat(Files.exists(target), equalTo(false));
+			assertThat(leftoverCount(target.getParent()), equalTo(0L));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotThisBuildCannotRead() {
+		final Path source = signedSnapshot();
+		final Path target = target();
+		final byte[] contents = Files.readAllBytes(source);
+
+		contents[SnapshotFormat.VERSION_OFFSET + 3] = (byte) (SnapshotFormat.VERSION + 1);
+		Files.write(source, contents);
+
+		try {
+			SnapshotDownload.install(source.toUri().toURL(), target);
+			throw new AssertionError("A snapshot of an unreadable format version was installed");
+
+		} catch (IOException expected) {
+			assertThat(expected.getMessage(), containsString("format version"));
+			assertThat(Files.exists(target), equalTo(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotWriteToAPredictablePartialName() {
+		final Path source = signedSnapshot();
+		final Path target = target();
+		final Path predictable = target.resolveSibling(target.getFileName() + ".part");
+
+		SnapshotDownload.install(source.toUri().toURL(), target);
+
+		assertThat(Files.exists(predictable), equalTo(false));
+		assertThat(leftoverCount(target.getParent()), equalTo(0L));
+	}
+
+	@SneakyThrows
+	private static long leftoverCount(Path directory) {
+		try (var entries = Files.list(directory)) {
+			return entries.filter(p -> p.getFileName().toString().endsWith(".part")).count();
+		}
 	}
 
 	@Example
