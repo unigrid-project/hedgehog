@@ -16,6 +16,7 @@ repository-relative path.
 | [REST interface](rest-api.md) | The Jersey listener and its providers, the full endpoint reference, the S3-compatible object store, error handling and the CLI client | API consumers, CLI work and anyone adding a resource |
 | [CDI container and component lifecycle](cdi-and-lifecycle.md) | Weld bootstrap, bean discovery, `@Eager`, the `@Protected`/`@Lock` interceptor, producers, the Jersey bridge, startup and shutdown ordering, and the test-side container | Adding a bean, an injection point or a CDI-backed test |
 | [Build, testing and native image](build-and-native-image.md) | The reactor and its plugin set, everyday commands, the dependency inventory, the jqwik test infrastructure, the `native-image` module, the workflows and the license header convention | Builds, tests, releases and packaging |
+| [Legacy chain snapshot](legacy-chain-snapshot.md) | Converting the legacy bootstrap into a signed, queryable snapshot of every address, its balance and its transaction history, and publishing it with a release | Migration work, releases and anyone answering questions about the legacy chain |
 
 ## Where to start
 
