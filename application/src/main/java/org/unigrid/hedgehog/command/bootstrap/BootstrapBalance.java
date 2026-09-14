@@ -33,13 +33,13 @@ public class BootstrapBalance implements Callable<Integer> {
 	private String address;
 
 	@Override
-	public Integer call() throws IOException {
+	public Integer call() {
 		final Optional<AddressBalance> balance;
 
 		try {
 			balance = SnapshotReader.open(SnapshotOptions.getSnapshot()).balanceOf(address);
 
-		} catch (IllegalArgumentException ex) {
+		} catch (IllegalArgumentException | IOException ex) {
 			System.err.println(ex.getMessage());
 			return 2;
 		}

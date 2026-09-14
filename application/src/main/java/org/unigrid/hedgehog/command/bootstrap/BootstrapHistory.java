@@ -53,7 +53,7 @@ public class BootstrapHistory implements Callable<Integer> {
 			transactions = SnapshotReader.open(SnapshotOptions.getSnapshot())
 				.transactionsOf(address, offset, limit);
 
-		} catch (IllegalArgumentException ex) {
+		} catch (IllegalArgumentException | IOException ex) {
 			System.err.println(ex.getMessage());
 			return 2;
 		}

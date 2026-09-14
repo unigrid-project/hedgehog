@@ -28,8 +28,16 @@ import picocli.CommandLine.Command;
 @Command(name = "info", description = "Show what the converted bootstrap snapshot contains.")
 public class BootstrapInfo implements Callable<Integer> {
 	@Override
-	public Integer call() throws IOException {
-		final SnapshotInfo info = SnapshotReader.open(SnapshotOptions.getSnapshot()).getInfo();
+	public Integer call() {
+		final SnapshotInfo info;
+
+		try {
+			info = SnapshotReader.open(SnapshotOptions.getSnapshot()).getInfo();
+
+		} catch (IOException ex) {
+			System.err.println(ex.getMessage());
+			return 2;
+		}
 
 		System.out.println("Tip hash:          " + info.getTipHash());
 		System.out.println("Tip height:        " + info.getTipHeight());
