@@ -1056,8 +1056,8 @@ pom. The `Windows` and `MacOS` profiles also define a `<platform>` property (`wi
 is not referenced anywhere.
 
 Arthur is configured with `<main>org.unigrid.hedgehog.nativeimage.NativeImage</main>`,
-`<graalVersion>${graal.version}.r17</graalVersion>` (`22.3.0.r17`), `allowIncompleteClasspath`, an explicit twelve-entry
-`<classpath>` (graal-sdk, commons-compress/lang3/exec, appdirs, slf4j, logback, JNA, hedgehog-common and
+`<graalVersion>${graal.version}.r17</graalVersion>` (`22.3.0.r17`), `allowIncompleteClasspath`, an explicit thirteen-entry
+`<classpath>` (graal-sdk, commons-compress/lang3/exec/io, appdirs, slf4j, logback, JNA, hedgehog-common and
 this module's `target/classes`) and these custom options:
 
 ```
@@ -1097,9 +1097,10 @@ of Arthur's `image` and `docker` goals, not of `native-image`. The zip reaches t
    `hash` is `MessageDigest.getInstance("SHA")` (SHA-1) rendered with `HexFormat`.
 4. `RuntimeResourceAccess.addResource(getClass().getModule(), fileName, data)` — the zip becomes a
    resource of the image.
-5. `RuntimeClassInitialization.initializeAtBuildTime(...)` for `Level`, `Loader`, `LoggerFactory`,
-   `Logger`, `NativeProperties`, `OS`, `StatusBase`, `StatusPrinter`, `Version` and the package
-   `"org.apache.commons.compress"` — i.e. Logback, SLF4J and Commons Compress are folded into the image
+5. `RuntimeClassInitialization.initializeAtBuildTime(...)` for `Level`, `Loader`, `Logger`,
+   `NativeProperties`, `OS`, `StatusBase`, `StatusPrinter`, `Version` and the packages
+   `"org.apache.commons.compress"`, `"org.apache.commons.io"` and `"org.slf4j"` — i.e. Logback, SLF4J,
+   Commons Compress and the Commons IO it delegates to are folded into the image
    heap, and `NativeProperties`' static fields are frozen with the values set in steps 3–4.
 
 The `catch` covers `IllegalStateException | IOException` only

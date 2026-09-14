@@ -37,7 +37,6 @@ import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
 import org.graalvm.nativeimage.hosted.Feature.IsInConfigurationAccess;
 import org.graalvm.nativeimage.hosted.RuntimeClassInitialization;
 import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
-import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.Version;
 
 public class BundleFeature implements Feature {
@@ -97,7 +96,6 @@ public class BundleFeature implements Feature {
 
 			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
-			RuntimeClassInitialization.initializeAtBuildTime(LoggerFactory.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Logger.class);
 			RuntimeClassInitialization.initializeAtBuildTime(NativeProperties.class);
 			RuntimeClassInitialization.initializeAtBuildTime(OS.class);
@@ -105,6 +103,8 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(StatusPrinter.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
+			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.io");
+			RuntimeClassInitialization.initializeAtBuildTime("org.slf4j");
 
 		} catch (IllegalStateException | IOException ex) {
 			System.err.println("Failed to bundle required resources for archive");
