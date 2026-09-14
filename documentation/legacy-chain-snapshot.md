@@ -6,8 +6,9 @@ memory-mapped snapshot of every address, its balance and its dated transaction h
 snapshot with a foundation key, and lets anyone who downloads it verify the signature before
 trusting the contents. The commands live under
 `application/src/main/java/org/unigrid/hedgehog/command/bootstrap/`, the conversion and file format
-under `application/src/main/java/org/unigrid/hedgehog/model/bootstrap/`, and the shared `-s`/`--snapshot`
-and legacy-data options in `application/src/main/java/org/unigrid/hedgehog/command/option/SnapshotOptions.java`.
+under `application/src/main/java/org/unigrid/hedgehog/model/bootstrap/`, and the shared
+`-s`/`--snapshot` option, inherited by every subcommand, in
+`application/src/main/java/org/unigrid/hedgehog/command/option/SnapshotOptions.java`.
 The command tree itself, the picocli conventions it follows and the `NetOptions` mixin it shares
 with the rest of the CLI are covered in [Architecture overview](architecture.md); signing and key
 trust reuse the same `Signature`/`NetworkKey` machinery documented in full in [Grid sporks](sporks.md).
@@ -44,8 +45,10 @@ address balance is computed. That linking is `ChainLinker.link(BlockFileStore)`
 2. `resolveParents()` builds a `BlockHashIndex` over all the hashes and looks up each block's parent
    by its previous-hash field.
 3. `assignHeights()` starts from every block whose parent could not be found (the genesis block,
-   normally exactly one) and walks the parent-to-child graph breadth-first, assigning each block a
-   height one greater than its parent's.
+   normally exactly one) and walks the parent-to-child graph depth-first — `pending` is popped with
+   `pending[--top]`, so it works as a stack — assigning each block a height one greater than its
+   parent's. Nothing about the result depends on that choice: a breadth-first walk would assign the
+   same heights, since a block's height is fixed by its parent's height alone.
 4. `buildChain(int[])` finds the block with the greatest height — the active tip — and walks
    backwards through `parents` from there to the genesis block. Only the blocks on that walk become
    the `Chain`; everything else is the count reported as "stale blocks" in the build report.
@@ -97,10 +100,14 @@ followed by an optional signature:
 | Signature (optional) | 12-byte header plus the signature | Magic `UGDSIGN1`, a length prefix, then the DER-encoded signature bytes; appended after everything above |
 
 `SnapshotWriter` (`application/src/main/java/org/unigrid/hedgehog/model/bootstrap/SnapshotWriter.java`)
-builds the address and entry tables with a counting sort rather than a comparison sort: it counts
-how many entries each address owns, prefix-sums those counts into per-address slot ranges, then
-scatters each ledger entry directly into its slot. Entry order within an address is preserved by the
-scatter, so each address's history comes out sorted by height for free. `SnapshotReader`
+orders the two tables differently. The address table is ordered by a genuine comparison sort —
+`sortedAddresses()` boxes the address indices and hands them to `Arrays.sort` with a comparator over
+each address's hash. The entry table, by contrast, is built with a counting sort: `entryStarts()`
+counts how many entries each address owns and prefix-sums those counts into per-address slot ranges,
+then `scatterEntries()` places each ledger entry directly into its slot with no comparison at all.
+Entry order within an address is preserved by the scatter, so each address's history comes out
+sorted by height for free, riding on the fact that entries already arrive in chain order.
+`SnapshotReader`
 (`application/src/main/java/org/unigrid/hedgehog/model/bootstrap/SnapshotReader.java`) reads all of
 this back through memory-mapped `ByteBuffer`s rather than loading the file into the heap: a balance
 lookup is a binary search over the address table, and a history lookup is one sequential read over
