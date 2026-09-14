@@ -92,7 +92,7 @@ followed by an optional signature:
 
 | Section | Record size | Contents |
 | --- | --- | --- |
-| Header | 128 bytes | Magic `UGDSNAP1`, format version, tip hash and height, address/entry/transaction counts, section offsets, build timestamp, total unspent, zerocoin minted |
+| Header | 128 bytes | Magic `UGDSNAP1`, format version, tip hash and height, address/entry/transaction counts, section offsets, build timestamp (the tip block's timestamp, not when the conversion ran), total unspent, zerocoin minted |
 | Address table | 40 bytes per address | Sorted by address hash so a lookup is a binary search; balance, first entry index and entry count per address |
 | Block time table | 4 bytes per height | One entry per block on the chain, so a ledger entry only has to carry a height to have a date |
 | Entry table | 20 bytes per entry | Amount, height, transaction index and kind, grouped per address and ordered by height within a group |
@@ -146,9 +146,11 @@ themselves and compare it to the published one instead of having to trust whoeve
 `SnapshotReader.open` refuses to open a snapshot whose status is `INVALID` outright, but opens one
 that is merely `UNSIGNED` without complaint — local queries against a freshly imported, unsigned
 snapshot work normally. `bootstrap fetch` is stricter: `SnapshotDownload.install` only accepts
-`SIGNED` (see below). In practice the appended block is 150 bytes: the 12-byte header plus a
-DER-encoded ECDSA signature over the P-521 curve, the same `Signature`/`NetworkKey` pair described
-in full in [Grid sporks](sporks.md).
+`SIGNED` (see below). The appended block is a 12-byte header plus a DER-encoded ECDSA signature over
+the P-521 curve, the same `Signature`/`NetworkKey` pair described in full in
+[Grid sporks](sporks.md); DER encodes each integer at its natural length, so the signature is not a
+fixed size — a real run produced a 150-byte block on one signing and a 151-byte block on another —
+bounded by `SnapshotFormat.MAXIMUM_SIGNATURE_SIZE`.
 
 ## Commands
 
@@ -187,6 +189,20 @@ first. `bootstrap fetch` downloads to a `.part` file beside the target, verifies
 moves it into place with an atomic rename — a download that fails verification never touches an
 existing snapshot, and `SnapshotDownload` transparently decompresses a source whose path ends in
 `.gz`.
+
+## REST API
+
+`BootstrapResource`
+(`application/src/main/java/org/unigrid/hedgehog/server/rest/BootstrapResource.java`) serves the
+same snapshot over HTTP, reusing the daemon's cached `BootstrapSnapshot` rather than opening the
+file per request. Every endpoint answers `503` while no snapshot is available and `400` for an
+address that fails to decode.
+
+| Endpoint | Query parameters | Returns |
+| --- | --- | --- |
+| `GET /bootstrap` | none | `SnapshotInfo`: the header fields, the same as `bootstrap info` |
+| `GET /bootstrap/address/{address}` | none | `AddressBalance`, or `404` if the address is not in the snapshot |
+| `GET /bootstrap/address/{address}/transactions` | `offset` (default 0), `limit` (default 100, capped at 1000) | A JSON array of `AddressTransaction` |
 
 ## The release procedure
 
@@ -234,3 +250,8 @@ data directory:
   that serves gzip-compressed bytes from a URL not ending in `.gz` — a redirect through a CDN that
   drops the extension, for instance — would be installed as if it were the raw snapshot and fail
   `SnapshotReader`'s magic check instead of decompressing.
+- **`--network-keys` is inherited by every `bootstrap` subcommand, `fetch` included.** `NetOptions`
+  is mixed into the whole command tree the same way it is everywhere else in the project, so a
+  caller of `bootstrap fetch` can pass `--network-keys` and replace the trust root that `fetch`
+  exists to enforce. Consistent with the rest of the project, but worth calling out here: it is the
+  one command whose entire purpose is checking a snapshot against the foundation's keys.

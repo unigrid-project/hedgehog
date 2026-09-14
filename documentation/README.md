@@ -21,7 +21,7 @@ repository-relative path.
 ## Where to start
 
 1. [Architecture overview](architecture.md), end to end. It opens with a longer, file-by-file path
-   through the source, and the other five documents assume it.
+   through the source, and the other six documents assume it.
 2. Then whichever layer the work touches: [Peer-to-peer network protocol](network-protocol.md),
    [Grid sporks](sporks.md) or [REST interface](rest-api.md).
 3. [CDI container and component lifecycle](cdi-and-lifecycle.md) before adding or moving a bean —
@@ -50,7 +50,7 @@ jar lands in `application/target/`, and the version already carries the `-SNAPSH
   an editor or `git grep`.
 - The documents describe the code as it is today, rough edges included; they are not a specification
   of intended behavior, and where the source and its comments disagree both are reported.
-- Each of the six documents ends with a `Known rough edges` section collecting the gaps, surprises
+- Each of the seven documents ends with a `Known rough edges` section collecting the gaps, surprises
   and defects found in that layer.
 - Cross-references between documents use the target document's own title as the link text.
 
