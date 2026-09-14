@@ -24,7 +24,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class LegacyAddress {
 	public static final int PUBLIC_KEY_VERSION = 40;
-	public static final int SCRIPT_VERSION = 100;
 
 	public static String encode(byte[] addressHash) {
 		return Base58Check.encode(PUBLIC_KEY_VERSION, addressHash);
