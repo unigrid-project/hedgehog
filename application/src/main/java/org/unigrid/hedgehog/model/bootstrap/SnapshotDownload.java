@@ -79,11 +79,12 @@ public final class SnapshotDownload {
 	}
 
 	/*
-	   Opening the file is what proves it: SnapshotReader checks the magic and the format version and
-	   refuses a signature that does not verify, so a version this build cannot read never installs.
+	   The inspector checks the magic, the format version and the signature, so a snapshot this build
+	   cannot read never installs. It deliberately does not memory-map: the very next statement renames
+	   this file, which a mapping would block on Windows.
 	*/
 	private static void verify(Path partial, URL source) throws IOException {
-		final SignatureStatus status = SnapshotReader.open(partial).getInfo().getSignature();
+		final SignatureStatus status = SnapshotInspector.validate(partial);
 
 		if (status != SignatureStatus.SIGNED) {
 			throw new IOException("The snapshot at " + source + " carries no signature from a"

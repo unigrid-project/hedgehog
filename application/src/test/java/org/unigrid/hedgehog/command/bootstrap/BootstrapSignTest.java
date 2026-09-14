@@ -27,11 +27,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import mockit.Mock;
+import mockit.MockUp;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotFormat;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import picocli.CommandLine;
 
@@ -60,6 +64,41 @@ public class BootstrapSignTest {
 		assertThat(exitCode, equalTo(2));
 		assertThat(err.toString(), containsString("not one the network trusts"));
 		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.UNSIGNED));
+	}
+
+	/* Signing is what makes a file authentic, so it must refuse bytes this build cannot read. */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseToSignASnapshotThisBuildCannotRead() {
+		final Path snapshot = createSnapshot();
+		final Signature key = new Signature();
+		final byte[] contents = Files.readAllBytes(snapshot);
+
+		new MockUp<NetworkKey>() {
+			@Mock public String[] getPublicKeys() {
+				return new String[] { key.getPublicKey() };
+			}
+		};
+
+		contents[SnapshotFormat.VERSION_OFFSET + 3] = (byte) (SnapshotFormat.VERSION + 1);
+		Files.write(snapshot, contents);
+
+		final PrintStream originalErr = System.err;
+		final ByteArrayOutputStream err = new ByteArrayOutputStream();
+		final int exitCode;
+
+		System.setErr(new PrintStream(err));
+
+		try {
+			exitCode = new CommandLine(Hedgehog.class).execute("bootstrap", "sign",
+				"-s", snapshot.toString(), "-k", key.getPrivateKey());
+		} finally {
+			System.setErr(originalErr);
+		}
+
+		assertThat(exitCode, equalTo(2));
+		assertThat(err.toString(), containsString("format version"));
+		assertThat(Files.readAllBytes(snapshot).length, equalTo(contents.length));
 	}
 
 	@SneakyThrows

@@ -83,6 +83,10 @@ public class SnapshotDownloadTest {
 		}
 	}
 
+	/*
+	   The old code wrote to a fixed "<target>.part". Occupying that exact name with a directory makes
+	   this test fail against it and pass only against a name the caller cannot predict.
+	*/
 	@Example
 	@SneakyThrows
 	public void shouldNotWriteToAPredictablePartialName() {
@@ -90,16 +94,19 @@ public class SnapshotDownloadTest {
 		final Path target = target();
 		final Path predictable = target.resolveSibling(target.getFileName() + ".part");
 
+		Files.createDirectory(predictable);
 		SnapshotDownload.install(source.toUri().toURL(), target);
 
-		assertThat(Files.exists(predictable), equalTo(false));
+		assertThat(Files.mismatch(source, target), equalTo(-1L));
+		assertThat(Files.isDirectory(predictable), equalTo(true));
 		assertThat(leftoverCount(target.getParent()), equalTo(0L));
 	}
 
 	@SneakyThrows
 	private static long leftoverCount(Path directory) {
 		try (var entries = Files.list(directory)) {
-			return entries.filter(p -> p.getFileName().toString().endsWith(".part")).count();
+			return entries.filter(Files::isRegularFile)
+				.filter(p -> p.getFileName().toString().endsWith(".part")).count();
 		}
 	}
 

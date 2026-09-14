@@ -106,10 +106,12 @@ public class SnapshotRoundTripTest {
 		final byte[] second = addressHash((byte) 0x02);
 		final byte[] third = addressHash((byte) 0x03);
 
+		/* Registered in reverse hash order on purpose, so the address table's sort is a real
+		   permutation and a writer that confused a rank with an address id would be caught. */
 		final AddressRegistry addresses = new AddressRegistry();
-		final int firstId = addresses.idOf(first);
-		final int secondId = addresses.idOf(second);
 		final int thirdId = addresses.idOf(third);
+		final int secondId = addresses.idOf(second);
+		final int firstId = addresses.idOf(first);
 
 		final LedgerEntries entries = new LedgerEntries(16);
 		final TransactionIdTable transactionIds = new TransactionIdTable();
@@ -122,10 +124,14 @@ public class SnapshotRoundTripTest {
 		addEntry(entries, transactionIds, thirdId, 2, 2, EntryKind.RECEIVED);
 
 		final Path path = Files.createTempFile("hhg-snapshot-", ".dat");
+		final long[] balances = new long[3];
 
+		balances[firstId] = 10;
+		balances[secondId] = 15;
+		balances[thirdId] = 12;
 		path.toFile().deleteOnExit();
 		SnapshotWriter.write(path, chain(), Ledger.builder().addresses(addresses).entries(entries)
-			.transactionIds(transactionIds).balances(new long[] {10, 15, 12}).totalUnspent(37).build());
+			.transactionIds(transactionIds).balances(balances).totalUnspent(37).build());
 
 		final SnapshotReader reader = SnapshotReader.open(path);
 

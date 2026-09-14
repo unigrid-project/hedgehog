@@ -27,6 +27,7 @@ import java.util.concurrent.Callable;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
@@ -57,6 +58,16 @@ public class BootstrapSign implements Callable<Integer> {
 		if (!NetworkKey.isTrusted(key)) {
 			System.err.println("That key is not one the network trusts, so nothing would accept"
 				+ " the result");
+			return 2;
+		}
+
+		/* Signing is what turns a file into an authenticated artefact, so refuse anything this
+		   build cannot read rather than vouching for bytes it does not understand. */
+		try {
+			SnapshotInspector.validate(snapshot);
+
+		} catch (IOException ex) {
+			System.err.println(ex.getMessage());
 			return 2;
 		}
 

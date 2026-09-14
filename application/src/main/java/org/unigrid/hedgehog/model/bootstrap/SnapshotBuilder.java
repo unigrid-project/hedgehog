@@ -89,9 +89,8 @@ public final class SnapshotBuilder {
 	   a user relying on the wrong balance.
 	*/
 	private static void verifyWritten(Path output, Ledger ledger) throws IOException {
-		final SnapshotReader reader = SnapshotReader.open(output);
-		final SnapshotInfo info = reader.getInfo();
-		final long writtenTotal = reader.totalBalance();
+		final SnapshotInfo info = SnapshotInspector.summarise(output);
+		final long writtenTotal = SnapshotInspector.totalBalance(output);
 
 		if (info.getAddressCount() != ledger.getAddresses().size()) {
 			throw new IllegalStateException("Snapshot has " + info.getAddressCount()
