@@ -43,7 +43,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionFactory;
@@ -59,6 +61,7 @@ import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
+import org.unigrid.hedgehog.proxy.exit.NettyUdpConnector;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
@@ -77,30 +80,32 @@ public class ChainProxyEndToEndTest {
 	private static final int CONNECT_TIMEOUT_MILLIS = 5000;
 	private static final int WAIT_SECONDS = 10;
 	private static final int SEVERAL_ENTRIES_OF_BYTES = 100_000;
+	private static final long EPOCH_MILLIS = 3_600_000;
 	private static final byte[] NOTHING = new byte[0];
 
 	/* A client node, exits on the members it is told, a SOCKS listener in front of the client and a pump that hands
 	   over what the nodes wrote to each other every two milliseconds, a hop at a time, as the event loops of real
-	   streams would */
-	private static final class Network implements AutoCloseable {
+	   streams would. Shared with the UDP test. */
+	static final class Network implements AutoCloseable {
 		private final ChainFleet fleet;
 		private final EventLoopGroup clients = group("socks-client");
 		private final EventLoopGroup proxy = group("socks-proxy");
 		private final EventLoopGroup destinations = group("exit-connector");
 		private final ScheduledThreadPoolExecutor pump = new ScheduledThreadPoolExecutor(1, daemons("fleet-pump"));
 		private final ExecutorService joins = Executors.newSingleThreadExecutor(daemons("client-join"));
-		private final List<ChainExit> exits = new ArrayList<>();
+		final List<ChainExit> exits = new ArrayList<>();
 		private final ExitContexts contexts;
-		private final ClientSessions sessions;
+		final ClientSessions sessions;
 		private final Channel listener;
 		private final ScheduledFuture<?> pumping;
 
-		private Network(final ChainFleet fleet, final Random random, final List<String> onDuty)
+		Network(final ChainFleet fleet, final Random random, final List<String> onDuty)
 			throws InterruptedException {
 
 			this.fleet = fleet;
 			contexts = new ExitContexts(DestinationPolicy.allowLoopback(),
-				new NettyExitConnector(destinations, CONNECT_TIMEOUT_MILLIS), Runnable::run, () -> { });
+				new NettyExitConnector(destinations, CONNECT_TIMEOUT_MILLIS), Runnable::run, () -> { },
+				new NettyUdpConnector(destinations));
 			sessions = new ClientSessions(new ChainClient(fleet.settings::get, fleet.directory(CLIENT),
 				fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT), fleet.clock::get, random,
 				joins), fleet.host(CLIENT), fleet.settings::get, fleet.clock::get, new SecureRandom(),
@@ -130,12 +135,16 @@ public class ChainProxyEndToEndTest {
 			exits.add(exit);
 		}
 
+		int socksPort() {
+			return ((InetSocketAddress) listener.localAddress()).getPort();
+		}
+
 		private SocksClient connect(final int port, final byte[] early) throws InterruptedException {
-			return new SocksClient(clients, ((InetSocketAddress) listener.localAddress()).getPort(),
+			return new SocksClient(clients, socksPort(),
 				new SocksAddress(Socks5AddressType.IPv4, LOOPBACK, port), early);
 		}
 
-		private int openRelays() {
+		int openRelays() {
 			return exits.stream().mapToInt(ChainExit::openRelays).sum();
 		}
 
@@ -436,5 +445,81 @@ public class ChainProxyEndToEndTest {
 				contains(equalTo(silent), not(equalTo(silent))));
 			assertThat(network.entries(EntryKind.ACCEPT), hasSize(1));
 		}
+	}
+
+	/* The exit's member alone ticks at the end of the grace. It closes its relay while the members the client is
+	   attached through still hold the chain, so they pass the Close on to the client. */
+	@Example
+	public void endsASessionOnAChainOfAPastEpochOnceTheGraceIsOverAtTheExit() throws Exception {
+		drains((network, exit) -> exit.tick());
+	}
+
+	@Example
+	public void endsASessionOnAChainOfAPastEpochOnceTheGraceIsOverAtTheClient() throws Exception {
+		drains((network, exit) -> network.sessions.tick());
+	}
+
+	/* A session on a chain of the epoch that ended runs on, and a new one starts on a chain of the new epoch. Every
+	   node ticks at the last millisecond of the grace and the old session still carries bytes; a millisecond later one
+	   end ticks, which ends the old session at both ends, and then no gridnode keeps a retired chain. An epoch of an
+	   hour leaves the grace at DRAIN_GRACE_MILLIS. */
+	private static void drains(final BiConsumer<Network, ChainHost> endOfGrace) throws Exception {
+		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
+			32L * 1024 * 1024, 30, 16 * 1024, 10_000, ProxySettings.CONNECT));
+
+		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
+			fleet.activeIds()); SocksClient old = network.connect(echo.port(), NOTHING)) {
+
+			final InetSocketAddress ofOld = bound(old);
+
+			old.write(bytes("one"));
+			assertReceived(old, bytes("one"));
+
+			final List<Entry> opens = network.entries(EntryKind.OPEN);
+
+			assertThat(opens, hasSize(1));
+
+			final ChainHost exit = fleet.host(named(opens.get(0)));
+
+			fleet.clock.addAndGet(EPOCH_MILLIS);
+			everyNodeTicks(fleet, network);
+			assertThat(network.entries(EntryKind.OPEN), is(empty()));
+			old.write(bytes("two"));
+			assertReceived(old, bytes("onetwo"));
+
+			try (SocksClient fresh = network.connect(echo.port(), NOTHING)) {
+				final InetSocketAddress ofFresh = bound(fresh);
+
+				fresh.write(bytes("new"));
+				assertReceived(fresh, bytes("new"));
+				assertThat(network.entries(EntryKind.OPEN), hasSize(1));
+
+				fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS - 1);
+				everyNodeTicks(fleet, network);
+				old.write(bytes("three"));
+				assertReceived(old, bytes("onetwothree"));
+				assertThat(network.openRelays(), is(2));
+				assertThat(exit.retiredChains(), hasSize(1));
+
+				fleet.clock.incrementAndGet();
+				endOfGrace.accept(network, exit);
+				old.awaitClosed();
+				assertThat(echo.disconnected.await(WAIT_SECONDS, TimeUnit.SECONDS), is(true));
+				waiting().until(network::openRelays, is(1));
+
+				fleet.activeIds().forEach(id -> fleet.host(id).tick());
+				fleet.activeIds().forEach(id -> assertThat(fleet.host(id).retiredChains(), is(empty())));
+				fresh.write(bytes("more"));
+				assertReceived(fresh, bytes("newmore"));
+				assertThat(echo.peers, containsInAnyOrder(ofOld, ofFresh));
+			}
+		}
+	}
+
+	/* What every node does once a second: the hosts, the exits on the gridnodes and the sessions of the client */
+	private static void everyNodeTicks(final ChainFleet fleet, final Network network) {
+		Stream.concat(fleet.activeIds().stream(), Stream.of(CLIENT)).forEach(id -> fleet.host(id).tick());
+		network.exits.forEach(ChainExit::tick);
+		network.sessions.tick();
 	}
 }
