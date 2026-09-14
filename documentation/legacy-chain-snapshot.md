@@ -209,14 +209,15 @@ address that fails to decode.
 Producing and publishing a release snapshot is a fixed sequence, run by whoever holds the legacy
 data directory:
 
-1. **Import.** `hedgehog bootstrap import -b <legacy-data-dir> -o bootstrap.dat` converts the block
-   files into a snapshot.
-2. **Check the tip figures against the previous release.** `hedgehog bootstrap info` on the new
-   file and on the previous release's asset should show the same or a strictly greater tip height,
-   and the balances should not have moved for addresses nobody expects to have transacted. This is
-   the only check that would catch a corrupted or truncated legacy data directory before it is
-   published.
-3. **Sign.** `hedgehog bootstrap sign -k <foundation-private-key>` appends the signature.
+1. **Import.** `hedgehog bootstrap import -b <legacy-data-dir>/blocks -o bootstrap.dat` converts the
+   block files into a snapshot.
+2. **Check the tip figures against the previous release.** `hedgehog bootstrap info -s bootstrap.dat`
+   on the new file and on the previous release's asset should show the same or a strictly greater tip
+   height, and the balances should not have moved for addresses nobody expects to have transacted.
+   This is the only check that would catch a corrupted or truncated legacy data directory before it
+   is published.
+3. **Sign.** `hedgehog bootstrap sign -s bootstrap.dat -k <foundation-private-key>` appends the
+   signature.
 4. **Compress.** `gzip -9 bootstrap.dat` produces the asset that is actually published. `gzip` was
    chosen over a tighter codec such as `xz` because it needs no dependency beyond what the JDK and
    the standard toolchain already provide; measured on the current snapshot, `gzip -9` brings the
