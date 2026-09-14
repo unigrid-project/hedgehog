@@ -51,6 +51,19 @@ public class Base58CheckTest {
 	}
 
 	@Example
+	public void shouldRejectAnOverlyLongAddressBeforeDecodingIt() {
+		final String tooLong = "1".repeat(51);
+
+		try {
+			LegacyAddress.decode(tooLong);
+			throw new AssertionError("An overly long address was accepted");
+
+		} catch (IllegalArgumentException expected) {
+			assertThat(expected.getMessage(), startsWith("Address is too long"));
+		}
+	}
+
+	@Example
 	public void shouldRejectATamperedAddress() {
 		final String address = LegacyAddress.encode(new byte[Hashing.ADDRESS_HASH_SIZE]);
 		final String tampered = address.substring(0, address.length() - 1) + "Z";

@@ -29,6 +29,13 @@ public final class Base58Check {
 	private static final BigInteger RADIX = BigInteger.valueOf(ALPHABET.length());
 	private static final int CHECKSUM_SIZE = 4;
 
+	/*
+	   A legal address encodes a one-byte version, a 20-byte hash and a 4-byte checksum, which never
+	   needs more than 35 base58 characters; decodeRaw is quadratic in its input length, so anything
+	   far longer than that is rejected before it is decoded rather than after.
+	*/
+	private static final int MAXIMUM_ENCODED_LENGTH = 50;
+
 	public static String encode(int version, byte[] payload) {
 		final byte[] versioned = new byte[payload.length + 1];
 
@@ -38,6 +45,10 @@ public final class Base58Check {
 	}
 
 	public static byte[] decode(int version, String encoded) {
+		if (encoded.length() > MAXIMUM_ENCODED_LENGTH) {
+			throw new IllegalArgumentException("Address is too long: " + encoded.length() + " characters");
+		}
+
 		final byte[] raw = decodeRaw(encoded);
 
 		if (raw.length < CHECKSUM_SIZE + 1) {
