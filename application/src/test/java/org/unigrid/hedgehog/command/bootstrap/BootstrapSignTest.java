@@ -19,14 +19,19 @@
 package org.unigrid.hedgehog.command.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
+import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import picocli.CommandLine;
 
@@ -37,13 +42,24 @@ public class BootstrapSignTest {
 		final Path snapshot = createSnapshot();
 		final Signature untrustedKey = new Signature();
 		final CommandLine cli = new CommandLine(Hedgehog.class);
+		final PrintStream originalErr = System.err;
+		final ByteArrayOutputStream err = new ByteArrayOutputStream();
+		final int exitCode;
 
-		final int exitCode = cli.execute("bootstrap", "sign",
-			"-s", snapshot.toString(),
-			"-k", untrustedKey.getPrivateKey()
-		);
+		System.setErr(new PrintStream(err));
+
+		try {
+			exitCode = cli.execute("bootstrap", "sign",
+				"-s", snapshot.toString(),
+				"-k", untrustedKey.getPrivateKey()
+			);
+		} finally {
+			System.setErr(originalErr);
+		}
 
 		assertThat(exitCode, equalTo(2));
+		assertThat(err.toString(), containsString("not one the network trusts"));
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.UNSIGNED));
 	}
 
 	@SneakyThrows
