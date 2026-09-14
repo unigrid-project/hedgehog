@@ -72,6 +72,21 @@ public class BootstrapSnapshotTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldPickUpASnapshotReplacedBehindACachedReader() {
+		final Path path = snapshot();
+		final BootstrapSnapshot bootstrapSnapshot = new BootstrapSnapshot(path);
+
+		assertThat(bootstrapSnapshot.getReader().orElseThrow().getInfo().getSignature(),
+			equalTo(SignatureStatus.UNSIGNED));
+
+		SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+
+		assertThat(bootstrapSnapshot.getReader().orElseThrow().getInfo().getSignature(),
+			equalTo(SignatureStatus.SIGNED));
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldOpenARefusedSnapshotOnlyOnce() {
 		final Path path = snapshot();
 

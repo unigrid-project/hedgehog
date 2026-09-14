@@ -38,29 +38,34 @@ import lombok.extern.slf4j.Slf4j;
 public final class BootstrapSnapshot {
 	@Getter private final Path path;
 	private final AtomicReference<SnapshotReader> reader = new AtomicReference<>();
+	private final AtomicReference<FileIdentity> opened = new AtomicReference<>();
 	private final AtomicReference<FileIdentity> refusal = new AtomicReference<>();
 
 	public Optional<SnapshotReader> getReader() {
-		if (reader.get() == null && Files.exists(path) && !matchesRefusal()) {
+		if (Files.exists(path) && needsOpen()) {
 			open();
 		}
 
 		return Optional.ofNullable(reader.get());
 	}
 
-	private boolean matchesRefusal() {
-		final FileIdentity previous = refusal.get();
+	private boolean needsOpen() {
+		return reader.get() == null ? !matches(refusal.get()) : !matches(opened.get());
+	}
 
+	private boolean matches(FileIdentity previous) {
 		return previous != null && FileIdentity.of(path).map(previous::equals).orElse(false);
 	}
 
 	private synchronized void open() {
-		if (reader.get() != null || matchesRefusal()) {
+		if (!needsOpen()) {
 			return;
 		}
 
 		try {
 			reader.set(SnapshotReader.open(path));
+			opened.set(FileIdentity.of(path).orElse(null));
+			refusal.set(null);
 			log.atInfo().log("Opened the legacy chain snapshot at {}", path);
 
 			if (reader.get().getInfo().getSignature() == SignatureStatus.UNSIGNED) {
@@ -68,15 +73,17 @@ public final class BootstrapSnapshot {
 					+ " not been verified", path);
 			}
 		} catch (IOException ex) {
+			reader.set(null);
 			refusal.set(FileIdentity.of(path).orElse(null));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}
 	}
 
 	/*
-	   A refused snapshot is cached by size and modification time rather than outright, so a
-	   persistently broken file is digested only once, while a file replaced in place by
-	   `bootstrap fetch` is picked up on the next request without a restart.
+	   A snapshot is opened at most once for as long as its size and modification time stay the
+	   same, whether the last attempt was served from a reader or was refused: a persistently
+	   broken file is digested only once, and a file replaced in place by `bootstrap fetch`, signed
+	   or not, is picked up on the next request without a restart.
 	*/
 	@Value
 	private static class FileIdentity {
