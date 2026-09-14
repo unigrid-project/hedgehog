@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -43,6 +44,8 @@ public final class SnapshotDownload {
 
 	private static final String PARTIAL_SUFFIX = ".part";
 	private static final long PROGRESS_INTERVAL = 32L << 20;
+	private static final int CONNECT_TIMEOUT_MILLIS = 30_000;
+	private static final int READ_TIMEOUT_MILLIS = 120_000;
 
 	public static void install(URL source, Path target) throws IOException {
 		final Path partial = target.resolveSibling(target.getFileName() + PARTIAL_SUFFIX);
@@ -89,7 +92,12 @@ public final class SnapshotDownload {
 	}
 
 	private static InputStream open(URL source) throws IOException {
-		final InputStream stream = source.openStream();
+		final URLConnection connection = source.openConnection();
+
+		connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+		connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+
+		final InputStream stream = connection.getInputStream();
 
 		return source.getPath().endsWith(COMPRESSED_SUFFIX) ? new GZIPInputStream(stream) : stream;
 	}
