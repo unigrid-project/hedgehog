@@ -39,19 +39,15 @@ import lombok.NoArgsConstructor;
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SnapshotInspector {
-	/* The format is checked first so a file that is not a snapshot fails on that rather than on a
-	   content length derived from a header nobody has validated. */
+	/*
+	   The format is checked first, so a file that is not a snapshot fails on that rather than on a
+	   content length derived from a header nobody has validated. The signature state is returned
+	   rather than thrown on, because only the caller knows what it was about to do with the file and
+	   can say so: the temporary name this sees is not a name the user would recognise.
+	*/
 	public static SignatureStatus validate(Path snapshot) throws IOException {
 		verifyFormat(readHeader(snapshot), snapshot);
-
-		final SignatureStatus status = SnapshotSignature.read(snapshot).getStatus();
-
-		if (status == SignatureStatus.INVALID) {
-			throw new IOException("The snapshot at " + snapshot + " has a signature that does not"
-				+ " verify against any trusted key");
-		}
-
-		return status;
+		return SnapshotSignature.read(snapshot).getStatus();
 	}
 
 	public static SnapshotInfo summarise(Path snapshot) throws IOException {

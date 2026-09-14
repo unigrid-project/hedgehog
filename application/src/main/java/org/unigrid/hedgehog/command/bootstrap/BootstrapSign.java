@@ -26,6 +26,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.concurrent.Callable;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
@@ -61,13 +62,10 @@ public class BootstrapSign implements Callable<Integer> {
 			return 2;
 		}
 
-		/* Signing is what turns a file into an authenticated artefact, so refuse anything this
-		   build cannot read rather than vouching for bytes it does not understand. */
-		try {
-			SnapshotInspector.validate(snapshot);
+		final String problem = unsignableReason(snapshot);
 
-		} catch (IOException ex) {
-			System.err.println(ex.getMessage());
+		if (problem != null) {
+			System.err.println(problem);
 			return 2;
 		}
 
@@ -80,6 +78,25 @@ public class BootstrapSign implements Callable<Integer> {
 		SnapshotSignature.signAndAppend(snapshot, key);
 		System.out.println("Signed " + snapshot);
 		return 0;
+	}
+
+	/*
+	   Signing is what turns a file into an authenticated artefact, so refuse anything this build
+	   cannot read rather than vouching for bytes it does not understand. Returns null when there is
+	   nothing wrong with the file.
+	*/
+	private static String unsignableReason(Path snapshot) {
+		final SignatureStatus status;
+
+		try {
+			status = SnapshotInspector.validate(snapshot);
+
+		} catch (IOException ex) {
+			return ex.getMessage();
+		}
+
+		return status == SignatureStatus.INVALID ? snapshot + " already carries a signature that"
+			+ " does not verify, so its contents cannot be trusted enough to sign" : null;
 	}
 
 	private static void truncateToContent(Path snapshot) throws IOException {
