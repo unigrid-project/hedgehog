@@ -1188,11 +1188,15 @@ built-in templates — `templateDir` defaults to `${project.basedir}/templates`,
 `run.ftl` and `nameTemplate` to `name.ftl`. `name.ftl` emits `run.cmd` on Windows and `run.sh`
 otherwise, matching `NativeProperties`.
 
-The project's `run.ftl` differs from the plugin's stock copy in exactly one respect: the classpath
-branches append `%*` (Windows) and `$@` (POSIX) so command-line arguments reach the application. Without
-that patch the launcher could not pass `daemon`, `--help` or any option through. The modular branches of
-the template are unchanged and still drop arguments, but they are not taken here because `mainModule` is
-unset.
+The project's `run.ftl` differs from the plugin's stock copy in two respects. The classpath branches
+append `%*` (Windows) and `$@` (POSIX) so command-line arguments reach the application; without that
+patch the launcher could not pass `daemon`, `--help` or any option through. The modular branches of the
+template are unchanged and still drop arguments, but they are not taken here because `mainModule` is
+unset. And the Windows script re-roots itself with a single `cd /d "%~dp0.."` where the stock copy does
+a `pushd`/`popd` dance followed by a plain `cd`: without `/d`, `cd` does not switch drives, so an
+executable started on `D:` (every GitHub Windows runner checks out to `D:\a\...`) with the runtime
+unpacked under `%APPDATA%` on `C:` stayed on `D:` and failed with "The system cannot find the path
+specified." The quoting also survives profile paths that contain spaces.
 
 The POSIX script re-roots itself before launching:
 

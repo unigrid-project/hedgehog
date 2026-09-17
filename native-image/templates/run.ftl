@@ -1,11 +1,7 @@
 <#-- template to create the runner script -->
 <#if osName?upper_case?contains("WIN")>
 @echo off
-pushd %~dp0
-set script_dir=%CD%
-popd
-cd %script_dir%
-cd ..
+cd /d "%~dp0.."
   <#if mainModule != "">
 <#-- modular application -->
 bin\java${(modulePath!="")?then(" -p " + modulePath, "")}${(classPath!="")?then(" -cp " + classPath, "")} -m ${mainModule}/${mainClass}
