@@ -370,16 +370,21 @@ relocation and the jar that actually lands is `io.smallrye:jandex`. See
 | --- | --- |
 | `tagNameFormat` | `v@{project.version}` |
 | `autoVersionSubmodules` | `true` |
-| `dryRun` | `${dryRun}` |
-| `preparationGoals` | *(empty)* |
+| `dryRun` | `${dryRun}`, a parent property defaulting to `false` |
+| `preparationGoals` | `clean verify` |
 | `pushChanges` | `false` |
-| `scmDevelopmentCommitComment` | `@{prefix} Prepare for next development iteration` |
-| `scmReleaseCommitComment` | `@{prefix} Prepare release @{releaseLabel}` |
+| `scmDevelopmentCommitComment` | `Open the next development version` |
+| `scmReleaseCommitComment` | `Release @{releaseLabel}` |
 
-`preparationGoals` is deliberately empty, replacing the default `clean verify` — `release:prepare` does
-not build or test. `pushChanges=false` means the release commits and the `v<version>` tag stay local
-until pushed by hand. `${dryRun}` is not defined anywhere, so `release:prepare` should be invoked with
-`-DdryRun=true` or `-DdryRun=false` explicitly.
+`preparationGoals` is the plugin default, spelled out: `release:prepare` builds and tests the whole
+reactor, native image included, against the rewritten release poms before committing anything. The pom
+used to carry an empty `<preparationGoals />` element meant to switch that off, but an empty element
+does not override a Maven default, so every release so far has run `clean verify` too. `release.sh cut`
+at the repository root drives the plugin and afterwards pushes the commits and the `v<version>` tag that
+`pushChanges=false` leaves local; its `--skip-tests` reaches the nested build as `-DskipTests` through
+`-Darguments`, and `--dry-run` passes `-DdryRun=true`. Neither commit comment carries the plugin's
+`[maven-release-plugin]` prefix, so the subjects read `Release v0.0.8` and `Open the next development
+version`.
 
 ## Resource filtering
 
@@ -1235,42 +1240,55 @@ new SHA-1 and therefore a second unpacked copy alongside the old one.
 
 ## Continuous integration
 
-Four workflows under `.github/workflows/`. **All four are `workflow_dispatch` only** — nothing runs on
-push or pull request, so a broken build or a checkstyle violation is not caught automatically. Each
-exposes a single boolean input `skip-tests` that is passed straight through as
-`-DskipTests=${{ inputs.skip-tests }}`.
+One workflow, `.github/workflows/release.yml`. It runs on a pushed `v*` tag, where it builds every
+release asset and drafts the release, and on `workflow_dispatch`, where it only builds and keeps the
+outputs as run artefacts. A manual run takes two inputs: `skip-tests`, and an optional `ref` to build
+something other than the branch it was started from — needed to rebuild an old tag, since only refs that
+carry `release.yml` can be dispatched.
 
-| Workflow | File | Runner | Build command | Artifact |
-| --- | --- | --- | --- | --- |
-| Build Java Package | `jar-build.yml` | `ubuntu-20.04` | `mvn install`, then `cd application && mvn package -DskipTests=true` | `Java Package` ← `application/target/hedgehog-*-jar-with-dependencies.jar` |
-| Build Linux (amd64) Executable | `linux-native-build.yml` | `ubuntu-20.04` | `mvn package` | `Linux Native Binary` ← `native-image/target/hedgehog.bin` |
-| Build Mac OSX (amd64) Executable | `osx-native-build.yml` | `macos-11` | `mvn package` | `OSX Native Binary` ← `native-image/target/hedgehog.bin` |
-| Build Windows (amd64) Executable | `windows-native-build.yml` | `windows-2019` | `mvn package` | `Windows Native Binary` ← `native-image/target/hedgehog.exe` |
+| Job | Runner | Build command | Artifact |
+| --- | --- | --- | --- |
+| Jar and tests | `ubuntu-22.04` | `mvn -B -ntp -pl common,application verify` | `hedgehog-jar` ← `application/target/hedgehog-*-jar-with-dependencies.jar` |
+| Native linux-x86_64 | `ubuntu-22.04` | `mvn -B -ntp package -DskipTests` | `hedgehog-linux-x86_64` ← `native-image/target/hedgehog.bin` |
+| Native macos-x86_64 | `macos-15-intel` | `mvn -B -ntp package -DskipTests` | `hedgehog-macos-x86_64` ← `native-image/target/hedgehog.bin` |
+| Native windows-x86_64 | `windows-2022` | `mvn -B -ntp package -DskipTests` | `hedgehog-windows-x86_64` ← `native-image/target/hedgehog.exe` |
+| Draft the release | `ubuntu-latest` | — | the release itself, as a draft |
 
-Common steps: `actions/checkout@v3`, then `actions/setup-java@v3` with `java-version: '17'`,
-`distribution: 'temurin'` and `cache: maven`. Artifacts are published with `actions/upload-artifact@v3`.
+The jar job is the only one that tests: `verify` on `common` and `application` runs the suite and
+`checkstyle:check` without entering `native-image`. It also reads the version from the pom and, on a
+tag push, refuses to continue unless the tag is `v<version>`, so a tag pushed against a snapshot pom
+fails in seconds rather than producing `-SNAPSHOT` assets. The native jobs form one matrix with
+`fail-fast: false`; each builds on its own OS because `application/pom.xml` picks the netty QUIC native
+classifier per OS, and macOS has to be x86_64 while that classifier is `osx-x86_64` — `macos-15-intel`
+is the last Intel image GitHub offers and retires in August 2027.
 
-Platform-specific steps:
+Common steps: `actions/checkout@v7`, then `actions/setup-java@v6` with `java-version: '17'`,
+`distribution: temurin` and `cache: maven`. Platform-specific steps:
 
-- **macOS** adds `ayltai/setup-graalvm@v1` with `java-version: 17`, `graalvm-version: 22.3.0`,
-  `native-image: true` — this is what puts `native-image` on `PATH`, which the `MacOS` profile expects.
-- **Windows** adds `microsoft/setup-msbuild@v1.1` and `ilammy/msvc-dev-cmd@v1` with
-  `msbuild-architecture: x64` before checkout, supplying the MSVC toolchain GraalVM needs.
-- **Linux** installs no GraalVM; Arthur downloads GraalVM CE into the Maven local repository itself.
+- **macOS** adds `graalvm/setup-graalvm@v1` with `version: '22.3.0'`, `java-version: '17'` and
+  `components: native-image` — this is what puts `native-image` on `PATH`, which the `MacOS` profile
+  expects.
+- **Windows** runs `ilammy/msvc-dev-cmd@v1` with `arch: x64` before checkout, supplying the MSVC
+  toolchain GraalVM needs.
+- **Linux** installs `zlib1g-dev` for the static link and no GraalVM; Arthur downloads GraalVM CE into
+  the Maven local repository itself.
 
-The three native workflows end with a `Run Binary` step that executes the produced binary with no
-arguments. That is a smoke test only: with no subcommand, picocli reports a usage error, which is exactly
-the exit code `NativeImage.start(...)` is written to tolerate.
+Each native job ends by running the produced binary with no arguments. That is a smoke test only: with
+no subcommand, picocli reports a usage error, which is exactly the exit code `NativeImage.start(...)` is
+written to tolerate.
 
-Two observations. `jar-build.yml` runs `mvn install` across the whole reactor, which includes the
-`native-image` module and therefore performs a full GraalVM build before the `cd application && mvn package`
-step that actually produces the wanted artifact. And no workflow runs `checkstyle:check` in isolation;
-it is only reached through the `verify` phase of `mvn install`, so `mvn package` builds (the three native
-workflows) never enforce style.
+The draft job runs only for a tag push (`github.event_name == 'push'`, so a manual run started from a
+tag never drafts), holds the workflow's only `contents: write` permission, renames the four outputs to
+`hedgehog-<version>-jar-with-dependencies.jar`, `hedgehog-<version>-x86_64-linux-gnu.bin`,
+`hedgehog-<version>-osx64.bin` and `hedgehog-<version>-win64.exe`, and creates the release as a
+**draft** with generated notes — or replaces the assets of an existing draft on a re-run. It refuses to
+touch a release that is already published. Publishing, together with the bootstrap and the detached
+signatures, is what `release.sh publish` does on the maintainer's machine, where the release key lives;
+the root `README.md` describes the whole flow under *Releases*.
 
 ## Repository layout
 
-Eleven files are tracked at the repository root, and every one of them is part of the build surface:
+Thirteen files are tracked at the repository root, and every one of them is part of the build surface:
 
 | Path | Role |
 | --- | --- |
@@ -1278,7 +1296,9 @@ Eleven files are tracked at the repository root, and every one of them is part o
 | `checkstyle.xml` | The style rules `maven-checkstyle-plugin` enforces at `verify`. |
 | `checkstyle-suppress.xml` | The optional XPath suppressions loaded alongside it. |
 | `pmd.xml` | The PMD ruleset used by the `<reporting>` section. |
-| `README.md` | The project front page: feature list, build instructions, native-image summary. |
+| `README.md` | The project front page: feature list, build instructions, native-image summary, how releases are verified and cut. |
+| `release.sh` | The release script: `cut` tags and pushes, `publish` signs and publishes (see *Continuous integration*). |
+| `release-key.asc` | The public half of the Unigrid Foundation release key that signs every release asset. |
 | `COPYING`, `COPYING.addendum`, `COPYING.header` | License, addendum and the source header block (below). |
 | `.gitmodules` | The white-paper submodule (below). |
 | `.gitignore` | Build output and tool droppings (below). |
@@ -1298,7 +1318,7 @@ directory. The root `README.md` links to all six from a `## Documentation` secti
 
 ### Ignored paths
 
-`.gitignore` covers ten patterns, and the reasons matter when reading a working tree:
+`.gitignore` covers twelve patterns, and the reasons matter when reading a working tree:
 
 | Pattern | What it excludes |
 | --- | --- |
@@ -1308,6 +1328,8 @@ directory. The root `README.md` links to all six from a `## Documentation` secti
 | `/nbactions.xml` | A NetBeans build-action definition, present in this working tree, adding a "Clean and Build project (no Tests)" action that runs `clean install` with `skipTests=true`. The leading slash anchors the pattern to the root, so only this copy is untracked — `application/nbactions.xml` and the modules' `nb-configuration.xml` files are tracked project state. |
 | `.jqwik-database` | jqwik's failure database at the working directory root; deleting it costs only the cached previously-falsified samples. |
 | `release.properties` | The scratch file `release:prepare` writes between `prepare` and `perform`. It is untracked precisely because `pushChanges=false` leaves a release half-finished locally. |
+| `pom.xml.releaseBackup` | The per-module pom backups `release:prepare` keeps until `release:clean`. `release.sh` cleans up after itself; a prepare interrupted by hand leaves them behind. |
+| `/dist/` | Where `release.sh publish` downloads a draft's assets and writes the signatures before uploading them. |
 | `jshell.history` | JShell scratch history. |
 
 ## License and source headers
@@ -1361,8 +1383,9 @@ git submodule update --init documentation/white-paper
 
 Collected in one place, all verifiable from the sources cited above.
 
-- **Nothing runs on push.** Every workflow is `workflow_dispatch`-only, and the three that build native
-  binaries use `mvn package`, which never reaches `checkstyle:check` at `verify`.
+- **Nothing runs on a branch push.** `release.yml` runs on tag pushes and on demand, so a commit to
+  `master` or a pull request is never built or style-checked automatically. The native jobs use
+  `mvn package`, which never reaches `checkstyle:check`; only the jar job's `verify` does.
 - **The JMockit agent path is hard-coded** in four surefire `argLine` blocks (the parent and all three
   modules) against `${settings.localRepository}`, duplicating the version from the `application` test
   dependency — five places to edit for one version bump.

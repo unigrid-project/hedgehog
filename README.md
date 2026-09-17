@@ -37,14 +37,34 @@ Hedgehog requires Java 17+. To run and build the distribution you need [Maven](h
 
 > mvn clean install
 
-This will create an archive in `target/hedgehog-<version>-SNAPSHOT-jar-with-dependencies.jar`. This can then be started with `java -jar hedgehog-<version>-SNAPSHOT-jar-with-dependencies.jar`.
+This will create an archive in `application/target/hedgehog-<version>-jar-with-dependencies.jar`. This can then be started with `java -jar hedgehog-<version>-jar-with-dependencies.jar`.
 
 ## Running Hedgehog
-While most people will not run Hedgehog manually, it is certainly possible. For documentation on all the features in the distribution please run the Hedgehog jar with `java -jar hedgehog-<version>-SNAPSHOT-jar-with-dependencies.jar --help`. This will display all the options available when executing the application.
+While most people will not run Hedgehog manually, it is certainly possible. For documentation on all the features in the distribution please run the Hedgehog jar with `java -jar hedgehog-<version>-jar-with-dependencies.jar --help`. This will display all the options available when executing the application.
 
 Depending on the options passed, Hedgehog will act as a network daemon, client or stand-alone application.
 
 ## Native Image Support
 Native image support is available via the native-image sub-project. Because of problems with CDI and dependencies being reliant on a full CDI implementation, the native image is not really native, but wraps a JVM and the hedgehog jar into a native version for execution.
 
-To build the native image, execute `mvn package` inside the native-image module/project. Depending on the operating system, this will generate an executable `hedgehog.exe` or `hedgehog.bin` fille inside the  `native-image/target/`.
+To build the native image, execute `mvn package` inside the native-image module/project. Depending on the operating system, this will generate an executable `hedgehog.exe` or `hedgehog.bin` file inside `native-image/target/`.
+
+## Releases
+Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads, and a detached signature (`.asc`) for each of them. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
+
+> A1CB 0037 B3B9 2D59 5FA1 536C 95A9 8E88 8B0B A5D9
+
+To verify a download:
+
+> gpg --import release-key.asc
+>
+> gpg --verify hedgehog-0.0.8-x86_64-linux-gnu.bin.asc hedgehog-0.0.8-x86_64-linux-gnu.bin
+
+The snapshot additionally carries its own signature inside the file, made with a board member's network key, which is what `bootstrap fetch` checks before installing it.
+
+### Cutting a release
+Releases are cut from a clean `master` with `release.sh`, which needs `gh` logged in and the release key's secret half in the keyring of whoever runs it:
+
+1. `./release.sh cut` builds and tests the whole project at the release version, turns the pom's `X.Y.Z-SNAPSHOT` into the release `X.Y.Z` with a commit and the tag `vX.Y.Z`, opens the next snapshot and pushes both. The tag reaching GitHub builds the executables and drafts the release.
+2. Prepare the snapshot as described in [Legacy chain snapshot](documentation/legacy-chain-snapshot.md): `bootstrap import`, then `bootstrap sign` with a board member's key.
+3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` waits for the draft, checks that the snapshot verifies against the keys built into that release, signs every asset, attaches the signatures and `bootstrap.dat.gz`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward, so no release ever goes out without one.

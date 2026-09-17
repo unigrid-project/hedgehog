@@ -216,21 +216,25 @@ data directory:
    height, and the balances should not have moved for addresses nobody expects to have transacted.
    This is the only check that would catch a corrupted or truncated legacy data directory before it
    is published.
-3. **Sign.** `hedgehog bootstrap sign -s bootstrap.dat -k <foundation-private-key>` appends the
-   signature.
-4. **Compress.** `gzip -9 bootstrap.dat` produces the asset that is actually published. `gzip` was
-   chosen over a tighter codec such as `xz` because it needs no dependency beyond what the JDK and
-   the standard toolchain already provide; measured on the current snapshot, `gzip -9` brings the
-   556,361,944-byte file to roughly 314 MB against roughly 270 MB for `xz`.
-5. **Attach to the release.** The compressed file is uploaded as a release asset. `bootstrap fetch`'s
-   default URL expects it at `bootstrap.dat.gz` on the latest GitHub release.
+3. **Sign.** `hedgehog bootstrap sign -s bootstrap.dat -k <board-member-private-key>` appends the
+   signature. Any one of the four board members' keys is accepted.
+4. **Publish.** `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` compresses the
+   file with `gzip -9`, checks that the jar of the release being published reports it `SIGNED`,
+   signs it and every executable with the release key, attaches everything to the drafted release
+   and publishes it. `gzip` was chosen over a tighter codec such as `xz` because it needs no
+   dependency beyond what the JDK and the standard toolchain already provide; measured on the
+   current snapshot, `gzip -9` brings the 556,361,944-byte file to roughly 314 MB against roughly
+   270 MB for `xz`. `bootstrap fetch`'s default URL expects `bootstrap.dat.gz` on the latest GitHub
+   release, which is why a release is never published before the snapshot is attached, and why
+   `publish` carries the previous release's snapshot forward when no new one is given.
 
 ## Known rough edges
 
 - **The release asset cannot be built in CI.** Producing it needs the full legacy data directory —
   4.1 GB, and not something any workflow in this repository has a copy of — plus minutes of runtime
   and several gigabytes of heap for the chain link and ledger replay. It is necessarily a manual
-  procedure run by whoever holds that data, not something the release workflow can reproduce.
+  procedure run by whoever holds that data, not something the release workflow can reproduce;
+  `release.sh publish` therefore takes the signed file as input rather than producing it.
 - **The default fetch URL is provisional.** `BootstrapFetch.DEFAULT_URL` points at a GitHub release
   asset path, but where the snapshot will actually be hosted long-term has not been settled; the
   comment on the constant already flags that the signature, not the host, is what makes the file
