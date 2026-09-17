@@ -455,7 +455,7 @@ private static String[] networkKeys;
 ```
 
 (`application/src/main/java/org/unigrid/hedgehog/command/option/NetOptions.java`.) The default value
-is a comma-separated list of **three** foundation public keys, each 262 hex characters long — that
+is a comma-separated list of **four** foundation public keys, one per board member, each 262 hex characters long — that
 is, `length() / 2 == 131`, exactly the `PUBLIC_KEY_HEX_SIZE` that `Signature` demands.
 `--network-keys` has `ScopeType.INHERIT`, so it is accepted on `hedgehog daemon` and on every
 `hedgehog cli` subcommand.

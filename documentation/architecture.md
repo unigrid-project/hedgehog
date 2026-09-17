@@ -315,7 +315,7 @@ reads an environment variable or a system property; the command line is the only
 | `-H`, `--nethost` | `NetOptions` | `String` | `0.0.0.0` | `P2PServer` bind address, `Node.isMe()` |
 | `-p`, `--netport` | `NetOptions` | `int` | `52883` (`NetOptions.DEFAULT_PORT`) | `P2PServer` bind port, the port advertised in the `Hello` packet, `Node.isMe()`. The constant itself is what `Node.fromURI` falls back to when a URI carries no port |
 | `--seeds` / `--no-seeds` | `NetOptions` | `boolean`, negatable | `true` | `Network.getSeeds()` — returns an empty array when disabled |
-| `--network-keys` | `NetOptions` | `String[]`, `split = ","` | three built-in public keys | `NetworkKey.getPublicKeys()`, i.e. which keys may sign sporks |
+| `--network-keys` | `NetOptions` | `String[]`, `split = ","` | four built-in public keys | `NetworkKey.getPublicKeys()`, i.e. which keys may sign sporks |
 | `-R`, `--resthost` | `RestOptions` | `String` | `localhost` | `RestServer` bind address, `RestClientCommand` target |
 | `-r`, `--restport` | `RestOptions` | `int` | `52884` (`RestOptions.DEFAULT_PORT`) | `RestServer` bind port, `RestClientCommand` target |
 
@@ -323,8 +323,9 @@ Both mixins are attached to `cli` **and** `daemon`, so `-H`/`-p`/`--no-seeds`/`-
 in the help of every `cli` subcommand even though the client-side commands only ever use
 `RestOptions`. The reverse also holds: `-R`/`-r` are the pair that actually matter for `cli`.
 
-The `--network-keys` default is three hard-coded hex strings of 262 characters each — the network's
-trusted spork signing keys, exactly the width `key-generate` emits. Overriding them replaces the whole
+The `--network-keys` default is four hard-coded hex strings of 262 characters each — one per board
+member of the Unigrid Foundation, the network's trusted spork signing keys, exactly the width
+`key-generate` emits. Overriding them replaces the whole
 set rather than adding to it, which is the hinge the private-network recipe below turns on.
 `NetworkKey.isTrusted(privateKey)` decides trust by signing a random 32-byte blob and verifying it
 against every configured public key; [Grid sporks](sporks.md) carries that mechanism in full.
@@ -459,7 +460,7 @@ here once.
 
    `--no-seeds` makes `Network.getSeeds()` return an empty array, so `Topology.repopulate()` — which
    `Topology.@PostConstruct` calls immediately — leaves the node set empty instead of contacting
-   `seed1..seed6.unigrid.org`. `--network-keys` replaces the built-in list outright, so the three
+   `seed1..seed6.unigrid.org`. `--network-keys` replaces the built-in list outright, so the four
    production keys stop being trusted on this network. Multiple keys are comma-separated
    (`split = ","`).
 3. **Start the other daemons the same way**, with the same `--network-keys` value. Two daemons on one
