@@ -16,11 +16,6 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.core.status.StatusBase;
-import ch.qos.logback.core.util.Loader;
-import ch.qos.logback.core.util.StatusPrinter;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -94,22 +89,16 @@ public class BundleFeature implements Feature {
 
 			/* Primarily initializes Logback, SL4J & Commons Compress */
 
-			RuntimeClassInitialization.initializeAtBuildTime(Level.class);
-			RuntimeClassInitialization.initializeAtBuildTime(Loader.class);
-			RuntimeClassInitialization.initializeAtBuildTime(Logger.class);
 			RuntimeClassInitialization.initializeAtBuildTime(NativeProperties.class);
 			RuntimeClassInitialization.initializeAtBuildTime(OS.class);
-			RuntimeClassInitialization.initializeAtBuildTime(StatusBase.class);
-			RuntimeClassInitialization.initializeAtBuildTime(StatusPrinter.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
+			RuntimeClassInitialization.initializeAtBuildTime("ch.qos.logback");
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.io");
 			RuntimeClassInitialization.initializeAtBuildTime("org.slf4j");
 
-		} catch (IllegalStateException | IOException ex) {
-			System.err.println("Failed to bundle required resources for archive");
-			ex.printStackTrace();
-			System.exit(0);
+		} catch (IOException ex) {
+			throw new IllegalStateException("Failed to bundle the jlink image into the launcher", ex);
 		}
 	}
 }
