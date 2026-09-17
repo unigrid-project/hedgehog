@@ -69,7 +69,6 @@ public class BundleFeature implements Feature {
 			final MessageDigest digest = MessageDigest.getInstance("SHA");
 			return HexFormat.of().formatHex(digest.digest(data));
 		} catch (NoSuchAlgorithmException ex) {
-			ex.printStackTrace();
 			throw new IllegalStateException("SHA-1 not found in JVM, cannot create bundle", ex);
 		}
 	}
