@@ -145,8 +145,9 @@ javaagent path is hard-coded against `${settings.localRepository}`, but the vers
 single parent property `jmockit.version`, so a JMockit bump is one edit; the `application` test
 dependency on `com.github.hazendaz.jmockit:jmockit` reads the same property, which is what makes Maven
 download the jar to the exact coordinate the `-javaagent` path expects.
-`--enable-native-access=ALL-UNNAMED` quiets the native-access warnings the JVM would otherwise print
-for the JMockit agent and the QUIC/Netty native bindings.
+The `application` argLine grants native access to `io.netty.common`, the named module whose
+loader binds the QUIC transport, and to the unnamed module. Surefire runs the suite on the
+module path, so without naming `io.netty.common` the flag never reaches Netty.
 
 Surefire also sets `<trimStackTrace>false</trimStackTrace>` and the system property
 `testoutput.target=${project.build.directory}`, which `TestFileOutput` reads (see below).
