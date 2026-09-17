@@ -28,7 +28,7 @@ public interface SessionListener {
 	   or could not be joined. */
 	void received(SealedMessage message);
 
-	/* Whether the chain takes more of what the session sends, told when that changes; a session that starts while
-	   the chain has no room reads it from its handle */
+	/* Whether the chain takes more of what the session sends, told about once a second whether it changed or not,
+	   as the opener may have read otherwise from its handle meanwhile */
 	void writabilityChanged(boolean writable);
 }

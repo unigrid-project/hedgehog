@@ -114,6 +114,7 @@ public final class ClientSessions implements SessionOpener {
 			final boolean current = client.isCurrent(attachment);
 
 			chain.outbox().tick();
+			chain.handles().forEach(handle -> handle.writabilityChanged(chain.outbox().isWritable()));
 			chain.handles().forEach(handle -> guarded(handle::tick));
 			endWhenDrained(chain, current);
 			chain.handles().removeIf(handle -> handle.ended);
@@ -214,13 +215,15 @@ public final class ClientSessions implements SessionOpener {
 		});
 	}
 
+	/* The tick hands the level of the outbox to every session right after the outbox ticked, which is where the outbox
+	   would tell a change, so it tells nobody: an opener that read from its handle that the chain had no room hears
+	   that it has room again, though no tick found it without */
 	private Attached attach(final ChainAttachment attachment, final ProxySettings proxy) {
-		final List<Handle> handles = new CopyOnWriteArrayList<>();
 		final ChainOutbox outbox = new ChainOutbox(host, attachment.chainId(), attachment.writerId(),
-			writable -> handles.forEach(handle -> handle.writabilityChanged(writable)));
+			writable -> { });
 
-		return new Attached(new SessionContext(attachment.writer(), outbox, clock, random, proxy), outbox, handles,
-			new AtomicLong(IN_USE));
+		return new Attached(new SessionContext(attachment.writer(), outbox, clock, random, proxy), outbox,
+			new CopyOnWriteArrayList<>(), new AtomicLong(IN_USE));
 	}
 
 	private final class Handle implements SessionHandle {

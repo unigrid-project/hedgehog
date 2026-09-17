@@ -825,6 +825,33 @@ public class ClientSessionsTest {
 		assertThat(exit.received, equalTo(List.of(CONNECT, new Data(new byte[300]))));
 	}
 
+	/* The openers read from their handles that the chain has no room, the one right after the post the chain refused
+	   and the other as it opened, and the chain takes the post before any tick saw it refused */
+	@Example
+	public void tellsTheOpenersThatReadThatTheChainHadNoRoomWhenItTakesThePostAtTheNextTick() {
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		final Listener listener = new Listener();
+		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+
+		rig.fleet.deliver();
+		rig.fleet.clock.addAndGet(15_000);
+		handle.send(new Data(new byte[300]));
+
+		final Listener late = new Listener();
+		final SessionHandle joined = rig.sessions.open(CONNECT, late);
+
+		assertThat(handle.isWritable(), is(false));
+		assertThat(joined.isWritable(), is(false));
+
+		rig.fleet.clock.addAndGet(16_000);
+		rig.maintainAll();
+		rig.sessions.tick();
+
+		assertThat(handle.isWritable(), is(true));
+		assertThat(listener.writability, equalTo(List.of(true)));
+		assertThat(late.writability, equalTo(List.of(true)));
+	}
+
 	/* The listener that throws is enrolled before the one told after it, and one whose opener closed it before the
 	   pause is told nothing. The chains hold two kilobytes. */
 	@Example
@@ -857,7 +884,7 @@ public class ClientSessionsTest {
 		rig.sessions.tick();
 
 		assertThat(thrown.get(), is(true));
-		assertThat(listener.writability, equalTo(List.of(false)));
+		assertThat(listener.writability, equalTo(List.of(false, false)));
 		assertThat(closed.writability, equalTo(List.of()));
 	}
 
