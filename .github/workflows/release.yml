@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-java@v6
         with:
-          java-version: '17'
+          java-version: '25'
           distribution: temurin
           cache: maven
 
@@ -82,11 +82,11 @@ jobs:
       matrix:
         include:
           # Each binary is built on its own OS and architecture: application/pom.xml
-          # picks the netty QUIC native classifier from them.
-          - { os: ubuntu-22.04,   target: linux-x86_64,   binary: hedgehog.bin }
-          - { os: macos-15-intel, target: macos-x86_64,   binary: hedgehog.bin }
-          - { os: macos-15,       target: macos-aarch64,  binary: hedgehog.bin }
-          - { os: windows-2022,   target: windows-x86_64, binary: hedgehog.exe }
+          # picks the netty QUIC native classifier from them. macOS is Apple Silicon
+          # only; GraalVM stopped shipping macOS Intel builds after 25.0.1.
+          - { os: ubuntu-22.04, target: linux-x86_64,   binary: hedgehog.bin }
+          - { os: macos-15,     target: macos-aarch64,  binary: hedgehog.bin }
+          - { os: windows-2022, target: windows-x86_64, binary: hedgehog.exe }
     steps:
       - name: Set up the MSVC x64 environment
         if: runner.os == 'Windows'
@@ -100,21 +100,21 @@ jobs:
 
       - uses: actions/setup-java@v6
         with:
-          java-version: '17'
+          java-version: '25'
           distribution: temurin
           cache: maven
 
-      # Puts native-image on PATH and JAVA_HOME on GraalVM, which the MacOS profile expects.
-      - name: Set up GraalVM 22.3.0 with native-image
-        if: runner.os == 'macOS'
+      # GraalVM compiles only the launcher; the runtime bundled into it is the Temurin
+      # JDK above, so JAVA_HOME stays there and the plugin finds GRAALVM_HOME.
+      - name: Set up GraalVM 25 for native-image
         uses: graalvm/setup-graalvm@v1
         with:
-          version: '22.3.0'
-          java-version: '17'
-          components: native-image
+          distribution: graalvm-community
+          java-version: '25'
+          set-java-home: 'false'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # -H:+StaticExecutableWithDynamicLibC links zlib statically and needs libz.a.
+      # --static-nolibc links zlib statically and needs libz.a.
       - name: Install the static-link prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential zlib1g-dev
@@ -155,7 +155,6 @@ jobs:
           mkdir -p assets
           mv "artifacts/hedgehog-jar/hedgehog-$VERSION-jar-with-dependencies.jar" "assets/hedgehog-$VERSION-jar-with-dependencies.jar"
           mv artifacts/hedgehog-linux-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-x86_64-linux-gnu.bin"
-          mv artifacts/hedgehog-macos-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-osx64.bin"
           mv artifacts/hedgehog-macos-aarch64/hedgehog.bin  "assets/hedgehog-$VERSION-osx-arm64.bin"
           mv artifacts/hedgehog-windows-x86_64/hedgehog.exe "assets/hedgehog-$VERSION-win64.exe"
           ls -l assets
