@@ -59,9 +59,7 @@ module org.unigrid.hedgehog {
 	requires jakarta.xml.bind;
 	requires j8fu;
 	requires net.harawata.appdirs;
-	requires org.graalvm.sdk;
 	requires org.unigrid.hedgehog.common;
-	requires jdk.crypto.ec;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
 	opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;

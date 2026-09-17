@@ -86,7 +86,7 @@ public final class BootstrapSnapshot {
 	   or not, is picked up on the next request without a restart.
 	*/
 	@Value
-	private static class FileIdentity {
+	private static final class FileIdentity {
 		private long size;
 		private FileTime modified;
 

@@ -71,14 +71,9 @@
 			<version>0.0.8-SNAPSHOT</version>
 		</dependency>
 		<dependency>
-			<groupId>org.graalvm.sdk</groupId>
-			<artifactId>graal-sdk</artifactId>
-			<version>22.3.0</version>
-		</dependency>
-		<dependency>
 			<groupId>info.picocli</groupId>
 			<artifactId>picocli</artifactId>
-			<version>4.7.3</version>
+			<version>${picocli.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>me.alexpanov</groupId>
@@ -191,7 +186,7 @@
 			<version>4.1.137.Final</version>
 		</dependency>
 		<dependency>
-			<groupId>org.jboss</groupId>
+			<groupId>io.smallrye</groupId>
 			<artifactId>jandex</artifactId>
 			<version>3.0.5</version>
 		</dependency>
@@ -215,13 +210,13 @@
 		<dependency>
 			<groupId>com.github.hazendaz.jmockit</groupId>
 			<artifactId>jmockit</artifactId>
-			<version>1.49.3</version>
+			<version>${jmockit.version}</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>net.jqwik</groupId>
 			<artifactId>jqwik</artifactId>
-			<version>1.7.2</version>
+			<version>1.10.1</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -246,7 +241,7 @@
 			<groupId>org.jacoco</groupId>
 			<artifactId>org.jacoco.agent</artifactId>
 			<classifier>runtime</classifier>
-			<version>0.8.8</version>
+			<version>${jacoco.version}</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -315,8 +310,9 @@
 				<configuration>
 					<argLine>
 						@{surefireArgLine}
-						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
+						-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
 						-Dorg.jboss.netty.debug=true
+						--enable-native-access=ALL-UNNAMED
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
 						--add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model=info.picocli
@@ -396,20 +392,17 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.10.1</version>
 				<configuration>
-					<release>17</release>
-					<showDeprecation>true</showDeprecation>
 					<annotationProcessorPaths>
 						<path>
 							<groupId>org.projectlombok</groupId>
 							<artifactId>lombok</artifactId>
-							<version>1.18.24</version>
+							<version>${lombok.version}</version>
 						</path>
 						<path>
 							<groupId>info.picocli</groupId>
 							<artifactId>picocli-codegen</artifactId>
-							<version>4.7.0</version>
+							<version>${picocli.version}</version>
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
@@ -439,9 +432,9 @@
 				</executions>
 			</plugin>
 			<plugin>
-				<groupId>org.jboss.jandex</groupId>
+				<groupId>io.smallrye</groupId>
 				<artifactId>jandex-maven-plugin</artifactId>
-				<version>1.2.3</version>
+				<version>3.6.0</version>
 				<executions>
 					<execution>
 						<id>make-index</id>
@@ -468,13 +461,6 @@
 			<plugin>
 				<groupId>pl.gdela</groupId>
 				<artifactId>socomo-maven</artifactId>
-				<dependencies>
-					<dependency>
-						<groupId>org.ow2.asm</groupId>
-						<artifactId>asm</artifactId>
-						<version>9.1</version>
-					</dependency>
-				</dependencies>
 				<executions>
 					<execution>
 						<goals>
@@ -518,7 +504,7 @@
 			<plugin>
 				<groupId>com.github.spotbugs</groupId>
 				<artifactId>spotbugs-maven-plugin</artifactId>
-				<version>4.6.0.0</version>
+				<version>4.10.4.1</version>
 			</plugin>
 		</plugins>
 	</reporting>

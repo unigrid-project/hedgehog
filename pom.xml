@@ -7,6 +7,11 @@
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<maven.compiler.release>25</maven.compiler.release>
+		<lombok.version>1.18.48</lombok.version>
+		<picocli.version>4.7.7</picocli.version>
+		<jmockit.version>1.56.0</jmockit.version>
+		<jacoco.version>0.8.15</jacoco.version>
 		<surefireArgLine />
 		<dryRun>false</dryRun>
 	</properties>
@@ -29,7 +34,7 @@
 			<dependency>
 				<groupId>org.projectlombok</groupId>
 				<artifactId>lombok</artifactId>
-				<version>1.18.24</version>
+				<version>${lombok.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>ch.qos.logback</groupId>
@@ -46,9 +51,39 @@
 				<artifactId>jul-to-slf4j</artifactId>
 				<version>2.0.18</version>
 			</dependency>
+			<!-- Only shazamcrest pulls JUnit 4 in, at 4.11, and surefire refuses anything older than 4.12. -->
+			<dependency>
+				<groupId>junit</groupId>
+				<artifactId>junit</artifactId>
+				<version>4.13.2</version>
+				<scope>test</scope>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<version>3.6.3</version>
+				<executions>
+					<execution>
+						<id>require-java-25</id>
+						<goals>
+							<goal>enforce</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<requireJavaVersion>
+									<version>[25,)</version>
+									<message>Hedgehog builds on JDK 25 or later; point JAVA_HOME at one.</message>
+								</requireJavaVersion>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
 		<pluginManagement>
 			<plugins>
 				<plugin>
@@ -68,7 +103,7 @@
 				<plugin>
 					<groupId>org.jacoco</groupId>
 					<artifactId>jacoco-maven-plugin</artifactId>
-					<version>0.8.8</version>
+					<version>${jacoco.version}</version>
 					<executions>
 						<execution>
 							<id>pre-unit-test</id>
@@ -108,7 +143,7 @@
 				<plugin>
 					<groupId>org.codehaus.mojo</groupId>
 					<artifactId>build-helper-maven-plugin</artifactId>
-					<version>3.3.0</version>
+					<version>3.6.2</version>
 					<executions>
 						<execution>
 							<id>get-cpu-count</id>
@@ -125,12 +160,13 @@
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-surefire-plugin</artifactId>
-					<version>3.0.0-M7</version>
+					<version>3.6.0</version>
 					<configuration>
 						<argLine>
 							@{surefireArgLine}
-							-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
+							-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
 							-Dorg.jboss.netty.debug=true
+							--enable-native-access=ALL-UNNAMED
 						</argLine>
 						<trimStackTrace>false</trimStackTrace>
 						<reuseForks>false</reuseForks>
@@ -143,17 +179,20 @@
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-compiler-plugin</artifactId>
-					<version>3.10.1</version>
+					<version>3.16.0</version>
+					<configuration>
+						<showDeprecation>true</showDeprecation>
+					</configuration>
 				</plugin>
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-assembly-plugin</artifactId>
-					<version>3.4.2</version>
+					<version>3.8.0</version>
 				</plugin>
 				<plugin>
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-checkstyle-plugin</artifactId>
-					<version>3.1.2</version>
+					<version>3.6.0</version>
 					<configuration>
 						<configLocation>../checkstyle.xml</configLocation>
 						<excludes>**/module-info.java</excludes>
@@ -169,7 +208,7 @@
 						<dependency>
 							<groupId>com.puppycrawl.tools</groupId>
 							<artifactId>checkstyle</artifactId>
-							<version>9.3</version>
+							<version>14.1.0</version>
 						</dependency>
 					</dependencies>
 				</plugin>
@@ -186,12 +225,12 @@
 				<plugin>
 					<groupId>pl.gdela</groupId>
 					<artifactId>socomo-maven</artifactId>
-					<version>2.3.1</version>
+					<version>2.4.0</version>
 					<dependencies>
 						<dependency>
 							<groupId>org.ow2.asm</groupId>
 							<artifactId>asm</artifactId>
-							<version>9.1</version>
+							<version>9.10.1</version>
 						</dependency>
 					</dependencies>
 					<executions>
@@ -238,7 +277,7 @@
 			<plugin>
 				<groupId>com.github.spotbugs</groupId>
 				<artifactId>spotbugs-maven-plugin</artifactId>
-				<version>4.6.0.0</version>
+				<version>4.10.4.1</version>
 			</plugin>
 		</plugins>
 	</reporting>
