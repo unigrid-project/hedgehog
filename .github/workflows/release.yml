@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      skip-tests:
+        type: boolean
+        description: Skip the test suite. A manual run only builds and keeps the outputs as run artefacts; it never creates a release.
+        default: false
+      ref:
+        type: string
+        description: Optional branch or tag to build (defaults to the ref the workflow was started from).
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  jar:
+    name: Jar and tests (Linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Read the version from the pom
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(mvn -B -ntp -q -N help:evaluate -Dexpression=project.version -DforceStdout)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]] || {
+            echo "Could not read a sane version from the pom: '$version'" >&2
+            exit 1
+          }
+          echo "version=$version" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check that the tag names the version in the pom
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          [ "$TAG" = "v$VERSION" ] || {
+            echo "Tag $TAG does not match the pom version $VERSION (expected tag v$VERSION)." >&2
+            exit 1
+          }
+
+      - name: Build and test common and application
+        run: mvn -B -ntp -pl common,application verify -DskipTests=${{ inputs.skip-tests == true }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hedgehog-jar
+          path: application/target/hedgehog-*-jar-with-dependencies.jar
+          if-no-files-found: error
+
+  native:
+    name: Native ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each binary is built on its own OS: application/pom.xml picks the netty QUIC
+          # native classifier per OS, and macOS has to be x86_64 while that is osx-x86_64.
+          - { os: ubuntu-22.04,   target: linux-x86_64,   binary: hedgehog.bin }
+          - { os: macos-15-intel, target: macos-x86_64,   binary: hedgehog.bin }
+          - { os: windows-2022,   target: windows-x86_64, binary: hedgehog.exe }
+    steps:
+      - name: Set up the MSVC x64 environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      # Puts native-image on PATH and JAVA_HOME on GraalVM, which the MacOS profile expects.
+      - name: Set up GraalVM 22.3.0 with native-image
+        if: runner.os == 'macOS'
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '22.3.0'
+          java-version: '17'
+          components: native-image
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -H:+StaticExecutableWithDynamicLibC links zlib statically and needs libz.a.
+      - name: Install the static-link prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential zlib1g-dev
+
+      - name: Build the native image
+        run: mvn -B -ntp package -DskipTests
+
+      - name: Run the binary
+        timeout-minutes: 5
+        run: native-image/target/${{ matrix.binary }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hedgehog-${{ matrix.target }}
+          path: native-image/target/${{ matrix.binary }}
+          if-no-files-found: error
+
+  draft:
+    name: Draft the release
+    needs: [jar, native]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: hedgehog-*
+
+      - name: Name the assets the way releases name them
+        shell: bash
+        env:
+          VERSION: ${{ needs.jar.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          mv "artifacts/hedgehog-jar/hedgehog-$VERSION-jar-with-dependencies.jar" "assets/hedgehog-$VERSION-jar-with-dependencies.jar"
+          mv artifacts/hedgehog-linux-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-x86_64-linux-gnu.bin"
+          mv artifacts/hedgehog-macos-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-osx64.bin"
+          mv artifacts/hedgehog-windows-x86_64/hedgehog.exe "assets/hedgehog-$VERSION-win64.exe"
+          ls -l assets
+
+      # The bootstrap and the signatures are added, and the draft published, by
+      # release.sh on the maintainer's machine, where the release key lives.
+      - name: Create or refresh the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.jar.outputs.version }}
+        run: |
+          set -euo pipefail
+          if is_draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            [ "$is_draft" = "true" ] || {
+              echo "Release $TAG is already published; refusing to touch it." >&2
+              exit 1
+            }
+            echo "Draft $TAG already exists; replacing its assets."
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$VERSION" --generate-notes
+          fi
+          gh release upload "$TAG" --clobber assets/*
