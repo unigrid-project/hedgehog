@@ -26,6 +26,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import net.harawata.appdirs.impl.WindowsAppDirs;
 import org.apache.commons.exec.OS;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.Feature.DuringSetupAccess;
@@ -92,6 +93,7 @@ public class BundleFeature implements Feature {
 			RuntimeClassInitialization.initializeAtBuildTime(NativeProperties.class);
 			RuntimeClassInitialization.initializeAtBuildTime(OS.class);
 			RuntimeClassInitialization.initializeAtBuildTime(Version.class);
+			RuntimeClassInitialization.initializeAtBuildTime(WindowsAppDirs.FolderId.class);
 			RuntimeClassInitialization.initializeAtBuildTime("ch.qos.logback");
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.compress");
 			RuntimeClassInitialization.initializeAtBuildTime("org.apache.commons.io");
