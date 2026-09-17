@@ -120,6 +120,9 @@ $dirty"
 	require_gh
 	require_signing_key >/dev/null
 
+	[ -x "${GRAALVM_HOME:-}/bin/native-image" ] \
+		|| die "GRAALVM_HOME must point at a GraalVM with native-image; release:prepare builds the launcher."
+
 	local pom version tag
 	pom="$(pom_version)"
 	version="${pom%-SNAPSHOT}"
