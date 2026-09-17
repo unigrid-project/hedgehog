@@ -8,3 +8,5 @@ socomo.html
 /common/target/
 jshell.history
 release.properties
+pom.xml.releaseBackup
+/dist/
