@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.model.util;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
@@ -32,36 +31,6 @@ import org.apache.commons.lang3.reflect.MethodUtils;
 
 @Slf4j
 public class Reflection {
-	public static void resetIllegalAccessLogger() throws IllegalAccessException,
-		InvocationTargetException, NoSuchFieldException, NoSuchMethodException {
-
-		Class<?> unsafeClass;
-		Class<?> loggerClass;
-
-		try {
-			unsafeClass = Class.forName("sun.misc.Unsafe");
-			loggerClass = Class.forName("jdk.internal.module.IllegalAccessLogger");
-
-		} catch (ClassNotFoundException ex) {
-			log.warn("Unable to choke IllegalAccessLoger", ex);
-			return; /* Bail out, as it means we are on a Java release where we need to ignore this */
-		}
-
-		final Field field = unsafeClass.getDeclaredField("theUnsafe");
-
-		field.setAccessible(true);
-		Object unsafe = field.get(null);
-
-		final Field loggerField = loggerClass.getDeclaredField("logger");
-		final Method staticFieldOffset = unsafeClass.getDeclaredMethod("staticFieldOffset", Field.class);
-		final Method putObjectVolatile = unsafeClass.getDeclaredMethod("putObjectVolatile",
-			Object.class, long.class, Object.class
-		);
-
-		final long offset = (long) staticFieldOffset.invoke(unsafe, loggerField);
-		putObjectVolatile.invoke(unsafe, loggerClass, offset, null);
-	}
-
 	public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
 		final Set<Field> fields = new HashSet<>();
 

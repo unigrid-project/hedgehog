@@ -28,7 +28,6 @@ import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
 import org.unigrid.hedgehog.model.VersionProvider;
 import org.unigrid.hedgehog.model.util.ApplicationLogLevel;
-import org.unigrid.hedgehog.model.util.Reflection;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,7 +59,6 @@ public class Hedgehog {
 		final PrintStream stdout = System.out;
 		System.setOut(new PrintStream(OutputStream.nullOutputStream()));
 
-		Reflection.resetIllegalAccessLogger(); /* Try to get rid of the "illegal reflective access..." nags */
 		ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
 
 		System.setOut(stdout);
