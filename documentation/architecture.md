@@ -58,13 +58,16 @@ Both `application` and `common` carry a `module-info.java`, and both are compile
 `common/src/main/java/module-info.java` declares `org.unigrid.hedgehog.common` and exports exactly one
 package, `org.unigrid.hedgehog.common.model`. `application/src/main/java/module-info.java` declares
 `org.unigrid.hedgehog` and — this is the point worth internalizing — **exports nothing at all**. Its
-only directive beyond `requires` is:
+only directives beyond `requires` are three `opens`:
 
 ```java
 opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
+opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;
+opens org.unigrid.hedgehog.command.bootstrap to info.picocli;
 ```
 
-so that JAXB can reflect over the S3 response entities. Everything else in the application module is
+so that JAXB can reflect over the S3 response entities, Jackson can deserialize the bootstrap model,
+and picocli can reflect over the bootstrap command. Everything else in the application module is
 strongly encapsulated. The `requires` list is long and explicit (Netty split into
 `io.netty.buffer`/`transport`/`codec`/`handler`/`common`/`incubator.codec.classes.quic`, Jersey split
 into `jersey.server`/`client`/`container.netty.http`/`media.json.jackson`/`bean.validation`/`common`/
@@ -73,7 +76,7 @@ into `jersey.server`/`client`/`container.netty.http`/`media.json.jackson`/`bean.
 Two practical consequences follow:
 
 * **Tests need a long list of module escapes.** Because nothing is exported, `application/pom.xml`
-  hands Surefire nine `--add-exports`, thirty-six `--add-opens` and one `--add-reads`, and introducing
+  hands Surefire nine `--add-exports`, thirty-nine `--add-opens` and two `--add-reads`, and introducing
   a new bean package or a new serialized type usually means adding a line there. The flag-by-flag
   rationale — which consumer needs which package, and why — belongs to
   [Build, testing and native image](build-and-native-image.md).
@@ -549,7 +552,7 @@ rather than on the nodes.
 | `model.network.schedule` | Periodic per-channel tasks (ping, peer publication, spork publish/save) |
 | `model.network.util` | `ByteBufUtils` |
 | `model.producer` | CDI producers for `ApplicationDirectory`, `UUID` and `SporkDatabase` |
-| `model.s3.entity` | JAXB entities for the S3-compatible responses; the only package the module `opens` |
+| `model.s3.entity` | JAXB entities for the S3-compatible responses; one of three packages the module `opens` |
 | `model.spork` | `GridSpork` hierarchy and `SporkDatabase` |
 | `model.util` | `ApplicationLogLevel`, `ExceptionUtil`, `Reflection`, `UnsupportedLogLevelException` |
 | `server` | `AbstractServer` |

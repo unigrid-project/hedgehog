@@ -154,8 +154,8 @@ Surefire also sets `<trimStackTrace>false</trimStackTrace>` and the system prope
 
 ### The surefire JPMS flag block
 
-`application/pom.xml` replaces the inherited surefire configuration wholesale and appends 47 JPMS
-flags — 36 `--add-opens`, nine `--add-exports` and two `--add-reads` — plus
+`application/pom.xml` replaces the inherited surefire configuration wholesale and appends 50 JPMS
+flags — 39 `--add-opens`, nine `--add-exports` and two `--add-reads` — plus
 `<enableAssertions>true</enableAssertions>` (the flags at `application/pom.xml:311-365`,
 `enableAssertions` at `application/pom.xml:373`). This block is the single place where the module
 boundaries declared in `application/src/main/java/module-info.java` are opened up, and both
@@ -167,13 +167,13 @@ classes themselves and several libraries need reflective access into its package
 opens nothing to them, and the test classes are compiled into the same module but are read by jqwik
 and JMockit from the unnamed module, so every consumer has to be named explicitly.
 
-The 36 `--add-opens` group by the module being opened *to*:
+The 39 `--add-opens` group by the module being opened *to*:
 
 | Opened to | Count | Why |
 | --- | ---: | --- |
-| `weld.core.impl` | 14 | Weld constructs beans and proxies by reflection: `command`, `model`, `model.cdi`, `model.network`, `model.network.handler`, `model.producer`, `model.spork`, `server`, `server.p2p`, `server.rest`, `service`, `jqwik` and the root `org.unigrid.hedgehog` package — 13 distinct packages, because the `service` line appears twice (see below). |
-| `ALL-UNNAMED` | 15 | The test classes, jqwik's arbitrary generation and JMockit's instrumentation, including `java.base/{java.lang,java.math,java.net,java.time,java.util}`. |
-| `info.picocli` | 5 | picocli reflects over the option holders and command classes: `command`, `command.cli`, `command.cli.spork`, `command.option`, `command.util`. |
+| `weld.core.impl` | 15 | Weld constructs beans and proxies by reflection: `command`, `model`, `model.bootstrap`, `model.cdi`, `model.network`, `model.network.handler`, `model.producer`, `model.spork`, `server`, `server.p2p`, `server.rest`, `service`, `jqwik` and the root `org.unigrid.hedgehog` package — 14 distinct packages, because the `service` line appears twice (see below). |
+| `ALL-UNNAMED` | 16 | The test classes, jqwik's arbitrary generation and JMockit's instrumentation, including `java.base/{java.lang,java.math,java.net,java.time,java.util}`. |
+| `info.picocli` | 6 | picocli reflects over the option holders and command classes: `command`, `command.bootstrap`, `command.cli`, `command.cli.spork`, `command.option`, `command.util`. |
 | `org.apache.commons.lang3` | 2 | Commons Lang `FieldUtils` writes private fields in `model.network` and `model.producer`. |
 
 The nine `--add-exports` name compile-visible packages rather than reflective ones: three to
@@ -1426,6 +1426,10 @@ Collected in one place, all verifiable from the sources cited above.
   explicitly; the packaged `beans.xml` does not, and `ProtectedInterceptor` carries no `@Priority`. The
   suite therefore exercises locking that the shipped daemon does not have — see
   [CDI container and component lifecycle](cdi-and-lifecycle.md).
+- **Netty warns about `sun.misc.Unsafe` on JDK 25.** `io.netty.util.internal.PlatformDependent0`
+  calls `Unsafe::allocateMemory`, which JDK 25 reports as deprecated for removal nineteen times per
+  test run. It is Netty 4.1.137's doing, not the project's, and goes away with a Netty that uses the
+  foreign memory API.
 - **Style is enforced from a relative path.** `configLocation` is `../checkstyle.xml`, which resolves
   only for modules exactly one directory below the repository root; a nested module would silently fail
   to find the configuration.
