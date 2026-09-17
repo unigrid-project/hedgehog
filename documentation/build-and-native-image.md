@@ -512,9 +512,10 @@ cd native-image && mvn package
 ### `application/pom.xml`
 
 The QUIC native binding is selected by OS profile — `io.netty.incubator:netty-incubator-codec-native-quic:0.0.50.Final`
-with classifier `linux-x86_64`, `windows-x86_64` or `osx-x86_64`, activated by `<os><name>Linux</name>`,
-`<os><family>Windows</family>` and `<os><family>Mac</family>` respectively. Only x86-64 classifiers exist,
-so aarch64 hosts (Apple Silicon, ARM Linux) are not covered by the current profiles.
+with classifier `linux-x86_64`, `windows-x86_64`, `osx-x86_64` or `osx-aarch_64`, activated by
+`<os><name>Linux</name>`, `<os><family>Windows</family>`, `<os><family>Mac</family><arch>x86_64</arch>` and
+`<os><family>Mac</family><arch>aarch64</arch>` respectively. The artifact also ships `linux-aarch_64`, but
+no profile selects it, so ARM Linux hosts are not covered.
 
 | Dependency | Version | Used for |
 | --- | ---: | --- |
@@ -1251,6 +1252,7 @@ carry `release.yml` can be dispatched.
 | Jar and tests | `ubuntu-22.04` | `mvn -B -ntp -pl common,application verify` | `hedgehog-jar` ← `application/target/hedgehog-*-jar-with-dependencies.jar` |
 | Native linux-x86_64 | `ubuntu-22.04` | `mvn -B -ntp package -DskipTests` | `hedgehog-linux-x86_64` ← `native-image/target/hedgehog.bin` |
 | Native macos-x86_64 | `macos-15-intel` | `mvn -B -ntp package -DskipTests` | `hedgehog-macos-x86_64` ← `native-image/target/hedgehog.bin` |
+| Native macos-aarch64 | `macos-15` | `mvn -B -ntp package -DskipTests` | `hedgehog-macos-aarch64` ← `native-image/target/hedgehog.bin` |
 | Native windows-x86_64 | `windows-2022` | `mvn -B -ntp package -DskipTests` | `hedgehog-windows-x86_64` ← `native-image/target/hedgehog.exe` |
 | Draft the release | `ubuntu-latest` | — | the release itself, as a draft |
 
@@ -1258,9 +1260,9 @@ The jar job is the only one that tests: `verify` on `common` and `application` r
 `checkstyle:check` without entering `native-image`. It also reads the version from the pom and, on a
 tag push, refuses to continue unless the tag is `v<version>`, so a tag pushed against a snapshot pom
 fails in seconds rather than producing `-SNAPSHOT` assets. The native jobs form one matrix with
-`fail-fast: false`; each builds on its own OS because `application/pom.xml` picks the netty QUIC native
-classifier per OS, and macOS has to be x86_64 while that classifier is `osx-x86_64` — `macos-15-intel`
-is the last Intel image GitHub offers and retires in August 2027.
+`fail-fast: false`; each builds on its own OS and architecture because `application/pom.xml` picks the
+netty QUIC native classifier from them — `osx-x86_64` on `macos-15-intel`, the last Intel image GitHub
+offers, which retires in August 2027, and `osx-aarch_64` on `macos-15`, which is Apple Silicon.
 
 Common steps: `actions/checkout@v7`, then `actions/setup-java@v6` with `java-version: '17'`,
 `distribution: temurin` and `cache: maven`. Platform-specific steps:
@@ -1278,9 +1280,10 @@ no subcommand, picocli reports a usage error, which is exactly the exit code `Na
 written to tolerate.
 
 The draft job runs only for a tag push (`github.event_name == 'push'`, so a manual run started from a
-tag never drafts), holds the workflow's only `contents: write` permission, renames the four outputs to
+tag never drafts), holds the workflow's only `contents: write` permission, renames the five outputs to
 `hedgehog-<version>-jar-with-dependencies.jar`, `hedgehog-<version>-x86_64-linux-gnu.bin`,
-`hedgehog-<version>-osx64.bin` and `hedgehog-<version>-win64.exe`, and creates the release as a
+`hedgehog-<version>-osx64.bin`, `hedgehog-<version>-osx-arm64.bin` and `hedgehog-<version>-win64.exe`,
+and creates the release as a
 **draft** with generated notes — or replaces the assets of an existing draft on a re-run. It refuses to
 touch a release that is already published. Publishing, together with the bootstrap and the detached
 signatures, is what `release.sh publish` does on the maintainer's machine, where the release key lives;

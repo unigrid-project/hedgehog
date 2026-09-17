@@ -265,8 +265,8 @@ publish_release() {
 	gh release download "$tag" --dir "$assets"
 
 	local jar="$assets/hedgehog-$version-jar-with-dependencies.jar" expected
-	for expected in "$jar" "$assets/hedgehog-$version-x86_64-linux-gnu.bin" \
-		"$assets/hedgehog-$version-osx64.bin" "$assets/hedgehog-$version-win64.exe"; do
+	for expected in "$jar" "$assets/hedgehog-$version-x86_64-linux-gnu.bin" "$assets/hedgehog-$version-osx64.bin" \
+		"$assets/hedgehog-$version-osx-arm64.bin" "$assets/hedgehog-$version-win64.exe"; do
 		[ -f "$expected" ] || die "The draft is missing $(basename "$expected")."
 	done
 

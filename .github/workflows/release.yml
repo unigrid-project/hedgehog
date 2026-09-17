@@ -81,10 +81,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Each binary is built on its own OS: application/pom.xml picks the netty QUIC
-          # native classifier per OS, and macOS has to be x86_64 while that is osx-x86_64.
+          # Each binary is built on its own OS and architecture: application/pom.xml
+          # picks the netty QUIC native classifier from them.
           - { os: ubuntu-22.04,   target: linux-x86_64,   binary: hedgehog.bin }
           - { os: macos-15-intel, target: macos-x86_64,   binary: hedgehog.bin }
+          - { os: macos-15,       target: macos-aarch64,  binary: hedgehog.bin }
           - { os: windows-2022,   target: windows-x86_64, binary: hedgehog.exe }
     steps:
       - name: Set up the MSVC x64 environment
@@ -155,6 +156,7 @@ jobs:
           mv "artifacts/hedgehog-jar/hedgehog-$VERSION-jar-with-dependencies.jar" "assets/hedgehog-$VERSION-jar-with-dependencies.jar"
           mv artifacts/hedgehog-linux-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-x86_64-linux-gnu.bin"
           mv artifacts/hedgehog-macos-x86_64/hedgehog.bin   "assets/hedgehog-$VERSION-osx64.bin"
+          mv artifacts/hedgehog-macos-aarch64/hedgehog.bin  "assets/hedgehog-$VERSION-osx-arm64.bin"
           mv artifacts/hedgehog-windows-x86_64/hedgehog.exe "assets/hedgehog-$VERSION-win64.exe"
           ls -l assets
 

@@ -41,13 +41,25 @@
 		</profile>
 		<profile>
 			<id>Mac OS</id>
-			<activation><os><family>Mac</family></os></activation>
+			<activation><os><family>Mac</family><arch>x86_64</arch></os></activation>
 			<dependencies>
 				<dependency>
 					<groupId>io.netty.incubator</groupId>
 					<artifactId>netty-incubator-codec-native-quic</artifactId>
 					<version>0.0.50.Final</version>
 					<classifier>osx-x86_64</classifier>
+				</dependency>
+			</dependencies>
+		</profile>
+		<profile>
+			<id>Mac OS arm64</id>
+			<activation><os><family>Mac</family><arch>aarch64</arch></os></activation>
+			<dependencies>
+				<dependency>
+					<groupId>io.netty.incubator</groupId>
+					<artifactId>netty-incubator-codec-native-quic</artifactId>
+					<version>0.0.50.Final</version>
+					<classifier>osx-aarch_64</classifier>
 				</dependency>
 			</dependencies>
 		</profile>
