@@ -237,11 +237,9 @@ prints the collected result with `System.out.println` — there is no assertion 
 collector is therefore exercised, not tested.
 
 `application/src/main/java/org/unigrid/hedgehog/model/util/Reflection.java` is a separate general
-reflection helper — `getDeclaredFieldsWithParents`, `getConstructor`, `invoke`, `getFieldValue`, and
-`resetIllegalAccessLogger` (which pokes `jdk.internal.module.IllegalAccessLogger` through
-`sun.misc.Unsafe` to silence reflective-access warnings, and bails out with a warning if either class
-is absent). It is called from `Hedgehog.main` (`resetIllegalAccessLogger`), from `RestServer`
-(`getConstructor`, twice) and from tests; it plays no part in pipeline assembly.
+reflection helper — `getDeclaredFieldsWithParents`, `getConstructor`, `invoke`, `getFieldValue`. It is
+called from `RestServer` (`getConstructor`, twice) and from tests; it plays no part in pipeline
+assembly.
 
 ### Interaction with the native image
 

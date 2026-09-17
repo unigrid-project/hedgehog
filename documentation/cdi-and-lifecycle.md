@@ -681,7 +681,7 @@ sequenceDiagram
     participant RS as RestServer
     participant DB as Daemon (bean)
 
-    M->>M: resetIllegalAccessLogger()<br/>ApplicationLogLevel.configure(0)
+    M->>M: mute stdout<br/>ApplicationLogLevel.configure(0)
     M->>PC: new CommandLine(Hedgehog.class).execute(args)
     PC->>PC: bind @Mixin NetOptions / RestOptions<br/>(static fields); setVerbose() re-configures logging
     PC->>DC: run()  [inherited from CDIContext]

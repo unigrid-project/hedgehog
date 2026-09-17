@@ -1,6 +1,6 @@
 # Architecture overview
 
-Hedgehog is a single Java 17 process that can act as a network daemon, as a REST client against a
+Hedgehog is a single Java 25 process that can act as a network daemon, as a REST client against a
 running daemon, or as a stand-alone key utility — which of the three it becomes is decided entirely by
 the picocli command line. This document maps the three Maven modules, the module system usage, the
 command tree with every option, the two servers, the package layout, the on-disk state and the shared
@@ -68,8 +68,7 @@ so that JAXB can reflect over the S3 response entities. Everything else in the a
 strongly encapsulated. The `requires` list is long and explicit (Netty split into
 `io.netty.buffer`/`transport`/`codec`/`handler`/`common`/`incubator.codec.classes.quic`, Jersey split
 into `jersey.server`/`client`/`container.netty.http`/`media.json.jackson`/`bean.validation`/`common`/
-`hk2`, Weld into `weld.se.core`/`core.impl`/`environment.common`/`spi`, plus `jdk.crypto.ec` for the
-P-521 signatures).
+`hk2`, Weld into `weld.se.core`/`core.impl`/`environment.common`/`spi`).
 
 Two practical consequences follow:
 
@@ -92,7 +91,6 @@ Two practical consequences follow:
 final PrintStream stdout = System.out;
 System.setOut(new PrintStream(OutputStream.nullOutputStream()));
 
-Reflection.resetIllegalAccessLogger(); /* Try to get rid of the "illegal reflective access..." nags */
 ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
 
 System.setOut(stdout);
@@ -101,17 +99,10 @@ System.exit(new CommandLine(Hedgehog.class).execute(args));
 
 * **stdout is muted for the duration of startup.** The real `System.out` is stashed, replaced by a
   null stream, and restored before picocli runs. This exists so that nothing emitted while the logging
-  subsystem is still at its default level reaches the terminal — in particular the warning from
-  `Reflection.resetIllegalAccessLogger()` described below. The mirror image of this happens at
+  subsystem is still at its default level reaches the terminal. The mirror image of this happens at
   shutdown: `CDIContext.shutdown(@Observes ContainerShutdown)`
   (`application/src/main/java/org/unigrid/hedgehog/model/cdi/CDIContext.java`) installs a swallowing
   `PrintStream` to suppress Weld's "container ... shut down by shutdown hook" line.
-* **`Reflection.resetIllegalAccessLogger()`**
-  (`application/src/main/java/org/unigrid/hedgehog/model/util/Reflection.java`) tries to null out
-  `jdk.internal.module.IllegalAccessLogger.logger` through `sun.misc.Unsafe`. On Java 17 that class no
-  longer exists, so the `Class.forName` fails, the method logs `Unable to choke IllegalAccessLoger`
-  and returns — it is effectively a no-op on the supported JDK, kept for older runtimes. The muted
-  stdout is what keeps that warning invisible.
 * **Verbosity.** `ApplicationLogLevel.configure(0)` sets the Logback root logger to `OFF` before
   parsing, so a run with no `-v` is silent. `-v/--verbose` is declared on a *setter*
   (`Hedgehog.setVerbose(boolean[])`) with `scope = INHERIT`, so picocli calls it during parsing at any
@@ -414,7 +405,7 @@ sequenceDiagram
     participant S as P2PServer and RestServer
     participant R as UtilResource
 
-    M->>M: mute stdout, resetIllegalAccessLogger, configure 0, restore stdout
+    M->>M: mute stdout, configure 0, restore stdout
     M->>P: execute args
     P->>D: run, inherited from CDIContext
     D->>W: SeContainerInitializer with EagerExtension, initialize
@@ -610,7 +601,7 @@ enum, used by `@Lock`.
 | `VoidFunction` / `VoidFunctionE` | `model/function/` | No-arg, void functional interfaces; the `E` variant declares a checked exception |
 | `ApplicationLogLevel` | `model/util/ApplicationLogLevel.java` | Verbosity to Logback level mapping and root logger configuration |
 | `ExceptionUtil` | `model/util/ExceptionUtil.java` | `swallow(function, exceptions...)` — runs a `VoidFunctionE`, logs the listed exception types at trace level and rethrows everything else |
-| `Reflection` | `model/util/Reflection.java` | `resetIllegalAccessLogger()`, `getDeclaredFieldsWithParents()`, `getConstructor()` (accessible), `invoke()`, `getFieldValue()` |
+| `Reflection` | `model/util/Reflection.java` | `getDeclaredFieldsWithParents()`, `getConstructor()` (accessible), `invoke()`, `getFieldValue()` |
 | `ApplicationDirectory` | `common/.../ApplicationDirectory.java` | Per-user data/config/cache/log directories via `net.harawata:appdirs` |
 | `Version` | `common/.../Version.java` | Reads `application.properties`, exposes author/name/version and sets the banner system properties |
 
@@ -684,9 +675,6 @@ fields from `CDI.current()` in its `@PostConstruct`.
 
 Collected here so they are not a surprise while reading the code:
 
-- **`Reflection.resetIllegalAccessLogger()` cannot work on Java 17.** The class it targets,
-  `jdk.internal.module.IllegalAccessLogger`, was removed from the JDK, so the method always logs
-  `Unable to choke IllegalAccessLoger` and returns. It is kept for older runtimes.
 - **The Jersey base URI and the REST bind port are computed separately.** `AbstractServer.allocate(...)`
   picks a free port for the URI handed to Jersey while `RestServer` binds the socket to
   `RestOptions.getPort()`; when that port is occupied the bind fails outright rather than moving to

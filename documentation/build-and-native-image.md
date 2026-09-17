@@ -48,14 +48,11 @@ rule resolves the API at the version `logback-classic` happens to depend on rath
 `jul-to-slf4j` was compiled against.
 
 Central pinning is not uniform. `native-image/pom.xml:15` declares its own
-`<graal.version>22.3.0</graal.version>` property, which is the single point that drives the
-`org.graalvm.sdk:graal-sdk` and `org.graalvm.nativeimage:svm` dependency versions, Arthur's
-`<graalVersion>${graal.version}.r17</graalVersion>`, the Windows GraalVM download URL and the Windows
-`native-image.cmd`/`gu.cmd` paths — bumping GraalVM is a one-line change inside `native-image`.
-`application/pom.xml:61-65` pins `org.graalvm.sdk:graal-sdk` at a separate literal `22.3.0` that the
-property does not reach, so a GraalVM bump is really two edits. The annotation processor versions,
-by contrast, are hard-coded per module and duplicated (see *Compiler and annotation processors*
-below).
+`<graal.version>25.0.2</graal.version>` property, which is the single point that drives the
+`org.graalvm.sdk:nativeimage` dependency version — the only GraalVM artifact the reactor depends on,
+since `application/pom.xml` needs none. Bumping GraalVM is a one-line change inside `native-image`. The
+annotation processor versions, by contrast, are hard-coded per module and duplicated (see *Compiler and
+annotation processors* below).
 
 The parent also declares an empty `<surefireArgLine />` property, repeated verbatim in every module
 pom. This exists so the `@{surefireArgLine}` late-replacement token in the surefire `argLine`
@@ -71,58 +68,55 @@ flowchart LR
     C --> N
     N -->|tentackle jlink| Z[hedgehog-native-*-jlink.zip<br/>bin/ conf/ cp/ lib/]
     Z -->|BundleFeature embeds| B[hedgehog.bin / hedgehog.exe]
-    N -->|arthur / GraalVM| B
+    N -->|native-maven-plugin / GraalVM| B
 ```
 
 ## The plugin set
 
 Ten plugins are version-managed in the parent's `<pluginManagement>` — release, JaCoCo, build-helper,
-surefire, compiler, assembly, checkstyle, site, project-info-reports and socomo. Each module then
-re-declares the ones it wants in its own `<build><plugins>`, and a module that does not re-declare a
-managed plugin does not run it.
+surefire, compiler, assembly, checkstyle, site, project-info-reports and socomo.
+`maven-enforcer-plugin` is declared directly in the parent's `<build><plugins>` instead, which runs it
+for every module without a re-declaration. Each module then re-declares the plugins it wants from
+`<pluginManagement>` in its own `<build><plugins>`, and a module that does not re-declare a managed
+plugin does not run it.
 
 Re-declaration is not uniform, and it is not configuration-free:
 
 - Bare re-declarations that simply inherit the managed configuration: checkstyle, site and
-  project-info-reports in all three modules, plus JaCoCo and build-helper in `common`
-  (`common/pom.xml:42-49`) and `native-image` (`native-image/pom.xml:150-157`).
-- Re-declarations that carry their own configuration overriding or extending the managed one:
-  surefire, compiler and socomo in all three modules; JaCoCo, build-helper and assembly in
-  `application` (`application/pom.xml:261-424`); assembly in `native-image`.
+  project-info-reports in all three modules; surefire in `common` and `native-image`, which inherit
+  the parent's `argLine` untouched; plus JaCoCo and build-helper in `common` (`common/pom.xml:42-49`)
+  and `native-image` (`native-image/pom.xml:88-95`).
+- Re-declarations that carry their own configuration overriding or extending the managed one: surefire
+  in `application` only, with its own `argLine` and JPMS flag block; compiler in all three modules,
+  though each adds only an `<annotationProcessorPaths>` list; socomo in all three modules, though each
+  adds only the `analyze` execution; JaCoCo, build-helper and assembly in `application`
+  (`application/pom.xml:268-433`); assembly in `native-image`.
 - `maven-release-plugin` is never re-declared by any module. It is managed in the parent only and is
   invoked on demand.
 - `maven-assembly-plugin` is absent from `common`, which produces no fat jar.
 
-The rest (jandex, tentackle-jlink, Arthur, dependency, download, antrun, exec) are declared and
-configured directly in the module that needs them, and PMD and SpotBugs appear only under
-`<reporting>`.
+The rest (jandex, tentackle-jlink, dependency, `native-maven-plugin`) are declared and configured
+directly in the module that needs them, and PMD and SpotBugs appear only under `<reporting>`.
 
 | Plugin | Version | Bound to | Purpose |
 | --- | ---: | --- | --- |
-| `build-helper-maven-plugin` | 3.3.0 | `initialize` (`cpu-count`) | Computes `system.numcores`, the surefire fork count. |
-| `jacoco-maven-plugin` | 0.8.8 | `initialize`/`pre-integration-test`/`verify` | Coverage agent and report. |
-| `maven-surefire-plugin` | 3.0.0-M7 | `test` | Runs the jqwik suite. |
-| `maven-compiler-plugin` | 3.10.1 | `compile` | `release` 17, `showDeprecation`, annotation processors. |
-| `jandex-maven-plugin` | 1.2.3 | `process-classes` | Writes `META-INF/jandex.idx` (application only). |
-| `maven-assembly-plugin` | 3.4.2 | `package` | Fat jar. |
-| `tentackle-jlink-maven-plugin` | 17.12.0.0 | `package` | jlink runtime image (native-image only). |
-| `maven-dependency-plugin` | 3.4.0 | `package` (`properties`) | Exposes `${groupId:artifactId:jar}` paths to Arthur (native-image only). |
-| `download-maven-plugin` | 1.6.8 | `process-resources` (`wget`) | Fetches the GraalVM CE zip (native-image, Windows profile only). |
-| `maven-antrun-plugin` | 3.1.0 | `package` (`run`) | Unzips that GraalVM zip (native-image, Windows profile only). |
-| `exec-maven-plugin` | 3.1.0 | `package` (`exec`) | Runs `gu.cmd install native-image` (native-image, Windows profile only). |
-| `arthur-maven-plugin` | 1.0.5 | `package` | GraalVM `native-image` invocation (native-image only). |
-| `maven-checkstyle-plugin` | 3.1.2 | `verify` (`check`) | Style enforcement — fails the build. |
-| `socomo-maven` | 2.3.1 | `package` (`analyze`) | Package-composition report. |
+| `maven-enforcer-plugin` | 3.6.3 | `validate` (`enforce`) | `requireJavaVersion [25,)` — refuses to build below JDK 25. |
+| `build-helper-maven-plugin` | 3.6.2 | `initialize` (`cpu-count`) | Computes `system.numcores`, the surefire fork count. |
+| `jacoco-maven-plugin` | 0.8.15 | `initialize`/`pre-integration-test`/`verify` | Coverage agent and report. |
+| `maven-surefire-plugin` | 3.6.0 | `test` | Runs the jqwik suite. |
+| `maven-compiler-plugin` | 3.16.0 | `compile` | `release` from the parent's `maven.compiler.release` (25), `showDeprecation`, annotation processors. |
+| `jandex-maven-plugin` (`io.smallrye`) | 3.6.0 | `process-classes` | Writes `META-INF/jandex.idx` (application only). |
+| `maven-assembly-plugin` | 3.8.0 | `package` | Fat jar. |
+| `tentackle-jlink-maven-plugin` | 25.19.0.0 | `package` | jlink runtime image (native-image only). |
+| `maven-dependency-plugin` | 3.4.0 | `package` (`properties`) | Exposes `${groupId:artifactId:jar}` paths to the native-image classpath (native-image only). |
+| `native-maven-plugin` | 1.1.13 | `package` (`compile-no-fork`) | GraalVM `native-image` invocation (native-image only). |
+| `maven-checkstyle-plugin` | 3.6.0 | `verify` (`check`) | Style enforcement — fails the build. |
+| `socomo-maven` | 2.4.0 | `package` (`analyze`) | Package-composition report. |
 | `maven-release-plugin` | 3.0.0 | on demand | Release/tag conventions. |
 | `maven-site-plugin` | 3.12.0 | `site` | Site generation. |
 | `maven-project-info-reports-plugin` | 3.3.0 | `site` | Site reports. |
 | `maven-pmd-plugin` | 3.16.0 | `<reporting>` only | PMD report during `mvn site`. |
-| `spotbugs-maven-plugin` | 4.6.0.0 | `<reporting>` only | SpotBugs report during `mvn site`. |
-
-The three Windows-only plugins are a two-part declaration: their executions live in a
-`<pluginManagement>` block inside the `Windows` profile (`native-image/pom.xml:42-97`), while
-`<build><plugins>` carries only the bare artifact plus version (`native-image/pom.xml:232-246`). On a
-non-Windows host the bare declarations therefore contribute no executions and the plugins do nothing.
+| `spotbugs-maven-plugin` | 4.10.4.1 | `<reporting>` only | SpotBugs report during `mvn site`. |
 
 ### Fork count and the JMockit agent
 
@@ -135,21 +129,24 @@ JVMs run concurrently. Fresh forks matter here: the suite mutates static state (
 holders, `NetworkKey`, the Weld container registry) and JMockit's `MockUp` instrumentation is
 process-global.
 
-Every module's surefire `argLine` starts with the same three entries:
+Every module's effective surefire `argLine` starts with the same four entries — literal in the
+parent's `<pluginManagement>`, which `common` and `native-image` inherit bare, and repeated in
+`application/pom.xml`'s own override:
 
 ```
 @{surefireArgLine}
--javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/1.49.3/jmockit-1.49.3.jar
+-javaagent:"${settings.localRepository}"/com/github/hazendaz/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
 -Dorg.jboss.netty.debug=true
+--enable-native-access=ALL-UNNAMED
 ```
 
-`@{surefireArgLine}` is the late-replacement token JaCoCo's `prepare-agent` fills in.
-The JMockit javaagent path is hard-coded against `${settings.localRepository}`, which is why
-`com.github.hazendaz.jmockit:jmockit:1.49.3` is also declared as a normal `test` dependency — the
-dependency makes Maven download the jar to the exact coordinate the `-javaagent` path expects.
-Changing the JMockit version means editing the version in five places: the four surefire `argLine`
-blocks (`pom.xml:126`, `common/pom.xml:57`, `application/pom.xml:306`, `native-image/pom.xml:165`)
-plus the `application` test dependency (`application/pom.xml:203-208`).
+`@{surefireArgLine}` is the late-replacement token JaCoCo's `prepare-agent` fills in. The JMockit
+javaagent path is hard-coded against `${settings.localRepository}`, but the version comes from the
+single parent property `jmockit.version`, so a JMockit bump is one edit; the `application` test
+dependency on `com.github.hazendaz.jmockit:jmockit` reads the same property, which is what makes Maven
+download the jar to the exact coordinate the `-javaagent` path expects.
+`--enable-native-access=ALL-UNNAMED` quiets the native-access warnings the JVM would otherwise print
+for the JMockit agent and the QUIC/Netty native bindings.
 
 Surefire also sets `<trimStackTrace>false</trimStackTrace>` and the system property
 `testoutput.target=${project.build.directory}`, which `TestFileOutput` reads (see below).
@@ -158,8 +155,8 @@ Surefire also sets `<trimStackTrace>false</trimStackTrace>` and the system prope
 
 `application/pom.xml` replaces the inherited surefire configuration wholesale and appends 47 JPMS
 flags — 36 `--add-opens`, nine `--add-exports` and two `--add-reads` — plus
-`<enableAssertions>true</enableAssertions>` (the flags at `application/pom.xml:304-355`,
-`enableAssertions` at `application/pom.xml:362`). This block is the single place where the module
+`<enableAssertions>true</enableAssertions>` (the flags at `application/pom.xml:311-365`,
+`enableAssertions` at `application/pom.xml:373`). This block is the single place where the module
 boundaries declared in `application/src/main/java/module-info.java` are opened up, and both
 [Architecture overview](architecture.md) and
 [CDI container and component lifecycle](cdi-and-lifecycle.md) refer back to it.
@@ -202,8 +199,8 @@ the `common`/`native-image` surefire blocks carry no JPMS flags at all — neith
 
 ### JaCoCo
 
-Three executions, declared in the parent's `<pluginManagement>` (`pom.xml:66-100`) and repeated in
-`application` (`application/pom.xml:261-299`); `common` and `native-image` declare the plugin bare and
+Three executions, declared in the parent's `<pluginManagement>` (`pom.xml:103-142`) and repeated in
+`application` (`application/pom.xml:268-306`); `common` and `native-image` declare the plugin bare and
 inherit them:
 
 | Execution id | Goal | Phase | Effect |
@@ -222,32 +219,29 @@ Both `prepare-agent` executions use `<append>true</append>`, which is what makes
 
 ### Compiler and annotation processors
 
-`maven-compiler-plugin` 3.10.1 is version-managed in the parent and re-declared with configuration in
-every module: `<release>17</release>` and `<showDeprecation>true</showDeprecation>` everywhere, plus
-an `<annotationProcessorPaths>` list in `application` and `common`.
+`maven-compiler-plugin` 3.16.0 is version-managed in the parent, where `<showDeprecation>true</showDeprecation>`
+is configured once and `release` comes from the parent's `maven.compiler.release` property (`25`)
+rather than a per-module `<release>` tag. Each module then re-declares the plugin with only an
+`<annotationProcessorPaths>` list.
 
 | Module | Processor path | Version |
 | --- | --- | ---: |
-| `application` | `org.projectlombok:lombok` | 1.18.24 |
-| `application` | `info.picocli:picocli-codegen` | 4.7.0 |
-| `common` | `org.projectlombok:lombok` | 1.18.24 |
-| `native-image` | *(none)* | — |
+| `application` | `org.projectlombok:lombok` | `${lombok.version}` (1.18.48) |
+| `application` | `info.picocli:picocli-codegen` | `${picocli.version}` (4.7.7) |
+| `common` | `org.projectlombok:lombok` | `${lombok.version}` (1.18.48) |
+| `native-image` | `org.projectlombok:lombok` | `${lombok.version}` (1.18.48) |
 
 Declaring `annotationProcessorPaths` at all is what makes Lombok run under JPMS compilation, where a
-processor found on the plain classpath would not be picked up. Two version traps live here, both of
-the same kind the JMockit agent path suffers from:
-
-- The Lombok processor version is hard-coded as `1.18.24` in `application/pom.xml:388-392` and
-  `common/pom.xml:75-79` rather than taken from the parent `<dependencyManagement>`, which pins the
-  same `1.18.24` for the compile-scope dependency. The three copies can drift apart silently.
-- `info.picocli:picocli-codegen` is pinned at `4.7.0` (`application/pom.xml:393-397`) while the
-  `info.picocli:picocli` runtime dependency is `4.7.3` (`application/pom.xml:66-70`). The codegen
-  processor and the library it generates metadata for are therefore a patch release apart.
+processor found on the plain classpath would not be picked up; `native-image` carries the same
+declaration for a second reason — JDK 23 and later no longer run an annotation processor that sits only
+on the classpath, so once a module targets JDK 23+ the processor path is mandatory, not merely a JPMS
+nicety. Every processor version above is a reference to the parent's `${lombok.version}`/`${picocli.version}`
+properties, so bumping either dependency is a single edit.
 
 ### Checkstyle
 
-`checkstyle.xml` at the repository root, enforced by `maven-checkstyle-plugin` running Checkstyle
-`9.3`. The `check` goal binds to `verify` by default, so `mvn install` and `mvn verify` fail on a
+`checkstyle.xml` at the repository root, enforced by `maven-checkstyle-plugin` 3.6.0 running Checkstyle
+`14.1.0`. The `check` goal binds to `verify` by default, so `mvn install` and `mvn verify` fail on a
 violation while `mvn test` does not. `configLocation` is the relative path `../checkstyle.xml`, which
 resolves correctly only for modules exactly one directory below the root. `**/module-info.java` is
 excluded.
@@ -313,10 +307,12 @@ the `all-java.xml` aggregate and once through its `design` category — with dif
 
 ### Socomo
 
-`pl.gdela:socomo-maven` 2.3.1, declared everywhere with an explicit `org.ow2.asm:asm:9.1` plugin
-dependency that overrides the version socomo would otherwise resolve. The `analyze` goal binds to
-`package` in all three modules (`application/pom.xml:452-469`, `common/pom.xml:97-115`,
-`native-image/pom.xml:306-323`) and writes a `socomo.html` package-composition diagram next to the
+`pl.gdela:socomo-maven` 2.4.0, version-managed in the parent's `<pluginManagement>` with an explicit
+`org.ow2.asm:asm:9.10.1` plugin dependency that overrides the version socomo would otherwise resolve.
+That `<dependencies>` override lives only in the parent; each module's own re-declaration is bare,
+carrying just the `analyze` execution and no `<dependencies>` block of its own. The `analyze` goal binds
+to `package` in all three modules (`application/pom.xml:461-471`, `common/pom.xml:81-91`,
+`native-image/pom.xml:219-229`) and writes a `socomo.html` package-composition diagram next to the
 module pom. The `.gitignore` pattern `socomo.html` has no leading slash, so it matches at any depth: a
 `socomo.html` from an earlier run may sit next to each of `application/`, `common/` and
 `native-image/` in a working tree, untracked.
@@ -354,12 +350,12 @@ descriptorRef rather than the custom descriptor.
 
 ### Jandex
 
-`org.jboss.jandex:jandex-maven-plugin:1.2.3`, goal `jandex`, default phase `process-classes`, writes
+`io.smallrye:jandex-maven-plugin:3.6.0`, goal `jandex`, default phase `process-classes`, writes
 `application/target/classes/META-INF/jandex.idx` (~54 KB) and therefore `META-INF/jandex.idx` inside
 both jars. Weld SE's `weld-environment-common` ships a `JandexDiscoveryStrategy` that consumes such an
-index instead of reflectively scanning the bean archive. `org.jboss:jandex:3.0.5` is declared as a
-compile-scope dependency of `application` so the index reader is present at runtime; the coordinate is a
-relocation and the jar that actually lands is `io.smallrye:jandex`. See
+index instead of reflectively scanning the bean archive. `io.smallrye:jandex:3.0.5` is declared as a
+compile-scope dependency of `application` so the index reader is present at runtime — both the library
+and the plugin moved off the old `org.jboss` coordinates onto their `io.smallrye` successors. See
 [CDI container and component lifecycle](cdi-and-lifecycle.md) for how discovery is configured.
 
 ### Release conventions
@@ -431,8 +427,9 @@ launcher gets the same filtered `application.properties`.
 
 ## Everyday commands
 
-All commands are run from the repository root unless stated otherwise. Java 17+ and Maven are the only
-hard prerequisites for the jar builds.
+All commands are run from the repository root unless stated otherwise. Java 25 and Maven are the only
+hard prerequisites for the jar builds; the native build additionally needs `GRAALVM_HOME` pointing at
+a GraalVM 25.
 
 ```sh
 # Full reactor build: compile, test, checkstyle, jars and the native executable
@@ -520,8 +517,7 @@ no profile selects it, so ARM Linux hosts are not covered.
 | Dependency | Version | Used for |
 | --- | ---: | --- |
 | `org.unigrid.hedgehog:hedgehog-common` | project | `ApplicationDirectory`, `Version`. |
-| `org.graalvm.sdk:graal-sdk` | 22.3.0 | Declared and `requires`d in `module-info.java`, but nothing under `application/src` imports `org.graalvm` — it is the `native-image` module that needs the SDK. |
-| `info.picocli:picocli` | 4.7.3 | The entire CLI: commands, mixins, option classes, the ASCII header. |
+| `info.picocli:picocli` | `${picocli.version}` (4.7.7) | The entire CLI: commands, mixins, option classes, the ASCII header — the same property that `picocli-codegen` (below) reads, so the runtime library and its codegen processor never drift apart. |
 | `me.alexpanov:free-port-finder` | 1.1.1 | `FreePortFinder.findFreeLocalPort(...)` in `server/AbstractServer.java`, and in `TestServer` to give each test server a free port. |
 | `commons-codec:commons-codec` | 1.15 | `Hex`, `DigestUtils` in the crypto and spork code. |
 | `org.apache.commons:commons-collections4` | 4.4 | `AbstractMapDecorator`, `MapUtils` in the network model. |
@@ -540,7 +536,7 @@ no profile selects it, so ARM Linux hosts are not covered.
 | `io.netty:netty-all` | 4.1.137.Final | Declared with a wildcard `<exclusion>` of everything transitive. Since 4.1.x the `netty-all` artifact is a 4 KB aggregator jar holding only manifest entries, so with its transitives excluded this declaration contributes nothing to the classpath; the Netty classes arrive through `netty-codec-http` and the QUIC binding instead. |
 | `io.netty:netty-codec-http` | 4.1.137.Final | Re-added explicitly because the wildcard exclusion above strips it; required by the Jersey Netty container. |
 | `org.bouncycastle:bcpkix-jdk18on` / `bcprov-jdk18on` | 1.85 | No source file imports BouncyCastle; they provide the certificate-generation backend Netty's `SelfSignedCertificate` picks up at runtime, in `P2PServer` (`application/src/main/java/org/unigrid/hedgehog/server/p2p/P2PServer.java:79`) for QUIC and in `RestServer` (`application/src/main/java/org/unigrid/hedgehog/server/rest/RestServer.java:97`) for TLS. |
-| `org.jboss:jandex` | 3.0.5 | Runtime reader for the `META-INF/jandex.idx` index used by Weld discovery. |
+| `io.smallrye:jandex` | 3.0.5 | Runtime reader for the `META-INF/jandex.idx` index used by Weld discovery. |
 | `ch.qos.logback:logback-classic` | managed | Logging backend; `ApplicationLogLevel` drives it directly. |
 | `org.slf4j:jul-to-slf4j` | managed | Bridges `java.util.logging` (Jersey, JDK internals) onto SLF4J. |
 | `com.evolvedbinary.j8fu:j8fu` | 1.23.0 | `TriConsumer`. Compile-scoped and `requires`d, but only `WeldHook` in the test tree uses it. |
@@ -550,12 +546,13 @@ Test scope:
 
 | Dependency | Version | Used for |
 | --- | ---: | --- |
-| `com.github.hazendaz.jmockit:jmockit` | 1.49.3 | `MockUp`, `@Mocked`, `@Tested`, `Expectations` — the mocking layer, loaded as a javaagent. |
-| `net.jqwik:jqwik` | 1.7.2 | Property-based testing; also supplies the JUnit Platform engine surefire drives. |
-| `com.shazam:shazamcrest` | 0.11 | `sameBeanAs()` — full-object-graph comparison in the codec integrity tests. |
+| `com.github.hazendaz.jmockit:jmockit` | `${jmockit.version}` (1.56.0) | `MockUp`, `@Mocked`, `@Tested`, `Expectations` — the mocking layer, loaded as a javaagent. |
+| `net.jqwik:jqwik` | 1.10.1 | Property-based testing; also supplies the JUnit Platform engine surefire drives. |
+| `com.shazam:shazamcrest` | 0.11 | `sameBeanAs()` — full-object-graph comparison in the codec integrity tests; pulls JUnit 4.11 in transitively. |
+| `junit:junit` | 4.13.2, managed | Not used directly; pinned in the parent above shazamcrest's transitive 4.11 because surefire 3.6.0 refuses anything older than 4.12. |
 | `com.github.javafaker:javafaker` | 1.0.2 | Declared; no source file imports it. |
 | `org.awaitility:awaitility` | 4.2.0 | `await().untilAtomic(...)` for the asynchronous network tests; also the transitive source of Hamcrest on the test classpath. |
-| `org.jacoco:org.jacoco.agent` (classifier `runtime`) | 0.8.8 | Coverage agent artifact. |
+| `org.jacoco:org.jacoco.agent` (classifier `runtime`) | `${jacoco.version}` (0.8.15) | Coverage agent artifact. |
 | `commons-io:commons-io` | 2.20.0 | `FileUtils` in `TestFileOutput`. |
 | `io.findify:s3mock_2.13` | 0.2.6 | In-memory S3 server the storage-bucket/object tests compare Hedgehog's own S3 surface against. |
 
@@ -578,23 +575,22 @@ directory at all.
 
 | Dependency | Version | Used for |
 | --- | ---: | --- |
-| `org.graalvm.sdk:graal-sdk` | 22.3.0 | `Feature`, `RuntimeClassInitialization`, `RuntimeResourceAccess`, the `@CContext`/`@CFunction` JNI-free C interface. |
-| `org.graalvm.nativeimage:svm` | 22.3.0 | `@TargetClass`/`@Substitute` — required for `ShellFolderResolverPatch`. |
+| `org.graalvm.sdk:nativeimage` | 25.0.2 | `provided` scope. `Feature`, `RuntimeClassInitialization`, `RuntimeResourceAccess`, the `@CContext`/`@CFunction` JNI-free C interface, and the `com.oracle.svm.core.annotate.@TargetClass`/`@Substitute` pair `ShellFolderResolverPatch` uses — one artifact now covers what `graal-sdk` and `svm` used to split between them. |
 | `org.unigrid.hedgehog:hedgehog` | project | The application the jlink image runs. |
 | `org.unigrid.hedgehog:hedgehog-common` | project | `ApplicationDirectory`, `Version` inside the launcher. |
 | `org.apache.commons:commons-compress` | 1.28.0 | `ZipFile`, `SeekableInMemoryByteChannel` for unpacking the embedded jlink zip. |
 | `org.apache.commons:commons-exec` | 1.3 | `CommandLine`, `DefaultExecutor`, `ExecuteWatchdog`, `OS` for spawning the runner script. |
 | `net.harawata:appdirs` | managed | Where the jlink image is unpacked. |
 
-Both GraalVM coordinates read their version from the module's own `<graal.version>` property rather
-than from the parent, which is why they always move together with Arthur's `graalVersion` and the
-Windows download URL.
+Being `provided` rather than compile scope keeps `org.graalvm.sdk:nativeimage` out of the jlink `cp/`
+directory — the SDK is needed to compile the launcher and to run `native-image` against it, never at
+runtime, so the bundled JVM does not carry it.
 
 ## The test stack
 
 Tests live only in `application/src/test/java`. There is no JUnit 4/5 test class in the tree — every
 test is a jqwik `@Property` or `@Example`. jqwik registers a JUnit Platform `TestEngine`, which is what
-surefire 3.0.0-M7 auto-detects and runs.
+surefire 3.6.0 auto-detects and runs.
 
 ### `application/src/test/resources/logback.xml`
 
@@ -1015,17 +1011,15 @@ Plugins bound to `package` execute in pom declaration order:
 
 1. `maven-assembly-plugin` → `hedgehog-native-<version>-jar-with-dependencies.jar`.
 2. `tentackle-jlink-maven-plugin` → `target/jlink/` plus `target/hedgehog-native-<version>-jlink.zip`.
-3. `maven-dependency-plugin:properties` → defines `${groupId:artifactId:jar}` properties so the Arthur
-   `<classpath>` block can name individual jars.
-4. *(Windows only)* `maven-antrun-plugin` unzips the downloaded GraalVM, then `exec-maven-plugin` runs
-   `gu.cmd install native-image`.
-5. `arthur-maven-plugin:native-image` → `target/hedgehog.bin` or `target/hedgehog.exe`.
-6. `socomo-maven:analyze`.
+3. `maven-dependency-plugin:properties` → defines `${groupId:artifactId:jar}` properties so the
+   `native-maven-plugin` `<classpath>` block below can name individual jars.
+4. `native-maven-plugin:compile-no-fork` → `target/hedgehog.bin` or `target/hedgehog.exe`.
+5. `socomo-maven:analyze`.
 
-On Windows, `download-maven-plugin:wget` has already run at `process-resources`, fetching
-`https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-22.3.0/graalvm-ce-java17-windows-amd64-22.3.0.zip`
-into `target/download/graal.zip`. Both `22.3.0` occurrences in that URL are `${graal.version}`
-interpolations, as are the version segments of the `native-image.cmd` and `gu.cmd` paths below.
+Nothing downloads or unzips GraalVM anymore. `native-maven-plugin` resolves the `native-image` binary
+itself, checking the Maven toolchain first, then `GRAALVM_HOME`, then `JAVA_HOME`, then `PATH`; this
+project relies on `GRAALVM_HOME` pointing at a GraalVM 25 installation, which is why Maven itself can
+run on any plain JDK 25 while the native build still needs GraalVM specifically.
 
 The jlink configuration is short:
 
@@ -1049,46 +1043,39 @@ path) — it is only exercised by compilation and by the test JVMs.
 
 ### Per-OS profiles
 
-| Profile | `executable.name` | `extraNativeOption` | `arthur.nativeImage` |
-| --- | --- | --- | --- |
-| `Linux` (`<os><name>Linux</name>`) | `hedgehog.bin` | `-H:+StaticExecutableWithDynamicLibC` | *(unset — Arthur downloads GraalVM into the local repository)* |
-| `Windows` (`<os><family>Windows</family>`) | `hedgehog` | `-DNOP=true` | `target\unziped\graalvm-ce-java17-22.3.0\bin\native-image.cmd` |
-| `MacOS` (`<os><family>Mac</family>`) | `hedgehog.bin` | `-DNOP=true` | `native-image` (from `PATH`); also sets `arthur.buildStaticImage=false` |
+| Profile | `executable.name` |
+| --- | --- |
+| `Linux` (`<os><name>Linux</name>`) | `hedgehog.bin` |
+| `Windows` (`<os><family>Windows</family>`) | `hedgehog` |
+| `MacOS` (`<os><family>Mac</family>`) | `hedgehog.bin` |
 
-`-DNOP=true` is a deliberate no-op standing in for "no extra option" — `<customOption>` is a list
-element that cannot simply be empty. The Windows profile sets `executable.name` to `hedgehog` while the
-workflow uploads `hedgehog.exe`; the suffix comes from the Windows `native-image` driver, not from the
-pom. The `Windows` and `MacOS` profiles also define a `<platform>` property (`windows`, `macosx64`) that
-is not referenced anywhere.
+The profiles now set only `executable.name`; the Windows profile's value is `hedgehog` while the
+workflow uploads `hedgehog.exe`, the suffix coming from the Windows `native-image` driver, not from the
+pom. The only other per-OS behavior is on `Linux`, which appends `--static-nolibc` to the shared build
+args below via `<buildArgs combine.children="append">`.
 
-Arthur is configured with `<main>org.unigrid.hedgehog.nativeimage.NativeImage</main>`,
-`<graalVersion>${graal.version}.r17</graalVersion>` (`22.3.0.r17`), `allowIncompleteClasspath`, an explicit thirteen-entry
-`<classpath>` (graal-sdk, commons-compress/lang3/exec/io, appdirs, slf4j, logback, JNA, hedgehog-common and
-this module's `target/classes`) and these custom options:
+`native-maven-plugin` is configured with `<imageName>${executable.name}</imageName>`,
+`<mainClass>org.unigrid.hedgehog.nativeimage.NativeImage</mainClass>`, `metadataRepository` disabled,
+and an explicit twelve-entry `<classpath>` — `target/classes` plus eleven jars (`hedgehog-common`,
+`commons-compress`, `commons-lang3`, `commons-exec`, `commons-io`, `appdirs`, `slf4j-api`,
+`logback-core`, `logback-classic`, `jna-platform`, `jna`). The plugin's default classpath would carry
+the whole reactor — including the `application` jar and the picocli-generated reflection metadata it
+drags in — into the image, so it is replaced outright with only what the launcher needs. The shared
+build args are:
 
 ```
---add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core=ALL-UNNAMED
---add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.core.jdk=ALL-UNNAMED
---add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted=ALL-UNNAMED
---add-exports=org.graalvm.nativeimage.builder/com.oracle.svm.hosted.c=ALL-UNNAMED
 --features=org.unigrid.hedgehog.nativeimage.BundleFeature
--H:IncludeResources=application.properties
-${extraNativeOption}
+-march=compatibility
+-H:+ReportExceptionStackTraces
 ```
 
-The four `--add-exports` open four packages of the `org.graalvm.nativeimage.builder` module to the
-unnamed module the build runs in: `com.oracle.svm.core`, `com.oracle.svm.core.jdk`,
-`com.oracle.svm.hosted` and `com.oracle.svm.hosted.c`. They are what let the image builder itself
-process this module's code; the `com.oracle.svm.core.annotate` package that `ShellFolderResolverPatch`
-imports (`@Substitute`, `@TargetClass`) is not among them and comes from the
-`org.graalvm.nativeimage:svm` compile dependency in the table above.
-`-H:IncludeResources=application.properties` embeds the filtered property file into the executable
-itself so `Version`/`ApplicationDirectory` work inside the launcher, before anything has been
-unpacked.
-
-The `<otherFiles>` element pointing at the jlink zip is inert for this goal: `otherFiles` is a parameter
-of Arthur's `image` and `docker` goals, not of `native-image`. The zip reaches the image via
-`BundleFeature` instead.
+and the `Linux` profile appends `--static-nolibc`. No `--add-exports` is needed: `BundleFeature` and
+`ShellFolderResolverPatch` reach `com.oracle.svm.core.annotate` and the other `com.oracle.svm`
+internals they use directly through the `org.graalvm.sdk:nativeimage` compile dependency, with no
+builder-internal package needing to be opened by hand. `application.properties` reaches the image
+through `native-image/src/main/resources/META-INF/native-image/org.unigrid.hedgehog/hedgehog-native/resource-config.json`,
+a resource-config entry that includes it by name, rather than through a `-H:IncludeResources` build
+argument.
 
 ### `BundleFeature` — build time
 
@@ -1103,18 +1090,19 @@ of Arthur's `image` and `docker` goals, not of `native-image`. The zip reaches t
    `hash` is `MessageDigest.getInstance("SHA")` (SHA-1) rendered with `HexFormat`.
 4. `RuntimeResourceAccess.addResource(getClass().getModule(), fileName, data)` — the zip becomes a
    resource of the image.
-5. `RuntimeClassInitialization.initializeAtBuildTime(...)` for `Level`, `Loader`, `Logger`,
-   `NativeProperties`, `OS`, `StatusBase`, `StatusPrinter`, `Version` and the packages
-   `"org.apache.commons.compress"`, `"org.apache.commons.io"` and `"org.slf4j"` — i.e. Logback, SLF4J,
-   Commons Compress and the Commons IO it delegates to are folded into the image
-   heap, and `NativeProperties`' static fields are frozen with the values set in steps 3–4.
+5. `RuntimeClassInitialization.initializeAtBuildTime(...)` for `NativeProperties`, `OS` and `Version`
+   individually, plus the whole `"ch.qos.logback"`, `"org.apache.commons.compress"`,
+   `"org.apache.commons.io"` and `"org.slf4j"` packages — Logback, SLF4J, Commons Compress and the
+   Commons IO it delegates to are folded into the image heap this way, and `NativeProperties`' static
+   fields are frozen with the values set in steps 3–4. Logback is initialized package-wide rather than
+   by naming individual classes because the GraalVM 25 builder rejects `LogbackServiceProvider` in the
+   image heap otherwise.
 
-The `catch` covers `IllegalStateException | IOException` only
-(`native-image/src/main/java/org/unigrid/hedgehog/nativeimage/BundleFeature.java:109-113`): either one
-prints `Failed to bundle required resources for archive` and calls `System.exit(0)` — a zero exit code
-on failure, which will not stop a build. Anything else thrown out of `duringSetup`, for instance from
-`RuntimeResourceAccess.addResource` or `RuntimeClassInitialization`, propagates and does fail the
-image build.
+The `catch` covers `IOException` only, and wraps it in a thrown `IllegalStateException("Failed to
+bundle the jlink image into the launcher", ex)`. Nothing here swallows a failure: whether it is
+`findJlinkArchive()`'s own `IllegalStateException` for a missing archive, an `IOException` reading it,
+or anything `RuntimeResourceAccess.addResource`/`RuntimeClassInitialization` throw, every failure path
+out of `duringSetup` propagates and fails the image build.
 
 ### `NativeProperties`
 
@@ -1237,11 +1225,13 @@ is only ever produced by `IIDFromString` and consumed by `SHGetKnownFolderPath`.
 
 ### Artifact size
 
-The executable embeds the entire jlink zip, which in turn embeds a stripped JDK 17 runtime plus one jar
-per runtime dependency in `cp/`. A Linux build in this tree produced roughly a 35 MB fat jar, a 76 MB
-jlink zip and a 109 MB `hedgehog.bin`, and the launcher expands on the order of 175 MB into the user
-data directory on first run. Budget accordingly on constrained hosts, and note that a new build means a
-new SHA-1 and therefore a second unpacked copy alongside the old one.
+The executable embeds the entire jlink zip, which in turn embeds a stripped JDK 25 runtime plus one jar
+per runtime dependency in `cp/` — GraalVM itself is no longer among them, since `org.graalvm.sdk:nativeimage`
+is a `provided`-scope dependency and never reaches the runtime classpath. A Linux build in this tree
+produced roughly a 35 MB fat jar, a 76 MB jlink zip and a 109 MB `hedgehog.bin`, and the launcher
+expands on the order of 175 MB into the user data directory on first run. Budget accordingly on
+constrained hosts, and note that a new build means a new SHA-1 and therefore a second unpacked copy
+alongside the old one.
 
 ## Continuous integration
 
@@ -1251,43 +1241,43 @@ outputs as run artefacts. A manual run takes two inputs: `skip-tests`, and an op
 something other than the branch it was started from — needed to rebuild an old tag, since only refs that
 carry `release.yml` can be dispatched.
 
-| Job | Runner | Build command | Artifact |
+| Job | Runner(s) | Build command | Artifact |
 | --- | --- | --- | --- |
 | Jar and tests | `ubuntu-22.04` | `mvn -B -ntp -pl common,application verify` | `hedgehog-jar` ← `application/target/hedgehog-*-jar-with-dependencies.jar` |
-| Native linux-x86_64 | `ubuntu-22.04` | `mvn -B -ntp package -DskipTests` | `hedgehog-linux-x86_64` ← `native-image/target/hedgehog.bin` |
-| Native macos-x86_64 | `macos-15-intel` | `mvn -B -ntp package -DskipTests` | `hedgehog-macos-x86_64` ← `native-image/target/hedgehog.bin` |
-| Native macos-aarch64 | `macos-15` | `mvn -B -ntp package -DskipTests` | `hedgehog-macos-aarch64` ← `native-image/target/hedgehog.bin` |
-| Native windows-x86_64 | `windows-2022` | `mvn -B -ntp package -DskipTests` | `hedgehog-windows-x86_64` ← `native-image/target/hedgehog.exe` |
+| Native (matrix) | `ubuntu-22.04`, `macos-15`, `windows-2022` | `mvn -B -ntp package -DskipTests` | `hedgehog-linux-x86_64`, `hedgehog-macos-aarch64`, `hedgehog-windows-x86_64` ← `native-image/target/hedgehog.bin`/`hedgehog.exe` |
 | Draft the release | `ubuntu-latest` | — | the release itself, as a draft |
 
 The jar job is the only one that tests: `verify` on `common` and `application` runs the suite and
 `checkstyle:check` without entering `native-image`. It also reads the version from the pom and, on a
 tag push, refuses to continue unless the tag is `v<version>`, so a tag pushed against a snapshot pom
-fails in seconds rather than producing `-SNAPSHOT` assets. The native jobs form one matrix with
-`fail-fast: false`; each builds on its own OS and architecture because `application/pom.xml` picks the
-netty QUIC native classifier from them — `osx-x86_64` on `macos-15-intel`, the last Intel image GitHub
-offers, which retires in August 2027, and `osx-aarch_64` on `macos-15`, which is Apple Silicon.
+fails in seconds rather than producing `-SNAPSHOT` assets. The native job is one matrix with
+`fail-fast: false` and three targets — `linux-x86_64` (`ubuntu-22.04`), `macos-aarch64` (`macos-15`) and
+`windows-x86_64` (`windows-2022`) — each building on its own OS and architecture because
+`application/pom.xml` picks the netty QUIC native classifier from them. There is no macOS Intel target:
+GraalVM stopped shipping macOS Intel builds after 25.0.1, so an Intel Mac runs the jar instead (see
+*Releases* in the root `README.md`).
 
-Common steps: `actions/checkout@v7`, then `actions/setup-java@v6` with `java-version: '17'`,
-`distribution: temurin` and `cache: maven`. Platform-specific steps:
+Common steps: `actions/checkout@v7`, then `actions/setup-java@v6` with `java-version: '25'`,
+`distribution: temurin` and `cache: maven` — this is the JDK that ends up bundled into the native
+launcher via jlink, not GraalVM. Platform-specific steps:
 
-- **macOS** adds `graalvm/setup-graalvm@v1` with `version: '22.3.0'`, `java-version: '17'` and
-  `components: native-image` — this is what puts `native-image` on `PATH`, which the `MacOS` profile
-  expects.
+- Every native runner additionally runs `graalvm/setup-graalvm@v1` with `distribution:
+  graalvm-community`, `java-version: '25'` and `set-java-home: 'false'`, which puts `native-image` on
+  `PATH`/`GRAALVM_HOME` without moving `JAVA_HOME` off the Temurin JDK above.
 - **Windows** runs `ilammy/msvc-dev-cmd@v1` with `arch: x64` before checkout, supplying the MSVC
   toolchain GraalVM needs.
-- **Linux** installs `zlib1g-dev` for the static link and no GraalVM; Arthur downloads GraalVM CE into
-  the Maven local repository itself.
+- **Linux** additionally installs `build-essential` and `zlib1g-dev`, needed because `--static-nolibc`
+  links zlib statically.
 
 Each native job ends by running the produced binary with no arguments. That is a smoke test only: with
 no subcommand, picocli reports a usage error, which is exactly the exit code `NativeImage.start(...)` is
 written to tolerate.
 
 The draft job runs only for a tag push (`github.event_name == 'push'`, so a manual run started from a
-tag never drafts), holds the workflow's only `contents: write` permission, renames the five outputs to
-`hedgehog-<version>-jar-with-dependencies.jar`, `hedgehog-<version>-x86_64-linux-gnu.bin`,
-`hedgehog-<version>-osx64.bin`, `hedgehog-<version>-osx-arm64.bin` and `hedgehog-<version>-win64.exe`,
-and creates the release as a
+tag never drafts), holds the workflow's only `contents: write` permission, downloads all `hedgehog-*`
+artifacts and renames the four outputs to `hedgehog-<version>-jar-with-dependencies.jar`,
+`hedgehog-<version>-x86_64-linux-gnu.bin`, `hedgehog-<version>-osx-arm64.bin` and
+`hedgehog-<version>-win64.exe`, and creates the release as a
 **draft** with generated notes — or replaces the assets of an existing draft on a re-run. It refuses to
 touch a release that is already published. Publishing, together with the bootstrap and the detached
 signatures, is what `release.sh publish` does on the maintainer's machine, where the release key lives;
@@ -1330,7 +1320,7 @@ directory. The root `README.md` links to all six from a `## Documentation` secti
 | Pattern | What it excludes |
 | --- | --- |
 | `/target`, `/application/target/`, `/common/target/`, `/native-image/target/` | The reactor parent's own `target/` and each module's. Every generated jar, the jlink image and the executable live here. |
-| `/native-image/reports` | The GraalVM build reports Arthur emits during `native-image`. |
+| `/native-image/reports` | The GraalVM build reports `native-maven-plugin` emits during `native-image`. |
 | `socomo.html` | No leading slash, so it matches the package-composition report next to each of the three module poms. |
 | `/nbactions.xml` | A NetBeans build-action definition, present in this working tree, adding a "Clean and Build project (no Tests)" action that runs `clean install` with `skipTests=true`. The leading slash anchors the pattern to the root, so only this copy is untracked — `application/nbactions.xml` and the modules' `nb-configuration.xml` files are tracked project state. |
 | `.jqwik-database` | jqwik's failure database at the working directory root; deleting it costs only the cached previously-falsified samples. |
@@ -1393,24 +1383,14 @@ Collected in one place, all verifiable from the sources cited above.
 - **Nothing runs on a branch push.** `release.yml` runs on tag pushes and on demand, so a commit to
   `master` or a pull request is never built or style-checked automatically. The native jobs use
   `mvn package`, which never reaches `checkstyle:check`; only the jar job's `verify` does.
-- **The JMockit agent path is hard-coded** in four surefire `argLine` blocks (the parent and all three
-  modules) against `${settings.localRepository}`, duplicating the version from the `application` test
-  dependency — five places to edit for one version bump.
-- **Annotation processor versions are hard-coded per module.** Lombok is pinned to `1.18.24` in
-  `application/pom.xml` and `common/pom.xml` independently of the parent `<dependencyManagement>`, and
-  `picocli-codegen` 4.7.0 is a patch release behind the `picocli` 4.7.3 it generates metadata for.
-- **The GraalVM version is pinned twice.** `native-image/pom.xml:15` drives that whole module through
-  `<graal.version>`, but `application/pom.xml:61-65` carries its own literal `22.3.0` for
-  `org.graalvm.sdk:graal-sdk`, out of the property's reach.
 - **`pmd.xml` is referenced as `${project.basedir}/pmd.xml`** in every module's `<reporting>` block, but
   the file only exists at the repository root.
-- **Unused declarations.** `org.graalvm.sdk:graal-sdk` and `com.evolvedbinary.j8fu:j8fu` are compile
-  dependencies of `application` with no main-source usage (j8fu is used by one test class);
-  `com.github.javafaker:javafaker` is a test dependency nothing imports; the `<platform>` properties in
-  the `Windows`/`MacOS` native profiles are never read; `<otherFiles>` on the Arthur `native-image` goal
-  is not a parameter of that goal.
-- **`BundleFeature` exits with status 0 on failure** (`System.exit(0)` in the `catch` block), so a
-  failure to locate or read the jlink archive does not fail the build.
+- **PMD is still PMD 6.** `pmd.xml` targets PMD 6's internal ruleset and XPath 1.0 attributes;
+  `maven-pmd-plugin` stays at 3.16.0 with `targetJdk` 17, which parses the sources because none use
+  post-17 syntax, but the report cannot follow the language until the ruleset is rewritten for PMD 7.
+- **Unused declarations.** `com.evolvedbinary.j8fu:j8fu` is a compile dependency of `application` with
+  no main-source usage (it is used by one test class); `com.github.javafaker:javafaker` is a test
+  dependency nothing imports.
 - **The native launcher's 60-second watchdog** (`WATCHDOG_TIMEOUT_MS`) applies to the wrapped JVM,
   limiting the native binary's usefulness for long-running daemon operation.
 - **`PublishPeersChannelHandlerTest.shoulBeAbleToPingNetwork` is an empty method with its `@Property`
@@ -1437,8 +1417,10 @@ Collected in one place, all verifiable from the sources cited above.
 - **The README's artifact path is slightly off** — it says
   `target/hedgehog-<version>-SNAPSHOT-jar-with-dependencies.jar`, while the file is produced under
   `application/target/` and the project version already carries the `-SNAPSHOT` suffix.
-- **QUIC native classifiers cover x86-64 only** — there is no `linux-aarch_64` or `osx-aarch_64` profile,
-  so ARM hosts have no working `netty-incubator-codec-native-quic` binding.
+- **QUIC native classifiers leave ARM Linux uncovered.** `application/pom.xml` selects
+  `linux-x86_64`, `windows-x86_64`, `osx-x86_64` and `osx-aarch_64` by OS profile; only
+  `linux-aarch_64` has no profile, so an ARM Linux host has no working
+  `netty-incubator-codec-native-quic` binding.
 - **The `@Protected`/`@Lock` interceptor is enabled only under test.** `WeldHook` registers it
   explicitly; the packaged `beans.xml` does not, and `ProtectedInterceptor` carries no `@Priority`. The
   suite therefore exercises locking that the shipped daemon does not have — see

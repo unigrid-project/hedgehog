@@ -33,7 +33,7 @@ In-depth documentation of the codebase lives in [documentation/](documentation/R
 - [Build, testing and native image](documentation/build-and-native-image.md)
 
 ## For developers that want to build Hedgehog
-Hedgehog requires Java 17+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
+Hedgehog requires Java 25+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
 
 > mvn clean install
 
@@ -49,8 +49,10 @@ Native image support is available via the native-image sub-project. Because of p
 
 To build the native image, execute `mvn package` inside the native-image module/project. Depending on the operating system, this will generate an executable `hedgehog.exe` or `hedgehog.bin` file inside `native-image/target/`.
 
+The native build needs a GraalVM 25 installation as well; point `GRAALVM_HOME` at it. Maven itself runs on any JDK 25, which is also the runtime bundled into the executable.
+
 ## Releases
-Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Intel and on Apple Silicon, and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads, and a detached signature (`.asc`) for each of them. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
+Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon, and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads, and a detached signature (`.asc`) for each of them. Intel Macs run the jar. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
 
 > A1CB 0037 B3B9 2D59 5FA1 536C 95A9 8E88 8B0B A5D9
 
