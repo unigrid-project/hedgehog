@@ -78,4 +78,21 @@ public class GridSporkTest extends BaseMockedWeldTest {
 
 		assertThat(gridSpork.isNewerThan(otherGridSpork), is(false));
 	}
+
+	@Example
+	public void shouldOnlyMoveTimeStampForwardOnRenewal() {
+		final Instant signedAt = gridSpork.getTimeStamp().minusSeconds(60);
+		final Instant previouslySignedAt = signedAt.minusSeconds(60);
+		final MintSupply.SporkData data = new MintSupply.SporkData();
+
+		gridSpork.setTimeStamp(signedAt);
+		gridSpork.setPreviousTimeStamp(previouslySignedAt);
+		gridSpork.setData(data);
+		gridSpork.renew();
+
+		assertThat(gridSpork.getTimeStamp(), greaterThan(signedAt));
+		assertThat(gridSpork.getPreviousTimeStamp(), equalTo(previouslySignedAt));
+		assertThat(gridSpork.getData(), sameInstance(data));
+		assertThat(gridSpork.getPreviousData(), nullValue());
+	}
 }

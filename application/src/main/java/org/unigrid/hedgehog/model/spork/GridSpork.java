@@ -169,6 +169,14 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	/**
+	* Moves the spork to a new point in time without changing its data or its history, so it can be
+	* re-signed and still win {@link #isNewerThan(GridSpork)} against the copy it replaces.
+	*/
+	public void renew() {
+		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+	}
+
+	/**
 	* Archives the spork by copying {@link #data} and {@link #timeStamp} to {@link #previousData}
 	* and {@link #previousTimeStamp}. This should typically be done right before the spork is
 	* populated with new values. This method will also update the current timeStamp to `{@code Instant.now()}.

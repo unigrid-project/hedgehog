@@ -18,15 +18,29 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -34,7 +48,7 @@ import org.unigrid.hedgehog.server.p2p.P2PServer;
 @Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class GridSporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private P2PServer p2pServer;
@@ -42,8 +56,50 @@ public class GridSporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
 
+	@CDIBridgeInject
+	private Topology topology;
+
 	@GET
 	public Response list() {
 		return Response.ok().entity(new SporkDatabaseInfo(sporkDatabase)).build();
+	}
+
+	@Path("/renew") @PUT
+	public Response renew(@NotNull @HeaderParam("privateKey") String privateKey) {
+		if (Objects.isNull(privateKey) || !NetworkKey.isTrusted(privateKey)) {
+			return Response.status(Response.Status.UNAUTHORIZED).build();
+		}
+
+		final List<GridSpork> renewed = new ArrayList<>();
+
+		/* Everything is signed before anything is stored, so a signing failure leaves the database as it was */
+		try {
+			for (GridSpork stored : storedSporks()) {
+				final GridSpork spork = SerializationUtils.clone(stored);
+
+				spork.renew();
+				spork.sign(privateKey);
+				renewed.add(spork);
+			}
+		} catch (SigningException ex) {
+			log.atWarn().log("Renewal of sporks failed: {}", ex.getMessage());
+			return Response.status(Response.Status.UNAUTHORIZED).build();
+		}
+
+		if (renewed.isEmpty()) {
+			return Response.noContent().build();
+		}
+
+		renewed.forEach(spork -> {
+			sporkDatabase.set(spork);
+			Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		});
+
+		return Response.ok().entity(renewed.stream().map(GridSpork::getType).toList()).build();
+	}
+
+	private List<GridSpork> storedSporks() {
+		return Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
+			.map(sporkDatabase::get).filter(Objects::nonNull).toList();
 	}
 }
