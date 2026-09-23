@@ -132,7 +132,7 @@ returns a fresh `ObjectMapper` per call with `JavaTimeModule` registered,
 `opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;` in `module-info.java`.
 
 Nothing is registered for authentication, CORS, request logging or gzip. The only authorization in
-the whole surface is the per-request `privateKey` header on the three spork mutation endpoints.
+the whole surface is the per-request `privateKey` header on the four spork mutation endpoints.
 
 ### CDI injection into resources
 
@@ -155,8 +155,8 @@ dead.
 
 `GridSporkResource`, `MintStorageResource`, `MintSupplyResource` and `VestingStorageResource` all
 declare `@Path("/gridspork")` at class level. Four root resource classes sharing one path is legal
-here only because their method paths do not collide: `GridSporkResource` owns the bare `GET`, the
-other three own disjoint sub-paths. Adding a second method for the same path and verb in two of these
+here only because their method paths do not collide: `GridSporkResource` owns the bare `GET` and the
+`/renew` sub-path, the other three own disjoint sub-paths. Adding a second method for the same path and verb in two of these
 classes would make the application fail Jersey's model validation.
 
 ## Endpoint reference
@@ -176,7 +176,7 @@ flowchart TB
     U --> U1["POST /stop"]
     U --> U2["GET /version"]
 
-    G --> G0["GridSporkResource<br/>GET /gridspork"]
+    G --> G0["GridSporkResource<br/>GET /gridspork<br/>PUT /gridspork/renew"]
     G --> G1["MintStorageResource<br/>/mint-storage<br/>/mint-storage/{address}/{height}"]
     G --> G2["MintSupplyResource<br/>/mint-supply"]
     G --> G3["VestingStorageResource<br/>/vesting-storage<br/>/vesting-storage/{address}"]
@@ -198,7 +198,8 @@ flowchart TB
 
 | Method | Path | Consumes | Produces | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `GET` | `/gridspork` | `application/json` | `application/json` | – | `SporkDatabaseInfo` | `200` always |
+| `GET` | `/gridspork` | `application/json`, `text/plain` | `application/json` | – | `SporkDatabaseInfo` | `200` always |
+| `PUT` | `/gridspork/renew` | `application/json`, `text/plain` | `application/json` | ignored | list of `GridSpork.Type` | `200` with the renewed types; `204` when no spork is stored; `401` when the key is untrusted or signing fails |
 | `GET` | `/gridspork/mint-storage` | `application/json`, `text/plain` | `application/json` | – | `MintStorage` | `200`; `204` when the spork is absent |
 | `GET` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | – | `BigDecimal` | `200`; `204` when the spork is absent; `404` when that location has no mint |
 | `PUT` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | `BigDecimal` | – | `200` on insert; `204` on update; `401` when the key is untrusted or signing fails |
@@ -209,9 +210,8 @@ flowchart TB
 | `PUT` | `/gridspork/vesting-storage/{address}` | `application/json` | `application/json` | `Vesting` | – | `200` on insert; `204` on update; `401` when the key is untrusted or signing fails |
 
 The `Consumes` column is taken from the class-level annotations, and on the read endpoints it is
-inert: `GridSporkResource` declares `@Consumes(MediaType.APPLICATION_JSON)` even though its only
-method is a `GET` with no entity, and the `text/plain` that `MintStorageResource` and
-`MintSupplyResource` add is only ever needed by their `PUT`s. A `GET` carries no request body for
+inert: the `text/plain` that `GridSporkResource`, `MintStorageResource` and `MintSupplyResource`
+declare alongside JSON is only ever needed by their `PUT`s. A `GET` carries no request body for
 Jersey to match a media type against, so the declaration neither restricts nor enables anything on
 those paths.
 
@@ -229,7 +229,7 @@ object; the only check performed anywhere on the write path is the trust check o
 holding a trusted key can therefore write arbitrary, unusable entries into the mint and vesting maps,
 and those entries then propagate to every peer.
 
-The three `PUT`s require a `privateKey` request header, declared
+The four `PUT`s require a `privateKey` request header, declared
 `@NotNull @HeaderParam("privateKey") String privateKey`. The value is the hex form of a secp521r1
 private key. `NetworkKey.isTrusted`
 (`application/src/main/java/org/unigrid/hedgehog/model/crypto/NetworkKey.java`) decides whether that
@@ -242,6 +242,15 @@ verified at all.
 `MintSupplyResource.set()` passes `isUpdate = false` unconditionally, so it answers `200` even when it
 overwrites an existing supply value; the other two compute `isUpdate` from whether the map already
 held the key.
+
+`GridSporkResource.renew()` takes no entity and changes no spork value. It clones every stored spork
+(all `GridSpork.Type`s except `UNDEFINED`, `STATISTICS_PUBKEY` included), moves each one's timestamp
+forward with `GridSpork.renew()` and signs it with the header key, and only once all of them are
+signed stores and publishes each through `sporkDatabase.set(...)` and `Topology.sendAll(...)`. It
+does not use `ResourceHelper`, so its status codes are its own: `200` with a JSON array of the
+renewed type names, `204` when the database holds no spork, and `401` — with an empty
+body, the exception message logged at warn and the database untouched — when signing fails. Why the endpoint
+exists is covered in [Grid sporks](sporks.md#renewing-after-a-key-change).
 
 `GET /gridspork` is the only spork endpoint that never returns `204`: `SporkDatabaseInfo`
 (`application/src/main/java/org/unigrid/hedgehog/model/spork/SporkDatabaseInfo.java`) initializes its
@@ -565,8 +574,9 @@ server-side extension point, so that registration has no effect on client behavi
 
 `ValidationFeature` is registered, so the `@NotNull` annotations on path, header and entity parameters
 are enforced before the method body runs, and constraint violations on input are answered by Jersey
-with `400 Bad Request`. This makes some in-method guards redundant: all three of
-`MintStorageResource.grow`, `MintSupplyResource.set` and `VestingStorageResource.grow` declare
+with `400 Bad Request`. This makes some in-method guards redundant: all four of
+`MintStorageResource.grow`, `MintSupplyResource.set`, `VestingStorageResource.grow` and
+`GridSporkResource.renew` declare
 `@NotNull @HeaderParam("privateKey")` and then re-check `Objects.nonNull(privateKey)` before
 consulting `NetworkKey.isTrusted`. A caller that omits the header gets `400`, not the `401` the
 method would produce.
@@ -687,8 +697,8 @@ Everything else goes straight to `execute(response)`.
 ### CLI response handling
 
 `hedgehog cli` (`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`) mixes in
-`NetOptions` and `RestOptions`. Five of its eight subcommands (`gridspork-list`, `node-add`,
-`node-remove`, `node-list` and `stop`) are `RestClientCommand` subclasses against one of the
+`NetOptions` and `RestOptions`. Six of its nine subcommands (`gridspork-list`, `gridspork-renew`,
+`node-add`, `node-remove`, `node-list` and `stop`) are `RestClientCommand` subclasses against one of the
 endpoints above; `gridspork-get`, `gridspork-set` and `gridspork-grow` are container commands whose
 `mint-storage`/`mint-supply` leaves are `Runnable`s that build anonymous `RestClientCommand`
 instances. The full command-to-endpoint table, with bodies, headers and required options, is in
@@ -698,6 +708,10 @@ this interface produces.
 * `gridspork-list` prints the `SporkDatabaseInfo` body as pretty JSON. It also passes a default
   supplier yielding `No Content` for a `204`, but that branch is unreachable: `GridSporkResource.list()`
   is a bare `Response.ok().entity(...)` and never answers `204`, as noted above.
+* `gridspork-renew` sets the `privateKey` header from its required `-k/--key` option, sends an empty
+  `Entity.text("")` and prints the returned list of renewed types with `Json.parse`. Its default
+  supplier yields `Unauthorized`, which the `PUT` special case prints on a `401`; a `204` reaches
+  `execute` with no entity and prints `No sporks to renew`.
 * `gridspork-get mint-supply` and `gridspork-get mint-storage` re-parse the raw body with `Json.parse`
   and print it. Neither supplies a default, so a `204` prints the bare status line rather than a
   chosen placeholder.
@@ -788,8 +802,10 @@ The REST tests live in `application/src/test/java/org/unigrid/hedgehog/server/re
 
 Coverage is uneven. `MintStorageResourceTest`, `MintSupplyResourceTest`, `VestingStorageResourceTest`
 and `NodeResourceTest` are live jqwik properties that exercise the real endpoints;
-`GridSporkResourceTest` is a single `@Example` — `shouldBeAbleToGetGridSporkOverview` — which runs
-once with no generated input. `StorageBucketTest` and `StorageObjectTest` stand up an
+`GridSporkResourceTest` pairs one `@Example` — `shouldBeAbleToGetGridSporkOverview`, which runs once
+with no generated input — with three properties on `PUT /gridspork/renew`: a spork signed with an
+untrusted key comes back validly signed with a later timestamp and unchanged data and history, an
+untrusted key gets `401` and leaves the stored instance in place, and an empty database gets `204`. `StorageBucketTest` and `StorageObjectTest` stand up an
 `io.findify.s3mock.S3Mock` on port `8001` to compare Hedgehog's answers against a reference S3
 implementation, but almost every one of their methods is `@Disabled` — all three in
 `StorageBucketTest`, six of eight in `StorageObjectTest`. The two that still run

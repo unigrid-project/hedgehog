@@ -188,6 +188,7 @@ flowchart LR
     C --> GR["gridspork-grow<br/>-D, -k"]
     C --> GS["gridspork-set<br/>-D, -k"]
     C --> GL["gridspork-list"]
+    C --> GN["gridspork-renew<br/>-k"]
     C --> NA["node-add ADDRESS"]
     C --> NR["node-remove ADDRESS"]
     C --> NL["node-list"]
@@ -228,9 +229,9 @@ dispatches on the HTTP method, and calls the subclass's `execute(Response)`.
 `RestClientCommand.run()` catches it and prints the message on stderr. A `GET` that comes back `204`
 and a `PUT` that comes back `401` both take the same branch: `defaultSupplier.ifPresentOrElse(...)`
 prints the supplier's value if the command was built with one, and otherwise falls back to
-`response.getStatusInfo()`. Only `GridSporkList` and `NodeList` pass a supplier, so both
-`gridspork-get` leaves print the bare status line (`No Content`) on a `204`, and an unsigned or wrongly
-signed spork update surfaces as `Unauthorized` on the terminal.
+`response.getStatusInfo()`. Only `GridSporkList`, `GridSporkRenew` and `NodeList` pass a supplier,
+so both `gridspork-get` leaves print the bare status line (`No Content`) on a `204`, and an unsigned
+or wrongly signed spork update surfaces as `Unauthorized` on the terminal.
 
 | Command | Class | HTTP call | Behavior |
 | --- | --- | --- | --- |
@@ -244,6 +245,7 @@ signed spork update surfaces as `Unauthorized` on the terminal.
 | `cli gridspork-grow` | `command/cli/GridSporkGrow.java` | — | Container for `mint-storage`; declares `-D` and `-k` as `required = true` |
 | `cli gridspork-grow mint-storage` | `command/cli/spork/MintStorage.java` | `PUT /gridspork/mint-storage/{address}/{height}` | Same body/header scheme; prints `Both block height and address have to be specified` when the guard trips |
 | `cli gridspork-list` | `command/cli/GridSporkList.java` | `GET /gridspork` | Prints the `SporkDatabaseInfo` as pretty JSON; its `No Content` fallback is unreachable, as that endpoint never returns `204` |
+| `cli gridspork-renew` | `command/cli/GridSporkRenew.java` | `PUT /gridspork/renew` | Sends an empty `text/plain` body with `-k/--key` (`required = true`) in a `privateKey` header; prints the renewed spork types as pretty JSON, `No sporks to renew` on `204` and `Unauthorized` on `401` |
 | `cli node-add <address>` | `command/cli/NodeAdd.java` | `POST /node` | Sends the `ip:port` parameter as `text/plain`, prints `Response.getLocation()` |
 | `cli node-remove <address>` | `command/cli/NodeRemove.java` | `DELETE /node/{address}` | Prints the response read as `Set<Node>` |
 | `cli node-list` | `command/cli/NodeList.java` | `GET /node` | Prints the node set as pretty JSON; prints `[]` on `204` |

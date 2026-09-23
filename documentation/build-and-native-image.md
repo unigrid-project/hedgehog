@@ -934,11 +934,11 @@ container, whether through `BaseMockedWeldTest` directly or through one of its s
 | `model/network/NodeTest` | `Node.fromAddress(...)` over generated IPv4/IPv6 addresses with and without a port, and that `Topology.addNode` filters a node that reports `isMe()`. |
 | `model/network/TopologyThreadTest` | `TopologyThread` repopulates an emptied topology from `Network.getSeeds()`, and `Topology.cloneNodes()` returns a distinct set holding the same nodes. |
 | `model/producer/SporkDatabaseProducerTest` | Writing a structurally incompatible serialized object into the spork database path makes `SporkDatabaseProducer.produce()` fall back to a fresh database, detected by the file size changing. |
-| `model/spork/GridSporkTest` | The six branches of `GridSpork.isNewerThan(...)`, including both null-timestamp cases. |
+| `model/spork/GridSporkTest` | The six branches of `GridSpork.isNewerThan(...)`, including both null-timestamp cases, and that `renew()` moves only `timeStamp` forward, leaving `data`, `previousData` and `previousTimeStamp` untouched. |
 | `model/spork/SporkDatabaseInfoTest` | Defaults on an empty database, and that `SporkDatabaseInfo` reports the timestamp and entry count of whichever spork type was set. |
 | `server/ServerTest` | Every server in a generated sub-list of the 20 `TestServer` instances is listening on a distinct P2P port — the proof that `@Instances` really produces independent containers. |
 | `client/P2PClientTest` | Opening and closing a `P2PClient` against each server leaves the live thread count within two of where it started, i.e. Netty groups are released on `close()`. |
-| `server/rest/GridSporkResourceTest` | On `BaseRestClientTest`: `GET /gridspork` reports `LASTCHANGED_NEVER` on an empty database, then the injected spork's timestamp and mint count once one is stored. |
+| `server/rest/GridSporkResourceTest` | On `BaseRestClientTest`: `GET /gridspork` reports `LASTCHANGED_NEVER` on an empty database, then the injected spork's timestamp and mint count once one is stored. `PUT /gridspork/renew` re-signs a spork signed by an untrusted key into a valid one with a later timestamp and unchanged data and history, answers `401` to an untrusted key without replacing the stored instance, and `204` on an empty database. |
 
 The other six are plain unit tests with no container and no mocking. They run in the same forks but
 extend no base class:

@@ -107,6 +107,13 @@ Every mutation path calls `archive()` *before* writing the new value — see `Mi
 first and the resources hold a reference to the live `SporkData` obtained *before* the call, the
 subsequent mutation lands on the current value and leaves the archived copy untouched.
 
+`renew()` is the one timestamp change that does not archive. It assigns only
+`timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS)` and leaves `data`, `previousData` and
+`previousTimeStamp` exactly as they were, so a renewed spork carries the same value and the same
+history under a newer timestamp. Its only caller is `GridSporkResource.renew`, described under
+[Renewing after a key change](#renewing-after-a-key-change).
+`GridSporkTest.shouldOnlyMoveTimeStampForwardOnRenewal` pins that contract.
+
 The method closes with two null-defaulting guards, and only one of them works:
 
 ```java
@@ -136,7 +143,8 @@ published.
 both directions: a spork with a timestamp is newer than a null spork or one with a null timestamp; a
 spork with a null timestamp is never newer than one that has one; two null timestamps compare as not
 newer. `application/src/test/java/org/unigrid/hedgehog/model/spork/GridSporkTest.java` pins all six
-cases.
+cases. Renewal depends on this predicate: a renewed spork differs from the stored one only in its
+timestamp and signature, and the later timestamp is what lets it replace the old copy on a peer.
 
 There is no time-to-live anywhere in the subsystem. Sporks do not expire, and no code compares a
 timestamp against wall-clock now. `timeStamp` is used for ordering, for the "last changed" field in
@@ -544,12 +552,14 @@ No class declares a `serialVersionUID`, so any field change to `SporkDatabase`, 
 `SporkDatabaseTest` property-checks that a database containing an arbitrary spork survives a
 persist/load round trip, comparing with shazamcrest's `sameBeanAs`.
 
-`SporkDatabase.get(Type)` returns the matching field or throws `IllegalArgumentException`. It has no
-caller in the main sources.
+`SporkDatabase.get(Type)` returns the matching field or throws `IllegalArgumentException`. Its only
+caller in the main sources is `GridSporkResource.renew`, which asks for every type except
+`UNDEFINED`.
 
 `SporkDatabase.set(GridSpork)` dispatches on `gridSpork.getType()`, assigns the matching field and
 breaks out of the switch; an unrecognised type falls to `default` and throws
-`IllegalArgumentException`. Its only caller is `PublishSporkChannelHandler`.
+`IllegalArgumentException`. Its callers are `PublishSporkChannelHandler` and
+`GridSporkResource.renew`.
 
 The `STATISTICS_PUBKEY` branch used to lack its `break` and fell into `default`, so storing a
 statistics-pubkey spork assigned the field and then threw — reachable from the network by any peer
@@ -703,6 +713,49 @@ defined data section. Previous data is unchanged."*
 Nothing on this path writes to disk. Persistence happens only through
 `PublishAndSaveSporkSchedule` and the producer's `@PreDestroy`.
 
+### Renewing after a key change
+
+A spork's signature only means something against the configured network keys, so replacing those
+keys strands every spork signed with the old ones. That happened when four board-member keys replaced
+the three foundation keys in the `--network-keys` default
+(`application/src/main/java/org/unigrid/hedgehog/command/option/NetOptions.java`). An upgraded node
+still holds its old-key sporks, because `SporkDatabase.load` does not re-verify anything read from
+`spork.db`, and it keeps gossiping them through `PublishAndSaveSporkSchedule`. Its upgraded peers
+drop every one of them in `PublishSporkChannelHandler`, whose `isValidSignature()` half of the gate
+now fails, and a freshly installed node never obtains a spork at all.
+
+`PUT /gridspork/renew` (`server/rest/GridSporkResource.java`) re-signs what a node already holds
+without changing it:
+
+1. The `privateKey` header must pass `NetworkKey.isTrusted`, exactly as on the other mutating
+   endpoints; otherwise the answer is `401`.
+2. Every non-null spork returned by `SporkDatabase.get(Type)` for each `GridSpork.Type` except
+   `UNDEFINED` — `STATISTICS_PUBKEY` included — is deep-copied with `SerializationUtils.clone`,
+   `renew()`ed and signed.
+3. All copies are signed before any of them is stored, so a `SigningException` on any spork returns
+   an empty `401`, logs the exception message at warn and leaves the database as it was. Unlike
+   `ResourceHelper.commitAndSign`, the exception is not echoed back to the client.
+4. With nothing stored the answer is `204`. Otherwise each renewed spork goes through
+   `sporkDatabase.set(...)` and `Topology.sendAll(PublishSpork...)`, and the answer is `200` with a
+   JSON list of the renewed `Type` names.
+
+`renew()` keeps `data`, `previousData` and `previousTimeStamp` intact and only moves `timeStamp`
+forward, so a peer that still holds the old-key copy sees the renewed one as `isNewerThan` it, and a
+peer on the new keys finds its signature valid. Unlike the per-spork endpoints, renewal does not go
+through `ResourceHelper` and does not call `archive()`: the history a spork carried before the key
+change is carried over unchanged.
+
+The cutover is run on a node that held the sporks before it was upgraded, so its `spork.db` still
+contains them, with one of the board members' private keys:
+
+```
+hedgehog cli gridspork-renew -k <board member private key>
+```
+
+The renewed sporks then spread to upgraded peers through the normal publish path. Nodes still on the
+previous release trust only the old keys, so they reject the renewed sporks just as upgraded nodes
+reject the old ones; the two sides do not exchange sporks until every node is upgraded.
+
 ### Publishing
 
 `PublishSpork` (`model/network/packet/PublishSpork.java`) is a one-field packet wrapping a
@@ -846,11 +899,11 @@ constructor sets `Flag.GOVERNED`. The `@ShortRange(min = 0, max = 3)` generator 
 
 ### CLI
 
-`hedgehog cli` carries four spork commands — `gridspork-list`, `gridspork-get`, `gridspork-set` and
-`gridspork-grow` — registered on the `cli` subcommand in
-`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`. Only `gridspork-list` issues a
-request itself; the other three are containers whose `mint-supply`/`mint-storage` leaves are the
-REST clients. The complete command reference, including every option and whether picocli enforces
+`hedgehog cli` carries five spork commands — `gridspork-list`, `gridspork-get`, `gridspork-set`,
+`gridspork-grow` and `gridspork-renew` — registered on the `cli` subcommand in
+`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`. `gridspork-list` and
+`gridspork-renew` issue a request themselves; the other three are containers whose
+`mint-supply`/`mint-storage` leaves are the REST clients. The complete command reference, including every option and whether picocli enforces
 it, is in
 [Architecture overview](architecture.md), and the client-side response handling is in
 [REST interface](rest-api.md).
@@ -868,7 +921,8 @@ Three properties of that surface are spork-semantic rather than plumbing:
   document where a single scalar is what the resource method signature accepts.
 * There is no CLI surface at all for vesting storage or for the statistics public key, although the
   vesting-storage REST endpoints exist and are fully functional. Anything touching those two spork
-  types has to be driven over REST directly.
+  types has to be driven over REST directly; the only exception is `gridspork-renew`, which re-signs
+  them along with every other stored spork but cannot change their values.
 
 Key material is handled by the separate `util` command group
 (`application/src/main/java/org/unigrid/hedgehog/command/Util.java`): `key-generate` prints a fresh
@@ -882,10 +936,11 @@ of them consult `NetworkKey` — a key generated this way is only a network key 
 Four JAX-RS resources are all rooted at `@Path("/gridspork")`:
 `GridSporkResource`, `MintSupplyResource`, `MintStorageResource` and `VestingStorageResource`
 (`application/src/main/java/org/unigrid/hedgehog/server/rest/`). All four inject `SporkDatabase` and
-`P2PServer` through `CDIBridgeInject`; the three mutating ones also inject `Topology`.
-`GridSporkResource` is read-only; the other three each expose a `GET` list, and `MintStorageResource`
-and `VestingStorageResource` additionally a keyed `GET`, alongside the `PUT` mutations described
-above. Paths, verbs, status codes and payloads are enumerated in [REST interface](rest-api.md).
+`P2PServer` through `CDIBridgeInject`, and all four also inject `Topology`. `GridSporkResource`
+exposes the `GET` overview and the `PUT /renew` described under
+[Renewing after a key change](#renewing-after-a-key-change); the other three each expose a `GET`
+list, and `MintStorageResource` and `VestingStorageResource` additionally a keyed `GET`, alongside
+the `PUT` mutations described above. Paths, verbs, status codes and payloads are enumerated in [REST interface](rest-api.md).
 
 The injected `P2PServer` is never read by any of the four resources — it is a dead field. The P2P
 server is instantiated at bootstrap by `EagerExtension`, because `P2PServer` is
@@ -906,7 +961,9 @@ Collected here so a reader does not have to rediscover them.
 - **`StatisticsPubKey.SporkData` is missing from `ChunkData`'s `@JsonSubTypes`.** Deduction-based
   polymorphic JSON cannot reconstruct it (`model/network/chunk/ChunkData.java`).
 - **`StatisticsPubKey` is never published by the schedule.** `writeAndFlush` emits only the other
-  three sections (`model/network/schedule/PublishAndSaveSporkSchedule.java`).
+  three sections (`model/network/schedule/PublishAndSaveSporkSchedule.java`); `PUT /gridspork/renew`
+  is the only path that sends a stored statistics spork to peers, apart from
+  `PublishSporkChannelHandler` forwarding one it has just accepted.
 - **`StatisticsPubKey` has no `SporkDatabaseInfo` overview.** `GET /gridspork` cannot report on it
   (`model/spork/SporkDatabaseInfo.java`).
 - **`SporkDatabaseInfo.vestingStoragEntries` is misspelled.** The spelling is the source field name

@@ -511,7 +511,7 @@ The resources registered in `RestServer#getResourceConfig()` and what each bridg
 
 | Resource (`server/rest/`) | `@Path` | Bridged beans |
 | --- | --- | --- |
-| `GridSporkResource` | `/gridspork` | `P2PServer`, `SporkDatabase` |
+| `GridSporkResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
 | `MintStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
 | `MintSupplyResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
 | `VestingStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
