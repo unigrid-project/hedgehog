@@ -21,7 +21,9 @@ package org.unigrid.hedgehog.model.crypto;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,24 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 public class NetworkKey {
 	public static String[] getPublicKeys() {
 		return NetOptions.getNetworkKeys();
+	}
+
+	public static String[] getRetiredPublicKeys() {
+		return NetOptions.getRetiredNetworkKeys();
+	}
+
+	public static Optional<String> signerOf(Signable signable) {
+		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
+			.filter(key -> verifies(signable, key)).findFirst();
+	}
+
+	private static boolean verifies(Signable signable, String key) {
+		try {
+			return Signature.verify(signable, key);
+		} catch (VerifySignatureException ex) {
+			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
+			return false;
+		}
 	}
 
 	public static boolean isTrusted(String privateKey) {
