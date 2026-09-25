@@ -204,9 +204,9 @@ public class GridSpork implements Serializable, Signable {
 	public boolean canReplace(GridSpork stored) {
 		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
 
-		return isSuccessorOf(stored, storedLog) && isNewerThanLog()
-			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getKnownPublicKeys())
-			&& isValidSignature();
+		/* Head first, so a forged log costs one verification rather than one per entry */
+		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && isValidSignature()
+			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getKnownPublicKeys());
 	}
 
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
