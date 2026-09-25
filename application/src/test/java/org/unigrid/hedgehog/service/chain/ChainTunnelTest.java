@@ -226,7 +226,7 @@ public class ChainTunnelTest {
 
 	/* The ways a stream ends, with what the front end and the session heard of it */
 	private enum Ending {
-		REFUSED(List.of("failed HOST_UNREACHABLE"), List.of()),
+		REFUSED(List.of("failed HOST_UNREACHABLE"), List.of(CloseReason.DONE)),
 		UNANSWERED(List.of("failed NETWORK_UNREACHABLE"), List.of()),
 		EXPIRED(List.of("failed TTL_EXPIRED"), List.of(CloseReason.DONE)),
 		ABANDONED(List.of(), List.of(CloseReason.DONE)),
@@ -357,7 +357,32 @@ public class ChainTunnelTest {
 		session.listener.received(new Close(CloseReason.REFUSED));
 
 		assertThat(heard.events, equalTo(List.of("failed " + TunnelFailure.of(status))));
-		assertThat(session.closes, empty());
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
+	}
+
+	/* An exit that answers with a failure, sends no Close and keeps sending would keep the session alive for as long
+	   as it likes, as the front end hangs up on a stream that has ended already */
+	@Example
+	public void closesTheSessionOfAStreamTheExitRefusedThoughTheExitDoesNot() {
+		final TunnelStream stream = tunnel.open(DESTINATION, heard);
+
+		session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE, SocksAddress.UNSPECIFIED));
+		stream.close();
+		session.listener.received(data(3));
+		session.listener.received(new Connected(Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED));
+
+		assertThat(heard.events, equalTo(List.of("failed HOST_UNREACHABLE")));
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
+	}
+
+	@Example
+	public void closesTheSessionOfAStreamRefusedBeforeItsHandleCameBack() {
+		session.opening = listener -> listener.received(new Connected(Socks5CommandStatus.CONNECTION_REFUSED,
+			SocksAddress.UNSPECIFIED));
+		tunnel.open(DESTINATION, heard);
+
+		assertThat(heard.events, equalTo(List.of("failed CONNECTION_REFUSED")));
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
 	}
 
 	@Property(tries = 10)

@@ -229,7 +229,7 @@ public class ChainAssociationTest {
 
 	/* The ways an association ends, with what the front end and the session heard of it */
 	private enum Ending {
-		REFUSED(List.of("failed HOST_UNREACHABLE"), List.of()),
+		REFUSED(List.of("failed HOST_UNREACHABLE"), List.of(CloseReason.DONE)),
 		UNANSWERED(List.of("failed NETWORK_UNREACHABLE"), List.of()),
 		EXPIRED(List.of("failed TTL_EXPIRED"), List.of(CloseReason.DONE)),
 		ABANDONED(List.of(), List.of(CloseReason.DONE)),
@@ -388,7 +388,32 @@ public class ChainAssociationTest {
 		session.listener.received(new Close(CloseReason.REFUSED));
 
 		assertThat(heard.events, equalTo(List.of("failed " + TunnelFailure.of(status))));
-		assertThat(session.closes, empty());
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
+	}
+
+	/* An exit that answers with a failure, sends no Close and keeps sending would keep the session alive for as long
+	   as it likes, as the front end hangs up on an association that has ended already */
+	@Example
+	public void closesTheSessionOfAnAssociationTheExitRefusedThoughTheExitDoesNot() {
+		final AssociationStream association = tunnel.associate(heard);
+
+		session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE, SocksAddress.UNSPECIFIED));
+		association.close();
+		session.listener.received(new Datagram(ANSWERING, new byte[] { 1 }));
+		session.listener.received(new Connected(Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED));
+
+		assertThat(heard.events, equalTo(List.of("failed HOST_UNREACHABLE")));
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
+	}
+
+	@Example
+	public void closesTheSessionOfAnAssociationRefusedBeforeItsHandleCameBack() {
+		session.opening = listener -> listener.received(new Connected(Socks5CommandStatus.CONNECTION_REFUSED,
+			SocksAddress.UNSPECIFIED));
+		tunnel.associate(heard);
+
+		assertThat(heard.events, equalTo(List.of("failed CONNECTION_REFUSED")));
+		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
 	}
 
 	@Property(tries = 10)

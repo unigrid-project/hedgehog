@@ -59,8 +59,8 @@ public final class ChainTunnel implements Tunnel {
 	static final int MAX_HELD_BYTES = 1024 * 1024;
 
 	/* The join waits up to ten seconds for each member it asks, the session five seconds for each of three exits
-	   and the exit may try eight addresses of a name for ten seconds each, so two minutes lets such a slow path
-	   answer and still ends a stream or an association that nothing will answer. */
+	   and the exit may try eight addresses of a name for ten seconds each: two minutes lets a slow path answer,
+	   but one slow at every step takes about 135 seconds and ends as TTL_EXPIRED. */
 	static final long DEADLINE_MILLIS = 120_000;
 
 	private final ProxySettingsSource settings;
@@ -139,7 +139,9 @@ public final class ChainTunnel implements Tunnel {
 
 		@Override
 		public void received(final SealedMessage message) {
-			if (message instanceof Connected reply) {
+			if (message instanceof Connected reply && !reply.status().isSuccess()) {
+				giveUp(TunnelFailure.of(reply.status()));
+			} else if (message instanceof Connected reply) {
 				answered(reply);
 			} else if (message instanceof Close close) {
 				finished(close.reason());
@@ -152,9 +154,7 @@ public final class ChainTunnel implements Tunnel {
 
 		/* A second reply is not the exit's to give */
 		private synchronized void answered(final Connected reply) {
-			if (!reply.status().isSuccess()) {
-				failed(TunnelFailure.of(reply.status()));
-			} else if (!connected && !ended) {
+			if (!connected && !ended) {
 				connected = true;
 				cancelDeadline();
 				tells.add(() -> tellOpened.accept(reply));
@@ -169,14 +169,18 @@ public final class ChainTunnel implements Tunnel {
 			}
 		}
 
-		/* What no exit answered in time is ended and its session closed, as the front end cuts nothing after the
-		   command; what got its reply is left to the idle limit of its session */
 		private void expire() {
-			if (failed(TunnelFailure.TTL_EXPIRED)) {
+			giveUp(TunnelFailure.TTL_EXPIRED);
+			drain();
+		}
+
+		/* What no exit answered in time, or an exit refused, has its session closed here: the close of the front end
+		   comes after the end and closes nothing, and an exit that refused may send no Close. What got its reply is
+		   left to the idle limit of its session. */
+		private void giveUp(final TunnelFailure failure) {
+			if (failed(failure)) {
 				closeSession(CloseReason.DONE);
 			}
-
-			drain();
 		}
 
 		private void fail(final TunnelFailure failure) {
