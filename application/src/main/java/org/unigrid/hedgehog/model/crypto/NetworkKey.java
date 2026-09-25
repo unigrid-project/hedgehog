@@ -28,6 +28,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -43,13 +44,17 @@ public class NetworkKey {
 	}
 
 	public static Optional<String> signerOf(Signable signable) {
-		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
-			.filter(key -> verifies(signable, key)).findFirst();
+		return signerOf(DigestUtils.sha512(signable.getSignable()), signable.getSignature());
 	}
 
-	private static boolean verifies(Signable signable, String key) {
+	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
+		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
+			.filter(key -> verifies(digest, signature, key)).findFirst();
+	}
+
+	private static boolean verifies(byte[] digest, byte[] signature, String key) {
 		try {
-			return Signature.verify(signable, key);
+			return Signature.verifyDigest(digest, signature, key);
 		} catch (VerifySignatureException ex) {
 			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
 			return false;

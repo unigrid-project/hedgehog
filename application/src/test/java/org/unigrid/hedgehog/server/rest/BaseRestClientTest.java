@@ -19,6 +19,8 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -54,6 +56,13 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	protected RestClient client;
 
+	/* Sporks outlive a try, so the keys of earlier tries must still name who signed them */
+	private static final List<String> RETIRED_KEYS = new ArrayList<>();
+
+	protected static void retire(Signature signature) {
+		RETIRED_KEYS.add(signature.getPublicKey());
+	}
+
 	@BeforeContainer
 	private static void beforeContainer() {
 		new ApplicationDirectoryMockUp();
@@ -68,9 +77,15 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 			public Signature get() {
 				final Signature signature = new Signature();
 
+				retire(signature);
+
 				new MockUp<NetworkKey>() {
 					@Mock public /* static */ String[] getPublicKeys() {
 						return new String[] { signature.getPublicKey() };
+					}
+
+					@Mock public /* static */ String[] getRetiredPublicKeys() {
+						return RETIRED_KEYS.toArray(String[]::new);
 					}
 				};
 

@@ -19,6 +19,10 @@
 package org.unigrid.hedgehog.model.crypto;
 
 public class SigningException extends Exception {
+	public SigningException(String msg) {
+		super(msg);
+	}
+
 	public SigningException(String msg, Throwable cause) {
 		super(msg, cause);
 	}

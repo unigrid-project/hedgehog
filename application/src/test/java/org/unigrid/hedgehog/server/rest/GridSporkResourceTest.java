@@ -39,6 +39,7 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 
@@ -98,20 +99,37 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property
 	public void shouldResignStoredSporksWithoutChangingTheirData(@ForAll("provideSignature") Signature signature) {
-		final MintSupply original = seedMintSupplySignedBy(new Signature());
+		final Signature retiredSignature = new Signature();
+
+		retire(retiredSignature);
+
+		final MintSupply original = seedMintSupplySignedBy(retiredSignature);
 
 		assertThat(original.isValidSignature(), is(false));
 		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.OK));
 
 		final MintSupply renewed = sporkDatabase.getMintSupply();
 		final MintSupply.SporkData data = renewed.getData();
+		final SignatureLogEntry replaced = renewed.getSignatureLog().getEntries().getLast();
 
 		assertThat(renewed.isValidSignature(), is(true));
+		assertThat(replaced.getSigner(), equalTo(retiredSignature.getPublicKey()));
+		assertThat(replaced.getTimeStamp(), equalTo(SIGNED_AT));
+		assertThat(replaced.getSignature(), equalTo(original.getSignature()));
 		assertThat(renewed.getTimeStamp(), greaterThan(SIGNED_AT));
 		assertThat(renewed.getTimeStamp(), lessThanOrEqualTo(Instant.now().truncatedTo(ChronoUnit.MILLIS)));
 		assertThat(data.getMaxSupply(), equalTo(BigDecimal.TEN));
 		assertThat(renewed.getPreviousTimeStamp(), equalTo(PREVIOUSLY_SIGNED_AT));
 		assertThat(renewed.getPreviousData(), equalTo(original.getPreviousData()));
+	}
+
+	@SneakyThrows
+	@Property
+	public void shouldRefuseToRenewOverAnUnknownSigner(@ForAll("provideSignature") Signature signature) {
+		final MintSupply original = seedMintSupplySignedBy(new Signature());
+
+		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.UNAUTHORIZED));
+		assertThat(sporkDatabase.getMintSupply(), sameInstance(original));
 	}
 
 	@SneakyThrows

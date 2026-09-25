@@ -23,11 +23,13 @@ import java.io.Serializable;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
+@Slf4j
 public class ResourceHelper {
 	public static <S extends Serializable> S getNewOrClonedSporkSection(Supplier<S> supplier, Supplier<S> newSupplier) {
 		S section = supplier.get();
@@ -47,6 +49,8 @@ public class ResourceHelper {
 		try {
 			signable.sign(privateKey);
 		} catch (SigningException ex) {
+			log.atWarn().log("Signing of spork refused: {}", ex.getMessage());
+
 			/* As we clone() the vesting storage, returning here results in a database NOP */
 			return Response.status(Response.Status.UNAUTHORIZED).entity(ex).build();
 		}

@@ -30,11 +30,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.experimental.Tolerate;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -64,6 +67,12 @@ public class GridSpork implements Serializable, Signable {
 	private ChunkData previousData; /* Flag.DELTA controls the content */
 	@Getter private byte[] signature;
 
+	@JsonIgnore
+	private SignatureLog signatureLog;
+
+	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE)
+	private transient SignatureLogEntry retiringHead;
+
 	@AllArgsConstructor
 	public enum Flag {
 		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
@@ -88,6 +97,15 @@ public class GridSpork implements Serializable, Signable {
 				default: return UNDEFINED;
 			}
 		}
+	}
+
+	/* Sporks stored by builds from before the log existed deserialize with a null log */
+	public SignatureLog getSignatureLog() {
+		if (Objects.isNull(signatureLog)) {
+			signatureLog = new SignatureLog();
+		}
+
+		return signatureLog;
 	}
 
 	public <T extends ChunkData> T getData() {
@@ -138,11 +156,18 @@ public class GridSpork implements Serializable, Signable {
 		stream.writeBytes(SerializationUtils.serialize(data));
 		stream.writeBytes(SerializationUtils.serialize(previousData));
 
+		/* An empty log adds nothing, so signatures made before the log existed still verify */
+		if (!getSignatureLog().isEmpty()) {
+			stream.writeBytes(getSignatureLog().headHash());
+		}
+
 		return stream.toByteArray();
 	}
 
 	@Override
 	public void sign(String privateKeyHex) throws SigningException {
+		logRetiringHead();
+
 		try {
 			final Signature signature = new Signature(Optional.of(privateKeyHex),
 				Optional.empty()
@@ -170,11 +195,32 @@ public class GridSpork implements Serializable, Signable {
 		return false;
 	}
 
+	private void retireHead() {
+		if (Objects.nonNull(signature) && Objects.isNull(retiringHead)) {
+			retiringHead = SignatureLogEntry.builder().timeStamp(timeStamp)
+				.digest(DigestUtils.sha512(getSignable())).signature(signature).build();
+		}
+	}
+
+	private void logRetiringHead() throws SigningException {
+		if (Objects.nonNull(retiringHead)) {
+			final String signer = NetworkKey.signerOf(retiringHead.getDigest(), retiringHead.getSignature())
+				.orElseThrow(() -> new SigningException(
+					"No known network key signed the version being replaced"
+				));
+
+			getSignatureLog().append(retiringHead.toBuilder().signer(signer).build());
+			retiringHead = null;
+		}
+	}
+
 	/**
 	* Moves the spork to a new point in time without changing its data or its history, so it can be
-	* re-signed and still win {@link #isNewerThan(GridSpork)} against the copy it replaces.
+	* re-signed and still win {@link #isNewerThan(GridSpork)} against the copy it replaces. The version
+	* it replaces enters the signature log when the spork is signed again.
 	*/
 	public void renew() {
+		retireHead();
 		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 	}
 
@@ -184,6 +230,7 @@ public class GridSpork implements Serializable, Signable {
 	* populated with new values. This method will also update the current timeStamp to `{@code Instant.now()}.
 	*/
 	public void archive() {
+		retireHead();
 		previousData = SerializationUtils.clone(data);
 		previousTimeStamp = SerializationUtils.clone(timeStamp);
 		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
