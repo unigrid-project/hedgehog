@@ -41,6 +41,7 @@ import java.util.Optional;
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
 	private static final String SIGNATURE_NAME = "SHA512WithECDSA";
+	private static final String DIGEST_SIGNATURE_NAME = "NONEwithECDSA";
 	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
 
 	public static final int PRIVATE_KEY_SIZE = 520;
@@ -135,8 +136,17 @@ public class Signature {
 	}
 
 	public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {
+		return verify(SIGNATURE_NAME, data, signatureData);
+	}
+
+	/* Accepts signatures made with SIGNATURE_NAME, as a SHA-512 digest fits the P-521 order untruncated */
+	public boolean verifyDigest(byte[] digest, byte[] signatureData) throws VerifySignatureException {
+		return verify(DIGEST_SIGNATURE_NAME, digest, signatureData);
+	}
+
+	private boolean verify(String algorithm, byte[] data, byte[] signatureData) throws VerifySignatureException {
 		try {
-			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
+			final java.security.Signature signature = java.security.Signature.getInstance(algorithm);
 
 			signature.initVerify(publicKey);
 			signature.update(data);
@@ -149,9 +159,18 @@ public class Signature {
 	}
 
 	public static boolean verify(Signable signable, String key) throws VerifySignatureException {
+		return verifier(key).verify(signable.getSignable(), signable.getSignature());
+	}
+
+	public static boolean verifyDigest(byte[] digest, byte[] signatureData, String key)
+		throws VerifySignatureException {
+
+		return verifier(key).verifyDigest(digest, signatureData);
+	}
+
+	private static Signature verifier(String key) throws VerifySignatureException {
 		try {
-			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
-			return signature.verify(signable.getSignable(), signable.getSignature());
+			return new Signature(Optional.empty(), Optional.of(key));
 
 		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new VerifySignatureException(String.format("Failed to create signature "

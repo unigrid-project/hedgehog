@@ -29,6 +29,8 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class SignatureTest extends BaseMockedWeldTest {
 	@SneakyThrows
@@ -70,6 +72,25 @@ public class SignatureTest extends BaseMockedWeldTest {
 		}
 
 		return privateKey.length == Signature.PRIVATE_KEY_HEX_SIZE;
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public boolean shouldVerifyDigestOfSignedData(@ForAll byte[] data) {
+		final Signature signature = new Signature();
+		final byte[] signatureData = signature.sign(data);
+
+		return Signature.verifyDigest(DigestUtils.sha512(data), signatureData, signature.getPublicKey());
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public boolean shouldRejectDigestOfOtherData(@ForAll @NotEmpty byte[] data) {
+		final Signature signature = new Signature();
+		final byte[] signatureData = signature.sign(data);
+		final byte[] otherData = ArrayUtils.add(data, (byte) 0);
+
+		return !signature.verifyDigest(DigestUtils.sha512(otherData), signatureData);
 	}
 
 	@Property(tries = 50)
