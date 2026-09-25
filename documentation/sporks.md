@@ -287,7 +287,8 @@ public static class Location implements Serializable {
 
 `Address` (`model/Address.java`) is a one-field holder around a `wif` string; nothing validates it.
 `height` is a block height on the consensus chain. The value is the minted amount at that
-(address, height) pair.
+(address, height) pair. Until the chain reaches that height, the legacy balance endpoint adds the amount
+to the address's snapshot balance (see [Legacy chain snapshot](legacy-chain-snapshot.md#rest-api)).
 
 Because `Location` is a map *key*, Jackson needs key (de)serializers rather than value ones. Both are
 nested in `Location`:

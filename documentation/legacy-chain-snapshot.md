@@ -201,8 +201,19 @@ address that fails to decode.
 | Endpoint | Query parameters | Returns |
 | --- | --- | --- |
 | `GET /bootstrap` | none | `SnapshotInfo`: the header fields, the same as `bootstrap info` |
-| `GET /bootstrap/address/{address}` | none | `AddressBalance`, or `404` if the address is not in the snapshot |
+| `GET /bootstrap/address/{address}` | none | `AddressBalance` with pending mints added, or `404` if the address is neither in the snapshot nor owed a pending mint |
 | `GET /bootstrap/address/{address}/transactions` | `offset` (default 0), `limit` (default 100, capped at 1000) | A JSON array of `AddressTransaction` |
+
+The balance also covers funds the [`MintStorage` spork](sporks.md#mintstorage) promises an address
+but the chain has not minted yet. `PendingMints.amountFor`
+(`application/src/main/java/org/unigrid/hedgehog/model/bootstrap/PendingMints.java`) adds every mint
+whose address decodes to the same hash160 and whose height lies above the current height; a mint at
+or below it is already part of the chain's balances and is left out. Mints whose address does not
+decode are skipped, and the sum is kept at 8 decimals like every other amount. Until hedgehog follows
+the chain that mints, the snapshot's tip height stands in as the current height. An address that
+only has pending mints answers `200` with a `transactionCount` of 0, since mints are not ledger
+entries. The `bootstrap balance` command reads the snapshot file directly and has no spork database,
+so it prints the snapshot balance alone.
 
 ## The release procedure
 

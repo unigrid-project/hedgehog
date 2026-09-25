@@ -913,7 +913,7 @@ two current keys, passes `canReplace` after each wire round trip, and so does th
 
 ### What the suite covers
 
-The test tree holds 82 Java files. The 20 under the two `bootstrap` packages and
+The test tree holds 83 Java files. The 21 under the two `bootstrap` packages and
 `server/rest/BootstrapResourceTest` exercise the legacy chain snapshot and are not listed here. Of
 the other 61, 11 are in the `jqwik` infrastructure package, six are base classes and `TestServer`,
 `GridSporkProvider` and `ApplicationDirectoryMockUp` are shared fixtures, leaving 41 test classes. The codec, handler, schedule and REST families are described above; the remainder are listed

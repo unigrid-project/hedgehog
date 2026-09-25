@@ -516,6 +516,7 @@ The resources registered in `RestServer#getResourceConfig()` and what each bridg
 | `MintStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
 | `MintSupplyResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
 | `VestingStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
+| `BootstrapResource` | `/bootstrap` | `BootstrapSnapshot`, `SporkDatabase` |
 | `NodeResource` | `/node` | `Topology` |
 | `StorageBucket` | `/bucket` | `P2PServer`, `BucketService` |
 | `StorageObject` | `/storage-object` | `P2PServer`, `ObjectService` |
