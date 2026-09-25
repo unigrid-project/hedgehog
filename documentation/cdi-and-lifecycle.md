@@ -158,6 +158,7 @@ The beans the application actually deploys:
 | `ApplicationDirectoryProducer` | `model/producer/ApplicationDirectoryProducer.java` | `@ApplicationScoped` | Producer host |
 | `RandomUUIDProducer` | `model/producer/RandomUUIDProducer.java` | `@ApplicationScoped` | Producer host |
 | `SporkDatabaseProducer` | `model/producer/SporkDatabaseProducer.java` | `@ApplicationScoped` | Producer host; injects `ApplicationDirectory` |
+| `PendingSporks` | `model/spork/PendingSporks.java` | `@ApplicationScoped` | No injection points; holds spork proposals in memory, never persisted |
 | `ProtectedInterceptor` | `model/cdi/ProtectedInterceptor.java` | `@Interceptor` | Discovered, but see [Concurrency guards](#concurrency-guards-protected-lock-and-protectedinterceptor) |
 
 `ChannelMap`'s callback matters more than it looks: the field is declared `private Map<Channel, Node>
@@ -449,10 +450,10 @@ container programmatically. Current call sites:
 | `model/network/handler/HelloChannelHandler.java` | `Topology` |
 | `model/network/handler/PingChannelHandler.java` | `Topology` |
 | `model/network/handler/PublishPeersChannelHandler.java` | `Topology` |
-| `model/network/handler/PublishSporkChannelHandler.java` | `SporkDatabase`, then `Topology` |
-| `model/network/initializer/RegisterQuicChannelInitializer.java` | `SporkDatabase` |
+| `model/network/handler/PublishSporkChannelHandler.java` | `SporkDatabase`, then `PendingSporks`, then `Topology` |
+| `model/network/initializer/RegisterQuicChannelInitializer.java` | `SporkDatabase`, then `PendingSporks` |
 | `model/network/schedule/PublishPeersSchedule.java` | `Topology` |
-| `model/network/schedule/PublishAndSaveSporkSchedule.java` | `ApplicationDirectory`, `SporkDatabase` |
+| `model/network/schedule/PublishAndSaveSporkSchedule.java` | `ApplicationDirectory`, `SporkDatabase`, `PendingSporks` |
 | `model/network/TopologyThread.java` | `Topology` (held for the whole life of the thread's `run()` loop) |
 
 `model/network/handler/ConnectionHandler.java` is the odd one out — it calls
@@ -499,7 +500,7 @@ Constraints that follow directly from that implementation:
   logging like `CDIUtil.resolveAndRun` does.
 - `setAccessible(true)` works because `CDIBridgeResource` and every resource live in the same module.
 - **The bridge does not force a normally scoped bean into existence.** For `P2PServer`, `Topology`,
-  `BucketService` and `ObjectService`, `select(f.getType()).get()` returns a client proxy exactly like an
+  `PendingSporks`, `BucketService` and `ObjectService`, `select(f.getType()).get()` returns a client proxy exactly like an
   ordinary injection point, so assigning the field does not run the bean's `@PostConstruct`. That matters
   for the `P2PServer` fields below: the QUIC server is already running because `EagerExtension`
   instantiated it at `AfterDeploymentValidation`, not because a resource asked for it. The
@@ -511,10 +512,10 @@ The resources registered in `RestServer#getResourceConfig()` and what each bridg
 
 | Resource (`server/rest/`) | `@Path` | Bridged beans |
 | --- | --- | --- |
-| `GridSporkResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
-| `MintStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
-| `MintSupplyResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
-| `VestingStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology` |
+| `GridSporkResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
+| `MintStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
+| `MintSupplyResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
+| `VestingStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
 | `NodeResource` | `/node` | `Topology` |
 | `StorageBucket` | `/bucket` | `P2PServer`, `BucketService` |
 | `StorageObject` | `/storage-object` | `P2PServer`, `ObjectService` |
