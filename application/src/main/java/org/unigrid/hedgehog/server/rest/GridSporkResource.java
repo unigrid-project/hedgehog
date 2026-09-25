@@ -147,12 +147,16 @@ public class GridSporkResource extends CDIBridgeResource {
 			return Response.noContent().build();
 		}
 
-		renewed.forEach(spork -> {
-			sporkDatabase.set(spork);
-			Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
-		});
+		final List<PendingSporkInfo> proposals = new ArrayList<>();
 
-		return Response.ok().entity(renewed.stream().map(GridSpork::getType).toList()).build();
+		for (GridSpork spork : renewed) {
+			if (pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
+				Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+				proposals.add(PendingSporkInfo.of(spork));
+			}
+		}
+
+		return Response.accepted(proposals).build();
 	}
 
 	private List<GridSpork> storedSporks() {
