@@ -56,7 +56,11 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	protected RestClient client;
 
-	/* Sporks outlive a try, so the keys of earlier tries must still name who signed them */
+	/*
+	 * Sporks outlive a try, so the keys of recent tries must still name who signed them. Only recent ones,
+	 * because every signature check walks this list and every verifying key generates a keypair.
+	 */
+	private static final int MAX_RETIRED_KEYS = 16;
 	private static final List<String> RETIRED_KEYS = new ArrayList<>();
 
 	/* The second current network key of a try, next to the one provideSignature() hands out */
@@ -64,6 +68,10 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	protected static void retire(Signature signature) {
 		RETIRED_KEYS.add(signature.getPublicKey());
+
+		if (RETIRED_KEYS.size() > MAX_RETIRED_KEYS) {
+			RETIRED_KEYS.removeFirst();
+		}
 	}
 
 	@BeforeContainer
