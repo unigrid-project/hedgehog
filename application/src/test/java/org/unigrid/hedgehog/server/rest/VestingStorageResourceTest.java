@@ -25,8 +25,12 @@ import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -46,6 +50,7 @@ import net.jqwik.time.api.constraints.InstantRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
@@ -60,6 +65,11 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 			.parts(parts).start(start).build());
 	}
 
+	/* Map keys travel through JSON as their toString(), so each key read back wraps the address it stood for */
+	private static Set<String> wifsOf(VestingStorage.SporkData data) {
+		return data.getVestingAddresses().keySet().stream().map(Address::getWif).collect(Collectors.toSet());
+	}
+
 	@SneakyThrows
 	@Property(tries = 30)
 	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
@@ -68,12 +78,12 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 
 		final String url = "/gridspork/vesting-storage/";
 		final Response response = client.get(url);
-		int originalNumVests = 0;
-		int newVests = 0;
+		final Set<String> expectedAddresses = new HashSet<>();
+		Response lastProposal = null;
 
 		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
 			final VestingStorage.SporkData data = response.readEntity(VestingStorage.class).getData();
-			originalNumVests = data.getVestingAddresses().size();
+			expectedAddresses.addAll(wifsOf(data));
 		}
 
 		for (int i = 0; i < addresses.size(); i++) {
@@ -82,14 +92,17 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 				new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 			);
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-				newVests++;
+			if (Status.fromStatusCode(putResponse.getStatus()) == Status.ACCEPTED) {
+				expectedAddresses.add(Address.builder().wif(addresses.get(i)).build().toString());
+				lastProposal = putResponse;
 			}
 		}
 
-		if (newVests > 0) {
+		if (Objects.nonNull(lastProposal)) {
+			assertThat(Status.fromStatusCode(cosign(lastProposal).getStatus()), equalTo(Status.OK));
+
 			final VestingStorage.SporkData data = client.getEntity(url, VestingStorage.class).getData();
-			assertThat(data.getVestingAddresses().size(), equalTo(originalNumVests + newVests));
+			assertThat(wifsOf(data), equalTo(expectedAddresses));
 		}
 	}
 
@@ -99,21 +112,12 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 		@ForAll("provideVesting") Vesting vesting, @ForAll @AlphaChars @StringLength(36) String address) {
 
 		final String url = "/gridspork/vesting-storage/%s".formatted(address);
-		Status expectedStatusFromPut;
-
-		if (Status.fromStatusCode(client.get(url).getStatus()) == Status.OK) {
-			expectedStatusFromPut = Status.NO_CONTENT;
-		} else {
-			expectedStatusFromPut = Status.OK;
-		}
-
 		final Response putResponse = client.putWithHeaders(url, Entity.json(vesting),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()),
-			equalTo(expectedStatusFromPut)
-		);
+		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
 
 		TestFileOutput.outputJson(client.getEntity(url, String.class));
 	}

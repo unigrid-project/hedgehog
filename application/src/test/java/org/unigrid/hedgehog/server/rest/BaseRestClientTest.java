@@ -18,9 +18,14 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -72,6 +77,18 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 		if (RETIRED_KEYS.size() > MAX_RETIRED_KEYS) {
 			RETIRED_KEYS.removeFirst();
 		}
+	}
+
+	@SneakyThrows
+	protected Response cosign(String digest, Signature signature) {
+		return client.putWithHeaders("/gridspork/pending/" + digest, Entity.text(""),
+			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
+		);
+	}
+
+	@SneakyThrows
+	protected Response cosign(Response proposal) {
+		return cosign(new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText(), cosigner);
 	}
 
 	@BeforeContainer

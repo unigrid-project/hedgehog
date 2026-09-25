@@ -29,14 +29,13 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.util.Objects;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
@@ -54,6 +53,9 @@ public class MintSupplyResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private Topology topology;
 
+	@CDIBridgeInject
+	private PendingSporks pendingSporks;
+
 	@Path("/mint-supply") @GET
 	public Response list() {
 		final MintSupply ms = sporkDatabase.getMintSupply();
@@ -69,22 +71,12 @@ public class MintSupplyResource extends CDIBridgeResource {
 	public Response set(@NotNull BigDecimal maxSupply, @NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final MintSupply ms = ResourceHelper.getNewOrClonedSporkSection(
-				() -> sporkDatabase.getMintSupply(),
-				() -> new MintSupply()
+			final MintSupply ms = ResourceHelper.nextVersion(sporkDatabase.getMintSupply(), MintSupply::new,
+				pendingSporks
 			);
 
-			final MintSupply.SporkData data = ms.getData();
-			ms.archive();
-			data.setMaxSupply(maxSupply);
-
-			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, false, signable -> {
-				sporkDatabase.setMintSupply(signable);
-
-				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getMintSupply()).build(),
-					topology, Optional.empty()
-				);
-			});
+			ms.<MintSupply.SporkData>getData().setMaxSupply(maxSupply);
+			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintSupply(), pendingSporks, topology);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

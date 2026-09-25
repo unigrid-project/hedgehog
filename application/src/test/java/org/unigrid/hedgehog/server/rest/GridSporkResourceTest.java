@@ -200,13 +200,6 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	private Response cosign(String digest, Signature signature) {
-		return client.putWithHeaders("/gridspork/pending/" + digest, Entity.text(""),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
-	}
-
-	@SneakyThrows
 	@Property(tries = 5)
 	public void shouldListProposalsWithTheirDigestAndSigner(@ForAll("provideSignature") Signature signature) {
 		final MintSupply proposal = proposeMintSupplySignedBy(signature);

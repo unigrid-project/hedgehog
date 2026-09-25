@@ -19,48 +19,51 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.core.Response;
-import java.io.Serializable;
 import java.util.Objects;
-import java.util.function.Consumer;
+import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
-import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 
 @Slf4j
 public class ResourceHelper {
-	public static <S extends Serializable> S getNewOrClonedSporkSection(Supplier<S> supplier, Supplier<S> newSupplier) {
-		S section = supplier.get();
+	/**
+	* Starts the next version of a spork from the stored one. The data of a proposal still awaiting its
+	* co-signature is carried over, so several changes can be proposed in a row and co-signed once.
+	*/
+	public static <S extends GridSpork> S nextVersion(S stored, Supplier<S> newSupplier, PendingSporks pendingSporks) {
+		final S spork = Objects.isNull(stored) ? newSupplier.get() : SerializationUtils.clone(stored);
 
-		if (Objects.isNull(section)) {
-			section = newSupplier.get();
-		} else {
-			section = SerializationUtils.clone(section);
-		}
+		spork.archive();
 
-		return section;
+		pendingSporks.proposalOf(spork.getType()).ifPresent(proposal -> {
+			spork.setData(SerializationUtils.clone(proposal).getData());
+		});
+
+		return spork;
 	}
 
-	public static <S extends Signable> Response commitAndSign(S signable, String privateKey, SporkDatabase sporkDatabase,
-		boolean isUpdate, Consumer<S> consumer) {
+	public static Response propose(GridSpork spork, String privateKey, GridSpork stored, PendingSporks pendingSporks,
+		Topology topology) {
 
 		try {
-			signable.sign(privateKey);
+			spork.sign(privateKey);
 		} catch (SigningException ex) {
 			log.atWarn().log("Signing of spork refused: {}", ex.getMessage());
-
-			/* As we clone() the vesting storage, returning here results in a database NOP */
 			return Response.status(Response.Status.UNAUTHORIZED).entity(ex).build();
 		}
 
-		consumer.accept(signable);
-
-		if (isUpdate) {
-			return Response.noContent().build();
+		if (!pendingSporks.offer(spork, stored)) {
+			return Response.status(Response.Status.CONFLICT).build();
 		}
 
-		return Response.ok().build();
+		Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		return Response.accepted(PendingSporkInfo.of(spork)).build();
 	}
 }

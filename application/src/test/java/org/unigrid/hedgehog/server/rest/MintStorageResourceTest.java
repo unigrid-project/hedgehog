@@ -23,8 +23,11 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -65,12 +68,12 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 
 		final String url = "/gridspork/mint-storage/";
 		final Response response = client.get(url);
-		int originalNumMints = 0;
-		int newMints = 0;
+		final Set<Location> expectedLocations = new HashSet<>();
+		Response lastProposal = null;
 
 		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
 			final MintStorage.SporkData data = response.readEntity(MintStorage.class).getData();
-			originalNumMints = data.getMints().size();
+			expectedLocations.addAll(data.getMints().keySet());
 		}
 
 		for (Location l : locations) {
@@ -79,14 +82,17 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 				signature.getPrivateKey()))
 			);
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-				newMints++;
+			if (Status.fromStatusCode(putResponse.getStatus()) == Status.ACCEPTED) {
+				expectedLocations.add(l);
+				lastProposal = putResponse;
 			}
 		}
 
-		if (newMints > 0) {
+		if (Objects.nonNull(lastProposal)) {
+			assertThat(Status.fromStatusCode(cosign(lastProposal).getStatus()), equalTo(Status.OK));
+
 			final MintStorage.SporkData data = client.getEntity(url, MintStorage.class).getData();
-			assertThat(data.getMints().size(), equalTo(originalNumMints + newMints));
+			assertThat(data.getMints().keySet(), equalTo(expectedLocations));
 		}
 	}
 
@@ -99,21 +105,12 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 		final String wif = location.getAddress().getWif();
 		final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
 
-		Status expectedStatusFromPut;
-
-		if (Status.fromStatusCode(client.get(url).getStatus()) != Status.OK) {
-			expectedStatusFromPut = Status.OK;
-		} else {
-			expectedStatusFromPut = Status.NO_CONTENT;
-		}
-
 		final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()),
-			equalTo(expectedStatusFromPut)
-		);
+		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
 
 		TestFileOutput.outputJson(client.getEntity(url, String.class));
 	}

@@ -30,15 +30,14 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.util.Objects;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -56,6 +55,9 @@ public class MintStorageResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private Topology topology;
+
+	@CDIBridgeInject
+	private PendingSporks pendingSporks;
 
 	@Path("/mint-storage") @GET
 	public Response list() {
@@ -93,29 +95,16 @@ public class MintStorageResource extends CDIBridgeResource {
 		@NotNull @PathParam("height") int height, @NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final MintStorage ms = ResourceHelper.getNewOrClonedSporkSection(
-				() -> sporkDatabase.getMintStorage(),
-				() -> new MintStorage()
+			final MintStorage ms = ResourceHelper.nextVersion(sporkDatabase.getMintStorage(), MintStorage::new,
+				pendingSporks
 			);
 
 			final Location location = Location.builder()
 				.address(Address.builder().wif(address).build())
 				.height(height).build();
 
-			final MintStorage.SporkData data = ms.getData();
-			final BigDecimal oldMintAmount = data.getMints().get(location);
-			final boolean isUpdate = Objects.nonNull(oldMintAmount);
-
-			ms.archive();
-			data.getMints().put(location, mintAmount);
-
-			return ResourceHelper.commitAndSign(ms, privateKey, sporkDatabase, isUpdate, signable -> {
-				sporkDatabase.setMintStorage(signable);
-
-				Topology.sendAll(PublishSpork.builder().gridSpork(sporkDatabase.getMintStorage()).build(),
-					topology, Optional.empty()
-				);
-			});
+			ms.<MintStorage.SporkData>getData().getMints().put(location, mintAmount);
+			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintStorage(), pendingSporks, topology);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

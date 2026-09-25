@@ -34,30 +34,32 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
 public class MintSupplyResourceTest extends BaseRestClientTest {
-	@SneakyThrows
-	@Property(tries = 50)
-	public void shoulBeChangeable(@ForAll("provideSignature") Signature signature,
-		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal maxSupply) {
+	private static final String URL = "/gridspork/mint-supply/";
 
-		final String url = "/gridspork/mint-supply/";
-		final Response response = client.get(url);
-		BigDecimal originalMaxSupply = BigDecimal.ZERO;
+	@SneakyThrows
+	private BigDecimal storedMaxSupply() {
+		final Response response = client.get(URL);
 
 		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-			final MintSupply.SporkData data = response.readEntity(MintSupply.class).getData();
-			originalMaxSupply = data.getMaxSupply();
+			return response.readEntity(MintSupply.class).<MintSupply.SporkData>getData().getMaxSupply();
 		}
 
-		final Response putResponse = client.putWithHeaders(url, Entity.text(maxSupply),
+		return BigDecimal.ZERO;
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shoulBeChangeableOnceCosigned(@ForAll("provideSignature") Signature signature,
+		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal maxSupply) {
+
+		final BigDecimal originalMaxSupply = storedMaxSupply();
+		final Response putResponse = client.putWithHeaders(URL, Entity.text(maxSupply),
 			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
 		);
 
-		final MintSupply.SporkData data = client.getEntity(url, MintSupply.class).getData();
-
-		if (Status.fromStatusCode(putResponse.getStatus()) == Status.OK) {
-			assertThat(data.getMaxSupply(), equalTo(maxSupply));
-		} else {
-			assertThat(data.getMaxSupply(), equalTo(originalMaxSupply));
-		}
+		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(storedMaxSupply(), equalTo(originalMaxSupply));
+		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
+		assertThat(storedMaxSupply(), equalTo(maxSupply));
 	}
 }
