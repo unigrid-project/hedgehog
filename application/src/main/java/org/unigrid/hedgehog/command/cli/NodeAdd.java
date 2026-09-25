@@ -22,6 +22,7 @@ import org.unigrid.hedgehog.command.util.RestClientCommand;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -41,6 +42,10 @@ public class NodeAdd extends RestClientCommand {
 
 	@Override
 	protected void execute(Response response) {
-		System.out.println(response.getLocation());
+		if (Status.fromStatusCode(response.getStatus()) == Status.CONFLICT) {
+			System.err.println(response.getStatusInfo());
+		} else {
+			System.out.println(response.getLocation());
+		}
 	}
 }
