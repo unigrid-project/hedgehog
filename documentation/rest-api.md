@@ -199,6 +199,7 @@ flowchart TB
 | Method | Path | Consumes | Produces | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- | --- | --- |
 | `GET` | `/gridspork` | `application/json`, `text/plain` | `application/json` | – | `SporkDatabaseInfo` | `200` always |
+| `GET` | `/gridspork/log` | `application/json`, `text/plain` | `application/json` | – | map of `GridSpork.Type` to `SignatureLogInfo` | `200`; `204` when no spork is stored |
 | `PUT` | `/gridspork/renew` | `application/json`, `text/plain` | `application/json` | ignored | list of `GridSpork.Type` | `200` with the renewed types; `204` when no spork is stored; `401` when the key is untrusted or signing fails |
 | `GET` | `/gridspork/mint-storage` | `application/json`, `text/plain` | `application/json` | – | `MintStorage` | `200`; `204` when the spork is absent |
 | `GET` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | – | `BigDecimal` | `200`; `204` when the spork is absent; `404` when that location has no mint |
@@ -214,6 +215,25 @@ inert: the `text/plain` that `GridSporkResource`, `MintStorageResource` and `Min
 declare alongside JSON is only ever needed by their `PUT`s. A `GET` carries no request body for
 Jersey to match a media type against, so the declaration neither restricts nor enables anything on
 those paths.
+
+`GET /gridspork/log` answers with one object per stored spork type, built by
+`SignatureLogInfo.of(GridSpork)` (`application/src/main/java/org/unigrid/hedgehog/model/spork/SignatureLogInfo.java`):
+
+```json
+{
+  "MINT_SUPPLY": {
+    "entries": [
+      { "timeStamp": "2023-06-23T10:38:54.983Z", "signer": "<public key hex>",
+        "digest": "<SHA-512 hex>", "signature": "<DER signature hex>" }
+    ],
+    "head": { "timeStamp": "2026-09-25T09:00:00Z", "signer": "<public key hex>" }
+  }
+}
+```
+
+`entries` are the replaced versions, oldest first; `head` is the current version, whose `signer` is
+`null` when no network or retired key verifies it. The log itself is described in
+[Grid sporks](sporks.md#signature-log).
 
 Path parameters:
 
@@ -357,10 +377,10 @@ public static VersionResponse create() {
 reads `project.version` out of `application.properties` on the classpath and falls back to
 `0.0.0-BASTARD`. `Network.getProtocols()`
 (`application/src/main/java/org/unigrid/hedgehog/model/Network.java`) returns the constant array
-`{ "hedgehog/0.0.2", "gridspork/0.0.2" }`. So the payload is:
+`{ "hedgehog/0.0.3", "gridspork/0.0.3" }`. So the payload is:
 
 ```json
-{ "version": "…", "protocols": ["hedgehog/0.0.2", "gridspork/0.0.2"] }
+{ "version": "…", "protocols": ["hedgehog/0.0.3", "gridspork/0.0.3"] }
 ```
 
 ### S3 bucket endpoints
@@ -598,7 +618,9 @@ The clone-then-sign-then-broadcast semantics — why every mutation runs on a de
 code:
 
 * `SigningException` from `signable.sign(privateKey)` → `401`, with the exception object itself as
-  the response entity, which Jackson then serializes as a `Throwable`. The source comment explains
+  the response entity, which Jackson then serializes as a `Throwable`. The message is also logged at
+  warn. Besides a bad key, this is what happens when no known key signed the version being replaced,
+  so it cannot enter the spork's signature log. The source comment explains
   why bailing out here is safe: *"As we clone() the vesting storage, returning here results in a
   database NOP"*.
 * success with `isUpdate == true` → `204 No Content`.
@@ -697,8 +719,8 @@ Everything else goes straight to `execute(response)`.
 ### CLI response handling
 
 `hedgehog cli` (`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`) mixes in
-`NetOptions` and `RestOptions`. Six of its nine subcommands (`gridspork-list`, `gridspork-renew`,
-`node-add`, `node-remove`, `node-list` and `stop`) are `RestClientCommand` subclasses against one of the
+`NetOptions` and `RestOptions`. Seven of its ten subcommands (`gridspork-list`, `gridspork-log`,
+`gridspork-renew`, `node-add`, `node-remove`, `node-list` and `stop`) are `RestClientCommand` subclasses against one of the
 endpoints above; `gridspork-get`, `gridspork-set` and `gridspork-grow` are container commands whose
 `mint-storage`/`mint-supply` leaves are `Runnable`s that build anonymous `RestClientCommand`
 instances. The full command-to-endpoint table, with bodies, headers and required options, is in
@@ -708,6 +730,9 @@ this interface produces.
 * `gridspork-list` prints the `SporkDatabaseInfo` body as pretty JSON. It also passes a default
   supplier yielding `No Content` for a `204`, but that branch is unreachable: `GridSporkResource.list()`
   is a bare `Response.ok().entity(...)` and never answers `204`, as noted above.
+* `gridspork-log` reads the body as a string and pretty-prints it with `Json.parse`, which keeps the
+  `Instant` values as the strings the server wrote. Its default supplier prints
+  `No sporks to show a signature log for` on a `204`.
 * `gridspork-renew` sets the `privateKey` header from its required `-k/--key` option, sends an empty
   `Entity.text("")` and prints the returned list of renewed types with `Json.parse`. Its default
   supplier yields `Unauthorized`, which the `PUT` special case prints on a `401`; a `204` reaches

@@ -188,6 +188,7 @@ flowchart LR
     C --> GR["gridspork-grow<br/>-D, -k"]
     C --> GS["gridspork-set<br/>-D, -k"]
     C --> GL["gridspork-list"]
+    C --> GO["gridspork-log"]
     C --> GN["gridspork-renew<br/>-k"]
     C --> NA["node-add ADDRESS"]
     C --> NR["node-remove ADDRESS"]
@@ -245,6 +246,7 @@ or wrongly signed spork update surfaces as `Unauthorized` on the terminal.
 | `cli gridspork-grow` | `command/cli/GridSporkGrow.java` | — | Container for `mint-storage`; declares `-D` and `-k` as `required = true` |
 | `cli gridspork-grow mint-storage` | `command/cli/spork/MintStorage.java` | `PUT /gridspork/mint-storage/{address}/{height}` | Same body/header scheme; prints `Both block height and address have to be specified` when the guard trips |
 | `cli gridspork-list` | `command/cli/GridSporkList.java` | `GET /gridspork` | Prints the `SporkDatabaseInfo` as pretty JSON; its `No Content` fallback is unreachable, as that endpoint never returns `204` |
+| `cli gridspork-log` | `command/cli/GridSporkLog.java` | `GET /gridspork/log` | Prints each stored spork's signature log and current signer as pretty JSON; `No sporks to show a signature log for` on `204` |
 | `cli gridspork-renew` | `command/cli/GridSporkRenew.java` | `PUT /gridspork/renew` | Sends an empty `text/plain` body with `-k/--key` (`required = true`) in a `privateKey` header; prints the renewed spork types as pretty JSON, `No sporks to renew` on `204` and `Unauthorized` on `401` |
 | `cli node-add <address>` | `command/cli/NodeAdd.java` | `POST /node` | Sends the `ip:port` parameter as `text/plain`, prints `Response.getLocation()` |
 | `cli node-remove <address>` | `command/cli/NodeRemove.java` | `DELETE /node/{address}` | Prints the response read as `Set<Node>` |
@@ -330,7 +332,7 @@ The default network host is `0.0.0.0` while the default REST host is `localhost`
 public by design and the REST control surface is loopback-only by default.
 
 `Network` (`application/src/main/java/org/unigrid/hedgehog/model/Network.java`) holds the rest of the
-network-wide constants: protocols `hedgehog/0.0.2` and `gridspork/0.0.2`, seeds `seed1..seed6.unigrid.org`,
+network-wide constants: protocols `hedgehog/0.0.3` and `gridspork/0.0.3`, seeds `seed1..seed6.unigrid.org`,
 `COMMUNICATION_THREADS = 4`, `MAX_DATA_SIZE = 1024 * 1024 * 256` (256 MiB, commented `/* 256 MB */` in
 the source), `MAX_STREAMS = 512`, `IDLE_TIME_MINUTES = 15` and `CONNECTION_TIMEOUT_MS = 2000`.
 `getSeeds()` swallows a `ClassCastException` around `NetOptions.isSeeds()` with a `TODO` noting it
@@ -340,7 +342,7 @@ the source), `MAX_STREAMS = 512`, `IDLE_TIME_MINUTES = 15` and `CONNECTION_TIMEO
 
 ```mermaid
 flowchart LR
-    UDP["UDP datagrams<br/>NetOptions host:port"] --> QC["QuicServerCodecBuilder<br/>self-signed cert<br/>ALPN hedgehog/0.0.2 and gridspork/0.0.2<br/>EncryptedTokenHandler"]
+    UDP["UDP datagrams<br/>NetOptions host:port"] --> QC["QuicServerCodecBuilder<br/>self-signed cert<br/>ALPN hedgehog/0.0.3 and gridspork/0.0.3<br/>EncryptedTokenHandler"]
     QC --> CH["ConnectionHandler"]
     QC --> RI["RegisterQuicChannelInitializer<br/>SERVER mode, per QUIC stream"]
     RI --> PIPE["Pipeline: FrameDecoder,<br/>packet codecs, packet handlers"]

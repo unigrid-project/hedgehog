@@ -5,7 +5,8 @@ Unigrid foundation keys distribute mutable configuration — mint records, maxim
 schedules, the statistics public key — to every node on the network without a consensus round. A
 node holds at most one instance of each spork type, keeps it in a small serialized database on disk,
 gossips it to every peer it is connected to, and accepts an incoming replacement only when that
-replacement is both newer and signed by a key the node trusts.
+replacement is newer, signed by a key the node trusts, and extends the spork's
+[signature log](#signature-log) without rewriting it.
 
 The data model, the database and the signing live under
 `application/src/main/java/org/unigrid/hedgehog/model/spork/` and `model/crypto/`; the wire codecs
@@ -32,6 +33,7 @@ extends it and carries its payload in a nested `SporkData` class.
 | `data` | `ChunkData` | The current value. |
 | `previousData` | `ChunkData` | The archived value. The source comment states that `Flag.DELTA` controls whether this is a delta or a raw copy. |
 | `signature` | `byte[]` | DER-encoded ECDSA signature bytes — `java.security.Signature` with `SHA512WithECDSA` emits an ASN.1 `SEQUENCE { r, s }` of variable length, which is why the wire format length-prefixes it. Exposed through an explicit `@Getter`. |
+| `signatureLog` | `SignatureLog` | Every version this spork replaced, with the key that signed it. `@JsonIgnore`d; read through `GET /gridspork/log`. See [Signature log](#signature-log). |
 
 `getData()` and `getPreviousData()` are declared as `<T extends ChunkData> T` and perform an
 unchecked cast, so call sites read them into the concrete `SporkData` type without an explicit cast.
@@ -342,7 +344,9 @@ of six fields, in this order:
 5. `data`
 6. `previousData`
 
-`signature` itself is excluded, as it must be. Note that this is *Java serialization* of each field
+and then, only when the spork's signature log is non-empty, the 64-byte head hash of that log
+(`SignatureLog.headHash()`). An empty log adds nothing, so a spork signed before the log existed
+still verifies byte for byte. `signature` itself is excluded, as it must be. Note that this is *Java serialization* of each field
 independently, not the QUIC wire encoding — each `writeBytes` call appends a complete
 `ObjectOutputStream` stream, header bytes and all. The signed byte string is therefore a function of
 JDK serialization behavior for `Instant`, `Short`, the enum, and the concrete `SporkData` graph,
@@ -488,13 +492,22 @@ network keys are trusted, and random 65-byte keys are not.
 `GridSpork.isValidSignature()` uses the same loop shape, verifying the spork's own signature against
 each configured public key and swallowing `VerifySignatureException` at trace level.
 
+A second option, `--retired-network-keys`, lists keys that no longer sign anything but once did. Its
+default is the three foundation keys that the four board-member keys replaced.
+`NetworkKey.getRetiredPublicKeys()` reads it, and `NetworkKey.getKnownPublicKeys()` returns the
+network keys followed by the retired ones. Retired keys are never trusted for a new signature —
+`isValidSignature()` and `isTrusted(...)` still consult `--network-keys` only. They exist so the
+[signature log](#signature-log) can name who signed a version from before a key change.
+`NetworkKey.signerOf(Signable)` and `signerOf(byte[] digest, byte[] signature)` return the first known
+key that verifies a signature, or an empty `Optional`.
+
 ### Where verification is enforced
 
 Only in two places, and they enforce different things:
 
 | Path | Check | Failure |
 | --- | --- | --- |
-| Inbound `PublishSpork` (`PublishSporkChannelHandler`) | `newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()` | silently dropped; nothing is stored or forwarded |
+| Inbound `PublishSpork` (`PublishSporkChannelHandler`) | `newSpork.canReplace(oldSpork)`, see [Accepting a replacement](#accepting-a-replacement) | silently dropped; nothing is stored or forwarded |
 | REST `PUT` on a spork resource | `Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)` on the `privateKey` request header | `401 Unauthorized` |
 
 The REST path is a possession check on a *private* key supplied in a plaintext HTTP header, followed
@@ -505,8 +518,79 @@ loaded from disk, and nothing verifies a spork before it is written out by
 ### Exceptions
 
 `SigningException` and `VerifySignatureException` (both in `model/crypto/`) are plain checked
-`Exception` subclasses with a single `(String msg, Throwable cause)` constructor. They exist purely
-to give the two directions distinct types; neither carries additional state.
+`Exception` subclasses with a `(String msg, Throwable cause)` constructor; `SigningException` also
+has a `(String msg)` one. They exist purely to give the two directions distinct types; neither
+carries additional state.
+
+## Signature log
+
+A spork's `signature` says only that *some* trusted key signed the current version, and it is
+overwritten by the next version. The signature log keeps the rest: every version a spork ever
+replaced, which public key signed it, and when. It lives in the spork itself, so it travels with
+every publish, is stored in `spork.db` and grows by one entry each time the spork is signed again.
+Nobody can edit it without breaking the current signature.
+
+### Entries
+
+`model/spork/SignatureLogEntry.java` is an immutable Lombok `@Value`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `timeStamp` | `Instant` | The replaced version's `timeStamp` — the time its signer set it. |
+| `signer` | `String` | The full public key hex that signed the version, retired keys included. |
+| `digest` | `byte[]` | SHA-512 of the replaced version's `getSignable()`, `DIGEST_SIZE` = 64 bytes. |
+| `signature` | `byte[]` | The replaced version's signature. |
+
+The entry keeps a digest, not the old data, so the log stays a few hundred bytes per version.
+`SignatureLogEntry.isValid()` still checks the signature: `Signature.verifyDigest` uses
+`NONEwithECDSA`, which takes the SHA-512 digest where `SHA512WithECDSA` would hash the data itself. A
+512-bit digest fits the P-521 group order without truncation, so both produce and accept the same
+signatures. The entry's `timeStamp` is not covered by that check; it is vouched for by whoever
+signed the next version, because the log head is part of the bytes they signed.
+
+`toBytes()` is the canonical encoding — `i64` epoch milliseconds, `u16` length and ASCII signer, the
+64 digest bytes, `u16` length and signature — used both for the head hash and on the wire.
+
+### The chain
+
+`model/spork/SignatureLog.java` wraps an append-only list. `headHash(k)` folds the first `k`
+entries into one SHA-512 value, `h = SHA-512(h ‖ entry.toBytes())`, starting from an empty `h`, and
+`headHash()` covers them all. Because that head is appended to `getSignable()`, dropping, reordering
+or changing any entry changes the signed bytes and the spork's signature no longer verifies.
+`isPrefixOf(other)` compares heads instead of entries: this log is a prefix of `other` when
+`other.headHash(size())` equals `headHash()`.
+
+### Growing the log
+
+`archive()` and `renew()` are the two ways a new version starts, and both first capture the version
+being replaced — its timestamp, the digest of its signable bytes and its signature — in a transient
+field. `sign(...)` then asks `NetworkKey.signerOf(digest, signature)` which known key signed it,
+appends the entry and only then computes the new signature, over a signable that already includes the
+new head. A spork that was never signed contributes no entry.
+
+When no network key and no retired key verifies the version being replaced, `sign(...)` throws
+`SigningException("No known network key signed the version being replaced")`. The log therefore
+never holds an entry with an unknown signer, and the REST endpoints answer `401` as for any other
+signing failure; `ResourceHelper.commitAndSign` logs the reason at warn.
+
+### Accepting a replacement
+
+`GridSpork.canReplace(GridSpork stored)` is the gate `PublishSporkChannelHandler` applies to every
+inbound spork. A missing stored spork counts as one with an empty log. The incoming spork is accepted
+only when all of these hold:
+
+1. Its log is longer than the stored log, or the same length and `isNewerThan` the stored spork.
+2. The stored log is a prefix of its log — nothing that was already recorded has been changed.
+3. Every entry past that prefix is valid, is signed by a key in `getKnownPublicKeys()`, and is newer
+   than the entry before it. The prefix itself was checked when it was stored and is not checked
+   again, which matters because every `Signature` construction generates a keypair.
+4. Its own `timeStamp` is after the last entry's.
+5. `isValidSignature()` — the current version is signed by a network key, never a retired one.
+
+Two board members who sign on top of the same log at about the same time produce two sporks with
+logs of equal length. The newer timestamp wins, as before the log existed. The first version signed
+on top of either of them has a longer log and wins over both, so the network settles on one history;
+the losing version never enters the log.
 
 ## Persistence
 
@@ -547,8 +631,12 @@ public static void persist(Path path, SporkDatabase sporkDatabase) throws IOExce
 `persist` opens with `CREATE, WRITE` and no `TRUNCATE_EXISTING`, so writing a smaller database over a
 larger one leaves trailing bytes from the previous write. Java deserialization stops at the end of
 the object graph and ignores the tail, so this is invisible in practice, but the file can only grow.
-No class declares a `serialVersionUID`, so any field change to `SporkDatabase`, a spork or a
-`SporkData` invalidates existing files — which is precisely the case the producer handles below.
+Every class stored in the file — `SporkDatabase`, the sporks, their `SporkData`, `Address`,
+`Location` and `Vesting` — pins its `serialVersionUID` to the value earlier builds computed, so added
+fields such as `signatureLog` load as `null` from older files instead of making them unreadable.
+`GridSpork.getSignatureLog()` turns that `null` into an empty log.
+`SporkDatabaseCompatibilityTest` loads `src/test/resources/spork/legacy-spork.db`, written by a
+build from before the pinning, and checks that its sporks and their signatures survive.
 `SporkDatabaseTest` property-checks that a database containing an arbitrary spork survives a
 persist/load round trip, comparing with shazamcrest's `sameBeanAs`.
 
@@ -661,7 +749,7 @@ sequenceDiagram
     Helper->>DB: setMintSupply / setMintStorage / setVestingStorage
     Helper->>Topo: Topology.sendAll(PublishSpork)
     Topo->>Peer: PublishSpork over QUIC
-    Peer->>Peer: isNewerThan(local) && isValidSignature()
+    Peer->>Peer: canReplace(local)
     Peer->>Peer: db.set(spork), then re-broadcast to its own peers
     Note over DB,Disk: PublishAndSaveSporkSchedule persists every 3 minutes;<br/>SporkDatabaseProducer @PreDestroy persists on shutdown
 ```
@@ -745,6 +833,11 @@ peer on the new keys finds its signature valid. Unlike the per-spork endpoints, 
 through `ResourceHelper` and does not call `archive()`: the history a spork carried before the key
 change is carried over unchanged.
 
+The version being renewed enters the [signature log](#signature-log). Its signer is found among the
+retired keys, so after the cutover the log's first entry names the foundation key that signed the
+spork before the key change. A spork signed by a key that is neither a network key nor a retired key
+cannot be renewed; the call answers `401`.
+
 The cutover is run on a node that held the sporks before it was upgraded, so its `spork.db` still
 contains them, with one of the board members' private keys:
 
@@ -784,8 +877,8 @@ Optional.empty()`.
 ### Receiving
 
 `model/network/handler/PublishSporkChannelHandler.java` is `@Sharable`, registered on both the server
-and client pipelines, and accepts an incoming spork only when
-`newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()` holds, after which it stores the
+and client pipelines, and accepts an incoming spork only when `newSpork.canReplace(oldSpork)` holds
+(see [Accepting a replacement](#accepting-a-replacement)), after which it stores the
 spork with `db.set(...)` and re-broadcasts the original packet. The step-by-step algorithm, the
 `NullableMap` of the four known types and the flooding behavior of the re-broadcast are described in
 [Peer-to-peer network protocol](network-protocol.md).
@@ -842,7 +935,7 @@ and becomes a silent no-op — no publish and no save — if that bean cannot be
 
 Spork serialization is split in two layers. `AbstractGridSporkEncoder`/`AbstractGridSporkDecoder`
 (`model/network/codec/`) handle the common spork header — type, flags, both timestamps, reserved
-padding, and the length-prefixed signature — and delegate the payload to a *chunk* codec chosen by
+padding, the length-prefixed signature and the signature log — and delegate the payload to a *chunk* codec chosen by
 spork type. `PublishSporkEncoder`/`PublishSporkDecoder` wrap that in a `PUBLISH_SPORK` frame. The
 frame and header layouts are documented in
 [Peer-to-peer network protocol](network-protocol.md).
@@ -899,10 +992,10 @@ constructor sets `Flag.GOVERNED`. The `@ShortRange(min = 0, max = 3)` generator 
 
 ### CLI
 
-`hedgehog cli` carries five spork commands — `gridspork-list`, `gridspork-get`, `gridspork-set`,
-`gridspork-grow` and `gridspork-renew` — registered on the `cli` subcommand in
-`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`. `gridspork-list` and
-`gridspork-renew` issue a request themselves; the other three are containers whose
+`hedgehog cli` carries six spork commands — `gridspork-list`, `gridspork-get`, `gridspork-set`,
+`gridspork-grow`, `gridspork-log` and `gridspork-renew` — registered on the `cli` subcommand in
+`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`. `gridspork-list`, `gridspork-log`
+and `gridspork-renew` issue a request themselves; the other three are containers whose
 `mint-supply`/`mint-storage` leaves are the REST clients. The complete command reference, including every option and whether picocli enforces
 it, is in
 [Architecture overview](architecture.md), and the client-side response handling is in
@@ -937,8 +1030,8 @@ Four JAX-RS resources are all rooted at `@Path("/gridspork")`:
 `GridSporkResource`, `MintSupplyResource`, `MintStorageResource` and `VestingStorageResource`
 (`application/src/main/java/org/unigrid/hedgehog/server/rest/`). All four inject `SporkDatabase` and
 `P2PServer` through `CDIBridgeInject`, and all four also inject `Topology`. `GridSporkResource`
-exposes the `GET` overview and the `PUT /renew` described under
-[Renewing after a key change](#renewing-after-a-key-change); the other three each expose a `GET`
+exposes the `GET` overview, the `GET /log` of every stored spork's [signature log](#signature-log)
+and the `PUT /renew` described under [Renewing after a key change](#renewing-after-a-key-change); the other three each expose a `GET`
 list, and `MintStorageResource` and `VestingStorageResource` additionally a keyed `GET`, alongside
 the `PUT` mutations described above. Paths, verbs, status codes and payloads are enumerated in [REST interface](rest-api.md).
 
@@ -984,7 +1077,8 @@ Collected here so a reader does not have to rediscover them.
   identifiers, not implemented messages (`model/network/packet/Packet.java`).
 - **Signing over per-field Java serialization makes the signed bytes sensitive to `HashMap`
   internals.** The wire format does not preserve those internals, so a round-tripped spork is not
-  guaranteed to re-verify (`model/spork/GridSpork.java`).
+  guaranteed to re-verify (`model/spork/GridSpork.java`). A node holding such a spork can no longer
+  name its signer either, so its next `archive()` or `renew()` is refused rather than logged.
 - **Every `Signature` construction runs the keypair rejection-sampling loop.** The two-argument
   constructor calls `this()` first, so verification generates and discards a full P-521 keypair
   before it can look at the supplied key (`model/crypto/Signature.java`).

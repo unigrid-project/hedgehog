@@ -53,10 +53,11 @@ P2P tests learn which host and port the server actually landed on. `AbstractServ
 The source comment on `MAX_DATA_SIZE` reads `/* 256 MB */`; the value is `1024 * 1024 * 256`, i.e.
 256 MiB, and that is how it is written throughout this manual.
 
-`PROTOCOLS` is `{ "hedgehog/0.0.2", "gridspork/0.0.2" }` and is passed verbatim to
+`PROTOCOLS` is `{ "hedgehog/0.0.3", "gridspork/0.0.3" }` and is passed verbatim to
 `QuicSslContextBuilder.applicationProtocols(...)` on both sides, so both strings are offered as ALPN
-identifiers. Nothing in the code inspects the negotiated protocol afterwards — `gridspork/0.0.2` is
-advertised but never used to select behavior. The same array is echoed by the REST version endpoint
+identifiers. Nothing in the code inspects the negotiated protocol afterwards — `gridspork/0.0.3` is
+advertised but never used to select behavior. The version moved from `0.0.2` when the signature log
+was added to `PUBLISH_SPORK`, whose layout older nodes cannot read. The same array is echoed by the REST version endpoint
 (see [REST interface](rest-api.md)).
 
 `SEEDS` is the six-entry list `seed1.unigrid.org` … `seed6.unigrid.org`. `Network.getSeeds()` returns
@@ -546,6 +547,22 @@ followed by the chunk encoding of `data`, then the chunk encoding of `previousDa
 | ---: | --- | --- |
 | 2 | signature length | `writeShort(signature.length)` / `readUnsignedShort()` |
 | var | signature | raw bytes |
+| 4 | log entry count | `writeInt(size)` / `readInt()` |
+| var | log entries | `SignatureLogEntry.toBytes()` each, in log order |
+
+and each signature log entry is:
+
+| Size | Field | Encoding |
+| ---: | --- | --- |
+| 8 | signed version timestamp | epoch milliseconds |
+| 2 | signer length | `readUnsignedShort()` |
+| var | signer | public key hex as US-ASCII |
+| 64 | digest | SHA-512 of the signed version's `getSignable()` |
+| 2 | signature length | `readUnsignedShort()` |
+| var | signature | raw bytes |
+
+The meaning of the log and how a receiver checks it are described under
+[Signature log](sporks.md#signature-log).
 
 Timestamps are millisecond precision on the wire; `GridSpork.archive()` truncates to
 `ChronoUnit.MILLIS` for exactly this reason. `GridSpork.Flag` values (`GOVERNED` = `0x01`,
@@ -813,14 +830,16 @@ Resolves `SporkDatabase`, builds a map of the four known spork types to their cu
    every constant of `GridSpork.Type` except `UNDEFINED`, and the decoder never produces an
    `UNDEFINED`-typed spork — `decodeGridSpork` gives up before it constructs one when no chunk decoder
    is registered — so in the current pipeline this branch is unreachable.
-3. Otherwise, if `newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()`, stores it with
-   `db.set(newSpork)` and re-broadcasts the *original* `PublishSpork` packet to every connected node
-   via `Topology.sendAll(publishSpork, topology, Optional.empty())`. `isNewerThan` treats a null or
-   timestamp-less `oldSpork` as older than anything with a timestamp, which is what lets a node with an
-   empty database accept the first spork it is offered.
+3. Otherwise, if `newSpork.canReplace(oldSpork)`, stores it with `db.set(newSpork)` and re-broadcasts
+   the *original* `PublishSpork` packet to every connected node via
+   `Topology.sendAll(publishSpork, topology, Optional.empty())`. `canReplace` requires a longer
+   signature log, or an equally long one and a newer timestamp, that keeps the stored log as its
+   prefix and carries a valid signature (see
+   [Accepting a replacement](sporks.md#accepting-a-replacement)). A null `oldSpork` counts as an empty
+   log, which is what lets a node with an empty database accept the first spork it is offered.
 
 The re-broadcast has no origin suppression and no hop limit; loops are broken only by the
-`isNewerThan` timestamp check on the receiving side. The `Optional.empty()` consumer carries a
+`canReplace` check on the receiving side, which refuses a spork identical to the stored one. The `Optional.empty()` consumer carries a
 `// TODO: Handle errors better rather than sending Optional.empty()`, i.e. write failures during
 propagation are not observed.
 
@@ -1039,7 +1058,7 @@ sequenceDiagram
     participant TP as Topology
 
     T->>C: new P2PClient(host, port)
-    C->>S: QUIC handshake (ALPN hedgehog/0.0.2, gridspork/0.0.2)
+    C->>S: QUIC handshake (ALPN hedgehog/0.0.3, gridspork/0.0.3)
     S->>S: EncryptedTokenHandler.writeToken / validateToken
     S->>S: ConnectionHandler stores SOCKET_ADDRESS_KEY
     C->>S: createStream(BIDIRECTIONAL)
@@ -1113,13 +1132,13 @@ sequenceDiagram
     participant B as Node B
     participant DB as SporkDatabase A
 
-    O->>A: PUBLISH_SPORK { header, data chunk, previous chunk, signature }
+    O->>A: PUBLISH_SPORK { header, data chunk, previous chunk, signature, signature log }
     Note over A: PublishSporkDecoder resolves the chunk decoder by spork type
     A->>DB: type known?
     alt unsupported type
         A->>A: log the unsupported spork type and return
     else known type
-        A->>A: isNewerThan(current) && isValidSignature()
+        A->>A: canReplace(current)
         alt accepted
             A->>DB: set(newSpork)
             A->>B: Topology.sendAll(publishSpork)
@@ -1188,7 +1207,7 @@ Collected here so a reader does not have to rediscover them:
 - **Server-side `ConnectionContainer`s cannot be closed.** `HelloChannelHandler` builds one without a
   group, and the field carries no `@Builder.Default`, so `close()`/`closeDirty()` dereference a null
   `Optional`.
-- **Spork flooding has no loop suppression**, only the `isNewerThan` timestamp guard on each receiver.
+- **Spork flooding has no loop suppression**, only the `canReplace` guard on each receiver.
 - **Chunk scanning is repeated per codec instance**, i.e. twice per new connection, since
   `AbstractGridSporkEncoder`/`Decoder` call `ChunkScanner.scan(...)` from their constructors.
 - **TLS is unauthenticated by design today**: a fresh self-signed certificate per server start and
