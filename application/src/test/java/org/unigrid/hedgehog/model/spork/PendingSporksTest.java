@@ -168,6 +168,16 @@ public class PendingSporksTest {
 	}
 
 	@Example
+	public void shouldNameTheProposalOfAType() {
+		final MintSupply spork = proposal(Duration.ZERO);
+
+		pendingSporks.offer(spork, null);
+
+		assertThat(pendingSporks.proposalOf(GridSpork.Type.MINT_SUPPLY), is(Optional.of(spork)));
+		assertThat(pendingSporks.proposalOf(GridSpork.Type.MINT_STORAGE), is(Optional.empty()));
+	}
+
+	@Example
 	public void shouldRemoveAProposalByType() {
 		pendingSporks.offer(proposal(Duration.ZERO), null);
 		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);

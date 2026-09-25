@@ -75,6 +75,10 @@ public class PendingSporks {
 		return list().stream().filter(spork -> digestOf(spork).equals(digest)).findFirst();
 	}
 
+	public synchronized Optional<GridSpork> proposalOf(Type type) {
+		return list().stream().filter(spork -> spork.getType() == type).findFirst();
+	}
+
 	public synchronized void remove(Type type) {
 		proposals.remove(type);
 	}
