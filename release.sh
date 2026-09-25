@@ -7,10 +7,13 @@
 #                       the release
 #   release.sh publish  signs the drafted assets and the bootstrap with the
 #                       release key, attaches them and publishes the draft
+#   release.sh dev      tags X.Y.Z-dev.N on a commit off master and pushes
+#                       the tag; publish then turns it into a prerelease
 #
 # No version is ever passed: the pom carries X.Y.Z-SNAPSHOT, and dropping the
-# suffix is the release. Nothing is signed anywhere but on this machine, so
-# the release key never has to leave it.
+# suffix is the release. A dev release numbers the builds leading up to it,
+# so 0.0.8-dev.1 < 0.0.8-dev.2 < 0.0.8 as SemVer orders them. Nothing is
+# signed anywhere but on this machine, so the release key never has to leave it.
 
 set -euo pipefail
 
@@ -24,12 +27,14 @@ trap 'rm -rf "$SCRATCH"' EXIT
 die() { printf '%s\n' "$*" >&2; exit 1; }
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 is_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+is_dev_version() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]]; }
 
 usage() {
 	cat <<'EOF'
 Usage: release.sh cut [--skip-tests] [--dry-run] [--next X.Y.Z]
-       release.sh publish [--tag vX.Y.Z] [--bootstrap FILE] [--codename NAME]
-                          [--notes-file FILE]
+       release.sh dev [--skip-tests]
+       release.sh publish [--tag vX.Y.Z[-dev.N]] [--bootstrap FILE]
+                          [--codename NAME] [--notes-file FILE]
 
 cut      Builds and tests the whole project at the release version, turns
          the pom's X.Y.Z-SNAPSHOT into the release X.Y.Z with a commit and
@@ -39,14 +44,20 @@ cut      Builds and tests the whole project at the release version, turns
            --dry-run      rehearse release:prepare; commit, tag and push nothing
            --next X.Y.Z   the snapshot to open afterwards (default: patch + 1)
 
+dev      Builds and tests the release the pom works towards as X.Y.Z-dev.N,
+         N one past the newest dev tag of X.Y.Z, commits that version off
+         master, tags it and pushes only the tag. Master keeps its snapshot.
+           --skip-tests   build without running the test suite
+
 publish  Waits for the draft the tag produced, checks the bootstrap against
          the keys built into that release, signs every asset with the release
-         key, attaches the signatures and bootstrap.dat.gz, and publishes.
-           --tag vX.Y.Z      the release to publish (default: the newest tag)
+         key, attaches the signatures and bootstrap.dat.gz, and publishes. A
+         dev tag is published as a prerelease, never as the latest release.
+           --tag TAG         the release to publish (default: the newest tag)
            --bootstrap FILE  a signed bootstrap.dat, gzipped or not; without
                              it the bootstrap already on the draft or on the
-                             previous release is used
-           --codename NAME   titles the release "X.Y.Z - NAME"
+                             latest release is used
+           --codename NAME   titles the release "X.Y.Z - NAME"; not for dev
            --notes-file FILE release notes replacing the generated ones
 EOF
 }
@@ -74,6 +85,42 @@ require_signing_key() {
 
 require_gh() {
 	gh auth status >/dev/null 2>&1 || die "gh is not logged in; run 'gh auth login' first."
+}
+
+require_clean_master() {
+	git rev-parse --git-dir >/dev/null 2>&1 || die "Not a git repository."
+	[ "$(git rev-parse --abbrev-ref HEAD)" = master ] || die "Releases are cut from master."
+
+	local dirty
+	dirty="$(git status --porcelain)"
+	[ -z "$dirty" ] || die "Working tree is not clean; commit or stash first:
+$dirty"
+}
+
+# The release the pom works towards: its X.Y.Z-SNAPSHOT without the suffix.
+upcoming_version() {
+	local pom version
+	pom="$(pom_version)"
+	version="${pom%-SNAPSHOT}"
+	if [ "$version" = "$pom" ] || ! is_version "$version"; then
+		die "The pom reads '$pom', which names no version to release.
+Set it to a major.minor.patch snapshot first."
+	fi
+	printf '%s' "$version"
+}
+
+# Counted over local and remote tags, so a dev tag pushed from another clone
+# is never reused.
+next_dev_number() {
+	local pattern="v${1//./\\.}-dev\.\([0-9]\+\)"
+	local newest
+	newest="$({ git tag -l "v$1-dev.*"; git ls-remote --tags origin "refs/tags/v$1-dev.*" | sed 's|.*refs/tags/||'; } \
+		| sed -n "s/^$pattern\$/\1/p" | sort -n | tail -1)"
+	printf '%s' "$(( ${newest:-0} + 1 ))"
+}
+
+newest_tag() {
+	git for-each-ref --sort=-creatordate --count=1 --format='%(refname:short)' 'refs/tags/v*'
 }
 
 bumped_patch() {
@@ -109,27 +156,15 @@ cut_release() {
 	done
 
 	cd "$ROOT"
-	git rev-parse --git-dir >/dev/null 2>&1 || die "Not a git repository."
-	[ "$(git rev-parse --abbrev-ref HEAD)" = master ] || die "Releases are cut from master."
-
-	local dirty
-	dirty="$(git status --porcelain)"
-	[ -z "$dirty" ] || die "Working tree is not clean; commit or stash first:
-$dirty"
-
+	require_clean_master
 	require_gh
 	require_signing_key >/dev/null
 
 	[ -x "${GRAALVM_HOME:-}/bin/native-image" ] \
 		|| die "GRAALVM_HOME must point at a GraalVM with native-image; release:prepare builds the launcher."
 
-	local pom version tag
-	pom="$(pom_version)"
-	version="${pom%-SNAPSHOT}"
-	if [ "$version" = "$pom" ] || ! is_version "$version"; then
-		die "The pom reads '$pom', which names no version to release.
-Set it to a major.minor.patch snapshot first."
-	fi
+	local version tag
+	version="$(upcoming_version)"
 	tag="v$version"
 
 	git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "Tag $tag already exists locally."
@@ -175,6 +210,54 @@ Set it to a major.minor.patch snapshot first."
 	printf '  workflow  %s/actions/workflows/%s\n' "$(gh repo view --json url --jq .url)" "$WORKFLOW"
 	printf '\nOnce the run has drafted the release, publish it with:\n'
 	printf '  ./release.sh publish --tag %s --bootstrap <signed bootstrap.dat> --codename "<Name>"\n' "$tag"
+}
+
+dev_release() {
+	local tests=all
+
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--skip-tests) tests=none ;;
+			*) die "Unknown option for dev: $1" ;;
+		esac
+		shift
+	done
+
+	cd "$ROOT"
+	require_clean_master
+	require_gh
+	require_signing_key >/dev/null
+
+	local version dev tag
+	version="$(upcoming_version)"
+	dev="$version-dev.$(next_dev_number "$version")"
+	tag="v$dev"
+
+	confirm "Tag dev release $dev and push $tag?"
+
+	# The dev version lives only on the tagged commit, which the tag keeps
+	# reachable, so master never carries it.
+	local -a build=(mvn -B -ntp -pl common,application clean verify)
+	[ "$tests" = all ] || build+=(-DskipTests)
+	step "Building $dev off master"
+	git switch -q --detach
+	if ! mvn -q -ntp versions:set -DnewVersion="$dev" -DgenerateBackupPoms=false || ! "${build[@]}"; then
+		git checkout -q -- .
+		git switch -q master
+		die "Building $dev failed; master is untouched."
+	fi
+
+	git commit -q -am "Dev release $dev"
+	git tag -a "$tag" -m "Hedgehog $dev"
+	git switch -q master
+
+	step "Pushing $tag"
+	git push origin "$tag"
+
+	printf '\n\033[1mTagged %s\033[0m\n' "$dev"
+	printf '  workflow  %s/actions/workflows/%s\n' "$(gh repo view --json url --jq .url)" "$WORKFLOW"
+	printf '\nOnce the run has drafted the prerelease, publish it with:\n'
+	printf '  ./release.sh publish --tag %s\n' "$tag"
 }
 
 await_draft() {
@@ -249,9 +332,11 @@ publish_release() {
 
 	cd "$ROOT"
 	require_gh
-	[ -n "$tag" ] || tag="$(git describe --tags --abbrev=0 --match 'v*')"
+	[ -n "$tag" ] || tag="$(newest_tag)"
 	local version="${tag#v}"
-	is_version "$version" || die "'$tag' is not a release tag of the form vX.Y.Z."
+	is_version "$version" || is_dev_version "$version" \
+		|| die "'$tag' is not a release tag of the form vX.Y.Z or vX.Y.Z-dev.N."
+	is_version "$version" || [ -z "$codename" ] || die "A dev release carries no codename."
 	[ -z "$bootstrap" ] || [ -f "$bootstrap" ] || die "No such bootstrap file: $bootstrap"
 	[ -z "$notes" ] || [ -f "$notes" ] || die "No such notes file: $notes"
 
@@ -292,7 +377,14 @@ publish_release() {
 	step "Publishing $tag"
 	local title="$version"
 	[ -z "$codename" ] || title="$version - $codename"
-	local -a edit=(gh release edit "$tag" --draft=false --latest --title "$title")
+	# releases/latest is where nodes fetch their bootstrap, so only a real
+	# release may become it.
+	local -a edit=(gh release edit "$tag" --draft=false --title "$title")
+	if is_version "$version"; then
+		edit+=(--latest)
+	else
+		edit+=(--prerelease --latest=false)
+	fi
 	[ -z "$notes" ] || edit+=(--notes-file "$notes")
 	"${edit[@]}"
 
@@ -305,6 +397,7 @@ publish_release() {
 
 case "${1:-}" in
 	cut) shift; cut_release "$@" ;;
+	dev) shift; dev_release "$@" ;;
 	publish) shift; publish_release "$@" ;;
 	-h|--help|help) usage ;;
 	"") usage >&2; exit 1 ;;
