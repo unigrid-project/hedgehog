@@ -30,7 +30,8 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 @Command(name = "gridspork-renew",
-	description = "Re-sign every spork this node holds with the given key, keeping the spork data unchanged."
+	description = "Propose every spork this node holds re-signed with the given key, keeping the spork data "
+		+ "unchanged. A second network key accepts the proposals with gridspork-cosign."
 )
 public class GridSporkRenew extends RestClientCommand {
 	@Option(names = { "-k", "--key" }, description = "Hex representation of private key signing the sporks.",
