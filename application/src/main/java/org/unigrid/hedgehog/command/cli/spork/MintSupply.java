@@ -60,7 +60,7 @@ public class MintSupply implements Runnable {
 
 				@Override
 				protected void execute(Response response) {
-					/* No need to do anything here */
+					System.out.println(Json.parse(response.readEntity(String.class)));
 				}
 			};
 
