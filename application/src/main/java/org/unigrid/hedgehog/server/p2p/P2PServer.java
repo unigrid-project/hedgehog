@@ -21,11 +21,13 @@ package org.unigrid.hedgehog.server.p2p;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
@@ -54,6 +56,7 @@ import org.unigrid.hedgehog.model.network.handler.ConnectionHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.model.network.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
@@ -89,7 +92,13 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
-			.handler(new ConnectionHandler())
+			.handler(new ChannelInitializer<QuicChannel>() {
+				@Override
+				protected void initChannel(QuicChannel quicChannel) {
+					quicChannel.pipeline().addLast(new ProtocolMismatchHandler());
+					quicChannel.pipeline().addLast(new ConnectionHandler());
+				}
+			})
 			.streamHandler(new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),

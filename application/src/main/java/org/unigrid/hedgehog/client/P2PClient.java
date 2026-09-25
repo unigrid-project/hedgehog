@@ -53,6 +53,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
@@ -87,12 +88,15 @@ public class P2PClient extends ConnectionContainer {
 			.handler(codec)
 			.bind(0).sync().channel();
 
+		final InetSocketAddress address = new InetSocketAddress(hostname, port);
 		QuicChannel quicChannel;
 
 		try {
 			quicChannel = QuicChannel.newBootstrap(channelBootstrap)
+				.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY, address)
+				.handler(new ProtocolMismatchHandler())
 				.streamHandler(new ChannelInboundHandlerAdapter())
-				.remoteAddress(new InetSocketAddress(hostname, port))
+				.remoteAddress(address)
 				.connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
 		} catch (ExecutionException | TimeoutException ex)  {
