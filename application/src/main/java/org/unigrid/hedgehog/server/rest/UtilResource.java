@@ -25,18 +25,30 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.unigrid.hedgehog.model.ChainHeight;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
+import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
 import org.unigrid.hedgehog.server.rest.entity.VersionResponse;
 
 @Path("/")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class UtilResource extends CDIBridgeResource {
+	@CDIBridgeInject
+	private ChainHeight chainHeight;
+
 	@Path("/stop") @POST
 	public Response stop() {
 		CDIContext.stop();
 		return Response.status(Response.Status.ACCEPTED).build();
+	}
+
+	@Path("/height") @GET
+	public Response height() {
+		return chainHeight.current().map(height -> Response.ok().entity(new HeightResponse(height)).build())
+			.orElseGet(() -> Response.status(Response.Status.SERVICE_UNAVAILABLE).build());
 	}
 
 	@Path("/version") @GET

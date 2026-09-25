@@ -53,6 +53,7 @@ import org.unigrid.hedgehog.model.bootstrap.TransactionIdTable;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
 
 public class BootstrapResourceTest extends BaseRestClientTest {
 	private static final int HEIGHTS = 4;
@@ -89,6 +90,13 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		assertThat(info.getTipHeight(), equalTo(HEIGHTS - 1));
 		assertThat(info.getAddressCount(), equalTo(1));
 		assertThat(info.getEntryCount(), equalTo((long) HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldReportTheTipAsTheCurrentHeight() {
+		writeSnapshot();
+		assertThat(client.getEntity("/height", HeightResponse.class).height(), equalTo(TIP_HEIGHT));
 	}
 
 	@Example
