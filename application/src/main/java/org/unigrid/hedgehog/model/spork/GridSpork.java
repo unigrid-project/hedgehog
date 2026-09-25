@@ -30,25 +30,22 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.Tolerate;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data
-@Slf4j
 public class GridSpork implements Serializable, Signable {
 	private static final long serialVersionUID = 3180522314476687567L;
 
@@ -66,6 +63,7 @@ public class GridSpork implements Serializable, Signable {
 	private ChunkData data;
 	private ChunkData previousData; /* Flag.DELTA controls the content */
 	@Getter private byte[] signature;
+	private byte[] cosignature;
 
 	@JsonIgnore
 	private SignatureLog signatureLog;
@@ -167,45 +165,83 @@ public class GridSpork implements Serializable, Signable {
 	@Override
 	public void sign(String privateKeyHex) throws SigningException {
 		logRetiringHead();
+		signature = signatureOf(privateKeyHex);
+		cosignature = null;
+	}
 
+	/**
+	* Adds the second signature a spork needs before the network accepts it. It covers the same bytes as
+	* the first one, and has to come from a different current network key.
+	*/
+	public void cosign(String privateKeyHex) throws SigningException {
+		if (Objects.isNull(signature) || !isPending()) {
+			throw new SigningException("Only a spork signed by exactly one network key can be co-signed");
+		}
+
+		cosignature = signatureOf(privateKeyHex);
+
+		if (!isDoublySigned()) {
+			cosignature = null;
+			throw new SigningException("A second, different network key has to co-sign the spork");
+		}
+	}
+
+	private byte[] signatureOf(String privateKeyHex) throws SigningException {
 		try {
-			final Signature signature = new Signature(Optional.of(privateKeyHex),
-				Optional.empty()
-			);
-
-			this.signature = signature.sign(getSignable());
-
+			return new Signature(Optional.of(privateKeyHex), Optional.empty()).sign(getSignable());
 		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new SigningException("Failed to sign spork with given private key", ex);
 		}
 	}
 
 	@JsonIgnore
-	public boolean isValidSignature() {
-		try {
-			for (String key : NetworkKey.getPublicKeys()) {
-				if (Signature.verify(this, key)) {
-					return true;
-				}
-			}
-		} catch (VerifySignatureException ex) {
-			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
-		}
+	public boolean isPending() {
+		return Objects.isNull(cosignature);
+	}
 
-		return false;
+	@JsonIgnore
+	public boolean isValidSignature() {
+		return currentSignerOf(signature).isPresent();
+	}
+
+	@JsonIgnore
+	public boolean isDoublySigned() {
+		final Optional<String> signer = currentSignerOf(signature);
+		final Optional<String> cosigner = currentSignerOf(cosignature);
+
+		return signer.isPresent() && cosigner.isPresent() && !signer.equals(cosigner);
+	}
+
+	private Optional<String> currentSignerOf(byte[] headSignature) {
+		return Objects.isNull(headSignature) ? Optional.empty()
+			: NetworkKey.currentSignerOf(DigestUtils.sha512(getSignable()), headSignature);
 	}
 
 	/**
-	* Decides whether this spork, received from the network, may replace the stored one. It must carry
-	* the stored log unchanged, add only entries signed by known keys, and either extend the log or win
-	* against a sibling signed on top of the same log by being newer.
+	* Decides whether this spork, received from the network, may replace the stored one. It must be signed
+	* by two different current network keys, carry the stored log unchanged, add only entries signed by
+	* known keys, and either extend the log or win against a sibling signed on top of the same log by being
+	* newer.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
+		return succeeds(stored, this::isDoublySigned);
+	}
+
+	/**
+	* Decides whether this spork, signed once, may wait for its co-signature as a proposal to replace the
+	* stored one. It has to pass every check of {@link #canReplace(GridSpork)} except the second signature.
+	*/
+	@JsonIgnore
+	public boolean canBeProposedOver(GridSpork stored) {
+		return isPending() && succeeds(stored, this::isValidSignature);
+	}
+
+	private boolean succeeds(GridSpork stored, BooleanSupplier isSignedHead) {
 		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
 
 		/* Head first, so a forged log costs one verification rather than one per entry */
-		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && isValidSignature()
+		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && isSignedHead.getAsBoolean()
 			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getKnownPublicKeys());
 	}
 
@@ -224,20 +260,25 @@ public class GridSpork implements Serializable, Signable {
 	private void retireHead() {
 		if (Objects.nonNull(signature) && Objects.isNull(retiringHead)) {
 			retiringHead = SignatureLogEntry.builder().timeStamp(timeStamp)
-				.digest(DigestUtils.sha512(getSignable())).signature(signature).build();
+				.digest(DigestUtils.sha512(getSignable())).signature(signature).cosignature(cosignature).build();
 		}
 	}
 
 	private void logRetiringHead() throws SigningException {
 		if (Objects.nonNull(retiringHead)) {
-			final String signer = NetworkKey.signerOf(retiringHead.getDigest(), retiringHead.getSignature())
-				.orElseThrow(() -> new SigningException(
-					"No known network key signed the version being replaced"
-				));
+			final String signer = knownSignerOf(retiringHead.getSignature());
+			final String cosigner = Objects.isNull(retiringHead.getCosignature()) ? null
+				: knownSignerOf(retiringHead.getCosignature());
 
-			getSignatureLog().append(retiringHead.toBuilder().signer(signer).build());
+			getSignatureLog().append(retiringHead.toBuilder().signer(signer).cosigner(cosigner).build());
 			retiringHead = null;
 		}
+	}
+
+	private String knownSignerOf(byte[] headSignature) throws SigningException {
+		return NetworkKey.signerOf(retiringHead.getDigest(), headSignature).orElseThrow(() -> new SigningException(
+			"No known network key signed the version being replaced"
+		));
 	}
 
 	/**

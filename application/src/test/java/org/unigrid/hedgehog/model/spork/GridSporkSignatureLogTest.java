@@ -40,17 +40,21 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 	private static final Instant SIGNED_AT = Instant.parse("2023-06-23T10:38:54.983Z");
 
 	private static Signature trusted;
+	private static Signature cosigner;
 	private static Signature retired;
+	private static String[] currentKeys;
 
 	@SneakyThrows
 	@BeforeProperty
 	public void before() {
 		trusted = new Signature();
+		cosigner = new Signature();
 		retired = new Signature();
+		currentKeys = new String[] { trusted.getPublicKey(), cosigner.getPublicKey() };
 
 		new MockUp<NetworkKey>() {
 			@Mock public static String[] getPublicKeys() {
-				return new String[] { trusted.getPublicKey() };
+				return currentKeys;
 			}
 
 			@Mock public static String[] getRetiredPublicKeys() {
@@ -70,6 +74,12 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 		spork.setTimeStamp(SIGNED_AT);
 		spork.setPreviousTimeStamp(Instant.EPOCH);
 		spork.sign(signer.getPrivateKey());
+		return spork;
+	}
+
+	@SneakyThrows
+	private static MintSupply cosigned(MintSupply spork) {
+		spork.cosign(cosigner.getPrivateKey());
 		return spork;
 	}
 
@@ -190,7 +200,7 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 		spork.archive();
 		spork.setTimeStamp(SIGNED_AT.plusSeconds(second));
 		spork.sign(trusted.getPrivateKey());
-		return spork;
+		return cosigned(spork);
 	}
 
 	@SneakyThrows
@@ -199,17 +209,21 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 		forged.setSignatureLog(log);
 		forged.sign(trusted.getPrivateKey());
-		return forged;
+		return cosigned(forged);
 	}
 
 	@Example
 	public void shouldReplaceNothingWithATrustedFirstVersion() {
-		assertThat(signedSupply(trusted).canReplace(null), is(true));
+		assertThat(cosigned(signedSupply(trusted)).canReplace(null), is(true));
 	}
 
+	@SneakyThrows
 	@Example
 	public void shouldNotAcceptAHeadSignedByARetiredKey() {
-		assertThat(signedSupply(retired).canReplace(null), is(false));
+		final MintSupply spork = signedSupply(retired);
+
+		spork.setCosignature(cosigner.sign(spork.getSignable()));
+		assertThat(spork.canReplace(null), is(false));
 	}
 
 	@Example
@@ -285,5 +299,132 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 		assertThat(branch.canReplace(sibling), is(true));
 		assertThat(sibling.canReplace(branch), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldNotAcceptASingleSignature() {
+		final MintSupply stored = cosigned(signedSupply(trusted));
+		final MintSupply proposed = SerializationUtils.clone(stored);
+
+		proposed.renew();
+		proposed.sign(trusted.getPrivateKey());
+
+		assertThat(signedSupply(trusted).canReplace(null), is(false));
+		assertThat(proposed.canReplace(stored), is(false));
+	}
+
+	@Example
+	public void shouldBePendingUntilCosigned() {
+		final MintSupply spork = signedSupply(trusted);
+
+		assertThat(spork.isPending(), is(true));
+		assertThat(cosigned(spork).isPending(), is(false));
+	}
+
+	@Example
+	public void shouldKeepTheSignableWhenCosigned() {
+		final MintSupply spork = signedSupply(trusted);
+		final byte[] signable = spork.getSignable();
+
+		assertThat(cosigned(spork).getSignable(), equalTo(signable));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldRefuseToCosignWithTheFirstSignersKey() {
+		final MintSupply spork = signedSupply(trusted);
+
+		try {
+			spork.cosign(trusted.getPrivateKey());
+			assertThat("Co-signing should have been refused", false);
+		} catch (SigningException ex) {
+			assertThat(spork.isPending(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToCosignAnUnsignedSpork() {
+		try {
+			new MintSupply().cosign(cosigner.getPrivateKey());
+			assertThat("Co-signing should have been refused", false);
+		} catch (SigningException ex) {
+			assertThat(ex.getMessage(), not(emptyString()));
+		}
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldNotAcceptTheSameKeyTwice() {
+		final MintSupply spork = signedSupply(trusted);
+
+		spork.setCosignature(trusted.sign(spork.getSignable()));
+		assertThat(spork.canReplace(null), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldNotAcceptARetiredCosigner() {
+		final MintSupply spork = signedSupply(trusted);
+
+		spork.setCosignature(retired.sign(spork.getSignable()));
+		assertThat(spork.canReplace(null), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldLogBothSignersOfARenewedVersion() {
+		final MintSupply stored = cosigned(signedSupply(trusted));
+		final MintSupply renewed = SerializationUtils.clone(stored);
+
+		renewed.renew();
+		renewed.sign(cosigner.getPrivateKey());
+
+		final SignatureLogEntry entry = renewed.getSignatureLog().last();
+
+		assertThat(renewed.isPending(), is(true));
+		assertThat(entry.getSigners(), contains(trusted.getPublicKey(), cosigner.getPublicKey()));
+		assertThat(entry.isValid(), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldAcceptARenewalOfASingleSignedVersion() {
+		final MintSupply stored = signedSupply(trusted);
+		final MintSupply renewed = SerializationUtils.clone(stored);
+
+		renewed.renew();
+		renewed.sign(trusted.getPrivateKey());
+		renewed.cosign(cosigner.getPrivateKey());
+
+		assertThat(renewed.getSignatureLog().last().isCosigned(), is(false));
+		assertThat(renewed.canReplace(stored), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldAcceptARenewalOfAVersionSignedByARetiredKey() {
+		final MintSupply stored = signedSupply(retired);
+		final MintSupply renewed = SerializationUtils.clone(stored);
+
+		renewed.renew();
+		renewed.sign(cosigner.getPrivateKey());
+		renewed.cosign(trusted.getPrivateKey());
+
+		assertThat(renewed.canReplace(stored), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldAcceptAPendingSuccessorAsAProposal() {
+		final MintSupply stored = cosigned(signedSupply(trusted));
+		final MintSupply proposed = SerializationUtils.clone(stored);
+
+		proposed.renew();
+		proposed.sign(trusted.getPrivateKey());
+
+		assertThat(proposed.canBeProposedOver(stored), is(true));
+		assertThat(stored.canBeProposedOver(null), is(false));
+		assertThat(signedSupply(retired).canBeProposedOver(null), is(false));
 	}
 }
