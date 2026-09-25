@@ -284,4 +284,25 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 
 		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
 	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldShowBothSignersOfEachVersion(@ForAll("provideSignature") Signature signature) {
+		final Signature retiredSignature = new Signature();
+
+		retire(retiredSignature);
+		seedMintSupplySignedBy(retiredSignature);
+		cosignAll(renew(signature));
+		cosignAll(renew(signature));
+
+		final JsonNode log = new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
+			.get(GridSpork.Type.MINT_SUPPLY.name());
+		final JsonNode entry = log.get("entries").get(1);
+
+		assertThat(log.get("entries").get(0).get("cosigner").isNull(), is(true));
+		assertThat(entry.get("signer").asText(), equalTo(signature.getPublicKey()));
+		assertThat(entry.get("cosigner").asText(), equalTo(cosigner.getPublicKey()));
+		assertThat(log.get("head").get("signer").asText(), equalTo(signature.getPublicKey()));
+		assertThat(log.get("head").get("cosigner").asText(), equalTo(cosigner.getPublicKey()));
+	}
 }
