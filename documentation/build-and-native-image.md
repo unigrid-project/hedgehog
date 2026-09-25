@@ -913,13 +913,13 @@ two current keys, passes `canReplace` after each wire round trip, and so does th
 
 ### What the suite covers
 
-The test tree holds 81 Java files. The 20 under the two `bootstrap` packages and
+The test tree holds 82 Java files. The 20 under the two `bootstrap` packages and
 `server/rest/BootstrapResourceTest` exercise the legacy chain snapshot and are not listed here. Of
-the other 60, 11 are in the `jqwik` infrastructure package, six are base classes and `TestServer`,
-`GridSporkProvider` and `ApplicationDirectoryMockUp` are shared fixtures, leaving 40 test classes. The codec, handler, schedule and REST families are described above; the remainder are listed
+the other 61, 11 are in the `jqwik` infrastructure package, six are base classes and `TestServer`,
+`GridSporkProvider` and `ApplicationDirectoryMockUp` are shared fixtures, leaving 41 test classes. The codec, handler, schedule and REST families are described above; the remainder are listed
 here so the coverage map is complete.
 
-The four families that follow a fixed pattern account for 15 of the 40: four codec integrity tests
+The four families that follow a fixed pattern account for 15 of the 41: four codec integrity tests
 (`Ping`, `PublishPeers`, `PublishSpork`, `AskNodeDetails`), three handler tests
 (`PingChannelHandlerTest`, `PublishSporkChannelHandlerTest` and the empty
 `PublishPeersChannelHandlerTest`), two schedule tests (`PingScheduleTest` at a 75 ms period with a 15%
@@ -928,7 +928,7 @@ tolerance, `PublishPeersScheduleTest` at 250 ms with 30%), and six REST tests (`
 classes `StorageBucketTest` and `StorageObjectTest`). `SporkDatabaseTest` sits alongside them on
 `BaseSporkDatabaseTest`.
 
-The remaining 24 divide into container-backed and plain. These fourteen run inside a per-class Weld
+The remaining 25 divide into container-backed and plain. These fifteen run inside a per-class Weld
 container, whether through `BaseMockedWeldTest` directly or through one of its subclasses:
 
 | Test class | What it asserts |
@@ -945,6 +945,7 @@ container, whether through `BaseMockedWeldTest` directly or through one of its s
 | `model/spork/GridSporkSignatureLogTest` | Signing after `archive()` or `renew()` logs the replaced version with both its signers, retired keys included, and refuses an unknown signer; dropping, reordering or rewriting an entry breaks the signatures; `cosign(...)` leaves the signable bytes alone and refuses an unsigned spork and the first signer's key; a spork is pending until co-signed and is not accepted with one signature, the same key twice or a retired cosigner; a renewal of a single-signed version, or of one signed by a retired key, is accepted; a pending successor passes `canBeProposedOver(...)`; and every rule of `canReplace(...)`, from a first version through sibling forks to a longer branch. |
 | `model/spork/SporkDatabaseInfoTest` | Defaults on an empty database, and that `SporkDatabaseInfo` reports the timestamp and entry count of whichever spork type was set. |
 | `server/ServerTest` | Every server in a generated sub-list of the 20 `TestServer` instances is listening on a distinct P2P port — the proof that `@Instances` really produces independent containers. |
+| `model/network/handler/ProtocolMismatchHandlerTest` | A client offering the protocols of release 0.0.7 cannot connect to a server of this build, and both ends log a warning naming the peer and the protocols this build speaks, captured with a logback `ListAppender` (the surefire `argLine` adds `--add-reads org.unigrid.hedgehog=ch.qos.logback.core` for it). |
 | `client/P2PClientTest` | Opening and closing a `P2PClient` against each server leaves the live thread count within two of where it started, i.e. Netty groups are released on `close()`. |
 | `server/rest/GridSporkResourceTest` | On `BaseRestClientTest`: `GET /gridspork` reports `LASTCHANGED_NEVER` on an empty database, then the injected spork's timestamp and mint count once one is stored. `PUT /gridspork/renew` proposes a spork signed by a retired key re-signed, and once co-signed it is doubly signed with a later timestamp and unchanged data and history, logging the retired signer; it answers `401` to an untrusted key or over an unknown signer without replacing the stored instance, and `204` on an empty database. `GET /gridspork/pending` lists proposals with their digest and signer, or `204`; `PUT /gridspork/pending/{digest}` stores a co-signed proposal and answers `409` to the proposer's key, `404` to an unknown digest and `401` to an untrusted key. `GET /gridspork/log` names the retired and current signers, both signers of each version, and answers `204` on an empty database. |
 

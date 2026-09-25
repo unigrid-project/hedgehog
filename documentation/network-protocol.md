@@ -24,7 +24,8 @@ side is `application/src/main/java/org/unigrid/hedgehog/client/P2PClient.java`. 
 3. A `QuicServerCodecBuilder` is configured with that context, the injected `EncryptedTokenHandler` as
    `tokenHandler`, the four flow-control settings fed from `MAX_DATA_SIZE` and `MAX_STREAMS`,
    `maxIdleTimeout` from `IDLE_TIME_MINUTES`,
-   `.handler(new ConnectionHandler())` on the QUIC connection channel and a
+   a `ChannelInitializer` that installs `ProtocolMismatchHandler` and `ConnectionHandler` on each QUIC
+   connection channel, and a
    `RegisterQuicChannelInitializer` (handler supplier, schedule supplier, `Type.SERVER`) as
    `.streamHandler(...)`.
 4. The codec is bound as the datagram handler of a `NioDatagramChannel` at
@@ -56,7 +57,14 @@ The source comment on `MAX_DATA_SIZE` reads `/* 256 MB */`; the value is `1024 *
 `PROTOCOLS` is `{ "hedgehog/0.0.4", "gridspork/0.0.4" }` and is passed verbatim to
 `QuicSslContextBuilder.applicationProtocols(...)` on both sides, so both strings are offered as ALPN
 identifiers. Nothing in the code inspects the negotiated protocol afterwards — `gridspork/0.0.4` is
-advertised but never used to select behavior. The version moved from `0.0.2` to `0.0.3` when the
+advertised but never used to select behavior. What the list does enforce is compatibility: two nodes
+that share no identifier fail the TLS handshake with `NO_APPLICATION_PROTOCOL` and never connect, so a
+node of an incompatible release is shut out by the handshake itself. `ProtocolMismatchHandler` names
+such a peer at warn level on both ends — the server logs *"Refused a connection from {}: it speaks
+none of our protocols {}, so it runs an incompatible release"*, the client *"{} refused the
+connection: …"* on the TLS alert 120 in the `QuicConnectionCloseEvent` — where the server would
+otherwise see only a failed handshake and the client only its connect timeout. A node of a release
+older than this handler logs nothing of the kind. The version moved from `0.0.2` to `0.0.3` when the
 signature log was added to `PUBLISH_SPORK`, and to `0.0.4` when the cosignature fields were added to
 it; each time older nodes cannot read the new layout. The same array is echoed by the REST version
 endpoint (see [REST interface](rest-api.md)).
@@ -110,8 +118,10 @@ The client creates exactly one bidirectional stream per connection
 and that stream carries all traffic in both directions. The client also passes a bare
 `ChannelInboundHandlerAdapter` as the `streamHandler` of the QUIC channel bootstrap, so any stream the
 *server* opens toward the client gets no codec pipeline at all. On the server, `.streamHandler(...)`
-receives a `RegisterQuicChannelInitializer` and `.handler(new ConnectionHandler())` is installed on
-the QUIC connection channel itself.
+receives a `RegisterQuicChannelInitializer`, and `ProtocolMismatchHandler` followed by
+`ConnectionHandler` are installed on the QUIC connection channel itself. The client installs
+`ProtocolMismatchHandler` on its QUIC channel as well, and hands it the address it dials through the
+`ProtocolMismatchHandler.PEER_ADDRESS_KEY` channel attribute.
 
 ### Channel initialization
 
@@ -736,12 +746,14 @@ releases the message, or forwards it unchanged with `ctx.fireChannelRead(obj)` w
 `exceptionCaught` logs the message and stack trace at warn level and closes the channel — so any
 exception escaping a handler tears the connection down.
 
-`ConnectionHandler` is the exception — it extends `ChannelInboundHandlerAdapter` directly, since it
-handles a Netty user event rather than a decoded packet.
+`ConnectionHandler` and `ProtocolMismatchHandler` are the exceptions — they extend
+`ChannelInboundHandlerAdapter` directly, since they handle Netty user events rather than decoded
+packets.
 
 | Handler | Reacts to | What it does |
 | --- | --- | --- |
 | `ConnectionHandler` | `QuicConnectionEvent` on the QUIC connection channel | Address tracking, see below |
+| `ProtocolMismatchHandler` | `QuicConnectionEvent`, `SslHandshakeCompletionEvent` and `QuicConnectionCloseEvent` on the QUIC connection channel, on both ends | Warns when a handshake fails because the peer shares no ALPN protocol, and swallows the matching `SSLHandshakeException` |
 | `HelloChannelHandler` | `Hello` | Registers the sending node in the topology |
 | `PingChannelHandler` | `Ping` | Echoes requests, records latency for responses |
 | `PublishPeersChannelHandler` | `PublishPeers` | Adds every announced node to the topology |
