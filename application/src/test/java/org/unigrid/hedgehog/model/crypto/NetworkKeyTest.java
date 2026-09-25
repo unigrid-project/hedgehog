@@ -31,6 +31,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.codec.digest.DigestUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
@@ -116,5 +117,24 @@ public class NetworkKeyTest extends BaseMockedWeldTest {
 	@Property(tries = 10)
 	public void shouldNameNoSignerForUnknownKeys(@ForAll byte[] data) {
 		assertThat(NetworkKey.signerOf(signedBy(new Signature(), data)), is(Optional.empty()));
+	}
+
+	@Property(tries = 10)
+	public void shouldNameTheCurrentSigner(@ForAll byte[] data) {
+		final Signature signer = SIGNATURES.get(NUM_SIGNATURES - 1);
+		final Signable signable = signedBy(signer, data);
+
+		assertThat(NetworkKey.currentSignerOf(DigestUtils.sha512(data), signable.getSignature()),
+			is(Optional.of(signer.getPublicKey()))
+		);
+	}
+
+	@Property(tries = 10)
+	public void shouldNameNoCurrentSignerForRetiredKeys(@ForAll byte[] data) {
+		final Signable signable = signedBy(RETIRED_SIGNATURES.get(0), data);
+
+		assertThat(NetworkKey.currentSignerOf(DigestUtils.sha512(data), signable.getSignature()),
+			is(Optional.empty())
+		);
 	}
 }

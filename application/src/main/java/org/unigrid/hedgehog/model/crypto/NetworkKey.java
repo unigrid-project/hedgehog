@@ -22,7 +22,9 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -56,7 +58,15 @@ public class NetworkKey {
 	}
 
 	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
-		return getKnownPublicKeys().stream().filter(key -> verifies(digest, signature, key)).findFirst();
+		return signerAmong(getKnownPublicKeys(), digest, signature);
+	}
+
+	public static Optional<String> currentSignerOf(byte[] digest, byte[] signature) {
+		return signerAmong(List.of(getPublicKeys()), digest, signature);
+	}
+
+	private static Optional<String> signerAmong(Collection<String> keys, byte[] digest, byte[] signature) {
+		return keys.stream().filter(key -> verifies(digest, signature, key)).findFirst();
 	}
 
 	private static boolean verifies(byte[] digest, byte[] signature, String key) {
