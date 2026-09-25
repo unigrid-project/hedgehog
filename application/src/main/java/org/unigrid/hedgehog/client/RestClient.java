@@ -62,7 +62,7 @@ public class RestClient implements AutoCloseable {
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
 		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
-			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED
+			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
 		);
 
 		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
