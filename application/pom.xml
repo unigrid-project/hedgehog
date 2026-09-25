@@ -363,6 +363,7 @@
 						--add-opens java.base/java.util=ALL-UNNAMED
 						--add-reads org.unigrid.hedgehog.common=org.unigrid.hedgehog
 						--add-reads org.unigrid.hedgehog=org.apache.commons.io
+						--add-reads org.unigrid.hedgehog=ch.qos.logback.core
 					</argLine>
 					<trimStackTrace>false</trimStackTrace>
 					<reuseForks>false</reuseForks>
