@@ -26,5 +26,7 @@ import lombok.NoArgsConstructor;
 
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class Address implements Serializable {
+	private static final long serialVersionUID = 3920093802621861005L;
+
 	private String wif;
 }

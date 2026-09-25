@@ -39,6 +39,8 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SporkDatabase implements Serializable {
+	private static final long serialVersionUID = 5650360876357285601L;
+
 	public static final String SPORK_DB_FILE = "spork.db";
 
 	private MintStorage mintStorage;

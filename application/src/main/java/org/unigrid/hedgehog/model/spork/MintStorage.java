@@ -42,6 +42,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class MintStorage extends GridSpork implements Serializable {
+	private static final long serialVersionUID = 3170149889466677164L;
+
 	public MintStorage() {
 		setType(Type.MINT_STORAGE);
 
@@ -52,12 +54,16 @@ public class MintStorage extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = 4256094579914357173L;
+
 		@JsonSerialize(keyUsing = Location.Serializer.class)
 		@JsonDeserialize(keyUsing = Location.Deserializer.class)
 		private Map<Location, BigDecimal> mints;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Location implements Serializable {
+			private static final long serialVersionUID = -727370077924808425L;
+
 			private Address address;
 			private int height;
 

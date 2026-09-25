@@ -47,6 +47,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data
 @Slf4j
 public class GridSpork implements Serializable, Signable {
+	private static final long serialVersionUID = 3180522314476687567L;
+
 	@JsonFormat(shape = JsonFormat.Shape.STRING)
 	private Instant timeStamp;
 

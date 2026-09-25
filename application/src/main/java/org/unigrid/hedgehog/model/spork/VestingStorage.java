@@ -37,6 +37,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class VestingStorage extends GridSpork implements Serializable {
+	private static final long serialVersionUID = -799684885387679880L;
+
 	public VestingStorage() {
 		setType(Type.VESTING_STORAGE);
 
@@ -47,10 +49,14 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = 5831251856818111926L;
+
 		private Map<Address, Vesting> vestingAddresses;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting implements Serializable {
+			private static final long serialVersionUID = 6642936482739543603L;
+
 			private BigDecimal amount;
 
 			@JsonFormat(shape = JsonFormat.Shape.STRING)

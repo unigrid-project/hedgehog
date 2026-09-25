@@ -28,6 +28,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class MintSupply extends GridSpork implements Serializable {
+	private static final long serialVersionUID = -126744934705964189L;
+
 	public MintSupply() {
 		setType(Type.MINT_SUPPLY);
 		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
@@ -39,6 +41,8 @@ public class MintSupply extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = -5847719002392038534L;
+
 		private BigDecimal maxSupply;
 
 		public SporkData empty() {

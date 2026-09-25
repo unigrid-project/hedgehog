@@ -28,6 +28,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class StatisticsPubKey extends GridSpork implements Serializable {
+	private static final long serialVersionUID = 6652293940811098118L;
+
 	public StatisticsPubKey() {
 		setType(Type.STATISTICS_PUBKEY);
 
@@ -38,6 +40,8 @@ public class StatisticsPubKey extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = -5135025483333997339L;
+
 		private String publicKey;
 
 		public SporkData empty() {
