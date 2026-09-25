@@ -34,6 +34,7 @@ import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -85,8 +86,10 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		}
 
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-			log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());
-			PublishAndSaveSporkSchedule.writeAndFlush(channel, db);
+			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+				log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());
+				PublishAndSaveSporkSchedule.writeAndFlush(channel, db, pendingSporks);
+			});
 		});
 	}
 }

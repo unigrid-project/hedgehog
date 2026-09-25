@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Data
@@ -58,13 +59,16 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
 			CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-				writeAndFlush(channel, db);
+				CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+					writeAndFlush(channel, db, pendingSporks);
+				});
+
 				save(db);
 			});
 		};
 	}
 
-	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase) {
+	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase, PendingSporks pendingSporks) {
 		channel.writeAndFlush(PublishSpork.builder()
 			.gridSpork(sporkDatabase.getMintStorage()).build());
 
@@ -73,5 +77,7 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 
 		channel.writeAndFlush(PublishSpork.builder()
 			.gridSpork(sporkDatabase.getVestingStorage()).build());
+
+		pendingSporks.list().forEach(spork -> channel.writeAndFlush(PublishSpork.builder().gridSpork(spork).build()));
 	}
 }
