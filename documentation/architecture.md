@@ -468,7 +468,7 @@ here once.
 4. **Introduce the peers.** `hedgehog cli -r 52884 node-add <ip>:<p2p-port>` posts the address to
    `POST /node` on the daemon's REST port; the address in the argument is the *P2P* endpoint of the
    other node, not its REST endpoint. The daemon answers `201` with a `Location` header, `409` if the
-   node is already known, `400` on an unparseable address, and `304` when `addNode` refuses — which in
+   node is already known, `400` on an address that does not parse or resolve, and `304` when `addNode` refuses — which in
    practice means the address resolved to the daemon itself. `RestClient` does not treat `304` as
    normal, so that last case surfaces as a `ResponseOddityException` message on stderr rather than as
    silence. `TopologyThread` opens the actual QUIC connection on its next pass, so a link appears

@@ -888,7 +888,8 @@ mechanism is described in [CDI container and component lifecycle](cdi-and-lifecy
 
 `repopulate()` is the seed bootstrap: for each entry of `Network.getSeeds()` it builds a node with
 `Node.fromAddress(address)` and adds it unless `isMe()`; an unparseable seed is logged as
-`"Invalid address format for seed node {}: {}"` and skipped.
+`"Invalid address format for seed node {}: {}"` and skipped, and a seed that does not resolve is
+logged at warn as `"Seed node {} does not resolve: {}"` and skipped.
 
 ### Node identity
 

@@ -30,6 +30,7 @@ import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Property;
@@ -127,6 +128,16 @@ public class NodeResourceTest extends BaseRestClientTest {
 			}
 		} catch(ResponseOddityException ex) {
 			assertThat(ex.getMessage(), containsString("Conflict"));
+		}
+	}
+
+	@Example
+	public void shouldRefuseAHostThatDoesNotResolve() {
+		try {
+			client.post("/node", Entity.text("no-such-host.invalid"));
+			assertThat("Unexpected response", false);
+		} catch (ResponseOddityException ex) {
+			assertThat(ex.getMessage(), containsString("Bad Request"));
 		}
 	}
 

@@ -30,6 +30,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
@@ -75,7 +76,7 @@ public class NodeResource extends CDIBridgeResource {
 
 			return response.get();
 
-		} catch (URISyntaxException ex) {
+		} catch (URISyntaxException | UnknownHostException ex) {
 			return Response.status(Response.Status.BAD_REQUEST).build();
 		}
 	}
@@ -95,7 +96,7 @@ public class NodeResource extends CDIBridgeResource {
 				return Response.notModified().build();
 			}
 
-		} catch (URISyntaxException ex) {
+		} catch (URISyntaxException | UnknownHostException ex) {
 			return Response.status(Response.Status.BAD_REQUEST).build();
 		}
 	}
@@ -116,7 +117,7 @@ public class NodeResource extends CDIBridgeResource {
 			topology.removeNode(nodeToFind);
 			return Response.ok().build();
 
-		} catch (URISyntaxException ex)  {
+		} catch (URISyntaxException | UnknownHostException ex) {
 			return Response.status(Response.Status.BAD_REQUEST).build();
 		}
 	}

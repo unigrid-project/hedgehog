@@ -19,12 +19,14 @@
 package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
+import java.net.UnknownHostException;
 import lombok.SneakyThrows;
 import mockit.Capturing;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -75,6 +77,17 @@ public class NodeTest extends BaseMockedWeldTest {
 	@BeforeTry
 	public void before() {
 		TestServer.mockProperties();
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldRefuseAHostThatDoesNotResolve() {
+		try {
+			Node.fromAddress("no-such-host.invalid:52883");
+			assertThat("A host that does not resolve should be refused", false);
+		} catch (UnknownHostException ex) {
+			assertThat(ex.getMessage(), containsString("no-such-host.invalid"));
+		}
 	}
 
 	@Property

@@ -23,6 +23,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -68,6 +69,8 @@ public class Topology {
 				}
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
+			} catch (UnknownHostException ex) {
+				log.atWarn().log("Seed node {} does not resolve: {}", address, ex.getMessage());
 			}
 		}
 	}

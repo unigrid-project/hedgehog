@@ -305,16 +305,18 @@ renders the compound key as `"<wif>/<height>"`, and a matching `KeyDeserializer`
 | Method | Path | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- |
 | `GET` | `/node` | – | `Set<Node>` | `200`; `204` when the topology is empty |
-| `GET` | `/node/{address}` | – | `Node` | `200`; `404` when unknown; `400` on `URISyntaxException` |
-| `POST` | `/node` | address string | – | `201` with `Location`; `409` when already known; `304` when `addNode` refuses; `400` on `URISyntaxException` |
-| `DELETE` | `/node/{address}` | – | – | `200`; `404` when unknown; `400` on `URISyntaxException` |
+| `GET` | `/node/{address}` | – | `Node` | `200`; `404` when unknown; `400` when the address does not parse or resolve |
+| `POST` | `/node` | address string | – | `201` with `Location`; `409` when already known; `304` when `addNode` refuses; `400` when the address does not parse or resolve |
+| `DELETE` | `/node/{address}` | – | – | `200`; `404` when unknown; `400` when the address does not parse or resolve |
 
 `{address}` and the `POST` body are both `host:port` strings parsed by `Node.fromAddress`
 (`application/src/main/java/org/unigrid/hedgehog/model/network/Node.java`), which builds
 `new URI(null, address, null, null, null).parseServerAuthority()`. A missing port falls back to
 `NetOptions.DEFAULT_PORT` (`52883`) — `NodeResourceTest.shouldAddNodeWithMissingPort` pins that
 behavior. Because `Node.equals`/`hashCode` are defined over `getURI()`, node identity is exactly the
-resolved `host:port` pair.
+resolved `host:port` pair. A host that does not resolve therefore has no identity: `Node.fromURI`
+throws `UnknownHostException` for it, and the resource answers `400` rather than failing with a
+`500` the first time the node is compared.
 
 `POST` returns `Response.created(node.getURI())`, and `Node.getURI()` builds the *relative*
 `/{host}:{port}`; JAX-RS resolves it against the request URI when writing the `Location` header.
@@ -643,7 +645,7 @@ and the `@PreDestroy` in
 | Write updated an existing entry | `204` |
 | Resource exists but is unset/empty | `204` |
 | Entry not present | `404` |
-| Unparseable node address | `400` |
+| Node address that does not parse or resolve | `400` |
 | Missing/malformed JSON body | `400` |
 | Untrusted key or signing failure | `401` |
 | Node already in topology | `409` |

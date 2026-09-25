@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -83,7 +84,7 @@ public class Node {
 				return equals(Node.fromAddress(address));
 			}
 
-		} catch (URISyntaxException ex) {
+		} catch (URISyntaxException | UnknownHostException ex) {
 			log.atTrace().log("Invalid host/address format {}", ex.getMessage());
 			return false;
 		}
@@ -103,17 +104,24 @@ public class Node {
 		}
 	}
 
-	public static Node fromURI(URI uri) throws URISyntaxException {
+	/* A node is identified by its resolved address, so one that cannot be resolved cannot be compared or stored */
+	public static Node fromURI(URI uri) throws UnknownHostException {
 		int port = uri.getPort();
 
 		if (uri.getPort() == -1) {
 			port = NetOptions.DEFAULT_PORT;
 		}
 
-		return Node.builder().address(new InetSocketAddress(uri.getHost(), port)).build();
+		final InetSocketAddress address = new InetSocketAddress(uri.getHost(), port);
+
+		if (address.isUnresolved()) {
+			throw new UnknownHostException(uri.getHost());
+		}
+
+		return Node.builder().address(address).build();
 	}
 
-	public static Node fromAddress(String address) throws URISyntaxException {
+	public static Node fromAddress(String address) throws URISyntaxException, UnknownHostException {
 		return fromURI(new URI(null, address, null, null, null).parseServerAuthority());
 	}
 
