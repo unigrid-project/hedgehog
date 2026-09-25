@@ -21,10 +21,15 @@ package org.unigrid.hedgehog.model.spork;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
+import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 /* The fixture was written by a build from before the classes pinned their serialVersionUID */
@@ -35,6 +40,8 @@ public class SporkDatabaseCompatibilityTest {
 		+ "caaa7134ef0d7683474d74ed7cd24f5a82a7bfc9e320d68a0122188153be849f3f27cf8e14a591bf527e7ef4ce42febb"
 		+ "7e6958f8f4a84ccab31eedf703448b724c859ad0bcfce16e915d3a20e890271a51f9e5a998b283681eaf07c154c9d67d"
 		+ "bd3ea04e86d59cc1";
+
+	private static String[] networkKeys;
 
 	@SneakyThrows
 	private SporkDatabase legacyDatabase() {
@@ -59,5 +66,43 @@ public class SporkDatabaseCompatibilityTest {
 
 		assertThat(Signature.verify(database.getMintStorage(), FIXTURE_PUBLIC_KEY), is(true));
 		assertThat(Signature.verify(database.getMintSupply(), FIXTURE_PUBLIC_KEY), is(true));
+	}
+
+	@SneakyThrows
+	private static GridSpork renewed(GridSpork stored, Signature proposer, Signature cosigner) {
+		final GridSpork spork = SerializationUtils.clone(stored);
+
+		spork.renew();
+		spork.sign(proposer.getPrivateKey());
+		spork.cosign(cosigner.getPrivateKey());
+		return spork;
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldAcceptADoublySignedRenewalOfEarlierBuildsSporks() {
+		final SporkDatabase database = legacyDatabase();
+		final Signature proposer = new Signature();
+		final Signature cosigner = new Signature();
+
+		networkKeys = new String[] { proposer.getPublicKey(), cosigner.getPublicKey() };
+
+		new MockUp<NetworkKey>() {
+			@Mock public static String[] getPublicKeys() {
+				return networkKeys;
+			}
+
+			@Mock public static String[] getRetiredPublicKeys() {
+				return new String[] { FIXTURE_PUBLIC_KEY };
+			}
+		};
+
+		for (GridSpork stored : List.of(database.getMintStorage(), database.getMintSupply())) {
+			final GridSpork spork = renewed(stored, proposer, cosigner);
+
+			assertThat(spork.getSignatureLog().last().getSigner(), equalTo(FIXTURE_PUBLIC_KEY));
+			assertThat(spork.canReplace(stored), is(true));
+			assertThat(renewed(spork, cosigner, proposer).canReplace(spork), is(true));
+		}
 	}
 }
