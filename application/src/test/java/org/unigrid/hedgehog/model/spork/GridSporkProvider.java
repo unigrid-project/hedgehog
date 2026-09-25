@@ -29,6 +29,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
@@ -90,6 +91,22 @@ public class GridSporkProvider {
 		throw new IllegalArgumentException("Unsupported chunk type");
 	}
 
+	private SignatureLog signatureLog() {
+		final SignatureLog log = new SignatureLog();
+		final Instant start = Instant.ofEpochMilli(RandomUtils.nextLong(0, Instant.now().toEpochMilli()));
+		final int size = RandomUtils.nextInt(0, 5);
+
+		for (int i = 0; i < size; i++) {
+			log.append(SignatureLogEntry.builder().timeStamp(start.plusMillis(i))
+				.signer(Hex.encodeHexString(RandomUtils.nextBytes(Signature.PUBLIC_KEY_HEX_SIZE)))
+				.digest(RandomUtils.nextBytes(SignatureLogEntry.DIGEST_SIZE))
+				.signature(RandomUtils.nextBytes(RandomUtils.nextInt(130, 140))).build()
+			);
+		}
+
+		return log;
+	}
+
 	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
 		Instant time, Instant previousTime) throws IllegalArgumentException {
 
@@ -105,6 +122,7 @@ public class GridSporkProvider {
 		gridSpork.setData(chunkData(gridSporkType));
 		gridSpork.setPreviousData(chunkData(gridSporkType));
 		gridSpork.setSignature(signature);
+		gridSpork.setSignatureLog(signatureLog());
 
 		return Arbitraries.of(gridSpork);
 	}

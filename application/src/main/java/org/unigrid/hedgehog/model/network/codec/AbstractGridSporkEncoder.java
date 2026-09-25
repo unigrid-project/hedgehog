@@ -52,6 +52,13 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	    [                       << spork data >>                       ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
+	    [      signature log entries       ][   << log entries >>      >>]
+
+	    Signature log entry:
+	    [                    signed version timestamp                  ]
+	    [     size     ][            signer public key (size long)   >>]
+	    [                    << SHA-512 digest (64 bytes) >>           ]
+	    [     size     ][             signature (size long)          >>]
 	*/
 	public void encodeGridSpork(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
 		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
@@ -74,6 +81,9 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 
 			data.writeShort(spork.getSignature().length);
 			data.writeBytes(spork.getSignature());
+
+			data.writeInt(spork.getSignatureLog().size());
+			spork.getSignatureLog().getEntries().forEach(entry -> data.writeBytes(entry.toBytes()));
 			out.writeBytes(data);
 		}
 	}

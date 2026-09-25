@@ -24,8 +24,8 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 @Slf4j
 public class Network {
 	private static final String[] PROTOCOLS = {
-		"hedgehog/0.0.2",
-		"gridspork/0.0.2"
+		"hedgehog/0.0.3",
+		"gridspork/0.0.3"
 	};
 
 	private static final String[] SEEDS = {

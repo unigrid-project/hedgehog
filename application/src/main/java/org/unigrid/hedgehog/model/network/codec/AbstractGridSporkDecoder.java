@@ -20,7 +20,10 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
@@ -29,6 +32,8 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.SignatureLog;
+import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 
@@ -51,6 +56,13 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	    [                           reserved                           ]
 	    [                       << spork data >>                       ]
 	    [                    << spork delta data >>                    ]
+	    [     size     ][             signature (size long)          >>]
+	    [      signature log entries       ][   << log entries >>      >>]
+
+	    Signature log entry:
+	    [                    signed version timestamp                  ]
+	    [     size     ][            signer public key (size long)   >>]
+	    [                    << SHA-512 digest (64 bytes) >>           ]
 	    [     size     ][             signature (size long)          >>]
 	*/
 	public Optional<GridSpork> decodeGridSpork(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
@@ -76,10 +88,32 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			in.readBytes(signature);
 			gridSpork.setSignature(signature);
 
+			final int logSize = in.readInt();
+			final List<SignatureLogEntry> entries = new ArrayList<>();
+
+			for (int i = 0; i < logSize; i++) {
+				entries.add(decodeLogEntry(in));
+			}
+
+			gridSpork.setSignatureLog(new SignatureLog(entries));
 			return Optional.of(gridSpork);
 		}
 
 		log.atError().log("Unable to handle spork chunk of type {}", type);
 		return Optional.empty();
+	}
+
+	private SignatureLogEntry decodeLogEntry(ByteBuf in) {
+		final Instant timeStamp = Instant.ofEpochMilli(in.readLong());
+		final String signer = in.readCharSequence(in.readUnsignedShort(), StandardCharsets.US_ASCII).toString();
+		final byte[] digest = new byte[SignatureLogEntry.DIGEST_SIZE];
+
+		in.readBytes(digest);
+
+		final byte[] signature = new byte[in.readUnsignedShort()];
+
+		in.readBytes(signature);
+		return SignatureLogEntry.builder().timeStamp(timeStamp).signer(signer).digest(digest)
+			.signature(signature).build();
 	}
 }
