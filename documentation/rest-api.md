@@ -156,7 +156,7 @@ dead.
 `GridSporkResource`, `MintStorageResource`, `MintSupplyResource` and `VestingStorageResource` all
 declare `@Path("/gridspork")` at class level. Four root resource classes sharing one path is legal
 here only because their method paths do not collide: `GridSporkResource` owns the bare `GET` and the
-`/renew` sub-path, the other three own disjoint sub-paths. Adding a second method for the same path and verb in two of these
+`/log`, `/pending` and `/renew` sub-paths, the other three own disjoint sub-paths. Adding a second method for the same path and verb in two of these
 classes would make the application fail Jersey's model validation.
 
 ## Endpoint reference
@@ -176,7 +176,7 @@ flowchart TB
     U --> U1["POST /stop"]
     U --> U2["GET /version"]
 
-    G --> G0["GridSporkResource<br/>GET /gridspork<br/>PUT /gridspork/renew"]
+    G --> G0["GridSporkResource<br/>GET /gridspork, /gridspork/log<br/>GET /gridspork/pending<br/>PUT /gridspork/pending/{digest}<br/>PUT /gridspork/renew"]
     G --> G1["MintStorageResource<br/>/mint-storage<br/>/mint-storage/{address}/{height}"]
     G --> G2["MintSupplyResource<br/>/mint-supply"]
     G --> G3["VestingStorageResource<br/>/vesting-storage<br/>/vesting-storage/{address}"]
@@ -200,15 +200,17 @@ flowchart TB
 | --- | --- | --- | --- | --- | --- | --- |
 | `GET` | `/gridspork` | `application/json`, `text/plain` | `application/json` | – | `SporkDatabaseInfo` | `200` always |
 | `GET` | `/gridspork/log` | `application/json`, `text/plain` | `application/json` | – | map of `GridSpork.Type` to `SignatureLogInfo` | `200`; `204` when no spork is stored |
-| `PUT` | `/gridspork/renew` | `application/json`, `text/plain` | `application/json` | ignored | list of `GridSpork.Type` | `200` with the renewed types; `204` when no spork is stored; `401` when the key is untrusted or signing fails |
+| `GET` | `/gridspork/pending` | `application/json`, `text/plain` | `application/json` | – | list of `PendingSporkInfo` | `200`; `204` when no proposal is held |
+| `PUT` | `/gridspork/pending/{digest}` | `application/json`, `text/plain` | `application/json` | ignored | the refusal message when co-signing is refused | `200` when co-signed and stored; `401` when the key is untrusted; `404` when no live proposal has that digest; `409` when co-signing is refused or the result can no longer replace the stored spork |
+| `PUT` | `/gridspork/renew` | `application/json`, `text/plain` | `application/json` | ignored | list of `PendingSporkInfo` | `202` with the proposals made; `204` when no spork is stored; `401` when the key is untrusted or signing fails |
 | `GET` | `/gridspork/mint-storage` | `application/json`, `text/plain` | `application/json` | – | `MintStorage` | `200`; `204` when the spork is absent |
 | `GET` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | – | `BigDecimal` | `200`; `204` when the spork is absent; `404` when that location has no mint |
-| `PUT` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | `BigDecimal` | – | `200` on insert; `204` on update; `401` when the key is untrusted or signing fails |
+| `PUT` | `/gridspork/mint-storage/{address}/{height}` | `application/json`, `text/plain` | `application/json` | `BigDecimal` | `PendingSporkInfo` | `202` with the proposal; `401` when the key is untrusted or signing fails; `409` when the proposal is refused |
 | `GET` | `/gridspork/mint-supply` | `application/json`, `text/plain` | `application/json` | – | `MintSupply` | `200`; `204` when the spork is absent |
-| `PUT` | `/gridspork/mint-supply` | `application/json`, `text/plain` | `application/json` | `BigDecimal` | – | `200`; `401` when the key is untrusted or signing fails |
+| `PUT` | `/gridspork/mint-supply` | `application/json`, `text/plain` | `application/json` | `BigDecimal` | `PendingSporkInfo` | `202` with the proposal; `401` when the key is untrusted or signing fails; `409` when the proposal is refused |
 | `GET` | `/gridspork/vesting-storage` | `application/json` | `application/json` | – | `VestingStorage` | `200`; `204` when the spork is absent |
 | `GET` | `/gridspork/vesting-storage/{address}` | `application/json` | `application/json` | – | `VestingStorage.SporkData.Vesting` | `200`; `204` when the spork is absent; `404` when the address has no vesting |
-| `PUT` | `/gridspork/vesting-storage/{address}` | `application/json` | `application/json` | `Vesting` | – | `200` on insert; `204` on update; `401` when the key is untrusted or signing fails |
+| `PUT` | `/gridspork/vesting-storage/{address}` | `application/json` | `application/json` | `Vesting` | `PendingSporkInfo` | `202` with the proposal; `401` when the key is untrusted or signing fails; `409` when the proposal is refused |
 
 The `Consumes` column is taken from the class-level annotations, and on the read endpoints it is
 inert: the `text/plain` that `GridSporkResource`, `MintStorageResource` and `MintSupplyResource`
@@ -223,17 +225,31 @@ those paths.
 {
   "MINT_SUPPLY": {
     "entries": [
-      { "timeStamp": "2023-06-23T10:38:54.983Z", "signer": "<public key hex>",
-        "digest": "<SHA-512 hex>", "signature": "<DER signature hex>" }
+      { "timeStamp": "2023-06-23T10:38:54.983Z", "signer": "<public key hex>", "cosigner": null,
+        "digest": "<SHA-512 hex>", "signature": "<DER signature hex>", "cosignature": null }
     ],
-    "head": { "timeStamp": "2026-09-25T09:00:00Z", "signer": "<public key hex>" }
+    "head": { "timeStamp": "2026-09-25T09:00:00Z", "signer": "<public key hex>",
+      "cosigner": "<public key hex>" }
   }
 }
 ```
 
-`entries` are the replaced versions, oldest first; `head` is the current version, whose `signer` is
-`null` when no network or retired key verifies it. The log itself is described in
-[Grid sporks](sporks.md#signature-log).
+`entries` are the replaced versions, oldest first; `cosigner` and `cosignature` are `null` for a
+version signed once. `head` is the current version, whose `signer` or `cosigner` is `null` when no
+network or retired key verifies that signature, or when there is no cosignature. The log itself is
+described in [Grid sporks](sporks.md#signature-log).
+
+`GET /gridspork/pending`, each `202` from a spork `PUT` and each element of the `PUT /gridspork/renew`
+answer carry a `PendingSporkInfo`
+(`application/src/main/java/org/unigrid/hedgehog/model/spork/PendingSporkInfo.java`):
+
+```json
+{ "type": "MINT_SUPPLY", "timeStamp": "2026-09-25T09:00:00Z", "expires": "2026-09-25T10:00:00Z",
+  "signer": "<public key hex>", "digest": "<SHA-512 hex>", "data": { "maxSupply": 42 } }
+```
+
+`expires` is `timeStamp` plus `PendingSporks.LIFETIME` (an hour); `signer` is `null` when no known
+key made the signature. `digest` names the proposal in `PUT /gridspork/pending/{digest}`.
 
 Path parameters:
 
@@ -245,32 +261,39 @@ Path parameters:
 
 Nothing validates the values either. `MintStorageResource.grow` accepts any `BigDecimal` — negative
 amounts included — and any `int` height, and `VestingStorageResource.grow` accepts any `Vesting`
-object; the only check performed anywhere on the write path is the trust check on the key. A caller
-holding a trusted key can therefore write arbitrary, unusable entries into the mint and vesting maps,
-and those entries then propagate to every peer.
+object; the only checks performed anywhere on the write path are the trust checks on the two keys.
+Two callers holding trusted keys — one proposing, one co-signing — can therefore write arbitrary,
+unusable entries into the mint and vesting maps, and those entries then propagate to every peer.
 
 The four `PUT`s require a `privateKey` request header, declared
 `@NotNull @HeaderParam("privateKey") String privateKey`. The value is the hex form of a secp521r1
 private key. `NetworkKey.isTrusted`
 (`application/src/main/java/org/unigrid/hedgehog/model/crypto/NetworkKey.java`) decides whether that
 key belongs to the network, and the same private key is then used to sign the spork itself; both the
-trust test and the key encoding are documented in [Grid sporks](sporks.md). What matters at this
+trust test and the key encoding are documented in [Grid sporks](sporks.md). `PUT
+/gridspork/pending/{digest}` takes the same header for the second, co-signing key. What matters at this
 layer is that the caller hands its raw network private key to the daemon on every mutating call; the
 only protection is the TLS channel, whose certificate is self-signed and, in the shipped client, not
 verified at all.
 
-`MintSupplyResource.set()` passes `isUpdate = false` unconditionally, so it answers `200` even when it
-overwrites an existing supply value; the other two compute `isUpdate` from whether the map already
-held the key.
+None of the three spork `PUT`s stores anything. Each makes a proposal signed by the header key and
+answers `202`; the spork is stored only once a second, different network key co-signs it through
+`PUT /gridspork/pending/{digest}`, which answers `200`. A proposal that `PendingSporks` refuses —
+typically because a newer one of the same type is already held — answers an empty `409`. The
+co-signing endpoint answers `409` with the `SigningException` message when the key is the proposer's
+own, and an empty `409` when a spork stored since the proposal was made means it can no longer
+replace it. How proposals are held and co-signed is covered in
+[Grid sporks](sporks.md#co-signing).
 
 `GridSporkResource.renew()` takes no entity and changes no spork value. It clones every stored spork
 (all `GridSpork.Type`s except `UNDEFINED`, `STATISTICS_PUBKEY` included), moves each one's timestamp
 forward with `GridSpork.renew()` and signs it with the header key, and only once all of them are
-signed stores and publishes each through `sporkDatabase.set(...)` and `Topology.sendAll(...)`. It
-does not use `ResourceHelper`, so its status codes are its own: `200` with a JSON array of the
-renewed type names, `204` when the database holds no spork, and `401` — with an empty
-body, the exception message logged at warn and the database untouched — when signing fails. Why the endpoint
-exists is covered in [Grid sporks](sporks.md#renewing-after-a-key-change).
+signed offers each to `PendingSporks` and publishes each proposal taken through
+`Topology.sendAll(...)`. It does not use `ResourceHelper`, so its status codes are its own: `202`
+with a JSON array of `PendingSporkInfo`, one per proposal taken, `204` when the database holds no
+spork, and `401` — with an empty body, the exception message logged at warn and nothing proposed —
+when signing fails. Why the endpoint exists is covered in
+[Grid sporks](sporks.md#renewing-after-a-key-change).
 
 `GET /gridspork` is the only spork endpoint that never returns `204`: `SporkDatabaseInfo`
 (`application/src/main/java/org/unigrid/hedgehog/model/spork/SporkDatabaseInfo.java`) initializes its
@@ -291,8 +314,9 @@ The misspelled `vestingStoragEntries` is the field name in the source and theref
 `Vesting` (`VestingStorage.SporkData.Vesting`) serializes `amount` as a number and `start`
 (`Instant`) plus `duration` (`Duration`) as strings via `@JsonFormat(shape = STRING)`, with `parts` an
 `int`. The full grid spork envelope (`timeStamp`, `previousTimeStamp`, `flags`, `type`, `data`,
-`previousData`, `signature`) is documented in [Grid sporks](sporks.md); `type` is
-`@JsonProperty(access = READ_ONLY)` and `getSignable()`/`isValidSignature()` are `@JsonIgnore`.
+`previousData`, `signature`, `cosignature`) is documented in [Grid sporks](sporks.md); `type` is
+`@JsonProperty(access = READ_ONLY)` and `getSignable()`, `isValidSignature()`, `isPending()`,
+`isDoublySigned()` and the two replacement checks are `@JsonIgnore`.
 
 `MintStorage.SporkData.mints` is a `Map<Location, BigDecimal>` with a custom key serializer that
 renders the compound key as `"<wif>/<height>"`, and a matching `KeyDeserializer` that splits on `/`.
@@ -379,10 +403,10 @@ public static VersionResponse create() {
 reads `project.version` out of `application.properties` on the classpath and falls back to
 `0.0.0-BASTARD`. `Network.getProtocols()`
 (`application/src/main/java/org/unigrid/hedgehog/model/Network.java`) returns the constant array
-`{ "hedgehog/0.0.3", "gridspork/0.0.3" }`. So the payload is:
+`{ "hedgehog/0.0.4", "gridspork/0.0.4" }`. So the payload is:
 
 ```json
-{ "version": "…", "protocols": ["hedgehog/0.0.3", "gridspork/0.0.3"] }
+{ "version": "…", "protocols": ["hedgehog/0.0.4", "gridspork/0.0.4"] }
 ```
 
 ### S3 bucket endpoints
@@ -596,9 +620,9 @@ server-side extension point, so that registration has no effect on client behavi
 
 `ValidationFeature` is registered, so the `@NotNull` annotations on path, header and entity parameters
 are enforced before the method body runs, and constraint violations on input are answered by Jersey
-with `400 Bad Request`. This makes some in-method guards redundant: all four of
-`MintStorageResource.grow`, `MintSupplyResource.set`, `VestingStorageResource.grow` and
-`GridSporkResource.renew` declare
+with `400 Bad Request`. This makes some in-method guards redundant: all five of
+`MintStorageResource.grow`, `MintSupplyResource.set`, `VestingStorageResource.grow`,
+`GridSporkResource.cosign` and `GridSporkResource.renew` declare
 `@NotNull @HeaderParam("privateKey")` and then re-check `Objects.nonNull(privateKey)` before
 consulting `NetworkKey.isTrusted`. A caller that omits the header gets `400`, not the `401` the
 method would produce.
@@ -606,29 +630,27 @@ method would produce.
 ### ResourceHelper
 
 `application/src/main/java/org/unigrid/hedgehog/server/rest/ResourceHelper.java` holds the two-step
-mutation pattern shared by the three spork writers:
+proposal pattern shared by the three spork writers:
 
 ```java
-public static <S extends Serializable> S getNewOrClonedSporkSection(Supplier<S> supplier, Supplier<S> newSupplier)
-public static <S extends Signable> Response commitAndSign(S signable, String privateKey,
-    SporkDatabase sporkDatabase, boolean isUpdate, Consumer<S> consumer)
+public static <S extends GridSpork> S nextVersion(S stored, Supplier<S> newSupplier, PendingSporks pendingSporks)
+public static Response propose(GridSpork spork, String privateKey, GridSpork stored, PendingSporks pendingSporks,
+    Topology topology)
 ```
 
-The clone-then-sign-then-broadcast semantics — why every mutation runs on a detached copy, when
-`archive()` is called, and what the consumer does with the signed spork — belong to
-[Grid sporks](sporks.md). What the REST surface adds is the mapping from that outcome to a status
-code:
+The clone-then-sign-then-propose semantics — why every mutation runs on a detached copy, when
+`archive()` is called, and how the data of a proposal already held is carried over — belong to
+[Grid sporks](sporks.md#setting-and-growing-locally). What the REST surface adds is the mapping from
+that outcome to a status code:
 
-* `SigningException` from `signable.sign(privateKey)` → `401`, with the exception object itself as
+* `SigningException` from `spork.sign(privateKey)` → `401`, with the exception object itself as
   the response entity, which Jackson then serializes as a `Throwable`. The message is also logged at
   warn. Besides a bad key, this is what happens when no known key signed the version being replaced,
-  so it cannot enter the spork's signature log. The source comment explains
-  why bailing out here is safe: *"As we clone() the vesting storage, returning here results in a
-  database NOP"*.
-* success with `isUpdate == true` → `204 No Content`.
-* success with `isUpdate == false` → `200 OK`.
-
-The `sporkDatabase` parameter is never read by the method; all three call sites pass it anyway.
+  so it cannot enter the spork's signature log. Nothing is stored or proposed, because the spork is
+  a detached copy.
+* `PendingSporks.offer(spork, stored)` refuses the proposal → `409 Conflict`, with no entity.
+* success → `202 Accepted` with the `PendingSporkInfo` of the proposal, after it has been sent to
+  every connected peer.
 
 Note that REST mutations do not persist the spork database inline. Persistence happens through
 `application/src/main/java/org/unigrid/hedgehog/model/network/schedule/PublishAndSaveSporkSchedule.java`
@@ -641,14 +663,14 @@ and the `@PreDestroy` in
 | Meaning | Code |
 | --- | ---: |
 | Read succeeded | `200` |
-| Write created a new entry | `200` |
-| Write updated an existing entry | `204` |
+| Spork change proposed, awaiting a co-signature | `202` |
+| Proposal co-signed and stored | `200` |
 | Resource exists but is unset/empty | `204` |
 | Entry not present | `404` |
 | Node address that does not parse or resolve | `400` |
 | Missing/malformed JSON body | `400` |
 | Untrusted key or signing failure | `401` |
-| Node already in topology | `409` |
+| Node already in topology; proposal or co-signature refused | `409` |
 | Topology refused the node (self, duplicate) | `304` |
 | Shutdown and version | `202` |
 
@@ -677,7 +699,7 @@ funnel their response through:
 ```java
 private void throwResponseOddity(Response response) throws ResponseOddityException {
     final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
-        Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED
+        Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
     );
 
     if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
@@ -686,14 +708,16 @@ private void throwResponseOddity(Response response) throws ResponseOddityExcepti
 }
 ```
 
-So `200`, `201`, `202`, `204`, `401` and `404` are handed back to the caller, and everything else —
-including `304`, `400`, `409` and `500` — becomes an exception. `getEntity` declares
+So `200`, `201`, `202`, `204`, `401`, `404` and `409` are handed back to the caller, and everything
+else — including `304`, `400` and `500` — becomes an exception. `409` is on the list because a
+refused proposal or co-signature is an ordinary answer the spork commands report themselves. `node-add`
+therefore checks for a `409` in `execute` and prints the status line on stderr. `getEntity` declares
 `throws ResponseOddityException` but never calls the check, so it silently bypasses this filter.
 
 `ResponseOddityException`
 (`application/src/main/java/org/unigrid/hedgehog/client/ResponseOddityException.java`) is a plain
 checked `Exception` whose message is formatted `"%d %s (%s)"` from the status code, the `Status` enum
-constant and the reason phrase — e.g. `409 Conflict (Conflict)`. It carries no response body.
+constant and the reason phrase — e.g. `304 Not Modified (Not Modified)`. It carries no response body.
 
 ### RestClientCommand
 
@@ -721,9 +745,9 @@ Everything else goes straight to `execute(response)`.
 ### CLI response handling
 
 `hedgehog cli` (`application/src/main/java/org/unigrid/hedgehog/command/CLI.java`) mixes in
-`NetOptions` and `RestOptions`. Seven of its ten subcommands (`gridspork-list`, `gridspork-log`,
-`gridspork-renew`, `node-add`, `node-remove`, `node-list` and `stop`) are `RestClientCommand` subclasses against one of the
-endpoints above; `gridspork-get`, `gridspork-set` and `gridspork-grow` are container commands whose
+`NetOptions` and `RestOptions`. Nine of its twelve subcommands (`gridspork-list`, `gridspork-log`,
+`gridspork-renew`, `gridspork-pending`, `gridspork-cosign`, `node-add`, `node-remove`, `node-list`
+and `stop`) are `RestClientCommand` subclasses against one of the endpoints above; `gridspork-get`, `gridspork-set` and `gridspork-grow` are container commands whose
 `mint-storage`/`mint-supply` leaves are `Runnable`s that build anonymous `RestClientCommand`
 instances. The full command-to-endpoint table, with bodies, headers and required options, is in
 [Architecture overview](architecture.md); what belongs here is how those commands read the responses
@@ -736,16 +760,26 @@ this interface produces.
   `Instant` values as the strings the server wrote. Its default supplier prints
   `No sporks to show a signature log for` on a `204`.
 * `gridspork-renew` sets the `privateKey` header from its required `-k/--key` option, sends an empty
-  `Entity.text("")` and prints the returned list of renewed types with `Json.parse`. Its default
-  supplier yields `Unauthorized`, which the `PUT` special case prints on a `401`; a `204` reaches
-  `execute` with no entity and prints `No sporks to renew`.
+  `Entity.text("")` and prints the returned list of proposals, digests included, with `Json.parse`.
+  Its default supplier yields `Unauthorized`, which the `PUT` special case prints on a `401`; a `204`
+  reaches `execute` with no entity and prints `No sporks to renew`.
+* `gridspork-pending` pretty-prints the list of proposals with `Json.parse`, and
+  `No sporks await a co-signature` on a `204`.
+* `gridspork-cosign` sets the `privateKey` header from its required `-k/--key` option and, for each
+  positional digest, overrides `getLocation()` to `PUT /gridspork/pending/{digest}` with an empty
+  `Entity.text("")`. It prints `Co-signed <digest>` on `200`,
+  `No spork awaits a co-signature under <digest>` on `404`, and
+  `Co-signing <digest> refused: <body>` on anything else that reaches `execute` — in practice a
+  `409`, whose body is empty unless the co-signing itself threw. A `401` prints `Unauthorized`.
 * `gridspork-get mint-supply` and `gridspork-get mint-storage` re-parse the raw body with `Json.parse`
   and print it. Neither supplies a default, so a `204` prints the bare status line rather than a
   chosen placeholder.
-* `gridspork-set mint-supply` and `gridspork-grow mint-storage` override `execute(Response)` with an
-  empty body, so a successful `PUT` prints nothing, and a `401` is reported by the `PUT` special case
-  in `RestClientCommand` rather than by the command.
-* `node-add` prints `Response.getLocation()` — the `Location` header — rather than the node itself.
+* `gridspork-set mint-supply` and `gridspork-grow mint-storage` pretty-print the `PendingSporkInfo`
+  of the proposal with `Json.parse`, so the digest the co-signing key needs is on screen. A `401` is
+  reported by the `PUT` special case in `RestClientCommand` rather than by the command, and an empty
+  `409` leaves nothing to print.
+* `node-add` prints `Response.getLocation()` — the `Location` header — rather than the node itself,
+  or the status line on stderr when the node is already known (`409`).
 * `node-remove` is the only command that overrides `getLocation()` rather than passing a location to
   the constructor, because its path carries the positional address. It then calls
   `response.readEntity(new GenericType<Set<Node>>() { })` on a response that `NodeResource.remove`
@@ -779,7 +813,7 @@ sequenceDiagram
     participant JX as Jersey / NettyHttpContainer
     participant R as MintSupplyResource
     participant RH as ResourceHelper
-    participant DB as SporkDatabase
+    participant PS as PendingSporks
     participant TP as Topology
     participant P as Connected peers
 
@@ -791,25 +825,31 @@ sequenceDiagram
     alt key not trusted
         R-->>JX: 401 Unauthorized
     else key trusted
-        R->>RH: getNewOrClonedSporkSection(getMintSupply, new MintSupply)
-        RH-->>R: detached clone (or fresh spork)
-        R->>R: archive() then data.setMaxSupply(maxSupply)
-        R->>RH: commitAndSign(spork, privateKey, isUpdate = false, consumer)
+        R->>RH: nextVersion(getMintSupply(), MintSupply::new, pendingSporks)
+        RH-->>R: archived clone (or fresh spork), carrying a held proposal's data
+        R->>R: data.setMaxSupply(maxSupply)
+        R->>RH: propose(spork, privateKey, getMintSupply(), pendingSporks, topology)
         RH->>RH: spork.sign(privateKey)
-        RH->>DB: setMintSupply(spork)
-        RH->>TP: sendAll(PublishSpork)
-        TP->>P: PublishSpork on each open QUIC connection
-        RH-->>JX: 200 OK
+        RH->>PS: offer(spork, stored)
+        alt refused
+            RH-->>JX: 409 Conflict
+        else taken
+            RH->>TP: sendAll(PublishSpork)
+            TP->>P: PublishSpork on each open QUIC connection
+            RH-->>JX: 202 Accepted with PendingSporkInfo
+        end
     end
     JX-->>RC: response
-    RC->>RC: throwResponseOddity (401 and 200 both pass)
+    RC->>RC: throwResponseOddity (401, 409 and 202 all pass)
     RC-->>RCC: Response
-    RCC->>CLI: execute(response) — no output on success
+    RCC->>CLI: execute(response) — prints the proposal and its digest
 ```
 
-`Topology.sendAll` only writes to nodes whose `Connection` is present, so a spork set on an isolated
-node is stored locally and propagates later; the packet format is covered in
-[Peer-to-peer network protocol](network-protocol.md).
+Nothing is stored yet: a second board member co-signs the printed digest with
+`hedgehog cli gridspork-cosign -k <hex> <digest>`, and only then is the spork stored and published
+as accepted. `Topology.sendAll` only writes to nodes whose `Connection` is present, so a proposal
+made on an isolated node reaches its peers only through the scheduled publish, as long as it lives;
+the packet format is covered in [Peer-to-peer network protocol](network-protocol.md).
 
 ## Tests
 
@@ -823,16 +863,24 @@ The REST tests live in `application/src/test/java/org/unigrid/hedgehog/server/re
 * installs `ApplicationDirectoryMockUp`, redirecting the data directory to a temporary directory —
   which is also what keeps the S3 tests off the developer's real `s3data`,
 * builds a fresh `RestClient` against `server.getRest().getHostName()`/`getPort()` per try,
-* provides a `provideSignature()` arbitrary that generates a keypair and mocks
-  `NetworkKey.getPublicKeys()` to return its public key, which is how the `privateKey` header is made
-  to pass `isTrusted` in tests.
+* provides a `provideSignature()` arbitrary that generates a keypair and a second one, `cosigner`,
+  and mocks `NetworkKey.getPublicKeys()` to return both public keys, which is how the `privateKey`
+  header is made to pass `isTrusted` in tests and how a proposal gets co-signed (`cosign(...)`
+  helpers). Every generated key is also added to a list mocked in as the retired keys, so sporks
+  stored by earlier tries can still name their signers; only the 16 most recent are kept, because
+  every signature check walks that list and every verifying key generates a keypair.
 
 Coverage is uneven. `MintStorageResourceTest`, `MintSupplyResourceTest`, `VestingStorageResourceTest`
 and `NodeResourceTest` are live jqwik properties that exercise the real endpoints;
 `GridSporkResourceTest` pairs one `@Example` — `shouldBeAbleToGetGridSporkOverview`, which runs once
-with no generated input — with three properties on `PUT /gridspork/renew`: a spork signed with an
-untrusted key comes back validly signed with a later timestamp and unchanged data and history, an
-untrusted key gets `401` and leaves the stored instance in place, and an empty database gets `204`. `StorageBucketTest` and `StorageObjectTest` stand up an
+with no generated input — with properties on `PUT /gridspork/renew`, the pending list and co-signing:
+a renewal, once co-signed, comes back doubly signed with a later timestamp and unchanged data and
+history; an untrusted key, or a stored spork no known key signed, gets `401` and leaves the stored
+instance in place; an empty database gets `204`; proposals are listed with their digest and signer,
+and `204` when none are held; a co-signed proposal is stored; co-signing with the proposer's key gets
+`409`, an unknown digest `404` and an untrusted key `401`; and the log shows both signers of each
+version. The mint-storage and vesting tests grow several entries and co-sign only the last proposal,
+which is how they check that a proposal carries over the data of the one before it. `StorageBucketTest` and `StorageObjectTest` stand up an
 `io.findify.s3mock.S3Mock` on port `8001` to compare Hedgehog's answers against a reference S3
 implementation, but almost every one of their methods is `@Disabled` — all three in
 `StorageBucketTest`, six of eight in `StorageObjectTest`. The two that still run
@@ -866,8 +914,9 @@ on the surefire plugin in `application/pom.xml`; see
 - **The spork writers validate nothing but the key.** Amounts, block heights and WIF addresses are
   taken verbatim and broadcast to every peer.
 - **`RestClient.getEntity` declares `throws ResponseOddityException` but never performs the check.**
-- **`ResourceHelper.commitAndSign` takes a `SporkDatabase` it never uses**, and serializes a
-  `SigningException` as the `401` response body.
+- **`ResourceHelper.propose` serializes a `SigningException` as the `401` response body**, while
+  its `409` and the second `409` of `PUT /gridspork/pending/{digest}` carry no body at all, so the
+  CLI cannot say why a proposal or co-signature was refused.
 - **`NodeResource.getURIFromString` is dead code**, as are the six `@CDIBridgeInject P2PServer`
   fields on the resource classes.
 - **`GET /bucket/list` dereferences `null`** when the `s3data` directory has not been created yet.
