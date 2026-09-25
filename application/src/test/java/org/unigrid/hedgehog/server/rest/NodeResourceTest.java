@@ -108,26 +108,16 @@ public class NodeResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 50)
 	public void shouldAddNodeWithMissingPort(@ForAll("provideAddress") InetSocketAddress address) {
-		try {
-			final String url = "/node";
-			final Response postResponse = postAssert(url, address.getHostString());
+		final String url = "/node";
+		final Status status = Status.fromStatusCode(client.post(url, Entity.text(address.getHostString())).getStatus());
 
-			if (Status.fromStatusCode(postResponse.getStatus()) == Status.CREATED) {
-				final InetSocketAddress addressWithDefaultPort = new InetSocketAddress(
-					address.getHostName(), DEFAULT_PORT
-				);
+		/* Generated hosts repeat, and a host added before answers with a conflict */
+		assertThat(status, is(oneOf(Status.CREATED, Status.CONFLICT)));
 
-				final Node node = Node.builder().address(addressWithDefaultPort).build();
-				final Response response = client.get(url + node.getURI());
+		if (status == Status.CREATED) {
+			final Node node = Node.builder().address(new InetSocketAddress(address.getHostName(), DEFAULT_PORT)).build();
 
-				assertThat(Status.fromStatusCode(response.getStatus()),
-					equalTo(Status.OK)
-				);
-			} else {
-				assertThat("Unexpected response", false);
-			}
-		} catch(ResponseOddityException ex) {
-			assertThat(ex.getMessage(), containsString("Conflict"));
+			assertThat(Status.fromStatusCode(client.get(url + node.getURI()).getStatus()), equalTo(Status.OK));
 		}
 	}
 
