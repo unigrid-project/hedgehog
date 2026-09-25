@@ -53,12 +53,13 @@ P2P tests learn which host and port the server actually landed on. `AbstractServ
 The source comment on `MAX_DATA_SIZE` reads `/* 256 MB */`; the value is `1024 * 1024 * 256`, i.e.
 256 MiB, and that is how it is written throughout this manual.
 
-`PROTOCOLS` is `{ "hedgehog/0.0.3", "gridspork/0.0.3" }` and is passed verbatim to
+`PROTOCOLS` is `{ "hedgehog/0.0.4", "gridspork/0.0.4" }` and is passed verbatim to
 `QuicSslContextBuilder.applicationProtocols(...)` on both sides, so both strings are offered as ALPN
-identifiers. Nothing in the code inspects the negotiated protocol afterwards — `gridspork/0.0.3` is
-advertised but never used to select behavior. The version moved from `0.0.2` when the signature log
-was added to `PUBLISH_SPORK`, whose layout older nodes cannot read. The same array is echoed by the REST version endpoint
-(see [REST interface](rest-api.md)).
+identifiers. Nothing in the code inspects the negotiated protocol afterwards — `gridspork/0.0.4` is
+advertised but never used to select behavior. The version moved from `0.0.2` to `0.0.3` when the
+signature log was added to `PUBLISH_SPORK`, and to `0.0.4` when the cosignature fields were added to
+it; each time older nodes cannot read the new layout. The same array is echoed by the REST version
+endpoint (see [REST interface](rest-api.md)).
 
 `SEEDS` is the six-entry list `seed1.unigrid.org` … `seed6.unigrid.org`. `Network.getSeeds()` returns
 it only when `NetOptions.isSeeds()` is true (the `--no-seeds` picocli option is negatable and
@@ -129,9 +130,10 @@ schedulables) and a `Type` (`CLIENT` or `SERVER`). `initChannel` does four thing
    delay of `0` when `isExecuteOnCreation()` is true and `getPeriod()` otherwise, and cancels the
    future from the channel's `closeFuture()` listener.
 
-Finally it resolves `SporkDatabase` from CDI and calls
-`PublishAndSaveSporkSchedule.writeAndFlush(channel, db)` — so **both** sides push their sporks the
-moment the stream comes up, independent of the periodic schedule. That push only produces traffic once
+Finally it resolves `SporkDatabase` and `PendingSporks` from CDI and calls
+`PublishAndSaveSporkSchedule.writeAndFlush(channel, db, pendingSporks)` — so **both** sides push
+their sporks, and the proposals they hold, the moment the stream comes up, independent of the
+periodic schedule. That push only produces traffic once
 the database actually holds sporks; on a node whose database is still empty the write fails inside the
 encoder (see [Scheduled traffic](#scheduled-traffic)).
 
@@ -547,8 +549,10 @@ followed by the chunk encoding of `data`, then the chunk encoding of `previousDa
 | ---: | --- | --- |
 | 2 | signature length | `writeShort(signature.length)` / `readUnsignedShort()` |
 | var | signature | raw bytes |
+| 2 | cosignature length | `0` while the spork is a proposal; the decoder reads an empty cosignature as `null` |
+| var | cosignature | raw bytes |
 | 4 | log entry count | `writeInt(size)` / `readInt()` |
-| var | log entries | `SignatureLogEntry.toBytes()` each, in log order |
+| var | log entries | each entry below, in log order |
 
 and each signature log entry is:
 
@@ -560,8 +564,16 @@ and each signature log entry is:
 | 64 | digest | SHA-512 of the signed version's `getSignable()` |
 | 2 | signature length | `readUnsignedShort()` |
 | var | signature | raw bytes |
+| 2 | cosigner length | `0` when the version was signed once |
+| var | cosigner | public key hex as US-ASCII |
+| 2 | cosignature length | `0` when the version was signed once |
+| var | cosignature | raw bytes |
 
-The meaning of the log and how a receiver checks it are described under
+The encoder writes each entry as `SignatureLogEntry.toBytes()` and, for an entry without a cosigner,
+two zero lengths after it. `toBytes()` itself — the layout the log head hash is computed over — leaves
+the cosigner fields out entirely for such an entry, so the wire layout and the hashed layout differ
+for exactly those entries. A proposal and an accepted spork share this layout; only the cosignature
+length tells them apart. The meaning of the log and how a receiver checks it are described under
 [Signature log](sporks.md#signature-log).
 
 Timestamps are millisecond precision on the wire; `GridSpork.archive()` truncates to
@@ -733,7 +745,7 @@ handles a Netty user event rather than a decoded packet.
 | `HelloChannelHandler` | `Hello` | Registers the sending node in the topology |
 | `PingChannelHandler` | `Ping` | Echoes requests, records latency for responses |
 | `PublishPeersChannelHandler` | `PublishPeers` | Adds every announced node to the topology |
-| `PublishSporkChannelHandler` | `PublishSpork` | Validates, stores and re-broadcasts a spork |
+| `PublishSporkChannelHandler` | `PublishSpork` | Holds a proposal, or validates and stores a co-signed spork, and re-broadcasts what was new |
 | `AskPeersChannelHandler` | `AskPeers` | Empty body — the reply is commented out |
 | `AskNodeDetailsChannelHandler` | `AskNodeDetails` | Empty body — `//TODO: Implement me` |
 
@@ -820,32 +832,40 @@ beyond the `short` count field and the 256 MiB frame limit.
 
 ### PublishSporkChannelHandler
 
-Resolves `SporkDatabase`, builds a map of the four known spork types to their current values, and then:
+Handles proposals and co-signed sporks alike, both of which arrive as `PUBLISH_SPORK`:
 
-1. Looks the incoming type up in that map with `entries.get(newSpork.getType())`, which runs before the
-   guard below. The map is built with `model/collection/NullableMap.java` rather than `Map.of` because
-   a fresh database has null values for every type and `Map.of` rejects null values at construction.
-2. If the received type is not one of the four keys, logs
-   `"Received unsupported spork type - ignoring."` at error level and returns. The four keys cover
-   every constant of `GridSpork.Type` except `UNDEFINED`, and the decoder never produces an
+1. If the received type is `UNDEFINED`, logs `"Received unsupported spork type - ignoring."` at error
+   level and returns, before resolving anything from CDI. The decoder never produces an
    `UNDEFINED`-typed spork — `decodeGridSpork` gives up before it constructs one when no chunk decoder
    is registered — so in the current pipeline this branch is unreachable.
-3. Otherwise, if `newSpork.canReplace(oldSpork)`, stores it with `db.set(newSpork)` and re-broadcasts
-   the *original* `PublishSpork` packet to every connected node via
-   `Topology.sendAll(publishSpork, topology, Optional.empty())`. `canReplace` requires a longer
-   signature log, or an equally long one and a newer timestamp, that keeps the stored log as its
-   prefix and carries a valid signature (see
-   [Accepting a replacement](sporks.md#accepting-a-replacement)). A null `oldSpork` counts as an empty
-   log, which is what lets a node with an empty database accept the first spork it is offered.
+2. Resolves `SporkDatabase` and `PendingSporks` and calls `receive(spork, db, pendingSporks)`, which
+   reads the stored spork with `db.get(type)` — `null` on a fresh database — and:
+   * offers a spork without a cosignature to `PendingSporks.offer(spork, stored)`, which holds it as a
+     proposal when it is within its hour, newer than the proposal already held and could replace
+     the stored spork once co-signed;
+   * stores a co-signed spork with `db.set(spork)` when `spork.canReplace(stored)`, and drops a held
+     proposal the new spork supersedes;
+   * drops anything else, logging *"Dropped a {} spork that cannot replace the stored one"* at debug
+     level.
 
-The re-broadcast has no origin suppression and no hop limit; loops are broken only by the
-`canReplace` check on the receiving side, which refuses a spork identical to the stored one. The `Optional.empty()` consumer carries a
+   `canReplace` requires two signatures from different current network keys and a longer signature
+   log, or an equally long one and a newer timestamp, that keeps the stored log as its prefix (see
+   [Accepting a replacement](sporks.md#accepting-a-replacement)). A null stored spork counts as an
+   empty log, which is what lets a node with an empty database accept the first spork it is offered.
+3. When `receive` returns `true` — a proposal was taken or a spork stored — resolves `Topology` and
+   re-broadcasts the *original* `PublishSpork` packet to every connected node via
+   `Topology.sendAll(publishSpork, topology, Optional.empty())`.
+
+The re-broadcast has no origin suppression and no hop limit; loops are broken only by the checks on
+the receiving side, which refuse a spork identical to the stored one and a proposal identical to the
+one held. The `Optional.empty()` consumer carries a
 `// TODO: Handle errors better rather than sending Optional.empty()`, i.e. write failures during
 propagation are not observed.
 
-`PublishSporkChannelHandlerTest` mocks `GridSpork.isValidSignature()` to return `true` and asserts
+`PublishSporkChannelHandlerTest` mocks `GridSpork.isDoublySigned()` to return `true` and asserts
 `greaterThanOrEqualTo` on the invocation count, with a comment explaining that the flooding makes an
-exact count unpredictable.
+exact count unpredictable. `SporkReceptionTest` exercises `receive` directly, with real keys and no
+network.
 
 ## Topology and connection state
 
@@ -1024,12 +1044,14 @@ publish peers and publish sporks independently on their own three-minute cadence
 `PublishPeersSchedule` publishes the *entire* known topology, not a sample — `AskPeers.amount` has no
 influence, since nothing sends `ASK_PEERS`.
 
-`PublishAndSaveSporkSchedule` also carries the static `writeAndFlush(Channel, SporkDatabase)` helper
-that `RegisterQuicChannelInitializer` calls on every new stream, and a private `save(...)` that
-resolves `ApplicationDirectory`, creates the user data directory and writes
-`SporkDatabase.SPORK_DB_FILE` (`spork.db`), logging at warn level on failure rather than propagating.
-Its `getConsumer()` resolves `SporkDatabase` from CDI and does both in sequence: `writeAndFlush(channel,
-db)` first, `save(db)` second.
+`PublishAndSaveSporkSchedule` also carries the static
+`writeAndFlush(Channel, SporkDatabase, PendingSporks)` helper that `RegisterQuicChannelInitializer`
+calls on every new stream, and a private `save(...)` that resolves `ApplicationDirectory`, creates
+the user data directory and writes `SporkDatabase.SPORK_DB_FILE` (`spork.db`), logging at warn level
+on failure rather than propagating. `writeAndFlush` sends the three stored sporks and then one
+`PublishSpork` per proposal `PendingSporks` holds. Its `getConsumer()` resolves `SporkDatabase` and
+`PendingSporks` from CDI and does both in sequence: `writeAndFlush(channel, db, pendingSporks)`
+first, `save(db)` second. Proposals are never saved.
 
 Both the on-stream-creation push and the periodic run assume the database has sporks in it, and a fresh
 node's does not. `model/producer/SporkDatabaseProducer.java` falls back to
@@ -1039,8 +1061,9 @@ carries a `@Builder.Default`, so all four are null. `writeAndFlush` then builds 
 packets with `gridSpork == null`, and `AbstractGridSporkEncoder.encodeGridSpork` dereferences that at
 `encoders.getOptional(spork.getType())`. The `NullPointerException` is wrapped by Netty's
 `MessageToByteEncoder` into an `EncoderException` that fails the write promise; since neither call site
-attaches a listener, nothing observes it. A node with an empty database therefore publishes nothing at
-all until a peer has sent it sporks.
+attaches a listener, nothing observes it. A node with an empty database therefore publishes no stored
+spork until a peer has sent it sporks; the failed writes do not stop the proposals it holds from going
+out after them, which `PublishAndSaveSporkScheduleTest` relies on.
 
 The schedule tests override the period through JMockit: `PingScheduleTest` runs at 75 ms with a 15 %
 tolerance and `PublishPeersScheduleTest` at 250 ms with 30 %, both counting only invocations where
@@ -1059,7 +1082,7 @@ sequenceDiagram
     participant TP as Topology
 
     T->>C: new P2PClient(host, port)
-    C->>S: QUIC handshake (ALPN hedgehog/0.0.3, gridspork/0.0.3)
+    C->>S: QUIC handshake (ALPN hedgehog/0.0.4, gridspork/0.0.4)
     S->>S: EncryptedTokenHandler.writeToken / validateToken
     S->>S: ConnectionHandler stores SOCKET_ADDRESS_KEY
     C->>S: createStream(BIDIRECTIONAL)
@@ -1132,20 +1155,28 @@ sequenceDiagram
     participant A as Node A
     participant B as Node B
     participant DB as SporkDatabase A
+    participant P as PendingSporks A
 
-    O->>A: PUBLISH_SPORK { header, data chunk, previous chunk, signature, signature log }
+    O->>A: PUBLISH_SPORK { header, data chunk, previous chunk, signature, cosignature, signature log }
     Note over A: PublishSporkDecoder resolves the chunk decoder by spork type
-    A->>DB: type known?
-    alt unsupported type
+    alt UNDEFINED type
         A->>A: log the unsupported spork type and return
-    else known type
+    else pending (no cosignature)
+        A->>P: offer(spork, current)
+        alt taken
+            A->>B: Topology.sendAll(publishSpork)
+        else refused
+            A->>A: silently dropped
+        end
+    else co-signed
         A->>A: canReplace(current)
         alt accepted
-            A->>DB: set(newSpork)
+            A->>DB: set(spork)
+            A->>P: retainProposalsOver(spork)
             A->>B: Topology.sendAll(publishSpork)
             Note over A,B: flooded to every node with a connection
         else rejected
-            A->>A: silently dropped
+            A->>A: dropped with a debug line
         end
     end
     Note over A: PublishAndSaveSporkSchedule persists spork.db every 3 minutes
@@ -1181,7 +1212,7 @@ Collected here so a reader does not have to rediscover them:
 - **A forwarded frame that no decoder claims is never drained.** Each decoder in the type-dispatch
   chain keeps the shared cumulation as a readable buffer, so the next frame is merged onto the
   leftover bytes rather than onto an empty one.
-- **An empty spork database poisons every publication.** All four fields of a freshly built
+- **An empty spork database poisons every stored-spork publication.** All four fields of a freshly built
   `SporkDatabase` are null, and `PublishAndSaveSporkSchedule.writeAndFlush` dereferences them in the
   encoder; the resulting `EncoderException` only fails a write promise nobody inspects.
 - **An unregistered spork type leaves the reader index mid-frame.** `decodeGridSpork` consumes the two
@@ -1208,7 +1239,8 @@ Collected here so a reader does not have to rediscover them:
 - **Server-side `ConnectionContainer`s cannot be closed.** `HelloChannelHandler` builds one without a
   group, and the field carries no `@Builder.Default`, so `close()`/`closeDirty()` dereference a null
   `Optional`.
-- **Spork flooding has no loop suppression**, only the `canReplace` guard on each receiver.
+- **Spork flooding has no loop suppression**, only the `canReplace` and `PendingSporks.offer` guards
+  on each receiver.
 - **Chunk scanning is repeated per codec instance**, i.e. twice per new connection, since
   `AbstractGridSporkEncoder`/`Decoder` call `ChunkScanner.scan(...)` from their constructors.
 - **TLS is unauthenticated by design today**: a fresh self-signed certificate per server start and
