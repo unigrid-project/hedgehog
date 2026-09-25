@@ -22,7 +22,10 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -47,9 +50,13 @@ public class NetworkKey {
 		return signerOf(DigestUtils.sha512(signable.getSignable()), signable.getSignature());
 	}
 
-	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
+	public static Set<String> getKnownPublicKeys() {
 		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
-			.filter(key -> verifies(digest, signature, key)).findFirst();
+			.collect(Collectors.toCollection(LinkedHashSet::new));
+	}
+
+	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
+		return getKnownPublicKeys().stream().filter(key -> verifies(digest, signature, key)).findFirst();
 	}
 
 	private static boolean verifies(byte[] digest, byte[] signature, String key) {

@@ -27,6 +27,8 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeProperty;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -179,5 +181,109 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 		entries.set(0, entries.getFirst().toBuilder().signer(trusted.getPublicKey()).build());
 		spork.setSignatureLog(new SignatureLog(entries));
 		assertThat(spork.isValidSignature(), is(false));
+	}
+
+	@SneakyThrows
+	private MintSupply next(MintSupply base, int second) {
+		final MintSupply spork = SerializationUtils.clone(base);
+
+		spork.archive();
+		spork.setTimeStamp(SIGNED_AT.plusSeconds(second));
+		spork.sign(trusted.getPrivateKey());
+		return spork;
+	}
+
+	@SneakyThrows
+	private MintSupply resigned(MintSupply spork, SignatureLog log) {
+		final MintSupply forged = SerializationUtils.clone(spork);
+
+		forged.setSignatureLog(log);
+		forged.sign(trusted.getPrivateKey());
+		return forged;
+	}
+
+	@Example
+	public void shouldReplaceNothingWithATrustedFirstVersion() {
+		assertThat(signedSupply(trusted).canReplace(null), is(true));
+	}
+
+	@Example
+	public void shouldNotAcceptAHeadSignedByARetiredKey() {
+		assertThat(signedSupply(retired).canReplace(null), is(false));
+	}
+
+	@Example
+	public void shouldReplaceTheVersionItExtends() {
+		final MintSupply stored = signedSupply(trusted);
+
+		assertThat(next(stored, 1).canReplace(stored), is(true));
+	}
+
+	@Example
+	public void shouldReplaceAVersionSignedBeforeTheKeyChange() {
+		final MintSupply stored = signedSupply(retired);
+
+		assertThat(next(stored, 1).canReplace(stored), is(true));
+	}
+
+	@Example
+	public void shouldNotReplaceWithATruncatedLog() {
+		final MintSupply first = next(signedSupply(trusted), 1);
+		final MintSupply stored = next(first, 2);
+		final MintSupply truncated = resigned(stored, first.getSignatureLog());
+
+		assertThat(truncated.canReplace(stored), is(false));
+	}
+
+	@Example
+	public void shouldNotReplaceWithRewrittenHistory() {
+		final MintSupply stored = next(signedSupply(trusted), 1);
+		final MintSupply extended = next(stored, 2);
+		final List<SignatureLogEntry> entries = new ArrayList<>(extended.getSignatureLog().getEntries());
+
+		entries.set(0, entries.getFirst().toBuilder().timeStamp(SIGNED_AT.minusSeconds(1)).build());
+		assertThat(resigned(extended, new SignatureLog(entries)).canReplace(stored), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldNotAcceptEntriesSignedByUnknownKeys() {
+		final Signature foreignKey = new Signature();
+		final MintSupply foreign = signedSupply(foreignKey);
+		final SignatureLogEntry entry = SignatureLogEntry.builder().timeStamp(SIGNED_AT)
+			.signer(foreignKey.getPublicKey()).digest(DigestUtils.sha512(foreign.getSignable()))
+			.signature(foreign.getSignature()).build();
+		final MintSupply spork = signedSupply(trusted);
+
+		spork.setTimeStamp(SIGNED_AT.plusSeconds(1));
+		assertThat(resigned(spork, new SignatureLog(List.of(entry))).canReplace(null), is(false));
+	}
+
+	@Example
+	public void shouldNotAcceptAHeadOlderThanItsLog() {
+		final MintSupply spork = next(signedSupply(trusted), 1);
+
+		spork.setTimeStamp(SIGNED_AT);
+		assertThat(resigned(spork, spork.getSignatureLog()).canReplace(null), is(false));
+	}
+
+	@Example
+	public void shouldResolveSiblingsByTimeStamp() {
+		final MintSupply base = signedSupply(trusted);
+		final MintSupply older = next(base, 1);
+		final MintSupply newer = next(base, 2);
+
+		assertThat(newer.canReplace(older), is(true));
+		assertThat(older.canReplace(newer), is(false));
+	}
+
+	@Example
+	public void shouldLetTheLongerBranchWin() {
+		final MintSupply base = signedSupply(trusted);
+		final MintSupply sibling = next(base, 3);
+		final MintSupply branch = next(next(base, 1), 2);
+
+		assertThat(branch.canReplace(sibling), is(true));
+		assertThat(sibling.canReplace(branch), is(false));
 	}
 }

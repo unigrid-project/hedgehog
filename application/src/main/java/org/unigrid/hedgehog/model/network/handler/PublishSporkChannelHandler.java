@@ -58,7 +58,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				/* Bail out on unsupported type */
 			}
 
-			if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
+			if (newSpork.canReplace(oldSpork)) {
 				db.set(newSpork);
 
 				CDIUtil.resolveAndRun(Topology.class, topology -> {

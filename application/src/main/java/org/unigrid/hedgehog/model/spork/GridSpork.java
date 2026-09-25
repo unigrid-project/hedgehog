@@ -195,6 +195,32 @@ public class GridSpork implements Serializable, Signable {
 		return false;
 	}
 
+	/**
+	* Decides whether this spork, received from the network, may replace the stored one. It must carry
+	* the stored log unchanged, add only entries signed by known keys, and either extend the log or win
+	* against a sibling signed on top of the same log by being newer.
+	*/
+	@JsonIgnore
+	public boolean canReplace(GridSpork stored) {
+		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
+
+		return isSuccessorOf(stored, storedLog) && isNewerThanLog()
+			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getKnownPublicKeys())
+			&& isValidSignature();
+	}
+
+	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
+		final SignatureLog log = getSignatureLog();
+		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored);
+
+		return (log.size() > storedLog.size() || isNewerSibling) && storedLog.isPrefixOf(log);
+	}
+
+	private boolean isNewerThanLog() {
+		return getSignatureLog().isEmpty()
+			|| Objects.nonNull(timeStamp) && timeStamp.isAfter(getSignatureLog().last().getTimeStamp());
+	}
+
 	private void retireHead() {
 		if (Objects.nonNull(signature) && Objects.isNull(retiringHead)) {
 			retiringHead = SignatureLogEntry.builder().timeStamp(timeStamp)
