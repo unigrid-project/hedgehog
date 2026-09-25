@@ -21,16 +21,21 @@ package org.unigrid.hedgehog.server.rest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BlockParser;
@@ -45,12 +50,34 @@ import org.unigrid.hedgehog.model.bootstrap.Ledger;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotWriter;
 import org.unigrid.hedgehog.model.bootstrap.TransactionIdTable;
+import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 public class BootstrapResourceTest extends BaseRestClientTest {
 	private static final int HEIGHTS = 4;
 	private static final long AMOUNT = 123_456_789L;
 	private static final byte[] ADDRESS_HASH = new byte[Hashing.ADDRESS_HASH_SIZE];
 	private static final byte[] ABSENT_HASH = absentHash();
+	private static final int TIP_HEIGHT = HEIGHTS - 1;
+
+	@Inject
+	private SporkDatabase sporkDatabase;
+
+	@BeforeTry
+	public void forgetMints() {
+		sporkDatabase.setMintStorage(null);
+	}
+
+	private void mint(byte[] addressHash, int height, String amount) {
+		if (Objects.isNull(sporkDatabase.getMintStorage())) {
+			sporkDatabase.setMintStorage(new MintStorage());
+		}
+
+		sporkDatabase.getMintStorage().<MintStorage.SporkData>getData().getMints().put(
+			new Location(new Address(LegacyAddress.encode(addressHash)), height), new BigDecimal(amount)
+		);
+	}
 
 	@Example
 	@SneakyThrows
@@ -74,6 +101,34 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 
 		assertThat(balance.getBalance(), equalTo(Coin.toDecimal(AMOUNT * HEIGHTS)));
 		assertThat(balance.getTransactionCount(), equalTo(HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldAddTheMintsTheChainHasNotReached() {
+		writeSnapshot();
+		mint(ADDRESS_HASH, TIP_HEIGHT, "1");
+		mint(ADDRESS_HASH, TIP_HEIGHT + 1, "2.5");
+		mint(ABSENT_HASH, TIP_HEIGHT + 1, "9");
+
+		final AddressBalance balance = client.getEntity("/bootstrap/address/"
+			+ LegacyAddress.encode(ADDRESS_HASH), AddressBalance.class);
+
+		assertThat(balance.getBalance(), equalTo(Coin.toDecimal(AMOUNT * HEIGHTS).add(new BigDecimal("2.5"))));
+		assertThat(balance.getTransactionCount(), equalTo(HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldReportThePendingMintsOfAnAddressOutsideTheSnapshot() {
+		writeSnapshot();
+		mint(ABSENT_HASH, TIP_HEIGHT + 1, "3");
+
+		final AddressBalance balance = client.getEntity("/bootstrap/address/"
+			+ LegacyAddress.encode(ABSENT_HASH), AddressBalance.class);
+
+		assertThat(balance.getBalance(), equalTo(new BigDecimal("3.00000000")));
+		assertThat(balance.getTransactionCount(), equalTo(0));
 	}
 
 	@Example

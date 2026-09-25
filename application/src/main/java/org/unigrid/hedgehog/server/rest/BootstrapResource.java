@@ -27,15 +27,18 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
+import org.unigrid.hedgehog.model.bootstrap.PendingMints;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
 @Path("/bootstrap")
@@ -45,6 +48,9 @@ public class BootstrapResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private BootstrapSnapshot snapshot;
+
+	@CDIBridgeInject
+	private SporkDatabase sporkDatabase;
 
 	@GET
 	public Response info() {
@@ -67,9 +73,19 @@ public class BootstrapResource extends CDIBridgeResource {
 
 		try {
 			final Optional<AddressBalance> balance = reader.get().balanceOf(address);
+			final BigDecimal pending = PendingMints.amountFor(address, sporkDatabase.getMintStorage(),
+				currentHeight(reader.get())
+			);
 
-			return balance.map(found -> Response.ok().entity(found).build())
-				.orElseGet(() -> Response.status(Response.Status.NOT_FOUND).build());
+			if (balance.isEmpty() && pending.signum() == 0) {
+				return Response.status(Response.Status.NOT_FOUND).build();
+			}
+
+			final AddressBalance found = balance.orElseGet(() -> AddressBalance.builder().address(address)
+				.balance(BigDecimal.ZERO).build());
+
+			found.setBalance(found.getBalance().add(pending));
+			return Response.ok().entity(found).build();
 
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
@@ -96,6 +112,11 @@ public class BootstrapResource extends CDIBridgeResource {
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
 		}
+	}
+
+	/* The legacy tip stands in for the height of the chain that mints, until hedgehog can follow that chain */
+	private static int currentHeight(SnapshotReader reader) {
+		return reader.getInfo().getTipHeight();
 	}
 
 	private Response malformed(String address, IllegalArgumentException ex) {
