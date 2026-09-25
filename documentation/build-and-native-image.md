@@ -853,10 +853,13 @@ only the schedule type under test is affected — `executeOnCreation()` is force
 `server/rest/BaseRestClientTest.java` boots a single `TestServer`, and in `@BeforeTry` constructs a
 `RestClient(server.getRest().getHostName(), server.getRest().getPort(), true)` which `@AfterTry` closes.
 It also supplies `@Provide public Arbitrary<Signature> provideSignature()`, which creates a fresh
-`Signature` and, as a side effect of generation, installs a `MockUp<NetworkKey>` whose
-`getPublicKeys()` returns that signature's public key — so a test can PUT a spork with
-`signature.getPrivateKey()` in a `privateKey` header and have it accepted. `MintSupplyResourceTest`
-shows the pattern.
+`Signature` and a second one in the static `cosigner` field and, as a side effect of generation,
+installs a `MockUp<NetworkKey>` whose `getPublicKeys()` returns both public keys — so a test can PUT a
+spork with `signature.getPrivateKey()` in a `privateKey` header and co-sign the proposal with the
+inherited `cosign(...)` helpers. Every generated key is also appended to the list the mock returns
+from `getRetiredPublicKeys()`, so sporks stored by earlier tries can still name their signers, and
+only the 16 most recent are kept, because every signature check walks that list and every verifying
+key generates a keypair. `MintSupplyResourceTest` shows the pattern.
 
 ### `BaseSporkDatabaseTest`
 
@@ -904,16 +907,19 @@ Three assertions, each catching a different class of bug:
    desynchronize the stream.
 
 Current integrity tests: `PingIntegrityTest`, `PublishPeersIntegrityTest`, `PublishSporkIntegrityTest`,
-`AskNodeDetailsIntegrityTest`.
+`AskNodeDetailsIntegrityTest`. `PublishSporkIntegrityTest` also
+carries one `@Example` beyond the property: a `MintSupply` signed once, then renewed and co-signed by
+two current keys, passes `canReplace` after each wire round trip, and so does the renewal after that.
 
 ### What the suite covers
 
-The test tree holds 54 Java files: 11 in the `jqwik` infrastructure package, six base classes plus
-`TestServer`, `GridSporkProvider` and `ApplicationDirectoryMockUp` as shared fixtures, and 34 test
-classes. The codec, handler, schedule and REST families are described above; the remainder are listed
+The test tree holds 81 Java files. The 20 under the two `bootstrap` packages and
+`server/rest/BootstrapResourceTest` exercise the legacy chain snapshot and are not listed here. Of
+the other 60, 11 are in the `jqwik` infrastructure package, six are base classes and `TestServer`,
+`GridSporkProvider` and `ApplicationDirectoryMockUp` are shared fixtures, leaving 40 test classes. The codec, handler, schedule and REST families are described above; the remainder are listed
 here so the coverage map is complete.
 
-The four families that follow a fixed pattern account for 15 of the 34: four codec integrity tests
+The four families that follow a fixed pattern account for 15 of the 40: four codec integrity tests
 (`Ping`, `PublishPeers`, `PublishSpork`, `AskNodeDetails`), three handler tests
 (`PingChannelHandlerTest`, `PublishSporkChannelHandlerTest` and the empty
 `PublishPeersChannelHandlerTest`), two schedule tests (`PingScheduleTest` at a 75 ms period with a 15%
@@ -922,28 +928,29 @@ tolerance, `PublishPeersScheduleTest` at 250 ms with 30%), and six REST tests (`
 classes `StorageBucketTest` and `StorageObjectTest`). `SporkDatabaseTest` sits alongside them on
 `BaseSporkDatabaseTest`.
 
-The remaining 18 divide into container-backed and plain. These twelve run inside a per-class Weld
+The remaining 24 divide into container-backed and plain. These fourteen run inside a per-class Weld
 container, whether through `BaseMockedWeldTest` directly or through one of its subclasses:
 
 | Test class | What it asserts |
 | --- | --- |
 | `model/cdi/EagerExtensionTest` | With `scan = false` and `extensions = { EagerExtension.class }`, only the `@Eager @ApplicationScoped` bean runs its `@PostConstruct` at boot — the plain `@ApplicationScoped` one does not. |
 | `model/cdi/ProtectedInterceptorTest` | Two threads contend on `@Protected @Lock(WRITE)` and `@Protected @Lock(READ)` methods of a purpose-built bean, using an `AtomicInteger` and Awaitility to prove writes exclude and reads share. This is the only place the interceptor is exercised at all. |
-| `model/crypto/NetworkKeyTest` | With `NetworkKey.getPublicKeys()` and `getRetiredPublicKeys()` mocked to generated signatures, `isTrusted()` accepts each matching private key and rejects 10 random 65-byte ones, and `signerOf(...)` names a trusted signer, a retired signer, and no signer for an unknown key. |
+| `model/crypto/NetworkKeyTest` | With `NetworkKey.getPublicKeys()` and `getRetiredPublicKeys()` mocked to generated signatures, `isTrusted()` accepts each matching private key and rejects 10 random 65-byte ones, and `signerOf(...)` names a trusted signer, a retired signer, and no signer for an unknown key, while `currentSignerOf(...)` names a current signer and no signer for a retired key. |
 | `model/crypto/SignatureTest` | Sign/verify round-trips over `@ForAll byte[]`, the split signer/verifier constructor, the private/public key size guards, and that `verifyDigest` accepts a signature over the SHA-512 digest of the signed data and rejects one over other data. |
 | `model/network/NodeTest` | `Node.fromAddress(...)` over generated IPv4/IPv6 addresses with and without a port, and that `Topology.addNode` filters a node that reports `isMe()`. |
 | `model/network/TopologyThreadTest` | `TopologyThread` repopulates an emptied topology from `Network.getSeeds()`, and `Topology.cloneNodes()` returns a distinct set holding the same nodes. |
 | `model/producer/SporkDatabaseProducerTest` | Writing a structurally incompatible serialized object into the spork database path makes `SporkDatabaseProducer.produce()` fall back to a fresh database, detected by the file size changing. |
 | `model/spork/GridSporkTest` | The six branches of `GridSpork.isNewerThan(...)`, including both null-timestamp cases, and that `renew()` moves only `timeStamp` forward, leaving `data`, `previousData` and `previousTimeStamp` untouched. |
-| `model/spork/SignatureLogTest` | Head hashes, `isPrefixOf` against extended, rewritten and reordered logs, and `isValidFrom` rejecting unknown signers, forged digests, a misattributed signer and timestamps that do not increase. |
-| `model/spork/GridSporkSignatureLogTest` | Signing after `archive()` or `renew()` logs the replaced version with its signer, retired keys included, and refuses an unknown signer; dropping, reordering or rewriting an entry breaks the signature; and every rule of `canReplace(...)`, from a first version through sibling forks to a longer branch. |
+| `model/spork/SignatureLogTest` | A golden hash of an entry without a cosigner, so its bytes stay those older logs were signed over; head hashes, with the cosigner included; `isPrefixOf` against extended, rewritten and reordered logs; and `isValidFrom` accepting an entry cosigned by another known key while rejecting unknown signers and cosigners, forged digests and cosignatures, a misattributed signer, an entry cosigned by its own signer and timestamps that do not increase. |
+| `model/spork/GridSporkSignatureLogTest` | Signing after `archive()` or `renew()` logs the replaced version with both its signers, retired keys included, and refuses an unknown signer; dropping, reordering or rewriting an entry breaks the signatures; `cosign(...)` leaves the signable bytes alone and refuses an unsigned spork and the first signer's key; a spork is pending until co-signed and is not accepted with one signature, the same key twice or a retired cosigner; a renewal of a single-signed version, or of one signed by a retired key, is accepted; a pending successor passes `canBeProposedOver(...)`; and every rule of `canReplace(...)`, from a first version through sibling forks to a longer branch. |
 | `model/spork/SporkDatabaseInfoTest` | Defaults on an empty database, and that `SporkDatabaseInfo` reports the timestamp and entry count of whichever spork type was set. |
 | `server/ServerTest` | Every server in a generated sub-list of the 20 `TestServer` instances is listening on a distinct P2P port — the proof that `@Instances` really produces independent containers. |
 | `client/P2PClientTest` | Opening and closing a `P2PClient` against each server leaves the live thread count within two of where it started, i.e. Netty groups are released on `close()`. |
-| `server/rest/GridSporkResourceTest` | On `BaseRestClientTest`: `GET /gridspork` reports `LASTCHANGED_NEVER` on an empty database, then the injected spork's timestamp and mint count once one is stored. `PUT /gridspork/renew` re-signs a spork signed by a retired key into a valid one with a later timestamp and unchanged data and history, logging the retired signer; it answers `401` to an untrusted key or over an unknown signer without replacing the stored instance, and `204` on an empty database. `GET /gridspork/log` names the retired and current signers, and answers `204` on an empty database. |
+| `server/rest/GridSporkResourceTest` | On `BaseRestClientTest`: `GET /gridspork` reports `LASTCHANGED_NEVER` on an empty database, then the injected spork's timestamp and mint count once one is stored. `PUT /gridspork/renew` proposes a spork signed by a retired key re-signed, and once co-signed it is doubly signed with a later timestamp and unchanged data and history, logging the retired signer; it answers `401` to an untrusted key or over an unknown signer without replacing the stored instance, and `204` on an empty database. `GET /gridspork/pending` lists proposals with their digest and signer, or `204`; `PUT /gridspork/pending/{digest}` stores a co-signed proposal and answers `409` to the proposer's key, `404` to an unknown digest and `401` to an untrusted key. `GET /gridspork/log` names the retired and current signers, both signers of each version, and answers `204` on an empty database. |
 
-The other six are plain unit tests with no container and no mocking. They run in the same forks but
-extend no base class:
+The other ten are plain unit tests with no container. They run in the same forks but extend no base
+class; the four spork tests among them install a JMockit `MockUp<NetworkKey>` with generated keys, the
+rest mock nothing:
 
 | Test class | What it asserts |
 | --- | --- |
@@ -951,7 +958,10 @@ extend no base class:
 | `model/util/ExceptionUtilTest` | `ExceptionUtil.swallow(...)` absorbs a single listed exception, absorbs one of several listed exceptions, and rethrows an unlisted one. |
 | `model/util/ApplicationLogLevelTest` | Over generated verbosity/message-level pairs, a JUL handler attached to the logger receives a record exactly when the message level is at or below the configured level; and `getVerbosityFromLevel(Level.ALL)` throws `UnsupportedLogLevelException`. |
 | `model/network/util/ByteBufUtilsTest` | Null-terminated string and string-array writes read back byte-identical through a real `ByteBuf`. |
-| `model/spork/SporkDatabaseCompatibilityTest` | A `spork.db` written by a build from before `serialVersionUID` was pinned still loads, with its data and signatures intact. |
+| `model/spork/SporkDatabaseCompatibilityTest` | A `spork.db` written by a build from before `serialVersionUID` was pinned still loads, with its data and signatures intact, and a renewal of its single-signed sporks signed and co-signed by two current keys is accepted, as is the renewal after that. |
+| `model/spork/PendingSporksTest` | Against a fixed clock: a fresh proposal is held, one older than `LIFETIME` or further ahead is refused, and one is dropped once its lifetime ends; the same proposal is refused twice and only the newest of a type is kept; co-signed sporks and proposals by unknown keys are refused; `retainProposalsOver` drops a proposal the stored spork supersedes and keeps one it does not; `proposalOf` and `remove` work by spork type. |
+| `model/network/handler/SporkReceptionTest` | `PublishSporkChannelHandler.receive(...)` without a network: a proposal is held but not stored, a proposal already held is not passed on, a co-signed spork is stored and its proposal dropped, a proposal on top of the stored spork survives the stored spork arriving, and nothing older than the stored spork is passed on. |
+| `model/network/schedule/PublishAndSaveSporkScheduleTest` | `PublishAndSaveSporkSchedule.writeAndFlush(...)` on a Netty `EmbeddedChannel` publishes a held proposal along with the stored sporks, even from an empty database. |
 | `model/spork/MintStorageTest` | Builds a `MintStorage` with ten generated mint locations and dumps it through `TestFileOutput.outputJson`. It writes a file for inspection and asserts nothing. |
 | `model/network/channel/ChannelCollectorTest` | Declares two `@ChannelCodec`-annotated inner classes and prints the result of `ChannelCollector.collectCodecs(...)`. Like `MintStorageTest` it makes no assertion, and `ChannelCollector` itself is unused by both servers (`P2PServer.java:84` and `P2PClient.java:105` both carry `// TODO: Add support for ChannelCollector`), so the class is exercised rather than tested. |
 
