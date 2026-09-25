@@ -260,7 +260,8 @@ public class GridSpork implements Serializable, Signable {
 	private void retireHead() {
 		if (Objects.nonNull(signature) && Objects.isNull(retiringHead)) {
 			retiringHead = SignatureLogEntry.builder().timeStamp(timeStamp)
-				.digest(DigestUtils.sha512(getSignable())).signature(signature).cosignature(cosignature).build();
+				.digest(DigestUtils.sha512(getSignable()))
+				.signature(signature).cosignature(cosignature).build();
 		}
 	}
 

@@ -94,9 +94,9 @@ public class VestingStorageResource extends CDIBridgeResource {
 				VestingStorage::new, pendingSporks
 			);
 
-			vs.<VestingStorage.SporkData>getData().getVestingAddresses().put(Address.builder().wif(address).build(),
-				vesting
-			);
+			final VestingStorage.SporkData data = vs.getData();
+
+			data.getVestingAddresses().put(Address.builder().wif(address).build(), vesting);
 
 			return ResourceHelper.propose(vs, privateKey, sporkDatabase.getVestingStorage(), pendingSporks,
 				topology

@@ -104,7 +104,9 @@ public class MintStorageResource extends CDIBridgeResource {
 				.height(height).build();
 
 			ms.<MintStorage.SporkData>getData().getMints().put(location, mintAmount);
-			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintStorage(), pendingSporks, topology);
+			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintStorage(), pendingSporks,
+				topology
+			);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

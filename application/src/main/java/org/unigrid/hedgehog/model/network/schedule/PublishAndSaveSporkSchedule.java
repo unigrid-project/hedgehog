@@ -78,6 +78,8 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 		channel.writeAndFlush(PublishSpork.builder()
 			.gridSpork(sporkDatabase.getVestingStorage()).build());
 
-		pendingSporks.list().forEach(spork -> channel.writeAndFlush(PublishSpork.builder().gridSpork(spork).build()));
+		pendingSporks.list().forEach(spork -> {
+			channel.writeAndFlush(PublishSpork.builder().gridSpork(spork).build());
+		});
 	}
 }

@@ -76,7 +76,9 @@ public class MintSupplyResource extends CDIBridgeResource {
 			);
 
 			ms.<MintSupply.SporkData>getData().setMaxSupply(maxSupply);
-			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintSupply(), pendingSporks, topology);
+			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintSupply(), pendingSporks,
+				topology
+			);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();
