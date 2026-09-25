@@ -29,7 +29,9 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,7 @@ import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -62,6 +65,14 @@ public class GridSporkResource extends CDIBridgeResource {
 	@GET
 	public Response list() {
 		return Response.ok().entity(new SporkDatabaseInfo(sporkDatabase)).build();
+	}
+
+	@Path("/log") @GET
+	public Response signatureLogs() {
+		final Map<GridSpork.Type, SignatureLogInfo> logs = new EnumMap<>(GridSpork.Type.class);
+
+		storedSporks().forEach(spork -> logs.put(spork.getType(), SignatureLogInfo.of(spork)));
+		return logs.isEmpty() ? Response.noContent().build() : Response.ok().entity(logs).build();
 	}
 
 	@Path("/renew") @PUT

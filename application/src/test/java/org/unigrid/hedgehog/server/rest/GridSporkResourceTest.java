@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
@@ -36,6 +38,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
@@ -148,5 +151,33 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		sporkDatabase.setMintSupply(null);
 
 		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.NO_CONTENT));
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldShowWhoSignedEachVersion(@ForAll("provideSignature") Signature signature) {
+		final Signature retiredSignature = new Signature();
+
+		retire(retiredSignature);
+		seedMintSupplySignedBy(retiredSignature);
+		renew(signature);
+
+		final JsonNode log = new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
+			.get(GridSpork.Type.MINT_SUPPLY.name());
+		final JsonNode entry = log.get("entries").get(0);
+
+		assertThat(log.get("entries").size(), is(1));
+		assertThat(entry.get("signer").asText(), equalTo(retiredSignature.getPublicKey()));
+		assertThat(entry.get("timeStamp").asText(), equalTo(SIGNED_AT.toString()));
+		assertThat(log.get("head").get("signer").asText(), equalTo(signature.getPublicKey()));
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldHaveNoSignatureLogWhenDatabaseIsEmpty(@ForAll("provideSignature") Signature signature) {
+		seedMintSupplySignedBy(signature);
+		sporkDatabase.setMintSupply(null);
+
+		assertThat(Status.fromStatusCode(client.get("/gridspork/log").getStatus()), equalTo(Status.NO_CONTENT));
 	}
 }
