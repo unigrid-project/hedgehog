@@ -52,6 +52,7 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	    [                       << spork data >>                       ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosignature (size long, 0 while pending) >>]
 	    [      signature log entries       ][   << log entries >>      >>]
 
 	    Signature log entry:
@@ -59,6 +60,8 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	    [     size     ][            signer public key (size long)   >>]
 	    [                    << SHA-512 digest (64 bytes) >>           ]
 	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosigner public key (size long, 0 if none) >>]
+	    [     size     ][       cosignature (size long, 0 if none)   >>]
 	*/
 	public void encodeGridSpork(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
 		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
@@ -79,12 +82,25 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 			ce.get().encodeChunk(ctx, spork.getData(), data);
 			ce.get().encodeChunk(ctx, spork.getPreviousData(), data);
 
-			data.writeShort(spork.getSignature().length);
-			data.writeBytes(spork.getSignature());
+			writeSized(data, spork.getSignature());
+			writeSized(data, spork.isPending() ? new byte[0] : spork.getCosignature());
 
 			data.writeInt(spork.getSignatureLog().size());
-			spork.getSignatureLog().getEntries().forEach(entry -> data.writeBytes(entry.toBytes()));
+
+			spork.getSignatureLog().getEntries().forEach(entry -> {
+				data.writeBytes(entry.toBytes());
+
+				/* The hashed layout leaves out an absent cosigner, the wire marks it with two empty sizes */
+				if (!entry.isCosigned()) {
+					data.writeZero(2 * Short.BYTES);
+				}
+			});
 			out.writeBytes(data);
 		}
+	}
+
+	private static void writeSized(ByteBuf data, byte[] bytes) {
+		data.writeShort(bytes.length);
+		data.writeBytes(bytes);
 	}
 }

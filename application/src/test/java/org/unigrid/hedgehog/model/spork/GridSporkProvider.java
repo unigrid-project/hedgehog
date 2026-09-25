@@ -97,14 +97,23 @@ public class GridSporkProvider {
 		final int size = RandomUtils.nextInt(0, 5);
 
 		for (int i = 0; i < size; i++) {
-			log.append(SignatureLogEntry.builder().timeStamp(start.plusMillis(i))
-				.signer(Hex.encodeHexString(RandomUtils.nextBytes(Signature.PUBLIC_KEY_HEX_SIZE)))
-				.digest(RandomUtils.nextBytes(SignatureLogEntry.DIGEST_SIZE))
-				.signature(RandomUtils.nextBytes(RandomUtils.nextInt(130, 140))).build()
+			final boolean isCosigned = RandomUtils.nextBoolean();
+
+			log.append(SignatureLogEntry.builder().timeStamp(start.plusMillis(i)).signer(publicKey())
+				.digest(RandomUtils.nextBytes(SignatureLogEntry.DIGEST_SIZE)).signature(signature())
+				.cosigner(isCosigned ? publicKey() : null).cosignature(isCosigned ? signature() : null).build()
 			);
 		}
 
 		return log;
+	}
+
+	private static String publicKey() {
+		return Hex.encodeHexString(RandomUtils.nextBytes(Signature.PUBLIC_KEY_HEX_SIZE));
+	}
+
+	private static byte[] signature() {
+		return RandomUtils.nextBytes(RandomUtils.nextInt(130, 140));
 	}
 
 	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
@@ -122,6 +131,7 @@ public class GridSporkProvider {
 		gridSpork.setData(chunkData(gridSporkType));
 		gridSpork.setPreviousData(chunkData(gridSporkType));
 		gridSpork.setSignature(signature);
+		gridSpork.setCosignature(RandomUtils.nextBoolean() ? signature() : null);
 		gridSpork.setSignatureLog(signatureLog());
 
 		return Arbitraries.of(gridSpork);

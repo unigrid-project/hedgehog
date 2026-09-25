@@ -57,6 +57,7 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	    [                       << spork data >>                       ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosignature (size long, 0 while pending) >>]
 	    [      signature log entries       ][   << log entries >>      >>]
 
 	    Signature log entry:
@@ -64,6 +65,8 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	    [     size     ][            signer public key (size long)   >>]
 	    [                    << SHA-512 digest (64 bytes) >>           ]
 	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosigner public key (size long, 0 if none) >>]
+	    [     size     ][       cosignature (size long, 0 if none)   >>]
 	*/
 	public Optional<GridSpork> decodeGridSpork(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
@@ -82,11 +85,8 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			gridSpork.setData((ChunkData) cd.get().decodeChunk(ctx, in).get());
 			gridSpork.setPreviousData((ChunkData) cd.get().decodeChunk(ctx, in).get());
 
-			final int signatureLength = in.readUnsignedShort();
-			final byte[] signature = new byte[signatureLength];
-
-			in.readBytes(signature);
-			gridSpork.setSignature(signature);
+			gridSpork.setSignature(readSized(in));
+			gridSpork.setCosignature(emptyAsNull(readSized(in)));
 
 			final int logSize = in.readInt();
 			final List<SignatureLogEntry> entries = new ArrayList<>();
@@ -110,10 +110,22 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 
 		in.readBytes(digest);
 
-		final byte[] signature = new byte[in.readUnsignedShort()];
+		final byte[] signature = readSized(in);
+		final String cosigner = in.readCharSequence(in.readUnsignedShort(), StandardCharsets.US_ASCII).toString();
+		final byte[] cosignature = readSized(in);
 
-		in.readBytes(signature);
-		return SignatureLogEntry.builder().timeStamp(timeStamp).signer(signer).digest(digest)
-			.signature(signature).build();
+		return SignatureLogEntry.builder().timeStamp(timeStamp).signer(signer).digest(digest).signature(signature)
+			.cosigner(cosigner.isEmpty() ? null : cosigner).cosignature(emptyAsNull(cosignature)).build();
+	}
+
+	private static byte[] readSized(ByteBuf in) {
+		final byte[] bytes = new byte[in.readUnsignedShort()];
+
+		in.readBytes(bytes);
+		return bytes;
+	}
+
+	private static byte[] emptyAsNull(byte[] bytes) {
+		return bytes.length == 0 ? null : bytes;
 	}
 }
