@@ -31,6 +31,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.ChainHeight;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
@@ -51,6 +52,9 @@ public class BootstrapResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
+
+	@CDIBridgeInject
+	private ChainHeight chainHeight;
 
 	@GET
 	public Response info() {
@@ -74,7 +78,7 @@ public class BootstrapResource extends CDIBridgeResource {
 		try {
 			final Optional<AddressBalance> balance = reader.get().balanceOf(address);
 			final BigDecimal pending = PendingMints.amountFor(address, sporkDatabase.getMintStorage(),
-				currentHeight(reader.get())
+				chainHeight.current().orElseThrow()
 			);
 
 			if (balance.isEmpty() && pending.signum() == 0) {
@@ -112,11 +116,6 @@ public class BootstrapResource extends CDIBridgeResource {
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
 		}
-	}
-
-	/* The legacy tip stands in for the height of the chain that mints, until hedgehog can follow that chain */
-	private static int currentHeight(SnapshotReader reader) {
-		return reader.getInfo().getTipHeight();
 	}
 
 	private Response malformed(String address, IllegalArgumentException ex) {
