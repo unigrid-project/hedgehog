@@ -85,7 +85,7 @@ public class SignatureLog implements Serializable {
 			final boolean isAfterPrevious = i == 0
 				|| entry.getTimeStamp().isAfter(entries.get(i - 1).getTimeStamp());
 
-			return isAfterPrevious && keys.contains(entry.getSigner()) && entry.isValid();
+			return isAfterPrevious && keys.containsAll(entry.getSigners()) && entry.isValid();
 		});
 	}
 

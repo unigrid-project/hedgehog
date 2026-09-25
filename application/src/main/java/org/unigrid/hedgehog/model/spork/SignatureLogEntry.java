@@ -22,6 +22,8 @@ import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
 import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
@@ -40,22 +42,51 @@ public class SignatureLogEntry implements Serializable {
 	private String signer;
 	private byte[] digest;
 	private byte[] signature;
+	private String cosigner;
+	private byte[] cosignature;
+
+	public boolean isCosigned() {
+		return Objects.nonNull(cosigner) && Objects.nonNull(cosignature);
+	}
+
+	public List<String> getSigners() {
+		return isCosigned() ? List.of(signer, cosigner) : List.of(signer);
+	}
 
 	public byte[] toBytes() {
-		final byte[] signerBytes = signer.getBytes(StandardCharsets.US_ASCII);
+		final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES + DIGEST_SIZE + sizeOf(signer, signature)
+			+ (isCosigned() ? sizeOf(cosigner, cosignature) : 0));
 
-		return ByteBuffer.allocate(Long.BYTES + Short.BYTES + signerBytes.length + DIGEST_SIZE
-			+ Short.BYTES + signature.length)
-			.putLong(timeStamp.toEpochMilli())
-			.putShort((short) signerBytes.length).put(signerBytes)
-			.put(digest)
-			.putShort((short) signature.length).put(signature)
-			.array();
+		buffer.putLong(timeStamp.toEpochMilli());
+		putSized(buffer, signer.getBytes(StandardCharsets.US_ASCII));
+		buffer.put(digest);
+		putSized(buffer, signature);
+
+		/* Nothing is added without a cosigner, so entries logged before co-signing keep their hash */
+		if (isCosigned()) {
+			putSized(buffer, cosigner.getBytes(StandardCharsets.US_ASCII));
+			putSized(buffer, cosignature);
+		}
+
+		return buffer.array();
+	}
+
+	private static int sizeOf(String key, byte[] keySignature) {
+		return 2 * Short.BYTES + key.length() + keySignature.length;
+	}
+
+	private static void putSized(ByteBuffer buffer, byte[] bytes) {
+		buffer.putShort((short) bytes.length).put(bytes);
 	}
 
 	public boolean isValid() {
+		return digest.length == DIGEST_SIZE && verifies(signer, signature)
+			&& (!isCosigned() || !cosigner.equals(signer) && verifies(cosigner, cosignature));
+	}
+
+	private boolean verifies(String key, byte[] keySignature) {
 		try {
-			return digest.length == DIGEST_SIZE && Signature.verifyDigest(digest, signature, signer);
+			return Signature.verifyDigest(digest, keySignature, key);
 		} catch (VerifySignatureException | IllegalArgumentException ex) {
 			log.atTrace().log("Log entry signed at {} does not verify: {}", timeStamp, ex.getMessage());
 			return false;

@@ -34,6 +34,10 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 public class SignatureLogTest extends BaseMockedWeldTest {
 	private static final Instant START = Instant.parse("2024-04-30T15:08:29.272Z");
 
+	/* Hash of an entry laid out as the builds before co-signing wrote it */
+	private static final String SINGLE_SIGNER_ENTRY_HASH = "f8c41fcb9ff93e222bdbe044f0dd23261d731b4cb0d1a970f9c8"
+		+ "f0663e27b4e9a9144646fc0b2c3fe38749878d96c35b8077acac86ccd5bac6c2d5db052bf0a6";
+
 	private Signature key;
 	private SignatureLog log;
 
@@ -52,11 +56,25 @@ public class SignatureLogTest extends BaseMockedWeldTest {
 			.digest(DigestUtils.sha512(data)).signature(signer.sign(data)).build();
 	}
 
+	@SneakyThrows
+	private static SignatureLogEntry cosigned(SignatureLogEntry entry, Signature cosigner, int second) {
+		return entry.toBuilder().cosigner(cosigner.getPublicKey())
+			.cosignature(cosigner.sign(("version " + second).getBytes())).build();
+	}
+
 	private SignatureLog replaced(int index, SignatureLogEntry entry) {
 		final List<SignatureLogEntry> entries = new ArrayList<>(log.getEntries());
 
 		entries.set(index, entry);
 		return new SignatureLog(entries);
+	}
+
+	@Example
+	public void shouldKeepTheBytesOfAnEntryWithoutCosigner() {
+		final SignatureLogEntry entry = SignatureLogEntry.builder().timeStamp(START).signer("abc")
+			.digest(new byte[SignatureLogEntry.DIGEST_SIZE]).signature(new byte[] { 1, 2 }).build();
+
+		assertThat(DigestUtils.sha512Hex(entry.toBytes()), equalTo(SINGLE_SIGNER_ENTRY_HASH));
 	}
 
 	@Example
@@ -131,5 +149,48 @@ public class SignatureLogTest extends BaseMockedWeldTest {
 		);
 
 		assertThat(withForgedFirst.isValidFrom(1, Set.of(key.getPublicKey())), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldAcceptAnEntryCosignedByAnotherKnownKey() {
+		final Signature cosigner = new Signature();
+		final SignatureLog cosignedLog = replaced(1, cosigned(entry(key, 1), cosigner, 1));
+
+		assertThat(cosignedLog.isValidFrom(0, Set.of(key.getPublicKey(), cosigner.getPublicKey())), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldHashTheCosigner() {
+		final SignatureLog cosignedLog = replaced(1, cosigned(entry(key, 1), new Signature(), 1));
+
+		assertThat(log.isPrefixOf(cosignedLog), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldRejectAnEntryCosignedByAnUnknownKey() {
+		final SignatureLog cosignedLog = replaced(1, cosigned(entry(key, 1), new Signature(), 1));
+
+		assertThat(cosignedLog.isValidFrom(0, Set.of(key.getPublicKey())), is(false));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldRejectAnEntryWhoseCosignatureDoesNotMatchItsDigest() {
+		final Signature cosigner = new Signature();
+		final SignatureLogEntry forged = cosigned(entry(key, 1), cosigner, 2);
+
+		assertThat(replaced(1, forged).isValidFrom(0, Set.of(key.getPublicKey(), cosigner.getPublicKey())),
+			is(false)
+		);
+	}
+
+	@Example
+	public void shouldRejectAnEntryCosignedByItsSigner() {
+		final SignatureLog cosignedLog = replaced(1, cosigned(entry(key, 1), key, 1));
+
+		assertThat(cosignedLog.isValidFrom(0, Set.of(key.getPublicKey())), is(false));
 	}
 }
