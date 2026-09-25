@@ -175,6 +175,7 @@ flowchart TB
 
     U --> U1["POST /stop"]
     U --> U2["GET /version"]
+    U --> U3["GET /height"]
 
     G --> G0["GridSporkResource<br/>GET /gridspork, /gridspork/log<br/>GET /gridspork/pending<br/>PUT /gridspork/pending/{digest}<br/>PUT /gridspork/renew"]
     G --> G1["MintStorageResource<br/>/mint-storage<br/>/mint-storage/{address}/{height}"]
@@ -377,11 +378,18 @@ Serialized `Node` JSON contains `address`, `details` (`protocols` array plus `ve
 | --- | --- | --- | ---: |
 | `POST` | `/stop` | – | `202` |
 | `GET` | `/version` | `VersionResponse` | `202` |
+| `GET` | `/height` | `HeightResponse` | `200`, `503` |
 
 `/stop` calls `CDIContext.stop()`, which `notifyAll()`s the monitor that `CDIContext.run()` is
 blocked on, unwinding the Weld container and thereby the daemon. There is no authorization on it: any
 client that can reach the port can shut the node down. The default bind of `localhost` is what
 limits the exposure.
+
+`/height` answers `{ "height": N }`, the current height of the chain that mints — the height the
+legacy balance compares mint-storage entries against (see
+[Legacy chain snapshot](legacy-chain-snapshot.md#rest-api)). It comes from the `ChainHeight` bean
+(`model/ChainHeight.java`), which for now returns the tip height of the legacy chain snapshot, so the
+answer is `503` while no snapshot is available.
 
 `/version` answering `202 Accepted` rather than `200 OK` looks unintended, but `RestClient` treats
 `202` as a success, so nothing in-tree notices. No CLI command calls `/version`; it exists purely for

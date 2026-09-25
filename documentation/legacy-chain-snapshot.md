@@ -209,8 +209,10 @@ but the chain has not minted yet. `PendingMints.amountFor`
 (`application/src/main/java/org/unigrid/hedgehog/model/bootstrap/PendingMints.java`) adds every mint
 whose address decodes to the same hash160 and whose height lies above the current height; a mint at
 or below it is already part of the chain's balances and is left out. Mints whose address does not
-decode are skipped, and the sum is kept at 8 decimals like every other amount. Until hedgehog follows
-the chain that mints, the snapshot's tip height stands in as the current height. An address that
+decode are skipped, and the sum is kept at 8 decimals like every other amount. The current height
+comes from the `ChainHeight` bean (`application/src/main/java/org/unigrid/hedgehog/model/ChainHeight.java`)
+and is served by `GET /height`; until hedgehog follows the chain that mints, the snapshot's tip height
+stands in for it. An address that
 only has pending mints answers `200` with a `transactionCount` of 0, since mints are not ledger
 entries. The `bootstrap balance` command reads the snapshot file directly and has no spork database,
 so it prints the snapshot balance alone.

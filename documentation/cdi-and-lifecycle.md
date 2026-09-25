@@ -159,6 +159,7 @@ The beans the application actually deploys:
 | `RandomUUIDProducer` | `model/producer/RandomUUIDProducer.java` | `@ApplicationScoped` | Producer host |
 | `SporkDatabaseProducer` | `model/producer/SporkDatabaseProducer.java` | `@ApplicationScoped` | Producer host; injects `ApplicationDirectory` |
 | `PendingSporks` | `model/spork/PendingSporks.java` | `@ApplicationScoped` | No injection points; holds spork proposals in memory, never persisted |
+| `ChainHeight` | `model/ChainHeight.java` | `@ApplicationScoped` | `@Inject BootstrapSnapshot`; the current height of the minting chain, for now the legacy snapshot's tip |
 | `ProtectedInterceptor` | `model/cdi/ProtectedInterceptor.java` | `@Interceptor` | Discovered, but see [Concurrency guards](#concurrency-guards-protected-lock-and-protectedinterceptor) |
 
 `ChannelMap`'s callback matters more than it looks: the field is declared `private Map<Channel, Node>
@@ -516,11 +517,11 @@ The resources registered in `RestServer#getResourceConfig()` and what each bridg
 | `MintStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
 | `MintSupplyResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
 | `VestingStorageResource` | `/gridspork` | `P2PServer`, `SporkDatabase`, `Topology`, `PendingSporks` |
-| `BootstrapResource` | `/bootstrap` | `BootstrapSnapshot`, `SporkDatabase` |
+| `BootstrapResource` | `/bootstrap` | `BootstrapSnapshot`, `SporkDatabase`, `ChainHeight` |
 | `NodeResource` | `/node` | `Topology` |
 | `StorageBucket` | `/bucket` | `P2PServer`, `BucketService` |
 | `StorageObject` | `/storage-object` | `P2PServer`, `ObjectService` |
-| `UtilResource` | `/` | none — it extends `CDIBridgeResource` but declares no bridged fields |
+| `UtilResource` | `/` | `ChainHeight` |
 
 Six of those resources bridge in a `P2PServer` that no method on them reads. Combined with the point
 above, the field is simply dead: it neither starts anything nor is used. See

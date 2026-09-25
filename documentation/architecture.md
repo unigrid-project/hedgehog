@@ -591,8 +591,10 @@ rather than on the nodes.
 
 A few of those deserve a note.
 
-`server.rest.entity` exists for exactly one class today. `UtilResource` is not only the `POST /stop`
-endpoint: it also serves `GET /version`, which answers `202` with a `VersionResponse` built from
+`server.rest.entity` holds `VersionResponse` and `HeightResponse`, and is opened to Jackson in
+`module-info.java` so both serialize when the daemon runs as a module. `UtilResource` is not only the
+`POST /stop` endpoint: it also serves `GET /height` (see [REST interface](rest-api.md)) and
+`GET /version`, which answers `202` with a `VersionResponse` built from
 `Version.getVersionNumber()` and `Network.getProtocols()`. That makes `VersionResponse` the only
 place the daemon exposes the `Version` type over the network, and the only way to ask a running node
 what protocol versions it speaks without opening a QUIC connection to it.
