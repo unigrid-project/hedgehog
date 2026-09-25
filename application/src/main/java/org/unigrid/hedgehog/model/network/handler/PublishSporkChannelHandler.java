@@ -20,16 +20,14 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.collection.NullableMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.*;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -41,31 +39,43 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
+		final GridSpork spork = publishSpork.getGridSpork();
+
+		if (spork.getType() == Type.UNDEFINED) {
+			log.atError().log("Received unsupported spork type - ignoring.");
+			return;
+		}
+
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-			final GridSpork newSpork = publishSpork.getGridSpork();
-
-			final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.getMintStorage(),
-				MINT_SUPPLY, db.getMintSupply(),
-				VESTING_STORAGE, db.getVestingStorage(),
-				STATISTICS_PUBKEY, db.getStatisticsPubKey()
-			);
-
-			final GridSpork oldSpork = entries.get(newSpork.getType());
-
-			if (!entries.containsKey(newSpork.getType())) {
-				log.atError().log("Received unsupported spork type - ignoring.");
-				return;
-				/* Bail out on unsupported type */
-			}
-
-			if (newSpork.canReplace(oldSpork)) {
-				db.set(newSpork);
-
-				CDIUtil.resolveAndRun(Topology.class, topology -> {
-					// TODO: Handle errors better rather than sending Optional.empty()
-					Topology.sendAll(publishSpork, topology, Optional.empty());
-				});
-			}
+			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+				if (receive(spork, db, pendingSporks)) {
+					CDIUtil.resolveAndRun(Topology.class, topology -> {
+						// TODO: Handle errors better rather than sending Optional.empty()
+						Topology.sendAll(publishSpork, topology, Optional.empty());
+					});
+				}
+			});
 		});
+	}
+
+	/**
+	* Stores a co-signed spork that may replace the stored one, or holds a spork signed once as a proposal.
+	* Returns whether the spork was new to this node, and should therefore travel further.
+	*/
+	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks) {
+		final GridSpork stored = db.get(spork.getType());
+
+		if (spork.isPending()) {
+			return pendingSporks.offer(spork, stored);
+		}
+
+		if (spork.canReplace(stored)) {
+			db.set(spork);
+			pendingSporks.retainProposalsOver(spork);
+			return true;
+		}
+
+		log.atDebug().log("Dropped a {} spork that cannot replace the stored one", spork.getType());
+		return false;
 	}
 }

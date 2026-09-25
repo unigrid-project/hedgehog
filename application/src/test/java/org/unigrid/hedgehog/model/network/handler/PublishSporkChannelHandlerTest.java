@@ -55,7 +55,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	@BeforeProperty
 	private void mockBeforePublishSpork() {
 		new MockUp<GridSpork>() {
-			@Mock public boolean isValidSignature() {
+			@Mock public boolean isDoublySigned() {
 				return true;
 			}
 		};
