@@ -190,6 +190,8 @@ flowchart LR
     C --> GL["gridspork-list"]
     C --> GO["gridspork-log"]
     C --> GN["gridspork-renew<br/>-k"]
+    C --> GP["gridspork-pending"]
+    C --> GC["gridspork-cosign<br/>-k DIGEST..."]
     C --> NA["node-add ADDRESS"]
     C --> NR["node-remove ADDRESS"]
     C --> NL["node-list"]
@@ -225,14 +227,15 @@ network directly. The plumbing lives in
 `RestClient` against `RestOptions.getHost()`/`getPort()` **over HTTPS** (`isSecure = true`),
 dispatches on the HTTP method, and calls the subclass's `execute(Response)`.
 
-`RestClient` treats `200`, `201`, `202`, `204`, `401` and `404` as normal and raises
+`RestClient` treats `200`, `201`, `202`, `204`, `401`, `404` and `409` as normal and raises
 `ResponseOddityException` (message `"<code> <status> (<reason>)"`) for anything else;
 `RestClientCommand.run()` catches it and prints the message on stderr. A `GET` that comes back `204`
 and a `PUT` that comes back `401` both take the same branch: `defaultSupplier.ifPresentOrElse(...)`
 prints the supplier's value if the command was built with one, and otherwise falls back to
-`response.getStatusInfo()`. Only `GridSporkList`, `GridSporkRenew` and `NodeList` pass a supplier,
-so both `gridspork-get` leaves print the bare status line (`No Content`) on a `204`, and an unsigned
-or wrongly signed spork update surfaces as `Unauthorized` on the terminal.
+`response.getStatusInfo()`. Only `GridSporkList`, `GridSporkLog`, `GridSporkRenew`,
+`GridSporkPending`, `GridSporkCosign` and `NodeList` pass a supplier, so both `gridspork-get` leaves
+print the bare status line (`No Content`) on a `204`, and an unsigned or wrongly signed spork update
+surfaces as `Unauthorized` on the terminal.
 
 | Command | Class | HTTP call | Behavior |
 | --- | --- | --- | --- |
@@ -242,12 +245,14 @@ or wrongly signed spork update surfaces as `Unauthorized` on the terminal.
 | `cli gridspork-get mint-supply` | `command/cli/spork/MintSupply.java` | `GET /gridspork/mint-supply` | Pretty-prints the response body through `Json.parse`; prints `No Content` on `204` |
 | `cli gridspork-get mint-storage` | `command/cli/spork/MintStorage.java` | `GET /gridspork/mint-storage` | Pretty-prints the body; `--address`/`--height` are accepted but unused on this path |
 | `cli gridspork-set` | `command/cli/GridSporkSet.java` | — | Container for `mint-supply`; declares `-D` and `-k` as `required = true` |
-| `cli gridspork-set mint-supply` | `command/cli/spork/MintSupply.java` | `PUT /gridspork/mint-supply` | Body is `--data` as `text/plain`; `--key` is sent in a `privateKey` header; no output on success |
+| `cli gridspork-set mint-supply` | `command/cli/spork/MintSupply.java` | `PUT /gridspork/mint-supply` | Body is `--data` as `text/plain`; `--key` is sent in a `privateKey` header; prints the proposal it made, with its digest, as pretty JSON |
 | `cli gridspork-grow` | `command/cli/GridSporkGrow.java` | — | Container for `mint-storage`; declares `-D` and `-k` as `required = true` |
-| `cli gridspork-grow mint-storage` | `command/cli/spork/MintStorage.java` | `PUT /gridspork/mint-storage/{address}/{height}` | Same body/header scheme; prints `Both block height and address have to be specified` when the guard trips |
+| `cli gridspork-grow mint-storage` | `command/cli/spork/MintStorage.java` | `PUT /gridspork/mint-storage/{address}/{height}` | Same body/header scheme and output; prints `Both block height and address have to be specified` when the guard trips |
 | `cli gridspork-list` | `command/cli/GridSporkList.java` | `GET /gridspork` | Prints the `SporkDatabaseInfo` as pretty JSON; its `No Content` fallback is unreachable, as that endpoint never returns `204` |
-| `cli gridspork-log` | `command/cli/GridSporkLog.java` | `GET /gridspork/log` | Prints each stored spork's signature log and current signer as pretty JSON; `No sporks to show a signature log for` on `204` |
-| `cli gridspork-renew` | `command/cli/GridSporkRenew.java` | `PUT /gridspork/renew` | Sends an empty `text/plain` body with `-k/--key` (`required = true`) in a `privateKey` header; prints the renewed spork types as pretty JSON, `No sporks to renew` on `204` and `Unauthorized` on `401` |
+| `cli gridspork-log` | `command/cli/GridSporkLog.java` | `GET /gridspork/log` | Prints each stored spork's signature log and current signers as pretty JSON; `No sporks to show a signature log for` on `204` |
+| `cli gridspork-renew` | `command/cli/GridSporkRenew.java` | `PUT /gridspork/renew` | Sends an empty `text/plain` body with `-k/--key` (`required = true`) in a `privateKey` header; prints the proposals of re-signed sporks, with their digests, as pretty JSON, `No sporks to renew` on `204` and `Unauthorized` on `401` |
+| `cli gridspork-pending` | `command/cli/GridSporkPending.java` | `GET /gridspork/pending` | Prints the proposals awaiting a co-signature, with their digests, as pretty JSON; `No sporks await a co-signature` on `204` |
+| `cli gridspork-cosign` | `command/cli/GridSporkCosign.java` | `PUT /gridspork/pending/{digest}` | One call per positional digest (`arity = "1..*"`) with `-k/--key` (`required = true`) in a `privateKey` header; prints `Co-signed <digest>`, `No spork awaits a co-signature under <digest>` on `404`, `Co-signing <digest> refused: <reason>` otherwise, and `Unauthorized` on `401` |
 | `cli node-add <address>` | `command/cli/NodeAdd.java` | `POST /node` | Sends the `ip:port` parameter as `text/plain`, prints `Response.getLocation()` |
 | `cli node-remove <address>` | `command/cli/NodeRemove.java` | `DELETE /node/{address}` | Prints the response read as `Set<Node>` |
 | `cli node-list` | `command/cli/NodeList.java` | `GET /node` | Prints the node set as pretty JSON; prints `[]` on `204` |
@@ -264,6 +269,8 @@ Command-local options:
 | --- | --- | --- | --- |
 | `-D`, `--data` | `gridspork-set`, `gridspork-grow` (inherited by their leaves) | yes | JSON describing the spork data; sent verbatim as the request body |
 | `-k`, `--key` | `gridspork-set`, `gridspork-grow` (inherited) | yes | Hex private key signing the spork; sent as the `privateKey` header |
+| `-k`, `--key` | `gridspork-renew`, `gridspork-cosign` | yes | Hex private key signing, or co-signing, the sporks; sent as the `privateKey` header |
+| `<digest>...` | `gridspork-cosign` | positional, one or more | Digests of the proposals to co-sign, as `gridspork-pending` prints them |
 | `--address` | `gridspork-*` `mint-storage` | no | Unigrid address for the mint; part of the PUT path |
 | `--height` | `gridspork-*` `mint-storage` | no | Block height on the consensus chain; part of the PUT path |
 | `<address>` | `node-add`, `node-remove` | positional, index 0 | The `ip:port` combination of the node |
@@ -332,7 +339,7 @@ The default network host is `0.0.0.0` while the default REST host is `localhost`
 public by design and the REST control surface is loopback-only by default.
 
 `Network` (`application/src/main/java/org/unigrid/hedgehog/model/Network.java`) holds the rest of the
-network-wide constants: protocols `hedgehog/0.0.3` and `gridspork/0.0.3`, seeds `seed1..seed6.unigrid.org`,
+network-wide constants: protocols `hedgehog/0.0.4` and `gridspork/0.0.4`, seeds `seed1..seed6.unigrid.org`,
 `COMMUNICATION_THREADS = 4`, `MAX_DATA_SIZE = 1024 * 1024 * 256` (256 MiB, commented `/* 256 MB */` in
 the source), `MAX_STREAMS = 512`, `IDLE_TIME_MINUTES = 15` and `CONNECTION_TIMEOUT_MS = 2000`.
 `getSeeds()` swallows a `ClassCastException` around `NetOptions.isSeeds()` with a `TODO` noting it
@@ -342,7 +349,7 @@ the source), `MAX_STREAMS = 512`, `IDLE_TIME_MINUTES = 15` and `CONNECTION_TIMEO
 
 ```mermaid
 flowchart LR
-    UDP["UDP datagrams<br/>NetOptions host:port"] --> QC["QuicServerCodecBuilder<br/>self-signed cert<br/>ALPN hedgehog/0.0.3 and gridspork/0.0.3<br/>EncryptedTokenHandler"]
+    UDP["UDP datagrams<br/>NetOptions host:port"] --> QC["QuicServerCodecBuilder<br/>self-signed cert<br/>ALPN hedgehog/0.0.4 and gridspork/0.0.4<br/>EncryptedTokenHandler"]
     QC --> CH["ConnectionHandler"]
     QC --> RI["RegisterQuicChannelInitializer<br/>SERVER mode, per QUIC stream"]
     RI --> PIPE["Pipeline: FrameDecoder,<br/>packet codecs, packet handlers"]
@@ -447,13 +454,15 @@ Nothing in the daemon requires the public Unigrid network. A private or test net
 of options that are each documented above; the ordering is what is not obvious, so it is written out
 here once.
 
-1. **Mint a network key.** `hedgehog util key-generate` prints a 130-character private key and a
-   262-character public key. The public half becomes the network's trust anchor; the private half is
-   what signs spork updates and must be kept off the machines that only serve traffic.
-2. **Start the first daemon with that key and no seeds.**
+1. **Mint two network keys.** `hedgehog util key-generate` prints a 130-character private key and a
+   262-character public key; run it twice. The public halves become the network's trust anchor; the
+   private halves are what sign spork updates and must be kept off the machines that only serve
+   traffic. A spork is only accepted with signatures from two different network keys, so one key
+   alone cannot change anything.
+2. **Start the first daemon with those keys and no seeds.**
 
    ```
-   hedgehog daemon --no-seeds --network-keys=<public-key-hex> -H 0.0.0.0 -p 52883 -R localhost -r 52884
+   hedgehog daemon --no-seeds --network-keys=<public-key-hex>,<public-key-hex> -H 0.0.0.0 -p 52883 -R localhost -r 52884
    ```
 
    `--no-seeds` makes `Network.getSeeds()` return an empty array, so `Topology.repopulate()` — which
@@ -482,8 +491,17 @@ here once.
    ```
 
    The private key travels in a `privateKey` header and is checked with `NetworkKey.isTrusted`, so only
-   the key from step 1 is accepted; anything else comes back `401` and the CLI prints `Unauthorized`.
-   A successful write is flooded to the connected peers as a `PublishSpork` packet.
+   the keys from step 1 are accepted; anything else comes back `401` and the CLI prints `Unauthorized`.
+   Each write is a proposal: the CLI prints it with its digest, and it is stored only once the other
+   key co-signs it within the hour:
+
+   ```
+   hedgehog cli -r 52884 gridspork-cosign -k <other-private-key-hex> <digest>
+   ```
+
+   Both the proposal and the co-signed spork are flooded to the connected peers as `PublishSpork`
+   packets. Several grows of the same spork can be proposed in a row and co-signed once, with the
+   digest of the last one.
 6. **Verify and stop.** `hedgehog cli node-list` and `hedgehog cli gridspork-list` read the daemon's
    view back; `hedgehog cli stop` shuts it down through `POST /stop` and lets the `@PreDestroy` chain
    persist `spork.db`.
@@ -503,8 +521,10 @@ collected here. The short version: **content is authenticated, transport and con
   that returns `true` unconditionally, and `client/P2PClient.java` uses `InsecureTrustManagerFactory`
   for QUIC. An active man in the middle on either socket is not detected.
 * **Spork content is authenticated, by exactly one list of keys.** Every spork write is verified with
-  `NetworkKey.isTrusted`, which checks a signature against `NetOptions.getNetworkKeys()`. Whoever holds
-  a matching private key can rewrite network state; nothing else can. That list is a command-line
+  `NetworkKey.isTrusted`, which checks a signature against `NetOptions.getNetworkKeys()`, and a spork
+  is stored only when two different keys of that list have signed it. Whoever holds two matching
+  private keys can rewrite network state; one key can only propose a change that expires unless a
+  second key co-signs it within the hour. That list is a command-line
   option, so a node started with the wrong `--network-keys` trusts a different authority without any
   other symptom.
 * **The signing key is transported in the clear, header-wise.** The CLI sends the raw hex private key
