@@ -177,6 +177,8 @@ jobs:
             }
             echo "Draft $TAG already exists; replacing its assets."
           else
-            gh release create "$TAG" --draft --verify-tag --title "$VERSION" --generate-notes
+            prerelease=()
+            [[ "$VERSION" != *-* ]] || prerelease=(--prerelease)
+            gh release create "$TAG" --draft "${prerelease[@]}" --verify-tag --title "$VERSION" --generate-notes
           fi
           gh release upload "$TAG" --clobber assets/*
