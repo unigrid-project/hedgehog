@@ -24,6 +24,7 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -85,6 +86,39 @@ public class GridSporkResource extends CDIBridgeResource {
 		final List<PendingSporkInfo> proposals = pendingSporks.list().stream().map(PendingSporkInfo::of).toList();
 
 		return proposals.isEmpty() ? Response.noContent().build() : Response.ok().entity(proposals).build();
+	}
+
+	@Path("/pending/{digest}") @PUT
+	public Response cosign(@NotNull @PathParam("digest") String digest,
+		@NotNull @HeaderParam("privateKey") String privateKey) {
+
+		if (Objects.isNull(privateKey) || !NetworkKey.isTrusted(privateKey)) {
+			return Response.status(Response.Status.UNAUTHORIZED).build();
+		}
+
+		final Optional<GridSpork> proposal = pendingSporks.find(digest);
+
+		if (proposal.isEmpty()) {
+			return Response.status(Response.Status.NOT_FOUND).build();
+		}
+
+		final GridSpork spork = SerializationUtils.clone(proposal.get());
+
+		try {
+			spork.cosign(privateKey);
+		} catch (SigningException ex) {
+			log.atWarn().log("Co-signing of spork refused: {}", ex.getMessage());
+			return Response.status(Response.Status.CONFLICT).entity(ex.getMessage()).build();
+		}
+
+		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+			return Response.status(Response.Status.CONFLICT).build();
+		}
+
+		sporkDatabase.set(spork);
+		pendingSporks.remove(spork.getType());
+		Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		return Response.ok().build();
 	}
 
 	@Path("/renew") @PUT

@@ -200,6 +200,13 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
+	private Response cosign(String digest, Signature signature) {
+		return client.putWithHeaders("/gridspork/pending/" + digest, Entity.text(""),
+			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
+		);
+	}
+
+	@SneakyThrows
 	@Property(tries = 5)
 	public void shouldListProposalsWithTheirDigestAndSigner(@ForAll("provideSignature") Signature signature) {
 		final MintSupply proposal = proposeMintSupplySignedBy(signature);
@@ -221,5 +228,53 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
 
 		assertThat(Status.fromStatusCode(client.get("/gridspork/pending").getStatus()), equalTo(Status.NO_CONTENT));
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldStoreAProposalOnceCosigned(@ForAll("provideSignature") Signature signature) {
+		final MintSupply proposal = proposeMintSupplySignedBy(signature);
+
+		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), cosigner).getStatus()),
+			equalTo(Status.OK)
+		);
+
+		assertThat(sporkDatabase.getMintSupply().isDoublySigned(), is(true));
+		assertThat(sporkDatabase.getMintSupply().getSignable(), equalTo(proposal.getSignable()));
+		assertThat(pendingSporks.list(), empty());
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldRefuseToCosignWithTheProposersKey(@ForAll("provideSignature") Signature signature) {
+		final MintSupply proposal = proposeMintSupplySignedBy(signature);
+
+		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), signature).getStatus()),
+			equalTo(Status.CONFLICT)
+		);
+
+		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
+		assertThat(pendingSporks.list(), contains(proposal));
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldRefuseToCosignAnUnknownProposal(@ForAll("provideSignature") Signature signature) {
+		proposeMintSupplySignedBy(signature);
+
+		assertThat(Status.fromStatusCode(cosign("00", cosigner).getStatus()), equalTo(Status.NOT_FOUND));
+		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldRefuseToCosignWithAnUntrustedKey(@ForAll("provideSignature") Signature signature) {
+		final MintSupply proposal = proposeMintSupplySignedBy(signature);
+
+		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), new Signature()).getStatus()),
+			equalTo(Status.UNAUTHORIZED)
+		);
+
+		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
 	}
 }

@@ -59,6 +59,9 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	/* Sporks outlive a try, so the keys of earlier tries must still name who signed them */
 	private static final List<String> RETIRED_KEYS = new ArrayList<>();
 
+	/* The second current network key of a try, next to the one provideSignature() hands out */
+	protected static Signature cosigner;
+
 	protected static void retire(Signature signature) {
 		RETIRED_KEYS.add(signature.getPublicKey());
 	}
@@ -77,11 +80,13 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 			public Signature get() {
 				final Signature signature = new Signature();
 
+				cosigner = new Signature();
 				retire(signature);
+				retire(cosigner);
 
 				new MockUp<NetworkKey>() {
 					@Mock public /* static */ String[] getPublicKeys() {
-						return new String[] { signature.getPublicKey() };
+						return new String[] { signature.getPublicKey(), cosigner.getPublicKey() };
 					}
 
 					@Mock public /* static */ String[] getRetiredPublicKeys() {
