@@ -129,7 +129,7 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		final List<GridSpork> renewed = new ArrayList<>();
 
-		/* Everything is signed before anything is stored, so a signing failure leaves the database as it was */
+		/* Everything is signed before anything is proposed, so a signing failure proposes nothing */
 		try {
 			for (GridSpork stored : storedSporks()) {
 				final GridSpork spork = SerializationUtils.clone(stored);
@@ -143,20 +143,22 @@ public class GridSporkResource extends CDIBridgeResource {
 			return Response.status(Response.Status.UNAUTHORIZED).build();
 		}
 
-		if (renewed.isEmpty()) {
-			return Response.noContent().build();
-		}
+		return renewed.isEmpty() ? Response.noContent().build() : Response.accepted(proposeAll(renewed)).build();
+	}
 
+	private List<PendingSporkInfo> proposeAll(List<GridSpork> sporks) {
 		final List<PendingSporkInfo> proposals = new ArrayList<>();
 
-		for (GridSpork spork : renewed) {
+		for (GridSpork spork : sporks) {
 			if (pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
-				Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(spork).build();
+
+				Topology.sendAll(publishSpork, topology, Optional.empty());
 				proposals.add(PendingSporkInfo.of(spork));
 			}
 		}
 
-		return Response.accepted(proposals).build();
+		return proposals;
 	}
 
 	private List<GridSpork> storedSporks() {
