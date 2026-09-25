@@ -42,6 +42,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
@@ -49,6 +50,9 @@ import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 public class GridSporkResourceTest extends BaseRestClientTest {
 	@Inject
 	private SporkDatabase sporkDatabase;
+
+	@Inject
+	private PendingSporks pendingSporks;
 
 	@Example
 	@SneakyThrows
@@ -179,5 +183,43 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		sporkDatabase.setMintSupply(null);
 
 		assertThat(Status.fromStatusCode(client.get("/gridspork/log").getStatus()), equalTo(Status.NO_CONTENT));
+	}
+
+	@SneakyThrows
+	private MintSupply proposeMintSupplySignedBy(Signature signature) {
+		final MintSupply proposal = new MintSupply();
+
+		((MintSupply.SporkData) proposal.getData()).setMaxSupply(BigDecimal.TWO);
+		proposal.archive();
+		proposal.sign(signature.getPrivateKey());
+
+		sporkDatabase.setMintSupply(null);
+		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
+		pendingSporks.offer(proposal, null);
+		return proposal;
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldListProposalsWithTheirDigestAndSigner(@ForAll("provideSignature") Signature signature) {
+		final MintSupply proposal = proposeMintSupplySignedBy(signature);
+		final JsonNode listed = new ObjectMapper().readTree(client.get("/gridspork/pending")
+			.readEntity(String.class)).get(0);
+
+		assertThat(listed.get("type").asText(), equalTo(GridSpork.Type.MINT_SUPPLY.name()));
+		assertThat(listed.get("digest").asText(), equalTo(PendingSporks.digestOf(proposal)));
+		assertThat(listed.get("signer").asText(), equalTo(signature.getPublicKey()));
+		assertThat(listed.get("expires").asText(),
+			equalTo(proposal.getTimeStamp().plus(PendingSporks.LIFETIME).toString())
+		);
+	}
+
+	@SneakyThrows
+	@Property(tries = 5)
+	public void shouldHaveNoProposalsWhenNoneArePending(@ForAll("provideSignature") Signature signature) {
+		proposeMintSupplySignedBy(signature);
+		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
+
+		assertThat(Status.fromStatusCode(client.get("/gridspork/pending").getStatus()), equalTo(Status.NO_CONTENT));
 	}
 }

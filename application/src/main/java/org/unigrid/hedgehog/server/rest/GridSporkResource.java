@@ -43,6 +43,8 @@ import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
@@ -62,6 +64,9 @@ public class GridSporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private Topology topology;
 
+	@CDIBridgeInject
+	private PendingSporks pendingSporks;
+
 	@GET
 	public Response list() {
 		return Response.ok().entity(new SporkDatabaseInfo(sporkDatabase)).build();
@@ -73,6 +78,13 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		storedSporks().forEach(spork -> logs.put(spork.getType(), SignatureLogInfo.of(spork)));
 		return logs.isEmpty() ? Response.noContent().build() : Response.ok().entity(logs).build();
+	}
+
+	@Path("/pending") @GET
+	public Response pending() {
+		final List<PendingSporkInfo> proposals = pendingSporks.list().stream().map(PendingSporkInfo::of).toList();
+
+		return proposals.isEmpty() ? Response.noContent().build() : Response.ok().entity(proposals).build();
 	}
 
 	@Path("/renew") @PUT
