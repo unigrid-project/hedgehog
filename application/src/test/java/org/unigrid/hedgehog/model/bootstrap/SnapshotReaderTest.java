@@ -25,7 +25,11 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class SnapshotReaderTest {
 	@Example
@@ -63,6 +67,52 @@ public class SnapshotReaderTest {
 			assertThat(expected.getMessage(), equalTo("Snapshot is format version 1, this build reads "
 				+ SnapshotFormat.VERSION + "; re-import the bootstrap"));
 		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldOpenASnapshotSignedByATrustedKey() {
+		final Path path = validSnapshot();
+
+		SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+		assertThat(SnapshotReader.open(path).getInfo().getSignature(), equalTo(SignatureStatus.SIGNED));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotChangedAfterSigning() {
+		final Path path = validSnapshot();
+
+		SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+
+		final byte[] bytes = Files.readAllBytes(path);
+
+		bytes[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
+		Files.write(path, bytes);
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "does not verify against any trusted key");
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotSignedByAnUntrustedKey() {
+		final Path path = validSnapshot();
+
+		SnapshotSignature.signAndAppend(path, new Signature().getPrivateKey());
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "does not verify against any trusted key");
+	}
+
+	@SneakyThrows
+	private static Signature trustedKey() {
+		final Signature signature = new Signature();
+
+		new MockUp<NetworkKey>() {
+			@Mock public /* static */ String[] getPublicKeys() {
+				return new String[] { signature.getPublicKey() };
+			}
+		};
+
+		return signature;
 	}
 
 	@SneakyThrows
