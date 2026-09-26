@@ -20,121 +20,136 @@ package org.unigrid.hedgehog.command.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.not;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import picocli.CommandLine;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.common.model.Version;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
 
 public class BootstrapFetchTest {
 	private static final String RELEASES = "https://github.com/unigrid-project/hedgehog/releases/";
+	private static final String SOURCE = "https://example.org/bootstrap.dat.gz";
 
-	@Example
-	@SneakyThrows
-	public void shouldFetchTheSnapshotOfItsOwnRelease() {
-		assertThat(BootstrapFetch.defaultUrl("0.0.8").toString(),
-			equalTo(RELEASES + "download/v0.0.8/bootstrap.dat.gz"));
+	private final List<URL> installs = new ArrayList<>();
+	private Path snapshot;
+
+	@BeforeTry
+	public void beforeTry() {
+		installs.clear();
+		snapshot = BootstrapCli.snapshotInMemory();
+		downloadFails(null);
 	}
 
-	@Example
-	@SneakyThrows
-	public void shouldFetchTheSnapshotOfItsOwnDevRelease() {
-		assertThat(BootstrapFetch.defaultUrl("0.0.8-dev.2").toString(),
-			equalTo(RELEASES + "download/v0.0.8-dev.2/bootstrap.dat.gz"));
-	}
+	private void downloadFails(IOException problem) {
+		new MockUp<SnapshotDownload>() {
+			@Mock public /* static */ void install(URL source, Path target) throws IOException {
+				if (problem != null) {
+					throw problem;
+				}
 
-	@Example
-	@SneakyThrows
-	public void shouldFetchTheLatestSnapshotWhenUnreleased() {
-		assertThat(BootstrapFetch.defaultUrl("0.0.8-SNAPSHOT").toString(),
-			equalTo(RELEASES + "latest/download/bootstrap.dat.gz"));
-	}
-
-	@Example
-	@SneakyThrows
-	public void shouldRefuseAnUnverifiableDownloadWithoutAStackTrace() {
-		final Path source = refusedSnapshot();
-		final Path target = target();
-		final CommandLine cli = new CommandLine(Hedgehog.class);
-		final ByteArrayOutputStream captured = new ByteArrayOutputStream();
-		final PrintStream original = System.err;
-		final int exitCode;
-
-		System.setErr(new PrintStream(captured));
-
-		try {
-			exitCode = cli.execute("bootstrap", "fetch",
-				"-s", target.toString(),
-				"--url", source.toUri().toURL().toString()
-			);
-		} finally {
-			System.setErr(original);
-		}
-
-		final String output = captured.toString();
-
-		assertThat(exitCode, equalTo(2));
-		assertThat(output, containsString("was not installed"));
-		assertThat(output, not(containsString("\tat ")));
-	}
-
-	@SneakyThrows
-	private static Path refusedSnapshot() {
-		final Path path = snapshot();
-		final Signature key = trustedKey();
-
-		SnapshotSignature.signAndAppend(path, key.getPrivateKey());
-
-		final byte[] contents = Files.readAllBytes(path);
-
-		contents[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
-		Files.write(path, contents);
-		ReleaseKeyFixture.trusted().publish(path);
-
-		return path;
-	}
-
-	@SneakyThrows
-	private static Signature trustedKey() {
-		final Signature signature = new Signature();
-
-		new MockUp<NetworkKey>() {
-			@Mock public String[] getPublicKeys() {
-				return new String[] { signature.getPublicKey() };
+				installs.add(source);
 			}
 		};
-
-		return signature;
 	}
 
 	@SneakyThrows
-	private static Path snapshot() {
-		final Path path = Files.createTempFile("hhg-fetch-source-", ".dat");
-
-		path.toFile().deleteOnExit();
-		SnapshotBuilder.build(BlockFixture.directory(), path);
-		return path;
+	private static URL url(String url) {
+		return URI.create(url).toURL();
 	}
 
-	@SneakyThrows
-	private static Path target() {
-		final Path directory = Files.createTempDirectory("hhg-fetch-target-");
+	@Provide
+	public Arbitrary<String> provideReleasedVersion() {
+		final Arbitrary<Integer> part = Arbitraries.integers().between(0, 999);
+		final Arbitrary<String> dev = Arbitraries.integers().between(0, 99).map(n -> "-dev." + n)
+			.injectNull(0.5).map(suffix -> suffix == null ? "" : suffix);
 
-		directory.toFile().deleteOnExit();
-		return directory.resolve("bootstrap.dat");
+		return Combinators.combine(part, part, part, dev).as((major, minor, patch, suffix)
+			-> major + "." + minor + "." + patch + suffix);
+	}
+
+	@Provide
+	public Arbitrary<String> provideUnreleasedVersion() {
+		return Combinators.combine(provideReleasedVersion(), Arbitraries.of("-SNAPSHOT", "-rc1", "-beta", ".4", "-dev"))
+			.as((version, suffix) -> version + suffix);
+	}
+
+	@Property(tries = 100)
+	@SneakyThrows
+	public void shouldFetchTheSnapshotOfItsOwnRelease(@ForAll("provideReleasedVersion") String version) {
+		assertThat(BootstrapFetch.defaultUrl(version).toString(),
+			equalTo(RELEASES + "download/v" + version + "/bootstrap.dat.gz"));
+	}
+
+	@Property(tries = 100)
+	@SneakyThrows
+	public void shouldFetchTheLatestSnapshotWhenUnreleased(@ForAll("provideUnreleasedVersion") String version) {
+		assertThat(BootstrapFetch.defaultUrl(version).toString(), equalTo(RELEASES + "latest/download/bootstrap.dat.gz"));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldInstallFromTheDefaultUrl() {
+		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), containsString("Installed " + snapshot));
+		assertThat(installs, equalTo(List.of(BootstrapFetch.defaultUrl(Version.getVersionNumber()))));
+	}
+
+	@Example
+	public void shouldInstallFromTheGivenUrl() {
+		assertThat(BootstrapCli.run("fetch", "--url", SOURCE).exitCode(), equalTo(0));
+		assertThat(installs, equalTo(List.of(url(SOURCE))));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldLeaveAnExistingSnapshotAlone() {
+		Files.createDirectories(snapshot.getParent());
+		Files.write(snapshot, new byte[] { 1 });
+
+		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+
+		assertThat(result.exitCode(), equalTo(1));
+		assertThat(result.err(), containsString("already exists, pass --force to replace it"));
+		assertThat(installs, empty());
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldReplaceAnExistingSnapshotWhenForced() {
+		Files.createDirectories(snapshot.getParent());
+		Files.write(snapshot, new byte[] { 1 });
+
+		assertThat(BootstrapCli.run("fetch", "--force").exitCode(), equalTo(0));
+		assertThat(installs, equalTo(List.of(BootstrapFetch.defaultUrl(Version.getVersionNumber()))));
+	}
+
+	@Example
+	public void shouldRefuseAnUnverifiableDownloadWithoutAStackTrace() {
+		downloadFails(new IOException("The download does not match the hash published with it and was not installed"));
+
+		final BootstrapCli.Result result = BootstrapCli.run("fetch", "--url", SOURCE);
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("was not installed"));
+		result.assertNoStackTrace();
 	}
 }

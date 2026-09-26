@@ -21,83 +21,106 @@ package org.unigrid.hedgehog.command.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.not;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.file.Files;
+import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import java.util.Optional;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import picocli.CommandLine;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
 public class BootstrapBalanceTest {
-	@Example
-	@SneakyThrows
-	public void shouldRefuseAnUnverifiableSnapshotWithoutAStackTrace() {
-		final Path snapshot = refusedSnapshot();
-		final CommandLine cli = new CommandLine(Hedgehog.class);
-		final ByteArrayOutputStream captured = new ByteArrayOutputStream();
-		final PrintStream original = System.err;
-		final int exitCode;
+	private static final String ADDRESS = "HAddress";
 
-		System.setErr(new PrintStream(captured));
-
-		try {
-			exitCode = cli.execute("bootstrap", "balance", "some-address", "-s", snapshot.toString());
-		} finally {
-			System.setErr(original);
-		}
-
-		final String output = captured.toString();
-
-		assertThat(exitCode, equalTo(2));
-		assertThat(output, containsString("does not verify against any trusted key"));
-		assertThat(output, not(containsString("\tat ")));
+	@BeforeTry
+	public void beforeTry() {
+		BootstrapCli.snapshotInMemory();
 	}
 
-	@SneakyThrows
-	private static Path refusedSnapshot() {
-		final Path path = snapshot();
-		final Signature key = trustedKey();
+	/* Any other address than the expected one never appeared, so a command asking for it fails */
+	private void readerAnswers(String address, Optional<AddressBalance> balance, RuntimeException problem,
+		IOException unreadable) {
 
-		SnapshotSignature.signAndAppend(path, key.getPrivateKey());
+		final SnapshotReader reader = BootstrapCli.withoutConstructor(SnapshotReader.class);
 
-		final byte[] contents = Files.readAllBytes(path);
+		new MockUp<SnapshotReader>() {
+			@Mock public /* static */ SnapshotReader open(Path path) throws IOException {
+				if (unreadable != null) {
+					throw unreadable;
+				}
 
-		contents[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
-		Files.write(path, contents);
+				return reader;
+			}
 
-		return path;
-	}
+			@Mock public Optional<AddressBalance> balanceOf(String requested) {
+				if (problem != null) {
+					throw problem;
+				}
 
-	@SneakyThrows
-	private static Signature trustedKey() {
-		final Signature signature = new Signature();
-
-		new MockUp<NetworkKey>() {
-			@Mock public String[] getPublicKeys() {
-				return new String[] { signature.getPublicKey() };
+				return requested.equals(address) ? balance : Optional.empty();
 			}
 		};
-
-		return signature;
 	}
 
-	@SneakyThrows
-	private static Path snapshot() {
-		final Path path = Files.createTempFile("hhg-balance-test-", ".dat");
+	@Provide
+	public Arbitrary<String> provideAddress() {
+		return BootstrapArbitraries.addresses();
+	}
 
-		path.toFile().deleteOnExit();
-		SnapshotBuilder.build(BlockFixture.directory(), path);
-		return path;
+	@Provide
+	public Arbitrary<BigDecimal> provideCoins() {
+		return BootstrapArbitraries.coins();
+	}
+
+	@Property(tries = 50)
+	public void shouldPrintTheBalanceOfTheAddress(@ForAll("provideAddress") String address,
+		@ForAll("provideCoins") BigDecimal balance, @ForAll @IntRange(min = 0) int transactions) {
+
+		readerAnswers(address, Optional.of(new AddressBalance(address, balance, transactions)), null, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("balance", address);
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), equalTo(balance + " in " + transactions + " transactions" + System.lineSeparator()));
+	}
+
+	@Example
+	public void shouldReportAnAddressThatNeverAppeared() {
+		readerAnswers(ADDRESS, Optional.empty(), null, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(1));
+		assertThat(result.err(), containsString(ADDRESS + " never appeared on the legacy chain"));
+	}
+
+	@Example
+	public void shouldRefuseAMalformedAddressWithoutAStackTrace() {
+		readerAnswers(ADDRESS, Optional.empty(), new IllegalArgumentException("Not a legacy address"), null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("Not a legacy address"));
+		result.assertNoStackTrace();
+	}
+
+	@Example
+	public void shouldRefuseAnUnreadableSnapshotWithoutAStackTrace() {
+		readerAnswers(ADDRESS, Optional.empty(), null, new IOException("does not verify against any trusted key"));
+
+		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("does not verify against any trusted key"));
+		result.assertNoStackTrace();
 	}
 }

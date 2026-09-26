@@ -20,93 +20,196 @@ package org.unigrid.hedgehog.command.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
+import static org.hamcrest.Matchers.hasSize;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import lombok.SneakyThrows;
-import net.jqwik.api.Example;
 import mockit.Mock;
 import mockit.MockUp;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
+import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.Size;
+import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotFormat;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import picocli.CommandLine;
 
 public class BootstrapSignTest {
-	@Example
-	@SneakyThrows
-	public void shouldRejectAnUntrustedKeyWithoutCrashing() {
-		final Path snapshot = createSnapshot();
-		final Signature untrustedKey = new Signature();
-		final CommandLine cli = new CommandLine(Hedgehog.class);
-		final PrintStream originalErr = System.err;
-		final ByteArrayOutputStream err = new ByteArrayOutputStream();
-		final int exitCode;
+	private static final String KEY = "0123456789abcdef";
+	private static final byte[] CONTENT = { 1, 2, 3, 4 };
 
-		System.setErr(new PrintStream(err));
+	private final List<List<Object>> signings = new ArrayList<>();
+	private Path snapshot;
 
-		try {
-			exitCode = cli.execute("bootstrap", "sign",
-				"-s", snapshot.toString(),
-				"-k", untrustedKey.getPrivateKey()
-			);
-		} finally {
-			System.setErr(originalErr);
-		}
-
-		assertThat(exitCode, equalTo(2));
-		assertThat(err.toString(), containsString("not one the network trusts"));
-		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.UNSIGNED));
+	@BeforeTry
+	public void beforeTry() {
+		signings.clear();
+		snapshot = BootstrapCli.snapshotInMemory();
+		keyIsTrusted(true);
+		signatureIsPresent(false);
+		inspectorFinds(SignatureStatus.UNSIGNED, null);
+		contentIs(CONTENT.length);
 	}
 
-	/* Signing is what makes a file authentic, so it must refuse bytes this build cannot read. */
-	@Example
-	@SneakyThrows
-	public void shouldRefuseToSignASnapshotThisBuildCannotRead() {
-		final Path snapshot = createSnapshot();
-		final Signature key = new Signature();
-		final byte[] contents = Files.readAllBytes(snapshot);
-
+	private void keyIsTrusted(boolean trusted) {
 		new MockUp<NetworkKey>() {
-			@Mock public String[] getPublicKeys() {
-				return new String[] { key.getPublicKey() };
+			@Mock public /* static */ boolean isTrusted(String privateKey) {
+				return trusted;
 			}
 		};
+	}
 
-		contents[SnapshotFormat.VERSION_OFFSET + 3] = (byte) (SnapshotFormat.VERSION + 1);
-		Files.write(snapshot, contents);
+	private void inspectorFinds(SignatureStatus status, IOException problem) {
+		new MockUp<SnapshotInspector>() {
+			@Mock public /* static */ SignatureStatus validate(Path path) throws IOException {
+				if (problem != null) {
+					throw problem;
+				}
 
-		final PrintStream originalErr = System.err;
-		final ByteArrayOutputStream err = new ByteArrayOutputStream();
-		final int exitCode;
+				return status;
+			}
+		};
+	}
 
-		System.setErr(new PrintStream(err));
+	private void contentIs(long length) {
+		new MockUp<SnapshotDigest>() {
+			@Mock public /* static */ long contentLengthOf(Path path) {
+				return length;
+			}
+		};
+	}
 
-		try {
-			exitCode = new CommandLine(Hedgehog.class).execute("bootstrap", "sign",
-				"-s", snapshot.toString(), "-k", key.getPrivateKey());
-		} finally {
-			System.setErr(originalErr);
-		}
+	private void signatureIsPresent(boolean present) {
+		final SnapshotSignature signature = BootstrapCli.withoutConstructor(SnapshotSignature.class);
 
-		assertThat(exitCode, equalTo(2));
-		assertThat(err.toString(), containsString("format version"));
-		assertThat(Files.readAllBytes(snapshot).length, equalTo(contents.length));
+		new MockUp<SnapshotSignature>() {
+			@Mock public /* static */ SnapshotSignature read(Path path) {
+				return signature;
+			}
+
+			@Mock public boolean isPresent() {
+				return present;
+			}
+
+			@Mock public /* static */ void signAndAppend(Path path, String privateKeyHex) {
+				signings.add(List.of(path, privateKeyHex));
+			}
+		};
 	}
 
 	@SneakyThrows
-	private static Path createSnapshot() {
-		final Path path = Files.createTempFile("hhg-sign-test-", ".dat");
+	private void existingSnapshot(byte[] contents) {
+		Files.createDirectories(snapshot.getParent());
+		Files.write(snapshot, contents);
+	}
 
-		path.toFile().deleteOnExit();
-		SnapshotBuilder.build(BlockFixture.directory(), path);
-		return path;
+	private BootstrapCli.Result sign(String... extra) {
+		final String[] args = { "sign", "-k", KEY };
+		final String[] all = Arrays.copyOf(args, args.length + extra.length);
+
+		System.arraycopy(extra, 0, all, args.length, extra.length);
+		return BootstrapCli.run(all);
+	}
+
+	private void assertNothingSigned() {
+		assertThat(signings, empty());
+	}
+
+	@Example
+	public void shouldSignAnUnsignedSnapshot() {
+		existingSnapshot(CONTENT);
+		signatureIsPresent(false);
+
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), containsString("Signed " + snapshot));
+
+		assertThat(signings, equalTo(List.of(List.of(snapshot, KEY))));
+	}
+
+	@Example
+	public void shouldReportAMissingSnapshot() {
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(1));
+		assertThat(result.err(), containsString("There is no snapshot at " + snapshot));
+		assertNothingSigned();
+	}
+
+	@Example
+	public void shouldRejectAnUntrustedKey() {
+		existingSnapshot(CONTENT);
+		keyIsTrusted(false);
+
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("not one the network trusts"));
+		assertNothingSigned();
+	}
+
+	@Example
+	public void shouldRefuseASnapshotThisBuildCannotRead() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(null, new IOException("Snapshot is format version 3, this build reads 2"));
+
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("format version"));
+		result.assertNoStackTrace();
+		assertNothingSigned();
+	}
+
+	@Example
+	public void shouldRefuseASnapshotWhoseSignatureDoesNotVerify() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(SignatureStatus.INVALID, null);
+
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("does not verify"));
+		assertNothingSigned();
+	}
+
+	@Example
+	public void shouldLeaveAnExistingSignatureAlone() {
+		existingSnapshot(CONTENT);
+		signatureIsPresent(true);
+
+		final BootstrapCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(1));
+		assertThat(result.err(), containsString("is already signed, pass --force to replace it"));
+		assertNothingSigned();
+	}
+
+	/* A replaced signature must not stay behind the content, or the new one would be appended after it */
+	@SneakyThrows
+	@Property(tries = 30)
+	public void shouldCutTheOldSignatureBeforeSigningAgain(@ForAll @Size(max = 512) byte[] content,
+		@ForAll @Size(max = 256) byte[] oldSignature) {
+
+		final byte[] contents = Arrays.copyOf(content, content.length + oldSignature.length);
+
+		System.arraycopy(oldSignature, 0, contents, content.length, oldSignature.length);
+		existingSnapshot(contents);
+		contentIs(content.length);
+		signatureIsPresent(true);
+
+		assertThat(sign("--force").exitCode(), equalTo(0));
+		assertThat(Files.readAllBytes(snapshot), equalTo(content));
+		assertThat(signings, hasSize(1));
 	}
 }

@@ -20,54 +20,81 @@ package org.unigrid.hedgehog.command.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.not;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.file.Files;
+import static org.hamcrest.Matchers.hasSize;
+import java.io.IOException;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
+import java.util.List;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import picocli.CommandLine;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
 public class BootstrapInfoTest {
-	@Example
-	@SneakyThrows
-	public void shouldRefuseAnUnverifiableSnapshotWithoutAStackTrace() {
-		final Path snapshot = refusedSnapshot();
-		final CommandLine cli = new CommandLine(Hedgehog.class);
-		final ByteArrayOutputStream captured = new ByteArrayOutputStream();
-		final PrintStream original = System.err;
-		final int exitCode;
+	private void readerAnswers(SnapshotInfo info, IOException problem) {
+		final SnapshotReader reader = BootstrapCli.withoutConstructor(SnapshotReader.class);
 
-		System.setErr(new PrintStream(captured));
+		new MockUp<SnapshotReader>() {
+			@Mock public /* static */ SnapshotReader open(Path path) throws IOException {
+				if (problem != null) {
+					throw problem;
+				}
 
-		try {
-			exitCode = cli.execute("bootstrap", "info", "-s", snapshot.toString());
-		} finally {
-			System.setErr(original);
-		}
+				return reader;
+			}
 
-		final String output = captured.toString();
-
-		assertThat(exitCode, equalTo(2));
-		assertThat(output, containsString("does not verify against any trusted key"));
-		assertThat(output, not(containsString("\tat ")));
+			@Mock public SnapshotInfo getInfo() {
+				return info;
+			}
+		};
 	}
 
-	@SneakyThrows
-	private static Path refusedSnapshot() {
-		final Path path = Files.createTempFile("hhg-info-test-", ".dat");
-		final Signature untrustedKey = new Signature();
+	@Provide
+	public Arbitrary<SnapshotInfo> provideInfo() {
+		return BootstrapArbitraries.infos();
+	}
 
-		path.toFile().deleteOnExit();
-		SnapshotBuilder.build(BlockFixture.directory(), path);
-		SnapshotSignature.signAndAppend(path, untrustedKey.getPrivateKey());
-		return path;
+	@BeforeTry
+	public void beforeTry() {
+		BootstrapCli.snapshotInMemory();
+	}
+
+	@Property(tries = 50)
+	public void shouldPrintEveryFieldOfTheSnapshot(@ForAll("provideInfo") SnapshotInfo info) {
+		readerAnswers(info, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("info");
+
+		final List<Object> fields = List.of(info.getTipHash(), info.getTipHeight(), info.getAddressCount(),
+			info.getEntryCount(), info.getTransactionCount(), info.getTotalUnspent(), info.getZerocoinMinted(),
+			info.getBuilt(), info.getSignature()
+		);
+
+		final List<String> lines = result.out().lines().toList();
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(lines, hasSize(fields.size()));
+
+		for (int i = 0; i < fields.size(); i++) {
+			assertThat(lines.get(i), endsWith(" " + fields.get(i)));
+		}
+	}
+
+	@Example
+	public void shouldRefuseAnUnreadableSnapshotWithoutAStackTrace() {
+		readerAnswers(null, new IOException("does not verify against any trusted key"));
+
+		final BootstrapCli.Result result = BootstrapCli.run("info");
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("does not verify against any trusted key"));
+		result.assertNoStackTrace();
 	}
 }

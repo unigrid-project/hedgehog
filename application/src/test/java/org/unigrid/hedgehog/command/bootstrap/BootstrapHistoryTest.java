@@ -21,83 +21,139 @@ package org.unigrid.hedgehog.command.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.not;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.file.Files;
+import static org.hamcrest.Matchers.hasSize;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.io.IOException;
 import java.nio.file.Path;
-import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import java.util.List;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import picocli.CommandLine;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
 public class BootstrapHistoryTest {
-	@Example
-	@SneakyThrows
-	public void shouldRefuseAnUnverifiableSnapshotWithoutAStackTrace() {
-		final Path snapshot = refusedSnapshot();
-		final CommandLine cli = new CommandLine(Hedgehog.class);
-		final ByteArrayOutputStream captured = new ByteArrayOutputStream();
-		final PrintStream original = System.err;
-		final int exitCode;
+	private static final String ADDRESS = "HAddress";
+	private static final int DEFAULT_OFFSET = 0;
+	private static final int DEFAULT_LIMIT = 100;
+	private static final int MAX_PAGE = 1000;
 
-		System.setErr(new PrintStream(captured));
-
-		try {
-			exitCode = cli.execute("bootstrap", "history", "some-address", "-s", snapshot.toString());
-		} finally {
-			System.setErr(original);
-		}
-
-		final String output = captured.toString();
-
-		assertThat(exitCode, equalTo(2));
-		assertThat(output, containsString("does not verify against any trusted key"));
-		assertThat(output, not(containsString("\tat ")));
+	@BeforeTry
+	public void beforeTry() {
+		BootstrapCli.snapshotInMemory();
 	}
 
-	@SneakyThrows
-	private static Path refusedSnapshot() {
-		final Path path = snapshot();
-		final Signature key = trustedKey();
+	/* Answers only these exact arguments, so a command passing anything else gets an empty page */
+	private void readerAnswers(String address, int offset, int limit, List<AddressTransaction> page,
+		RuntimeException problem, IOException unreadable) {
 
-		SnapshotSignature.signAndAppend(path, key.getPrivateKey());
+		final SnapshotReader reader = BootstrapCli.withoutConstructor(SnapshotReader.class);
+		final List<Object> expected = List.of(address, offset, limit);
 
-		final byte[] contents = Files.readAllBytes(path);
+		new MockUp<SnapshotReader>() {
+			@Mock public /* static */ SnapshotReader open(Path path) throws IOException {
+				if (unreadable != null) {
+					throw unreadable;
+				}
 
-		contents[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
-		Files.write(path, contents);
+				return reader;
+			}
 
-		return path;
-	}
+			@Mock public List<AddressTransaction> transactionsOf(String requested, int from, int count) {
+				if (problem != null) {
+					throw problem;
+				}
 
-	@SneakyThrows
-	private static Signature trustedKey() {
-		final Signature signature = new Signature();
-
-		new MockUp<NetworkKey>() {
-			@Mock public String[] getPublicKeys() {
-				return new String[] { signature.getPublicKey() };
+				return expected.equals(List.of(requested, from, count)) ? page : List.of();
 			}
 		};
-
-		return signature;
 	}
 
-	@SneakyThrows
-	private static Path snapshot() {
-		final Path path = Files.createTempFile("hhg-history-test-", ".dat");
+	@Provide
+	public Arbitrary<String> provideAddress() {
+		return BootstrapArbitraries.addresses();
+	}
 
-		path.toFile().deleteOnExit();
-		SnapshotBuilder.build(BlockFixture.directory(), path);
-		return path;
+	@Provide
+	public Arbitrary<List<AddressTransaction>> provideTransactions() {
+		return BootstrapArbitraries.transactions();
+	}
+
+	@Property(tries = 30)
+	public void shouldPrintOneLinePerTransaction(@ForAll("provideAddress") String address,
+		@ForAll @IntRange(max = MAX_PAGE) int offset, @ForAll @IntRange(min = 1, max = MAX_PAGE) int limit,
+		@ForAll("provideTransactions") List<AddressTransaction> transactions) {
+
+		readerAnswers(address, offset, limit, transactions, null, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("history", address,
+			"--offset", String.valueOf(offset), "-n", String.valueOf(limit)
+		);
+
+		final List<String> lines = result.out().lines().toList();
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(lines, hasSize(transactions.size()));
+
+		for (int i = 0; i < transactions.size(); i++) {
+			assertThat(lines.get(i), containsString(transactions.get(i).getTransaction()));
+		}
+	}
+
+	@Property(tries = 30)
+	public void shouldPrintTheTransactionsAsJson(@ForAll("provideAddress") String address,
+		@ForAll("provideTransactions") List<AddressTransaction> transactions) throws IOException {
+
+		readerAnswers(address, DEFAULT_OFFSET, DEFAULT_LIMIT, transactions, null, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("history", address, "--json");
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(new JsonConfiguration().getContext(AddressTransaction.class).readValue(result.out(),
+			new TypeReference<List<AddressTransaction>>() { }), equalTo(transactions)
+		);
+	}
+
+	@Example
+	public void shouldReportAnAddressWithoutTransactions() {
+		readerAnswers(ADDRESS, DEFAULT_OFFSET, DEFAULT_LIMIT, List.of(), null, null);
+
+		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(1));
+		assertThat(result.err(), containsString("No transactions for " + ADDRESS));
+	}
+
+	@Example
+	public void shouldRefuseAMalformedAddressWithoutAStackTrace() {
+		readerAnswers(ADDRESS, DEFAULT_OFFSET, DEFAULT_LIMIT, List.of(), new IllegalArgumentException("Not a legacy address"),
+			null
+		);
+
+		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("Not a legacy address"));
+		result.assertNoStackTrace();
+	}
+
+	@Example
+	public void shouldRefuseAnUnreadableSnapshotWithoutAStackTrace() {
+		readerAnswers(ADDRESS, DEFAULT_OFFSET, DEFAULT_LIMIT, List.of(), null,
+			new IOException("does not verify against any trusted key")
+		);
+
+		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("does not verify against any trusted key"));
+		result.assertNoStackTrace();
 	}
 }
