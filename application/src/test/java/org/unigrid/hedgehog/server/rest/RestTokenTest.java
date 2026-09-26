@@ -20,8 +20,8 @@ package org.unigrid.hedgehog.server.rest;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.matchesPattern;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -32,12 +32,18 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.NumericChars;
+import net.jqwik.api.constraints.StringLength;
+import net.jqwik.api.constraints.Whitespace;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 
 public class RestTokenTest extends BaseMockedWeldTest {
 	private static final int TOKENS = 100;
-	private static final int MIN_TOKEN_LENGTH = 43;
+	private static final int TOKEN_LENGTH = 43;
 
 	private void mockConfiguredToken(String token) {
 		new MockUp<RestOptions>() {
@@ -47,19 +53,22 @@ public class RestTokenTest extends BaseMockedWeldTest {
 		};
 	}
 
+	@Property(tries = 50)
+	public void shouldGenerateUrlSafeTokens() {
+		assertThat(RestToken.generate(), matchesPattern("[A-Za-z0-9_-]{" + TOKEN_LENGTH + "}"));
+	}
+
 	@Example
 	public void shouldGenerateDistinctTokens() {
 		assertThat(IntStream.range(0, TOKENS).mapToObj(i -> RestToken.generate()).collect(Collectors.toSet()),
 			hasSize(TOKENS)
 		);
-
-		assertThat(RestToken.generate().length(), greaterThanOrEqualTo(MIN_TOKEN_LENGTH));
 	}
 
-	@Example
 	@SneakyThrows
-	public void shouldReadWhatWasWritten() {
-		final String token = RestToken.generate();
+	@Property(tries = 50)
+	public void shouldReadWhatWasWritten(@ForAll @AlphaChars @NumericChars @StringLength(min = 1, max = 128)
+		String token) {
 
 		RestToken.write(RestToken.getFile(), token);
 		assertThat(RestToken.read(RestToken.getFile()), equalTo(token));
@@ -76,22 +85,22 @@ public class RestTokenTest extends BaseMockedWeldTest {
 		assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)), equalTo("rw-------"));
 	}
 
-	@Example
 	@SneakyThrows
-	public void shouldPreferConfiguredToken() {
+	@Property(tries = 50)
+	public void shouldPreferConfiguredToken(@ForAll @AlphaChars @StringLength(min = 1, max = 64) String configured) {
 		RestToken.write(RestToken.getFile(), RestToken.generate());
-		mockConfiguredToken("configured");
+		mockConfiguredToken(configured);
 
-		assertThat(RestToken.resolve(), equalTo("configured"));
+		assertThat(RestToken.resolve(), equalTo(configured));
 	}
 
-	@Example
 	@SneakyThrows
-	public void shouldFallBackToFileForBlankToken() {
+	@Property(tries = 20)
+	public void shouldFallBackToFileForBlankToken(@ForAll @Whitespace @StringLength(max = 8) String blank) {
 		final String token = RestToken.generate();
 
 		RestToken.write(RestToken.getFile(), token);
-		mockConfiguredToken(" ");
+		mockConfiguredToken(blank);
 
 		assertThat(RestToken.resolve(), equalTo(token));
 	}

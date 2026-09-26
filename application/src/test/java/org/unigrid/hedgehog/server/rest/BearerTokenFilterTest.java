@@ -29,15 +29,22 @@ import jakarta.ws.rs.core.Response.Status;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import lombok.SneakyThrows;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
 
 public class BearerTokenFilterTest extends BaseRestClientTest {
+	private static final int TOKEN_LENGTH = 43;
+
 	private RestClient newClient(String token) {
 		return new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true, token);
 	}
@@ -83,11 +90,42 @@ public class BearerTokenFilterTest extends BaseRestClientTest {
 		}
 	}
 
-	@Example
-	public void shouldRefuseOtherSchemes() {
-		assertRefusedAuthorization("Basic " + server.getRest().getToken());
-		assertRefusedAuthorization("bearer " + server.getRest().getToken());
-		assertRefusedAuthorization(server.getRest().getToken());
+	@Property(tries = 20)
+	public void shouldRefuseAlteredToken(@ForAll @IntRange(min = 0, max = TOKEN_LENGTH - 1) int position,
+		@ForAll @AlphaChars char replacement) {
+
+		final StringBuilder token = new StringBuilder(server.getRest().getToken());
+
+		Assume.that(token.charAt(position) != replacement);
+		token.setCharAt(position, replacement);
+
+		try (RestClient altered = newClient(token.toString())) {
+			assertRefused(() -> altered.get("/status"));
+		}
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseTruncatedToken(@ForAll @IntRange(min = 0, max = TOKEN_LENGTH - 1) int length) {
+		try (RestClient truncated = newClient(server.getRest().getToken().substring(0, length))) {
+			assertRefused(() -> truncated.get("/status"));
+		}
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseExtendedToken(@ForAll @AlphaChars @StringLength(min = 1, max = 16) String suffix) {
+		try (RestClient extended = newClient(server.getRest().getToken() + suffix)) {
+			assertRefused(() -> extended.get("/status"));
+		}
+	}
+
+	@Property(tries = 10)
+	public void shouldRefuseOtherSchemes(@ForAll("provideScheme") String scheme) {
+		assertRefusedAuthorization(scheme + server.getRest().getToken());
+	}
+
+	@Provide
+	public Arbitrary<String> provideScheme() {
+		return Arbitraries.of("", "Basic ", "Digest ", "bearer ", "BEARER ", "Bearer  ", "Bearer\t");
 	}
 
 	@Example
