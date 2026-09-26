@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.exec.CommandLine;
@@ -31,7 +32,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	public static final long WATCHDOG_TIMEOUT_MS = 60000;
+	public static final Duration WATCHDOG_TIMEOUT = Duration.ofMinutes(1);
 
 	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
 		final Path script = basePath.resolve(Path.of(
@@ -41,12 +42,11 @@ public class NativeImage {
 		final CommandLine cmdLine = new CommandLine(script.toString());
 		cmdLine.addArguments(args);
 
-		final DefaultExecutor executor = new DefaultExecutor();
+		final DefaultExecutor executor = DefaultExecutor.builder().get();
 		executor.setExitValue(0);
 
 		try {
-			final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
-			executor.setWatchdog(watchdog);
+			executor.setWatchdog(ExecuteWatchdog.builder().setTimeout(WATCHDOG_TIMEOUT).get());
 			return executor.execute(cmdLine);
 
 		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
