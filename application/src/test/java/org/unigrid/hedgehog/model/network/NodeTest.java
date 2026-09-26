@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import java.net.UnknownHostException;
 import lombok.SneakyThrows;
@@ -38,6 +39,7 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.server.TestServer;
 
@@ -94,6 +96,16 @@ public class NodeTest extends BaseMockedWeldTest {
 	@SneakyThrows
 	public void shouldBeAbleToCreateNodeFromAddress(@ForAll("provideNode") Node node) {
 		assertThat(node, notNullValue());
+	}
+
+	@Property
+	@SneakyThrows
+	public void shouldKeepNodeIdentityThroughJson(@ForAll("provideNode") Node node) {
+		final ObjectMapper mapper = new JsonConfiguration().getContext(Node.class);
+		final Node restored = mapper.readValue(mapper.writeValueAsString(node), Node.class);
+
+		assertThat(restored, equalTo(node));
+		assertThat(restored.hashCode(), is(node.hashCode()));
 	}
 
 	@Property(tries = 100)

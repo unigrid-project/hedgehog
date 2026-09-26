@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
 import jakarta.ws.rs.core.UriBuilder;
@@ -123,6 +124,14 @@ public class Node {
 
 	public static Node fromAddress(String address) throws URISyntaxException, UnknownHostException {
 		return fromURI(new URI(null, address, null, null, null).parseServerAuthority());
+	}
+
+	/* JSON leaves the address unresolved, and a node is identified by its resolved address */
+	@JsonSetter("address")
+	public void setResolvedAddress(InetSocketAddress address) {
+		this.address = address.isUnresolved()
+			? new InetSocketAddress(address.getHostString(), address.getPort())
+			: address;
 	}
 
 	public URI getURI() {
