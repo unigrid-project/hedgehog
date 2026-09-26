@@ -28,8 +28,8 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.ResponseBuilder;
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
@@ -54,12 +54,11 @@ public class StorageBucket extends CDIBridgeResource {
 	public Response create(@NotNull @PathParam("bucket") String bucket,
 		@NotNull CreateBucketConfiguration bucketConfiguration) {
 
-		final String location = bucketService.create(bucket);
-
-		ResponseBuilder builder = Response.ok();
-		builder.header("Location", "/" + location);
-
-		return builder.build();
+		try {
+			return Response.ok().header("Location", "/" + bucketService.create(bucket)).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
+		}
 	}
 
 	/**
@@ -90,6 +89,8 @@ public class StorageBucket extends CDIBridgeResource {
 			}
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		}
 
 		return Response.noContent().build();

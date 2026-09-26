@@ -52,7 +52,7 @@ public class BucketService {
 	}
 
 	public String create(String name) {
-		final File customDir = dataDir.resolve(name).toFile();
+		final File customDir = StoragePath.bucket(dataDir, name).toFile();
 		String location = "";
 
 		try {
@@ -88,7 +88,7 @@ public class BucketService {
 	}
 
 	public boolean delete(String bucketName) throws IOException {
-		final File customDir = dataDir.resolve(bucketName).toFile();
+		final File customDir = StoragePath.bucket(dataDir, bucketName).toFile();
 
 		if (!customDir.exists()) {
 			return false;

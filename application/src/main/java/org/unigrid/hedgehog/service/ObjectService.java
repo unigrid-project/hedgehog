@@ -60,20 +60,20 @@ public class ObjectService {
 	}
 
 	public void put(String bucket, String key, InputStream data) throws IOException, NoSuchBucketException {
-		final File bucketFile = dataDir.resolve(bucket).toFile();
+		final Path bucketPath = StoragePath.bucket(dataDir, bucket);
+		final Path file = StoragePath.object(dataDir, bucket, key);
 
-		if (!bucketFile.exists()) {
+		if (!Files.exists(bucketPath)) {
 			throw new NoSuchBucketException("No such bucket");
 		}
 
-		final File file = Path.of(dataDir.toString(), bucket, key).toFile();
-		Files.copy(data, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+		Files.copy(data, file, StandardCopyOption.REPLACE_EXISTING);
 	}
 
 	public ListBucketResult listBucket(String bucket, Optional<String> prefix, Optional<String> delimiter,
 		Optional<Integer> maxkeys) throws NoSuchBucketException {
 
-		final File bucketFile = dataDir.resolve(bucket).toFile();
+		final File bucketFile = StoragePath.bucket(dataDir, bucket).toFile();
 
 		if (!bucketFile.exists()) {
 			throw new NoSuchBucketException(bucket);
@@ -141,22 +141,25 @@ public class ObjectService {
 	public CopyObjectResult copy(String sourceBucket, String sourceKey, String destinationBucket, String destinationKey)
 		throws NoSuchBucketException, IOException {
 
-		final File sourceBucketFile = dataDir.resolve(sourceBucket).toFile();
-		final File destBucketFile = dataDir.resolve(destinationBucket).toFile();
+		final Path sourceBucketPath = StoragePath.bucket(dataDir, sourceBucket);
+		final Path destBucketPath = StoragePath.bucket(dataDir, destinationBucket);
+		final Path sourceFile = StoragePath.object(dataDir, sourceBucket, sourceKey);
+		final Path destFile = StoragePath.object(dataDir, destinationBucket, destinationKey);
 
-		if (!sourceBucketFile.exists()) {
+		if (!Files.exists(sourceBucketPath)) {
 			throw new NoSuchBucketException("No such bucket: " + sourceBucket);
 		}
 
-		if (!destBucketFile.exists()) {
+		if (!Files.exists(destBucketPath)) {
 			throw new NoSuchBucketException("No such bucket: " + destinationBucket);
 		}
 
-		final File sourceFile = Path.of(dataDir.toString(), sourceBucket, sourceKey).toFile();
-		final File destFile = Path.of(dataDir.toString(), destinationBucket, destinationKey).toFile();
+		Files.copy(sourceFile, destFile, StandardCopyOption.REPLACE_EXISTING);
+		final String checksum;
 
-		Files.copy(sourceFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-		final String checksum = DigestUtils.md5Hex(new FileInputStream(destFile));
+		try (InputStream copied = Files.newInputStream(destFile)) {
+			checksum = DigestUtils.md5Hex(copied);
+		}
 
 		return new CopyObjectResult(checksum, Instant.now(),
 			"", "", "", ""
@@ -164,26 +167,22 @@ public class ObjectService {
 	}
 
 	public byte[] getObject(String bucket, String key) throws Exception {
-		final File sourceBucketFile = dataDir.resolve(bucket).toFile();
-		final File sourceFile = Path.of(dataDir.toString(), bucket, key).toFile();
+		final Path bucketPath = StoragePath.bucket(dataDir, bucket);
+		final Path file = StoragePath.object(dataDir, bucket, key);
 
-		if (!sourceBucketFile.exists()) {
-			throw new NoSuchBucketException("No such bucket: " + sourceBucketFile);
+		if (!Files.exists(bucketPath)) {
+			throw new NoSuchBucketException("No such bucket: " + bucket);
 		}
 
-		if (!sourceFile.exists()) {
-			throw new NoSuchKeyException("No such key: " + sourceFile);
+		if (!Files.isRegularFile(file)) {
+			throw new NoSuchKeyException("No such key: " + key);
 		}
 
-		if (sourceFile.isDirectory()) {
-			throw new NoSuchKeyException("No such key: " + sourceFile);
-		}
-
-		return Files.readAllBytes(sourceFile.toPath());
+		return Files.readAllBytes(file);
 	}
 
 	public boolean delete(String bucket, String key) throws NoSuchKeyException {
-		final File file = Path.of(dataDir.toString(), bucket, key).toFile();
+		final File file = StoragePath.object(dataDir, bucket, key).toFile();
 
 		if (!file.exists()) {
 			throw new NoSuchKeyException("No such key: " + file);

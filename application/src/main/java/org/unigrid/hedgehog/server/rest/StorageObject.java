@@ -35,6 +35,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.InvalidPathException;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
@@ -67,6 +68,8 @@ public class StorageObject extends CDIBridgeResource {
 			objectService.put(bucket, key, data);
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -94,6 +97,8 @@ public class StorageObject extends CDIBridgeResource {
 			result = objectService.listBucket(bucket, prefix, delimiter, maxKeys);
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		}
 
 		return Response.ok().entity(result).build();
@@ -116,7 +121,7 @@ public class StorageObject extends CDIBridgeResource {
 			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
 		}
 
-		String[] parts = copySource.split("/", 2);
+		String[] parts = copySource.replaceFirst("^/+", "").split("/", 2);
 		String sourceBucket = parts[0];
 		String sourceKey = parts.length > 1 ? parts[1] : "";
 
@@ -126,6 +131,8 @@ public class StorageObject extends CDIBridgeResource {
 			result = objectService.copy(sourceBucket, sourceKey, destinationBucket, destinationKey);
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -147,6 +154,8 @@ public class StorageObject extends CDIBridgeResource {
 			byteArray = objectService.getObject(bucket, key);
 		} catch (NoSuchBucketException | NoSuchKeyException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (Exception e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -168,6 +177,8 @@ public class StorageObject extends CDIBridgeResource {
 			isDeleted = objectService.delete(bucket, key);
 		} catch (NoSuchKeyException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (Exception e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
