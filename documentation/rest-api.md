@@ -459,9 +459,9 @@ none).
 
 | Method | Path | Consumes | Produces | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `PUT` | `/bucket/{bucket}` | `application/xml` | – | `CreateBucketConfiguration` | – | `200` with `Location: /<name>` |
+| `PUT` | `/bucket/{bucket}` | `application/xml` | – | `CreateBucketConfiguration` | – | `200` with `Location: /<name>`; `400` when the name is not a single path segment |
 | `GET` | `/bucket/list` | – | `application/xml` | – | `ListAllMyBucketsResult` | `200` |
-| `DELETE` | `/bucket/{bucket}` | – | – | – | – | `204`; `404` when absent; `500` with the message on `IOException` |
+| `DELETE` | `/bucket/{bucket}` | – | – | – | – | `204`; `400` when the name is not a single path segment; `404` when absent; `500` with the message on `IOException` |
 
 `PUT` requires a `CreateBucketConfiguration` body (`@NotNull`), but never reads it — the location
 constraint is discarded. It always answers `200`, whether the directory was created, already existed
@@ -484,11 +484,11 @@ nor deleted through this API.
 
 | Method | Path | Consumes | Produces | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `POST` | `/storage-object/{bucket}/{key}` | `application/octet-stream` | – | raw bytes | – | `200`; `404` on `NoSuchBucketException`; `500` on `IOException` |
-| `GET` | `/storage-object/list/{bucket}` | – | `application/xml` | – | `ListBucketResult` | `200`; `404` on `NoSuchBucketException` |
-| `PUT` | `/storage-object/{bucket}/{key}` | – | `application/xml` | ignored | `CopyObjectResult` | `200`; `400` when `x-amz-copy-source` is missing; `404` on `NoSuchBucketException`; `500` on `IOException` |
-| `GET` | `/storage-object/{bucket}/{key}` | – | `application/octet-stream` | – | raw bytes | `200`; `404` on `NoSuchBucketException`/`NoSuchKeyException`; `500` otherwise |
-| `DELETE` | `/storage-object/{bucket}/{key}` | – | – | – | – | `204`; `404` on `NoSuchKeyException`; `500` otherwise, including the literal body `Deletion has failed` |
+| `POST` | `/storage-object/{bucket}/{key}` | `application/octet-stream` | – | raw bytes | – | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException`; `500` on `IOException` |
+| `GET` | `/storage-object/list/{bucket}` | – | `application/xml` | – | `ListBucketResult` | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException` |
+| `PUT` | `/storage-object/{bucket}/{key}` | – | `application/xml` | ignored | `CopyObjectResult` | `200`; `400` when `x-amz-copy-source` is missing or a name escapes its directory; `404` on `NoSuchBucketException`; `500` on `IOException` |
+| `GET` | `/storage-object/{bucket}/{key}` | – | `application/octet-stream` | – | raw bytes | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException`/`NoSuchKeyException`; `500` otherwise |
+| `DELETE` | `/storage-object/{bucket}/{key}` | – | – | – | – | `204`; `400` when a name escapes its directory; `404` on `NoSuchKeyException`; `500` otherwise, including the literal body `Deletion has failed` |
 
 `POST` is used for object creation, where S3 uses `PUT`; `PUT` on the same path is the copy operation.
 
@@ -509,13 +509,11 @@ The listing endpoint reads its options straight off `UriInfo.getQueryParameters(
 Note `maxkeys`, not S3's `max-keys`, and that a non-numeric value throws `NumberFormatException` out
 of the resource method rather than yielding `400`.
 
-The copy source header is parsed as `copySource.split("/", 2)`, taking `parts[0]` as the bucket and
-`parts[1]` as the key. AWS specifies the header as `/source-bucket/source-key`, i.e. with a leading
-slash; that form parses here as an empty bucket name with `source-bucket/source-key` as the key, but
-`dataDir.resolve("")` returns `s3data` itself and `Path.of` drops the empty element, so the source
-still resolves to `<s3data>/source-bucket/source-key` and the copy happens to work. It only fails
-with `404` when `s3data` has never been created. The only in-tree caller,
-`StorageObjectTest.shouldCopyAndReturnXML`, sends the leading slash and is `@Disabled`.
+The copy source header has its leading slashes stripped and is then split on the first `/`, taking
+the part before it as the bucket and the rest as the key. Both the AWS form
+`/source-bucket/source-key` and `source-bucket/source-key` therefore name the same object. The key
+may contain further `/` segments, but like every other name it has to stay inside its bucket (see
+[Path confinement](#path-confinement)).
 
 ## The S3-compatible storage surface
 
@@ -538,12 +536,10 @@ Consequences that follow directly from that layout:
 
 * Nested keys cannot be written. An unencoded `/` never reaches `key` at all — the template
   `@Path("/{bucket}/{key}")` matches a single segment, so such a request `404`s. A percent-encoded
-  `%2F` is decoded into the parameter after matching, and `ObjectService.put` then resolves
-  `Path.of(dataDir, bucket, key)` and calls `Files.copy` without creating parent directories, so
-  `a%2Fb` raises `IOException` and the endpoint answers `500`. The exception is a key whose decoded
-  form resolves to a directory that already exists: `..%2Fevil` normalizes to `s3data/evil` and is
-  written successfully, outside the bucket — see the traversal note in
-  [Architecture overview](architecture.md).
+  `%2F` is decoded into the parameter after matching, and `ObjectService.put` calls `Files.copy`
+  without creating parent directories, so `a%2Fb` raises `IOException` and the endpoint answers
+  `500`. A decoded key that leaves the bucket, such as `..%2Fevil`, is refused with `400` before any
+  file is touched (see [Path confinement](#path-confinement)).
 * `ObjectService.listBucket` uses `bucketFile.listFiles()` (one level, non-recursive) and drops
   directories, so the `delimiter`/common-prefix logic in the same method can never fire against real
   nested content.
@@ -629,8 +625,20 @@ authentication, ACLs and policies, versioning, multipart upload, range reads, ta
 `ListObjectsV2` continuation tokens, `CommonPrefixes` in the response document, the standard S3 error
 document, and S3's `HeadObject`/`HeadBucket` metadata responses — no `@HEAD` method exists, and while
 JAX-RS answers bare `HEAD` requests off the matching `@GET` methods by discarding the entity, no
-object metadata headers are produced. Bucket names and object keys are used verbatim as filesystem
-path components, with no validation or normalization of either.
+object metadata headers are produced. Bucket names and object keys become filesystem
+paths only through `StoragePath`, described next.
+
+### Path confinement
+
+`StoragePath` (`application/src/main/java/org/unigrid/hedgehog/service/StoragePath.java`) builds every
+path the two services use from a request. `StoragePath.bucket(dataDir, bucket)` resolves and
+normalizes the name against `s3data` and requires the result to be a direct child of it, so a bucket
+is always a single directory. `StoragePath.object(dataDir, bucket, key)` does the same for the key
+against the bucket directory and requires the result to lie strictly inside it. Anything else
+(`..`, `a/../..`, an absolute path, an empty name, a NUL character) throws
+`java.nio.file.InvalidPathException`, which the resources answer with `400 Bad Request`. The services
+build and check all their paths before the first file access, so a refused name never touches the
+disk. The check is lexical: it does not follow symbolic links that already exist inside `s3data`.
 
 The `StorageBucket`/`StorageObject` resources also declare the dead `P2PServer` field described under
 [CDI injection into resources](#cdi-injection-into-resources); the object store is purely local and

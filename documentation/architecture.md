@@ -542,9 +542,10 @@ collected here. The short version: **content is authenticated, transport and con
   checked before resource matching, so no endpoint is exempt. The daemon generates the token into
   `rest.token` (mode `600`) in the data directory unless `--resttoken` sets one. Anyone who can read
   that file, or intercept the unauthenticated TLS session, holds full control of the node.
-* **The S3 object key is used as a path component without validation.** `ObjectService.put` builds
-  `Path.of(dataDir.toString(), bucket, key)` straight from the request path parameters, so a key
-  containing traversal segments resolves outside `s3data/`.
+* **Storage names are confined lexically.** Bucket names and object keys pass through `StoragePath`,
+  which refuses any name that would leave `s3data/` or its bucket with `400`. The check does not
+  resolve symbolic links, so a link placed inside `s3data/` by someone with access to the disk is
+  still followed. [REST interface](rest-api.md#path-confinement) has the details.
 * **The QUIC retry token is weakly bound.** `EncryptedTokenHandler` encrypts server name plus client
   address with `AES/CBC/PKCS5Padding` under a key derived from an injected `UUID`, using
   `new IvParameterSpec(new byte[16])` — a fixed all-zero IV. The `UUID` comes from
