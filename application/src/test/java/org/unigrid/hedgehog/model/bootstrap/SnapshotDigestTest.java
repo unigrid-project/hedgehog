@@ -21,11 +21,20 @@ package org.unigrid.hedgehog.model.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.List;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.Size;
 
 public class SnapshotDigestTest {
 	@Example
@@ -74,5 +83,50 @@ public class SnapshotDigestTest {
 		path.toFile().deleteOnExit();
 		SnapshotBuilder.build(BlockFixture.directory(), path);
 		return path;
+	}
+
+	@SneakyThrows
+	@Property
+	public void shouldRefuseAFileShorterThanAHeader(@ForAll @Size(max = SnapshotFormat.HEADER_SIZE - 1) byte[] contents) {
+		final Path snapshot = SyntheticSnapshots.inMemory(contents);
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.contentLengthOf(snapshot), "too short to hold a header");
+		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.of(snapshot), "too short to hold a header");
+	}
+
+	@SneakyThrows
+	@Property
+	public void shouldRefuseAFileThatEndsBeforeItsContent(@ForAll @IntRange(min = 1, max = 64) int transactions,
+		@ForAll @IntRange(min = 1, max = Hashing.HASH_SIZE) int missing) {
+
+		final byte[] header = SyntheticSnapshots.builder().transactionTableOffset(SnapshotFormat.HEADER_SIZE)
+			.transactionCount(transactions).build();
+		final Path snapshot = SyntheticSnapshots.inMemory(Arrays.copyOf(header,
+			header.length + transactions * Hashing.HASH_SIZE - missing)
+		);
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.of(snapshot), "ends before its content does");
+	}
+
+	@SneakyThrows
+	@Property
+	public void shouldDigestOnlyTheContent(@ForAll @Size(max = 64) List<@Size(Hashing.HASH_SIZE) byte[]> transactionIds,
+		@ForAll @Size(max = 512) byte[] appended) {
+
+		final byte[] header = SyntheticSnapshots.builder().transactionTableOffset(SnapshotFormat.HEADER_SIZE)
+			.transactionCount(transactionIds.size()).build();
+		final ByteArrayOutputStream content = new ByteArrayOutputStream();
+
+		content.write(header);
+		transactionIds.forEach(content::writeBytes);
+
+		final Path snapshot = SyntheticSnapshots.inMemory(ByteBuffer.allocate(content.size() + appended.length)
+			.put(content.toByteArray()).put(appended).array()
+		);
+
+		assertThat(SnapshotDigest.contentLengthOf(snapshot), equalTo((long) content.size()));
+		assertThat(SnapshotDigest.of(snapshot),
+			equalTo(MessageDigest.getInstance(SnapshotDigest.ALGORITHM).digest(content.toByteArray()))
+		);
 	}
 }

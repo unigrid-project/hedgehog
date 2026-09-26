@@ -22,6 +22,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
 import java.util.Arrays;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -74,6 +75,21 @@ public class Base58CheckTest {
 
 		} catch (IllegalArgumentException expected) {
 			assertThat(expected.getMessage(), startsWith("Address checksum does not match"));
+		}
+	}
+
+	@Property(tries = 200)
+	public void shouldRejectAPayloadThatIsNotAHash160(@ForAll @Size(min = 1, max = 30) byte[] payload) {
+		Assume.that(payload.length != Hashing.ADDRESS_HASH_SIZE);
+
+		final String address = Base58Check.encode(LegacyAddress.PUBLIC_KEY_VERSION, payload);
+
+		try {
+			LegacyAddress.decode(address);
+			throw new AssertionError("A payload of " + payload.length + " bytes was accepted: " + address);
+
+		} catch (IllegalArgumentException expected) {
+			assertThat(expected.getMessage(), startsWith("Address payload is not a hash160"));
 		}
 	}
 }
