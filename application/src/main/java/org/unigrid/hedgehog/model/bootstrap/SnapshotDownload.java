@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -26,6 +27,7 @@ import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.function.IntConsumer;
 import java.util.zip.GZIPInputStream;
 import lombok.AccessLevel;
 import lombok.Cleanup;
@@ -56,18 +58,23 @@ public final class SnapshotDownload {
 	private static final int READ_TIMEOUT_MILLIS = 120_000;
 
 	public static void install(URL source, Path target) throws IOException {
-		install(source, target, MAXIMUM_SIZE);
+		install(source, target, percent -> { });
+	}
+
+	/* The progress hears each new percentage of the transfer, and nothing when its size is unknown. */
+	public static void install(URL source, Path target, IntConsumer progress) throws IOException {
+		install(source, target, MAXIMUM_SIZE, progress);
 	}
 
 	/* The ceiling is a parameter so a test can prove the guard fires without moving two gibibytes. */
-	static void install(URL source, Path target, long maximumSize) throws IOException {
+	static void install(URL source, Path target, long maximumSize, IntConsumer progress) throws IOException {
 		Files.createDirectories(target.toAbsolutePath().getParent());
 
 		final Path partial = Files.createTempFile(target.toAbsolutePath().getParent(),
 			PARTIAL_PREFIX, PARTIAL_SUFFIX);
 
 		try {
-			copy(source, partial, maximumSize);
+			copy(source, partial, maximumSize, progress);
 			verify(partial, source);
 			Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING,
 				StandardCopyOption.ATOMIC_MOVE);
@@ -92,8 +99,8 @@ public final class SnapshotDownload {
 		}
 	}
 
-	private static void copy(URL source, Path partial, long maximumSize) throws IOException {
-		@Cleanup final InputStream stream = open(source);
+	private static void copy(URL source, Path partial, long maximumSize, IntConsumer progress) throws IOException {
+		@Cleanup final InputStream stream = open(source, progress);
 		@Cleanup final OutputStream out = Files.newOutputStream(partial);
 		final byte[] buffer = new byte[1 << 16];
 		long total = 0;
@@ -126,14 +133,59 @@ public final class SnapshotDownload {
 		}
 	}
 
-	private static InputStream open(URL source) throws IOException {
+	/* Progress is counted before decompression, since only the transferred size is known up front. */
+	private static InputStream open(URL source, IntConsumer progress) throws IOException {
 		final URLConnection connection = source.openConnection();
 
 		connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
 		connection.setReadTimeout(READ_TIMEOUT_MILLIS);
 
-		final InputStream stream = connection.getInputStream();
+		final InputStream transfer = connection.getInputStream();
+		final long length = connection.getContentLengthLong();
+		final InputStream stream = length > 0 ? new ProgressStream(transfer, length, progress) : transfer;
 
 		return source.getPath().endsWith(COMPRESSED_SUFFIX) ? new GZIPInputStream(stream) : stream;
+	}
+
+	private static final class ProgressStream extends FilterInputStream {
+		private static final int WHOLE = 100;
+
+		private final long length;
+		private final IntConsumer progress;
+		private long received;
+		private int reported = -1;
+
+		ProgressStream(InputStream in, long length, IntConsumer progress) {
+			super(in);
+			this.length = length;
+			this.progress = progress;
+		}
+
+		@Override
+		public int read() throws IOException {
+			final int value = super.read();
+
+			count(value < 0 ? 0 : 1);
+			return value;
+		}
+
+		@Override
+		public int read(byte[] buffer, int offset, int count) throws IOException {
+			final int read = super.read(buffer, offset, count);
+
+			count(Math.max(read, 0));
+			return read;
+		}
+
+		private void count(int read) {
+			received += read;
+
+			final int percent = (int) Math.min(received * WHOLE / length, WHOLE);
+
+			if (percent != reported) {
+				reported = percent;
+				progress.accept(percent);
+			}
+		}
 	}
 }

@@ -379,6 +379,7 @@ Serialized `Node` JSON contains `address`, `details` (`protocols` array plus `ve
 | `POST` | `/stop` | – | `202` |
 | `GET` | `/version` | `VersionResponse` | `202` |
 | `GET` | `/height` | `HeightResponse` | `200`, `503` |
+| `GET` | `/status` | `StatusResponse` | `200` |
 
 `/stop` calls `CDIContext.stop()`, which `notifyAll()`s the monitor that `CDIContext.run()` is
 blocked on, unwinding the Weld container and thereby the daemon. There is no authorization on it: any
@@ -390,6 +391,14 @@ legacy balance compares mint-storage entries against (see
 [Legacy chain snapshot](legacy-chain-snapshot.md#rest-api)). It comes from the `ChainHeight` bean
 (`model/ChainHeight.java`), which for now returns the tip height of the legacy chain snapshot, so the
 answer is `503` while no snapshot is available.
+
+`/status` answers `{ "status": "downloading" | "running", "progress": N }` from the `NodeStatus`
+bean (`model/NodeStatus.java`). A daemon started without a legacy chain snapshot downloads the one
+published with its own release (see [Legacy chain snapshot](legacy-chain-snapshot.md)) in the
+background through `SnapshotInstaller`, and reports `downloading` meanwhile, with `progress` the
+percentage of the transfer, or `null` while the server has not said how large it is. Otherwise, and
+once the download has ended, whether installed or not, it reports `running` with `progress` at
+`100`.
 
 `/version` answering `202 Accepted` rather than `200 OK` looks unintended, but `RestClient` treats
 `202` as a success, so nothing in-tree notices. No CLI command calls `/version`; it exists purely for

@@ -72,7 +72,7 @@ public class BootstrapFetch implements Callable<Integer> {
 
 	/* A released build carries the snapshot its release was published with; a snapshot build has no
 	   release of its own. */
-	static URL defaultUrl(String version) throws MalformedURLException {
+	public static URL defaultUrl(String version) throws MalformedURLException {
 		final String path = RELEASED_VERSION.matcher(version).matches()
 			? "download/v" + version + "/" : "latest/download/";
 

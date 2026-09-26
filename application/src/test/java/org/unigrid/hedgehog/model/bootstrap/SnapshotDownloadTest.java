@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
@@ -48,12 +50,24 @@ public class SnapshotDownloadTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldReportTheProgressOfTheTransferUpToComplete() {
+		final Path compressed = gzip(signedSnapshot());
+		final List<Integer> reported = new ArrayList<>();
+
+		SnapshotDownload.install(compressed.toUri().toURL(), target(), reported::add);
+
+		assertThat(reported.getLast(), equalTo(100));
+		assertThat(reported, equalTo(reported.stream().sorted().distinct().toList()));
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldAbandonADownloadThatPassesItsCeiling() {
 		final Path source = signedSnapshot();
 		final Path target = target();
 
 		try {
-			SnapshotDownload.install(source.toUri().toURL(), target, 1024);
+			SnapshotDownload.install(source.toUri().toURL(), target, 1024, percent -> { });
 			throw new AssertionError("An oversized download was installed");
 
 		} catch (IOException expected) {

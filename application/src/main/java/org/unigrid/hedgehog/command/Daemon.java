@@ -21,9 +21,14 @@ package org.unigrid.hedgehog.command;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import java.net.URL;
+import lombok.SneakyThrows;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
+import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.common.model.Version;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
@@ -38,9 +43,14 @@ public class Daemon extends CDIContext implements Runnable {
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
+	@Inject private SnapshotInstaller snapshotInstaller;
 
+	/* The node serves everything else while the snapshot downloads, so startup never waits for it. */
 	@Override
+	@SneakyThrows
 	protected void start(@Observes ContainerInitialized event) {
-		/* No need to do anything here, at the moment */
+		final URL source = BootstrapFetch.defaultUrl(Version.getVersionNumber());
+
+		Thread.ofVirtual().name("snapshot-install").start(() -> snapshotInstaller.installIfMissing(source));
 	}
 }

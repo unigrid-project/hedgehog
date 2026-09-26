@@ -26,10 +26,12 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.unigrid.hedgehog.model.ChainHeight;
+import org.unigrid.hedgehog.model.NodeStatus;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
+import org.unigrid.hedgehog.server.rest.entity.StatusResponse;
 import org.unigrid.hedgehog.server.rest.entity.VersionResponse;
 
 @Path("/")
@@ -38,6 +40,9 @@ import org.unigrid.hedgehog.server.rest.entity.VersionResponse;
 public class UtilResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private ChainHeight chainHeight;
+
+	@CDIBridgeInject
+	private NodeStatus nodeStatus;
 
 	@Path("/stop") @POST
 	public Response stop() {
@@ -49,6 +54,11 @@ public class UtilResource extends CDIBridgeResource {
 	public Response height() {
 		return chainHeight.current().map(height -> Response.ok().entity(new HeightResponse(height)).build())
 			.orElseGet(() -> Response.status(Response.Status.SERVICE_UNAVAILABLE).build());
+	}
+
+	@Path("/status") @GET
+	public Response status() {
+		return Response.ok().entity(StatusResponse.of(nodeStatus.current())).build();
 	}
 
 	@Path("/version") @GET
