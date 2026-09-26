@@ -63,6 +63,6 @@ public class UtilResource extends CDIBridgeResource {
 
 	@Path("/version") @GET
 	public Response version() {
-		return Response.status(Response.Status.ACCEPTED).entity(VersionResponse.create()).build();
+		return Response.ok().entity(VersionResponse.create()).build();
 	}
 }
