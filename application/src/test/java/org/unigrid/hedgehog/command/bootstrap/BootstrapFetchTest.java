@@ -40,6 +40,29 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import picocli.CommandLine;
 
 public class BootstrapFetchTest {
+	private static final String RELEASES = "https://github.com/unigrid-project/hedgehog/releases/";
+
+	@Example
+	@SneakyThrows
+	public void shouldFetchTheSnapshotOfItsOwnRelease() {
+		assertThat(BootstrapFetch.defaultUrl("0.0.8").toString(),
+			equalTo(RELEASES + "download/v0.0.8/bootstrap.dat.gz"));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldFetchTheSnapshotOfItsOwnDevRelease() {
+		assertThat(BootstrapFetch.defaultUrl("0.0.8-dev.2").toString(),
+			equalTo(RELEASES + "download/v0.0.8-dev.2/bootstrap.dat.gz"));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldFetchTheLatestSnapshotWhenUnreleased() {
+		assertThat(BootstrapFetch.defaultUrl("0.0.8-SNAPSHOT").toString(),
+			equalTo(RELEASES + "latest/download/bootstrap.dat.gz"));
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldRefuseAnUnverifiableDownloadWithoutAStackTrace() {

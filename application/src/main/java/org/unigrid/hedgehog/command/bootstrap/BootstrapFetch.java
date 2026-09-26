@@ -19,11 +19,15 @@
 package org.unigrid.hedgehog.command.bootstrap;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
+import java.util.regex.Pattern;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -32,12 +36,13 @@ import picocli.CommandLine.Option;
 	description = "Download the published snapshot, verify it and install it."
 )
 public class BootstrapFetch implements Callable<Integer> {
-	/* Settled per release; the signature, not the host, is what makes the file trustworthy. */
-	public static final String DEFAULT_URL =
-		"https://github.com/unigrid-project/hedgehog/releases/latest/download/bootstrap.dat.gz";
+	/* The signature, not the host, is what makes the file trustworthy. */
+	private static final String RELEASES = "https://github.com/unigrid-project/hedgehog/releases/";
+	private static final String ASSET = "bootstrap.dat.gz";
+	private static final Pattern RELEASED_VERSION = Pattern.compile("\\d+\\.\\d+\\.\\d+(-dev\\.\\d+)?");
 
-	@Option(names = "--url", description = "Where to fetch the snapshot from"
-		+ " (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_URL
+	@Option(names = "--url", description = "Where to fetch the snapshot from (defaults to the one"
+		+ " published with this release, or with the latest release for an unreleased build)."
 	)
 	private URL url;
 
@@ -54,7 +59,7 @@ public class BootstrapFetch implements Callable<Integer> {
 		}
 
 		try {
-			SnapshotDownload.install(url, target);
+			SnapshotDownload.install(url == null ? defaultUrl(Version.getVersionNumber()) : url, target);
 
 		} catch (IOException ex) {
 			System.err.println(ex.getMessage());
@@ -63,5 +68,14 @@ public class BootstrapFetch implements Callable<Integer> {
 
 		System.out.println("Installed " + target);
 		return 0;
+	}
+
+	/* A released build carries the snapshot its release was published with; a snapshot build has no
+	   release of its own. */
+	static URL defaultUrl(String version) throws MalformedURLException {
+		final String path = RELEASED_VERSION.matcher(version).matches()
+			? "download/v" + version + "/" : "latest/download/";
+
+		return URI.create(RELEASES + path + ASSET).toURL();
 	}
 }

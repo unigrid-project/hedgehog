@@ -180,7 +180,7 @@ Options, as declared on each command:
 | `--offset` | `history` | no | Transactions to skip first, default 0 |
 | `--json` | `history` | no | Print transactions as JSON instead of aligned text |
 | `-k`, `--key` | `sign` | yes | Hex private key to sign with; rejected unless `NetworkKey.isTrusted` accepts it |
-| `--url` | `fetch` | no | Source URL, defaults to `BootstrapFetch.DEFAULT_URL` |
+| `--url` | `fetch` | no | Source URL, defaults to the `bootstrap.dat.gz` of the running version's release, or of the latest release for a snapshot build |
 | `-s`, `--snapshot` | inherited on every `bootstrap` subcommand | no | Snapshot path, defaults to `bootstrap.dat` in the per-platform user data directory (see [Architecture overview](architecture.md) for what that resolves to on each platform) |
 
 `bootstrap sign` truncates the file back to its declared content length before appending a new
@@ -237,8 +237,8 @@ data directory:
    and publishes it. `gzip` was chosen over a tighter codec such as `xz` because it needs no
    dependency beyond what the JDK and the standard toolchain already provide; measured on the
    current snapshot, `gzip -9` brings the 556,361,944-byte file to roughly 314 MB against roughly
-   270 MB for `xz`. `bootstrap fetch`'s default URL expects `bootstrap.dat.gz` on the latest GitHub
-   release, which is why a release is never published before the snapshot is attached, and why
+   270 MB for `xz`. `bootstrap fetch`'s default URL expects `bootstrap.dat.gz` on the running version's
+   own GitHub release, which is why a release is never published before the snapshot is attached, and why
    `publish` carries the previous release's snapshot forward when no new one is given.
 
 ## Known rough edges
@@ -248,7 +248,7 @@ data directory:
   and several gigabytes of heap for the chain link and ledger replay. It is necessarily a manual
   procedure run by whoever holds that data, not something the release workflow can reproduce;
   `release.sh publish` therefore takes the signed file as input rather than producing it.
-- **The default fetch URL is provisional.** `BootstrapFetch.DEFAULT_URL` points at a GitHub release
+- **The default fetch URL is provisional.** `BootstrapFetch.defaultUrl` points at a GitHub release
   asset path, but where the snapshot will actually be hosted long-term has not been settled; the
   comment on the constant already flags that the signature, not the host, is what makes the file
   trustworthy, but the URL itself is expected to change.

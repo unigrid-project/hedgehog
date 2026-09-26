@@ -377,8 +377,8 @@ publish_release() {
 	step "Publishing $tag"
 	local title="$version"
 	[ -z "$codename" ] || title="$version - $codename"
-	# releases/latest is where nodes fetch their bootstrap, so only a real
-	# release may become it.
+	# releases/latest is where snapshot builds fetch their bootstrap, so only
+	# a real release may become it.
 	local -a edit=(gh release edit "$tag" --draft=false --title "$title")
 	if is_version "$version"; then
 		edit+=(--latest)
