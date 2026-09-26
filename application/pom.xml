@@ -181,6 +181,11 @@
 			<version>1.85</version>
 		</dependency>
 		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcpg-jdk18on</artifactId>
+			<version>1.85</version>
+		</dependency>
+		<dependency>
 			<groupId>io.netty</groupId>
 			<artifactId>netty-codec-http</artifactId>
 			<version>4.1.137.Final</version>
@@ -478,6 +483,13 @@
 			</resource>
 			<resource>
 				<directory>src/main/resources</directory>
+				<filtering>false</filtering>
+			</resource>
+			<resource>
+				<directory>${project.basedir}/..</directory>
+				<includes>
+					<include>release-key.asc</include>
+				</includes>
 				<filtering>false</filtering>
 			</resource>
 		</resources>

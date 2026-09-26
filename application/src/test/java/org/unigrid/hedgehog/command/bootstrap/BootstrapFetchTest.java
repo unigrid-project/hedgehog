@@ -36,6 +36,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import picocli.CommandLine;
 
@@ -102,6 +103,7 @@ public class BootstrapFetchTest {
 
 		contents[(int) SnapshotDigest.contentLengthOf(path) - 1] ^= 0x01;
 		Files.write(path, contents);
+		ReleaseKeyFixture.trusted().publish(path);
 
 		return path;
 	}

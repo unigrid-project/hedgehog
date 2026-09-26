@@ -34,6 +34,7 @@ module org.unigrid.hedgehog {
 	requires org.apache.commons.lang3;
 	requires org.apache.commons.codec;
 	requires org.bouncycastle.provider;
+	requires org.bouncycastle.pg;
 	requires io.netty.buffer;
 	requires io.netty.transport;
 	requires io.netty.codec;

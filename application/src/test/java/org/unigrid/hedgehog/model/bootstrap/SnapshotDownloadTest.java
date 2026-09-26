@@ -23,8 +23,10 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
@@ -33,7 +35,9 @@ import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class SnapshotDownloadTest {
@@ -43,7 +47,7 @@ public class SnapshotDownloadTest {
 		final Path source = signedSnapshot();
 		final Path target = target();
 
-		SnapshotDownload.install(source.toUri().toURL(), target);
+		SnapshotDownload.install(published(source), target);
 
 		assertThat(Files.mismatch(source, target), equalTo(-1L));
 	}
@@ -54,7 +58,7 @@ public class SnapshotDownloadTest {
 		final Path compressed = gzip(signedSnapshot());
 		final List<Integer> reported = new ArrayList<>();
 
-		SnapshotDownload.install(compressed.toUri().toURL(), target(), reported::add);
+		SnapshotDownload.install(published(compressed), target(), reported::add);
 
 		assertThat(reported.getLast(), equalTo(100));
 		assertThat(reported, equalTo(reported.stream().sorted().distinct().toList()));
@@ -67,7 +71,7 @@ public class SnapshotDownloadTest {
 		final Path target = target();
 
 		try {
-			SnapshotDownload.install(source.toUri().toURL(), target, 1024, percent -> { });
+			SnapshotDownload.install(published(source), target, 1024, percent -> { });
 			throw new AssertionError("An oversized download was installed");
 
 		} catch (IOException expected) {
@@ -88,7 +92,7 @@ public class SnapshotDownloadTest {
 		Files.write(source, contents);
 
 		try {
-			SnapshotDownload.install(source.toUri().toURL(), target);
+			SnapshotDownload.install(published(source), target);
 			throw new AssertionError("A snapshot of an unreadable format version was installed");
 
 		} catch (IOException expected) {
@@ -109,11 +113,69 @@ public class SnapshotDownloadTest {
 		final Path predictable = target.resolveSibling(target.getFileName() + ".part");
 
 		Files.createDirectory(predictable);
-		SnapshotDownload.install(source.toUri().toURL(), target);
+		SnapshotDownload.install(published(source), target);
 
 		assertThat(Files.mismatch(source, target), equalTo(-1L));
 		assertThat(Files.isDirectory(predictable), equalTo(true));
 		assertThat(leftoverCount(target.getParent()), equalTo(0L));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotPublishedWithoutAHash() {
+		assertRefused(signedSnapshot().toUri().toURL(), "Could not fetch");
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAHashNotSignedByTheReleaseKey() {
+		final Path source = signedSnapshot();
+
+		ReleaseKeyFixture.trusted();
+		ReleaseKeyFixture.foreign().publish(source);
+		assertRefused(source.toUri().toURL(), "no valid signature");
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAHashOfAnotherFile() {
+		final Path source = signedSnapshot();
+
+		ReleaseKeyFixture.trusted().publishHash(source, DigestUtils.sha256Hex(Files.readAllBytes(source))
+			+ "  bootstrap-of-another-release.dat\n");
+		assertRefused(source.toUri().toURL(), "is not a hash of");
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseADownloadThatDoesNotMatchItsHash() {
+		final Path source = signedSnapshot();
+		final URL url = published(source);
+
+		Files.write(source, new byte[] { 0 }, StandardOpenOption.APPEND);
+		assertRefused(url, "does not match the hash");
+	}
+
+	@SneakyThrows
+	private static void assertRefused(URL source, String reason) {
+		final Path target = Files.copy(signedSnapshot(), target());
+		final byte[] before = Files.readAllBytes(target);
+
+		try {
+			SnapshotDownload.install(source, target);
+			throw new AssertionError("A snapshot without a matching signed hash was installed");
+
+		} catch (IOException expected) {
+			assertThat(expected.getMessage(), containsString(reason));
+			assertThat(Files.readAllBytes(target), equalTo(before));
+			assertThat(leftoverCount(target.getParent()), equalTo(0L));
+		}
+	}
+
+	@SneakyThrows
+	private static URL published(Path asset) {
+		ReleaseKeyFixture.trusted().publish(asset);
+		return asset.toUri().toURL();
 	}
 
 	@SneakyThrows
@@ -131,7 +193,7 @@ public class SnapshotDownloadTest {
 		final Path compressed = gzip(source);
 		final Path target = target();
 
-		SnapshotDownload.install(compressed.toUri().toURL(), target);
+		SnapshotDownload.install(published(compressed), target);
 
 		assertThat(Files.mismatch(source, target), equalTo(-1L));
 	}
@@ -144,7 +206,7 @@ public class SnapshotDownloadTest {
 		final Path unsigned = snapshot();
 
 		try {
-			SnapshotDownload.install(unsigned.toUri().toURL(), target);
+			SnapshotDownload.install(published(unsigned), target);
 			throw new AssertionError("An unverified snapshot was installed");
 
 		} catch (IOException expected) {
@@ -159,7 +221,7 @@ public class SnapshotDownloadTest {
 		final Path unsigned = snapshot();
 
 		try {
-			SnapshotDownload.install(unsigned.toUri().toURL(), target);
+			SnapshotDownload.install(published(unsigned), target);
 			throw new AssertionError("An unverified snapshot was installed");
 
 		} catch (IOException expected) {

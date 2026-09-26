@@ -1310,7 +1310,7 @@ Thirteen files are tracked at the repository root, and every one of them is part
 | `pmd.xml` | The PMD ruleset used by the `<reporting>` section. |
 | `README.md` | The project front page: feature list, build instructions, native-image summary, how releases are verified and cut. |
 | `release.sh` | The release script: `cut` tags and pushes, `publish` signs and publishes (see *Continuous integration*). |
-| `release-key.asc` | The public half of the Unigrid Foundation release key that signs every release asset. |
+| `release-key.asc` | The public half of the Unigrid Foundation release key that signs every release asset. It is also bundled into the application jar, where `ReleaseKey` verifies the signed hash of a downloaded bootstrap against it. |
 | `COPYING`, `COPYING.addendum`, `COPYING.header` | License, addendum and the source header block (below). |
 | `.gitmodules` | The white-paper submodule (below). |
 | `.gitignore` | Build output and tool droppings (below). |

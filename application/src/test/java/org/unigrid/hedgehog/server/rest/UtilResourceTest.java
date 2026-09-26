@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.server.rest.entity.StatusResponse;
 
@@ -103,6 +104,7 @@ public class UtilResourceTest extends BaseRestClientTest {
 		};
 
 		SnapshotSignature.signAndAppend(path, key.getPrivateKey());
+		ReleaseKeyFixture.trusted().publish(path);
 		return path;
 	}
 }

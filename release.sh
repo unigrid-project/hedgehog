@@ -362,6 +362,10 @@ publish_release() {
 	prepare_bootstrap "$bootstrap" "$assets"
 	check_bootstrap "$assets/bootstrap.dat.gz" "$java" "$jar"
 
+	# Nodes refuse a bootstrap without a hash signed by the release key, which
+	# the loop below signs like every other asset.
+	(cd "$assets" && sha256sum bootstrap.dat.gz > bootstrap.dat.gz.sha256)
+
 	step "Signing every asset with $fingerprint"
 	local file
 	for file in "$assets"/*; do
@@ -372,7 +376,7 @@ publish_release() {
 	done
 
 	step "Attaching the bootstrap and the signatures"
-	gh release upload "$tag" --clobber "$assets/bootstrap.dat.gz" "$assets"/*.asc
+	gh release upload "$tag" --clobber "$assets/bootstrap.dat.gz" "$assets/bootstrap.dat.gz.sha256" "$assets"/*.asc
 
 	step "Publishing $tag"
 	local title="$version"

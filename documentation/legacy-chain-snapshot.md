@@ -191,6 +191,14 @@ existing snapshot, and `SnapshotDownload` transparently decompresses a source wh
 `.gz`. A daemon that starts without a snapshot runs the same download from the same default URL in
 the background through `SnapshotInstaller`, reporting its progress on `GET /status`.
 
+Before any of that, `SnapshotDownload` fetches `<source>.sha256` and `<source>.sha256.asc` from beside
+the source. The hash file is in `sha256sum` format and must name the source's own file; its detached
+signature must verify against the release key bundled into the jar (`ReleaseKey`, the repository's
+`release-key.asc`). The SHA-256 of the transferred bytes, taken before decompression, must then equal
+it, so an incomplete download, or a snapshot from another release, never installs. There is no
+fallback: a source without a signed hash is refused, which includes every release before 0.0.8 and
+therefore the `releases/latest` URL of snapshot builds until 0.0.8 is published.
+
 ## REST API
 
 `BootstrapResource`
@@ -239,7 +247,8 @@ data directory:
    dependency beyond what the JDK and the standard toolchain already provide; measured on the
    current snapshot, `gzip -9` brings the 556,361,944-byte file to roughly 314 MB against roughly
    270 MB for `xz`. `bootstrap fetch`'s default URL expects `bootstrap.dat.gz` on the running version's
-   own GitHub release, which is why a release is never published before the snapshot is attached, and why
+   own GitHub release, next to `bootstrap.dat.gz.sha256` and its `.asc`, which `publish` writes and signs;
+   that is why a release is never published before the snapshot is attached, and why
    `publish` carries the previous release's snapshot forward when no new one is given.
 
 ## Known rough edges
