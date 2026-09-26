@@ -131,7 +131,9 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	@BeforeTry
 	public void beforeTry() {
-		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true);
+		client = new RestClient(server.getRest().getHostName(), server.getRest().getPort(), true,
+			server.getRest().getToken()
+		);
 	}
 
 	@AfterTry

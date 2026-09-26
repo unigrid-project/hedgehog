@@ -35,4 +35,10 @@ public class RestOptions {
 		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
 	)
 	private static int port;
+
+	@Getter @Option(names = "--resttoken", scope = CommandLine.ScopeType.INHERIT,
+		description = "REST bearer token (defaults to $HEDGEHOG_REST_TOKEN, then a token generated into the "
+			+ "data directory).", defaultValue = "${env:HEDGEHOG_REST_TOKEN}"
+	)
+	private static String token;
 }

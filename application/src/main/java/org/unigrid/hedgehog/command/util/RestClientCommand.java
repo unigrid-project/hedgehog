@@ -23,12 +23,15 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.server.rest.RestToken;
 
 @RequiredArgsConstructor
 public class RestClientCommand implements Runnable {
@@ -91,19 +94,31 @@ public class RestClientCommand implements Runnable {
 		}
 	}
 
+	private void dispatch(RestClient rest) throws ResponseOddityException {
+		final MethodCallback callback = new MethodCallback();
+
+		switch (method) {
+			case HttpMethod.GET -> callback.get(rest);
+			case HttpMethod.POST -> callback.post(rest);
+			case HttpMethod.PUT -> callback.put(rest);
+			case HttpMethod.DELETE -> callback.delete(rest);
+			default -> throw new UnsupportedOperationException();
+		}
+	}
+
 	@Override
 	public void run() {
-		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true)) {
-			final MethodCallback callback = new MethodCallback();
+		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true,
+			RestToken.resolve())) {
 
-			switch (method) {
-				case HttpMethod.GET -> callback.get(rest);
-				case HttpMethod.POST -> callback.post(rest);
-				case HttpMethod.PUT -> callback.put(rest);
-				case HttpMethod.DELETE -> callback.delete(rest);
-				default -> throw new UnsupportedOperationException();
-			}
+			dispatch(rest);
 		} catch (ResponseOddityException ex) {
+			System.err.println(ex.getMessage());
+		} catch (NoSuchFileException ex) {
+			System.err.printf("No REST token in %s; is the daemon running? Otherwise pass --resttoken.%n",
+				ex.getFile()
+			);
+		} catch (IOException ex) {
 			System.err.println(ex.getMessage());
 		}
 	}

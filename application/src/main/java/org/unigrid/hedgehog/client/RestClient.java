@@ -21,7 +21,9 @@ package org.unigrid.hedgehog.client;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
+import jakarta.ws.rs.client.ClientRequestFilter;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -31,15 +33,26 @@ import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.server.rest.BearerTokenFilter;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
 
 public class RestClient implements AutoCloseable {
 	private final Client client;
 	private final String baseUrl;
 
-	@SneakyThrows
 	public RestClient(String host, int port, boolean isSecure) {
+		this(host, port, isSecure, null);
+	}
+
+	@SneakyThrows
+	public RestClient(String host, int port, boolean isSecure, String token) {
 		final ClientConfig clientConfig = new ClientConfig();
+
+		if (token != null) {
+			clientConfig.register((ClientRequestFilter) request -> request.getHeaders()
+				.putSingle(HttpHeaders.AUTHORIZATION, BearerTokenFilter.SCHEME + " " + token)
+			);
+		}
 
 		clientConfig.register(JacksonJaxbJsonProvider.class);
 		clientConfig.register(new JsonConfiguration());
@@ -60,7 +73,17 @@ public class RestClient implements AutoCloseable {
 		}
 	}
 
+	/* A bearer challenge means the node refused the token itself, not a key sent with the request */
+	private boolean isTokenRejected(Response response) {
+		return response.getStatus() == Status.UNAUTHORIZED.getStatusCode()
+			&& BearerTokenFilter.SCHEME.equals(response.getHeaderString(HttpHeaders.WWW_AUTHENTICATE));
+	}
+
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
+		if (isTokenRejected(response)) {
+			throw new ResponseOddityException(response.getStatusInfo());
+		}
+
 		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
 			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
 		);

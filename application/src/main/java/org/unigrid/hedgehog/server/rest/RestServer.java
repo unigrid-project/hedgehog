@@ -37,6 +37,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
 import java.security.cert.CertificateException;
 import javax.net.ssl.SSLException;
 import lombok.Getter;
@@ -57,8 +58,17 @@ public class RestServer extends AbstractServer {
 
 	private Container container;
 	private final NioEventLoopGroup group = new NioEventLoopGroup(COMMUNICATION_THREADS);
-	private ResourceConfig resourceConfig = getResourceConfig();
+	private ResourceConfig resourceConfig;
 	@Getter private Channel channel;
+	@Getter private String token;
+
+	@SneakyThrows
+	private String generateToken() {
+		final String generated = RestToken.generate();
+
+		RestToken.write(RestToken.getFile(), generated);
+		return generated;
+	}
 
 	private ResourceConfig getResourceConfig() {
 		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
@@ -76,6 +86,7 @@ public class RestServer extends AbstractServer {
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
 		config.register(ValidationFeature.class);
+		config.register(new BearerTokenFilter(token));
 
 		return config;
 	}
@@ -114,6 +125,8 @@ public class RestServer extends AbstractServer {
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
+		token = RestToken.getConfigured().orElseGet(this::generateToken);
+		resourceConfig = getResourceConfig();
 		container = getContainerInstance();
 		final ChannelHandler initializer = getJerseyInitializerInstance(container);
 
@@ -124,9 +137,14 @@ public class RestServer extends AbstractServer {
 	}
 
 	@PreDestroy
+	@SneakyThrows
 	public void destroy() {
 		channel.close();
 		container.getApplicationHandler().onShutdown(container);
 		group.shutdownGracefully();
+
+		if (RestToken.getConfigured().isEmpty()) {
+			Files.deleteIfExists(RestToken.getFile());
+		}
 	}
 }
