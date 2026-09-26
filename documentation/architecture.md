@@ -324,6 +324,7 @@ reads an environment variable or a system property; the command line is the only
 | `-R`, `--resthost` | `RestOptions` | `String` | `localhost` | `RestServer` bind address, `RestClientCommand` target |
 | `-r`, `--restport` | `RestOptions` | `int` | `52884` (`RestOptions.DEFAULT_PORT`) | `RestServer` bind port, `RestClientCommand` target |
 | `--resttoken` | `RestOptions` | `String` | `$HEDGEHOG_REST_TOKEN`, else `rest.token` in the data directory | `RestServer` bearer token, `RestClientCommand` credential |
+| `--restmaxupload` | `RestOptions` | `long` | `1073741824` (1 GiB) | `StorageObject` upload limit |
 
 Both mixins are attached to `cli` **and** `daemon`, so `-H`/`-p`/`--no-seeds`/`--network-keys` appear
 in the help of every `cli` subcommand even though the client-side commands only ever use

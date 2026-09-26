@@ -77,9 +77,11 @@ id. The tests use the first two to find the port the server actually landed on.
 | `-R`, `--resthost` | `host` | `localhost` |
 | `-r`, `--restport` | `port` | `52884` (`DEFAULT_PORT`) |
 | `--resttoken` | `token` | `$HEDGEHOG_REST_TOKEN`, else generated (see [Authentication](#authentication)) |
+| `--restmaxupload` | `maxUpload` | `1073741824` bytes (1 GiB, see [Upload limit](#upload-limit)) |
 
-All three are `CommandLine.ScopeType.INHERIT` and are mixed into `Daemon` and `CLI`, so the same flags
-select the bind address and token on the server and the target and credential on the client. The REST listener defaults to
+All are `CommandLine.ScopeType.INHERIT` and are mixed into `Daemon` and `CLI`, so the same flags
+select the bind address and token on the server and the target and credential on the client.
+`--restmaxupload` only matters to the daemon. The REST listener defaults to
 loopback, unlike the P2P listener which defaults to `0.0.0.0` (`NetOptions`, default port `52883`).
 
 ### Request pipeline
@@ -484,7 +486,7 @@ nor deleted through this API.
 
 | Method | Path | Consumes | Produces | Body in | Body out | Status codes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `POST` | `/storage-object/{bucket}/{key}` | `application/octet-stream` | – | raw bytes | – | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException`; `500` on `IOException` |
+| `POST` | `/storage-object/{bucket}/{key}` | `application/octet-stream` | – | raw bytes | – | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException`; `413` over the upload limit; `500` on `IOException` |
 | `GET` | `/storage-object/list/{bucket}` | – | `application/xml` | – | `ListBucketResult` | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException` |
 | `PUT` | `/storage-object/{bucket}/{key}` | – | `application/xml` | ignored | `CopyObjectResult` | `200`; `400` when `x-amz-copy-source` is missing or a name escapes its directory; `404` on `NoSuchBucketException`; `500` on `IOException` |
 | `GET` | `/storage-object/{bucket}/{key}` | – | `application/octet-stream` | – | raw bytes | `200`; `400` when a name escapes its directory; `404` on `NoSuchBucketException`/`NoSuchKeyException`; `500` otherwise |
@@ -552,6 +554,19 @@ Consequences that follow directly from that layout:
 `BucketService.listBuckets()` calls `Stream.of(dataDir.toFile().listFiles())`. Nothing creates
 `s3data` at startup — only `BucketService.create` does, via `mkdirs()` — so `GET /bucket/list` on a
 node where no bucket has ever been created dereferences a `null` array.
+
+### Upload limit
+
+`POST /storage-object/{bucket}/{key}` refuses any upload larger than `--restmaxupload` bytes with
+`413 Payload Too Large`. A request whose `Content-Length` already exceeds the limit is refused
+before the storage service is called. Otherwise the resource wraps the body in a
+`LimitedInputStream` (`application/src/main/java/org/unigrid/hedgehog/service/LimitedInputStream.java`),
+which counts the bytes as `ObjectService.put` copies them and throws `UploadTooLargeException` once
+the count passes the limit. That covers chunked bodies and a `Content-Length` that understates the
+body. `ObjectService.put` writes into a temporary `.upload-*` file in the bucket and moves it over
+the key only once the copy has finished, deleting the temporary file on any failure. A refused
+upload therefore leaves nothing behind and keeps an existing object under the same key intact.
+While an upload is in flight, the temporary file shows up in bucket listings.
 
 ### Services
 
