@@ -37,13 +37,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.InvalidPathException;
 import java.util.Optional;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
 import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchBucketException;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchKeyException;
+import org.unigrid.hedgehog.model.s3.entity.UploadTooLargeException;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.service.LimitedInputStream;
 import org.unigrid.hedgehog.service.ObjectService;
 
 @Path("/storage-object")
@@ -61,13 +64,21 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
-	public Response create(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key,
-		@NotNull InputStream data) {
+	public Response create(@Context HttpHeaders httpHeaders, @NotNull @PathParam("bucket") String bucket,
+		@NotNull @PathParam("key") String key, @NotNull InputStream data) {
+
+		final long maxUpload = RestOptions.getMaxUpload();
 
 		try {
-			objectService.put(bucket, key, data);
+			if (httpHeaders.getLength() > maxUpload) {
+				throw new UploadTooLargeException(maxUpload);
+			}
+
+			objectService.put(bucket, key, new LimitedInputStream(data, maxUpload));
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (UploadTooLargeException e) {
+			return Response.status(Response.Status.REQUEST_ENTITY_TOO_LARGE).entity(e.getMessage()).build();
 		} catch (InvalidPathException e) {
 			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (IOException e) {

@@ -41,4 +41,9 @@ public class RestOptions {
 			+ "data directory).", defaultValue = "${env:HEDGEHOG_REST_TOKEN}"
 	)
 	private static String token;
+
+	@Getter @Option(names = "--restmaxupload", scope = CommandLine.ScopeType.INHERIT,
+		description = "Largest storage upload in bytes (defaults to ${DEFAULT-VALUE}).", defaultValue = "1073741824"
+	)
+	private static long maxUpload;
 }

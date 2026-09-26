@@ -20,18 +20,24 @@ package org.unigrid.hedgehog.service;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.isA;
 import static org.unigrid.hedgehog.service.StorageAssertions.assertRejected;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.unigrid.hedgehog.model.s3.entity.UploadTooLargeException;
 
 public class ObjectServiceTest {
 	private static final String BUCKET = "bucket";
@@ -44,6 +50,18 @@ public class ObjectServiceTest {
 	public void beforeTry() {
 		service.setDataDir(StorageAssertions.inMemoryDataDir());
 		Files.createDirectories(service.getDataDir().resolve(BUCKET));
+	}
+
+	private void assertUploadTooLarge(String key, byte[] data) {
+		Throwable thrown = null;
+
+		try {
+			service.put(BUCKET, key, new LimitedInputStream(new ByteArrayInputStream(data), data.length - 1));
+		} catch (Exception ex) {
+			thrown = ex;
+		}
+
+		assertThat(thrown, isA(UploadTooLargeException.class));
 	}
 
 	@Provide
@@ -83,5 +101,28 @@ public class ObjectServiceTest {
 
 		assertThat(service.copy(BUCKET, key, BUCKET, key + "-copy").getETag(), equalTo(DigestUtils.md5Hex(data)));
 		assertThat(service.getObject(BUCKET, key + "-copy"), equalTo(data));
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shouldLeaveNothingBehindWhenUploadIsTooLarge(@ForAll("providePlain") String key,
+		@ForAll @Size(min = 1, max = 1024) byte[] data) {
+
+		assertUploadTooLarge(key, data);
+
+		try (Stream<Path> files = Files.list(service.getDataDir().resolve(BUCKET))) {
+			assertThat(files.count(), equalTo(0L));
+		}
+	}
+
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shouldKeepExistingObjectWhenUploadIsTooLarge(@ForAll("providePlain") String key,
+		@ForAll byte[] existing, @ForAll @Size(min = 1, max = 1024) byte[] data) {
+
+		service.put(BUCKET, key, new ByteArrayInputStream(existing));
+
+		assertUploadTooLarge(key, data);
+		assertThat(service.getObject(BUCKET, key), equalTo(existing));
 	}
 }

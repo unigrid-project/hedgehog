@@ -67,7 +67,15 @@ public class ObjectService {
 			throw new NoSuchBucketException("No such bucket");
 		}
 
-		Files.copy(data, file, StandardCopyOption.REPLACE_EXISTING);
+		/* Written aside and moved into place, so a failed upload never destroys the object it replaces */
+		final Path partial = Files.createTempFile(bucketPath, ".upload-", null);
+
+		try {
+			Files.copy(data, partial, StandardCopyOption.REPLACE_EXISTING);
+			Files.move(partial, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+		} finally {
+			Files.deleteIfExists(partial);
+		}
 	}
 
 	public ListBucketResult listBucket(String bucket, Optional<String> prefix, Optional<String> delimiter,
