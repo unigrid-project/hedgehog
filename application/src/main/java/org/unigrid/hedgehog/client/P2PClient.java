@@ -22,6 +22,7 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.logging.LogLevel;
@@ -30,15 +31,14 @@ import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicClientCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.incubator.codec.quic.QuicStreamType;
 import java.net.InetSocketAddress;
-import java.security.cert.CertificateException;
 import java.util.concurrent.ExecutionException;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
-import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -62,12 +62,21 @@ import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient extends ConnectionContainer {
-	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
-		NoSuchAlgorithmException, TimeoutException {
-
+	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, TimeoutException {
 		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
+
+		try {
+			channel = connect(group.get(), hostname, port);
+		} catch (Exception ex) {
+			group.get().shutdownGracefully();
+			throw ex;
+		}
+	}
+
+	private static QuicStreamChannel connect(EventLoopGroup group, String hostname, int port)
+		throws ExecutionException, InterruptedException, TimeoutException {
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -83,30 +92,22 @@ public class P2PClient extends ConnectionContainer {
 			.sslContext(context)
 			.build();
 
-		final Channel channelBootstrap = new Bootstrap().group(group.get())
+		final Channel channelBootstrap = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
 			.handler(codec)
 			.bind(0).sync().channel();
 
 		final InetSocketAddress address = new InetSocketAddress(hostname, port);
-		QuicChannel quicChannel;
-
-		try {
-			quicChannel = QuicChannel.newBootstrap(channelBootstrap)
-				.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY, address)
-				.handler(new ProtocolMismatchHandler())
-				.streamHandler(new ChannelInboundHandlerAdapter())
-				.remoteAddress(address)
-				.connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-
-		} catch (ExecutionException | TimeoutException ex)  {
-			group.get().shutdownGracefully();
-			throw ex;
-		}
+		final QuicChannel quicChannel = QuicChannel.newBootstrap(channelBootstrap)
+			.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY, address)
+			.handler(new ProtocolMismatchHandler())
+			.streamHandler(new ChannelInboundHandlerAdapter())
+			.remoteAddress(address)
+			.connect().get(Network.CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		// TODO: Add support for ChannelCollector
-		channel = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+		return quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new RegisterQuicChannelInitializer(() -> {
 				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),

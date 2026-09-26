@@ -18,8 +18,6 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -58,8 +56,7 @@ public class TopologyThread extends Thread {
 						topology.getChannels().set(client.getChannel(), n);
 					});
 				}
-			} catch (CertificateException | ExecutionException | InterruptedException
-				| NoSuchAlgorithmException | TimeoutException ex) {
+			} catch (ExecutionException | InterruptedException | TimeoutException | RuntimeException ex) {
 
 				log.atWarn().log("Node connection to {} failed", node, ex);
 
