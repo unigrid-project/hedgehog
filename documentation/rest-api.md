@@ -405,7 +405,7 @@ Serialized `Node` JSON contains `address`, `details` (`protocols` array plus `ve
 | Method | Path | Body out | Status codes |
 | --- | --- | --- | ---: |
 | `POST` | `/stop` | – | `202` |
-| `GET` | `/version` | `VersionResponse` | `202` |
+| `GET` | `/version` | `VersionResponse` | `200` |
 | `GET` | `/height` | `HeightResponse` | `200`, `503` |
 | `GET` | `/status` | `StatusResponse` | `200` |
 
@@ -427,9 +427,7 @@ percentage of the transfer, or `null` while the server has not said how large it
 once the download has ended, whether installed or not, it reports `running` with `progress` at
 `100`.
 
-`/version` answering `202 Accepted` rather than `200 OK` looks unintended, but `RestClient` treats
-`202` as a success, so nothing in-tree notices. No CLI command calls `/version`; it exists purely for
-external callers.
+No CLI command calls `/version`; it exists purely for external callers.
 
 `application/src/main/java/org/unigrid/hedgehog/server/rest/entity/VersionResponse.java` is a
 `@Data @Builder` record-like holder with a static factory:
@@ -738,7 +736,7 @@ and the `@PreDestroy` in
 | Untrusted key or signing failure | `401` |
 | Node already in topology; proposal or co-signature refused | `409` |
 | Topology refused the node (self, duplicate) | `304` |
-| Shutdown and version | `202` |
+| Shutdown | `202` |
 
 ## The client side
 
@@ -985,8 +983,6 @@ on the surefire plugin in `application/pom.xml`; see
 - **Topology access from REST is unsynchronized.** The `@Protected @Lock(...)` annotations on
   `Topology` are not enabled in the packaged application, so resource methods mutate it concurrently
   with the Netty threads.
-- **`/version` returns `202 Accepted`.** `RestClient` accepts it, so nothing in-tree notices.
-- **`POST /stop` is unauthenticated.** Only the `localhost` default bind limits who can call it.
 - **The `privateKey` header transports a raw network private key to the daemon**, over TLS that the
   shipped client does not verify.
 - **The spork writers validate nothing but the key.** Amounts, block heights and WIF addresses are
