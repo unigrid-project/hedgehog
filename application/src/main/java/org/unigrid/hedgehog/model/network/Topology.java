@@ -22,6 +22,7 @@ import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.net.InetSocketAddress;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.HashSet;
@@ -91,6 +92,16 @@ public class Topology {
 			if (node.equals(n)) {
 				consumer.accept(n);
 			}
+		});
+	}
+
+	/* The address decides the hash of a node, so it has to leave the set while the address changes */
+	@Protected @Lock(LockMode.WRITE)
+	public void changeAddress(Node node, InetSocketAddress address) {
+		nodes.stream().filter(node::equals).findFirst().ifPresent(n -> {
+			nodes.remove(n);
+			n.setAddress(address);
+			nodes.add(n);
 		});
 	}
 

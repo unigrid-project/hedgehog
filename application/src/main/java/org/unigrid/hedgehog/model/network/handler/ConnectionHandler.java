@@ -57,10 +57,8 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 			if (Objects.nonNull(oldWPort)) {
 				final Node node = Node.builder().address(oldWPort).build();
 
-				topology.get().modifyNode(node, n -> {
-					log.atTrace().log("Modifying node {} with new address {}", n, newWPort);
-					n.setAddress(newWPort);
-				});
+				log.atTrace().log("Modifying node {} with new address {}", node, newWPort);
+				topology.get().changeAddress(node, newWPort);
 			}
 
 			log.atTrace().log("Stored new address {} on channel {}", newWPort, ctx.channel());
