@@ -323,10 +323,12 @@ reads an environment variable or a system property; the command line is the only
 | `--network-keys` | `NetOptions` | `String[]`, `split = ","` | four built-in public keys | `NetworkKey.getPublicKeys()`, i.e. which keys may sign sporks |
 | `-R`, `--resthost` | `RestOptions` | `String` | `localhost` | `RestServer` bind address, `RestClientCommand` target |
 | `-r`, `--restport` | `RestOptions` | `int` | `52884` (`RestOptions.DEFAULT_PORT`) | `RestServer` bind port, `RestClientCommand` target |
+| `--resttoken` | `RestOptions` | `String` | `$HEDGEHOG_REST_TOKEN`, else `rest.token` in the data directory | `RestServer` bearer token, `RestClientCommand` credential |
 
 Both mixins are attached to `cli` **and** `daemon`, so `-H`/`-p`/`--no-seeds`/`--network-keys` appear
 in the help of every `cli` subcommand even though the client-side commands only ever use
-`RestOptions`. The reverse also holds: `-R`/`-r` are the pair that actually matter for `cli`.
+`RestOptions`. The reverse also holds: `-R`/`-r`/`--resttoken` are the options that actually matter
+for `cli`.
 
 The `--network-keys` default is four hard-coded hex strings of 262 characters each — one per board
 member of the Unigrid Foundation, the network's trusted spork signing keys, exactly the width
@@ -336,7 +338,8 @@ set rather than adding to it, which is the hinge the private-network recipe belo
 against every configured public key; [Grid sporks](sporks.md) carries that mechanism in full.
 
 The default network host is `0.0.0.0` while the default REST host is `localhost` — the P2P server is
-public by design and the REST control surface is loopback-only by default.
+public by design and the REST control surface is loopback-only by default. On top of that, every REST
+request needs the bearer token; see [REST interface](rest-api.md#authentication).
 
 `Network` (`application/src/main/java/org/unigrid/hedgehog/model/Network.java`) holds the rest of the
 network-wide constants: protocols `hedgehog/0.0.4` and `gridspork/0.0.4`, seeds `seed1..seed6.unigrid.org`,
@@ -507,8 +510,10 @@ here once.
    persist `spork.db`.
 
 Every `cli` invocation above talks to `RestOptions.getHost()`/`getPort()`, so `-R`/`-r` are needed
-whenever the daemon is not on the `localhost:52884` default; the `NetOptions` flags that also appear in
-its help are inert on the client side.
+whenever the daemon is not on the `localhost:52884` default. Each call also sends the daemon's bearer
+token, read from `rest.token` in the shared data directory; `--resttoken` is needed only when the CLI
+cannot read that file, for example on another host. The `NetOptions` flags that also appear in its
+help are inert on the client side.
 
 ## Trust and threat model
 
@@ -531,11 +536,12 @@ collected here. The short version: **content is authenticated, transport and con
   in a `privateKey` request header on every spork write. It is protected only by the (unauthenticated)
   TLS session, and it lands in whatever logs or shell history the operator keeps. [REST interface](rest-api.md)
   documents the header.
-* **The REST surface is unauthenticated end to end.** `POST /stop` kills the daemon, `POST /node` and
-  `DELETE /node/{address}` rewrite the topology, and the whole S3-compatible surface
-  (`/bucket/...`, `/storage-object/...`) reads and writes files with no credential check at all. The
-  only thing standing in front of it is the `localhost` default of `-R/--resthost`; binding it
-  anywhere else exposes all of it.
+* **The REST surface is guarded by a single bearer token.** `POST /stop` kills the daemon, `POST /node`
+  and `DELETE /node/{address}` rewrite the topology, and the S3-compatible surface (`/bucket/...`,
+  `/storage-object/...`) reads and writes files. All of it requires `Authorization: Bearer <token>`,
+  checked before resource matching, so no endpoint is exempt. The daemon generates the token into
+  `rest.token` (mode `600`) in the data directory unless `--resttoken` sets one. Anyone who can read
+  that file, or intercept the unauthenticated TLS session, holds full control of the node.
 * **The S3 object key is used as a path component without validation.** `ObjectService.put` builds
   `Path.of(dataDir.toString(), bucket, key)` straight from the request path parameters, so a key
   containing traversal segments resolves outside `s3data/`.

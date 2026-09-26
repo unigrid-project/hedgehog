@@ -76,9 +76,10 @@ id. The tests use the first two to find the port the server actually landed on.
 | --- | --- | --- |
 | `-R`, `--resthost` | `host` | `localhost` |
 | `-r`, `--restport` | `port` | `52884` (`DEFAULT_PORT`) |
+| `--resttoken` | `token` | `$HEDGEHOG_REST_TOKEN`, else generated (see [Authentication](#authentication)) |
 
-Both are `CommandLine.ScopeType.INHERIT` and are mixed into `Daemon` and `CLI`, so the same flags
-select the bind address on the server and the target on the client. The REST listener defaults to
+All three are `CommandLine.ScopeType.INHERIT` and are mixed into `Daemon` and `CLI`, so the same flags
+select the bind address and token on the server and the target and credential on the client. The REST listener defaults to
 loopback, unlike the P2P listener which defaults to `0.0.0.0` (`NetOptions`, default port `52883`).
 
 ### Request pipeline
@@ -87,12 +88,36 @@ loopback, unlike the P2P listener which defaults to `0.0.0.0` (`NetOptions`, def
 flowchart LR
     A[TCP + TLS<br/>NioServerSocketChannel] --> B[JerseyServerInitializer<br/>SslContext + HTTP codec]
     B --> C[NettyHttpContainer]
-    C --> D[ResourceConfig<br/>8 resource classes]
+    C --> T[BearerTokenFilter<br/>@PreMatching]
+    T --> D[ResourceConfig<br/>8 resource classes]
     D --> E[CDIBridgeResource<br/>@PostConstruct field injection]
     E --> F[Resource method]
     F --> G[Jackson / JAXB providers]
     G --> H[Response]
 ```
+
+### Authentication
+
+Every request must carry `Authorization: Bearer <token>`. `BearerTokenFilter`
+(`application/src/main/java/org/unigrid/hedgehog/server/rest/BearerTokenFilter.java`) is a
+`@PreMatching` `ContainerRequestFilter` at `Priorities.AUTHENTICATION`, registered on the
+`ResourceConfig` by `RestServer.init()`. Because it runs before resource matching, no endpoint is
+exempt, unknown paths are refused the same way, and any resource added later is covered without
+further work. The header is compared as a whole with `MessageDigest.isEqual`, so the check runs in
+constant time and the scheme is matched exactly as `Bearer`. A refused request gets
+`401 Unauthorized` with `WWW-Authenticate: Bearer` and never reaches a resource.
+
+`RestServer` takes the token from `--resttoken` (or `HEDGEHOG_REST_TOKEN`) when one is set. Otherwise
+it generates 32 random bytes, Base64url-encoded, on every start and writes them to `rest.token` in
+the user data directory (`RestToken`). The file is created with mode `600` where the file system
+supports POSIX permissions and then moved into place, so the token is never readable by other users.
+`RestServer.destroy()` deletes a generated file again. A local `hedgehog cli` reads the same file, so
+it needs no configuration; a client on another host, or against a daemon with a different data
+directory, passes the token with `--resttoken`.
+
+The token is only as private as the channel. TLS uses a throwaway self-signed certificate that the
+shipped client does not verify (see [RestClient](#restclient)), so binding `-R` beyond loopback exposes
+the token to anyone able to intercept the traffic.
 
 ## Resource model and providers
 
@@ -131,8 +156,9 @@ returns a fresh `ObjectMapper` per call with `JavaTimeModule` registered,
 `jersey-media-jaxb` being on the classpath, plus
 `opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;` in `module-info.java`.
 
-Nothing is registered for authentication, CORS, request logging or gzip. The only authorization in
-the whole surface is the per-request `privateKey` header on the four spork mutation endpoints.
+Apart from `BearerTokenFilter` (see [Authentication](#authentication)), nothing is registered for
+CORS, request logging or gzip. On top of the bearer token, the four spork mutation endpoints also
+require the per-request `privateKey` header.
 
 ### CDI injection into resources
 
@@ -382,9 +408,8 @@ Serialized `Node` JSON contains `address`, `details` (`protocols` array plus `ve
 | `GET` | `/status` | `StatusResponse` | `200` |
 
 `/stop` calls `CDIContext.stop()`, which `notifyAll()`s the monitor that `CDIContext.run()` is
-blocked on, unwinding the Weld container and thereby the daemon. There is no authorization on it: any
-client that can reach the port can shut the node down. The default bind of `localhost` is what
-limits the exposure.
+blocked on, unwinding the Weld container and thereby the daemon. Like every endpoint it requires the bearer
+token, so only a caller holding the token can shut the node down.
 
 `/height` answers `{ "height": N }`, the current height of the chain that mints — the height the
 legacy balance compares mint-storage entries against (see
@@ -550,7 +575,8 @@ node where no bucket has ever been created dereferences a `null` array.
 
 `BucketService.listBuckets()` builds `new Owner("user", RandomStringUtils.randomNumeric(20))` — the
 owner display name is the constant `user` and the ID is regenerated randomly on every call. There is
-no notion of an authenticated principal anywhere in this surface.
+no notion of a principal anywhere in this surface: the bearer token admits a caller, but it does
+not identify one.
 
 `ObjectService.copy` does not check that the source *key* exists, so a missing object surfaces as an
 `IOException` and a `500` rather than a `404`. It also returns `new CopyObjectResult(checksum,
@@ -696,9 +722,12 @@ and the `@PreDestroy` in
 ### RestClient
 
 `application/src/main/java/org/unigrid/hedgehog/client/RestClient.java` is an `AutoCloseable` wrapper
-over a JAX-RS `Client`. Its constructor takes `(String host, int port, boolean isSecure)` and:
+over a JAX-RS `Client`. Its constructor takes `(String host, int port, boolean isSecure, String token)`
+(a three-argument form passes no token, for the S3 mock in the tests) and:
 
 * registers the same three JSON providers as the server,
+* when a token is given, registers a `ClientRequestFilter` that adds `Authorization: Bearer <token>`
+  to every request,
 * builds an `SSLContext.getInstance("ssl")` initialized with
   `InsecureTrustManagerFactory.INSTANCE.getTrustManagers()`,
 * installs a hostname verifier that returns `true` for everything, with the source comment
@@ -706,15 +735,19 @@ over a JAX-RS `Client`. Its constructor takes `(String host, int port, boolean i
 * stores a base URL format string built as `https://%s:%d%%s` (or `http://…` when `isSecure` is
   false), so each call substitutes the location with `String.format(baseUrl, location)`.
 
-TLS is therefore encrypted but entirely unauthenticated — which is the counterpart to the server
-generating a throwaway `SelfSignedCertificate` on each start. Since the `privateKey` header rides on
-this channel, a man in the middle between CLI and daemon can capture a network private key.
+TLS is therefore encrypted but the server is never authenticated — which is the counterpart to the server
+generating a throwaway `SelfSignedCertificate` on each start. Since the bearer token and the `privateKey`
+header ride on this channel, a man in the middle between CLI and daemon can capture both.
 
 Methods: `get`, `getEntity`, `delete`, `post`, `put`, `putWithHeaders`, `close`. All but `getEntity`
 funnel their response through:
 
 ```java
 private void throwResponseOddity(Response response) throws ResponseOddityException {
+    if (isTokenRejected(response)) {
+        throw new ResponseOddityException(response.getStatusInfo());
+    }
+
     final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
         Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
     );
@@ -725,7 +758,8 @@ private void throwResponseOddity(Response response) throws ResponseOddityExcepti
 }
 ```
 
-So `200`, `201`, `202`, `204`, `401`, `404` and `409` are handed back to the caller, and everything
+`isTokenRejected` is true for a `401` with `WWW-Authenticate: Bearer`, the answer of
+`BearerTokenFilter`. Any other `200`, `201`, `202`, `204`, `401`, `404` and `409` is handed back to the caller, and everything
 else — including `304`, `400` and `500` — becomes an exception. `409` is on the list because a
 refused proposal or co-signature is an ordinary answer the spork commands report themselves. `node-add`
 therefore checks for a `409` in `execute` and prints the status line on stderr. `getEntity` declares
@@ -743,9 +777,11 @@ side. It is `@RequiredArgsConstructor` over a single final `method` field, with 
 constructors taking `(method, location)` and `(method, location, defaultSupplier)`, plus an optional
 header map set through `setHeaders`.
 
-`run()` opens `new RestClient(RestOptions.getHost(), RestOptions.getPort(), true)` — always TLS —
-dispatches on the HTTP verb through an inner `MethodCallback`, and prints any
-`ResponseOddityException` message to `System.err`.
+`run()` opens `new RestClient(RestOptions.getHost(), RestOptions.getPort(), true, RestToken.resolve())`
+— always TLS — dispatches on the HTTP verb through an inner `MethodCallback`, and prints any
+`ResponseOddityException` message to `System.err`. `RestToken.resolve()` returns `--resttoken` when it
+is set and otherwise reads `rest.token` from the data directory; when that file is missing, the
+command prints where it looked and suggests `--resttoken` instead of calling the daemon.
 
 Three protected hooks exist for subclasses. `getEntity()` and `execute(Response)` throw
 `UnsupportedOperationException` by default; `getLocation()` returns the constructor-supplied location.
@@ -755,7 +791,9 @@ Two verbs get special handling before `execute` is called:
 
 * `GET` on `204 No Content` prints `defaultSupplier.get()` if one was supplied, otherwise the status
   info.
-* `PUT` on `401 Unauthorized` does the same.
+* `PUT` on `401 Unauthorized` does the same. A `401` carrying `WWW-Authenticate: Bearer` never gets
+  here: `RestClient` turns a refused token into a `ResponseOddityException`, so a wrong token is not
+  mistaken for a refused `privateKey`.
 
 Everything else goes straight to `execute(response)`.
 
