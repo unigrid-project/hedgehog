@@ -55,7 +55,7 @@ public class Topology {
 		nodes.clear();
 	}
 
-	@Protected @Lock(LockMode.READ)
+	@Protected @Lock(LockMode.WRITE)
 	public void repopulate() {
 		nodes = new HashSet<>();
 		channels.clear();
@@ -80,6 +80,7 @@ public class Topology {
 		nodes.forEach(consumer);
 	}
 
+	@Protected @Lock(LockMode.READ)
 	public boolean isEmpty() {
 		return nodes.isEmpty();
 	}
