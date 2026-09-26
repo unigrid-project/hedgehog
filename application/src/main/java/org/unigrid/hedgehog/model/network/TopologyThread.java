@@ -45,6 +45,7 @@ public class TopologyThread extends Thread {
 		@Override
 		public void accept(Node node) {
 			log.atTrace().log("Handling connection {}", node);
+			node.getConnection().filter(c -> !c.getChannel().isActive()).ifPresent(c -> drop(node, c));
 
 			try {
 				if (!node.getConnection().isPresent()) {
@@ -70,6 +71,13 @@ public class TopologyThread extends Thread {
 				topology.removeNode(node);
 				log.atTrace().log("Removed node {} from topology", node);
 			}
+		}
+
+		private void drop(Node node, Connection connection) {
+			log.atDebug().log("Dropping closed connection to {}", node);
+			connection.closeDirty();
+			topology.getChannels().remove(connection.getChannel());
+			topology.modifyNode(node, n -> n.setConnection(Optional.empty()));
 		}
 	}
 

@@ -18,10 +18,15 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.Channel;
 import jakarta.inject.Inject;
+import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.Set;
 import lombok.SneakyThrows;
+import mockit.Expectations;
 import mockit.Mocked;
+import mockit.Verifications;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.*;
@@ -54,6 +59,27 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		topology.clear();
 		topologyThread.start();
 		await().until(() -> topology.cloneNodes().size(), is(Network.getSeeds().length));
+	}
+
+	@Example
+	public void shouldDropClosedConnection(@Mocked Connection connection, @Mocked Channel channel) {
+		final Node node = Node.builder().address(new InetSocketAddress("127.0.100.1", 1000))
+			.connection(Optional.of(connection)).build();
+
+		new Expectations() {{
+			connection.getChannel(); result = channel;
+			channel.isActive(); result = false;
+		}};
+
+		topology.addNode(node);
+		topology.getChannels().set(channel, node);
+		topologyThread.new NodeConnectionHandler(topology).accept(node);
+
+		new Verifications() {{
+			connection.closeDirty(); times = 1;
+		}};
+
+		assertThat(topology.getChannels().get(channel).isPresent(), is(false));
 	}
 
 	@Example

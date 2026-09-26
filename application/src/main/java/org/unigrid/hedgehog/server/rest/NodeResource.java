@@ -110,9 +110,11 @@ public class NodeResource extends CDIBridgeResource {
 				return Response.status(Response.Status.NOT_FOUND).build();
 			}
 
-			nodeToFind.getConnection().ifPresent(connection -> {
-				connection.closeDirty();
-			});
+			topology.cloneNodes().stream().filter(nodeToFind::equals).findFirst()
+				.flatMap(Node::getConnection).ifPresent(connection -> {
+					connection.closeDirty();
+					topology.getChannels().remove(connection.getChannel());
+				});
 
 			topology.removeNode(nodeToFind);
 			return Response.ok().build();
