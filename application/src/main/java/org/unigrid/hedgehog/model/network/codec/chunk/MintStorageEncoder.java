@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.TreeMap;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
@@ -43,7 +44,7 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 		out.writeMedium(data.getMints().size());
 		out.writeZero(5 /* 40 bits */);
 
-		data.getMints().forEach((location, amount) -> {
+		new TreeMap<>(data.getMints()).forEach((location, amount) -> {
 			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), out);
 			out.writeInt(location.getHeight());
 			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), out);

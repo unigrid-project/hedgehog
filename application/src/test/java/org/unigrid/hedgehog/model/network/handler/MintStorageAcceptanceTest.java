@@ -62,6 +62,7 @@ import org.unigrid.hedgehog.server.TestServer;
 /* Sends minting sporks to a running node over QUIC; only one signed by two different network keys may be stored */
 public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
 	private static final int MAX_MINTS = 8;
+	private static final int MAX_ADDRESSES = 3;
 
 	private static Signature proposer;
 	private static Signature cosigner;
@@ -116,10 +117,9 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 	@SneakyThrows
 	private static MintStorage proposal(GridSpork stored, Map<Location, BigDecimal> mints) {
 		final MintStorage spork = Objects.isNull(stored) ? new MintStorage() : (MintStorage) SerializationUtils.clone(stored);
-		final MintStorage.SporkData data = new MintStorage.SporkData().empty();
+		final MintStorage.SporkData data = new MintStorage.SporkData();
 
-		/* Put one by one like the REST resource does; a pre-sized map would sign different serialized bytes */
-		mints.forEach(data.getMints()::put);
+		data.setMints(mints);
 		spork.archive();
 
 		/* Versions made within one millisecond would otherwise not be newer than the version they replace */
@@ -155,10 +155,12 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 		connection.closeDirty();
 	}
 
+	/* Few addresses, so mints share Address objects, which once changed the signed bytes on the way */
 	@Provide
 	public Arbitrary<Map<Location, BigDecimal>> provideMints() {
-		final Arbitrary<Location> locations = Arbitraries.strings().alpha().numeric().ofLength(34)
-			.map(wif -> Address.builder().wif(wif).build())
+		final Arbitrary<Location> locations = Arbitraries.strings().alpha().numeric().ofLength(34).list()
+			.ofMinSize(1).ofMaxSize(MAX_ADDRESSES)
+			.flatMap(wifs -> Arbitraries.of(wifs.stream().map(Address::new).toList()))
 			.flatMap(address -> Arbitraries.integers().between(0, 5_000_000)
 				.map(height -> new Location(address, height))
 			);

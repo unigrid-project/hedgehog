@@ -19,14 +19,23 @@
 package org.unigrid.hedgehog.model;
 
 import java.io.Serializable;
+import java.util.Comparator;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
-public class Address implements Serializable {
+public class Address implements Serializable, Comparable<Address> {
 	private static final long serialVersionUID = 3920093802621861005L;
+	private static final Comparator<Address> ORDER = Comparator.comparing(Address::getWif,
+		Comparator.nullsFirst(Comparator.naturalOrder())
+	);
 
 	private String wif;
+
+	@Override
+	public int compareTo(Address other) {
+		return ORDER.compare(this, other);
+	}
 }

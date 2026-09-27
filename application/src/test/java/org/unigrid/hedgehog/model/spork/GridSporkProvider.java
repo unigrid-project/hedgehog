@@ -127,6 +127,7 @@ public class GridSporkProvider {
 
 		final GridSpork gridSpork = GridSpork.create(gridSporkType);
 
+		gridSpork.setFlags((short) (gridSpork.getFlags() | flags));
 		gridSpork.setTimeStamp(time);
 		gridSpork.setPreviousTimeStamp(previousTime);
 		gridSpork.setData(chunkData(gridSporkType));

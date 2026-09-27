@@ -28,6 +28,7 @@ import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.AllArgsConstructor;
@@ -61,11 +62,18 @@ public class MintStorage extends GridSpork implements Serializable {
 		private Map<Location, BigDecimal> mints;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Location implements Serializable {
+		public static class Location implements Serializable, Comparable<Location> {
 			private static final long serialVersionUID = -727370077924808425L;
+			private static final Comparator<Location> ORDER = Comparator.comparing(Location::getAddress,
+				Comparator.nullsFirst(Comparator.naturalOrder())).thenComparingInt(Location::getHeight);
 
 			private Address address;
 			private int height;
+
+			@Override
+			public int compareTo(Location other) {
+				return ORDER.compare(this, other);
+			}
 
 			public static class Deserializer extends KeyDeserializer {
 				@Override

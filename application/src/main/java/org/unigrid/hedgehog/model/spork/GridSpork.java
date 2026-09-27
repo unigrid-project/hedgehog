@@ -44,6 +44,7 @@ import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+import org.unigrid.hedgehog.model.network.codec.SporkContentEncoder;
 
 @Data
 public class GridSpork implements Serializable, Signable {
@@ -74,7 +75,8 @@ public class GridSpork implements Serializable, Signable {
 	@AllArgsConstructor
 	public enum Flag {
 		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
-		DELTA((short) 0x02);	/* Is either delta-data or a raw representation of the previous value */
+		DELTA((short) 0x02),	/* Is either delta-data or a raw representation of the previous value */
+		WIRE_SIGNABLE((short) 0x04);	/* Signed over its wire encoding rather than its Java serialization */
 
 		@Getter private final short value;
 	}
@@ -147,12 +149,12 @@ public class GridSpork implements Serializable, Signable {
 	public byte[] getSignable() {
 		final ByteArrayOutputStream stream = new ByteArrayOutputStream();
 
-		stream.writeBytes(SerializationUtils.serialize(timeStamp));
-		stream.writeBytes(SerializationUtils.serialize(previousTimeStamp));
-		stream.writeBytes(SerializationUtils.serialize(flags));
-		stream.writeBytes(SerializationUtils.serialize(type));
-		stream.writeBytes(SerializationUtils.serialize(data));
-		stream.writeBytes(SerializationUtils.serialize(previousData));
+		/* Sporks signed by earlier builds cover their Java serialization, which depends on object identity */
+		if (isWireSignable()) {
+			stream.writeBytes(SporkContentEncoder.encode(this));
+		} else {
+			writeJavaSerialized(stream);
+		}
 
 		/* An empty log adds nothing, so signatures made before the log existed still verify */
 		if (!getSignatureLog().isEmpty()) {
@@ -162,9 +164,23 @@ public class GridSpork implements Serializable, Signable {
 		return stream.toByteArray();
 	}
 
+	private boolean isWireSignable() {
+		return (flags & Flag.WIRE_SIGNABLE.getValue()) != 0;
+	}
+
+	private void writeJavaSerialized(ByteArrayOutputStream stream) {
+		stream.writeBytes(SerializationUtils.serialize(timeStamp));
+		stream.writeBytes(SerializationUtils.serialize(previousTimeStamp));
+		stream.writeBytes(SerializationUtils.serialize(flags));
+		stream.writeBytes(SerializationUtils.serialize(type));
+		stream.writeBytes(SerializationUtils.serialize(data));
+		stream.writeBytes(SerializationUtils.serialize(previousData));
+	}
+
 	@Override
 	public void sign(String privateKeyHex) throws SigningException {
 		logRetiringHead();
+		flags |= Flag.WIRE_SIGNABLE.getValue();
 		signature = signatureOf(privateKeyHex);
 		cosignature = null;
 	}

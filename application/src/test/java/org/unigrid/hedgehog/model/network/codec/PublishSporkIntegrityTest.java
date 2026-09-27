@@ -57,7 +57,7 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 
 	@Provide
 	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
-		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
+		@ForAll @ShortRange(min = Short.MIN_VALUE) short flags, @ForAll @Size(min = 50, max = 60) byte[] signature,
 		@ForAll Instant time, @ForAll Instant previousTime) {
 
 		try {

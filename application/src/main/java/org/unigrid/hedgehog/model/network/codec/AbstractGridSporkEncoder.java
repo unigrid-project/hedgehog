@@ -21,25 +21,13 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
 
 @Slf4j
 public abstract class AbstractGridSporkEncoder<T extends Packet> extends AbstractMessageToByteEncoder<T> {
-
-	private final OptionalMap<GridSpork.Type, ChunkEncoder> encoders;
-
-	protected AbstractGridSporkEncoder() {
-		encoders = ChunkScanner.scan(ChunkType.ENCODER, ChunkGroup.GRIDSPORK);
-	}
 
 	/*
 	    Packet format:
@@ -64,23 +52,13 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	    [     size     ][       cosignature (size long, 0 if none)   >>]
 	*/
 	public void encodeGridSpork(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
-		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
-
 		log.atTrace().log("encoding spork chunk of type {}", spork.getType());
 
-		if (ce.isPresent()) {
+		if (SporkContentEncoder.canEncode(spork.getType())) {
 			@Cleanup("release")
 			final ByteBuf data = Unpooled.buffer();
 
-			data.writeShort(spork.getType().getValue());
-			data.writeShort(spork.getFlags());
-			data.writeZero(4 /* 32 bits */);
-			data.writeLong(spork.getTimeStamp().toEpochMilli());
-			data.writeLong(spork.getPreviousTimeStamp().toEpochMilli());
-			data.writeZero(8 /* 64 bits */);
-
-			ce.get().encodeChunk(ctx, spork.getData(), data);
-			ce.get().encodeChunk(ctx, spork.getPreviousData(), data);
+			SporkContentEncoder.encode(spork, data);
 
 			writeSized(data, spork.getSignature());
 			writeSized(data, spork.isPending() ? new byte[0] : spork.getCosignature());

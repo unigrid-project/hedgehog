@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Objects;
+import java.util.TreeMap;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
@@ -48,7 +49,7 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 		out.writeMedium(data.getVestingAddresses().size());
 		out.writeZero(5 /* 40 bits */);
 
-		data.getVestingAddresses().forEach((address, vesting) -> {
+		new TreeMap<>(data.getVestingAddresses()).forEach((address, vesting) -> {
 			ByteBufUtils.writeNullTerminatedString(address.getWif(), out);
 			out.writeLong(vesting.getStart().getEpochSecond());
 			out.writeInt(vesting.getStart().getNano());
