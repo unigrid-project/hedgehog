@@ -62,14 +62,16 @@ the code depends on the spacing.
 ### Flags
 
 ```java
-GOVERNED((short) 0x01),  /* Governed sporks have to be voted on to accept the change on the network */
-DELTA((short) 0x02);     /* Is either delta-data or a raw representation of the previous value */
+GOVERNED((short) 0x01),       /* Governed sporks have to be voted on to accept the change on the network */
+DELTA((short) 0x02),          /* Is either delta-data or a raw representation of the previous value */
+WIRE_SIGNABLE((short) 0x04);  /* Signed over its wire encoding rather than its Java serialization */
 ```
 
-Only one flag is ever written: `MintSupply`'s constructor ORs in `Flag.GOVERNED`. No code reads
-either flag — there is no governance vote and no delta encoding today. `previousData` is always a
-full copy of the previous value (see `archive()`), and `flags` is carried verbatim across the wire
-and through persistence without being interpreted.
+`MintSupply`'s constructor ORs in `Flag.GOVERNED`, and `sign()` ORs in `Flag.WIRE_SIGNABLE`. Only
+`WIRE_SIGNABLE` is read: it selects which bytes the signatures cover (see
+[What bytes are signed](#what-bytes-are-signed)). There is no governance vote and no delta encoding
+today; `previousData` is always a full copy of the previous value (see `archive()`). `flags` is
+carried verbatim across the wire and through persistence.
 
 ### Creation
 
@@ -315,9 +317,8 @@ string, so a WIF containing a `/` would round-trip incorrectly.
 Nothing in Hedgehog *consumes* a vesting schedule — no release calculation exists in this repository.
 The spork is storage and distribution only.
 
-`amount` is not carried by the wire codec, and `start`/`duration` are truncated to whole seconds by
-it (see [Wire encoding](#wire-encoding)); all three survive persistence and REST unharmed, but not a
-peer-to-peer hop.
+The wire codec carries `amount` and `start`/`duration` down to the nanosecond, so a vesting entry
+arrives at a peer exactly as it was signed (see [Wire encoding](#wire-encoding)).
 
 ### `StatisticsPubKey`
 
@@ -344,38 +345,39 @@ boolean isValidSignature();
 
 ### What bytes are signed
 
-`GridSpork.getSignable()` concatenates the Apache Commons `SerializationUtils.serialize(...)` output
-of six fields, in this order:
+A spork carrying `Flag.WIRE_SIGNABLE`, which `sign()` sets on every spork it signs, is signed over
+its wire encoding. `GridSpork.getSignable()` then consists of the bytes
+`SporkContentEncoder.encode(spork)` (`model/network/codec/SporkContentEncoder.java`) produces — the
+same prefix of a `PUBLISH_SPORK` packet that `AbstractGridSporkEncoder` writes, so the two cannot
+drift: type, flags, the two timestamps in milliseconds, the `data` chunk and the `previousData`
+chunk (see [Wire encoding](#wire-encoding)). A missing timestamp is encoded as the epoch and missing
+previous data as the type's empty data. The chunk encoders write map entries sorted by key
+(`MintStorage.SporkData.Location` and `Address` are `Comparable`), so the bytes depend only on the
+content: not on a map's capacity or insertion history, and not on which objects happen to be shared.
+Every node therefore computes the same bytes as the signer, including after the spork crossed the
+network or was persisted.
 
-1. `timeStamp`
-2. `previousTimeStamp`
-3. `flags`
-4. `type`
-5. `data`
-6. `previousData`
+Only when the spork's signature log is non-empty, the 64-byte head hash of that log
+(`SignatureLog.headHash()`) is appended. `signature` and `cosignature` are excluded, so both keys sign
+the same bytes and co-signing leaves them unchanged. `flags` is part of the signed bytes, so neither
+`WIRE_SIGNABLE` nor any other flag can be changed without invalidating the signatures.
 
-and then, only when the spork's signature log is non-empty, the 64-byte head hash of that log
-(`SignatureLog.headHash()`). An empty log adds nothing, so a spork signed before the log existed
-still verifies byte for byte. `signature` and `cosignature` are excluded, so both keys sign the same
-bytes and co-signing leaves them unchanged. Note that this is *Java serialization* of each field
-independently, not the QUIC wire encoding — each `writeBytes` call appends a complete
-`ObjectOutputStream` stream, header bytes and all. The signed byte string is therefore a function of
-JDK serialization behavior for `Instant`, `Short`, the enum, and the concrete `SporkData` graph,
-including the `HashMap` instances inside `MintStorage.SporkData` and `VestingStorage.SporkData`.
+A spork without the flag was signed by an earlier build and is verified the old way: the Apache
+Commons `SerializationUtils.serialize(...)` output of `timeStamp`, `previousTimeStamp`, `flags`,
+`type`, `data` and `previousData`, each as a complete `ObjectOutputStream` stream, followed by the
+same log head hash. That keeps databases from earlier builds loading with valid signatures
+(`SporkDatabaseCompatibilityTest`). It was replaced because Java serialization is not a function of
+content alone: a `HashMap` writes its capacity and bucket order, and an object referenced twice
+(an `Address`, a `String`, a `BigDecimal`) is written once and then as a back-reference. A node that
+rebuilt the data from the wire could compute different bytes and reject a correctly signed spork.
+When a legacy spork is renewed or archived, its retiring head is digested in the legacy format
+before `sign()` sets the flag, so the log names its signers correctly.
 
-That has a consequence worth being explicit about. `HashMap.writeObject` emits the table capacity,
-and `HashMap.readObject` recomputes the capacity from the entry count rather than reusing the value
-it read; entry order also follows bucket order, which depends on capacity. A map that a peer
-reconstructs by inserting decoded entries into `new HashMap<>()` (which is exactly what
-`MintStorageDecoder` and `VestingStorageDecoder` do) will not in general serialize to the same bytes
-as the sender's map, even for identical content. Combined with the field-level losses in the vesting
-codec described under [Wire encoding](#wire-encoding), this means a signature produced by one node is
-not guaranteed to verify on another after a round trip. The test suite covers that path only for a
-spork without maps: `PublishSporkIntegrityTest.shouldAcceptRenewalsSentOverTheNetwork` signs and
-co-signs a `MintSupply`, sends it through the codecs and checks that the received copy still passes
-`canReplace`. Its property test round-trips sporks whose signatures are random bytes and never
-verifies one, and `PublishSporkChannelHandlerTest` mocks `GridSpork.isDoublySigned()` to return
-`true`.
+`SporkSignableTest` checks, for all four spork types, that equal content built from differently sized,
+ordered, shrunk and shared maps and objects signs identical bytes, that those bytes survive
+`SerializationUtils.clone` and the wire round trip, and that changing any flag after signing breaks
+the signature. `MintStorageAcceptanceTest` sends mints that share `Address` objects to a running node
+over QUIC and checks that only the doubly signed version is stored.
 
 ### `Signature`
 
@@ -1097,17 +1099,11 @@ and returns `Optional.empty()`; the encoder silently writes nothing.
 Each chunk codec is invoked twice per spork — once for `data`, once for `previousData` — so the
 payload layout appears twice back to back inside a `PublishSpork`.
 
-Three data-model gaps live in this layer:
+`MintStorageEncoder` and `VestingStorageEncoder` write their entries sorted by key, so equal
+content always encodes, and signs, to equal bytes. `VestingStorageEncoder` writes every field of a
+vesting entry, including `amount` and the nanoseconds of `start` and `duration`.
 
-* `VestingStorageEncoder` writes address, start, duration and parts. It does **not** write
-  `Vesting.amount`, and `VestingStorageDecoder` never sets it, so a vesting entry arrives at a peer
-  with a `null` amount.
-* `Vesting.start` and `Vesting.duration` travel at second resolution — the encoder writes
-  `start.getEpochSecond()` and `duration.getSeconds()`, and the decoder rebuilds them with
-  `Instant.ofEpochSecond` and `Duration.ofSeconds`. Any sub-second component is dropped in transit.
-  Like the missing `amount`, this changes the bytes that `getSignable()` would produce on the
-  receiving node.
-* `VestingStorage` and `MintStorage` carry their entry count in a 3-byte medium and their decoders
+One data-model gap lives in this layer: `VestingStorage` and `MintStorage` carry their entry count in a 3-byte medium and their decoders
   return `Optional.empty()` when fewer entries were read than announced, but
   `AbstractGridSporkDecoder.decodeGridSpork` calls `.get()` on that `Optional` without checking it,
   so a short chunk becomes a `NoSuchElementException` rather than a clean decode failure.
@@ -1120,12 +1116,9 @@ encoder produced — the framed buffer's writer index against its reader index, 
 these properties are annotated with and the JMockit mocking they rely on are described in
 [Build, testing and native image](build-and-native-image.md).
 
-One field escapes that coverage. `flags` is described above as carried verbatim across the wire, and
-the encoder/decoder pair does write and read it, but no test proves it: `GridSporkProvider.provide`
-takes a `flags` argument from the jqwik generator and never calls `setFlags` on the spork it builds.
-Every generated spork therefore has flags 0, or 1 when the generated type is `MINT_SUPPLY` and its
-constructor sets `Flag.GOVERNED`. The `@ShortRange(min = 0, max = 3)` generator in
-`PublishSporkIntegrityTest` and `BaseSporkDatabaseTest` has no effect on what is actually encoded.
+`GridSporkProvider.provide` applies the generated `flags` (ORed into what the spork's constructor
+sets), and `PublishSporkIntegrityTest` generates them over the whole `short` range, so every flag bit
+is covered by the round trip.
 
 ## Surfaces
 
@@ -1194,10 +1187,6 @@ Collected here so a reader does not have to rediscover them.
 
 - **`GridSpork.archive()` dereferences `previousData` inside its own null check.** Unreachable
   today only because `data` is never null (`model/spork/GridSpork.java`).
-- **`Vesting.amount` is neither encoded nor decoded.** A vesting entry arrives at a peer with a null
-  amount (`model/network/codec/chunk/VestingStorage{Encoder,Decoder}.java`).
-- **`Vesting.start` and `Vesting.duration` lose sub-second precision on the wire.** Both are
-  transported as whole seconds (`model/network/codec/chunk/VestingStorage{Encoder,Decoder}.java`).
 - **`StatisticsPubKey.SporkData` is missing from `ChunkData`'s `@JsonSubTypes`.** Deduction-based
   polymorphic JSON cannot reconstruct it (`model/network/chunk/ChunkData.java`).
 - **`StatisticsPubKey` is never published by the schedule.** `writeAndFlush` emits only the other
@@ -1223,17 +1212,10 @@ Collected here so a reader does not have to rediscover them.
   (`model/network/codec/AbstractGridSporkDecoder.java`).
 - **`ASK_SPORKS` and `GROW_SPORK` are declared with no packet, codec or handler.** They are reserved
   identifiers, not implemented messages (`model/network/packet/Packet.java`).
-- **Signing over per-field Java serialization makes the signed bytes sensitive to `HashMap`
-  internals.** The wire format does not preserve those internals, so a round-tripped spork is not
-  guaranteed to re-verify (`model/spork/GridSpork.java`). A node holding such a spork can no longer
-  name its signers either, so its next `archive()` or `renew()` is refused rather than logged.
-- **Mint-storage and vesting proposals may only verify on the node that made them.** A vesting
-  entry loses its `amount` and any sub-second part of `start` and `duration` on the wire, and a
-  `MintStorage` map is not guaranteed to serialize to the same bytes after decoding, so a peer may
-  compute a different `getSignable()` for the same proposal. It then refuses the proposal, and would
-  name it by a different digest anyway: such a proposal can only be co-signed on the node where it was
-  proposed, and the co-signed spork meets the same doubt on every peer
-  (`model/spork/PendingSporks.java`, `model/network/codec/chunk/`).
+- **Sporks signed by earlier builds are still verified over their Java serialization.** Such a spork
+  keeps its old signature only as long as its data is not rebuilt; once it crosses the network its
+  signed bytes may differ on the receiver. Re-signing sets `Flag.WIRE_SIGNABLE` and ends that
+  (`model/spork/GridSpork.java`).
 - **Every `Signature` construction runs the keypair rejection-sampling loop.** The two-argument
   constructor calls `this()` first, so verification generates and discards a full P-521 keypair
   before it can look at the supplied key (`model/crypto/Signature.java`).
@@ -1260,6 +1242,4 @@ Collected here so a reader does not have to rediscover them.
 - **CDI resolution failures silence the whole spork path.** `CDIUtil.resolveAndRun` logs *"Unable to
   resolve instance {}"* at warn level and runs nothing, turning both the inbound handler and the
   publish/save tick into no-ops (`model/cdi/CDIUtil.java`).
-- **`flags` round-tripping is untested.** `GridSporkProvider.provide` accepts a `flags` argument and
-  never applies it, so the property tests only ever exercise flags 0 and 1
-  (`application/src/test/java/org/unigrid/hedgehog/model/spork/GridSporkProvider.java`).
+

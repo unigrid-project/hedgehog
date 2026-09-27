@@ -588,7 +588,9 @@ length tells them apart. The meaning of the log and how a receiver checks it are
 
 Timestamps are millisecond precision on the wire; `GridSpork.archive()` truncates to
 `ChronoUnit.MILLIS` for exactly this reason. `GridSpork.Flag` values (`GOVERNED` = `0x01`,
-`DELTA` = `0x02`) travel in the flags field.
+`DELTA` = `0x02`, `WIRE_SIGNABLE` = `0x04`) travel in the flags field. The header, the data chunk and
+the previous-data chunk are written by `SporkContentEncoder`, and those same bytes are what the
+signatures of a `WIRE_SIGNABLE` spork cover (see [What bytes are signed](sporks.md#what-bytes-are-signed)).
 
 The encoder writes the spork into a temporary buffer and copies that into the buffer
 `PublishSporkEncoder` returns; when `encoders.getOptional(spork.getType())` is empty it writes nothing
@@ -639,11 +641,11 @@ runtime by spork type. The mechanism is generic enough to be reused for other pa
 - `model/collection/OptionalMap.java` — an Apache Commons `AbstractMapDecorator` adding
   `getOptional(key)`.
 
-`AbstractGridSporkEncoder` and `AbstractGridSporkDecoder` each build their map once, in the
-constructor, calling `ChunkScanner.scan(...)` with `ChunkType.ENCODER` and `ChunkType.DECODER`
-respectively and `ChunkGroup.GRIDSPORK` in both cases. This happens per codec instance, and the
-pipeline suppliers construct fresh codecs for every stream — so every new connection re-runs the
-classpath scan twice.
+The encoders are scanned once per process: `SporkContentEncoder` holds them in a lazily initialised
+holder, and both `AbstractGridSporkEncoder` and `GridSpork.getSignable()` go through it.
+`AbstractGridSporkDecoder` still builds its map in the constructor, calling `ChunkScanner.scan(...)`
+with `ChunkType.DECODER` and `ChunkGroup.GRIDSPORK`. That happens per codec instance, and the pipeline
+suppliers construct fresh codecs for every stream — so every new connection re-runs the decoder scan.
 
 Four chunk types are implemented, all in
 `application/src/main/java/org/unigrid/hedgehog/model/network/codec/chunk/`:
@@ -669,6 +671,8 @@ then `n` repetitions of:
 | var | address | NUL-terminated UTF-8 of `Address.getWif()` |
 | 4 | height | `writeInt` / `readInt` |
 | var | amount | NUL-terminated UTF-8 of `BigDecimal.toPlainString()` |
+
+Entries are written sorted by address, then height, so equal mints always encode to equal bytes.
 
 The decoder loops `while (in.readableBytes() > 0 && mints.size() < entries)` and returns
 `Optional.empty()` unless it read exactly `entries` mints. Amounts round-trip as decimal strings, so
@@ -697,11 +701,15 @@ then `n` repetitions of:
 | Size | Field | Encoding |
 | ---: | --- | --- |
 | var | address | NUL-terminated UTF-8 of `Address.getWif()` |
-| 8 | vesting start | `start.getEpochSecond()` / `Instant.ofEpochSecond(readLong())` |
-| 8 | vesting duration | `duration.getSeconds()` / `Duration.ofSeconds(readLong())` |
+| 8 | vesting start (seconds) | `start.getEpochSecond()` |
+| 4 | vesting start (nanos) | `start.getNano()`; read back with `Instant.ofEpochSecond(seconds, nanos)` |
+| 8 | vesting duration (seconds) | `duration.getSeconds()` |
+| 4 | vesting duration (nanos) | `duration.getNano()`; read back with `Duration.ofSeconds(seconds, nanos)` |
 | 4 | parts | `writeInt` / `readInt` |
+| var | amount | NUL-terminated `amount.toPlainString()`, empty when the amount is null |
 
-Second precision here, against millisecond precision in the spork header.
+Entries are written sorted by address, like the MINT_STORAGE entries are sorted by address and
+height, so equal content always encodes to equal bytes.
 
 ### STATISTICS_PUBKEY chunk
 
@@ -1253,8 +1261,8 @@ Collected here so a reader does not have to rediscover them:
   `Optional`.
 - **Spork flooding has no loop suppression**, only the `canReplace` and `PendingSporks.offer` guards
   on each receiver.
-- **Chunk scanning is repeated per codec instance**, i.e. twice per new connection, since
-  `AbstractGridSporkEncoder`/`Decoder` call `ChunkScanner.scan(...)` from their constructors.
+- **Decoder chunk scanning is repeated per codec instance**, i.e. once per new connection, since
+  `AbstractGridSporkDecoder` calls `ChunkScanner.scan(...)` from its constructor.
 - **TLS is unauthenticated by design today**: a fresh self-signed certificate per server start and
   `InsecureTrustManagerFactory` on the client. The QUIC retry token uses a fixed all-zero IV and a key
   that changes on every restart.
