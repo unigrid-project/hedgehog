@@ -70,8 +70,9 @@ public class GridSporkProvider {
 						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
 
 					final Vesting vesting = Vesting.builder()
-						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
-						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
+						.amount(BigDecimal.valueOf(RandomUtils.nextLong(0, Long.MAX_VALUE), 8))
+						.start(Instant.ofEpochSecond(RandomUtils.nextInt(), RandomUtils.nextInt(0, 1_000_000_000)))
+						.duration(Duration.ofSeconds(RandomUtils.nextInt(), RandomUtils.nextInt(0, 1_000_000_000)))
 						.parts(RandomUtils.nextInt(5, 100)).build();
 
 					vests.put(address, vesting);

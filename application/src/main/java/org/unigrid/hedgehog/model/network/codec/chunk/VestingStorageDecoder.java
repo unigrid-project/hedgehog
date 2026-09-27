@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.codec.chunk;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -39,11 +40,13 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [     n= num mints     ][               reserved               ]
+	    [    n= num vestings   ][               reserved               ]
 	   n[                     << address (0-term) >>                   ]
 	    [                     vesting start (seconds)                  ]
+	    [      start (nanos)       ]
 	    [                    vesting duration (seconds)                ]
-	    [                          vesting parts                   ...n]
+	    [     duration (nanos)     ][          vesting parts           ]
+	    [             << amount (0-term, empty if none) >>         ...n]
 	*/
 	@Override
 	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
@@ -57,9 +60,13 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
 			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
 
-			vesting.setStart(Instant.ofEpochSecond(in.readLong()));
-			vesting.setDuration(Duration.ofSeconds(in.readLong()));
+			vesting.setStart(Instant.ofEpochSecond(in.readLong(), in.readInt()));
+			vesting.setDuration(Duration.ofSeconds(in.readLong(), in.readInt()));
 			vesting.setParts(in.readInt());
+
+			final String amount = ByteBufUtils.readNullTerminatedString(in);
+
+			vesting.setAmount(amount.isEmpty() ? null : new BigDecimal(amount));
 
 			vests.put(address, vesting);
 		}
