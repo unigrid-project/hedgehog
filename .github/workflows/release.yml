@@ -149,9 +149,12 @@ jobs:
       - name: Build the native image
         run: mvn -B -ntp package -DskipTests
 
-      - name: Run the binary
+      - name: Smoke test the binary
+        shell: bash
         timeout-minutes: 5
-        run: native-image/target/${{ matrix.binary }}
+        run: |
+          version="$(mvn -B -ntp -q -N help:evaluate -Dexpression=project.version -DforceStdout)"
+          bash .github/smoke-test.sh "native-image/target/${{ matrix.binary }}" "$version"
 
       - uses: actions/upload-artifact@v7
         with:
