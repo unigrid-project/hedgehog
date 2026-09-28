@@ -28,10 +28,10 @@ import org.unigrid.hedgehog.proxy.exit.ExitConnector;
 import org.unigrid.hedgehog.proxy.exit.Target;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
 
-/* An exit connector that connects to nothing: it records what the exit asked for, and a test lets the
-   connection happen by calling `connect` on a request */
+/* An exit connector that connects to nothing: it records what the exit asked for and how often it cancelled, and a
+   test lets the connection happen by calling `connect` on a request */
 final class FakeConnector implements ExitConnector {
-	record Request(List<InetAddress> addresses, int port, TargetListener listener) {
+	record Request(List<InetAddress> addresses, int port, TargetListener listener, AtomicInteger cancels) {
 		/* One connection the exit asked for */
 	}
 
@@ -88,8 +88,15 @@ final class FakeConnector implements ExitConnector {
 	final List<Request> requests = new CopyOnWriteArrayList<>();
 
 	@Override
-	public void connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
-		requests.add(new Request(addresses, port, listener));
+	public Attempt connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
+		final Request request = new Request(addresses, port, listener, new AtomicInteger());
+
+		requests.add(request);
+		return request.cancels()::incrementAndGet;
+	}
+
+	Request last() {
+		return requests.get(requests.size() - 1);
 	}
 
 	/* The connection of the last request goes through */

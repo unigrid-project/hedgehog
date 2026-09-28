@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.proxy.exit;
 
 import io.netty.channel.ConnectTimeoutException;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import java.io.ByteArrayOutputStream;
@@ -45,6 +46,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.unigrid.hedgehog.proxy.Expect;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
@@ -53,7 +55,14 @@ public class NettyExitConnectorTest {
 	private static final byte[] HELLO = "hello".getBytes(StandardCharsets.US_ASCII);
 	private static final long QUIET_MILLIS = 200;
 	private static final int SHORT_TIMEOUT_MILLIS = 300;
-	private static final int MAX_QUEUED = 16;
+
+	/* Longer than the second after which an unanswered SYN is sent again */
+	private static final int RESENT_SYN_MILLIS = 2000;
+
+	/* A cancel that races the hand-over moves from before a loopback dial to well after it in these steps */
+	private static final int RACES = 300;
+	private static final int RACE_STEPS = 100;
+	private static final int RACE_STEP_SPINS = 400;
 
 	/* More than the kernel buffers of both ends of a loopback connection hold */
 	private static final int UNREAD_BYTES = 32 * 1024 * 1024;
@@ -76,32 +85,6 @@ public class NettyExitConnectorTest {
 	private static int closedPort() throws IOException {
 		try (ServerSocket socket = new ServerSocket(0, 1, EchoServer.LOOPBACK)) {
 			return socket.getLocalPort();
-		}
-	}
-
-	/* A listener whose accept queue is full drops new connection attempts, so a connect to it can only time out.
-	   The sockets that fill the queue stay open until the caller closes them. */
-	private static List<Socket> fillAcceptQueue(ServerSocket server) throws IOException {
-		final List<Socket> queued = new ArrayList<>();
-
-		for (int i = 0; i < MAX_QUEUED; i++) {
-			final Socket socket = new Socket();
-
-			try {
-				socket.connect(server.getLocalSocketAddress(), SHORT_TIMEOUT_MILLIS);
-				queued.add(socket);
-			} catch (SocketTimeoutException full) {
-				socket.close();
-				return queued;
-			}
-		}
-
-		throw new AssertionError("The accept queue still takes connections after " + MAX_QUEUED);
-	}
-
-	private static void closeAll(List<Socket> sockets) throws IOException {
-		for (Socket socket : sockets) {
-			socket.close();
 		}
 	}
 
@@ -280,23 +263,16 @@ public class NettyExitConnectorTest {
 	public void shouldReportTheStatusOfTheLastAttempt() throws Exception {
 		final ExitConnector impatient = new NettyExitConnector(group, SHORT_TIMEOUT_MILLIS);
 
-		try (ServerSocket full = new ServerSocket(0, 1, EchoServer.LOOPBACK)) {
-			final List<Socket> queued = fillAcceptQueue(full);
+		try (Blackhole hole = new Blackhole()) {
 			final RecordingTargetListener timedOutLast = new RecordingTargetListener();
 			final RecordingTargetListener refusedLast = new RecordingTargetListener();
 
-			try {
-				impatient.connect(List.of(EchoServer.loopback(10), EchoServer.LOOPBACK), full.getLocalPort(),
-					timedOutLast);
-				impatient.connect(List.of(EchoServer.LOOPBACK, EchoServer.loopback(10)), full.getLocalPort(),
-					refusedLast);
-				assertThat(timedOutLast.failed.get(RecordingTargetListener.TIMEOUT_MILLIS,
-					TimeUnit.MILLISECONDS), is(Socks5CommandStatus.TTL_EXPIRED));
-				assertThat(refusedLast.failed.get(RecordingTargetListener.TIMEOUT_MILLIS,
-					TimeUnit.MILLISECONDS), is(Socks5CommandStatus.CONNECTION_REFUSED));
-			} finally {
-				closeAll(queued);
-			}
+			impatient.connect(List.of(EchoServer.loopback(10), EchoServer.LOOPBACK), hole.port(), timedOutLast);
+			impatient.connect(List.of(EchoServer.LOOPBACK, EchoServer.loopback(10)), hole.port(), refusedLast);
+			assertThat(timedOutLast.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+				is(Socks5CommandStatus.TTL_EXPIRED));
+			assertThat(refusedLast.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+				is(Socks5CommandStatus.CONNECTION_REFUSED));
 		}
 	}
 
@@ -395,6 +371,146 @@ public class NettyExitConnectorTest {
 		connector.connect(List.of(), 80, listener);
 		assertThat(listener.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
 			is(Socks5CommandStatus.HOST_UNREACHABLE));
+	}
+
+	/* Returns once the loop ran what it was asked to do so far, and what that asked it to do next: a connect from
+	   another thread registers the channel first and then dials */
+	private static void flush(EventLoopGroup loop) throws Exception {
+		for (int round = 0; round < 2; round++) {
+			loop.next().submit(() -> { }).get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+		}
+	}
+
+	/* Holds the thread a while without giving the processor up, which moves where it meets the event loop */
+	private static void spin(int times) {
+		for (int spin = times; spin > 0; spin--) {
+			Thread.onSpinWait();
+		}
+	}
+
+	/* The cancel races the loop that hands the connection over, a little later each round: the dial has started, but
+	   the connection may not have been made, or made and not yet handed over, or handed over. Whichever comes first
+	   has it, and the other leaves it be. */
+	@Example
+	public void shouldHandAConnectionOverOrCloseItOnCancelButNeverBoth() throws Exception {
+		try (EchoServer echo = new EchoServer()) {
+			for (int round = 0; round < RACES; round++) {
+				final RecordingTargetListener listener = new RecordingTargetListener();
+				final ExitConnector.Attempt attempt = connector.connect(List.of(EchoServer.LOOPBACK), echo.port(),
+					listener);
+
+				group.next().submit(() -> { }).get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+				spin(round % RACE_STEPS * RACE_STEP_SPINS);
+				attempt.cancel();
+				flush(group);
+
+				if (listener.connected.isDone()) {
+					assertThat(listener.events(), equalTo(List.of("connected")));
+					listener.target().close();
+				} else {
+					assertThat(listener.events(), is(empty()));
+				}
+			}
+
+			RecordingTargetListener.await(() -> echo.open() == 0);
+		}
+	}
+
+	@Example
+	public void shouldCloseTheConnectionBeingDialledWhenCancelled() throws Exception {
+		try (Blackhole hole = new Blackhole()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+			final ExitConnector.Attempt attempt = connector.connect(List.of(EchoServer.LOOPBACK), hole.port(),
+				listener);
+
+			flush(group);
+			attempt.cancel();
+			flush(group);
+			assertThat(hole.takesAnotherWithin(RESENT_SYN_MILLIS), is(false));
+			assertThat(listener.events(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldTryNoFurtherAddressOnceCancelled() throws Exception {
+		final ExitConnector impatient = new NettyExitConnector(group, SHORT_TIMEOUT_MILLIS);
+
+		try (ServerSocket next = new ServerSocket(0, 1, EchoServer.LOOPBACK);
+			Blackhole hole = new Blackhole(EchoServer.loopback(3), next.getLocalPort())) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+			final ExitConnector.Attempt attempt = impatient.connect(List.of(EchoServer.loopback(3),
+				EchoServer.LOOPBACK), hole.port(), listener);
+
+			flush(group);
+			attempt.cancel();
+			next.setSoTimeout(3 * SHORT_TIMEOUT_MILLIS);
+			Expect.assertThrows(SocketTimeoutException.class, next::accept);
+			assertThat(listener.events(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldConnectNothingWhenCancelledAtOnce() throws Exception {
+		try (EchoServer echo = new EchoServer()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+			final ExitConnector.Attempt attempt = connector.connect(List.of(EchoServer.LOOPBACK), echo.port(),
+				listener);
+
+			attempt.cancel();
+			attempt.cancel();
+			flush(group);
+			Expect.assertThrows(TimeoutException.class, () -> listener.connected.get(QUIET_MILLIS,
+				TimeUnit.MILLISECONDS));
+			assertThat(listener.events(), is(empty()));
+			RecordingTargetListener.await(() -> echo.open() == 0);
+		}
+	}
+
+	@Example
+	public void shouldLeaveAConnectionTheListenerHasToItWhenCancelled() throws Exception {
+		try (EchoServer echo = new EchoServer()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+			final ExitConnector.Attempt attempt = connector.connect(List.of(EchoServer.LOOPBACK), echo.port(),
+				listener);
+
+			listener.target().setReadable(true);
+			attempt.cancel();
+			attempt.cancel();
+			listener.target().write(HELLO);
+			assertThat(listener.received(HELLO.length), equalTo(HELLO));
+			assertThat(listener.events(), equalTo(List.of("connected", "received")));
+		}
+	}
+
+	@Example
+	public void shouldTellNothingMoreWhenCancelledAfterItFailed() throws Exception {
+		final RecordingTargetListener listener = new RecordingTargetListener();
+		final ExitConnector.Attempt attempt = connector.connect(List.of(EchoServer.LOOPBACK), closedPort(),
+			listener);
+
+		listener.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+		attempt.cancel();
+		attempt.cancel();
+		flush(group);
+		assertThat(listener.events(), equalTo(List.of("failed " + Socks5CommandStatus.CONNECTION_REFUSED)));
+	}
+
+	/* What a stopping exit relies on, as it releases the loops and leaves its relays be */
+	@Example
+	public void shouldCloseTheConnectionBeingDialledAndTryNoMoreWhenTheGroupStops() throws Exception {
+		final NioEventLoopGroup stopping = new NioEventLoopGroup(1);
+
+		try (Blackhole hole = new Blackhole()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+
+			new NettyExitConnector(stopping, 2000).connect(List.of(EchoServer.LOOPBACK, EchoServer.loopback(2)),
+				hole.port(), listener);
+			flush(stopping);
+			stopping.shutdownGracefully(0, 1, TimeUnit.SECONDS);
+			assertThat(listener.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+				is(Socks5CommandStatus.FAILURE));
+			assertThat(hole.takesAnotherWithin(RESENT_SYN_MILLIS), is(false));
+		}
 	}
 
 	@Example

@@ -38,6 +38,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -78,6 +80,30 @@ public class ExitRelayTest {
 	private static final List<Socks5CommandStatus> UNREACHING = List.of(Socks5CommandStatus.FAILURE,
 		Socks5CommandStatus.NETWORK_UNREACHABLE, Socks5CommandStatus.HOST_UNREACHABLE,
 		Socks5CommandStatus.CONNECTION_REFUSED, Socks5CommandStatus.TTL_EXPIRED);
+
+	/* Every way a relay ends while its connection is being dialled */
+	private static final Map<String, BiConsumer<SessionPair, ExitRelay>> ENDINGS = Map.of(
+		"the client's Close", (pair, relay) -> {
+			pair.client.close(CloseReason.DONE);
+			pair.toExit().forEach(relay::handle);
+		},
+		"a close by the exit", (pair, relay) -> relay.close(CloseReason.BROKEN),
+		"a close the outbox refuses", (pair, relay) -> {
+			pair.refusing.set(true);
+			Expect.assertThrows(SessionPair.OutboxRefusedException.class, () -> relay.close(CloseReason.DONE));
+		},
+		"the idle limit", (pair, relay) -> {
+			pair.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
+			relay.tick();
+		},
+		"a session closed under the relay", (pair, relay) -> {
+			pair.exit.close(CloseReason.BROKEN);
+			relay.tick();
+		},
+		"data before the reply", (pair, relay) -> {
+			pair.client.send(new Data(new byte[] { 1 }));
+			pair.toExit().forEach(relay::handle);
+		});
 
 	private final FakeConnector connector = new FakeConnector();
 
@@ -380,6 +406,59 @@ public class ExitRelayTest {
 		assertThat(connector.requests, is(empty()));
 	}
 
+	/* A relay whose admission waits until the test runs it, so a resolver or connector can reach the relay */
+	private static ExitRelay admitting(SessionPair pair, Resolver resolver, ExitConnector connector,
+		AtomicReference<ExitRelay> relayed) {
+
+		final Queue<Runnable> queued = new ArrayDeque<>();
+		final ExitRelay relay = relay(pair, new ExitContext(ProxySettings.DEFAULTS, DestinationPolicy.publicOnly(),
+			resolver, queued::add, connector));
+
+		relayed.set(relay);
+		queued.forEach(Runnable::run);
+		return relay;
+	}
+
+	@Example
+	public void shouldOpenNoConnectionForAClientThatLeftDuringTheLookup() {
+		final AtomicReference<ExitRelay> relayed = new AtomicReference<>();
+		final ExitRelay relay = admitting(new SessionPair(connect(NAME)), host -> {
+			relayed.get().close(CloseReason.DONE);
+			return List.of(address("93.184.215.14"));
+		}, connector, relayed);
+
+		assertThat(relay.isOpen(), is(false));
+		assertThat(connector.requests, is(empty()));
+	}
+
+	@Example
+	public void shouldCancelAConnectThatStartedAsTheRelayEnded() {
+		final AtomicReference<ExitRelay> relayed = new AtomicReference<>();
+		final AtomicInteger cancels = new AtomicInteger();
+		final ExitRelay relay = admitting(new SessionPair(connect(PUBLIC_LITERAL)), NEVER,
+			(addresses, port, listener) -> {
+				relayed.get().close(CloseReason.DONE);
+				return cancels::incrementAndGet;
+			}, relayed);
+
+		assertThat(relay.isOpen(), is(false));
+		assertThat(cancels.get(), is(1));
+	}
+
+	@Example
+	public void shouldCancelTheConnectUnderWayOnceHoweverTheRelayEnds() {
+		ENDINGS.forEach((ending, end) -> {
+			final SessionPair pair = new SessionPair(connect(PUBLIC_LITERAL));
+			final ExitRelay relay = relay(pair, ProxySettings.DEFAULTS, NEVER);
+
+			assertThat(ending, connector.last().cancels().get(), is(0));
+			end.accept(pair, relay);
+			relay.tick();
+			assertThat(ending, relay.isOpen(), is(false));
+			assertThat(ending, connector.last().cancels().get(), is(1));
+		});
+	}
+
 	private static void await(CountDownLatch latch) {
 		try {
 			assertThat(latch.await(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS), is(true));
@@ -479,7 +558,9 @@ public class ExitRelayTest {
 		pair.toExit().forEach(relay::handle);
 		assertThat(relay.isOpen(), is(false));
 		connector.last().listener().connected(late);
-		assertThat(late.closed, is(true));
+		relay.tick();
+		assertThat(late.closes, is(1));
+		assertThat(connector.last().cancels().get(), is(1));
 		assertThat(pair.toClient(), is(empty()));
 	}
 

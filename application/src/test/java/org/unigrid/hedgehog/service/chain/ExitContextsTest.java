@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
@@ -40,6 +41,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.proxy.exit.ExitContext;
 import org.unigrid.hedgehog.proxy.exit.NettyUdpConnector;
 import org.unigrid.hedgehog.proxy.exit.Target;
@@ -52,6 +54,7 @@ import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 public class ExitContextsTest {
 	private static final String CONNECTOR_THREADS = "chain-exit-connector";
 	private static final int WAIT_SECONDS = 15;
+	private static final long QUIET_MILLIS = 500;
 
 	private static List<Thread> connectorThreads() {
 		return Thread.getAllStackTraces().keySet().stream()
@@ -165,6 +168,48 @@ public class ExitContextsTest {
 		assertThat(connectorThreads(), hasSize(0));
 	}
 
+	/* Completes with the connection or with the failure */
+	private static TargetListener completing(final CompletableFuture<Target> connected) {
+		return new TargetListener() {
+			@Override
+			public void connected(final Target target) {
+				connected.complete(target);
+			}
+
+			@Override
+			public void failed(final Socks5CommandStatus status) {
+				connected.completeExceptionally(new IllegalStateException(status.toString()));
+			}
+
+			@Override
+			public void received(final byte[] bytes) {
+				/* Nothing is sent to it */
+			}
+
+			@Override
+			public void closed() {
+				/* Not of interest */
+			}
+		};
+	}
+
+	/* The cancel reaches the connect under way, which then never connects */
+	@Example
+	public void cancelsAConnectItStartedOnItsLoops() throws Exception {
+		final ExitContexts production = ExitContexts.production();
+		final CompletableFuture<Target> connected = new CompletableFuture<>();
+
+		try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+			production.of(ProxySettings.DEFAULTS).connector().connect(List.of(InetAddress.getLoopbackAddress()),
+				server.getLocalPort(), completing(connected)).cancel();
+			Expect.assertThrows(TimeoutException.class, () -> connected.get(QUIET_MILLIS, TimeUnit.MILLISECONDS));
+		} finally {
+			production.close();
+		}
+
+		await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> connectorThreads().isEmpty());
+	}
+
 	@Example
 	public void connectsOnItsOwnDaemonThreadsAndStopsThemWhenReleased() throws Exception {
 		final ExitContexts production = ExitContexts.production();
@@ -173,27 +218,7 @@ public class ExitContextsTest {
 		try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
 			assertThat(connectorThreads(), hasSize(0));
 			production.of(ProxySettings.DEFAULTS).connector().connect(List.of(InetAddress.getLoopbackAddress()),
-				server.getLocalPort(), new TargetListener() {
-					@Override
-					public void connected(final Target target) {
-						connected.complete(target);
-					}
-
-					@Override
-					public void failed(final Socks5CommandStatus status) {
-						connected.completeExceptionally(new IllegalStateException(status.toString()));
-					}
-
-					@Override
-					public void received(final byte[] bytes) {
-						/* Nothing is sent to it */
-					}
-
-					@Override
-					public void closed() {
-						/* Not of interest */
-					}
-				});
+				server.getLocalPort(), completing(connected));
 			connected.get(WAIT_SECONDS, TimeUnit.SECONDS).close();
 			assertThat(connectorThreads(), is(not(empty())));
 			assertThat(connectorThreads().stream().map(Thread::isDaemon).toList(),

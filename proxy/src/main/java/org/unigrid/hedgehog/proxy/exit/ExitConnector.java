@@ -26,6 +26,18 @@ import java.util.List;
 public interface ExitConnector {
 	/* Tries the addresses in order, as many as it is willing to, and stays with the first that accepts. It takes
 	   addresses, never names, so it connects only to what the destination policy admitted. The listener hears
-	   connected or failed once, from any thread. */
-	void connect(List<InetAddress> addresses, int port, TargetListener listener);
+	   connected or failed once, from any thread, unless the attempt is cancelled first. */
+	Attempt connect(List<InetAddress> addresses, int port, TargetListener listener);
+
+	/* A connect under way, which its caller cancels once it no longer wants the connection */
+	@FunctionalInterface
+	interface Attempt {
+		/* Nothing to cancel */
+		Attempt NONE = () -> { };
+
+		/* Tries no further address and closes the connection being dialled, of which the listener then hears
+		   nothing. A connection the listener already has is its own to close: cancelling it does nothing, as does
+		   cancelling again. Never waits and never calls the listener, so a caller may cancel under its own lock. */
+		void cancel();
+	}
 }

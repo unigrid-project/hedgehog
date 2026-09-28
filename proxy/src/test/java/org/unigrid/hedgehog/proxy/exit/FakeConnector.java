@@ -23,18 +23,23 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/* Records what the relay asks to connect to; the test answers through the request's listener */
+/* Records what the relay asks to connect to and how often it cancels; the test answers through the request's
+   listener */
 final class FakeConnector implements ExitConnector {
 	final List<Request> requests = new ArrayList<>();
 
-	record Request(List<InetAddress> addresses, int port, TargetListener listener) {
+	record Request(List<InetAddress> addresses, int port, TargetListener listener, AtomicInteger cancels) {
 		/* One call of connect */
 	}
 
 	@Override
-	public void connect(List<InetAddress> addresses, int port, TargetListener listener) {
-		requests.add(new Request(addresses, port, listener));
+	public Attempt connect(List<InetAddress> addresses, int port, TargetListener listener) {
+		final Request request = new Request(addresses, port, listener, new AtomicInteger());
+
+		requests.add(request);
+		return request.cancels()::incrementAndGet;
 	}
 
 	Request last() {
@@ -48,6 +53,7 @@ final class FakeConnector implements ExitConnector {
 		long backlog;
 		boolean readable;
 		boolean closed;
+		int closes;
 
 		FakeTarget(InetSocketAddress local) {
 			this.local = local;
@@ -76,6 +82,7 @@ final class FakeConnector implements ExitConnector {
 		@Override
 		public void close() {
 			closed = true;
+			closes++;
 		}
 	}
 }

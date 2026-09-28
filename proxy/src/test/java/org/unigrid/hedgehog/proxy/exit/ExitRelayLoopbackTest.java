@@ -24,9 +24,11 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -39,6 +41,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AfterProperty;
+import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.Close;
 import org.unigrid.hedgehog.proxy.session.CloseReason;
@@ -62,6 +65,11 @@ public class ExitRelayLoopbackTest {
 	/* What the client may send to a destination that takes nothing before the test gives up on the session being
 	   dropped: the backlog bound plus whatever socket buffers the host grants a loopback connection */
 	private static final long MAX_STALLED_BYTES = 64L * 1024 * 1024;
+
+	/* Connect timeouts and waits: a patient one outlasts the second after which an unanswered SYN is sent again, an
+	   impatient one gives up on an address well within it */
+	private static final int PATIENT_MILLIS = 2000;
+	private static final int IMPATIENT_MILLIS = 300;
 
 	private final NioEventLoopGroup group = new NioEventLoopGroup(1);
 	private final List<SealedMessage> atClient = new ArrayList<>();
@@ -215,6 +223,46 @@ public class ExitRelayLoopbackTest {
 			socket.getOutputStream().write(bytes);
 		} catch (IOException closed) {
 			/* The test went away; what it missed shows in its assertions */
+		}
+	}
+
+	/* A relay whose destination's name resolves to the given addresses, still connecting when it returns */
+	private ExitRelay connecting(SessionPair pair, List<InetAddress> addresses, int connectTimeoutMillis) {
+		final ExitRelay relay = new ExitRelay(pair.exit, new ExitContext(ProxySettings.DEFAULTS,
+			DestinationPolicy.allowLoopback(), host -> addresses, Runnable::run,
+			new NettyExitConnector(group, connectTimeoutMillis)));
+
+		pair.toExit().forEach(relay::handle);
+		return relay;
+	}
+
+	/* Returns once the event loop ran what the end of the relay asked of it */
+	private void leave(SessionPair pair, ExitRelay relay) throws Exception {
+		pair.client.close(CloseReason.DONE);
+		pair.toExit().forEach(relay::handle);
+		assertThat(relay.isOpen(), is(false));
+		group.next().submit(() -> { }).get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+	}
+
+	@Example
+	public void shouldCloseTheConnectionBeingDialledWhenTheClientLeaves() throws Exception {
+		try (Blackhole hole = new Blackhole()) {
+			final SessionPair pair = pairFor(hole.port());
+
+			leave(pair, connecting(pair, List.of(EchoServer.LOOPBACK), PATIENT_MILLIS));
+			assertThat(hole.takesAnotherWithin(PATIENT_MILLIS), is(false));
+		}
+	}
+
+	@Example
+	public void shouldDialNoFurtherAddressWhenTheClientLeaves() throws Exception {
+		try (ServerSocket next = new ServerSocket(0, 1, EchoServer.LOOPBACK);
+			Blackhole hole = new Blackhole(EchoServer.loopback(3), next.getLocalPort())) {
+			final SessionPair pair = pairFor(hole.port());
+
+			leave(pair, connecting(pair, List.of(EchoServer.loopback(3), EchoServer.LOOPBACK), IMPATIENT_MILLIS));
+			next.setSoTimeout(PATIENT_MILLIS);
+			Expect.assertThrows(SocketTimeoutException.class, next::accept);
 		}
 	}
 

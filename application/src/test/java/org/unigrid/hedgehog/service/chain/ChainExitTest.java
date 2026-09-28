@@ -45,6 +45,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
@@ -362,8 +363,8 @@ public class ChainExitTest {
 		/* A caller whose session got to a stage, and how often what its relay held of the destination was closed */
 	}
 
-	/* A caller on the first chain whose session got that far. A destination that answers after the session ended is
-	   closed at once by the relay, so the closes of a session still connecting are counted on a late connection. */
+	/* A caller on the first chain whose session got that far. What a session still connecting holds is its connect,
+	   which its relay lets go of by cancelling it. */
 	private static Reached reach(final Rig rig, final Stage stage) {
 		final Caller caller = rig.caller(2, EXIT, rig.chain(0), stage.connect);
 
@@ -378,7 +379,7 @@ public class ChainExitTest {
 		caller.open();
 
 		if (stage == Stage.CONNECTING) {
-			return new Reached(caller, () -> rig.connector.connect().closes.get());
+			return new Reached(caller, rig.connector.last().cancels()::get);
 		}
 
 		if (stage == Stage.RELAYING) {
@@ -680,6 +681,38 @@ public class ChainExitTest {
 
 		assertThat(target.closed, is(false));
 		assertThat(rig.exit.openRelays(), is(1));
+	}
+
+	/* However a session ends while its destination is being dialled, the connect goes with it, as its place does */
+	@Example
+	public void cancelsTheConnectOfASessionThatEndsBeforeItsDestinationAnswers() {
+		final Map<String, BiConsumer<Rig, Caller>> endings = Map.of(
+			"the client's Close", (rig, caller) -> {
+				caller.session().close(CloseReason.DONE);
+				rig.drive();
+			},
+			"a gap", (rig, caller) -> leaveAGap(rig, caller.context.writer(), caller.fingerprint()),
+			"the idle limit", (rig, caller) -> {
+				rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
+				rig.exit.tick();
+			},
+			"a dropped chain", (rig, caller) -> {
+				rig.fleet.settings.set(Optional.empty());
+				rig.fleet.host(EXIT).refresh();
+				rig.exit.tick();
+			});
+
+		endings.forEach((ending, end) -> {
+			final Rig rig = new Rig();
+			final Caller caller = rig.caller(1);
+
+			caller.open();
+			assertThat(ending, rig.connector.last().cancels().get(), is(0));
+			end.accept(rig, caller);
+			rig.exit.tick();
+			assertThat(ending, rig.connector.last().cancels().get(), is(1));
+			assertThat(ending, rig.exit.heldRelays(), is(0));
+		});
 	}
 
 	@Example

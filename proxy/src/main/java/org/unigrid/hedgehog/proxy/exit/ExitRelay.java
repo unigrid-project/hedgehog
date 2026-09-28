@@ -23,8 +23,10 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import io.netty.util.NetUtil;
 import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
@@ -60,6 +62,7 @@ public final class ExitRelay {
 	private final ExitContext context;
 	private final Logger log;
 	private State state = State.WAITING;
+	private ExitConnector.Attempt attempt = ExitConnector.Attempt.NONE;
 	private Target target;
 	private DatagramRelay datagrams;
 	private boolean chainWritable = true;
@@ -226,8 +229,12 @@ public final class ExitRelay {
 		}
 
 		try {
-			context.connector().connect(context.policy().admit(destination, context.resolver()),
-				destination.port(), new Listener());
+			final List<InetAddress> admitted = context.policy().admit(destination, context.resolver());
+
+			/* A client that left during the lookup costs no connection */
+			if (isConnecting()) {
+				attempting(context.connector().connect(admitted, destination.port(), new Listener()));
+			}
 		} catch (DestinationRefusedException ex) {
 			failed(ex.status());
 		} catch (RuntimeException ex) {
@@ -242,6 +249,15 @@ public final class ExitRelay {
 	/* Short, so the lookup that follows it is not done under the lock; a client that has gone costs no lookup */
 	private synchronized boolean isConnecting() {
 		return state == State.CONNECTING;
+	}
+
+	/* A relay that ended while the connector started had nothing to cancel then */
+	private synchronized void attempting(ExitConnector.Attempt started) {
+		if (state == State.CONNECTING) {
+			attempt = started;
+		} else {
+			started.cancel();
+		}
 	}
 
 	private synchronized void connected(Target target) {
@@ -335,7 +351,12 @@ public final class ExitRelay {
 		}
 	}
 
+	/* A connect still under way would otherwise hold its socket, and dial the addresses left, with no relay to own
+	   them */
 	private void end() {
+		attempt.cancel();
+		attempt = ExitConnector.Attempt.NONE;
+
 		if (target != null) {
 			target.close();
 			target = null;

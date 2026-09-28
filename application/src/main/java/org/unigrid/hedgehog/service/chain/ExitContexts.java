@@ -100,16 +100,18 @@ final class ExitContexts {
 	/* The event loops start with the first connection or datagram a relay asks for, and none start once the exit
 	   stopped */
 	private static final class LazyConnector implements ExitConnector {
-		private static final ExitConnector RELEASED = (addresses, port, listener) ->
+		private static final ExitConnector RELEASED = (addresses, port, listener) -> {
 			listener.failed(Socks5CommandStatus.FAILURE);
+			return Attempt.NONE;
+		};
 
 		private EventLoopGroup group;
 		private ExitConnector connector;
 		private boolean released;
 
 		@Override
-		public void connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
-			connector().connect(addresses, port, listener);
+		public Attempt connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
+			return connector().connect(addresses, port, listener);
 		}
 
 		/* The datagram connector shares these loops; once released there are none, and it fails what it is asked */

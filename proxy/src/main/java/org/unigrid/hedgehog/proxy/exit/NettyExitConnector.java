@@ -23,6 +23,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -42,6 +43,7 @@ import java.net.SocketException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /* Connects over TCP with Netty on an NIO event loop group, trying the admitted addresses one after another */
 public final class NettyExitConnector implements ExitConnector {
@@ -76,9 +78,12 @@ public final class NettyExitConnector implements ExitConnector {
 	/* The list is copied because the attempts go on after this call, on the event loop, while the caller may
 	   reuse it. A null list or element is the caller's fault and throws before any listener call. */
 	@Override
-	public void connect(List<InetAddress> addresses, int port, TargetListener listener) {
-		attempt(List.copyOf(addresses).stream().limit(MAX_ADDRESSES).iterator(), port, listener,
-			Socks5CommandStatus.HOST_UNREACHABLE);
+	public Attempt connect(List<InetAddress> addresses, int port, TargetListener listener) {
+		final Dialing dialing = new Dialing(List.copyOf(addresses).stream().limit(MAX_ADDRESSES).iterator(), port,
+			listener);
+
+		dialing.next(Socks5CommandStatus.HOST_UNREACHABLE);
+		return dialing;
 	}
 
 	/* The SOCKS5 reply for a failed connection attempt */
@@ -100,22 +105,69 @@ public final class NettyExitConnector implements ExitConnector {
 			: Socks5CommandStatus.FAILURE;
 	}
 
-	private void attempt(Iterator<InetAddress> addresses, int port, TargetListener listener,
-		Socks5CommandStatus last) {
-		if (group.isShuttingDown()) {
-			listener.failed(Socks5CommandStatus.FAILURE);
-		} else if (addresses.hasNext()) {
-			bootstrap.clone().handler(new TargetHandler(listener))
-				.connect(new InetSocketAddress(addresses.next(), port))
-				.addListener((ChannelFutureListener) done -> {
-					if (done.isSuccess()) {
-						listener.connected(new NettyTarget(done.channel()));
-					} else {
-						attempt(addresses, port, listener, statusOf(done.cause()));
-					}
-				});
-		} else {
-			listener.failed(last);
+	/* One connect: the addresses left to try and the channel being dialled, which goes either to the listener or to
+	   a cancel, never to both */
+	private final class Dialing implements Attempt {
+		private final Iterator<InetAddress> addresses;
+		private final int port;
+		private final TargetListener listener;
+		private final AtomicReference<Channel> dialled = new AtomicReference<>();
+		private volatile boolean cancelled;
+
+		Dialing(Iterator<InetAddress> addresses, int port, TargetListener listener) {
+			this.addresses = addresses;
+			this.port = port;
+			this.listener = listener;
+		}
+
+		@Override
+		public void cancel() {
+			cancelled = true;
+
+			final Channel channel = dialled.getAndSet(null);
+
+			if (channel != null) {
+				channel.close();
+			}
+		}
+
+		private void next(Socks5CommandStatus last) {
+			if (cancelled) {
+				return;
+			}
+
+			if (group.isShuttingDown()) {
+				listener.failed(Socks5CommandStatus.FAILURE);
+			} else if (addresses.hasNext()) {
+				dial(addresses.next());
+			} else {
+				listener.failed(last);
+			}
+		}
+
+		private void dial(InetAddress address) {
+			final TargetHandler handler = new TargetHandler();
+			final ChannelFuture connecting = bootstrap.clone().handler(handler)
+				.connect(new InetSocketAddress(address, port));
+
+			dialled.set(connecting.channel());
+
+			/* A cancel that came after the check in next found no channel to close */
+			if (cancelled) {
+				cancel();
+			}
+
+			connecting.addListener((ChannelFutureListener) done -> settled(done, handler));
+		}
+
+		/* A channel that failed to connect is closed already; one that connected may have been taken by a cancel */
+		private void settled(ChannelFuture done, TargetHandler handler) {
+			if (!done.isSuccess()) {
+				next(statusOf(done.cause()));
+			} else if (dialled.compareAndSet(done.channel(), null)) {
+				handler.listener = listener;
+				listener.connected(new NettyTarget(done.channel()));
+			}
 		}
 	}
 
@@ -164,11 +216,9 @@ public final class NettyExitConnector implements ExitConnector {
 	}
 
 	private static final class TargetHandler extends ChannelInboundHandlerAdapter {
-		private final TargetListener listener;
-
-		TargetHandler(TargetListener listener) {
-			this.listener = listener;
-		}
+		/* Set on the event loop once the connection is handed over, as a cancel closes one that never was. Nothing
+		   is read before, since reads start off. */
+		private TargetListener listener;
 
 		@Override
 		public void channelRead(ChannelHandlerContext ctx, Object message) {
@@ -183,7 +233,10 @@ public final class NettyExitConnector implements ExitConnector {
 
 		@Override
 		public void channelInactive(ChannelHandlerContext ctx) {
-			listener.closed();
+			if (listener != null) {
+				listener.closed();
+			}
+
 			ctx.fireChannelInactive();
 		}
 
