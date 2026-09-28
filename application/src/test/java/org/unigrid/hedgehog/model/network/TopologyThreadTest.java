@@ -25,6 +25,8 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.SneakyThrows;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import net.jqwik.api.Example;
@@ -56,6 +58,13 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 
 	@Example
 	public void shouldRepopulateWithSeedsIfEmpty() {
+		/* A seed that refuses the connection is removed at once, which would empty the topology again
+		   before it is observed full. */
+		new MockUp<TopologyThread.NodeConnectionHandler>() {
+			@Mock
+			public void accept(Node node) { }
+		};
+
 		topology.clear();
 		topologyThread.start();
 		await().until(() -> topology.cloneNodes().size(), is(Network.getSeeds().length));
