@@ -203,6 +203,7 @@
 					<configuration>
 						<configLocation>../checkstyle.xml</configLocation>
 						<excludes>**/module-info.java</excludes>
+						<resourceExcludes>release.properties</resourceExcludes>
 					</configuration>
 					<executions>
 						<execution>
