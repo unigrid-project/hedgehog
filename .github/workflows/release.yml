@@ -73,6 +73,33 @@ jobs:
           path: application/target/hedgehog-*-jar-with-dependencies.jar
           if-no-files-found: error
 
+  platform-tests:
+    name: Tests (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux is covered by the jar job.
+          - { os: macos-15,     target: macos-aarch64 }
+          - { os: windows-2022, target: windows-x86_64 }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      # bash on every OS: PowerShell would read the comma in -pl as an array.
+      - name: Test common and application
+        shell: bash
+        run: mvn -B -ntp -pl common,application test -DskipTests=${{ inputs.skip-tests == true }}
+
   native:
     name: Native ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -134,7 +161,7 @@ jobs:
 
   draft:
     name: Draft the release
-    needs: [jar, native]
+    needs: [jar, platform-tests, native]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
