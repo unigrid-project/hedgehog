@@ -46,29 +46,11 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Gridnode> gridnodes = topology.cloneGridnode();
-			boolean isEmpty = true;
 			System.out.println(gridnodes.size());
 
-			if (obj.getGridnode().getHostName().contains("0.0.0.0")
-				&& !obj.getGridnode().getId().equals(GridnodeOptions.getGridnodeKey())) {
-				final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
+			fillInUnspecifiedHost(ctx, obj.getGridnode());
 
-				if (address != null) {
-					log.atDebug().log(address.toString());
-					log.atTrace().log("Seding with port {} from source {}",
-						address.getPort(), address.getAddress());
-					obj.getGridnode().setHostName(address.getAddress().getHostAddress()
-						+ ":" + address.getPort());
-				}
-			}
-
-			for (Gridnode g: gridnodes) {
-				if (g.getId().equals(obj.getGridnode().getId())) {
-					isEmpty = false;
-				}
-			}
-
-			if (isEmpty) {
+			if (gridnodes.stream().noneMatch(g -> g.getId().equals(obj.getGridnode().getId()))) {
 				topology.addGridnode(Gridnode.builder().id(obj.getGridnode().getId())
 					.status(obj.getGridnode().getStatus())
 					.hostName(obj.getGridnode().getHostName()).build());
@@ -82,5 +64,21 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 				});
 			}
 		});
+	}
+
+	/* A gridnode announcing itself on 0.0.0.0 is reachable at the address its connection came from */
+	private static void fillInUnspecifiedHost(ChannelHandlerContext ctx, Gridnode gridnode) {
+		if (gridnode.getHostName().contains("0.0.0.0")
+			&& !gridnode.getId().equals(GridnodeOptions.getGridnodeKey())) {
+
+			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
+
+			if (address != null) {
+				log.atDebug().log(address.toString());
+				log.atTrace().log("Seding with port {} from source {}",
+					address.getPort(), address.getAddress());
+				gridnode.setHostName(address.getAddress().getHostAddress() + ":" + address.getPort());
+			}
+		}
 	}
 }
