@@ -62,7 +62,9 @@ public class ProtocolMismatchHandlerTest extends BaseServerTest {
 
 		await().until(() -> appender.list, containsInAnyOrder(
 			warning(startsWith("Refused a connection from /127.0.0.1:")),
-			warning(startsWith("localhost/127.0.0.1:" + server.getP2p().getPort() + " refused the connection"))
+			warning(matchesPattern("(?s)(localhost)?/127\\.0\\.0\\.1:" + server.getP2p().getPort()
+				+ " refused the connection.*"
+			))
 		));
 	}
 
