@@ -356,6 +356,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.cdi=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.crypto=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=org.apache.commons.lang3
