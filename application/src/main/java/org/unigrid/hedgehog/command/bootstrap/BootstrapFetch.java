@@ -59,7 +59,9 @@ public class BootstrapFetch implements Callable<Integer> {
 		}
 
 		try {
-			SnapshotDownload.install(url == null ? defaultUrl(Version.getVersionNumber()) : url, target);
+			SnapshotDownload.install(url == null ? defaultUrl(Version.getVersionNumber()) : url, target,
+				new DownloadProgress(System.err)
+			);
 
 		} catch (IOException ex) {
 			System.err.println(ex.getMessage());

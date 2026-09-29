@@ -29,6 +29,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.IntConsumer;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -58,8 +60,14 @@ public class BootstrapFetchTest {
 	}
 
 	private void downloadFails(IOException problem) {
+		downloadReports(problem, List.of());
+	}
+
+	private void downloadReports(IOException problem, List<Integer> percents) {
 		new MockUp<SnapshotDownload>() {
-			@Mock public /* static */ void install(URL source, Path target) throws IOException {
+			@Mock public /* static */ void install(URL source, Path target, IntConsumer progress) throws IOException {
+				percents.forEach(progress::accept);
+
 				if (problem != null) {
 					throw problem;
 				}
@@ -111,6 +119,30 @@ public class BootstrapFetchTest {
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.out(), containsString("Installed " + snapshot));
 		assertThat(installs, equalTo(List.of(BootstrapFetch.defaultUrl(Version.getVersionNumber()))));
+	}
+
+	@Example
+	public void shouldReportEveryTenthOfTheDownload() {
+		downloadReports(null, IntStream.rangeClosed(1, 100).boxed().toList());
+
+		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.err().lines().toList(), equalTo(IntStream.rangeClosed(1, 10)
+			.mapToObj(tenth -> "Downloading " + tenth * 10 + "%").toList()));
+	}
+
+	@Example
+	public void shouldReportOnceWhenTheProgressJumpsPastTenths() {
+		downloadReports(null, List.of(3, 25, 26, 100));
+
+		assertThat(BootstrapCli.run("fetch").err().lines().toList(),
+			equalTo(List.of("Downloading 25%", "Downloading 100%")));
+	}
+
+	@Example
+	public void shouldReportNothingWhenTheSizeIsUnknown() {
+		assertThat(BootstrapCli.run("fetch").err(), equalTo(""));
 	}
 
 	@Example
