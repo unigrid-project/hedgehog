@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.crypto;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.math.BigInteger;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -31,9 +32,9 @@ import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
-import java.security.spec.EncodedKeySpec;
+import java.security.spec.ECPoint;
+import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -109,42 +110,49 @@ public class NetworkIdentifier {
 	}
 
 	public boolean verifyOther(byte[] data, byte[] signatureData) throws VerifySignatureException {
-		try {
-			for (String s : networkKeys) {
-				byte[] encode = Base64.getDecoder().decode(s);
-				
-				KeyFactory kf = KeyFactory.getInstance(EC_SEC_NAME);
-				
-				EncodedKeySpec keySpec = new X509EncodedKeySpec(encode);
-				
-				ECPublicKey pubKey = (ECPublicKey) kf.generatePublic(keySpec);
-				
-				final java.security.Signature signature = 
-					java.security.Signature.getInstance(SIGNATURE_NAME);
-			
-				signature.initVerify(publicKey);
-				signature.update(data);
-				return signature.verify(signatureData);
+		for (String key : networkKeys) {
+			if (verify(data, signatureData, publicKeyOf(key))) {
+				return true;
 			}
-		return false;
-		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException |
-			InvalidKeySpecException ex) {
-			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
-				+ "with public key '%s'", publicKey), ex);
 		}
+
+		return false;
 	}
 
 	public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {
+		return verify(data, signatureData, publicKey);
+	}
+
+	/* A network key is written the way getPublicKey() writes one: both affine coordinates in hex, each
+	   PUBLIC_KEY_HEX_SIZE digits long, on this identifier's curve */
+	private ECPublicKey publicKeyOf(String key) throws VerifySignatureException {
+		try {
+			if (key.length() != 2 * PUBLIC_KEY_HEX_SIZE) {
+				throw new IllegalArgumentException("Expected " + 2 * PUBLIC_KEY_HEX_SIZE + " hex digits");
+			}
+
+			final ECPoint point = new ECPoint(new BigInteger(key.substring(0, PUBLIC_KEY_HEX_SIZE), 16),
+				new BigInteger(key.substring(PUBLIC_KEY_HEX_SIZE), 16));
+
+			return (ECPublicKey) KeyFactory.getInstance(KEYPAIR_NAME)
+				.generatePublic(new ECPublicKeySpec(point, publicKey.getParams()));
+		} catch (IllegalArgumentException | NoSuchAlgorithmException | InvalidKeySpecException ex) {
+			throw new VerifySignatureException(String.format("Invalid network key '%s'", key), ex);
+		}
+	}
+
+	private static boolean verify(byte[] data, byte[] signatureData, ECPublicKey key)
+		throws VerifySignatureException {
+
 		try {
 			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
 
-			signature.initVerify(publicKey);
+			signature.initVerify(key);
 			signature.update(data);
 			return signature.verify(signatureData);
-
 		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
-			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
-				+ "with public key '%s'", publicKey), ex);
+			throw new VerifySignatureException(String.format("Failed to verify signature data "
+				+ "with public key '%s'", key), ex);
 		}
 	}
 }
