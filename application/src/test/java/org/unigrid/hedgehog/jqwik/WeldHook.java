@@ -27,6 +27,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -45,6 +46,7 @@ import net.jqwik.api.lifecycle.PropertyExecutionResult;
 import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import org.apache.commons.lang3.StringUtils;
+import org.awaitility.Awaitility;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
@@ -54,6 +56,14 @@ import org.unigrid.hedgehog.model.util.Reflection;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private static final int AROUND_PROPERTY_PROXIMITY = -15;
+
+	/* The network tests share a runner with as many forks as it has cores, and a QUIC handshake there can
+	   take longer than Awaitility's default of ten seconds. */
+	private static final Duration AWAIT_TIMEOUT = Duration.ofMinutes(1);
+
+	static {
+		Awaitility.setDefaultTimeout(AWAIT_TIMEOUT);
+	}
 
 	private boolean findScan(Class<?> clazz) {
 		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
