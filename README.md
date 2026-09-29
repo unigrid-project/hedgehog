@@ -52,7 +52,7 @@ To build the native image, execute `mvn package` inside the native-image module/
 The native build needs a GraalVM 25 installation as well; point `GRAALVM_HOME` at it. Maven itself runs on any JDK 25, which is also the runtime bundled into the executable.
 
 ## Releases
-Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon, and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads together with its hash `bootstrap.dat.gz.sha256`, and a detached signature (`.asc`) for each of them. Intel Macs run the jar. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
+Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon, and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads together with its hash `bootstrap.dat.gz.sha256`, a detached signature (`.asc`) for each of them, and `SHA256SUMS`, the hash of every asset, with its own signature `SHA256SUMS.asc`. Intel Macs run the jar. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
 
 > A1CB 0037 B3B9 2D59 5FA1 536C 95A9 8E88 8B0B A5D9
 
@@ -62,6 +62,12 @@ To verify a download:
 >
 > gpg --verify hedgehog-0.0.8-x86_64-linux-gnu.bin.asc hedgehog-0.0.8-x86_64-linux-gnu.bin
 
+Or check all downloads at once, from the directory that holds them:
+
+> gpg --verify SHA256SUMS.asc SHA256SUMS
+>
+> sha256sum -c SHA256SUMS
+
 The snapshot additionally carries its own signature inside the file, made with a board member's network key, which is what `bootstrap fetch` checks before installing it.
 
 ### Cutting a release
@@ -69,4 +75,6 @@ Releases are cut from a clean `master` with `release.sh`, which needs `gh` logge
 
 1. `./release.sh cut` builds and tests the whole project at the release version, turns the pom's `X.Y.Z-SNAPSHOT` into the release `X.Y.Z` with a commit and the tag `vX.Y.Z`, opens the next snapshot and pushes both. The tag reaching GitHub builds the executables and drafts the release.
 2. Prepare the snapshot as described in [Legacy chain snapshot](documentation/legacy-chain-snapshot.md): `bootstrap import`, then `bootstrap sign` with a board member's key.
-3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` waits for the draft, checks that the snapshot verifies against the keys built into that release, signs every asset, attaches the signatures and `bootstrap.dat.gz`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward, so no release ever goes out without one.
+3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` waits for the draft, checks that the snapshot verifies against the keys built into that release, signs every asset, attaches the signatures, `bootstrap.dat.gz` and a signed `SHA256SUMS`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward, so no release ever goes out without one.
+
+A release published without `SHA256SUMS` gets it afterwards with `./release.sh checksums --tag vX.Y.Z`, which refuses unless every asset already carries a signature that verifies.

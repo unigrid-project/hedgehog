@@ -64,6 +64,9 @@ jobs:
             exit 1
           }
 
+      - name: Test release.sh
+        run: bash .github/release-test.sh
+
       - name: Build and test common and application
         run: mvn -B -ntp -pl common,application verify -DskipTests=${{ inputs.skip-tests == true }}
 

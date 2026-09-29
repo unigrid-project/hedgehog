@@ -9,6 +9,8 @@
 #                       release key, attaches them and publishes the draft
 #   release.sh dev      tags X.Y.Z-dev.N on a commit off master and pushes
 #                       the tag; publish then turns it into a prerelease
+#   release.sh checksums  adds a signed SHA256SUMS to a release that is
+#                       already published
 #
 # No version is ever passed: the pom carries X.Y.Z-SNAPSHOT, and dropping the
 # suffix is the release. A dev release numbers the builds leading up to it,
@@ -20,6 +22,7 @@ set -euo pipefail
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly RELEASE_KEY="$ROOT/release-key.asc"
 readonly WORKFLOW="release.yml"
+readonly CHECKSUMS="SHA256SUMS"
 readonly DIST="$ROOT/dist"
 readonly SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
@@ -35,6 +38,7 @@ Usage: release.sh cut [--skip-tests] [--dry-run] [--next X.Y.Z]
        release.sh dev [--skip-tests]
        release.sh publish [--tag vX.Y.Z[-dev.N]] [--bootstrap FILE]
                           [--codename NAME] [--notes-file FILE]
+       release.sh checksums --tag vX.Y.Z[-dev.N]
 
 cut      Builds and tests the whole project at the release version, turns
          the pom's X.Y.Z-SNAPSHOT into the release X.Y.Z with a commit and
@@ -51,7 +55,8 @@ dev      Builds and tests the release the pom works towards as X.Y.Z-dev.N,
 
 publish  Waits for the draft the tag produced, checks the bootstrap against
          the keys built into that release, signs every asset with the release
-         key, attaches the signatures and bootstrap.dat.gz, and publishes. A
+         key, attaches the signatures, bootstrap.dat.gz and a signed SHA256SUMS
+         listing the hash of every asset, and publishes. A
          dev tag is published as a prerelease, never as the latest release.
            --tag TAG         the release to publish (default: the newest tag)
            --bootstrap FILE  a signed bootstrap.dat, gzipped or not; without
@@ -59,6 +64,11 @@ publish  Waits for the draft the tag produced, checks the bootstrap against
                              latest release is used
            --codename NAME   titles the release "X.Y.Z - NAME"; not for dev
            --notes-file FILE release notes replacing the generated ones
+
+checksums  Adds SHA256SUMS and SHA256SUMS.asc to a release that went out
+         without them. Every asset must already carry a signature that
+         verifies; the assets themselves stay as they are.
+           --tag TAG         the published release to add them to
 EOF
 }
 
@@ -316,6 +326,26 @@ check_bootstrap() {
 	rm -f "$raw"
 }
 
+sign_file() {
+	local fingerprint="$1" file="$2"
+	gpg --batch --yes --local-user "$fingerprint" --armor --detach-sign --output "$file.asc" "$file"
+	gpg --verify "$file.asc" "$file" 2>/dev/null || die "The signature on $(basename "$file") does not verify."
+	printf '  %s.asc\n' "$(basename "$file")"
+}
+
+# The signatures and the bootstrap's own hash file vouch for assets; they are
+# not listed among them.
+write_checksums() {
+	local assets="$1" name
+	(
+		cd "$assets"
+		for name in *; do
+			case "$name" in *.asc|*.sha256|"$CHECKSUMS") ;; *) sha256sum "$name" ;; esac
+		done > "$SCRATCH/$CHECKSUMS"
+	)
+	mv "$SCRATCH/$CHECKSUMS" "$assets/$CHECKSUMS"
+}
+
 publish_release() {
 	local tag="" bootstrap="" codename="" notes=""
 
@@ -366,17 +396,18 @@ publish_release() {
 	# the loop below signs like every other asset.
 	(cd "$assets" && sha256sum bootstrap.dat.gz > bootstrap.dat.gz.sha256)
 
+	write_checksums "$assets"
+
 	step "Signing every asset with $fingerprint"
 	local file
 	for file in "$assets"/*; do
 		case "$file" in *.asc) continue ;; esac
-		gpg --batch --yes --local-user "$fingerprint" --armor --detach-sign --output "$file.asc" "$file"
-		gpg --verify "$file.asc" "$file" 2>/dev/null || die "The signature on $(basename "$file") does not verify."
-		printf '  %s.asc\n' "$(basename "$file")"
+		sign_file "$fingerprint" "$file"
 	done
 
-	step "Attaching the bootstrap and the signatures"
-	gh release upload "$tag" --clobber "$assets/bootstrap.dat.gz" "$assets/bootstrap.dat.gz.sha256" "$assets"/*.asc
+	step "Attaching the bootstrap, the checksums and the signatures"
+	gh release upload "$tag" --clobber "$assets/bootstrap.dat.gz" "$assets/bootstrap.dat.gz.sha256" \
+		"$assets/$CHECKSUMS" "$assets"/*.asc
 
 	step "Publishing $tag"
 	local title="$version"
@@ -397,12 +428,61 @@ publish_release() {
 	printf '\nAnyone can verify a download with:\n'
 	printf '  gpg --import release-key.asc\n'
 	printf '  gpg --verify <asset>.asc <asset>\n'
+	printf '  gpg --verify %s.asc %s && sha256sum -c %s\n' "$CHECKSUMS" "$CHECKSUMS" "$CHECKSUMS"
+}
+
+checksums_release() {
+	local tag=""
+
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			--tag) tag="${2:?--tag needs a tag}"; shift ;;
+			*) die "Unknown option for checksums: $1" ;;
+		esac
+		shift
+	done
+
+	cd "$ROOT"
+	require_gh
+	[ -n "$tag" ] || die "checksums needs --tag; it never guesses which release to amend."
+	local version="${tag#v}"
+	is_version "$version" || is_dev_version "$version" \
+		|| die "'$tag' is not a release tag of the form vX.Y.Z or vX.Y.Z-dev.N."
+
+	local fingerprint draft
+	fingerprint="$(require_signing_key)"
+	draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)" \
+		|| die "There is no release for $tag."
+	[ "$draft" = false ] || die "Release $tag is still a draft; publish it instead."
+
+	local assets="$DIST/$tag"
+	step "Downloading the assets of $tag"
+	rm -rf "$assets"
+	mkdir -p "$assets"
+	gh release download "$tag" --dir "$assets"
+
+	step "Checking the signature on every asset"
+	local file
+	for file in "$assets"/*; do
+		case "$file" in *.asc|*/"$CHECKSUMS") continue ;; esac
+		gpg --verify "$file.asc" "$file" 2>/dev/null \
+			|| die "$(basename "$file") carries no signature that verifies; nothing was added."
+	done
+
+	write_checksums "$assets"
+
+	step "Signing $CHECKSUMS with $fingerprint"
+	sign_file "$fingerprint" "$assets/$CHECKSUMS"
+
+	step "Attaching $CHECKSUMS and its signature to $tag"
+	gh release upload "$tag" --clobber "$assets/$CHECKSUMS" "$assets/$CHECKSUMS.asc"
 }
 
 case "${1:-}" in
 	cut) shift; cut_release "$@" ;;
 	dev) shift; dev_release "$@" ;;
 	publish) shift; publish_release "$@" ;;
+	checksums) shift; checksums_release "$@" ;;
 	-h|--help|help) usage ;;
 	"") usage >&2; exit 1 ;;
 	*) die "Unknown command: $1 (try --help)" ;;
