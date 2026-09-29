@@ -189,7 +189,7 @@ first. `bootstrap fetch` downloads to a `.part` file beside the target, verifies
 moves it into place with an atomic rename — a download that fails verification never touches an
 existing snapshot, and `SnapshotDownload` transparently decompresses a source whose path ends in
 `.gz`. A daemon that starts without a snapshot runs the same download from the same default URL in
-the background through `SnapshotInstaller`, reporting its progress on `GET /status`. The command
+the background through `SnapshotInstaller`, reporting its progress, or its failure, on `GET /status`. The command
 prints `Downloading N%` on stderr for every tenth it passes (`DownloadProgress`), and nothing while the
 size of the download is unknown.
 

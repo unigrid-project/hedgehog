@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class NodeStatus {
 	public static final int COMPLETE = 100;
 
-	private final AtomicReference<Phase> phase = new AtomicReference<>(new Phase(Activity.RUNNING, COMPLETE));
+	private final AtomicReference<Phase> phase = new AtomicReference<>(Phase.running());
 
 	public Phase current() {
 		return phase.get();
@@ -37,17 +37,25 @@ public class NodeStatus {
 
 	/* The progress is a percentage, or null while the size of the download is unknown. */
 	public void downloading(Integer progress) {
-		phase.set(new Phase(Activity.DOWNLOADING, progress));
+		phase.set(new Phase(Activity.DOWNLOADING, progress, null));
 	}
 
 	public void running() {
-		phase.set(new Phase(Activity.RUNNING, COMPLETE));
+		phase.set(Phase.running());
+	}
+
+	/* The node keeps running, only without what the download was to bring; it stays failed until the next download. */
+	public void failed(String message) {
+		phase.set(new Phase(Activity.FAILED, null, message));
 	}
 
 	public enum Activity {
-		DOWNLOADING, RUNNING
+		DOWNLOADING, RUNNING, FAILED
 	}
 
-	public record Phase(Activity activity, Integer progress) {
+	public record Phase(Activity activity, Integer progress, String message) {
+		private static Phase running() {
+			return new Phase(Activity.RUNNING, COMPLETE, null);
+		}
 	}
 }

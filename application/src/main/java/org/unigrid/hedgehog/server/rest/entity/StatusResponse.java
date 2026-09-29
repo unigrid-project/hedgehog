@@ -21,8 +21,9 @@ package org.unigrid.hedgehog.server.rest.entity;
 import java.util.Locale;
 import org.unigrid.hedgehog.model.NodeStatus;
 
-public record StatusResponse(String status, Integer progress) {
+public record StatusResponse(String status, Integer progress, String message) {
 	public static StatusResponse of(NodeStatus.Phase phase) {
-		return new StatusResponse(phase.activity().name().toLowerCase(Locale.ROOT), phase.progress());
+		final String status = phase.activity().name().toLowerCase(Locale.ROOT);
+		return new StatusResponse(status, phase.progress(), phase.message());
 	}
 }

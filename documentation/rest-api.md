@@ -419,13 +419,16 @@ legacy balance compares mint-storage entries against (see
 (`model/ChainHeight.java`), which for now returns the tip height of the legacy chain snapshot, so the
 answer is `503` while no snapshot is available.
 
-`/status` answers `{ "status": "downloading" | "running", "progress": N }` from the `NodeStatus`
-bean (`model/NodeStatus.java`). A daemon started without a legacy chain snapshot downloads the one
-published with its own release (see [Legacy chain snapshot](legacy-chain-snapshot.md)) in the
+`/status` answers `{ "status": "downloading" | "running" | "failed", "progress": N, "message": "..." }` from
+the `NodeStatus` bean (`model/NodeStatus.java`). A daemon started without a legacy chain snapshot downloads
+the one published with its own release (see [Legacy chain snapshot](legacy-chain-snapshot.md)) in the
 background through `SnapshotInstaller`, and reports `downloading` meanwhile, with `progress` the
 percentage of the transfer, or `null` while the server has not said how large it is. Otherwise, and
-once the download has ended, whether installed or not, it reports `running` with `progress` at
-`100`.
+once the download has succeeded, it reports `running` with `progress` at `100`. A download that
+failed reports `failed` with `progress` `null` and `message` the reason, such as the exception message;
+the node keeps running without a snapshot. `failed` stays until the next download attempt or the next
+start. `message` is `null` for every other status, so a client that predates `failed` and `message`
+keeps working on the fields it knows.
 
 No CLI command calls `/version`; it exists purely for external callers.
 

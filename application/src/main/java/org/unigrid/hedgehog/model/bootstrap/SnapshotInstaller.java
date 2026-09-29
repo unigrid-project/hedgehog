@@ -23,12 +23,13 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.NodeStatus;
 
 /*
-   A node without a snapshot is still a working node, so a failed download is logged and the node
-   carries on running without one, exactly as it would have had it never tried.
+   A node without a snapshot is still a working node, so a failed download is logged and reported on
+   the status, and the node carries on running without one.
 */
 @Slf4j
 @ApplicationScoped
@@ -45,12 +46,15 @@ public class SnapshotInstaller {
 
 		try {
 			SnapshotDownload.install(source, snapshot.getPath(), status::downloading);
+			status.running();
 
 		} catch (IOException ex) {
 			log.atWarn().log("Could not install the legacy chain snapshot from {}: {}", source, ex.getMessage());
+			status.failed(Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName()));
 
-		} finally {
+		} catch (RuntimeException ex) {
 			status.running();
+			throw ex;
 		}
 	}
 }

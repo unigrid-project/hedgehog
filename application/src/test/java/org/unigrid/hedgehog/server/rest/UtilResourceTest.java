@@ -21,6 +21,8 @@ package org.unigrid.hedgehog.server.rest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -62,7 +64,7 @@ public class UtilResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	public void shouldReportRunningWhenIdle() {
 		assertThat(client.getEntity("/status", StatusResponse.class),
-			equalTo(new StatusResponse("running", NodeStatus.COMPLETE)));
+			equalTo(new StatusResponse("running", NodeStatus.COMPLETE, null)));
 	}
 
 	@Example
@@ -78,7 +80,7 @@ public class UtilResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	public void shouldReportTheProgressOfADownload() {
 		nodeStatus.downloading(42);
-		assertThat(client.getEntity("/status", StatusResponse.class), equalTo(new StatusResponse("downloading", 42)));
+		assertThat(client.getEntity("/status", StatusResponse.class), equalTo(new StatusResponse("downloading", 42, null)));
 	}
 
 	@Example
@@ -89,17 +91,21 @@ public class UtilResourceTest extends BaseRestClientTest {
 
 		assertThat(Files.exists(snapshot.getPath()), equalTo(true));
 		assertThat(client.getEntity("/status", StatusResponse.class),
-			equalTo(new StatusResponse("running", NodeStatus.COMPLETE)));
+			equalTo(new StatusResponse("running", NodeStatus.COMPLETE, null)));
 	}
 
 	@Example
 	@SneakyThrows
-	public void shouldRunWithoutASnapshotWhenTheDownloadFails() {
+	public void shouldReportAFailedDownloadWithoutASnapshot() {
 		Files.deleteIfExists(snapshot.getPath());
 		snapshotInstaller.installIfMissing(Path.of("absent-bootstrap.dat").toUri().toURL());
 
+		final StatusResponse response = client.getEntity("/status", StatusResponse.class);
+
 		assertThat(Files.exists(snapshot.getPath()), equalTo(false));
-		assertThat(nodeStatus.current().activity(), equalTo(NodeStatus.Activity.RUNNING));
+		assertThat(response.status(), equalTo("failed"));
+		assertThat(response.progress(), nullValue());
+		assertThat(response.message(), notNullValue());
 	}
 
 	@SneakyThrows
