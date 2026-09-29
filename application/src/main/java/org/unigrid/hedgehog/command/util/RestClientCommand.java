@@ -70,7 +70,7 @@ public class RestClientCommand implements Runnable {
 		}
 
 		private void post(RestClient rest) throws ResponseOddityException {
-			execute(rest.post(getLocation(), getEntity()));
+			execute(RestClientCommand.this.post(rest));
 		}
 
 		private void put(RestClient rest) throws ResponseOddityException {
@@ -113,6 +113,10 @@ public class RestClientCommand implements Runnable {
 
 	public void setHeaders(MultivaluedMap<String, Object> headers) {
 		this.headers = Optional.of(headers);
+	}
+
+	protected Response post(final RestClient rest) throws ResponseOddityException {
+		return rest.post(getLocation(), getEntity());
 	}
 
 	protected <T> Entity<T> getEntity() {

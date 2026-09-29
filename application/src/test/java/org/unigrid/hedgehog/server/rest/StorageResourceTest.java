@@ -19,6 +19,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.HttpMethod;
@@ -34,12 +36,18 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.io.SequenceInputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -51,6 +59,8 @@ import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
@@ -84,6 +94,7 @@ import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import org.unigrid.hedgehog.client.RestClient;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import org.unigrid.hedgehog.command.cli.StoragePut;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
@@ -102,6 +113,7 @@ import org.unigrid.hedgehog.service.storage.StorageArbitraries;
 import org.unigrid.hedgehog.service.storage.StorageFleet;
 import org.unigrid.hedgehog.service.storage.StorageService;
 import org.unigrid.hedgehog.service.storage.StorageTestData;
+import picocli.CommandLine;
 
 public class StorageResourceTest extends BaseRestClientTest {
 	private static final String URL = "/storage";
@@ -112,6 +124,9 @@ public class StorageResourceTest extends BaseRestClientTest {
 	private static final Duration STALL_LIMIT = Duration.ofSeconds(15);
 	private static final Duration READ_LIMIT = Duration.ofMillis(250);
 	private static final Duration SLOW_REPLY = READ_LIMIT.multipliedBy(2);
+
+	/* Far more than any buffer between the client and the daemon holds back, so the daemon receives whole stripes */
+	private static final int STREAMED_AHEAD = 1 << 16;
 
 	private final Map<String, Object> originals = new HashMap<>();
 	private Client raw;
@@ -200,6 +215,47 @@ public class StorageResourceTest extends BaseRestClientTest {
 
 			return inner.delete(target, groupId, publicKey, timestamp, signature)
 				.thenApplyAsync(Function.identity(), later);
+		}
+	}
+
+	/* Keeps the rest of an upload back until a condition holds or the wait runs out, recording which of the two */
+	@RequiredArgsConstructor
+	private static final class HeldBack extends InputStream {
+		private final BooleanSupplier release;
+		private final AtomicBoolean released;
+		private final InputStream rest;
+		private boolean waited;
+
+		@Override
+		public int read() throws IOException {
+			awaitRelease();
+			return rest.read();
+		}
+
+		@Override
+		public int read(final byte[] buffer, final int offset, final int length) throws IOException {
+			awaitRelease();
+			return rest.read(buffer, offset, length);
+		}
+
+		@SneakyThrows
+		private void awaitRelease() {
+			final long deadline = System.nanoTime() + STALL_LIMIT.toNanos();
+
+			while (!waited && !release.getAsBoolean() && System.nanoTime() < deadline) {
+				Thread.sleep(10);
+			}
+
+			released.compareAndSet(false, !waited && release.getAsBoolean());
+			waited = true;
+		}
+	}
+
+	/* The options a command connects by are faked afresh for every property while the server keeps the port it
+	   started on, so the command is handed the client of the running server instead */
+	private static final class ConnectedStoragePut extends StoragePut {
+		void runWith(final RestClient rest) throws ResponseOddityException {
+			execute(post(rest));
 		}
 	}
 
@@ -396,6 +452,53 @@ public class StorageResourceTest extends BaseRestClientTest {
 			assertThat(assertThrows(ProcessingException.class, () -> impatient.getWithHeaders(URL,
 				fingerprint(encoded))).getCause(), instanceOf(SocketTimeoutException.class));
 		}
+	}
+
+	/* A connection that buffers a body whole sends none of it before the file ends, so a daemon that places groups
+	   while the rest of the file is still held back shows that the upload streams */
+	@SneakyThrows
+	@Property(tries = 3)
+	public void streamsAnUploadAsItIsRead(@ForAll final long seed) {
+		final StorageFleet fleet = wireFleet(StorageTestData.parameters());
+		final Random random = new Random(seed);
+		final byte[] file = new byte[STREAMED_AHEAD + 1 + random.nextInt(STREAMED_AHEAD)];
+		final AtomicBoolean placedEarly = new AtomicBoolean();
+
+		random.nextBytes(file);
+
+		final InputStream upload = new SequenceInputStream(new ByteArrayInputStream(file, 0, STREAMED_AHEAD),
+			new HeldBack(() -> !fleet.groups().isEmpty(), placedEarly,
+				new ByteArrayInputStream(file, STREAMED_AHEAD, file.length - STREAMED_AHEAD)));
+		final Response stored = client.postStream(URL, upload, file.length);
+		final String encoded = stored.readEntity(new GenericType<Map<String, String>>() { }).get("fingerprint");
+
+		assertThat(Status.fromStatusCode(stored.getStatus()), equalTo(Status.CREATED));
+		assertThat(placedEarly.get(), is(true));
+		assertThat(client.getWithHeaders(URL, fingerprint(encoded)).readEntity(byte[].class), equalTo(file));
+	}
+
+	@SneakyThrows
+	@Property(tries = 3)
+	public void storesAFileFromTheCommandLine(@ForAll("files") final Tuple2<StorageSpork.SporkData, byte[]> scenario) {
+		final PrintStream console = System.out;
+		final ByteArrayOutputStream printed = new ByteArrayOutputStream();
+
+		wireFleet(scenario.get1());
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final ConnectedStoragePut command = new ConnectedStoragePut();
+
+			Files.write(fs.getPath("/upload"), scenario.get2());
+			new CommandLine(command).registerConverter(Path.class, fs::getPath).parseArgs("/upload");
+			System.setOut(new PrintStream(printed, true, StandardCharsets.UTF_8));
+			command.runWith(client);
+		} finally {
+			System.setOut(console);
+		}
+
+		final String encoded = printed.toString(StandardCharsets.UTF_8).trim();
+
+		assertThat(client.getWithHeaders(URL, fingerprint(encoded)).readEntity(byte[].class), equalTo(scenario.get2()));
 	}
 
 	/* Sent over a bare socket, as no HTTP client lets a caller choose the framing of a request */

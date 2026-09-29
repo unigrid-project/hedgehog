@@ -21,12 +21,13 @@ package org.unigrid.hedgehog.command.cli;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -40,10 +41,14 @@ public class StoragePut extends RestClientCommand {
 		super(HttpMethod.POST, "/storage");
 	}
 
+	/* The daemon refuses an upload that does not announce its length, and announcing it lets the file stream
+	   rather than wait to be buffered whole */
 	@Override
 	@SneakyThrows
-	protected <T> Entity<T> getEntity() {
-		return (Entity<T>) Entity.entity(Files.newInputStream(file), MediaType.APPLICATION_OCTET_STREAM);
+	protected Response post(final RestClient rest) throws ResponseOddityException {
+		try (InputStream content = Files.newInputStream(file)) {
+			return rest.postStream(getLocation(), content, Files.size(file));
+		}
 	}
 
 	@Override

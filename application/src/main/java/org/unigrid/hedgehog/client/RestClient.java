@@ -24,15 +24,22 @@ import jakarta.ws.rs.client.Client;
 import jakarta.ws.rs.client.ClientBuilder;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.client.Invocation;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
+import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.server.rest.JsonExceptionMapper;
@@ -42,6 +49,11 @@ public class RestClient implements AutoCloseable {
 	   unbounded: a store answers only once every byte is placed, and giving up earlier would lose the fingerprint
 	   of a file that was stored anyway. */
 	public static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
+
+	/* A connection buffers a body of unknown length whole in order to count it, and the JDK takes no Content-Length
+	   header from a caller. So the length of a streamed upload goes straight to the connection it opens, which the
+	   connector opens on the calling thread. */
+	private static final ThreadLocal<Long> STREAMED_LENGTH = new ThreadLocal<>();
 
 	private final Client client;
 	private final String baseUrl;
@@ -59,6 +71,7 @@ public class RestClient implements AutoCloseable {
 		clientConfig.register(JacksonJaxbJsonProvider.class);
 		clientConfig.register(new JsonConfiguration());
 		clientConfig.register(JsonExceptionMapper.class);
+		clientConfig.connectorProvider(new HttpUrlConnectorProvider().connectionFactory(RestClient::open));
 
 		final SSLContext context = SSLContext.getInstance("ssl");
 		context.init(null, InsecureTrustManagerFactory.INSTANCE.getTrustManagers(), null);
@@ -73,6 +86,13 @@ public class RestClient implements AutoCloseable {
 		} else {
 			baseUrl = String.format("http://%s:%d%%s", host, port);
 		}
+	}
+
+	private static HttpURLConnection open(final URL url) throws IOException {
+		final HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+
+		Optional.ofNullable(STREAMED_LENGTH.get()).ifPresent(connection::setFixedLengthStreamingMode);
+		return connection;
 	}
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
@@ -112,6 +132,18 @@ public class RestClient implements AutoCloseable {
 		final Response response = client.target(String.format(baseUrl, location)).request().post(entity);
 		throwResponseOddity(response);
 		return response;
+	}
+
+	public Response postStream(final String location, final InputStream body, final long length)
+		throws ResponseOddityException {
+
+		STREAMED_LENGTH.set(length);
+
+		try {
+			return post(location, Entity.entity(body, MediaType.APPLICATION_OCTET_STREAM));
+		} finally {
+			STREAMED_LENGTH.remove();
+		}
 	}
 
 	public <T> Response put(String location, Entity<T> entity) throws ResponseOddityException {
