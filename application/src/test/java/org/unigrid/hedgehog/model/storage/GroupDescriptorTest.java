@@ -75,14 +75,16 @@ public class GroupDescriptorTest {
 		}
 	}
 
+	/* Arbitrary sizes almost never form a valid layout, so known-valid layouts make up half the samples */
 	@Provide
 	public Arbitrary<LayoutParameters> unvalidatedLayouts() {
-		return Combinators.combine(Arbitraries.integers().between(-8, 1 << 16), Arbitraries.integers().between(-8, 512),
-			Arbitraries.integers().between(-10, 300), Arbitraries.integers().between(-10, 30_000)
+		return Arbitraries.oneOf(Combinators.combine(Arbitraries.integers().between(-8, 1 << 16),
+			Arbitraries.integers().between(-8, 512), Arbitraries.integers().between(-10, 300),
+			Arbitraries.integers().between(-10, 30_000)
 		).as((chunkSize, fragmentSize, innerParity, maxParity) -> LayoutParametersTest.small().toBuilder()
 			.chunkSize(chunkSize).fragmentSize(fragmentSize).innerParityPercent(innerParity)
 			.maxParityPercent(maxParity).build()
-		);
+		), LayoutParametersTest.validLayouts());
 	}
 
 	@Example
