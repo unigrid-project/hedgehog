@@ -103,19 +103,20 @@ public class GroupRepairer {
 		return spork.get().map(parameters -> OptionalLong.of(epochOf(parameters))).orElse(OptionalLong.empty());
 	}
 
-	/* A stable order lets shutdown stop between groups at a predictable point */
+	/* A stable order lets shutdown stop between groups at a predictable point. Any node may be handed a valid
+	   delete, so expired tombstones go even where no group is tended. */
 	public void runEpoch() {
 		final Optional<StorageSpork.SporkData> parameters = spork.get();
 		final Optional<String> self = directory.self();
 
-		if (parameters.isEmpty() || self.isEmpty()) {
-			return;
+		if (parameters.isPresent() && self.isPresent()) {
+			final Round round = new Round(parameters.get(), directory.active(), self.get(),
+				epochOf(parameters.get()));
+
+			store.groups().stream().sorted(Comparator.comparing(GroupId::toHex))
+				.takeWhile(groupId -> !Thread.currentThread().isInterrupted()).forEach(round::tend);
 		}
 
-		final Round round = new Round(parameters.get(), directory.active(), self.get(), epochOf(parameters.get()));
-
-		store.groups().stream().sorted(Comparator.comparing(GroupId::toHex))
-			.takeWhile(groupId -> !Thread.currentThread().isInterrupted()).forEach(round::tend);
 		purgeTombstones();
 	}
 

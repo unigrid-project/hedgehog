@@ -19,6 +19,8 @@
 
 package org.unigrid.hedgehog.service.storage;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
@@ -27,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -54,6 +57,8 @@ import org.unigrid.hedgehog.model.storage.GroupDescriptor;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.LayoutParameters;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
+import org.unigrid.hedgehog.model.storage.StorageStatus;
+import org.unigrid.hedgehog.model.storage.TestClock;
 import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.placement.Placement;
@@ -134,6 +139,10 @@ public class GroupRepairerTest {
 		fleet.getTransport().lie(liar, entries -> entries.stream()
 			.map(entry -> new FragmentStatus.Entry(entry.getGroupId(), FragmentStatus.State.HELD, index))
 			.collect(Collectors.toList()));
+	}
+
+	private static StorageStatus deleteFrom(FragmentKeeper keeper, GroupKey key) {
+		return keeper.delete(key.groupId(), key.publicKey(), 0, key.signDelete(0));
 	}
 
 	private static DeleteProof forge(Forgery forgery, GroupKey key, GroupKey other, long timestamp) {
@@ -415,6 +424,31 @@ public class GroupRepairerTest {
 
 		assertThat(store.groups(), equalTo(held.stream().filter(groupId -> Placement.rankOf(groupId,
 			fleet.getGridnodes(), self).getAsInt() < parameters.window()).collect(Collectors.toSet())));
+	}
+
+	@Property(tries = 10)
+	@SneakyThrows
+	public void freesExpiredTombstonesOnANodeThatIsNoGridnode(@ForAll long seed) {
+		final Random random = new Random(seed);
+		final StorageSpork.SporkData parameters = StorageTestData.parameters();
+		final TestClock clock = new TestClock();
+		final FragmentStore store = new FragmentStore(Jimfs.newFileSystem(Configuration.unix()).getPath("/fragments"),
+			clock);
+		final FragmentKeeper keeper = new FragmentKeeper(store, () -> Optional.of(parameters), Optional::empty);
+		final GroupKey expiring = StorageTestData.key(random);
+		final GroupKey later = StorageTestData.key(random);
+		final long oneTombstoneQuota = 100 / FragmentStore.TOMBSTONE_BUDGET_PERCENT * FragmentStore.MIN_ENTRY_COST;
+
+		parameters.setMaxBytesPerNode(oneTombstoneQuota);
+
+		assertThat(deleteFrom(keeper, expiring), equalTo(StorageStatus.OK));
+		assertThat(deleteFrom(keeper, later), equalTo(StorageStatus.QUOTA));
+
+		clock.advance(Duration.ofDays(parameters.getTombstoneDays()).plusMinutes(1));
+		new GroupRepairer(store, new TopologyGridnodeDirectory(List::of, () -> ""), new InMemoryTransport(),
+			() -> Optional.of(parameters), clock).runEpoch();
+
+		assertThat(deleteFrom(keeper, later), equalTo(StorageStatus.OK));
 	}
 
 	@Property(tries = 30)
