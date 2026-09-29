@@ -85,7 +85,7 @@ public class PublishGridnodeScheduleTest extends BaseScheduleTest<PublishGridnod
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 		topology.addNode(node);
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostString()).id(key)
 			.status(Gridnode.Status.ACTIVE).build();
 		topology.addGridnode(gridnode);
 	}

@@ -102,7 +102,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 		ECKey key = new ECKey();
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName())
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostString())
 			.id(key.getPublicKeyAsHex()).build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
@@ -126,7 +126,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostString()).id(key)
 			.status(Gridnode.Status.ACTIVE).build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
@@ -149,7 +149,7 @@ public class GridnodeResourceTest extends BaseRestClientTest{
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostName()).id(key)
+		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostString()).id(key)
 			.build();
 		topology.addNode(node);
 		topology.addGridnode(gridnode);
