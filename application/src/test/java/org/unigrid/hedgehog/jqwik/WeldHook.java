@@ -36,6 +36,8 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
@@ -45,6 +47,8 @@ import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.jboss.weld.environment.se.events.ContainerInitialized;
+import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.util.Reflection;
 
@@ -92,6 +96,12 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 					throw new IllegalArgumentException("Unable to instantiate extension type", ex);
 				}
 			}).collect(Collectors.toList());
+
+			/* Discovery finds the Daemon, which would download the latest published snapshot into every container. */
+			new MockUp<Daemon>() {
+				@Mock
+				void start(ContainerInitialized event) { }
+			};
 
 			final Weld weldInitializer = new Weld(name)
 				.beanClasses(weldClasses.toArray(new Class<?>[0]))
