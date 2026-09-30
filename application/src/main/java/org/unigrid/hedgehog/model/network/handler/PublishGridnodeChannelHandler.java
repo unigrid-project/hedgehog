@@ -46,7 +46,6 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Gridnode> gridnodes = topology.cloneGridnode();
-			System.out.println(gridnodes.size());
 
 			fillInUnspecifiedHost(ctx, obj.getGridnode());
 
