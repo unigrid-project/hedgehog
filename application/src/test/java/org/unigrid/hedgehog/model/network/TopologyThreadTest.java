@@ -20,14 +20,19 @@
 package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -68,5 +73,21 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		});
 
 		assertThat(original, not(equalTo(cloned)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldConnectToTheAddressAsGiven() {
+		final List<String> hosts = new ArrayList<>();
+
+		new MockUp<P2PClient>() {
+			@Mock
+			public void $init(String hostname, int port) {
+				hosts.add(hostname);
+			}
+		};
+
+		topologyThread.new NodeConnectionHandler(topology).accept(Node.fromAddress("127.0.0.1:52883"));
+		assertThat(hosts, contains("127.0.0.1"));
 	}
 }
