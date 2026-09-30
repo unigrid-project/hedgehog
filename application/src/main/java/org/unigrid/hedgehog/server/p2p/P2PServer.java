@@ -37,14 +37,20 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.TopologyThread;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
 import org.unigrid.hedgehog.model.network.codec.HelloDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -54,6 +60,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.ConnectionHandler;
 import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
+import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
@@ -62,9 +69,11 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.server.AbstractServer;
 
+@Slf4j
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
@@ -77,12 +86,12 @@ public class P2PServer extends AbstractServer {
 	@PostConstruct @SneakyThrows
 	private void init() {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
-
+		log.atDebug().log("Init P2P server");
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
 			.applicationProtocols(Network.getProtocols()).build();
-
+		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
 			.sslContext(context)
@@ -100,20 +109,27 @@ public class P2PServer extends AbstractServer {
 				}
 			})
 			.streamHandler(new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+					new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new HelloDecoder(),
+					new GridnodeEncoder(), new GridnodeDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new HelloChannelHandler(), new PublishPeersChannelHandler()
-				);
+					new HelloChannelHandler(), new PublishPeersChannelHandler(),
+					new PublishGridnodeChannelHandler()
+				));
+
+				handlers.addAll(StoragePipeline.handlers());
+				return handlers;
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),
 					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()
+					new PublishAndSaveSporkSchedule(),
+					new PublishGridnodeSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
 
@@ -122,7 +138,7 @@ public class P2PServer extends AbstractServer {
 			.handler(codec)
 			.bind(NetOptions.getHost(), NetOptions.getPort())
 			.sync().channel();
-
+		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
 	}

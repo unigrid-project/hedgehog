@@ -706,6 +706,9 @@ then `n` repetitions of:
 | 8 | vesting duration (seconds) | `duration.getSeconds()` |
 | 4 | vesting duration (nanos) | `duration.getNano()`; read back with `Duration.ofSeconds(seconds, nanos)` |
 | 4 | parts | `writeInt` / `readInt` |
+| 4 | cliff | `writeInt` / `readInt` |
+| 4 | percent | `writeInt` / `readInt` |
+| 4 | block | `writeInt` / `readInt` |
 | var | amount | NUL-terminated `amount.toPlainString()`, empty when the amount is null |
 
 Entries are written sorted by address, like the MINT_STORAGE entries are sorted by address and

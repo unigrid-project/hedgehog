@@ -39,13 +39,18 @@ import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
+import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
+import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
 import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
 import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
@@ -54,11 +59,13 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
+import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 
 public class P2PClient extends ConnectionContainer {
@@ -109,20 +116,26 @@ public class P2PClient extends ConnectionContainer {
 		// TODO: Add support for ChannelCollector
 		return quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
 			new RegisterQuicChannelInitializer(() -> {
-				return Arrays.asList(new LoggingHandler(LogLevel.DEBUG),
+				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+					new LoggingHandler(LogLevel.DEBUG),
 					new FrameDecoder(),
 					new HelloEncoder(),
+					new GridnodeEncoder(), new GridnodeDecoder(),
 					new PingEncoder(), new PingDecoder(),
 					new PublishSporkEncoder(), new PublishSporkDecoder(),
 					new PublishPeersEncoder(), new PublishPeersDecoder(),
 					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new PublishPeersChannelHandler()
-				);
+					new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
+				));
+
+				handlers.addAll(StoragePipeline.handlers());
+				return handlers;
 			}, () -> {
 				return Arrays.asList(
 					new PingSchedule(),
 					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule()
+					new PublishAndSaveSporkSchedule(),
+					new PublishGridnodeSchedule()
 				);
 			}, RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();

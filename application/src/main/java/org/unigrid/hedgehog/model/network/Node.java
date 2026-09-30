@@ -47,9 +47,14 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Node {
+
 	private InetSocketAddress address;
-	@JsonIgnore @Builder.Default @ToString.Exclude private Optional<Connection> connection = Optional.empty();
-	@Builder.Default private Details details = new Details();
+	@JsonIgnore
+	@Builder.Default
+	@ToString.Exclude
+	private Optional<Connection> connection = Optional.empty();
+	@Builder.Default
+	private Details details = new Details();
 	private long nsPing;
 
 	@Data
@@ -57,6 +62,7 @@ public class Node {
 	@NoArgsConstructor
 	@AllArgsConstructor
 	public static class Details {
+
 		private String[] protocols;
 		private int version;
 	}
@@ -94,6 +100,7 @@ public class Node {
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
+		log.atDebug().log("Send all packet " + packet.toString());
 		if (node.getConnection().isPresent()) {
 			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
 

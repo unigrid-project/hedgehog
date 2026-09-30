@@ -1216,6 +1216,9 @@ Collected here so a reader does not have to rediscover them.
   keeps its old signature only as long as its data is not rebuilt; once it crosses the network its
   signed bytes may differ on the receiver. Re-signing sets `Flag.WIRE_SIGNABLE` and ends that
   (`model/spork/GridSpork.java`).
+- **Vesting sporks signed by 0.0.7 no longer verify.** The `cliff`, `percent` and `block` fields added to
+  `VestingStorage.SporkData.Vesting` change its Java serialization, so the board has to sign those
+  sporks anew (`model/network/codec/Release007SporkDatabaseTest.java`).
 - **Every `Signature` construction runs the keypair rejection-sampling loop.** The two-argument
   constructor calls `this()` first, so verification generates and discards a full P-521 keypair
   before it can look at the supplied key (`model/crypto/Signature.java`).

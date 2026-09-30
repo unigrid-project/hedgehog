@@ -38,6 +38,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.AfterTry;
+import org.bitcoinj.core.ECKey;
 import org.unigrid.hedgehog.client.RestClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -90,6 +91,8 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	protected Response cosign(Response proposal) {
 		return cosign(new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText(), cosigner);
 	}
+
+	public List<ECKey> keys = new ArrayList<>();
 
 	@BeforeContainer
 	private static void beforeContainer() {

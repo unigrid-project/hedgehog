@@ -61,12 +61,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
 		channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).set(type);
 		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
-
+		log.atDebug().log("TYPE=CLIENT");
 		if (type == Type.CLIENT) {
 			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
-
+		log.atDebug().log("Schedulers");
 		if (Objects.nonNull(schedulersCreator.get())) {
 			schedulersCreator.get().forEach(s -> {
 
@@ -84,7 +84,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				}
 			});
 		}
-
+		log.atDebug().log("CDIUtil");
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
 				log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());

@@ -47,7 +47,7 @@ public class TopologyThread extends Thread {
 
 			try {
 				if (!node.getConnection().isPresent()) {
-					final P2PClient client = new P2PClient(node.getAddress().getHostName(),
+					final P2PClient client = new P2PClient(node.getAddress().getHostString(),
 						node.getAddress().getPort()
 					);
 

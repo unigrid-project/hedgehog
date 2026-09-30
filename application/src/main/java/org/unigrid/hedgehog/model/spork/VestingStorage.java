@@ -53,19 +53,25 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 		private Map<Address, Vesting> vestingAddresses;
 
-		@Data @Builder @AllArgsConstructor @NoArgsConstructor
+		@Data @Builder(toBuilder = true) @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting implements Serializable {
 			private static final long serialVersionUID = 6642936482739543603L;
 
 			private BigDecimal amount;
 
-			@JsonFormat(shape = JsonFormat.Shape.STRING)
-			private Instant start;
+			private int block;
+
+			private int cliff;
 
 			@JsonFormat(shape = JsonFormat.Shape.STRING)
 			private Duration duration;
 
 			private int parts;
+
+			private int percent;
+
+			@JsonFormat(shape = JsonFormat.Shape.STRING)
+			private Instant start;
 		}
 
 		public SporkData empty() {

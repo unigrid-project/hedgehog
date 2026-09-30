@@ -46,6 +46,7 @@ public class SporkDatabase implements Serializable {
 	private MintStorage mintStorage;
 	private MintSupply mintSupply;
 	private VestingStorage vestingStorage;
+	private StorageSpork storageSpork;
 
 	private StatisticsPubKey statisticsPubKey;
 
@@ -67,6 +68,7 @@ public class SporkDatabase implements Serializable {
 			case MINT_STORAGE: return mintStorage;
 			case MINT_SUPPLY: return mintSupply;
 			case VESTING_STORAGE: return vestingStorage;
+			case STORAGE: return storageSpork;
 			case STATISTICS_PUBKEY: return statisticsPubKey;
 			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
 		}
@@ -84,6 +86,10 @@ public class SporkDatabase implements Serializable {
 
 			case VESTING_STORAGE:
 				vestingStorage = (VestingStorage) gridSpork;
+				break;
+
+			case STORAGE:
+				storageSpork = (StorageSpork) gridSpork;
 				break;
 
 			case STATISTICS_PUBKEY:

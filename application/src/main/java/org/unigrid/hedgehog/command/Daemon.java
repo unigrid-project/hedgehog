@@ -25,6 +25,7 @@ import java.net.URL;
 import lombok.SneakyThrows;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.common.model.Version;
@@ -40,6 +41,7 @@ import picocli.CommandLine.Mixin;
 public class Daemon extends CDIContext implements Runnable {
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
+	@Mixin private GridnodeOptions gridnodeOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;

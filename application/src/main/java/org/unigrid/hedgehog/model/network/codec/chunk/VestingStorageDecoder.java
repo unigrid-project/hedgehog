@@ -46,6 +46,8 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 	    [      start (nanos)       ]
 	    [                    vesting duration (seconds)                ]
 	    [     duration (nanos)     ][          vesting parts           ]
+	    [      vesting cliff       ][         vesting percent          ]
+	    [      vesting block       ]
 	    [             << amount (0-term, empty if none) >>         ...n]
 	*/
 	@Override
@@ -63,6 +65,9 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 			vesting.setStart(Instant.ofEpochSecond(in.readLong(), in.readInt()));
 			vesting.setDuration(Duration.ofSeconds(in.readLong(), in.readInt()));
 			vesting.setParts(in.readInt());
+			vesting.setCliff(in.readInt());
+			vesting.setPercent(in.readInt());
+			vesting.setBlock(in.readInt());
 
 			final String amount = ByteBufUtils.readNullTerminatedString(in);
 

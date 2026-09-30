@@ -1,0 +1,2406 @@
+\documentclass[10pt,a4paper,final]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage[affil-it]{authblk}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{bytefield}
+\usepackage{cite}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,shapes.geometric,backgrounds,matrix,decorations.pathreplacing}
+\usepackage[pdftex,
+    pdfauthor={Adam Waldenberg, Stiftelsen The Unigrid Foundation},
+    pdftitle={Sharded and redundant storage on the Unigrid Network},
+    pdfsubject={White Paper},
+    pdfkeywords={unigrid;hedgehog;gridnode;storage;erasure coding;reed-solomon;encryption;sharding;decentralized;rendezvous hashing;merkle tree;self-healing}]{hyperref}
+
+\let\oldhref\href
+\renewcommand{\href}[2]{\oldhref{#1}{\bfseries#2}}
+\hypersetup{colorlinks = true, urlcolor = black, citecolor = black, linkcolor = black}
+\author{\textit{Adam Waldenberg\\\href{mailto:adam.waldenberg@gmail.com}{adam.waldenberg@gmail.com}}}
+\affil{Stiftelsen The Unigrid Foundation\\\href{http://www.unigrid.org}{www.unigrid.org}}
+\title{Sharded and redundant storage on the Unigrid Network}
+\date{\emph{Draft version (\today)}}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\cat}{\mathbin{\|}}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\setlist{itemsep=2pt, topsep=4pt}
+
+\tikzset{
+	stage/.style={draw, rounded corners=3pt, align=left, text width=3.9cm, inner sep=6pt, font=\small},
+	zone/.style={draw, rounded corners=4pt, inner sep=8pt},
+	flow/.style={-{Stealth[length=2.2mm]}, thick},
+	cell/.style={draw, minimum width=5mm, minimum height=5mm, inner sep=0pt, font=\scriptsize},
+	decision/.style={draw, diamond, aspect=2.2, align=center, inner sep=1pt, font=\small},
+	action/.style={draw, rounded corners=3pt, align=center, text width=3.4cm, inner sep=5pt, font=\small},
+	kbox/.style={draw, rounded corners=3pt, align=center, font=\small, inner sep=4pt, text width=3.2cm},
+	hash/.style={draw, circle, minimum size=5.5mm, inner sep=0pt, font=\scriptsize},
+	slot/.style={draw, minimum width=8mm, minimum height=5mm, inner sep=0pt, font=\scriptsize},
+	rank/.style={draw, minimum width=3.3mm, minimum height=5mm, inner sep=0pt},
+	brace/.style={decorate, decoration={brace, amplitude=3pt}}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Hedgehog stores a file on the Unigrid Network as many small, encrypted fragments spread over the active
+gridnodes. The file survives the loss of a large share of those fragments while its owner is offline, because the
+gridnodes repair losses themselves. One random 256-bit secret, the \emph{fingerprint}, both locates and decrypts
+the file, and the network keeps no other record of who owns it. Two layers of Reed-Solomon erasure coding divide
+the work. An outer layer, whose structure only the owner knows, protects the file against the loss of whole chunks.
+An inner layer lets gridnodes verify and rebuild every chunk on their own, without learning, except in short
+stripes, which chunks belong together. At default settings a large file costs about 2.3 times its size, a chunk
+survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks survives the loss of any 16 of them.
+Stiftelsen The Unigrid Foundation governs every parameter through a signed \emph{StorageSpork}. Each file records
+the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
+fragment, so the network can evolve without breaking what it already holds. This paper describes the design as
+implemented, explains the reasons behind it, and analyses its durability, cost and security, including its known
+limits.
+\end{abstract}
+
+\tableofcontents
+
+\section{Introduction}
+\label{sec:intro}
+
+The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that lock collateral and give
+the network storage space, communication channels and compute cycles. The idea descends from the masternodes of
+Darkcoin~\cite{darkcoin2014}. Hedgehog is the Java implementation of the network's node software. This paper
+describes its storage layer: how a file is cut up, encrypted, coded, placed, found again, repaired and deleted, and
+what every participant can and cannot learn along the way.
+
+Storing data on machines that strangers run is hard for four reasons:
+
+\begin{itemize}
+	\item \textbf{Churn.} Gridnodes join, leave, crash and lose disks. A file must outlive the machines that hold
+	      it, and it must do so while its owner is offline. The network therefore has to notice losses and repair them
+	      itself, and repair traffic, not disk space, becomes the main cost of keeping data~\cite{blake2003}.
+	\item \textbf{Privacy.} Gridnodes are not trusted with content. They must not read a file, and they should not
+	      learn how large it is, which pieces belong together, or who stored it.
+	\item \textbf{Integrity.} Any gridnode may corrupt, forge or withhold data, or lie about what it holds.
+	\item \textbf{Change.} Chunk sizes and redundancy levels will need tuning as the network grows, but files that
+	      are already stored must stay readable.
+\end{itemize}
+
+Hedgehog meets these demands with a small set of well-understood tools. A file is encrypted with keys derived from
+a random secret, coded twice with Reed-Solomon codes~\cite{reed1960}, and spread over the gridnodes by rendezvous
+hashing~\cite{thaler1998}. Every stored piece carries a signature and a Merkle proof~\cite{merkle1987}, so anyone
+can check it without knowing a secret. Gridnodes watch over the pieces they hold and rebuild lost ones without the
+owner. The owner keeps a single string of 50 characters, the fingerprint, and nothing else.
+
+The core of the design is the split of the erasure code into two layers. The owner applies an outer code across
+many chunks and keeps its structure to itself. The network applies an inner code within each chunk, and that code
+is public. Repair then needs only public information, and it reveals nothing that links chunks into files. Other
+systems that erasure-code data across untrusted nodes leave repair to the owner, to a client that holds a
+capability for the file, or to a coordinator that knows which pieces form each file
+(Section~\ref{sec:related}). Hedgehog needs none of them.
+
+The storage layer is deliberately low level. It stores opaque files and returns a fingerprint; it knows nothing
+about names, folders or buckets. An object-storage interface in the style of S3 is planned as a separate layer on
+top of it. This paper describes the protocol as implemented in Hedgehog. Every constant in it is the value the
+implementation uses at default settings, and Stiftelsen The Unigrid Foundation can change most of them
+(Section~\ref{sec:governance}).
+
+Section~\ref{sec:background} introduces the building blocks, and Section~\ref{sec:goals} states the goals, the
+trust assumptions and the threat model. Section~\ref{sec:overview} gives an overview of the design and follows one
+file through its life. Sections~\ref{sec:keys} to~\ref{sec:versioning} describe the formats: keys, encryption,
+coding, fragments, placement and the manifest. Sections~\ref{sec:operations} to~\ref{sec:protocol} describe the
+operations, ownership, repair, quotas, governance and the wire protocol. Sections~\ref{sec:analysis}
+and~\ref{sec:security} analyse durability, cost, performance and security. Section~\ref{sec:related} compares the
+design with related systems, and Section~\ref{sec:future} lists future work.
+
+\section{Building blocks}
+\label{sec:background}
+
+The design combines a few standard building blocks. This section explains each one as far as the rest of the paper
+needs it. Readers who know them can skip ahead.
+
+\subsection{Erasure codes}
+
+An erasure code turns $k$ data shards into $n = k + m$ shards, such that a subset of them rebuilds the data. A code
+is \emph{maximum distance separable} (MDS) when any $k$ of the $n$ shards suffice. It then tolerates the loss of any
+$m$ shards, which is the most that any code with the same overhead can tolerate~\cite{macwilliams1977}. A code is
+\emph{systematic} when its first $k$ shards are the data itself, so intact data is read without decoding.
+Reed-Solomon codes~\cite{reed1960} are the classic MDS codes. RAID protects disk arrays with
+parity~\cite{patterson1988}, Reed-Solomon codes extend that protection to any number of parity
+shards~\cite{plank1997}, and information dispersal applies the same idea across machines~\cite{rabin1989}.
+
+Replication is the simplest alternative. Three copies cost three times the data and survive the loss of any two. A
+code with $k = 16$ and $m = 8$ costs 1.5 times the data and survives the loss of any eight shards. For the same
+overhead, erasure codes are far more durable than replication~\cite{weatherspoon2002}. The price is paid at repair:
+to rebuild one lost shard, a node must read $k$ others. In a network with churn, repair traffic therefore dominates
+the cost of redundancy~\cite{blake2003,dimakis2010}, and how much of the advantage survives depends on how
+available and how stable the nodes are~\cite{rodrigues2005}. Hedgehog repairs only when losses pass a threshold
+(Section~\ref{sec:repair}).
+
+\subsection{Finite fields}
+
+Reed-Solomon codes compute on bytes as elements of the finite field $\mathrm{GF}(2^8)$~\cite{macwilliams1977}. The
+field has 256 elements, one for each byte value. Addition is bitwise XOR, so subtraction is the same operation.
+Multiplication is multiplication of polynomials with binary coefficients, reduced modulo a fixed irreducible
+polynomial of degree 8, and every element except zero has an inverse. Software multiplies through tables of
+logarithms and exponents~\cite{rizzo1997,plank1997}, as the RAID-6 code in Linux does~\cite{anvin2004}.
+
+\subsection{Authenticated encryption}
+
+AES-256-GCM~\cite{fips197,sp80038d,mcgrew2004} is authenticated encryption with associated
+data~\cite{rogaway2002}. It encrypts a plaintext under a key and a 12-byte nonce, and adds a 16-byte tag. The tag
+authenticates the ciphertext together with \emph{additional data}, which is not encrypted; in Hedgehog it is never
+stored at all, because both sides compute it. A change to either makes decryption fail. GCM demands that a nonce
+never repeats under one key: a repeat reveals the XOR of two plaintexts and lets an attacker forge
+tags~\cite{joux2006}.
+
+\subsection{Key derivation}
+
+HKDF~\cite{rfc5869,krawczyk2010} derives any number of keys from one secret. Each key is bound to an \emph{info}
+label, and keys with different labels are independent: knowing some of them reveals nothing about the others or
+about the secret.
+
+\subsection{Signatures and self-certifying names}
+
+Ed25519~\cite{rfc8032,bernstein2012} is a signature scheme with 32-byte public keys and 64-byte signatures. Its
+private key is a 32-byte seed, so a key pair can be derived from a secret instead of being stored. When an object is
+named by the hash of a public key, anyone can check that a signed statement about the object comes from the holder
+of the private key. No certificate authority or directory is involved. Such a name is
+\emph{self-certifying}~\cite{mazieres1999}.
+
+\subsection{Merkle trees}
+
+A Merkle tree~\cite{merkle1987} commits to a list of items with one hash, the \emph{root}. Each leaf is the hash of
+one item, and each inner node is the hash of its two children. The \emph{proof} for one item is the list of sibling
+hashes on the path from its leaf to the root, $\lceil \log_2 n \rceil$ hashes for $n$ items. Anyone who trusts the
+root can check an item against it. Distinct prefixes for leaves and inner nodes stop an inner node from passing as a
+leaf~\cite{rfc6962,rfc9162}.
+
+\subsection{Rendezvous hashing}
+
+Rendezvous hashing, also called highest random weight hashing~\cite{thaler1998}, maps an object to nodes without a
+directory. Every node gets a score, the hash of the object's name together with the node's name, and the object
+belongs to the nodes with the highest scores. Everyone who knows the same list of nodes computes the same answer.
+When a node joins or leaves, only the objects for which it scores high are affected. This is the same small
+disruption that consistent hashing offers~\cite{karger1997}, without its ring and without the routing tables of a
+distributed hash table~\cite{maymounkov2002}.
+
+\section{Goals, trust and threat model}
+\label{sec:goals}
+
+The design has six goals:
+
+\begin{enumerate}
+	\item \textbf{Durability.} A file survives gridnode churn and disk loss while its owner is offline, because
+	      gridnodes repair lost fragments themselves.
+	\item \textbf{Confidentiality.} Only the fingerprint holder can read the file.
+	\item \textbf{Unlinkability.} No gridnode, repairer or holder of stored data can tell which fragments form a
+	      file or how large the file is, and nothing stored ties a fragment to its uploader. Two items are
+	      \emph{unlinkable} when an observer cannot tell whether they are related any better than it could without
+	      seeing them~\cite{pfitzmann2010}.
+	\item \textbf{Self-verification.} Anyone can check that a fragment is genuine without knowing a secret.
+	\item \textbf{Governance.} The foundation tunes the network through one signed spork, and every file keeps the
+	      layout it was written with.
+	\item \textbf{Evolvability.} A format identifier travels with the fingerprint, the manifest and every fragment,
+	      so a later format can live beside the current one.
+\end{enumerate}
+
+\subsection{Trust}
+
+The design trusts three kinds of party, each for a different purpose:
+
+\begin{description}
+	\item[The owner's node.] A user stores and reads files through the REST interface of their own Hedgehog node,
+	      which listens on localhost by default. That node sees the plaintext and the fingerprint. It is the user's own
+	      software and is trusted like any other program that handles the file.
+	\item[Gridnodes.] Gridnodes store, check and repair fragments. None of them is trusted: each may be curious,
+	      lazy or malicious. Gridnodes lock collateral~\cite{unigrid-whitepaper}, which makes large numbers of them
+	      expensive to run and so limits Sybil attacks~\cite{douceur2002}. Section~\ref{sec:durability} shows how
+	      many losses the design tolerates.
+	\item[Stiftelsen The Unigrid Foundation.] The foundation signs the StorageSpork. Its key plays no part in encryption,
+	      placement or deletion. It sets the parameters of new uploads, but it cannot read, find or delete a file.
+\end{description}
+
+\subsection{Threat model}
+
+Table~\ref{tab:threats} lists what each party can see or do, and what the design denies it. Censuses, tombstones
+and spot checks are described in Sections~\ref{sec:ownership} and~\ref{sec:repair}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.6cm}LL@{}}
+\toprule
+Party & Sees or can do & Cannot \\
+\midrule
+Curious gridnode & Its own fragments, one signed descriptor per fragment, the node that sent each request and
+when, and any fragment it fetches by group identifier & Read plaintext: any chunk it assembles is ciphertext. Apart
+from the limits of Section~\ref{sec:security}, it cannot link two groups or learn a file's size \\
+Repairing gridnode & The ciphertext of one chunk and the gridnodes that hold its fragments & Decrypt that chunk or
+find the other chunks of the same file \\
+Fragment forger & Send made-up or corrupted fragments & Have them stored or used: every fragment is checked
+against its group identifier, a signed descriptor and a Merkle proof \\
+Lying census peer & Answer repair queries falsely & Delete a group: a tombstone claim must carry the owner's signed
+proof. False claims of holding a fragment can delay repair, and random spot checks catch them over time \\
+Passive network observer & Encrypted QUIC traffic and its timing & Read packet contents \\
+Active network attacker & Intercept connections, because peers do not authenticate each other yet & Learn more
+than a curious gridnode, or have forged fragments accepted \\
+Spork signer & Sign new storage parameters & Read, find or delete a file, or change the layout of a stored file \\
+Fingerprint holder & Find, read and delete the file & --- \\
+\bottomrule
+\end{tabularx}
+\caption{What each party can and cannot learn or do.}
+\label{tab:threats}
+\end{table}
+
+Out of scope are an attacker that controls a large share of all gridnodes, global traffic analysis, attacks on the
+owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
+how quickly losses grow with the share of gridnodes that fail, or drop their data, together.
+
+\section{Design overview}
+\label{sec:overview}
+
+A stored file passes through six steps (Figure~\ref{fig:pipeline}). All six run on the owner's node. The first
+three produce a structure that only the owner knows. The last three produce public material: every gridnode can
+check and store it, and gridnodes can rebuild it during repair without any of the owner's keys.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=6mm and 5mm]
+	\node[stage] (enc) {\textbf{1. Encrypt}\\File cut into pieces of 1\,MiB less 16 bytes, each sealed with AES-256-GCM
+		into a 1\,MiB chunk};
+	\node[stage, right=of enc] (outer) {\textbf{2. Outer Reed-Solomon}\\Up to 32 data chunks per stripe plus 50\,\%
+		parity};
+	\node[stage, right=of outer] (keys) {\textbf{3. Derive group keys}\\Each chunk gets its own Ed25519 key: one
+		group};
+	\node[stage, below=18mm of keys] (inner) {\textbf{4. Inner Reed-Solomon}\\16 fragments of 64\,KiB plus 8
+		guaranteed and 8 extra parity};
+	\node[stage, left=of inner] (sign) {\textbf{5. Sign and prove}\\Signed descriptor and Merkle proof on every
+		fragment};
+	\node[stage, left=of sign] (place) {\textbf{6. Place}\\Rendezvous hashing picks the gridnodes; one fragment
+		each};
+	\begin{scope}[on background layer]
+		\node[zone, fill=blue!5, fit=(enc)(outer)(keys), label={[font=\small\bfseries, anchor=south west]north
+			west:Known only to the owner}] {};
+		\node[zone, fit=(place)(sign)(inner), label={[font=\small\bfseries, anchor=north west]south west:Public:
+			what gridnodes check, store and rebuild}] {};
+	\end{scope}
+	\draw[flow] (enc) -- (outer);
+	\draw[flow] (outer) -- (keys);
+	\draw[flow] (keys) -- node[left, font=\small] {each chunk leaves as a group} (inner);
+	\draw[flow] (inner) -- (sign);
+	\draw[flow] (sign) -- (place);
+\end{tikzpicture}
+\caption{The storage pipeline at default settings. All six steps run on the owner's node.}
+\label{fig:pipeline}
+\end{figure}
+
+Five terms recur through this paper:
+
+\begin{description}
+	\item[Chunk] A fixed-size piece of 1\,MiB by default. Data chunks carry encrypted file bytes; parity chunks come
+	      from the outer code.
+	\item[Stripe] A run of up to 32 data chunks together with their outer parity chunks. Only the owner knows which
+	      chunks form a stripe.
+	\item[Group] One chunk as the network sees it, named by a 32-byte group identifier.
+	\item[Fragment] One inner-code piece of a group, 64\,KiB by default, and the unit a gridnode stores.
+	\item[Window] The $W$ gridnodes that rank highest for a group, 40 by default. A group's fragments live in its
+	      window, and a gridnode that stores one of them is a \emph{holder} of the group.
+\end{description}
+
+The split into two layers is the core of the design. The owner applies the outer code across whole chunks and keeps
+the grouping to itself. Gridnodes see only single chunks, each coded again into fragments that they can rebuild on
+their own. A repairer therefore holds at most one chunk of ciphertext, and, apart from the short stripes of
+Section~\ref{sec:security}, nothing in the group tells it which other chunks belong to the same file
+(Figure~\ref{fig:layers}).
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+	\foreach \i in {0,...,5} \node[cell, fill=blue!10] at (\i*0.55, 0) {};
+	\node at (3.6, 0) {$\cdots$};
+	\node[cell, fill=blue!10] (dlast) at (4.2, 0) {};
+	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (5.0+\i*0.55, 0) {};
+	\node at (7.4, 0) {$\cdots$};
+	\node[cell, fill=orange!25] (plast) at (8.0, 0) {};
+	\node[font=\small, anchor=south] at (2.1, 0.35) {32 data chunks};
+	\node[font=\small, anchor=south] at (6.5, 0.35) {16 parity chunks};
+	\node[font=\small, anchor=east] at (-0.4, 0) {Stripe (secret)};
+	\node[cell, fill=blue!10, very thick] (pick) at (1.1, 0) {};
+	\foreach \i in {0,...,7} \node[cell, fill=blue!10] at (\i*0.55-0.8, -2.2) {};
+	\node at (3.75, -2.2) {$\cdots$};
+	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (4.4+\i*0.55, -2.2) {};
+	\foreach \i in {0,...,3} \node[cell, dashed, fill=orange!8] at (7.4+\i*0.55, -2.2) {};
+	\node[font=\small, anchor=north] at (1.4, -2.55) {16 data fragments};
+	\node[font=\small, anchor=north] at (5.2, -2.55) {8 guaranteed parity};
+	\node[font=\small, anchor=north] at (8.25, -2.55) {8 extra parity};
+	\node[font=\small, anchor=east] at (-1.2, -2.2) {Group (public)};
+	\draw[flow] (pick.south) -- (1.1, -1.85) node[midway, right, font=\small] {inner code, per chunk};
+\end{tikzpicture}
+\caption{Two-level coding at default settings. The outer code spans a stripe that only the owner can reconstruct;
+the inner code spans one chunk and is visible to every gridnode that stores it.}
+\label{fig:layers}
+\end{figure}
+
+\subsection{Why two layers}
+\label{sec:why-two}
+
+The two layers resolve a tension between repair and privacy. For the network to repair a file without its owner,
+gridnodes must know which pieces belong together. For the network to learn nothing, they must not. Hedgehog lets
+gridnodes know the members of one chunk and, apart from the limits of Section~\ref{sec:security}, nothing beyond
+it. The alternatives each give up one of the goals:
+
+\begin{itemize}
+	\item \textbf{One code across the file.} If the network held the fragments of a single code spanning many
+	      chunks, repairers would have to know which fragments form a codeword, which is exactly the link the design
+	      hides. Every repair would also read many chunks' worth of data.
+	\item \textbf{The inner code alone.} Gridnodes could still repair each chunk, but each chunk would be only as
+	      safe as its own group. A group that loses more than 8 of its 24 fragments between two repairs is gone, and
+	      the file with it. The outer code covers exactly this case. It adds no names or placement that tie groups
+	      together, because only the owner applies and reads it; Section~\ref{sec:security} describes what its
+	      content still reveals in short stripes.
+	\item \textbf{Replication.} Three copies of every chunk cost 3 times the file. A stripe stored that way is still
+	      lost far more often than with both layers at 2.25 times (Section~\ref{sec:durability}).
+	\item \textbf{Repair by the owner.} An owner who checks and rebuilds their own files must stay online, which
+	      breaks the first goal.
+	\item \textbf{A trusted coordinator.} A service that knows every file's structure and directs repair is a
+	      central point of trust and of failure, and it learns what the design hides from everyone else.
+\end{itemize}
+
+Coding at two levels is an old idea. Product codes~\cite{elias1954} and concatenated codes~\cite{forney1966}
+combine an inner and an outer code, and large storage systems code at two levels to keep most repairs
+local~\cite{huang2012,muralidhar2014}. Hedgehog adds a new reason for the split: the two layers separate what the
+owner knows from what the network needs.
+
+\subsection{Designs not taken}
+
+Three other families of techniques were considered and set aside:
+
+\begin{itemize}
+	\item \textbf{Fountain codes and network coding.} Rateless fountain codes~\cite{luby2002,mackay2005} and network
+	      coding for repair~\cite{dimakis2010} create new coded pieces on demand. A piece that did not exist at upload
+	      is not covered by the owner's signature, so a gridnode cannot tell a genuine piece from a polluted one
+	      without far heavier tools, such as homomorphic signatures~\cite{boneh2009}. Hedgehog fixes all $n_{max}$
+	      fragments of a group at upload and commits to every one of them.
+	\item \textbf{Entanglement codes.} Entanglement codes~\cite{estrada2018} tie each new block to blocks stored
+	      before it, in a global order. That order conflicts with deletion and with per-node quotas.
+	\item \textbf{Deduplication.} Convergent encryption~\cite{douceur2002b} lets identical files share storage, but
+	      it tells anyone who holds a copy of a file whether the file is stored~\cite{harnik2010}. A fresh random
+	      fingerprint for every upload rules this out: two uploads of the same file share nothing.
+\end{itemize}
+
+\subsection{The life of a file}
+\label{sec:life}
+
+Consider a file of 100\,MiB, stored at default settings (Table~\ref{tab:life}).
+
+\begin{enumerate}
+	\item The owner's node draws a fresh fingerprint and derives every key from it.
+	\item It reads the file in pieces of 1\,048\,560 bytes and seals each into a data chunk of exactly 1\,MiB. That
+	      gives 101 data chunks; the last one holds the remaining 1\,600 bytes and padding.
+	\item It groups the chunks into four stripes of 32, 32, 32 and 5 data chunks, and adds 16, 16, 16 and 3 outer
+	      parity chunks.
+	\item Each of the 152 chunks becomes a group with its own key pair. Its 1\,MiB is cut into 16 fragments of
+	      64\,KiB and coded into 32: the 16 data fragments, 8 guaranteed parity fragments and 8 extra ones.
+	\item The 24 guaranteed fragments of each group go to 24 different gridnodes chosen by rendezvous hashing, and
+	      the 8 extras to spare gridnodes, which keep them in their pool of extras.
+	\item Three copies of an encrypted manifest record the file size and the layout, as three more groups.
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Quantity & 100\,MiB file \\
+\midrule
+Data chunks & 101 \\
+Stripes, by data chunks & 32, 32, 32 and 5 \\
+Outer parity chunks & $16 + 16 + 16 + 3 = 51$ \\
+Manifest copies & 3 \\
+Groups & 155 \\
+Guaranteed fragments & 3\,720 \\
+Fragments with all extras & 4\,960 \\
+Stored bytes, guaranteed fragments & 244\,917\,360 (2.34$\times$) \\
+Stored bytes, all extras held & 326\,556\,480 (3.11$\times$) \\
+\bottomrule
+\end{tabular}
+\caption{A file of 100\,MiB at default settings. Stored bytes include each fragment's proof material.}
+\label{tab:life}
+\end{table}
+
+The file thus becomes 155 groups that look unrelated, with 3\,720 guaranteed fragments between them. With 1\,000
+active gridnodes, each gridnode holds on average about four of the file's guaranteed fragments and one extra, never
+two of the same group.
+
+To read the file, a node derives the manifest's group identifiers from the fingerprint, collects 16 fragments of one
+manifest copy, and learns the size and the layout. It then derives the identifiers of the 101 data groups and
+fetches 16 verified fragments of each. Parity groups are fetched only when a data group is missing.
+
+While the file is stored, gridnodes come and go. Every hour, one holder of each group may be on duty to count the
+fragments that remain, and once the group is down to 20 fragments, 4 more than it needs, the holder on duty rebuilds
+the missing ones from the others. When the owner deletes the file, the node signs one delete per group with the
+group's private key and sends it to the group's window. The gridnodes drop their fragments and keep the signed proof
+for 30 days, so that stale copies are dropped instead of repaired.
+
+\section{The fingerprint and its keys}
+\label{sec:keys}
+
+The fingerprint is the only input retrieval needs. Every address and key the network uses for a file is derived
+from it (Figure~\ref{fig:keys}), and nothing else about the file is stored anywhere.
+
+\subsection{The fingerprint}
+
+The secret is 32 bytes from a cryptographically secure random generator, drawn fresh for every upload. Users see it
+as Base58Check text~\cite{base58check}: the format identifier as version byte, the secret, and a 4-byte checksum,
+the first four bytes of a double SHA-256 hash~\cite{fips1804}. These 37 bytes are written as 50 Base58 characters,
+an alphabet that leaves out characters that are easy to confuse, such as \code{0}, \code{O}, \code{I} and \code{l}. The
+implementation uses the Base58 codec of bitcoinj~\cite{bitcoinj}. Parsing trims the text, verifies the checksum,
+requires exactly 33 decoded bytes, and requires a known format identifier. A mistyped character fails the checksum,
+except with probability $2^{-32}$, so a typo is rejected before any network traffic.
+
+Guessing is hopeless. Even $2^{80}$ guesses against $2^{40}$ stored files find one of them with probability about
+$2^{-136}$.
+
+\subsection{Derived keys}
+
+Every key comes from HKDF-SHA256 over the secret. The salt, \code{"hedgehog-storage-v1"}, names the format, and
+every output is 32 bytes long. The implementation uses the HKDF and Ed25519 code of Bouncy
+Castle~\cite{bouncycastle}.
+\begin{equation}
+	K_{\mathit{label}} = \mathrm{HKDF\text{-}SHA256}(\mathit{IKM} = \mathit{secret},\ \mathit{salt},\ \mathit{info}
+	= \mathit{label},\ L = 32)
+\end{equation}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{4.6cm}cL@{}}
+\toprule
+Info label & Bytes & Used as \\
+\midrule
+\code{"enc"} & 3 & AES-256 key for every data chunk of the file \\
+\code{"manifest-enc"} & 12 & AES-256 key for the manifest \\
+\code{"manifest"} $\cat$ u8 \textit{copy} & 9 & Ed25519 seed of manifest copy \textit{copy} (0--255) \\
+\code{"chunk"} $\cat$ u32 \textit{stripe} $\cat$ u8 \textit{index} & 10 & Ed25519 seed of chunk \textit{index}
+(0--255) in stripe \textit{stripe} \\
+\bottomrule
+\end{tabularx}
+\caption{Key-derivation labels.}
+\end{table}
+
+Data chunks take indices $0$ to $k_s - 1$ within their stripe, and parity chunks the indices after them,
+$k_s$ to $k_s + m_s - 1$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+	\node[kbox, fill=blue!10, text width=4cm] (fp) at (0, 0) {\textbf{Fingerprint}\\32 random bytes};
+	\node[kbox, text width=7.4cm] (hkdf) at (0, -1.5) {HKDF-SHA256 with salt \code{"hedgehog-storage-v1"}};
+	\node[kbox] (mseed) at (-5.55, -3.4) {{\scriptsize\code{"manifest"} $\cat$ copy}\\Ed25519 seed of one manifest
+		copy};
+	\node[kbox] (cseed) at (-1.85, -3.4) {{\scriptsize\code{"chunk"} $\cat$ stripe $\cat$ index}\\Ed25519 seed of
+		one chunk};
+	\node[kbox] (enc) at (1.85, -3.4) {{\scriptsize\code{"enc"}}\\AES-256 key for every data chunk};
+	\node[kbox] (menc) at (5.55, -3.4) {{\scriptsize\code{"manifest-enc"}}\\AES-256 key for the manifest};
+	\node[kbox, text width=6.9cm] (priv) at (-3.7, -5.1) {Group private key: signs the descriptor and every delete};
+	\node[kbox, text width=3.6cm] (pub) at (-5.0, -7.1) {Group public key, carried in every descriptor};
+	\node[kbox, text width=3.6cm] (gid) at (0, -7.1) {Group identifier: SHA-256 of the public key};
+	\node[kbox, text width=3.6cm] (win) at (5.0, -7.1) {Window: the $W$ gridnodes with the highest scores};
+	\draw[flow] (fp) -- (hkdf);
+	\foreach \k in {enc, menc, mseed, cseed} \draw[flow] (hkdf.south) -- (\k.north);
+	\draw[flow] (mseed.south) -- (mseed.south |- priv.north);
+	\draw[flow] (cseed.south) -- (cseed.south |- priv.north);
+	\draw[flow] (pub.north |- priv.south) -- (pub.north);
+	\draw[flow] (pub) -- (gid);
+	\draw[flow] (gid) -- (win);
+	\begin{scope}[on background layer]
+		\node[zone, fill=blue!5, fit=(fp)(hkdf)(enc)(menc)(mseed)(cseed)(priv), label={[font=\small\bfseries,
+			anchor=south west]north west:Known only to the fingerprint holder}] {};
+		\node[zone, fit=(pub)(gid)(win), label={[font=\small\bfseries, anchor=north west]south west:Public: what
+			gridnodes see}] {};
+	\end{scope}
+\end{tikzpicture}
+\caption{Every key and address of a file derives from its fingerprint. The four HKDF labels give independent
+outputs, and each seed becomes an Ed25519 key pair whose public key names one group.}
+\label{fig:keys}
+\end{figure}
+
+\subsection{Group identifiers}
+
+Each seed is used directly as an RFC~8032 Ed25519 private key. The 32-byte public key is hashed to name the group:
+\begin{equation}
+	\mathit{groupId} = \mathrm{SHA\text{-}256}(\mathit{publicKey})
+\end{equation}
+
+The group identifier is a self-certifying name~\cite{mazieres1999}. Anyone who meets a public key can check that it
+belongs to a group by hashing it, and a signature under that key can only come from the fingerprint holder, who
+alone can derive the private key. The identifier names the group in placement, in requests and replies, and on
+disk.
+
+Every seed comes from its own HKDF expansion under a distinct label. Without the secret, two group identifiers of
+one file are indistinguishable from identifiers of two unrelated files, and nothing in an identifier reveals a
+stripe, an index or a file size. This is what keeps the network from linking chunks by their names;
+Section~\ref{sec:security} describes the links that the content of short stripes still allows.
+
+Other systems also hand out one string that both locates and decrypts a file, among them Freenet~\cite{clarke2001}
+and Tahoe-LAFS~\cite{wilcox2008}. The Hedgehog fingerprint is random rather than derived from the content, so
+storing the same file twice produces two unrelated sets of groups.
+
+\section{Encryption}
+\label{sec:encryption}
+
+Every data chunk and every manifest copy is AES-256-GCM ciphertext of exactly \code{chunkSize} bytes. Outer parity
+chunks are Reed-Solomon combinations of data chunks and have the same size. No stored piece therefore reveals its
+content or its position in a file, and none reveals the file's size.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.6cm}LL@{}}
+\toprule
+Element & Data chunks & Manifest \\
+\midrule
+Key & HKDF label \code{"enc"} & HKDF label \code{"manifest-enc"} \\
+Nonce (12 bytes) & u64 \textit{sequence} $\cat$ u32 0 & u64 \textit{copy} $\cat$ u32 1 \\
+Additional data & \code{"hh-chunk-v1"} $\cat$ u64 \textit{sequence} & \code{"hh-manifest-v1"} $\cat$ u64 \textit{copy} \\
+Plaintext & File bytes, zero-padded to $\mathit{chunkSize} - 16$ & 26-byte manifest, zero-padded to
+$\mathit{chunkSize} - 16$ \\
+Tag & 16 bytes & 16 bytes \\
+\bottomrule
+\end{tabularx}
+\caption{Authenticated encryption parameters.}
+\end{table}
+
+The chunk sequence is a global chunk number, $\mathit{stripe} \cdot \mathit{maxOuterDataChunks} + i$. Each upload
+draws a fresh fingerprint and therefore fresh keys, and within one file every data chunk has its own sequence number
+and every manifest copy its own copy number. A nonce therefore never repeats under one key. The last four bytes of
+the nonce, 0 for chunks and 1 for manifests, separate the two uses once more, although their keys already differ.
+
+\paragraph{Uniform size.} With the defaults a data chunk carries 1\,048\,560 bytes of file data, and the 16-byte
+tag fills it to exactly 1\,MiB. The manifest is padded to the same size. A manifest group looks exactly like a data
+group, and the last chunk of a file looks like any other.
+
+\paragraph{Tamper resistance.} The sequence number sits in both the nonce and the additional data. A chunk moved to
+another position, or taken from another file, fails authentication. The manifest's file size fixes the number of
+data chunks, so truncation is detected. Corrupt fragments are usually rejected earlier by their Merkle proof. A
+chunk that still fails authentication stops retrieval with a data-loss error, never with wrong output.
+
+\paragraph{Parity.} Outer parity chunks are Reed-Solomon combinations of ciphertext chunks and are not encrypted
+again. Each one on its own looks as random as the ciphertext it comes from, and it carries no sequence number.
+Together with the data chunks of its stripe, though, it satisfies the equations of the outer code;
+Section~\ref{sec:security} discusses what that reveals.
+
+\paragraph{Encrypt, then disperse.} Encrypting before coding follows Krawczyk's secret sharing made
+short~\cite{krawczyk1993} and AONT-RS~\cite{resch2011}: the data is made unreadable first, and the code then spreads
+ciphertext. Those schemes also disperse the key, so that any $k$ pieces reveal the data to whoever collects them.
+Hedgehog keeps the key out of the network altogether: it exists only in the fingerprint.
+
+\subsection{Why the layer does not compress}
+
+The storage layer does not compress, and this is a deliberate choice.
+
+\begin{itemize}
+	\item \textbf{Ciphertext does not compress.} Everything that reaches a gridnode is ciphertext or parity computed
+	      from ciphertext, which looks random.
+	\item \textbf{Compression before encryption leaks.} The compressed length depends on the content, and attacks
+	      of the CRIME and BREACH family recover secrets from exactly that
+	      signal~\cite{kelsey2002,rizzo2012,gluck2013}.
+	\item \textbf{Uniform chunks are the privacy mechanism.} Every chunk is padded to the same size, so a compressed
+	      file would still occupy whole chunks and hide nothing more.
+\end{itemize}
+
+An application that knows its data is compressible, and that its length is not sensitive, can compress before
+upload. The layer above storage is the right place for that decision, not the storage format.
+
+\section{Erasure coding}
+\label{sec:coding}
+
+Both layers use one systematic Reed-Solomon code over $\mathrm{GF}(2^8)$ whose parity rows form a Cauchy matrix:
+any $k$ of the $k + m$ shards rebuild the data. A systematic code whose parity block is a Cauchy matrix is a
+generalized Reed-Solomon code~\cite{roth1985}. The Cauchy Reed-Solomon codes of Bl\"omer et
+al.~\cite{blomer1995} and of Plank and Xu~\cite{plank2006} build on the same kind of matrix but turn every
+multiplication into XORs of bit matrices; Hedgehog multiplies bytes through tables instead. The implementation has
+no external dependency.
+
+\subsection{The field}
+
+Bytes are elements of $\mathrm{GF}(2^8)$ with the reducing polynomial $x^8 + x^4 + x^3 + x^2 + 1$ (\code{0x11D})
+and generator 2, the choice of RAID-6~\cite{anvin2004}. Addition is XOR. Multiplication uses a precomputed
+$256 \times 256$ product table of 64\,KiB beside the usual exponent and logarithm tables, and the inverse is
+$\mathrm{EXP}[255 - \mathrm{LOG}[a]]$.
+
+\subsection{The encoding matrix}
+
+The code is linear: every shard is a combination of the data shards, and the $n \times k$ \emph{generator matrix}
+says which. Its first $k$ rows are the identity, because the code is systematic, so the $k$ data shards pass through
+unchanged. Parity row $r$, for $0 \le r < m$, combines them with a Cauchy matrix:
+\begin{equation}
+	p_r = \bigoplus_{c=0}^{k-1} C_{r,c} \cdot d_c, \qquad C_{r,c} = \frac{1}{(k + r) \oplus c}
+\end{equation}
+
+The row values $k, \dots, k+m-1$ and the column values $0, \dots, k-1$ never overlap, so no denominator is zero.
+Every square submatrix of a Cauchy matrix is invertible~\cite{blomer1995,roth1989,macwilliams1977}. Losing shards
+deletes rows of the generator matrix, and any $k$ rows that remain still form an invertible matrix
+(Figure~\ref{fig:matrix}). The code is therefore MDS: \emph{any} $k$ shards suffice. A careless systematic
+construction does not always have this property~\cite{plank2005}; the Cauchy construction has it by design. The
+implementation allows at most 255 shards per code.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+	mat/.style={matrix of math nodes, left delimiter={(}, right delimiter={)}, inner sep=1pt,
+		nodes={minimum height=5.5mm, font=\small, inner sep=0pt, anchor=center}},
+	strike/.style={draw=red!70!black, very thick}]
+	\matrix (s) [mat, nodes={minimum width=7mm}] {
+		s_0 \\ s_1 \\ s_2 \\ s_3 \\ s_4 \\ s_5 \\
+	};
+	\node[right=2mm of s] (eq) {$=$};
+	\matrix (g) [mat, right=2mm of eq, nodes={minimum width=10mm}] {
+		1 & 0 & 0 & 0 \\
+		0 & 1 & 0 & 0 \\
+		0 & 0 & 1 & 0 \\
+		0 & 0 & 0 & 1 \\
+		C_{0,0} & C_{0,1} & C_{0,2} & C_{0,3} \\
+		C_{1,0} & C_{1,1} & C_{1,2} & C_{1,3} \\
+	};
+	\node[right=2mm of g] (dot) {$\cdot$};
+	\matrix (d) [mat, right=2mm of dot, nodes={minimum width=7mm}] {
+		d_0 \\ d_1 \\ d_2 \\ d_3 \\
+	};
+	\foreach \r in {2,5} {
+		\draw[strike] ([xshift=-1mm]s-\r-1.west) -- ([xshift=1mm]s-\r-1.east);
+		\draw[strike] ([xshift=-1mm]g-\r-1.west) -- ([xshift=1mm]g-\r-4.east);
+	}
+	\draw[brace, decoration={mirror}] ([xshift=-5mm]s-1-1.north west) -- ([xshift=-5mm]s-4-1.south west)
+		node[midway, left=5pt, font=\small, align=right] {data\\shards};
+	\draw[brace, decoration={mirror}] ([xshift=-5mm]s-5-1.north west) -- ([xshift=-5mm]s-6-1.south west)
+		node[midway, left=5pt, font=\small, align=right] {parity\\shards};
+\end{tikzpicture}
+\caption{The generator matrix of a code with $k = 4$ and $m = 2$. Shard $s_i$ is row $i$ times the data. When
+shards $s_1$ and $s_4$ are lost, the four rows that remain still form an invertible matrix, and its inverse turns
+the surviving shards back into the data.}
+\label{fig:matrix}
+\end{figure}
+
+\paragraph{Prefix property.} A parity row depends only on its absolute position $k + r$, never on $m$. The parity of
+$\mathrm{RS}(k, m_1)$ is therefore the first $m_1$ rows of $\mathrm{RS}(k, m_2)$. The inner layer relies on this:
+each chunk is encoded once to $n_{max}$ fragments. Fragments $0$ to $n_{in} - 1$ are exactly the guaranteed code,
+and the rest are extra parity that gridnodes may keep or drop without touching the guaranteed fragments.
+
+\subsection{Worked example}
+
+Take $k = 2$ and $m = 1$. The single parity row is $C = (1/2,\ 1/3)$. In this field $1/2 = \mathtt{0x8E}$ and
+$1/3 = \mathtt{0xF4}$, so each parity byte is
+\begin{equation}
+	p = \mathtt{0x8E} \cdot d_0 \oplus \mathtt{0xF4} \cdot d_1 .
+\end{equation}
+If $d_0$ is lost, one multiplication by 2, the inverse of \code{0x8E}, restores it:
+\begin{equation}
+	d_0 = 2 \cdot (p \oplus \mathtt{0xF4} \cdot d_1) .
+\end{equation}
+
+\subsection{Decoding}
+
+The decoder takes the first $k$ present shards, builds their $k \times k$ submatrix and inverts it by Gauss-Jordan
+elimination over $\mathrm{GF}(2^8)$ in $O(k^3)$. It multiplies the inverse by the shards to recover the data in
+$O(k^2 L)$ for shard length $L$, and then re-encodes all parity shards, whether they were missing or not. Retrieval
+skips the outer decode when every data chunk arrived.
+
+\subsection{Layout}
+\label{sec:layout}
+
+With $\mathrm{pct}(v, p) = \lceil v \cdot p / 100 \rceil$ and $M = \mathit{maxOuterDataChunks}$, a file of
+$\mathit{fileSize}$ bytes is laid out as follows:
+\begin{align}
+	\mathit{payload} &= \mathit{chunkSize} - 16 & D &= \max\left(1, \left\lceil \mathit{fileSize} / \mathit{payload}
+	\right\rceil\right) \\
+	S &= \left\lceil D / M \right\rceil & k_s &= \min(M,\ D - s \cdot M) \\
+	m_s &= \mathrm{pct}(k_s, \mathit{outerParity}) & k_{in} &= \mathit{chunkSize} / \mathit{fragmentSize} \\
+	m_{in} &= \mathrm{pct}(k_{in}, \mathit{innerParity}) & n_{in} &= k_{in} + m_{in} \\
+	n_{max} &= k_{in} + \mathrm{pct}(k_{in}, \mathit{maxParity}) & W &= n_{max} + \mathit{placementSlack}
+\end{align}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lcL@{}}
+\toprule
+Quantity & Default & Meaning \\
+\midrule
+$k_{in}$ / $m_{in}$ / $n_{in}$ & 16 / 8 / 24 & Guaranteed fragments per chunk; any 16 rebuild it \\
+$n_{max}$ & 32 & Fragment slots per chunk, extras included \\
+$W$ & 40 & Gridnodes in a group's placement and search window \\
+$k_s$ / $m_s$ & up to 32 / 16 & Data and parity chunks of a full stripe; any 32 of 48 rebuild it \\
+\bottomrule
+\end{tabularx}
+\caption{Code parameters at default settings.}
+\end{table}
+
+\subsection{How the layers combine}
+
+A group is lost only when more than 8 of its 24 guaranteed fragments are gone, or more than 16 of 32 when all
+extras are held. A lost group is one erasure for the outer code, and a full stripe is lost only when more than 16 of
+its 48 groups are lost. The inner code thus turns fragment losses into rare group losses, and the outer code
+corrects those. Because both codes are linear, the two layers together form a product code~\cite{elias1954}: the
+fragments of an outer parity group are the same outer combination of the stripe's data fragments, index by index.
+Section~\ref{sec:durability} puts numbers on the protection this gives.
+
+\section{Verifiable fragments}
+\label{sec:fragments}
+
+Every fragment carries everything needed to check it, so any gridnode can reject forged or corrupt data without a
+secret. OceanStore made the fragments of its archive self-verifying in a similar way~\cite{kubiatowicz2000}.
+
+\subsection{The group descriptor}
+
+The uploader signs a 136-byte descriptor for each group with the group's private key (Figure~\ref{fig:descriptor}).
+The signature covers the ASCII domain \code{"hh-group-v1"} followed by the first 72 descriptor bytes, an 83-byte
+message. Because only the fingerprint holder can derive the private key whose public key hashes to the group
+identifier, a valid descriptor proves that the group comes from the owner.
+
+\begin{figure}[H]
+\centering
+\begin{bytefield}[bitwidth=0.1\linewidth]{8}
+	\bitheader{0-7} \\
+	\bitbox{1}{\scriptsize fmt} & \bitbox{1}{$k_{in}$} & \bitbox{1}{$m_{in}$} & \bitbox{1}{$n_{max}$} &
+	\bitbox{4}{fragmentSize (u32)} \\
+	\wordbox{1}{Ed25519 public key (32 bytes)} \\
+	\wordbox{1}{Merkle root (32 bytes)} \\
+	\wordbox{1}{Ed25519 signature (64 bytes)}
+\end{bytefield}
+\caption{Group descriptor, 136 bytes. Each full-width row stands for the field size it names.}
+\label{fig:descriptor}
+\end{figure}
+
+\subsection{The Merkle tree}
+
+The root commits to all $n_{max}$ fragment slots, extras included. Leaves are padded to a power of two, so the tree
+has depth $\lceil \log_2 n_{max} \rceil$: 5 with the defaults and at most 8. Distinct tags separate the three kinds
+of node; the leaf and node tags are those of Certificate Transparency~\cite{rfc6962}:
+\begin{align}
+	\mathit{leaf}_i &= \mathrm{SHA\text{-}256}(\mathtt{0x00} \cat \mathrm{u8}\ i \cat \mathit{data}_i) \\
+	\mathit{node} &= \mathrm{SHA\text{-}256}(\mathtt{0x01} \cat \mathit{left} \cat \mathit{right}) \\
+	\mathit{empty} &= \mathrm{SHA\text{-}256}(\mathtt{0x02})
+\end{align}
+
+The index is part of each leaf, so a fragment cannot pass as another slot of its group. Figure~\ref{fig:merkle}
+shows a proof on a tree of eight slots.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=12mm, y=11mm]
+	\foreach \i in {0,...,7} \node[slot] (f\i) at (\i, 0) {$f_{\i}$};
+	\node[hash] (l0) at (0, 1) {};
+	\node[hash] (l1) at (1, 1) {};
+	\node[hash] (l2) at (2, 1) {};
+	\node[hash] (l3) at (3, 1) {};
+	\node[hash, fill=orange!35] (l4) at (4, 1) {};
+	\node[hash, fill=blue!20] (l5) at (5, 1) {};
+	\node[hash] (l6) at (6, 1) {};
+	\node[hash] (l7) at (7, 1) {};
+	\node[hash] (a0) at (0.5, 2) {};
+	\node[hash] (a1) at (2.5, 2) {};
+	\node[hash, fill=blue!20] (a2) at (4.5, 2) {};
+	\node[hash, fill=orange!35] (a3) at (6.5, 2) {};
+	\node[hash, fill=orange!35] (b0) at (1.5, 3) {};
+	\node[hash, fill=blue!20] (b1) at (5.5, 3) {};
+	\node[hash, fill=blue!20, minimum size=7mm] (root) at (3.5, 4) {root};
+	\foreach \i in {0,...,7} \draw (f\i) -- (l\i);
+	\draw (a0) -- (l0); \draw (a0) -- (l1); \draw (a1) -- (l2); \draw (a1) -- (l3);
+	\draw (a2) -- (l4); \draw (a2) -- (l5); \draw (a3) -- (l6); \draw (a3) -- (l7);
+	\draw (b0) -- (a0); \draw (b0) -- (a1); \draw (b1) -- (a2); \draw (b1) -- (a3);
+	\draw (root) -- (b0); \draw (root) -- (b1);
+	\node[font=\small, anchor=west] at (4.1, 4) {signed in the descriptor};
+	\node[font=\small, anchor=west] at (7.5, 0) {fragment slots};
+	\node[font=\small, anchor=west] at (7.5, 1) {leaf hashes};
+	\node[hash, fill=blue!20] (k1) at (8.0, 3) {};
+	\node[font=\small, anchor=west] at (8.3, 3) {recomputed};
+	\node[hash, fill=orange!35] (k2) at (8.0, 2.4) {};
+	\node[font=\small, anchor=west] at (8.3, 2.4) {sent in the proof};
+\end{tikzpicture}
+\caption{A Merkle tree over eight fragment slots. The proof for fragment $f_5$ is the three orange hashes. With them,
+anyone recomputes the blue path from $f_5$ to the root and compares it with the signed root. At default settings
+the tree has 32 slots and depth 5.}
+\label{fig:merkle}
+\end{figure}
+
+Committing to every slot, extras included, has two effects. Extra fragments verify like any other. And a repairer
+that rebuilds fragments must recompute the whole tree and arrive at the signed root. The rebuilt fragments then
+carry valid proofs although the repairer never holds the owner's key, and a repairer cannot produce any fragment
+the owner did not commit to.
+
+\subsection{The fragment}
+
+A fragment on the wire is the descriptor, its index, the sibling hashes from leaf to root, and the data:
+\begin{multline}
+	\mathit{descriptor}_{[136]} \cat \mathrm{u8}\ \mathit{index} \cat \mathrm{u8}\ \mathit{proofLen} \\
+	\cat \mathit{proof}_{[32 \cdot \mathit{proofLen}]} \cat \mathrm{u32}\ \mathit{dataLen} \cat \mathit{data}
+\end{multline}
+With the defaults that is 65\,838 bytes, of which 302 are overhead. Decoding requires the data length to match the
+bytes that remain. A receiver then checks, in order:
+
+\begin{enumerate}
+	\item the descriptor is well formed: $1 \le k_{in}$, $k_{in} + m_{in} \le n_{max} \le 255$, positive fragment
+	      size;
+	\item $\mathrm{SHA\text{-}256}(\mathit{publicKey})$ equals the group identifier: for a fetched fragment the one
+	      that was requested, while a stored fragment names its group through its own key;
+	\item the data length equals the descriptor's fragment size;
+	\item the descriptor signature verifies;
+	\item the index is a slot of the group, the proof has the depth of the tree, and it leads from the fragment to
+	      the signed root.
+\end{enumerate}
+
+A fetched fragment must also carry the format that the fingerprint names, and a gridnode stores a fragment only when
+its size is within a factor of 16 of the current spork's (Section~\ref{sec:repair}). A group therefore cannot be
+forged without its private key, and any altered byte is detected by anyone.
+
+\section{Placement}
+\label{sec:placement}
+
+Fragments go to active gridnodes chosen by rendezvous hashing~\cite{thaler1998}, so any node can compute where a
+group lives without a directory service.
+
+\begin{enumerate}
+	\item Score every active gridnode as $\mathrm{SHA\text{-}256}(\mathit{groupId} \cat \mathit{gridnodeId})$ and sort
+	      the scores in descending order, breaking ties by gridnode identifier. The first $W$ entries form the
+	      group's window.
+	\item Guaranteed fragment $i$ goes to window rank $i$, for $i < n_{in}$.
+	\item Ranks $n_{in}$ to $W - 1$ are spares. When a guaranteed store fails, for any reason, the next spare is
+	      tried.
+	\item Extra fragments go to the spares that remain, without waiting for an answer.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=3.3mm, y=1mm]
+	\foreach \i in {0,...,23} \node[rank, fill=blue!20] (r\i) at (\i, 0) {};
+	\foreach \i in {24,...,31} \node[rank, fill=orange!30] (r\i) at (\i, 0) {};
+	\foreach \i in {32,...,39} \node[rank, fill=black!10] (r\i) at (\i, 0) {};
+	\foreach \i in {40,...,43} \node[rank, draw=black!40] (r\i) at (\i, 0) {};
+	\node[font=\small] at (45.4, 0) {$\cdots$};
+	\draw[brace, decoration={mirror}] (r0.south west) -- (r23.south east) node[midway, below=4pt, font=\scriptsize]
+		{ranks 0--23: guaranteed fragments 0--23};
+	\draw[brace, decoration={mirror}] (r24.south west) -- (r31.south east) node[midway, below=4pt, font=\scriptsize]
+		{24--31: extras};
+	\draw[brace, decoration={mirror}] (r32.south west) -- (r39.south east) node[midway, below=4pt, font=\scriptsize]
+		{32--39: spares};
+	\draw[brace] (r0.north west) -- (r17.north east) node[midway, above=4pt, font=\scriptsize]
+		{asked first when reading: $k_{in} + 2 = 18$};
+	\draw[brace] ([yshift=7mm]r0.north west) -- ([yshift=7mm]r39.north east) node[midway, above=4pt,
+		font=\scriptsize] {window: the $W = 40$ highest scores};
+\end{tikzpicture}
+\caption{One group's ranking of the active gridnodes by $\mathrm{SHA\text{-}256}(\mathit{groupId} \cat
+\mathit{gridnodeId})$, highest first, as an upload places it when every gridnode accepts. Gridnodes beyond rank 39
+hold nothing of this group.}
+\label{fig:window}
+\end{figure}
+
+A gridnode holds at most one fragment of any group; it answers \code{DUPLICATE} to a second one. Rendezvous hashing
+needs nothing but the list of active gridnodes, which every Hedgehog node already has, and ranking costs one SHA-256
+hash per active gridnode and group. It gives every group its own pseudo-random order of gridnodes, so the groups of
+one file land on unrelated sets of gridnodes, and a gridnode's rank in one window says nothing about its rank in
+another.
+
+Churn moves little. When a gridnode joins and ranks inside a window, every member below it moves down one rank, and
+only the holder pushed out of the window moves its fragment back inside (Section~\ref{sec:repair}). When a gridnode
+leaves, nothing moves: its fragments are simply missing, and repair rebuilds them once the threshold is reached.
+
+Placement is only as consistent as the nodes' views of the active gridnodes. An upload takes one snapshot of that
+view and uses it for all its groups. Two nodes whose views differ by a few gridnodes compute windows that differ in a
+few ranks. The spare ranks absorb such differences: retrieval asks the rest of the window when the top ranks fall
+short, and relocation moves fragments into the window that the current view defines. When the uploader's own node
+is itself a gridnode in the window, it serves its share in-process rather than over the network.
+
+\section{Manifest and format versioning}
+\label{sec:versioning}
+
+\subsection{The manifest}
+
+The manifest is 26 bytes of plaintext, padded and encrypted to one full chunk (Figure~\ref{fig:manifest}). It is
+the one piece a file cannot do without: without it, a reader knows neither the size nor the layout. It is therefore
+stored \code{manifestCopies} times, 3 by default and at most 16. Each copy is an independent group with its own key
+and its own ranking of gridnodes; in a small network the windows of different copies share many gridnodes. Swarm
+solves the same problem for the root chunks of its files, which its erasure code cannot protect, by storing
+dispersed replicas of them~\cite{swarm2024}.
+Retrieval accepts a manifest only if it decrypts, its layout is valid, and its format matches the fingerprint's.
+
+\begin{figure}[H]
+\centering
+\begin{bytefield}[bitwidth=0.08\linewidth]{10}
+	\bitheader{0-9} \\
+	\bitbox{1}{\scriptsize fmt} & \bitbox{8}{fileSize (u64)} & \bitbox{1}{\scriptsize copies} \\
+	\bitbox{4}{chunkSize (u32)} & \bitbox{4}{fragmentSize (u32)} & \bitbox{2}{\scriptsize outer\,\%} \\
+	\bitbox{2}{\scriptsize maxOuter} & \bitbox{2}{\scriptsize inner\,\%} & \bitbox{2}{\scriptsize maxParity\,\%} &
+	\bitbox[]{4}{}
+\end{bytefield}
+\caption{Manifest plaintext, 26 bytes, big-endian.}
+\label{fig:manifest}
+\end{figure}
+
+The manifest records the copy count, so that a delete can withdraw every copy. The field is one byte, so the format
+allows up to 255 copies; the spork caps the count at 16.
+
+The foundation may change chunk size, parity or window at any time. An old file is still read with the layout in
+its manifest. The current spork still supplies the placement slack, both for the manifest search and for the windows
+of the file's groups, and the manifest search covers every copy count the spork can name
+(Section~\ref{sec:operations}).
+
+\subsection{The format identifier}
+
+The storage format identifier, \code{0x01} today, appears in every structure that a later format could need to tell
+apart:
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{5.6cm}L@{}}
+\toprule
+Place & Effect \\
+\midrule
+Fingerprint version byte & Hedgehog knows the format before touching the network \\
+HKDF salt \code{"hedgehog-storage-v"} + id & Keys of different formats never collide \\
+Additional data \code{"hh-chunk-v"} and \code{"hh-manifest-v"} + id & Ciphertext of one format fails authentication
+under another \\
+Manifest byte 0 & Must match the fingerprint \\
+Descriptor byte 0 and signature domain \code{"hh-group-v"} + id & A descriptor of one format cannot pass as
+another \\
+Fragment file header byte 0 & A gridnode knows how to read each file on disk \\
+Fetch validation & A fragment of another format counts as missing \\
+\bottomrule
+\end{tabularx}
+\caption{Where the format identifier is stored.}
+\end{table}
+
+A gridnode that finds a fragment file of an unknown format at startup leaves it on disk, untouched and uncounted, so
+an upgraded node can pick it up. Repair and relocation always work in the format of the group they touch, and stored
+data is never rewritten into a new format. The delete message and the tombstone file carry no format byte yet. Both
+have fixed layouts, and the delete message is signed under the versioned domain \code{"hh-delete-v1"}, so a later
+format can add a format byte to either.
+
+\section{Storing, retrieving and deleting}
+\label{sec:operations}
+
+\subsection{Store}
+
+\begin{enumerate}
+	\item Require a valid StorageSpork and at least $n_{in}$ active gridnodes; otherwise fail before sending anything.
+	      The upload uses one snapshot of the active gridnodes throughout.
+	\item Draw a fresh fingerprint.
+	\item Read the input one stripe at a time, so memory stays bounded to one stripe. An empty file becomes one
+	      padded chunk, so every file has a first stripe to find.
+	\item Encrypt the data chunks of the stripe and compute its outer parity chunks.
+	\item Place the stripe's groups one by one, in an order shuffled with a secure random generator. For each group,
+	      encode it to $n_{max}$ fragments, build its Merkle tree and sign its descriptor. Send the guaranteed
+	      fragments to ranks $0$ to $n_{in} - 1$ in shuffled order, each delayed by a random 0 to 25\,ms. Wait for
+	      every answer, and retry each refusal on the remaining spares, one after another. The group fails when fewer
+	      than $n_{in}$ window members accept it. Once the guaranteed fragments are in place, send the extras to the
+	      spares that are left, in the same shuffled and delayed way, and do not wait for their answers.
+	\item After the last stripe, store the manifest copies as ordinary groups.
+	\item On any failure, send \code{DELETE\_GROUP} for every group placed so far, the failed one included, then
+	      report the error. A failed upload thus leaves no live group behind, unless the node stops before its
+	      rollback (Section~\ref{sec:security}).
+\end{enumerate}
+
+The shuffled order and the delays make it harder for a gridnode to read a stripe's structure off the order and
+timing in which its fragments arrive.
+
+\subsection{Retrieve}
+
+Retrieval starts from the fingerprint alone:
+
+\begin{enumerate}
+	\item Derive the manifest group keys and their identifiers, and find a manifest with the two-pass search below.
+	\item Decrypt the manifest. It gives the file size and the layout the file was written with. The data groups
+	      use the window $n_{max} + \mathit{placementSlack}$, with $n_{max}$ from the manifest and the slack from the
+	      current spork.
+	\item For each data group, derive its identifier from its stripe and index, and ask the $k_{in} + 2$
+	      top-ranked gridnodes of its window in parallel, 18 with the defaults. The round ends as soon as $k_{in}$
+	      verified fragments with distinct indices are in. If fewer arrive, ask the rest of the window once every
+	      answer is in or has timed out.
+	\item Decode each group with the inner code. Fetch a stripe's parity groups only while a data group is missing,
+	      and rebuild the missing chunks with the outer code.
+	\item Decrypt, write out, and cut the output to the file size.
+\end{enumerate}
+
+Asking two more gridnodes than needed lets a read finish without waiting for the slowest answers, a standard remedy
+for tail latency~\cite{dean2013}; OceanStore read its archive the same way~\cite{kubiatowicz2000}.
+
+The manifest search runs in two passes, because the spork may have changed since the upload. The narrow pass looks
+for copies 0 to 15, the highest count the spork allows, in the current placement window of 40 gridnodes. The wide
+pass looks for the copies the current spork names across $255 + \mathit{slack}$ gridnodes, 263 with the defaults.
+
+A wrong fingerprint and a fully lost file give the same answer: \emph{not found}. This is deliberate: the network
+cannot confirm that a guessed fingerprint exists. It is also the slowest answer. The search asks for up to 16
+copies in the narrow pass and 3 in the wide one, and every round in which a window member stays silent waits for
+the 10-second request timeout, so rejecting a wrong fingerprint can take minutes.
+
+An HTTP answer commits to its status before its body. The first stripe is therefore recovered in full before any
+output starts, so a file whose beginning is lost is reported as lost at once, not after a partial transfer. A stripe
+that is lost further in cuts the answer short; the command-line client catches this by comparing the length it
+received with the announced size.
+
+\subsection{Delete}
+
+Delete needs only the manifest, so even a file with lost data can be deleted. For every data, parity and manifest
+group, it sends a signed \code{DELETE\_GROUP} to the whole window and waits for the answers. Failed answers are
+ignored: holders that missed the delete learn of it from the tombstones of the others
+(Section~\ref{sec:ownership}).
+
+\subsection{Interfaces}
+
+The node exposes storage over its local REST interface and the command line.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}p{2.8cm}L@{}}
+\toprule
+Request & Behaviour \\
+\midrule
+\code{POST /storage} & Octet-stream body with a required \code{Content-Length} of at most 64\,GiB; answers 201
+with the fingerprint, 411 without a length, 413 above the cap, 503 with too few gridnodes \\
+\code{GET /storage} & Fingerprint in the \code{X-Fingerprint} header; answers 200 with \code{X-File-Size} and a
+streamed body, 404 when not found, 410 when the first stripe is lost \\
+\code{DELETE /storage} & Fingerprint in the \code{X-Fingerprint} header; answers 204, or 404 when no manifest is
+found \\
+Any & 400 for a malformed fingerprint, 503 without a spork, 500 for any other failure \\
+\bottomrule
+\end{tabularx}
+\caption{REST interface.}
+\end{table}
+
+The fingerprint travels in a header and never in a path, so it does not end up in access logs. Error answers and log
+lines never contain it. On the command line, \code{storage-put} prints the fingerprint; \code{storage-get} writes to
+a temporary file and moves it into place only when its length matches \code{X-File-Size}; \code{storage-delete}
+removes the file. The two commands that take a fingerprint read it from \code{-f}, and prompt for it without echo
+when \code{-f} is given without a value.
+
+\section{Ownership and deletion}
+\label{sec:ownership}
+
+The network keeps no owner record: whoever holds the fingerprint owns the file. There are no accounts, no uploader
+signatures and no per-user index. A gridnode sees which Hedgehog node sent it a fragment, but it stores nothing that
+ties the fragment to that node. The fingerprint works like a capability~\cite{wilcox2008}: holding it is the right
+to act, and ownership gives two powers, both through keys derived from it:
+
+\begin{itemize}
+	\item \textbf{Read.} Only the fingerprint yields the manifest key and the chunk key.
+	\item \textbf{Delete.} Only the fingerprint yields the private key of each group, and only that key signs a
+	      valid delete.
+\end{itemize}
+
+\subsection{The delete proof}
+
+A delete is one \code{DELETE\_GROUP} packet per group, sent to every gridnode in that group's window. It carries the
+group's public key, a timestamp in epoch milliseconds, and an Ed25519 signature over a 52-byte message:
+\begin{equation}
+	m = \texttt{"hh-delete-v1"} \cat \mathit{groupId}_{[32]} \cat \mathit{timestamp}_{\mathrm{i64}}
+\end{equation}
+
+A gridnode accepts the delete only if the public key hashes to the group identifier and the signature verifies. The
+proof is \emph{self-certifying}: it needs no stored state to check. Even a gridnode that does not hold the group can
+verify it and keep it as a tombstone.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Receiver state & Answer \\
+\midrule
+No valid StorageSpork & \code{DISABLED} \\
+Group already tombstoned, whatever the proof & \code{OK} \\
+Proof fails & \code{INVALID} \\
+Group not held, and the tombstone budget or the quota is spent & \code{QUOTA} \\
+The tombstone cannot be written & \code{ERROR} \\
+Otherwise: tombstone written, any held fragment removed & \code{OK} \\
+\bottomrule
+\end{tabular}
+\caption{How a gridnode answers a delete, in the order it checks.}
+\end{table}
+
+The signed timestamp is kept with the proof but not checked for freshness. A replayed proof can only repeat a delete
+the owner has already signed, and since every upload draws a fresh fingerprint, no group identifier is ever used
+twice.
+
+\subsection{Tombstones}
+
+Removing fragments is not enough. A gridnode that is offline during the delete comes back with its fragment, and
+without a record of the delete, repair would count that fragment and, with enough of them, rebuild the group.
+Gridnodes therefore keep the proof as a \emph{tombstone}. A tombstone lives for \code{tombstoneDays}, 30 by default,
+counted from the moment each gridnode receives it. While it lives, the gridnode refuses new stores of that group and
+hands the signed proof to any repairer that asks about it.
+
+A holder that missed the delete learns of it at its next duty visit or relocation check (Section~\ref{sec:repair}).
+Its census meets a tombstone, it verifies the proof against the key in its own descriptor, keeps the proof as its
+own tombstone with a fresh lifetime, and drops its fragment. Every rank is on duty once every $W$ epochs
+(Section~\ref{sec:repair}), so with the defaults a stale holder drops its fragment within about 40 hours. A claimed
+tombstone without a valid proof is ignored.
+
+\subsection{Consequences}
+
+\begin{itemize}
+	\item A lost fingerprint means a lost file. There is no recovery path, and the file's fragments stay stored,
+	      because nothing expires.
+	\item Sharing a fingerprint shares full ownership, delete included. The format has no read-only rights.
+	\item Storage is charged to each gridnode's own quota, not to an owner. There is no payment or per-owner limit.
+\end{itemize}
+
+\section{Self-healing}
+\label{sec:repair}
+
+Gridnodes restore every group to full strength once its losses reach a threshold, without the owner and without
+learning anything beyond single chunks. Repair is lazy for a reason: many losses are transient. A gridnode that
+restarts, or loses its connection for an hour, comes back with its fragments, and rebuilding them at once would spend
+bandwidth on data that returns by itself. Studies of peer-to-peer storage show that waiting until losses pass a
+threshold saves much of that bandwidth, as long as the remaining redundancy covers the
+wait~\cite{bhagwan2004,chun2006,giroire2010}.
+
+\subsection{Scheduling}
+
+Time is divided into epochs of \code{repairIntervalMinutes}, 60 by default: $e = \lfloor t / \mathit{interval}
+\rfloor$. A gridnode starts repairing only once two epoch boundaries have passed since it first saw a valid spork,
+which leaves at least one full interval for its view of the network to settle. In each epoch exactly one rank of a
+group's window is on duty:
+\begin{equation}
+	\mathit{duty}(g, e) = \left(e + \mathit{prefix}_{32}(g)\right) \bmod \left(n_{max}(g) +
+	\mathit{placementSlack}\right)
+\end{equation}
+where $\mathit{prefix}_{32}(g)$ is the first four bytes of the group identifier as an unsigned integer,
+$n_{max}(g)$ comes from the group's own descriptor, and the slack from the current spork.
+
+A gridnode acts only for groups it holds. If the gridnode at the duty rank holds the group, it makes a \emph{duty
+visit} to the group. If the rank is a spare, or its gridnode has lost the fragment, nobody checks the group in that
+epoch. Duty walks through the window one rank per epoch, so every holder is on duty once every $W$ epochs, 40 hours
+with the defaults, and a group with $h$ holders gets $h$ visits in that time: with 24 holders in a window of 40,
+about three epochs in five. One visit per group and epoch keeps the cost to $W - 1$ queries per group and epoch
+instead of that many per holder. Each gridnode computes the duty from its own view of the active gridnodes, so
+views that differ may give a group two visits in one epoch, or none. A gridnode that does not find itself in its
+own view, as happens while that view fills in after a restart, leaves its groups alone for the round.
+
+A holder whose rank has fallen outside the window checks in every round whether to relocate its fragment, whether
+or not it is on duty (see \emph{Relocation} below).
+
+\subsection{A duty visit}
+
+Figure~\ref{fig:repair} shows the steps the gridnode on duty takes for one group.
+
+\begin{figure}[tb]
+\centering
+\begin{tikzpicture}[node distance=4.5mm and 10mm]
+	\node[action, text width=4.4cm] (scrub) {Verify own fragment; if it is corrupt, drop it and stop};
+	\node[action, text width=4.4cm, below=of scrub] (census) {Census: ask every other window member
+		\code{HAS\_FRAGMENT}};
+	\node[decision, below=of census] (tomb) {Verified\\tombstone?};
+	\node[action, right=of tomb] (delete) {Keep the tombstone, drop own fragment};
+	\node[decision, below=of tomb] (thr) {Missing $\ge$\\threshold?};
+	\node[action, right=of thr] (rebuild) {Fetch, verify, decode; store every missing fragment on a free rank};
+	\node[decision, below=of thr] (spot) {Spot check\\due?};
+	\node[action, text width=4.4cm, below=of spot] (check) {Fetch one random claimant's fragment; drop the claim
+		if it does not verify};
+	\node[decision, below=of check] (short) {Missing $\ge$\\threshold now?};
+	\node[action, text width=4.4cm, below=of short] (done) {Done until the next duty visit};
+	\draw[flow] (scrub) -- (census);
+	\draw[flow] (census) -- (tomb);
+	\draw[flow] (tomb) -- node[above, font=\small] {yes} (delete);
+	\draw[flow] (tomb) -- node[left, font=\small] {no} (thr);
+	\draw[flow] (thr) -- node[above, font=\small] {yes} (rebuild);
+	\draw[flow] (thr) -- node[left, font=\small] {no} (spot);
+	\draw[flow] (spot) -- node[left, font=\small] {yes} (check);
+	\draw[flow] (spot.west) -- node[above, font=\small] {no} ++(-1.4, 0) |- (done.west);
+	\draw[flow] (check) -- (short);
+	\draw[flow] (short) -- node[left, font=\small] {no} (done);
+	\draw[flow] (short.east) -| node[pos=0.25, above, font=\small] {yes} (rebuild.south);
+\end{tikzpicture}
+\caption{What the gridnode on duty does for one group.}
+\label{fig:repair}
+\end{figure}
+
+\paragraph{Census.} The census asks every other member of the window whether it holds the group. A \code{HELD}
+answer counts only with an index inside the group's slots, and a \code{TOMBSTONE} answer only when its delete proof
+verifies and its public key equals the key in the local descriptor. A \code{NONE} answer marks a free rank. Any
+other answer, and silence, count as nothing.
+
+\paragraph{Lazy threshold.} Repair starts when losses pass a share of the parity budget:
+\begin{equation}
+	n_{in} - \mathit{present} \ \ge\ T = \max\left(1,\ \left\lceil m_{in} \cdot \mathit{repairThresholdPercent} / 100
+	\right\rceil\right)
+\end{equation}
+where $\mathit{present}$ counts distinct indices, the duty holder's own and extras included. With the defaults
+$T = 4$: repair starts once the distinct fragments of a group fall to 20, four more than the 16 it needs. Without
+extras that means 4 of the 24 guaranteed fragments are missing; with all 8 extras held, it takes 12 losses.
+
+\paragraph{Rebuild.} The repairer fetches the fragment of every claimant in parallel and keeps only those that verify
+with the index they claimed. From any $k_{in}$ of them it decodes the chunk, re-encodes every missing index up to
+$n_{max}$, extras included, and checks that the rebuilt tree has the signed root. The rebuilt fragments go out in
+ascending index order, each to the next window member in rank order that answered \code{NONE} and accepts it. The
+guaranteed fragments thus come first, and extras fill whatever room is left. The repairer needs no key for any of
+this, because the signed root proves the rebuilt fragments genuine.
+
+\paragraph{Spot checks.} A gridnode could claim to hold a fragment it has dropped and so delay repair. Duty passes
+through the whole window once every $W$ epochs, and during one such rotation in four, every duty visit that finds the
+group above its threshold also checks one claim. The duty holder picks one claimant with a secure random generator
+and fetches its fragment. A claim that does not verify is dropped for this visit, and repair starts if the group then
+falls to its threshold. Each holder thus checks on every fourth of its own duty visits. A spot check moves a whole
+fragment, where a census answer is a few bytes, so checking a quarter of the visits keeps the cost low. Knowing the
+schedule does not help a liar: answering \code{NONE} in a checked rotation only makes the loss visible.
+
+Each liar adds one index to $\mathit{present}$ that is not really there. With $L$ colluding liars, repair therefore
+starts for certain only when real losses reach $T + L$, or $T + L - 1$ in a visit whose spot check happens to pick
+a liar. The inner parity must outnumber the liars that a window can hold. With the defaults and no extras, repair
+still starts in time with up to four liars and needs a lucky spot check with five. With six liars and three honest
+losses, a group passes its 8 tolerated losses before repair can start, whether or not a spot check catches one of
+the liars.
+
+\paragraph{Relocation.} A holder whose rank has dropped out of the window first runs a census, so a deleted group is
+never moved. It then offers the fragment to free window members one by one. A member counts only after it stores the
+fragment and serves back a verified copy with the same index; only then does the holder remove its own copy.
+
+\paragraph{Growth limits.} A gridnode accepts fragment sizes between 1/16 and 16 times the current spork value, and a
+repairer rebuilds only groups whose full size is at most $\min(\mathit{maxBytesPerNode},\ 16 \cdot n_{max} \cdot
+\mathit{fragmentSize})$ under the current spork, 32\,MiB with the defaults. These limits stop old or malicious
+descriptors from making gridnodes allocate unbounded memory. A repairer that skips a group for this reason logs a
+warning, because a group that no holder may repair slowly decays.
+
+\subsection{What a repairer learns}
+
+During a rebuild the repairer holds the ciphertext of one chunk and knows which gridnodes hold its fragments. It has
+no key to decrypt the chunk. The identifiers of the file's other groups are unrelated to this one, so nothing leads
+the repairer to them, apart from the content links of short stripes (Section~\ref{sec:security}).
+
+\section{Extra-parity pool and quotas}
+\label{sec:quotas}
+
+Each gridnode's store has two tiers, and idle disk space adds durability without ever displacing guaranteed data.
+
+\begin{description}
+	\item[Guaranteed] Fragments with index below $n_{in}$. They may use the whole quota, \code{maxBytesPerNode},
+	      10\,GiB by default.
+	\item[Extra] Fragments with index $n_{in}$ and above. They may use at most \code{extraPoolPercent} of the quota,
+	      20\,\% or 2\,GiB by default.
+\end{description}
+
+When a guaranteed fragment needs room, the oldest extras are evicted first; only when no extras are left is the store
+refused with \code{QUOTA}. A new extra that finds the pool full evicts older extras in the same way. Every entry is
+charged at least 4\,KiB, so tiny fragments cannot exhaust the file system: a 10\,GiB node holds at most
+2\,621\,440 entries, and about 163\,000 guaranteed fragments at default settings.
+
+Tombstones cost 4\,KiB of quota each. A gridnode always tombstones a group it holds, since dropping the fragment frees
+more room than the tombstone takes. It tombstones a group it does not hold only while all its tombstones together
+stay within 1\,\% of its quota, about 26\,000 with the defaults, and while the quota has room, which may evict extras.
+This bounds delete traffic for made-up groups, which costs an attacker only a fresh key per group. Every node, gridnode
+or not, purges expired tombstones at the end of every repair round.
+
+\paragraph{On disk.} Fragments live under \code{fragments/ab/cd/<groupId>.frag} in the node's data directory, one file
+per group, behind a 12-byte header of format, slot count, tier, index and a 64-bit sequence number that orders
+eviction. Tombstones live under \code{fragments/tombstones/<groupId>} as 112 bytes: expiry, the delete timestamp,
+the public key and the signature. Every write goes to a temporary file first and is renamed into place atomically.
+The file is not forced to disk, so a power cut can lose or damage the latest writes; the checks on every read catch
+damage, and repair restores what is lost. At startup the store rebuilds its accounting by scanning these files:
+malformed files are removed, files that cannot be read are skipped, and files of an unknown format are left in
+place.
+
+\section{Governance: the StorageSpork}
+\label{sec:governance}
+
+Sporks are signed messages that switch or tune network behaviour without a software release. Unigrid inherits them
+from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry structured data~\cite{unigrid-whitepaper}.
+Stiftelsen The Unigrid Foundation controls storage through a signed spork of type 1030, distributed like every other
+spork. Its
+40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork that fails validation is
+treated as absent, which disables storage on that node rather than running it with bad values.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lrlL@{}}
+\toprule
+Field & Default & Bounds & Effect \\
+\midrule
+\code{maxBytesPerNode} & 10\,GiB & $\ge 0$ & Quota of each gridnode \\
+\code{chunkSize} & 1\,MiB & $\ge 42$, multiple of fragment size & Size of every chunk \\
+\code{fragmentSize} & 64\,KiB & $> 0$, $k_{in} \le 255$ & Size of every fragment \\
+\code{outerParityPercent} & 50 & 0--200 & Outer parity per stripe \\
+\code{maxOuterDataChunks} & 32 & 1--255 & Data chunks per stripe \\
+\code{innerParityPercent} & 50 & 0--200 & Guaranteed inner parity \\
+\code{maxParityPercent} & 100 & inner--25500, $n_{max} \le 255$ & Inner parity including extras \\
+\code{manifestCopies} & 3 & 1--16 & Copies of each manifest \\
+\code{placementSlack} & 8 & 0--255 & Spare ranks in each window \\
+\code{repairThresholdPercent} & 50 & 1--100 & Share of inner parity lost before repair \\
+\code{extraPoolPercent} & 20 & 0--90 & Share of quota for extras \\
+\code{repairIntervalMinutes} & 60 & $\ge 1$ & Epoch length \\
+\code{tombstoneDays} & 30 & 1--65535 & Tombstone lifetime \\
+\bottomrule
+\end{tabularx}
+\caption{StorageSpork fields. A full stripe must also satisfy
+$\mathit{maxOuterDataChunks} + \mathrm{pct}(\mathit{maxOuterDataChunks}, \mathit{outerParity}) \le 255$.}
+\label{tab:spork}
+\end{table}
+
+New values apply to new uploads at once. Existing files keep the layout their manifest records. Repair uses each
+group's own slot count from its signed descriptor, together with the current slack and threshold, and the growth
+limits of Section~\ref{sec:repair} follow the current spork as well.
+
+\subsection{Changing parameters safely}
+
+Because every file keeps its own layout, most changes are safe at any time. Three need care:
+
+\begin{itemize}
+	\item \textbf{Sizes.} Gridnodes store fragments only within a factor of 16 of the current fragment size, and
+	      rebuild only groups up to 16 times the current full group size. A change beyond these factors leaves older
+	      groups with no gridnode that stores or rebuilds them, and they decay. Sizes should therefore move in
+	      smaller steps.
+	\item \textbf{The frame limit.} Validation does not tie the fragment size to the 256\,MiB frame limit of the
+	      transport (Section~\ref{sec:protocol}), so a spork can name fragments too large to send.
+	\item \textbf{Manifest copies.} The copy count is the cheapest lever on durability
+	      (Section~\ref{sec:durability}), but like every layout value it applies only to new uploads.
+\end{itemize}
+
+\section{Network protocol}
+\label{sec:protocol}
+
+Storage traffic uses Hedgehog's existing peer-to-peer transport: Netty~\cite{netty} over QUIC~\cite{rfc9000}, which
+encrypts every connection with TLS~\cite{rfc9001}. Peers do not authenticate each other yet: each server presents a
+fresh self-signed certificate and each client accepts any certificate, so the encryption stops passive observers
+but not an attacker on the path (Section~\ref{sec:security}). Storage requests travel over the node's existing peer
+connections, and a window member without one counts as unreachable. Requests to the node itself are served
+in-process. Each message starts with an 8-byte frame header (Figure~\ref{fig:frame}), and frames, header included,
+are limited to 256\,MiB.
+
+\begin{figure}[H]
+\centering
+\begin{bytefield}[bitwidth=0.1\linewidth]{8}
+	\bitheader{0-7} \\
+	\bitbox{2}{magic \code{0xBABE}} & \bitbox{2}{type (u16)} & \bitbox{4}{payload length (u32)}
+\end{bytefield}
+\caption{Frame header.}
+\label{fig:frame}
+\end{figure}
+
+\subsection{Packets}
+
+Every storage payload starts with a 64-bit request identifier. The identifiers start at a random value and count up.
+A reply completes a request only if it arrives on the same connection and has the expected type, and every request
+times out after 10 seconds.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}lrLr@{}}
+\toprule
+Packet & Type & Payload after the request identifier & Size \\
+\midrule
+\code{STORE\_FRAGMENT} & 3000 & u32 length, encoded fragment & 65\,850 \\
+\code{FETCH\_FRAGMENT} & 3010 & group identifier & 40 \\
+\code{FRAGMENT\_REPLY} & 3020 & u8 status, u32 length, fragment (empty unless \code{OK}) & $13 + \mathit{len}$ \\
+\code{HAS\_FRAGMENT} & 3030 & u16 count ($\le 4096$), group identifiers & $10 + 32n$ \\
+\code{FRAGMENT\_STATUS} & 3040 & u16 count ($\le 4096$), entries of group identifier, u8 state, u8 index; a
+\code{TOMBSTONE} entry adds public key, timestamp and signature & $10 + 34n$, $+104$ per tombstone \\
+\code{DELETE\_GROUP} & 3050 & group identifier, length-prefixed public key, i64 timestamp, length-prefixed
+signature & 152 \\
+\code{STORAGE\_ACK} & 3060 & u8 status & 9 \\
+\bottomrule
+\end{tabularx}
+\caption{Storage packets. Sizes are payload bytes with default settings, excluding the frame header.}
+\end{table}
+
+Fragment states are \code{NONE} (0), \code{HELD} (1) and \code{TOMBSTONE} (2). Status bytes are \code{OK} (0),
+\code{QUOTA} (1), \code{INVALID} (2), \code{TOMBSTONE} (3), \code{DISABLED} (4), \code{NOT\_FOUND} (5),
+\code{DUPLICATE} (6) and \code{ERROR} (7). An unknown state reads as \code{NONE} and an unknown status as
+\code{ERROR}. A decoder rejects counts above 4096, lengths above 256\,MiB and key or signature fields of the wrong
+size before allocating memory. A node without a gridnode identity answers \code{DISABLED} to every store, since it
+never sits in a window and never repairs.
+
+\subsection{Threading}
+
+Replies arrive on Netty event loops, so the operations that wait for replies never run on one. Uploads, downloads
+and deletes run on the REST server's worker threads, repair runs on a thread of its own, and delayed sends run on a
+shared thread pool. Incoming requests are served on the event loops themselves, fragment verification and disk
+access included.
+
+\section{Analysis}
+\label{sec:analysis}
+
+\subsection{Durability}
+\label{sec:durability}
+
+Assume that every fragment is lost independently with probability $q$ between two repairs of its group. A group
+that holds $n$ fragments and needs $k$ of them is then lost with probability
+\begin{equation}
+	P_{\mathit{group}}(q) = \sum_{j = n - k + 1}^{n} \binom{n}{j} q^j (1 - q)^{n - j} ,
+\end{equation}
+and a stripe of $k_s + m_s$ groups is lost when more than $m_s$ of its groups are, the same sum with
+$P_{\mathit{group}}$ in place of $q$. Table~\ref{tab:loss} evaluates both for the structures of a stored file.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}llcccc@{}}
+\toprule
+Structure & Lost when & $q = 5\,\%$ & $q = 10\,\%$ & $q = 20\,\%$ & $q = 30\,\%$ \\
+\midrule
+Group, 24 fragments held & $> 8$ lost & $1.3 \times 10^{-6}$ & $3.2 \times 10^{-4}$ & $3.6 \times 10^{-2}$ &
+$0.27$ \\
+Group, 32 fragments held & $> 16$ lost & $2.1 \times 10^{-14}$ & $1.3 \times 10^{-9}$ & $3.3 \times 10^{-5}$ &
+$5.2 \times 10^{-3}$ \\
+Full stripe, $32 + 16$ groups & $> 16$ lost & $2.9 \times 10^{-88}$ & $1.7 \times 10^{-47}$ & $4.5 \times
+10^{-13}$ & $0.14$ \\
+Stripe of one chunk, $1 + 1$ & both lost & $1.6 \times 10^{-12}$ & $1.0 \times 10^{-7}$ & $1.3 \times 10^{-3}$ &
+$7.6 \times 10^{-2}$ \\
+Manifest, 3 copies & all lost & $2.1 \times 10^{-18}$ & $3.3 \times 10^{-11}$ & $4.7 \times 10^{-5}$ & $2.1 \times
+10^{-2}$ \\
+\bottomrule
+\end{tabular}
+\caption{Loss probabilities under independent fragment loss with probability $q$ and no repair in between. The
+stripe and manifest rows assume 24 fragments held per group.}
+\label{tab:loss}
+\end{table}
+
+Figure~\ref{fig:durability} compares the two layers with the simpler ways of spending storage on a stripe of 32 data
+chunks.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{semilogyaxis}[
+	width=0.92\linewidth, height=7.2cm,
+	xmin=0, xmax=50, ymin=1e-40, ymax=10,
+	xlabel={Loss probability $q$ of each fragment or replica (\%)},
+	ylabel={Probability that the stripe is lost},
+	ytick={1e-40,1e-30,1e-20,1e-10,1},
+	legend cell align=left, legend columns=2,
+	legend style={font=\scriptsize, at={(0.5,-0.2)}, anchor=north, draw=none,
+		/tikz/every even column/.append style={column sep=5mm}},
+	grid=major, grid style={black!10},
+	tick label style={font=\small}, label style={font=\small}]
+	\addplot[thick, dashed, mark=none] coordinates {
+		(1,3.2e-05) (2,0.000256) (3,0.000864) (4,0.00205) (5,0.00399) (6,0.00689) (7,0.0109) (8,0.0163)
+		(9,0.0231) (10,0.0315) (11,0.0417) (12,0.0538) (13,0.068) (14,0.0842) (15,0.103) (16,0.123) (17,0.146)
+		(18,0.171) (19,0.198) (20,0.227) (21,0.258) (22,0.29) (23,0.324) (24,0.359) (25,0.396) (26,0.433)
+		(27,0.471) (28,0.508) (29,0.546) (30,0.584) (31,0.62) (32,0.656) (33,0.69) (34,0.723) (35,0.754)
+		(36,0.783) (37,0.811) (38,0.836) (39,0.859) (40,0.88) (41,0.898) (42,0.915) (43,0.929) (44,0.942)
+		(45,0.953) (46,0.962) (47,0.97) (48,0.976) (49,0.982) (50,0.986)};
+	\addlegendentry{Three replicas of each chunk, 3.0$\times$}
+	\addplot[thick, dotted, mark=none] coordinates {
+		(1,3.65e-11) (2,1.63e-08) (3,5.47e-07) (4,6.34e-06) (5,4.11e-05) (6,0.000184) (7,0.000639) (8,0.00184)
+		(9,0.0046) (10,0.0102) (11,0.0207) (12,0.0388) (13,0.0677) (14,0.111) (15,0.172) (16,0.252) (17,0.35)
+		(18,0.461) (19,0.579) (20,0.692) (21,0.792) (22,0.872) (23,0.928) (24,0.964) (25,0.984) (26,0.994)
+		(27,0.998) (28,0.999) (29,1) (30,1) (35,1) (40,1) (45,1) (50,1)};
+	\addlegendentry{Inner code only, 1.5$\times$}
+	\addplot[thick, mark=none] coordinates {
+		(11,3.08e-42) (12,1.49e-37) (13,2.41e-33) (14,1.52e-29) (15,4.21e-26) (16,5.62e-23) (17,3.91e-20)
+		(18,1.5e-17) (19,3.35e-15) (20,4.5e-13) (21,3.78e-11) (22,2.03e-09) (23,7.14e-08) (24,1.68e-06)
+		(25,2.68e-05) (26,0.000295) (27,0.00227) (28,0.0124) (29,0.0492) (30,0.143) (31,0.315) (32,0.54)
+		(33,0.751) (34,0.895) (35,0.966) (36,0.992) (37,0.998) (38,1) (40,1) (45,1) (50,1)};
+	\addlegendentry{Both layers, 2.25$\times$}
+	\addplot[thick, blue!70!black, mark=none] coordinates {
+		(25,7.12e-43) (26,2.65e-39) (27,6.17e-36) (28,9.28e-33) (29,9.22e-30) (30,6.18e-27) (31,2.85e-24)
+		(32,9.14e-22) (33,2.07e-19) (34,3.34e-17) (35,3.86e-15) (36,3.22e-13) (37,1.94e-11) (38,8.5e-10)
+		(39,2.7e-08) (40,6.2e-07) (41,1.03e-05) (42,0.000125) (43,0.00109) (44,0.00685) (45,0.0314) (46,0.105)
+		(47,0.26) (48,0.489) (49,0.722) (50,0.887)};
+	\addlegendentry{Both layers with all extras held, 3.0$\times$}
+\end{semilogyaxis}
+\end{tikzpicture}
+\caption{Probability that a stripe of 32 data chunks is lost, for four ways of spending storage, when every fragment
+or replica is lost independently with probability $q$ and no repair runs in between.}
+\label{fig:durability}
+\end{figure}
+
+Four observations follow:
+
+\begin{itemize}
+	\item \textbf{The layers multiply their protection.} At $q = 10\,\%$ a group is lost with probability
+	      $3.2 \times 10^{-4}$, but a full stripe only with $1.7 \times 10^{-47}$. Three replicas of every chunk
+	      cost more and lose the same stripe with probability $3.2 \times 10^{-2}$.
+	\item \textbf{Repair must act well before a third of the fragments are gone.} Near $q = 30\,\%$ groups fail
+	      often and the outer code can no longer make up for it. Held extras push that point much further.
+	\item \textbf{A file is only as durable as its weakest structure.} That is the manifest set, or a short last
+	      stripe where the file has one. At $q = 10\,\%$ a last stripe of up to four data chunks is weaker than the
+	      manifest set, and one of a single chunk, as in every file of at most one chunk and in the 32\,MiB and
+	      1\,GiB files of Section~\ref{sec:overhead}, is weaker by more than three orders of magnitude. The last
+	      stripe of a 100\,MiB file holds five chunks, so its manifest set dominates: the file is lost with
+	      probability $3.4 \times 10^{-11}$, almost all of it from the manifest set. More copies help most: five
+	      manifest copies lower the manifest's loss at $q = 10\,\%$ from $3.3 \times 10^{-11}$ to $3.4 \times
+	      10^{-18}$, for the price of two more groups per file.
+	\item \textbf{The same numbers bound a coalition.} A coalition that runs a share $q$ of the gridnodes, spread
+	      over the windows by rendezvous hashing, destroys by dropping all its fragments at once what the table
+	      predicts for loss probability $q$. For networks much larger than a window, the binomial model is a close
+	      approximation of this case.
+\end{itemize}
+
+These numbers follow from the independence assumption, not from field data, and they cover one interval between
+repairs. Real failures are correlated: machines in one data centre, on one power feed or running one software
+version fail together~\cite{ford2010,nath2006}, and simple reliability models can mislead by orders of
+magnitude~\cite{greenan2010}. Random placement spreads the groups of all files over all gridnodes, so a large
+correlated failure touches a great many groups at once, and the chance that one of them loses too much grows with
+their number~\cite{cidon2013}. Rendezvous hashing cannot see which gridnodes share a fate.
+Repair also renews only the inner code (Section~\ref{sec:security}), so over a file's life every group that is lost
+stays lost, and the outer margin of its stripe shrinks.
+
+\subsection{Storage overhead}
+\label{sec:overhead}
+
+At default settings a large file costs about 2.26 times its size across the network, and a file of 1\,GiB 2.27
+times. Small files cost far more, because every file carries three manifest groups and at least one data and one
+parity chunk.
+
+Each group stores 24 guaranteed fragments of 64\,KiB, 1.5 times the chunk. Each fragment also carries 302 bytes of
+proof material: the 136-byte descriptor, 2 bytes of index and proof length, a 160-byte Merkle proof and a 4-byte
+length. A file needs $D + \sum_s m_s + \mathit{manifestCopies}$ groups.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}rrrrrrr@{}}
+\toprule
+File & Data chunks & Outer parity & Groups & Fragments & Stored bytes & Stored / file \\
+\midrule
+1\,KiB & 1 & 1 & 5 & 120 & 7\,900\,560 & 7\,715$\times$ \\
+1\,MiB & 2 & 1 & 6 & 144 & 9\,480\,672 & 9.04$\times$ \\
+32\,MiB & 33 & 17 & 53 & 1\,272 & 83\,745\,936 & 2.50$\times$ \\
+100\,MiB & 101 & 51 & 155 & 3\,720 & 244\,917\,360 & 2.34$\times$ \\
+1\,GiB & 1\,025 & 513 & 1\,541 & 36\,984 & 2\,434\,952\,592 & 2.27$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{Network-wide cost of guaranteed fragments with their proof material, as quotas charge it. On disk each
+fragment adds a 12-byte header.}
+\end{table}
+
+A 1\,MiB file needs two data chunks, because each chunk holds 16 bytes less than 1\,MiB to leave room for the
+authentication tag. For large files the outer and inner parity each add 50\,\%, which approaches $1.5 \times 1.5 =
+2.25$ plus 0.46\,\% of proof material. When gridnodes also keep all extras the network holds up to a third more,
+3\,246\,603\,456 bytes for the 1\,GiB file, but extras only ever use idle quota.
+
+\subsection{Performance}
+\label{sec:performance}
+
+\paragraph{Computation.} Encoding costs one table lookup and one XOR per data byte for each parity row: 16 rows per
+chunk for the inner code, which seals all 32 slots at once, and up to 16 rows per stripe for the outer code. Decoding
+inverts a $k \times k$ matrix, at most $32 \times 32$, then recomputes every data shard from $k$ surviving shards,
+even the shards that arrived intact, and re-encodes all parity. Its cost is therefore the same whether one shard or
+eight are missing, two to three times that of encoding. Retrieval skips the outer decode when every data chunk
+arrived, but it always runs the inner decode. AES-GCM runs in hardware on processors with AES instructions. Hashing
+adds one SHA-256 pass over each fragment for its Merkle leaf.
+
+\paragraph{Memory.} An upload or download holds one stripe at a time: up to 32 pieces of plaintext beside the 48
+chunks of 1\,MiB, about 80\,MiB, plus the fragments of the group being sealed or decoded. Memory therefore does not
+grow with file size, but it does grow with the number of concurrent requests.
+
+\paragraph{Bandwidth and latency.}
+
+\begin{itemize}
+	\item \textbf{Store} sends every fragment once: about 2.27 times the file for the guaranteed fragments, and
+	      about 3.02 times with the extras, which gridnodes keep in their extra pool, evicting older extras when it
+	      is full. Groups are placed one after
+	      another, each waiting for its slowest guaranteed store, so a store costs at least one round trip per group
+	      and up to 25\,ms of delay; for a 64\,MiB file, whose 101 groups each wait for the longest of 24 random
+	      delays, that adds about 2.5\,s.
+	\item \textbf{Retrieve} reads 18 fragments for each 16 it needs, about 1.13 times the file when no chunk is lost.
+	      Groups are fetched one after another, and parity groups only for stripes with a missing data group.
+	\item \textbf{Repair} reads all surviving fragments of a group, about 20 at the threshold, to rebuild the
+	      missing ones. Its cost is proportional to what was lost, not to the file.
+	\item \textbf{Census} sends $W - 1$ small queries per group and duty visit. A full 10\,GiB node is on duty for
+	      about one fortieth of its groups per epoch: roughly 4\,000 censuses an hour, which make 160\,000 queries
+	      and as many replies. It answers about as many queries from other gridnodes.
+\end{itemize}
+
+\paragraph{Measured throughput.} Table~\ref{tab:throughput} gives single-threaded measurements on one core of a
+1.7\,GHz Intel server processor with AES instructions, running Java 17. Each figure is the median of five runs of
+at least 64\,MiB after warm-up, counted in input data. They are indicative, within about 10\,\%.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+Operation & MiB/s \\
+\midrule
+Inner code encode, 16 + 16 fragments of 64\,KiB, as a chunk is sealed & 81 \\
+Inner code decode, 16 + 16 fragments, 8 data fragments missing & 41 \\
+Outer code encode, 32 + 16 chunks of 1\,MiB & 78 \\
+Outer code decode, 16 data chunks missing & 26 \\
+AES-256-GCM encrypt, 1\,MiB chunk & 1\,002 \\
+AES-256-GCM decrypt, 1\,MiB chunk & 1\,027 \\
+Store of a 64\,MiB file, 48 simulated gridnodes in one process & 13.2 \\
+Retrieve of the same file, no fragment missing & 26.7 \\
+\bottomrule
+\end{tabular}
+\caption{Single-threaded throughput, in memory, without network or disk.}
+\label{tab:throughput}
+\end{table}
+
+Encryption is never the bottleneck; the scalar Reed-Solomon loops are. The end-to-end figures run the uploader and
+all 48 gridnodes in one process, without the random send delays: they include key derivation, both codes, Merkle
+trees, every gridnode's verification and every store. On a real network this work is spread over many machines, and
+an upload is bounded by the uploader's bandwidth, since it sends about three times the file.
+
+Three improvements would raise these figures without any change to the format: split-table or vector
+$\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, a decode path that skips the work when all data shards are
+present, and placing and fetching several groups at once.
+
+\section{Security analysis and known limits}
+\label{sec:security}
+
+The design meets its goals against the parties of Table~\ref{tab:threats}, with the following limits.
+
+\begin{description}
+	\item[Linked groups] Outer parity is a fixed linear combination of the stripe's data chunks with public
+	      coefficients, and the inner code is linear too. The fragments of a stripe's groups therefore satisfy the
+	      outer code's equations, index by index. For a stripe with one data chunk the equation is equality: the
+	      Cauchy coefficient for $k = 1$ is 1, so the parity chunk is a copy of the data chunk, the two groups have
+	      identical fragments and the same Merkle root, and anyone who sees both descriptors can link them. This
+	      covers every file of at most one chunk, and the last stripe of every file whose number of data chunks leaves
+	      a remainder of one when divided by 32, such as the 32\,MiB and 1\,GiB files of
+	      Section~\ref{sec:overhead}. For stripes of two or
+	      three data chunks, an observer that collects same-index fragments of many groups can search for sets of
+	      three or four groups that satisfy the equations. For full stripes of 32 chunks such a search is out of
+	      reach. Encrypting each parity chunk under its own key would remove these links without changing what
+	      gridnodes do.
+	\item[Traffic order and timing] The traffic of one upload comes from one node in a short time. Within a stripe,
+	      groups leave in shuffled order and fragments with random delays, but stripes follow one another and the
+	      manifest copies always go last, in order. Reads and deletes are not shuffled at all: retrieval fetches the
+	      data groups in index order, and a delete walks the file stripe by stripe and sends to every member of each
+	      window. A gridnode may therefore guess that several of its fragments belong to one upload. In a network of
+	      at most $W$ gridnodes, where every gridnode sits in every window, it can reconstruct a file's group list and
+	      stripe structure from the deletes alone. It still learns no plaintext. Relay routing~\cite{dingledine2004}
+	      and shuffled reads and deletes would remove the link.
+	\item[Unauthenticated transport] QUIC encrypts every connection, but peers do not authenticate each other yet.
+	      An attacker on the network path can intercept a connection and see what a curious gridnode would see:
+	      fragments, descriptors and the timing of requests. It gains no key, and forged fragments still fail
+	      verification.
+	\item[Small files] Uniform chunks cost space: a 1\,KiB file occupies five groups. This is the price of groups
+	      that all look alike. Small files are also the least durable, because their only stripe is short
+	      (Section~\ref{sec:durability}).
+	\item[Lost groups stay lost] Repair renews only the inner code. A group that falls below $k_{in}$ fragments is
+	      gone for good: retrieval rebuilds its chunk in memory from the outer code but stores nothing. The outer
+	      margin of a stripe is therefore spent, never renewed, over the life of the file.
+	\item[No expiry] Nothing expires. The groups of an upload that crashed before its rollback, and the groups of
+	      files whose fingerprint was lost, stay stored, repaired and charged to quota for as long as the network
+	      runs.
+	\item[No payment] The only abuse limit is each gridnode's quota. Payment and anti-spam are not part of this
+	      layer.
+	\item[Resurrection] A tombstone expires after \code{tombstoneDays}. A deleted group could come back only if at
+	      least $k_{in}$ holders that missed the delete returned after every tombstone had expired, and the file would
+	      stay unreadable unless a manifest copy returned the same way. A delete withdraws the manifest copies from
+	      the data window, so a copy that only the wide search finds may escape it.
+	\item[Retrievability] Spot checks prove that a claimant can serve a fragment when asked, not that it stores it:
+	      it could fetch the fragment from another holder on demand. Proofs of data possession~\cite{ateniese2007}
+	      and of retrievability~\cite{juels2007} check storage with less data moved, and proofs of
+	      replication~\cite{filecoin2017} also make it costly to answer from someone else's copy.
+	\item[Liars] Colluding gridnodes that falsely claim fragments can delay repair, bounded as described in
+	      Section~\ref{sec:repair}.
+	\item[Coalitions] An attacker that runs a large share of the gridnodes holds a similar share of every window.
+	      By dropping its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its share:
+	      a fifth of the gridnodes already threatens small files and manifests. Collateral makes gridnodes expensive
+	      to run and so limits Sybil attacks~\cite{douceur2002}; the storage layer relies on it and on the list of
+	      active gridnodes.
+	\item[Eclipse] Placement trusts each node's view of the active gridnodes. An attacker that controls that view,
+	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
+	\item[Spork key] The holder of the foundation's spork key can stop new uploads, disable storage with a spork
+	      that fails validation, or set sizes under which old groups can no longer be stored or rebuilt
+	      (Section~\ref{sec:governance}). It cannot read, find or delete a file.
+	\item[Tombstones on plain nodes] Any Hedgehog node that receives a valid delete keeps the tombstone until it
+	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
+\end{description}
+
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Peer-to-peer storage.} PAST~\cite{rowstron2001} and CFS~\cite{dabek2001} replicate files or blocks over
+distributed hash tables. OceanStore~\cite{kubiatowicz2000} archives data as erasure-coded fragments, each made
+self-verifying by a hash tree whose root names the object, and reads by asking for more fragments than it needs.
+Glacier~\cite{haeberlen2005} adds massive redundancy to survive correlated failures. Work on availability
+management shows that bandwidth, not disk space, limits storage on churning peers~\cite{blake2003}, and that lazy
+repair with a threshold saves much of that bandwidth~\cite{bhagwan2004,chun2006,giroire2010}. Hedgehog's lazy
+threshold and its pool of extra parity follow these lessons.
+
+\paragraph{Anonymous storage.} Freenet~\cite{clarke2001} and Free Haven~\cite{dingledine2000} aim to hide who
+publishes and who reads what. Hedgehog's goal is narrower: it hides what the pieces contain and which pieces form a
+file, but not which node sends a request (Section~\ref{sec:security}).
+
+\paragraph{Decentralized storage networks.} Tahoe-LAFS~\cite{wilcox2008} encrypts and erasure-codes files on the
+client and hands out capabilities that combine the key with the location; checking and repair are left to clients
+that hold a capability for the file. Storj~\cite{storj2018} spreads Reed-Solomon pieces of encrypted segments over
+untrusted storage nodes, and derives piece identifiers so that storage nodes cannot tell which pieces belong
+together. Its satellites, coordinators that hold the metadata of the files they manage, audit the nodes and repair
+lost pieces.
+Sia~\cite{sia2014} lets clients store erasure-coded pieces with hosts under contracts on its blockchain, and leaves
+the upkeep of each file to its client. IPFS~\cite{benet2014} names content by its hash and leaves redundancy to
+whoever keeps a copy, and Filecoin~\cite{filecoin2017} adds payment and proofs that storage providers keep distinct
+replicas over time. Swarm~\cite{swarm2024} erasure-codes the chunks of its hash trees and stores replicas of root
+chunks at addresses derived from the root. What Hedgehog adds is erasure-coded repair by the network itself,
+without the owner or a coordinator, while the structure that ties chunks into files stays with the owner.
+
+\paragraph{Secure dispersal.} Rabin's information dispersal~\cite{rabin1989} splits data into pieces of which any
+$k$ rebuild it. Krawczyk's secret sharing made short~\cite{krawczyk1993} and AONT-RS~\cite{resch2011} combine
+encryption with dispersal, so that fewer than $k$ pieces reveal nothing. Hedgehog also encrypts before it disperses,
+but it keeps the key out of the network.
+
+\paragraph{Codes for storage.} Regenerating codes~\cite{dimakis2010} cut the bandwidth of repair, and local
+reconstruction codes~\cite{huang2012} and the two-level scheme of f4~\cite{muralidhar2014} keep most repairs within a
+small set of shards. Hedgehog's inner code plays that local role, for privacy as much as for cost.
+
+\section{Future work}
+\label{sec:future}
+
+\begin{itemize}
+	\item An object-storage layer with buckets and keys, in the style of S3, built on top of this layer.
+	\item Breaking the linear links between the groups of a stripe, for example by encrypting outer parity chunks
+	      under keys of their own, so that no group can be tied to another by its content.
+	\item Renewing outer redundancy: a node that finds a lost group while reading a file could seal and store it
+	      again.
+	\item Relay routing of storage traffic~\cite{dingledine2004}, and shuffled order and random delays for reads and
+	      deletes as well as uploads.
+	\item Authenticating peers by their gridnode keys, and opening connections to window members on demand.
+	\item Expiry or leases for groups, so that orphaned data does not stay stored forever.
+	\item Batched census queries across groups, and backpressure in the transport.
+	\item Moving fragment verification and disk access off the network event loops.
+	\item Hardening of gridnode discovery, on which placement depends.
+	\item Faster field arithmetic, and codes with cheaper repair~\cite{dimakis2010}.
+	\item Stronger storage challenges than spot checks~\cite{ateniese2007,juels2007}.
+\end{itemize}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+Hedgehog stores files on gridnodes that nobody needs to trust. One random fingerprint names, decrypts and controls a
+file, and nothing else about the file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
+knows from what the network needs: the owner's outer code spans many chunks and stays secret, while the public inner
+code lets gridnodes check, repair and move each chunk on their own. Signed descriptors and Merkle proofs make every
+fragment self-verifying, rendezvous hashing places fragments without a directory, and a signed spork tunes the
+network while every file keeps the layout it was written with. The known limits are stated plainly in
+Section~\ref{sec:security}: linked groups in short stripes, traffic that reveals structure, a transport without peer
+authentication, and outer redundancy that is never renewed. Each has a remedy in Section~\ref{sec:future}, and the
+format identifier lets the network adopt those that change stored structures beside the current format.
+
+\appendix
+
+\section{Glossary}
+
+\begin{description}
+	\item[Census] The duty holder's query of every window member about one group.
+	\item[Chunk] A fixed-size piece of AES-GCM ciphertext or outer parity.
+	\item[Descriptor] The signed 136-byte header that describes a group and commits to its fragments.
+	\item[Duty] The task of checking one group in one epoch, which falls to the holder at one rank.
+	\item[Epoch] One repair interval, 60 minutes by default.
+	\item[Extra fragment] A fragment beyond the guaranteed set, kept only while quota allows.
+	\item[Fingerprint] The 32-byte secret that locates, decrypts and controls a file.
+	\item[Fragment] One inner-code piece of a group, the unit a gridnode stores.
+	\item[Gridnode] A service node that provides the network with storage, communication and compute.
+	\item[Group] One chunk as the network sees it, named by the hash of its public key.
+	\item[Guaranteed fragment] One of the first $n_{in}$ fragments of a group, which the upload places and repair
+	      keeps.
+	\item[Holder] A gridnode that stores a fragment of a group.
+	\item[Manifest] The encrypted record of a file's size and layout.
+	\item[Rank] A gridnode's position in a group's rendezvous ranking.
+	\item[Spot check] A duty holder's check that one census claimant really serves its fragment.
+	\item[StorageSpork] The signed spork that sets every storage parameter.
+	\item[Stripe] Data chunks and their outer parity, known only to the owner.
+	\item[Tombstone] A kept delete proof that blocks a group from being stored again.
+	\item[Window] The $W$ highest-ranked gridnodes for a group.
+\end{description}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{section}{References}
+
+\begin{thebibliography}{99}
+
+\bibitem{unigrid-whitepaper}
+	Adam Waldenberg, Stiftelsen The Unigrid Foundation,
+	\emph{"Unigrid: A foundation for a decentralized, consensus-driven, segmented, blockchain-based Internet"},
+	\href{https://github.com/unigrid-project/documentation-white-paper}{github.com},
+	2022.
+
+\bibitem{dimakis2010}
+	Alexandros G. Dimakis, P. Brighten Godfrey, Yunnan Wu, Martin J. Wainwright \& Kannan Ramchandran,
+	\emph{"Network Coding for Distributed Storage Systems"},
+	IEEE Transactions on Information Theory 56(9):4539--4551,
+	\href{https://doi.org/10.1109/TIT.2010.2054295}{doi.org},
+	2010.
+
+\bibitem{haeberlen2005}
+	Andreas Haeberlen, Alan Mislove \& Peter Druschel,
+	\emph{"Glacier: Highly Durable, Decentralized Storage Despite Massive Correlated Failures"},
+	2nd Symposium on Networked Systems Design and Implementation (NSDI 05),
+	\href{https://www.usenix.org/conference/nsdi-05/glacier-highly-durable-decentralized-storage-despite-massive-correlated-failures}{www.usenix.org},
+	2005.
+
+\bibitem{pfitzmann2010}
+	Andreas Pfitzmann \& Marit Hansen,
+	\emph{"A terminology for talking about privacy by data minimization: Anonymity, Unlinkability, Undetectability, Unobservability, Pseudonymity, and Identity Management"},
+	version v0.34,
+	\href{https://dud.inf.tu-dresden.de/literatur/Anon_Terminology_v0.34.pdf}{dud.inf.tu-dresden.de},
+	2010.
+
+\bibitem{joux2006}
+	Antoine Joux,
+	\emph{"Authentication Failures in NIST version of GCM"},
+	public comment to NIST on the draft GCM recommendation,
+	\href{https://csrc.nist.gov/csrc/media/projects/block-cipher-techniques/documents/bcm/comments/800-38-series-drafts/gcm/joux_comments.pdf}{csrc.nist.gov},
+	2006.
+
+\bibitem{rowstron2001}
+	Antony Rowstron \& Peter Druschel,
+	\emph{"Storage Management and Caching in PAST, a Large-Scale, Persistent Peer-to-Peer Storage Utility"},
+	18th ACM Symposium on Operating Systems Principles (SOSP '01), pp.~188--201,
+	\href{https://doi.org/10.1145/502034.502053}{doi.org},
+	2001.
+
+\bibitem{juels2007}
+	Ari Juels \& Burton S. Kaliski Jr.,
+	\emph{"PORs: Proofs of Retrievability for Large Files"},
+	14th ACM Conference on Computer and Communications Security (CCS '07), pp.~584--597,
+	\href{https://doi.org/10.1145/1315245.1315317}{doi.org},
+	2007.
+
+\bibitem{cidon2013}
+	Asaf Cidon, Stephen Rumble, Ryan Stutsman, Sachin Katti, John Ousterhout \& Mendel Rosenblum,
+	\emph{"Copysets: Reducing the Frequency of Data Loss in Cloud Storage"},
+	2013 USENIX Annual Technical Conference (USENIX ATC 13), pp.~37--48,
+	\href{https://www.usenix.org/conference/atc13/technical-sessions/presentation/cidon}{www.usenix.org},
+	2013.
+
+\bibitem{singh2006}
+	Atul Singh, Tsuen-Wan Ngan, Peter Druschel \& Dan S. Wallach,
+	\emph{"Eclipse Attacks on Overlay Networks: Threats and Defenses"},
+	25th IEEE International Conference on Computer Communications (INFOCOM 2006), pp.~1--12,
+	\href{https://doi.org/10.1109/INFOCOM.2006.231}{doi.org},
+	2006.
+
+\bibitem{rfc6962}
+	Ben Laurie, Adam Langley \& Emilia Kasper,
+	\emph{"Certificate Transparency"},
+	RFC 6962, Internet Engineering Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc6962}{www.rfc-editor.org},
+	2013.
+
+\bibitem{rfc9162}
+	Ben Laurie, Eran Messeri \& Rob Stradling,
+	\emph{"Certificate Transparency Version 2.0"},
+	RFC 9162, Internet Engineering Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc9162}{www.rfc-editor.org},
+	2021.
+
+\bibitem{base58check}
+	Bitcoin Wiki,
+	\emph{"Base58Check encoding"},
+	\href{https://en.bitcoin.it/wiki/Base58Check_encoding}{en.bitcoin.it},
+	\the\year{}.
+
+\bibitem{bitcoinj}
+	bitcoinj,
+	\emph{"bitcoinj: A Java implementation of the Bitcoin protocol"},
+	\href{https://bitcoinj.org/}{bitcoinj.org},
+	\the\year{}.
+
+\bibitem{chun2006}
+	Byung-Gon Chun, Frank Dabek, Andreas Haeberlen, Emil Sit, Hakim Weatherspoon, M. Frans Kaashoek, John Kubiatowicz \& Robert Morris,
+	\emph{"Efficient Replica Maintenance for Distributed Storage Systems"},
+	3rd Symposium on Networked Systems Design and Implementation (NSDI 06),
+	\href{https://www.usenix.org/conference/nsdi-06/efficient-replica-maintenance-distributed-storage-systems}{www.usenix.org},
+	2006.
+
+\bibitem{blake2003}
+	Charles Blake \& Rodrigo Rodrigues,
+	\emph{"High Availability, Scalable Storage, Dynamic Peer Networks: Pick Two"},
+	9th Workshop on Hot Topics in Operating Systems (HotOS IX),
+	\href{https://www.usenix.org/conference/hotos-ix/high-availability-scalable-storage-dynamic-peer-networks-pick-two}{www.usenix.org},
+	2003.
+
+\bibitem{huang2012}
+	Cheng Huang, Huseyin Simitci, Yikang Xu, Aaron Ogus, Brad Calder, Parikshit Gopalan, Jin Li \& Sergey Yekhanin,
+	\emph{"Erasure Coding in Windows Azure Storage"},
+	2012 USENIX Annual Technical Conference (USENIX ATC 12), pp.~15--26,
+	\href{https://www.usenix.org/conference/atc12/technical-sessions/presentation/huang}{www.usenix.org},
+	2012.
+
+\bibitem{boneh2009}
+	Dan Boneh, David Freeman, Jonathan Katz \& Brent Waters,
+	\emph{"Signing a Linear Subspace: Signature Schemes for Network Coding"},
+	Public Key Cryptography -- PKC 2009, LNCS 5443, pp.~68--87, Springer,
+	\href{https://doi.org/10.1007/978-3-642-00468-1_5}{doi.org},
+	2009.
+
+\bibitem{ford2010}
+	Daniel Ford, Fran\c{c}ois Labelle, Florentina I. Popovici, Murray Stokely, Van-Anh Truong, Luiz Barroso, Carrie Grimes \& Sean Quinlan,
+	\emph{"Availability in Globally Distributed Storage Systems"},
+	9th USENIX Symposium on Operating Systems Design and Implementation (OSDI 10),
+	\href{https://www.usenix.org/conference/osdi10/availability-globally-distributed-storage-systems}{www.usenix.org},
+	2010.
+
+\bibitem{bernstein2012}
+	Daniel J. Bernstein, Niels Duif, Tanja Lange, Peter Schwabe \& Bo-Yin Yang,
+	\emph{"High-speed high-security signatures"},
+	Journal of Cryptographic Engineering 2(2):77--89,
+	\href{https://doi.org/10.1007/s13389-012-0027-1}{doi.org},
+	2012.
+
+\bibitem{harnik2010}
+	Danny Harnik, Benny Pinkas \& Alexandra Shulman-Peleg,
+	\emph{"Side Channels in Cloud Services: Deduplication in Cloud Storage"},
+	IEEE Security \& Privacy 8(6):40--47,
+	\href{https://doi.org/10.1109/MSP.2010.187}{doi.org},
+	2010.
+
+\bibitem{dashref2017}
+	Dash Project,
+	\emph{"Dash Core Developer Documentation: Control Messages, spork"},
+	\href{https://docs.dash.org/en/stable/docs/core/reference/p2p-network-control-messages.html\#spork}{docs.dash.org},
+	\the\year{}.
+
+\bibitem{mcgrew2004}
+	David A. McGrew \& John Viega,
+	\emph{"The Security and Performance of the Galois/Counter Mode (GCM) of Operation"},
+	Progress in Cryptology -- INDOCRYPT 2004, LNCS 3348, pp.~343--355, Springer,
+	\href{https://doi.org/10.1007/978-3-540-30556-9_27}{doi.org},
+	2004.
+
+\bibitem{patterson1988}
+	David A. Patterson, Garth Gibson \& Randy H. Katz, University of California, Berkeley,
+	\emph{"A Case for Redundant Arrays of Inexpensive Disks (RAID)"},
+	1988 ACM SIGMOD International Conference on Management of Data, pp.~109--116,
+	\href{https://www.cs.cmu.edu/~garth/RAIDpaper/Patterson88.pdf}{www.cs.cmu.edu},
+	1988.
+
+\bibitem{thaler1998}
+	David G. Thaler \& Chinya V. Ravishankar,
+	\emph{"Using Name-Based Mappings to Increase Hit Rates"},
+	IEEE/ACM Transactions on Networking 6(1):1--14,
+	\href{https://doi.org/10.1109/90.663936}{doi.org},
+	1998.
+
+\bibitem{mackay2005}
+	David J. C. MacKay,
+	\emph{"Fountain Codes"},
+	IEE Proceedings -- Communications 152(6):1062--1068,
+	\href{https://doi.org/10.1049/ip-com:20050237}{doi.org},
+	2005.
+
+\bibitem{karger1997}
+	David Karger, Eric Lehman, Tom Leighton, Rina Panigrahy, Matthew Levine \& Daniel Lewin,
+	\emph{"Consistent Hashing and Random Trees: Distributed Caching Protocols for Relieving Hot Spots on the World Wide Web"},
+	29th Annual ACM Symposium on Theory of Computing (STOC '97), pp.~654--663,
+	\href{https://doi.org/10.1145/258533.258660}{doi.org},
+	1997.
+
+\bibitem{mazieres1999}
+	David Mazi\`{e}res, Michael Kaminsky, M. Frans Kaashoek \& Emmett Witchel,
+	\emph{"Separating Key Management from File System Security"},
+	17th ACM Symposium on Operating Systems Principles (SOSP '99), pp.~124--139,
+	\href{https://doi.org/10.1145/319151.319160}{doi.org},
+	1999.
+
+\bibitem{sia2014}
+	David Vorick \& Luke Champine, Nebulous Inc.,
+	\emph{"Sia: Simple Decentralized Storage"},
+	\href{https://sia.tech/whitepaper.pdf}{sia.tech},
+	2014.
+
+\bibitem{darkcoin2014}
+	Evan Duffield \& Kyle Hagan, The Darkcoin Developers,
+	\emph{"Darkcoin: Peer-to-Peer Crypto-Currency with Anonymous Blockchain Transactions and an Improved Proof-of-Work System"},
+	\href{https://dashpay.atlassian.net/wiki/download/attachments/132120878/Darkcoin\%20Whitepaper.pdf}{dashpay.atlassian.net},
+	2014.
+
+\bibitem{macwilliams1977}
+	F. Jessie MacWilliams \& Neil J. A. Sloane,
+	\emph{"The Theory of Error-Correcting Codes"},
+	North-Holland Mathematical Library 16, North-Holland, Amsterdam,
+	\href{https://doi.org/10.1016/S0924-6509(08)X7030-8}{doi.org},
+	1977.
+
+\bibitem{dabek2001}
+	Frank Dabek, M. Frans Kaashoek, David Karger, Robert Morris \& Ion Stoica,
+	\emph{"Wide-Area Cooperative Storage with CFS"},
+	18th ACM Symposium on Operating Systems Principles (SOSP '01), pp.~202--215,
+	\href{https://doi.org/10.1145/502034.502054}{doi.org},
+	2001.
+
+\bibitem{giroire2010}
+	Fr\'{e}d\'{e}ric Giroire, Julian Monteiro \& St\'{e}phane P\'{e}rennes,
+	\emph{"Peer-to-Peer Storage Systems: A Practical Guideline to be Lazy"},
+	2010 IEEE Global Telecommunications Conference (GLOBECOM 2010), pp.~1--6,
+	\href{https://doi.org/10.1109/GLOCOM.2010.5683761}{doi.org},
+	2010.
+
+\bibitem{forney1966}
+	G. David Forney, Jr.,
+	\emph{"Concatenated Codes"},
+	MIT Research Monograph 37, MIT Press, Cambridge, MA (doctoral thesis, Massachusetts Institute of Technology, 1965),
+	\href{https://dspace.mit.edu/handle/1721.1/13449}{dspace.mit.edu},
+	1966.
+
+\bibitem{ateniese2007}
+	Giuseppe Ateniese, Randal Burns, Reza Curtmola, Joseph Herring, Lea Kissner, Zachary Peterson \& Dawn Song,
+	\emph{"Provable Data Possession at Untrusted Stores"},
+	14th ACM Conference on Computer and Communications Security (CCS '07), pp.~598--609,
+	\href{https://doi.org/10.1145/1315245.1315318}{doi.org},
+	2007.
+
+\bibitem{anvin2004}
+	H. Peter Anvin,
+	\emph{"The mathematics of RAID-6"},
+	first version 20 January 2004, last updated 20 December 2011,
+	\href{https://www.kernel.org/pub/linux/kernel/people/hpa/raid6.pdf}{www.kernel.org},
+	2004.
+
+\bibitem{weatherspoon2002}
+	Hakim Weatherspoon \& John D. Kubiatowicz,
+	\emph{"Erasure Coding Vs. Replication: A Quantitative Comparison"},
+	Peer-to-Peer Systems, First International Workshop (IPTPS 2002), LNCS 2429, pp.~328--337, Springer,
+	\href{https://doi.org/10.1007/3-540-45748-8_31}{doi.org},
+	2002.
+
+\bibitem{krawczyk1993}
+	Hugo Krawczyk,
+	\emph{"Secret Sharing Made Short"},
+	Advances in Cryptology -- CRYPTO '93, LNCS 773, pp.~136--146, Springer,
+	\href{https://doi.org/10.1007/3-540-48329-2_12}{doi.org},
+	1994.
+
+\bibitem{krawczyk2010}
+	Hugo Krawczyk,
+	\emph{"Cryptographic Extraction and Key Derivation: The HKDF Scheme"},
+	Advances in Cryptology -- CRYPTO 2010, LNCS 6223, pp.~631--648, Springer,
+	\href{https://doi.org/10.1007/978-3-642-14623-7_34}{doi.org},
+	2010.
+
+\bibitem{rfc5869}
+	Hugo Krawczyk \& Pasi Eronen,
+	\emph{"HMAC-based Extract-and-Expand Key Derivation Function (HKDF)"},
+	RFC 5869, Internet Engineering Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc5869}{www.rfc-editor.org},
+	2010.
+
+\bibitem{clarke2001}
+	Ian Clarke, Oskar Sandberg, Brandon Wiley \& Theodore W. Hong,
+	\emph{"Freenet: A Distributed Anonymous Information Storage and Retrieval System"},
+	Designing Privacy Enhancing Technologies, LNCS 2009, pp.~46--66, Springer,
+	\href{https://doi.org/10.1007/3-540-44702-4_4}{doi.org},
+	2001.
+
+\bibitem{isal}
+	Intel Corporation,
+	\emph{"Intelligent Storage Acceleration Library (ISA-L)"},
+	\href{https://github.com/intel/isa-l}{github.com},
+	\the\year{}.
+
+\bibitem{reed1960}
+	Irving S. Reed \& Gustave Solomon,
+	\emph{"Polynomial Codes Over Certain Finite Fields"},
+	Journal of the Society for Industrial and Applied Mathematics 8(2):300--304,
+	\href{https://doi.org/10.1137/0108018}{doi.org},
+	1960.
+
+\bibitem{plank1997}
+	James S. Plank,
+	\emph{"A Tutorial on Reed-Solomon Coding for Fault-Tolerance in RAID-like Systems"},
+	Software: Practice and Experience 27(9):995--1012,
+	\href{https://doi.org/10.1002/(SICI)1097-024X(199709)27:9\%3C995::AID-SPE111\%3E3.0.CO;2-6}{doi.org},
+	1997.
+
+\bibitem{plank2005}
+	James S. Plank \& Ying Ding,
+	\emph{"Note: Correction to the 1997 Tutorial on Reed-Solomon Coding"},
+	Software: Practice and Experience 35(2):189--194,
+	\href{https://doi.org/10.1002/spe.631}{doi.org},
+	2005.
+
+\bibitem{plank2006}
+	James S. Plank \& Lihao Xu,
+	\emph{"Optimizing Cauchy Reed-Solomon Codes for Fault-Tolerant Network Storage Applications"},
+	Fifth IEEE International Symposium on Network Computing and Applications (NCA '06), pp.~173--180,
+	\href{https://doi.org/10.1109/NCA.2006.43}{doi.org},
+	2006.
+
+\bibitem{plank2013}
+	James S. Plank, Kevin M. Greenan \& Ethan L. Miller,
+	\emph{"Screaming Fast Galois Field Arithmetic Using Intel SIMD Instructions"},
+	11th USENIX Conference on File and Storage Technologies (FAST 13),
+	\href{https://web.eecs.utk.edu/~jplank/plank/papers/FAST-2013-GF.html}{web.eecs.utk.edu},
+	2013.
+
+\bibitem{rfc9000}
+	Jana Iyengar \& Martin Thomson (editors),
+	\emph{"QUIC: A UDP-Based Multiplexed and Secure Transport"},
+	RFC 9000, Internet Engineering Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc9000}{www.rfc-editor.org},
+	2021.
+
+\bibitem{resch2011}
+	Jason K. Resch \& James S. Plank,
+	\emph{"AONT-RS: Blending Security and Performance in Dispersed Storage Systems"},
+	9th USENIX Conference on File and Storage Technologies (FAST 11),
+	\href{https://www.usenix.org/conference/fast11/aont-rs-blending-security-and-performance-dispersed-storage-systems}{www.usenix.org},
+	2011.
+
+\bibitem{dean2013}
+	Jeffrey Dean \& Luiz Andr\'{e} Barroso,
+	\emph{"The Tail at Scale"},
+	Communications of the ACM 56(2):74--80,
+	\href{https://doi.org/10.1145/2408776.2408794}{doi.org},
+	2013.
+
+\bibitem{blomer1995}
+	Johannes Bl\"{o}mer, Malik Kalfane, Richard Karp, Marek Karpinski, Michael Luby \& David Zuckerman,
+	\emph{"An XOR-Based Erasure-Resilient Coding Scheme"},
+	Technical Report TR-95-048, International Computer Science Institute, Berkeley,
+	\href{https://cs.utexas.edu/~diz/Sub\%20Websites/Research/An_XOR_based_erasure_resilient_coding_scheme.pdf}{cs.utexas.edu},
+	1995.
+
+\bibitem{kelsey2002}
+	John Kelsey,
+	\emph{"Compression and Information Leakage of Plaintext"},
+	Fast Software Encryption (FSE 2002), LNCS 2365, pp.~263--276, Springer,
+	\href{https://doi.org/10.1007/3-540-45661-9_21}{doi.org},
+	2002.
+
+\bibitem{kubiatowicz2000}
+	John Kubiatowicz, David Bindel, Yan Chen, Steven Czerwinski, Patrick Eaton, Dennis Geels, Ramakrishna Gummadi, Sean Rhea, Hakim Weatherspoon, Westley Weimer, Chris Wells \& Ben Zhao,
+	\emph{"OceanStore: An Architecture for Global-Scale Persistent Storage"},
+	Ninth International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS IX), pp.~190--201,
+	\href{https://doi.org/10.1145/378993.379239}{doi.org},
+	2000.
+
+\bibitem{douceur2002}
+	John R. Douceur,
+	\emph{"The Sybil Attack"},
+	Peer-to-Peer Systems, First International Workshop (IPTPS 2002), LNCS 2429, pp.~251--260, Springer,
+	\href{https://doi.org/10.1007/3-540-45748-8_24}{doi.org},
+	2002.
+
+\bibitem{douceur2002b}
+	John R. Douceur, Atul Adya, William J. Bolosky, Dan Simon \& Marvin Theimer,
+	\emph{"Reclaiming Space from Duplicate Files in a Serverless Distributed File System"},
+	22nd International Conference on Distributed Computing Systems (ICDCS 2002), pp.~617--624,
+	\href{https://doi.org/10.1109/ICDCS.2002.1022312}{doi.org},
+	2002.
+
+\bibitem{benet2014}
+	Juan Benet,
+	\emph{"IPFS - Content Addressed, Versioned, P2P File System"},
+	arXiv:1407.3561,
+	\href{https://arxiv.org/abs/1407.3561}{arxiv.org},
+	2014.
+
+\bibitem{rizzo2012}
+	Juliano Rizzo \& Thai Duong,
+	\emph{"The CRIME attack"},
+	Ekoparty Security Conference, Buenos Aires,
+	\href{https://docs.google.com/presentation/d/11eBmGiHbYcHR9gL5nDyZChu_-lCa2GizeuOfaLU2HOU/}{docs.google.com},
+	2012.
+
+\bibitem{greenan2010}
+	Kevin M. Greenan, James S. Plank \& Jay J. Wylie,
+	\emph{"Mean Time to Meaningless: MTTDL, Markov Models, and Storage System Reliability"},
+	2nd Workshop on Hot Topics in Storage and File Systems (HotStorage 10),
+	\href{https://www.usenix.org/conference/hotstorage-10/mean-time-meaningless-mttdl-markov-models-and-storage-system-reliability}{www.usenix.org},
+	2010.
+
+\bibitem{bouncycastle}
+	The Legion of the Bouncy Castle,
+	\emph{"Bouncy Castle open-source cryptographic APIs"},
+	\href{https://www.bouncycastle.org/}{www.bouncycastle.org},
+	\the\year{}.
+
+\bibitem{rizzo1997}
+	Luigi Rizzo,
+	\emph{"Effective Erasure Codes for Reliable Computer Communication Protocols"},
+	ACM SIGCOMM Computer Communication Review 27(2):24--36,
+	\href{https://doi.org/10.1145/263876.263881}{doi.org},
+	1997.
+
+\bibitem{rfc9001}
+	Martin Thomson \& Sean Turner (editors),
+	\emph{"Using TLS to Secure QUIC"},
+	RFC 9001, Internet Engineering Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc9001}{www.rfc-editor.org},
+	2021.
+
+\bibitem{luby2002}
+	Michael Luby,
+	\emph{"LT Codes"},
+	43rd Annual IEEE Symposium on Foundations of Computer Science (FOCS 2002), pp.~271--280,
+	\href{https://doi.org/10.1109/SFCS.2002.1181950}{doi.org},
+	2002.
+
+\bibitem{rabin1989}
+	Michael O. Rabin,
+	\emph{"Efficient Dispersal of Information for Security, Load Balancing, and Fault Tolerance"},
+	Journal of the ACM 36(2):335--348,
+	\href{https://doi.org/10.1145/62044.62050}{doi.org},
+	1989.
+
+\bibitem{sp80038d}
+	Morris J. Dworkin, National Institute of Standards and Technology,
+	\emph{"Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC"},
+	NIST Special Publication 800-38D,
+	\href{https://doi.org/10.6028/NIST.SP.800-38D}{doi.org},
+	2007.
+
+\bibitem{fips197}
+	National Institute of Standards and Technology,
+	\emph{"Advanced Encryption Standard (AES)"},
+	Federal Information Processing Standards Publication 197, updated 9 May 2023,
+	\href{https://doi.org/10.6028/NIST.FIPS.197-upd1}{doi.org},
+	2023.
+
+\bibitem{fips1804}
+	National Institute of Standards and Technology,
+	\emph{"Secure Hash Standard (SHS)"},
+	Federal Information Processing Standards Publication 180-4,
+	\href{https://doi.org/10.6028/NIST.FIPS.180-4}{doi.org},
+	2015.
+
+\bibitem{netty}
+	The Netty Project,
+	\emph{"Netty: an asynchronous event-driven network application framework"},
+	\href{https://netty.io/}{netty.io},
+	\the\year{}.
+
+\bibitem{maymounkov2002}
+	Petar Maymounkov \& David Mazi\`{e}res,
+	\emph{"Kademlia: A Peer-to-Peer Information System Based on the XOR Metric"},
+	Peer-to-Peer Systems, First International Workshop (IPTPS 2002), LNCS 2429, pp.~53--65, Springer,
+	\href{https://doi.org/10.1007/3-540-45748-8_5}{doi.org},
+	2002.
+
+\bibitem{elias1954}
+	Peter Elias,
+	\emph{"Error-free Coding"},
+	Transactions of the IRE Professional Group on Information Theory 4(4):29--37,
+	\href{https://doi.org/10.1109/TIT.1954.1057464}{doi.org},
+	1954.
+
+\bibitem{rogaway2002}
+	Phillip Rogaway,
+	\emph{"Authenticated-Encryption with Associated-Data"},
+	9th ACM Conference on Computer and Communications Security (CCS '02), pp.~98--107,
+	\href{https://doi.org/10.1145/586110.586125}{doi.org},
+	2002.
+
+\bibitem{filecoin2017}
+	Protocol Labs,
+	\emph{"Filecoin: A Decentralized Storage Network"},
+	\href{https://research.protocol.ai/publications/filecoin-a-decentralized-storage-network/}{research.protocol.ai},
+	2017.
+
+\bibitem{merkle1987}
+	Ralph C. Merkle,
+	\emph{"A Digital Signature Based on a Conventional Encryption Function"},
+	Advances in Cryptology -- CRYPTO '87, LNCS 293, pp.~369--378, Springer,
+	\href{https://doi.org/10.1007/3-540-48184-2_32}{doi.org},
+	1988.
+
+\bibitem{bhagwan2004}
+	Ranjita Bhagwan, Kiran Tati, Yu-Chung Cheng, Stefan Savage \& Geoffrey M. Voelker,
+	\emph{"Total Recall: System Support for Automated Availability Management"},
+	First Symposium on Networked Systems Design and Implementation (NSDI 04),
+	\href{https://www.usenix.org/conference/nsdi-04/total-recall-system-support-automated-availability-management}{www.usenix.org},
+	2004.
+
+\bibitem{rodrigues2005}
+	Rodrigo Rodrigues \& Barbara Liskov,
+	\emph{"High Availability in DHTs: Erasure Coding vs. Replication"},
+	Peer-to-Peer Systems IV (IPTPS 2005), LNCS 3640, pp.~226--239, Springer,
+	\href{https://doi.org/10.1007/11558989_21}{doi.org},
+	2005.
+
+\bibitem{dingledine2000}
+	Roger Dingledine, Michael J. Freedman \& David Molnar,
+	\emph{"The Free Haven Project: Distributed Anonymous Storage Service"},
+	Designing Privacy Enhancing Technologies, LNCS 2009, pp.~67--95, Springer,
+	\href{https://doi.org/10.1007/3-540-44702-4_5}{doi.org},
+	2001.
+
+\bibitem{dingledine2004}
+	Roger Dingledine, Nick Mathewson \& Paul Syverson,
+	\emph{"Tor: The Second-Generation Onion Router"},
+	13th USENIX Security Symposium,
+	\href{https://www.usenix.org/conference/13th-usenix-security-symposium/tor-second-generation-onion-router}{www.usenix.org},
+	2004.
+
+\bibitem{roth1989}
+	Ron M. Roth \& Abraham Lempel,
+	\emph{"On MDS Codes via Cauchy Matrices"},
+	IEEE Transactions on Information Theory 35(6):1314--1319,
+	\href{https://doi.org/10.1109/18.45291}{doi.org},
+	1989.
+
+\bibitem{roth1985}
+	Ron M. Roth \& Gadiel Seroussi,
+	\emph{"On Generator Matrices of MDS Codes"},
+	IEEE Transactions on Information Theory 31(6):826--830,
+	\href{https://doi.org/10.1109/TIT.1985.1057113}{doi.org},
+	1985.
+
+\bibitem{rfc8032}
+	Simon Josefsson \& Ilari Liusvaara,
+	\emph{"Edwards-Curve Digital Signature Algorithm (EdDSA)"},
+	RFC 8032, Internet Research Task Force,
+	\href{https://www.rfc-editor.org/rfc/rfc8032}{www.rfc-editor.org},
+	2017.
+
+\bibitem{storj2018}
+	Storj Labs, Inc.,
+	\emph{"Storj: A Decentralized Cloud Storage Network Framework"},
+	v3.0 of 30 October 2018, revised as v3.1 on 7 March 2024,
+	\href{https://www.storj.io/storjv3.pdf}{www.storj.io},
+	2018.
+
+\bibitem{muralidhar2014}
+	Subramanian Muralidhar, Wyatt Lloyd, Sabyasachi Roy, Cory Hill, Ernest Lin, Weiwen Liu, Satadru Pan, Shiva Shankar, Viswanath Sivakumar, Linpeng Tang \& Sanjeev Kumar,
+	\emph{"f4: Facebook's Warm BLOB Storage System"},
+	11th USENIX Symposium on Operating Systems Design and Implementation (OSDI 14), pp.~383--398,
+	\href{https://www.usenix.org/conference/osdi14/technical-sessions/presentation/muralidhar}{www.usenix.org},
+	2014.
+
+\bibitem{nath2006}
+	Suman Nath, Haifeng Yu, Phillip B. Gibbons \& Srinivasan Seshan,
+	\emph{"Subtleties in Tolerating Correlated Failures in Wide-area Storage Systems"},
+	3rd Symposium on Networked Systems Design and Implementation (NSDI 06),
+	\href{https://www.usenix.org/conference/nsdi-06/subtleties-tolerating-correlated-failures-wide-area-storage-systems}{www.usenix.org},
+	2006.
+
+\bibitem{estrada2018}
+	Vero Estrada-Gali\~{n}anes, Ethan Miller, Pascal Felber \& Jehan-Fran\c{c}ois P\^{a}ris,
+	\emph{"Alpha Entanglement Codes: Practical Erasure Codes to Archive Data in Unreliable Environments"},
+	48th Annual IEEE/IFIP International Conference on Dependable Systems and Networks (DSN 2018), pp.~183--194,
+	\href{https://doi.org/10.1109/DSN.2018.00030}{doi.org},
+	2018.
+
+\bibitem{swarm2024}
+	Viktor Tr\'{o}n,
+	\emph{"The Book of Swarm: Storage and Communication Infrastructure for a Self-Sovereign Digital Society"},
+	\href{https://www.ethswarm.org/The-Book-of-Swarm.pdf}{www.ethswarm.org},
+	2024.
+
+\bibitem{gluck2013}
+	Yoel Gluck, Neal Harris \& Angelo Prado,
+	\emph{"BREACH: Reviving the CRIME Attack"},
+	Black Hat USA 2013,
+	\href{https://www.breachattack.com/}{www.breachattack.com},
+	2013.
+
+\bibitem{wilcox2008}
+	Zooko Wilcox-O'Hearn \& Brian Warner,
+	\emph{"Tahoe: The Least-Authority Filesystem"},
+	4th ACM International Workshop on Storage Security and Survivability (StorageSS '08), pp.~21--26,
+	\href{https://doi.org/10.1145/1456469.1456474}{doi.org},
+	2008.
+
+\end{thebibliography}
+
+\end{document}

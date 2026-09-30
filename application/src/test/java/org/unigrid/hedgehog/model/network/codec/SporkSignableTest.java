@@ -171,7 +171,8 @@ public class SporkSignableTest extends BaseCodecTest<PublishSpork> {
 	@Provide
 	public Arbitrary<Map<Address, Vesting>> provideVestings() {
 		final Arbitrary<Vesting> vestings = amounts().flatMap(amount -> Arbitraries.integers().between(1, 100)
-			.map(parts -> new Vesting(amount, TIME, Duration.ofDays(parts).plusNanos(parts), parts))
+			.map(parts -> Vesting.builder().amount(amount).start(TIME).duration(Duration.ofDays(parts).plusNanos(parts))
+				.parts(parts).cliff(parts / 2).percent(parts % 40).block(parts * 1000).build())
 		);
 
 		return Arbitraries.maps(Arbitraries.strings().alpha().numeric().ofLength(34).map(Address::new), vestings)
@@ -197,10 +198,10 @@ public class SporkSignableTest extends BaseCodecTest<PublishSpork> {
 	public void shouldSignEqualVestingsAlike(@ForAll("provideVestings") Map<Address, Vesting> vestings,
 		@Mocked ChannelHandlerContext context) {
 
-		assertSignedAlike(variants(vestings, SporkSignableTest::unshared, vesting -> new Vesting(
-			unshared(vesting.getAmount()), Instant.ofEpochSecond(TIME.getEpochSecond(), TIME.getNano()),
-			Duration.ofSeconds(vesting.getDuration().getSeconds(), vesting.getDuration().getNano()),
-			vesting.getParts()), i -> new Address("filler" + i)).stream().map(map -> {
+		assertSignedAlike(variants(vestings, SporkSignableTest::unshared, vesting -> vesting.toBuilder()
+			.amount(unshared(vesting.getAmount())).start(Instant.ofEpochSecond(TIME.getEpochSecond(), TIME.getNano()))
+			.duration(Duration.ofSeconds(vesting.getDuration().getSeconds(), vesting.getDuration().getNano()))
+			.build(), i -> new Address("filler" + i)).stream().map(map -> {
 
 				final VestingStorage spork = new VestingStorage();
 

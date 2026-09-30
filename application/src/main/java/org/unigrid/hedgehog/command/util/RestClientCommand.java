@@ -52,7 +52,8 @@ public class RestClientCommand implements Runnable {
 
 	private final class MethodCallback {
 		private void get(RestClient rest) throws ResponseOddityException {
-			final Response response = rest.get(getLocation());
+			final Response response = headers.isPresent()
+				? rest.getWithHeaders(getLocation(), headers.get()) : rest.get(getLocation());
 
 			if (Status.fromStatusCode(response.getStatus()) == Status.NO_CONTENT) {
 				defaultSupplier.ifPresentOrElse(s -> {
@@ -66,11 +67,12 @@ public class RestClientCommand implements Runnable {
 		}
 
 		private void delete(RestClient rest) throws ResponseOddityException {
-			execute(rest.delete(getLocation()));
+			execute(headers.isPresent()
+				? rest.deleteWithHeaders(getLocation(), headers.get()) : rest.delete(getLocation()));
 		}
 
 		private void post(RestClient rest) throws ResponseOddityException {
-			execute(rest.post(getLocation(), getEntity()));
+			execute(RestClientCommand.this.post(rest));
 		}
 
 		private void put(RestClient rest) throws ResponseOddityException {
@@ -125,6 +127,10 @@ public class RestClientCommand implements Runnable {
 
 	public void setHeaders(MultivaluedMap<String, Object> headers) {
 		this.headers = Optional.of(headers);
+	}
+
+	protected Response post(final RestClient rest) throws ResponseOddityException {
+		return rest.post(getLocation(), getEntity());
 	}
 
 	protected <T> Entity<T> getEntity() {

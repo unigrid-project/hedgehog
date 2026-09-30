@@ -42,6 +42,8 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 	    [      start (nanos)       ]
 	    [                    vesting duration (seconds)                ]
 	    [     duration (nanos)     ][          vesting parts           ]
+	    [      vesting cliff       ][         vesting percent          ]
+	    [      vesting block       ]
 	    [             << amount (0-term, empty if none) >>         ...n]
 	*/
 	@Override
@@ -56,6 +58,9 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 			out.writeLong(vesting.getDuration().getSeconds());
 			out.writeInt(vesting.getDuration().getNano());
 			out.writeInt(vesting.getParts());
+			out.writeInt(vesting.getCliff());
+			out.writeInt(vesting.getPercent());
+			out.writeInt(vesting.getBlock());
 			ByteBufUtils.writeNullTerminatedString(Objects.isNull(vesting.getAmount()) ? ""
 				: vesting.getAmount().toPlainString(), out
 			);

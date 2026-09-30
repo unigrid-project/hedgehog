@@ -20,11 +20,12 @@ package org.unigrid.hedgehog.command.cli;
 
 import lombok.Getter;
 import org.unigrid.hedgehog.command.cli.spork.MintSupply;
+import org.unigrid.hedgehog.command.cli.spork.Storage;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-set", subcommands = MintSupply.class,
+@Command(name = "gridspork-set", subcommands = { MintSupply.class, Storage.class },
 	description = "Set an existing spork. Redefines any existing definitions of the spork."
 )
 public class GridSporkSet {

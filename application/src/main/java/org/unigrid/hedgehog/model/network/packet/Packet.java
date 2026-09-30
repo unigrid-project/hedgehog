@@ -19,6 +19,9 @@
 package org.unigrid.hedgehog.model.network.packet;
 
 import io.netty.util.AttributeKey;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
@@ -30,7 +33,6 @@ import lombok.Getter;
     [                   << packet specific data >>                 ]
 */
 @Data
-@SuppressWarnings("checkstyle:CyclomaticComplexity") // TODO: Expand more before fixing and removing this
 public class Packet {
 	public static final AttributeKey<Type> KEY = AttributeKey.valueOf(Packet.class.getSimpleName());
 	private Type type;
@@ -42,23 +44,19 @@ public class Packet {
 		PING((short) 500),
 		ASK_PEERS((short) 1000), PUBLISH_PEERS((short) 1010),
 		ASK_NODE_DETAILS((short) 1100), PUBLISH_NODE_DETAILS((short) 1110),
-		ASK_SPORKS((short) 2000), GROW_SPORK((short) 2010), PUBLISH_SPORK((short) 2020);
+		ASK_SPORKS((short) 2000), GROW_SPORK((short) 2010), PUBLISH_SPORK((short) 2020),
+		GRIDNODE((short) 2030),
+		STORE_FRAGMENT((short) 3000), FETCH_FRAGMENT((short) 3010), FRAGMENT_REPLY((short) 3020),
+		HAS_FRAGMENT((short) 3030), FRAGMENT_STATUS((short) 3040), DELETE_GROUP((short) 3050),
+		STORAGE_ACK((short) 3060);
+
+		private static final Map<Short, Type> BY_VALUE = Arrays.stream(values())
+			.collect(Collectors.toMap(Type::getValue, type -> type));
 
 		@Getter private final short value;
 
-		public static Type get(short value) {
-			switch (value) {
-				case 250: return HELLO;
-				case 500: return PING;
-				case 1000: return ASK_PEERS;
-				case 1010: return PUBLISH_PEERS;
-				case 1100: return ASK_NODE_DETAILS;
-				case 1110: return PUBLISH_NODE_DETAILS;
-				case 2000: return ASK_SPORKS;
-				case 2010: return GROW_SPORK;
-				case 2020: return PUBLISH_SPORK;
-				default: return UNDEFINED;
-			}
+		public static Type get(final short value) {
+			return BY_VALUE.getOrDefault(value, UNDEFINED);
 		}
 	}
 }

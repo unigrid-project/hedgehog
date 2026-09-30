@@ -58,8 +58,12 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 		+ "7f3a833c64d4d1e5251557c786a9f011d523425a4f5ef6d7e777c61ceb55924be6bbd1c4dac1c48c823038acfdbdd4e217634b"
 		+ "78eacfab1577c290dce5d25514fa7c6e848732a5085e7eb5dea172e6b77e982306f2d191028ef99808b8385361ec343a77";
 
+	/*
+	 * Vesting is left out: 0.0.7 signed sporks over their Java serialization, and the vesting schedule fields added
+	 * since change that of every vesting. Its sporks still load, but the board has to sign them anew.
+	 */
 	private static final List<GridSpork.Type> TYPES = List.of(GridSpork.Type.MINT_STORAGE, GridSpork.Type.MINT_SUPPLY,
-		GridSpork.Type.VESTING_STORAGE, GridSpork.Type.STATISTICS_PUBKEY
+		GridSpork.Type.STATISTICS_PUBKEY
 	);
 
 	private static String[] networkKeys;

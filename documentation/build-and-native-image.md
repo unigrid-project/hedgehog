@@ -580,7 +580,7 @@ directory at all.
 | `org.unigrid.hedgehog:hedgehog` | project | The application the jlink image runs. |
 | `org.unigrid.hedgehog:hedgehog-common` | project | `ApplicationDirectory`, `Version` inside the launcher. |
 | `org.apache.commons:commons-compress` | 1.28.0 | `ZipFile`, `SeekableInMemoryByteChannel` for unpacking the embedded jlink zip. |
-| `org.apache.commons:commons-exec` | 1.3 | `CommandLine`, `DefaultExecutor`, `ExecuteWatchdog`, `OS` for spawning the runner script. |
+| `org.apache.commons:commons-exec` | 1.3 | `CommandLine`, `DefaultExecutor`, `OS` for spawning the runner script. |
 | `net.harawata:appdirs` | managed | Where the jlink image is unpacked. |
 
 Being `provided` rather than compile scope keeps `org.graalvm.sdk:nativeimage` out of the jlink `cp/`
@@ -1144,7 +1144,7 @@ sequenceDiagram
         Note over B,FS: progress bar, chmod +x on bin/
     end
     B->>JVM: exec &lt;dir&gt;/bin/run.sh daemon -p 52883
-    JVM-->>B: exit code (watchdog: 60 s)
+    JVM-->>B: exit code
     B-->>U: exit
 ```
 
@@ -1161,9 +1161,8 @@ sequenceDiagram
 
 Two details worth knowing:
 
-- `WATCHDOG_TIMEOUT_MS = 60000`, and the `ExecuteWatchdog` is attached to the synchronous `execute(...)`
-  call. The wrapped JVM is therefore subject to a 60-second lifetime — fine for `--help` and for the CI
-  smoke tests, but a real constraint on running a long-lived daemon through the native launcher.
+- No `ExecuteWatchdog` is attached, so the wrapped JVM runs as long as it likes; a long-lived daemon
+  started through the native launcher is never killed by it.
 - `ExecuteException`s with exit value `1` or `2` are swallowed and returned as-is; anything else is
   rethrown. The comment explains why: those are picocli's generic error and usage exit codes, and the CI
   workflows run the binary with no arguments, which is a usage error.
@@ -1406,8 +1405,6 @@ Collected in one place, all verifiable from the sources cited above.
 - **Unused declarations.** `com.evolvedbinary.j8fu:j8fu` is a compile dependency of `application` with
   no main-source usage (it is used by one test class); `com.github.javafaker:javafaker` is a test
   dependency nothing imports.
-- **The native launcher's 60-second watchdog** (`WATCHDOG_TIMEOUT_MS`) applies to the wrapped JVM,
-  limiting the native binary's usefulness for long-running daemon operation.
 - **`PublishPeersChannelHandlerTest.shoulBeAbleToPingNetwork` is an empty method with its `@Property`
   annotation commented out** — the publish-peers handler has no live coverage.
 - **The S3 surface has almost no active coverage.** All three `StorageBucketTest` methods are
