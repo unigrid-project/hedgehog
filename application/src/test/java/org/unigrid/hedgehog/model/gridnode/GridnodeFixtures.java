@@ -18,48 +18,28 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import java.util.function.Consumer;
+import org.unigrid.hedgehog.model.crypto.Signature;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-@EqualsAndHashCode(onlyExplicitlyIncluded = true)
-public class Gridnode {
+public final class GridnodeFixtures {
+	private GridnodeFixtures() { }
 
-	@AllArgsConstructor
-	public enum Status {
-		ACTIVE((byte) 1), INACTIVE((byte) 2);
+	public static Gridnode signed(Signature key, Gridnode.Status status, String host, long timestamp)
+		throws Exception {
 
-		@Getter
-		private final byte value;
+		final Gridnode gridnode = Gridnode.builder().id(key.getPublicKey()).status(status).hostName(host)
+			.timestamp(timestamp).build();
 
-		public static Status get(byte value) {
-			switch (value) {
-				case 1:
-					return ACTIVE;
-				case 2:
-					return INACTIVE;
-				default:
-					return INACTIVE;
-			}
-		}
+		gridnode.setSignature(key.sign(GridnodeSignature.message(gridnode)));
+		return gridnode;
 	}
 
-	@Builder.Default
-	private Status status = Status.INACTIVE;
-	@EqualsAndHashCode.Include
-	private String id;
-	private String hostName;
-	private long timestamp;
-	@JsonIgnore
-	@ToString.Exclude
-	private byte[] signature;
+	public static Gridnode copyOf(Gridnode original, Consumer<Gridnode> change) {
+		final Gridnode copy = Gridnode.builder().id(original.getId()).status(original.getStatus())
+			.hostName(original.getHostName()).timestamp(original.getTimestamp())
+			.signature(original.getSignature()).build();
+
+		change.accept(copy);
+		return copy;
+	}
 }
