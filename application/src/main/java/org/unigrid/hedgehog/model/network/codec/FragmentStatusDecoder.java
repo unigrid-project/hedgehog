@@ -29,7 +29,7 @@ import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 
 public class FragmentStatusDecoder extends AbstractReplayingDecoder<FragmentStatus>
 	implements PacketDecoder<FragmentStatus> {

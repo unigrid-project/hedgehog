@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.storage;
 
 import lombok.Builder;
 import lombok.Value;
-import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 
 @Value

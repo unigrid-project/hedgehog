@@ -54,7 +54,7 @@ import org.unigrid.hedgehog.model.network.packet.StoreFragment;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class StoragePacketIntegrityTest extends BaseCodecTest<Packet> {

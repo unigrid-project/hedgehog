@@ -36,7 +36,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 
 public class GroupDistributor {
 	private static final Duration JITTER_LIMIT = Duration.ofMillis(Integer.MAX_VALUE);

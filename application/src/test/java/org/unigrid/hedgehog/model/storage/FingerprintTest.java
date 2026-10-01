@@ -16,21 +16,20 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import java.security.SecureRandom;
 import java.util.Arrays;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprints.Secrets;
+import org.unigrid.hedgehog.model.storage.Fingerprints.Secrets;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Chars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import org.bitcoinj.base.Base58;
-import org.unigrid.hedgehog.model.storage.StorageFormat;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;

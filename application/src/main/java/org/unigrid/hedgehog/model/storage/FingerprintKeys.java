@@ -16,14 +16,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
 import org.bouncycastle.crypto.params.HKDFParameters;
-import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 public final class FingerprintKeys {
 	public static final int KEY_SIZE = 32;

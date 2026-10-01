@@ -16,13 +16,12 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ArbitrarySupplier;
 import org.bitcoinj.base.Base58;
-import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 final class Fingerprints {
 	private Fingerprints() {

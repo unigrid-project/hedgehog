@@ -16,14 +16,14 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters;
 import org.bouncycastle.crypto.signers.Ed25519Signer;
-import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.crypto.Hashes;
 
 public final class GroupKey {
 	public static final int PUBLIC_KEY_SIZE = Ed25519PublicKeyParameters.KEY_SIZE;

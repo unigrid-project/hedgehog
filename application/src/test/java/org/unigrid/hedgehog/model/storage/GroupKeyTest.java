@@ -16,19 +16,19 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import java.util.Arrays;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprints.Secrets;
+import org.unigrid.hedgehog.model.storage.Fingerprints.Secrets;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.crypto.Hashes;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class GroupKeyTest {

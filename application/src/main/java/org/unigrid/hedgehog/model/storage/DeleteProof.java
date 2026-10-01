@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.storage;
 
 import java.io.Serializable;
 import lombok.Value;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 
 /* Self-certifying, so any node can check and keep a tombstone without holding the group */
 @Value

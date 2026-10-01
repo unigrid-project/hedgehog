@@ -33,7 +33,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
+import org.unigrid.hedgehog.model.storage.Fingerprint;
 
 public class StorageNetworkModel {
 	static final StorageSpork.SporkData PARAMETERS = eagerRepair();

@@ -26,7 +26,7 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.Packet;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 
 @Sharable
 public class DeleteGroupEncoder extends AbstractMessageToByteEncoder<DeleteGroup>

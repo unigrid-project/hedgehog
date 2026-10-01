@@ -63,7 +63,7 @@ import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 import org.unigrid.hedgehog.model.storage.TestClock;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 
 public class NettyFragmentTransportTest {

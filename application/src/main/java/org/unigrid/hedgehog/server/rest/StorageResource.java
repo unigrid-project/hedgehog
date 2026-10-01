@@ -37,7 +37,7 @@ import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
+import org.unigrid.hedgehog.model.storage.Fingerprint;
 import org.unigrid.hedgehog.service.storage.DataLossException;
 import org.unigrid.hedgehog.service.storage.FingerprintNotFoundException;
 import org.unigrid.hedgehog.service.storage.InsufficientGridnodesException;

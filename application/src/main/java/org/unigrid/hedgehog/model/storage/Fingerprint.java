@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.storage.crypto;
+package org.unigrid.hedgehog.model.storage;
 
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -25,7 +25,6 @@ import lombok.Getter;
 import lombok.experimental.Accessors;
 import org.bitcoinj.base.Base58;
 import org.bitcoinj.base.exceptions.AddressFormatException;
-import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 public final class Fingerprint {
 	public static final int SECRET_SIZE = 32;
