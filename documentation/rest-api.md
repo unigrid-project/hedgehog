@@ -397,6 +397,24 @@ that also touch it; see [CDI container and component lifecycle](cdi-and-lifecycl
 Serialized `Node` JSON contains `address`, `details` (`protocols` array plus `version`) and `nsPing`;
 `connection` is `@JsonIgnore`.
 
+### Gridnode endpoints
+
+`application/src/main/java/org/unigrid/hedgehog/server/rest/GridnodeResource.java`, class-level
+`@Path("/gridnode")`.
+
+| Method | Path | Body in | Body out | Status codes |
+| --- | --- | --- | --- | --- |
+| `GET` | `/gridnode` | – | JSON array of `Gridnode` | `200` |
+| `PUT` | `/gridnode/start` | – | – | `202`; `409` when the daemon runs without `-G` |
+| `PUT` | `/gridnode/stop` | – | – | `202`; `409` when the daemon runs without `-G` |
+| `GET` | `/gridnode/collateral` | – | collateral for the current number of active gridnodes | `200` |
+
+`start` and `stop` sign the daemon's own entry with the key from `-G`, store it and send it to every
+connected peer. `stop` is the clean way to leave: the entry says `INACTIVE` at once instead of waiting
+for the others to expire it. A serialized `Gridnode` holds `id` (the public key in hex), `status`,
+`hostName` and `timestamp`; the signature is `@JsonIgnore`. The CLI commands are `gridnode-start`,
+`gridnode-stop` and `gridnode-list`.
+
 ### Utility endpoints
 
 `application/src/main/java/org/unigrid/hedgehog/server/rest/UtilResource.java`, class-level

@@ -539,6 +539,26 @@ populated by any code in the repository — although every `Node` carries an emp
 (`@Builder.Default private Details details = new Details();`) and Jackson serializes it whenever the
 REST node endpoints return a node.
 
+### GRIDNODE — variable
+
+`codec/GridnodeEncoder.java`, `codec/GridnodeDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 1 | status | `1` active, `2` inactive |
+| 1 | 8 | timestamp | epoch milliseconds, big-endian |
+| 9 | 2 + 262 | id | length, then the gridnode's public key in hex |
+| | 2 + n | host | length, then `host:port` in UTF-8, at most 255 bytes |
+| | 2 + n | signature | length, then a DER signature, at most 150 bytes |
+
+The signature is `SHA512withECDSA` over `"hh-gridnode-v1"`, the length-prefixed id, the status byte, the
+length-prefixed host and the timestamp. A receiver accepts an entry only if its timestamp is less than
+30 minutes old and at most 10 minutes ahead, is newer than the stored entry for that id, and the
+signature verifies against the id itself (`Topology.offerGridnode`). Accepted entries are forwarded
+unchanged to every connected peer except the sender, so a flood ends where the copy that comes back is
+no longer newer. A frame whose lengths break the limits is refused with a `CorruptedFrameException`
+before anything is allocated.
+
 ### PUBLISH_SPORK — variable
 
 `codec/PublishSporkEncoder.java`, `codec/PublishSporkDecoder.java` delegate the entire payload to
@@ -1060,9 +1080,13 @@ abstract. `RegisterQuicChannelInitializer` wraps the consumer in a `Runnable` fo
 | `PingSchedule` | `Ping.HEARTBEAT_MINUTES` = 3 minutes | yes | one `Ping` (request), after storing its `nanoTime` in `PING_TIME_KEY` on the channel |
 | `PublishPeersSchedule` | `PublishPeers.DISTRIBUTION_FREQUENCY_MINUTES` = 3 minutes | no | one `PublishPeers` containing `topology.cloneNodes()` |
 | `PublishAndSaveSporkSchedule` | `PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES` = 3 minutes | no | three `PublishSpork` packets (mint storage, mint supply, vesting storage), then persists the database |
+| `PublishGridnodeSchedule` | `PublishGridnode.DISTRIBUTION_FREQUENCY_MINUTES` = 5 minutes | yes | one `PublishGridnode` per stored entry younger than 30 minutes, after `GridnodeAnnouncer.refresh()` has re-signed the node's own entry if it is five minutes old |
 
-All three are registered on both the server and client pipelines, so both ends of a connection ping,
-publish peers and publish sporks independently on their own three-minute cadence.
+All of these are registered on both the server and client pipelines, so both ends of a connection ping,
+publish peers and publish sporks independently on their own three-minute cadence. A new link receives
+the whole gridnode list at once; the five-minute repeat repairs floods that were missed.
+`TopologyThread` calls `GridnodeAnnouncer.maintain()` on every pass, which refreshes the node's own entry
+and removes entries that were not refreshed for 30 minutes, except the node's own.
 
 `PublishPeersSchedule` publishes the *entire* known topology, not a sample — `AskPeers.amount` has no
 influence, since nothing sends `ASK_PEERS`.

@@ -506,7 +506,17 @@ here once.
    Both the proposal and the co-signed spork are flooded to the connected peers as `PublishSpork`
    packets. Several grows of the same spork can be proposed in a row and co-signed once, with the
    digest of the last one.
-6. **Verify and stop.** `hedgehog cli node-list` and `hedgehog cli gridspork-list` read the daemon's
+6. **Make gridnodes.** A gridnode proves who it is with a key pair that only its operator holds.
+   `hedgehog util key-generate > gridnode.key` writes one, `chmod 600 gridnode.key` keeps it private,
+   and the daemon refuses a file that others can read. Start the daemon with `-G gridnode.key`. A
+   gridnode bound to a wildcard address must say where others reach it with
+   `--announce-address <host>:<port>`; one bound to a specific `-H` announces that. The daemon
+   refuses to start when it cannot work out a reachable address. `hedgehog cli gridnode-start` signs
+   the node's ACTIVE entry and floods it; `gridnode-list` shows every entry a node knows. A node signs
+   a fresh entry every five minutes and forgets entries that were not refreshed for 30 minutes, so
+   a gridnode that vanishes leaves the list on its own; `gridnode-stop` leaves it at once. Active
+   means signed ACTIVE until collateral is checked.
+7. **Verify and stop.** `hedgehog cli node-list` and `hedgehog cli gridspork-list` read the daemon's
    view back; `hedgehog cli stop` shuts it down through `POST /stop` and lets the `@PreDestroy` chain
    persist `spork.db`.
 
