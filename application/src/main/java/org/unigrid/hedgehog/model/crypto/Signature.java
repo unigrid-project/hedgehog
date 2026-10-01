@@ -183,7 +183,7 @@ public class Signature {
 			return signature.verify(signatureData);
 
 		} catch (GeneralSecurityException | RuntimeException ex) {
-			/* Whatever the provider objects to in a hostile key or signature, the answer is the same: not signed */
+			/* Whatever the provider objects to in a hostile key or signature, the answer is: not signed */
 			return false;
 		}
 	}

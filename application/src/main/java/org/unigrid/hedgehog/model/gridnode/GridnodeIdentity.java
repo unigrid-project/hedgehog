@@ -64,7 +64,8 @@ public final class GridnodeIdentity {
 
 	/* The time only ever grows, and beats what other nodes still hold for this key, or they would drop the entry */
 	public synchronized Gridnode sign(Gridnode.Status status, String hostName, long clockMillis, long newerThan) {
-		final Signature signature = key.orElseThrow(() -> new IllegalStateException("This node has no gridnode key"));
+		final Signature signature = key.orElseThrow(() -> new IllegalStateException("This node has no gridnode key")
+		);
 		final Gridnode gridnode = Gridnode.builder().id(signature.getPublicKey()).status(status).hostName(hostName)
 			.timestamp(Math.max(clockMillis, Math.max(lastTimestamp, newerThan) + 1)).build();
 
@@ -88,7 +89,8 @@ public final class GridnodeIdentity {
 
 		try {
 			if (view.readAttributes().permissions().stream().anyMatch(GridnodeIdentity::isGroupOrOther)) {
-				throw new IllegalArgumentException(keyFile + " must be readable by its owner only, try chmod 600");
+				throw new IllegalArgumentException(keyFile + " must be readable by its owner only, "
+					+ "try chmod 600");
 			}
 		} catch (IOException ex) {
 			throw unreadable(keyFile, ex);
@@ -129,7 +131,8 @@ public final class GridnodeIdentity {
 		} catch (GeneralSecurityException | SigningException | VerifySignatureException
 			| IllegalArgumentException ex) {
 
-			throw new IllegalArgumentException(keyFile + " does not hold a valid key pair: " + ex.getMessage(), ex);
+			throw new IllegalArgumentException(keyFile + " does not hold a valid key pair: "
+				+ ex.getMessage(), ex);
 		}
 
 		if (!matching) {

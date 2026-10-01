@@ -48,8 +48,8 @@ public class PublishGridnodeSchedule extends AbstractSchedule implements Schedul
 			CDIUtil.resolveAndRun(Topology.class, topology -> {
 				final long now = System.currentTimeMillis();
 
-				topology.cloneGridnode().stream().filter(gridnode -> GridnodeSignature.isFresh(gridnode, now))
-					.forEach(gridnode -> {
+				topology.cloneGridnode().stream()
+					.filter(gridnode -> GridnodeSignature.isFresh(gridnode, now)).forEach(gridnode -> {
 						log.atTrace().log("Sending gridnode");
 						channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode).build());
 					});

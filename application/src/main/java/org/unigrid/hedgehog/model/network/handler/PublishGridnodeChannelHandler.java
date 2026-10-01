@@ -40,8 +40,8 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			if (topology.offerGridnode(obj.getGridnode())) {
-				Topology.sendAllExcept(PublishGridnode.builder().gridnode(obj.getGridnode()).build(), topology,
-					topology.getChannels().get(ctx.channel())
+				Topology.sendAllExcept(PublishGridnode.builder().gridnode(obj.getGridnode()).build(),
+					topology, topology.getChannels().get(ctx.channel())
 				);
 			}
 		});

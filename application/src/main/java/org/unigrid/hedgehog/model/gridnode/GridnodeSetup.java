@@ -54,8 +54,8 @@ public final class GridnodeSetup {
 
 	private static String bound(String host, int port) {
 		if (WILDCARDS.contains(host.strip())) {
-			throw new IllegalArgumentException("A gridnode bound to '" + host.strip() + "' must tell others where "
-				+ "to reach it: add --announce-address <host>:<port>");
+			throw new IllegalArgumentException("A gridnode bound to '" + host.strip()
+				+ "' must tell others where to reach it: add --announce-address <host>:<port>");
 		}
 
 		return host.contains(":") && !host.startsWith("[") ? "[" + host + "]:" + port : host + ":" + port;
