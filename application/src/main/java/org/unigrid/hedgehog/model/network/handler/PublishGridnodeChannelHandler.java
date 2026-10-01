@@ -20,11 +20,8 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
@@ -38,23 +35,14 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 
 	}
 
+	/* Forwarding only what was accepted ends a flood: the copy that comes back is no longer newer */
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishGridnode obj) throws Exception {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
-			Set<Gridnode> gridnodes = topology.cloneGridnode();
-
-			if (gridnodes.stream().noneMatch(g -> g.getId().equals(obj.getGridnode().getId()))) {
-				topology.addGridnode(Gridnode.builder().id(obj.getGridnode().getId())
-					.status(obj.getGridnode().getStatus())
-					.hostName(obj.getGridnode().getHostName()).build());
-				Topology.sendAll(PublishGridnode.builder().gridnode(obj.getGridnode()).build(),
-					topology, Optional.empty());
-			} else {
-				topology.modifyGridnode(obj.getGridnode(), g -> {
-					log.atDebug().log("Modifying a gridnode");
-					g.setStatus(obj.getGridnode().getStatus());
-					g.setHostName(obj.getGridnode().getHostName());
-				});
+			if (topology.offerGridnode(obj.getGridnode())) {
+				Topology.sendAllExcept(PublishGridnode.builder().gridnode(obj.getGridnode()).build(), topology,
+					topology.getChannels().get(ctx.channel())
+				);
 			}
 		});
 	}

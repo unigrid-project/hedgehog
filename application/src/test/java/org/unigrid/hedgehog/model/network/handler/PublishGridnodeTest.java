@@ -19,54 +19,25 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import jakarta.inject.Inject;
-import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collector;
-import lombok.SneakyThrows;
 import mockit.Mocked;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Tested;
-import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
 import net.jqwik.api.ShrinkingMode;
 import static org.awaitility.Awaitility.await;
-import org.bitcoinj.core.ECKey;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.network.Connection;
-import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.Ping;
-import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
-import org.unigrid.hedgehog.model.network.packet.PublishPeers;
-import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, PublishGridnodeChannelHandler> {
-
-	/*public final class FakeGridnodeOptions extends MockUp<GridnodeOptions> {
-
-		private String gridnodeKey;
-
-		@Mock
-		public String getGridnodeKey() {
-			System.out.println("Getting gridnode key");
-			ECKey key = new ECKey();
-			return key.getPublicKeyAsHex();
-		}
-	}*/
-	
 	@Inject
 	private Topology topology;
 
@@ -75,37 +46,22 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 	}
 
 	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
-	public void shoulPropagateGridnodeToNetwork(@ForAll("provideTestServers") List<TestServer> servers,
+	public void shouldStoreAnnouncementsFromTheNetwork(@ForAll("provideTestServers") List<TestServer> servers,
 		@Mocked PublishGridnodeSchedule schedule) throws Exception {
-		final AtomicInteger invocations = new AtomicInteger();
-		int expectedInvocations = 0;
-
-		setChannelCallback(Optional.of((ctx, publishGridnode) -> {
-			/* Only count triggers on the server-side  */
-			System.out.println("callback");
-			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
-				invocations.incrementAndGet();
-			}
-		}));
-		
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 			final Connection connection = new P2PClient(host, port);
-			final ECKey key = new ECKey();
-			Gridnode gridnode = Gridnode.builder().hostName(host + ":" + port).id(key.getPublicKeyAsHex())
-				.build();
-			topology.addNode(Node.builder().address(new InetSocketAddress(host, port))
-				.build());
-			topology.addGridnode(gridnode);
-			connection.send(PublishGridnode.builder().gridnode(gridnode).build());
-			expectedInvocations++;
+			final Gridnode entry = GridnodeFixtures.signed(new Signature(), Gridnode.Status.ACTIVE,
+				host + ":" + port, System.currentTimeMillis()
+			);
 
-			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+			connection.send(PublishGridnode.builder().gridnode(entry).build());
+
+			await().until(() -> topology.findGridnode(entry.getId()).isPresent());
+			assertThat(topology.findGridnode(entry.getId()).get().getSignature(), is(entry.getSignature()));
 			connection.closeDirty();
 		}
-
-		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }

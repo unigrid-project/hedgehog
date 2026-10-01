@@ -364,6 +364,7 @@
                                                 --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.gridnode=com.fasterxml.jackson.databind
                                                 --add-exports org.unigrid.hedgehog/org.unigrid.hedgehog.model.crypto=weld.core.impl
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.gridnode=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.gridnode=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
