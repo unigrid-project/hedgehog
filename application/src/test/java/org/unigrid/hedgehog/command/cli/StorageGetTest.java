@@ -38,6 +38,7 @@ import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -177,6 +178,29 @@ public class StorageGetTest {
 		}
 
 		assertThat(errors.toString(StandardCharsets.UTF_8), containsString("could not be saved"));
+	}
+
+	@SneakyThrows
+	@Property(tries = 20)
+	public void reportsAnyOtherAnswerThanOkAndLeavesTheOutputAlone(@ForAll final Response.Status status,
+		@ForAll final Optional<@Size(max = 64) byte[]> existing) {
+
+		Assume.that(status != Response.Status.OK);
+
+		final PrintStream console = System.err;
+		final ByteArrayOutputStream errors = new ByteArrayOutputStream();
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path output = prepare(fs, existing);
+
+			System.setErr(new PrintStream(errors, true, StandardCharsets.UTF_8));
+			storageGet(fs).execute(Response.status(status).build());
+			assertHolds(output, existing);
+		} finally {
+			System.setErr(console);
+		}
+
+		assertThat(errors.toString(StandardCharsets.UTF_8).lines().toList(), equalTo(List.of(status.getReasonPhrase())));
 	}
 
 	@Property(tries = 20)
