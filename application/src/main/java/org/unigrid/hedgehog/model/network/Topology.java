@@ -151,24 +151,6 @@ public class Topology {
 		});
 	}
 
-	@Protected @Lock(LockMode.WRITE)
-	public void modifyGridnode(Gridnode gridnode, Consumer<Gridnode> consumer)  {
-		gridnodes.forEach(g -> {
-			if (gridnode.equals(g)) {
-				consumer.accept(g);
-			}
-		});
-	}
-
-	@Protected @Lock(LockMode.WRITE)
-	public boolean addGridnode(Gridnode gridnode) {
-		if (!gridnodes.contains(gridnode)) {
-			return gridnodes.add(gridnode);
-		}
-
-		return false;
-	}
-
 	public boolean offerGridnode(Gridnode gridnode) {
 		return offerGridnode(gridnode, System.currentTimeMillis());
 	}

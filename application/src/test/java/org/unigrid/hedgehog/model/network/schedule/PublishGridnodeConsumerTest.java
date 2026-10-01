@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.ChannelMap;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -69,7 +70,9 @@ public class PublishGridnodeConsumerTest extends BaseMockedWeldTest {
 
 		topology.offerGridnode(signed(new Signature(), Gridnode.Status.ACTIVE, "10.0.0.1:1", now));
 		topology.offerGridnode(signed(new Signature(), Gridnode.Status.INACTIVE, "10.0.0.2:1", now));
-		topology.addGridnode(Gridnode.builder().id("expired").hostName("10.0.0.3:1").build());
+		final long longAgo = now - GridnodeSignature.MAX_AGE.toMillis() - 60_000;
+
+		topology.offerGridnode(signed(new Signature(), Gridnode.Status.ACTIVE, "10.0.0.3:1", longAgo), longAgo);
 
 		new PublishGridnodeSchedule().getConsumer().accept(channel);
 
