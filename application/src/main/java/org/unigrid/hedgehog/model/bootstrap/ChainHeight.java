@@ -16,12 +16,11 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model;
+package org.unigrid.hedgehog.model.bootstrap;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Optional;
-import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 
 /**
 * The height of the chain that mints the sporks' pending funds. Until hedgehog follows that chain, the

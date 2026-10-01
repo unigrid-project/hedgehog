@@ -31,7 +31,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.ChainHeight;
+import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
