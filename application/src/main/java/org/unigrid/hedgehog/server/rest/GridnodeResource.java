@@ -32,7 +32,7 @@ import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
+import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 

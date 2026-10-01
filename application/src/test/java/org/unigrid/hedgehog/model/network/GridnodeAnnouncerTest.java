@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.gridnode;
+package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
 import java.util.Optional;
@@ -32,8 +32,9 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.network.ChannelMap;
-import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.server.TestServer;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.signed;
 

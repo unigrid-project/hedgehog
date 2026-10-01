@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.gridnode;
+package org.unigrid.hedgehog.model.network;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -27,7 +27,9 @@ import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 
 @Slf4j
 @ApplicationScoped
