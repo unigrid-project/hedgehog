@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.jqwik;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
@@ -29,6 +29,10 @@ import net.jqwik.api.lifecycle.AroundTryHook;
 import net.jqwik.api.lifecycle.TryExecutionResult;
 import net.jqwik.api.lifecycle.TryExecutor;
 import net.jqwik.api.lifecycle.TryLifecycleContext;
+import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import picocli.CommandLine.Option;
 
 /*

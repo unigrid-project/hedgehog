@@ -34,6 +34,7 @@ import net.jqwik.api.constraints.NumericChars;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class,propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class RestOptionsTest {
