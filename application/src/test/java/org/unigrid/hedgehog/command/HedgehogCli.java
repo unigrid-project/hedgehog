@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.slf4j.LoggerFactory;
@@ -43,10 +44,11 @@ public final class HedgehogCli {
 	}
 
 	public static Result run(String... args) {
-		return run(new CommandLine(Hedgehog.class), args);
+		return run(() -> new CommandLine(Hedgehog.class), args);
 	}
 
-	public static Result run(CommandLine line, String... args) {
+	/* Picocli binds its own error output to the streams of the moment, so the line is made once they are captured */
+	public static Result run(Supplier<CommandLine> line, String... args) {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		final ByteArrayOutputStream err = new ByteArrayOutputStream();
 		final PrintStream originalOut = System.out;
@@ -57,7 +59,7 @@ public final class HedgehogCli {
 		System.setErr(new PrintStream(err));
 
 		try {
-			exitCode = line.execute(args);
+			exitCode = line.get().execute(args);
 		} finally {
 			System.setOut(originalOut);
 			System.setErr(originalErr);

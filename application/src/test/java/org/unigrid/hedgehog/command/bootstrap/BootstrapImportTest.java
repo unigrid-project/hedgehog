@@ -96,9 +96,8 @@ public class BootstrapImportTest {
 
 		final FileSystem fs = snapshot.getFileSystem();
 		final Path output = fs.getPath("/elsewhere", directories.toArray(String[]::new)).resolve("snapshot.dat");
-		final CommandLine line = new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath);
-
-		final HedgehogCli.Result result = HedgehogCli.run(line, "bootstrap", "import", "-b", BLOCKS.toString(),
+		final HedgehogCli.Result result = HedgehogCli.run(() -> new CommandLine(Hedgehog.class)
+			.registerConverter(Path.class, fs::getPath), "bootstrap", "import", "-b", BLOCKS.toString(),
 			"-o", output.toString()
 		);
 
