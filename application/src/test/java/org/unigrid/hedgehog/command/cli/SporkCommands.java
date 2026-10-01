@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Optional;
 import lombok.AccessLevel;
@@ -29,6 +30,7 @@ import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import picocli.CommandLine;
 
 /* The arbitraries are plain factories for each test to provide, since jqwik creates a supplier reflectively and a
    test run only opens the packages of the tests it selects */
@@ -52,10 +54,18 @@ public final class SporkCommands {
 		return MAPPER.writeValueAsString(value);
 	}
 
+	public static Runnable subcommand(Object parent, String... arguments) {
+		return (Runnable) new CommandLine(parent).parseArgs(arguments).subcommand().commandSpec().userObject();
+	}
+
 	/* The key goes out verbatim for the daemon to judge, so a key that is no hex at all must go out just the same */
 	public static Arbitrary<String> keys() {
 		return Arbitraries.oneOf(Arbitraries.strings().withChars("0123456789abcdef").ofLength(HEX_KEY_LENGTH),
 			Arbitraries.strings().alpha().numeric().ofMinLength(1).ofMaxLength(HEX_KEY_LENGTH * 2));
+	}
+
+	public static Arbitrary<String> amounts() {
+		return Arbitraries.bigDecimals().greaterOrEqual(BigDecimal.ZERO).map(BigDecimal::toPlainString);
 	}
 
 	public static Arbitrary<String> reports() {
