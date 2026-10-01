@@ -79,12 +79,25 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	}
 
 	@Example
-	public void shouldStartInactiveWhenNothingIsHeld() throws Exception {
+	public void shouldHoldNoEntryUntilTheOperatorStartsTheGridnode() throws Exception {
 		final Signature key = new Signature();
 
 		announcerOf(key).refresh(NOW);
 
-		assertThat(topology.findGridnode(key.getPublicKey()).get().getStatus(), is(Gridnode.Status.INACTIVE));
+		assertThat(topology.findGridnode(key.getPublicKey()), is(Optional.empty()));
+	}
+
+	@Example
+	public void shouldNotOverrideWhatPeersHoldWhenTheyAnswerAfterTheFirstRefresh() throws Exception {
+		final Signature key = new Signature();
+		final Gridnode heldByPeers = signed(key, Gridnode.Status.ACTIVE, ADDRESS, NOW - 1000);
+		final GridnodeAnnouncer announcer = announcerOf(key);
+
+		announcer.refresh(NOW);
+		topology.offerGridnode(heldByPeers, NOW);
+		announcer.refresh(NOW + 1);
+
+		assertThat(topology.findGridnode(key.getPublicKey()).get().getStatus(), is(Gridnode.Status.ACTIVE));
 	}
 
 	@Example

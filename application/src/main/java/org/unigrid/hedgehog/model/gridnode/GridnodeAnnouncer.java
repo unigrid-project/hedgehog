@@ -61,14 +61,12 @@ public class GridnodeAnnouncer {
 		refresh(System.currentTimeMillis());
 	}
 
+	/* Nothing is signed while no own entry is held: on a restart that would outrun the entry the peers still
+	   hold, and a node that was never started counts as inactive without announcing it */
 	public void refresh(long nowMillis) {
-		identity.id().ifPresent(id -> {
-			final Optional<Gridnode> own = topology.findGridnode(id);
-
-			if (own.isEmpty() || nowMillis - own.get().getTimestamp() >= REFRESH_PERIOD.toMillis()) {
-				announce(own.map(Gridnode::getStatus).orElse(Gridnode.Status.INACTIVE), nowMillis);
-			}
-		});
+		identity.id().flatMap(topology::findGridnode)
+			.filter(own -> nowMillis - own.getTimestamp() >= REFRESH_PERIOD.toMillis())
+			.ifPresent(own -> announce(own.getStatus(), nowMillis));
 	}
 
 	public void maintain() {
