@@ -244,7 +244,7 @@ Two things about `ChannelCollector` are worth knowing before relying on it:
   `<T extends ChannelHandler>` refers to the *annotation* type in the same package, not to Netty's
   `io.netty.channel.ChannelHandler`.
 
-The only exercise of this code is `application/src/test/java/org/unigrid/hedgehog/model/network/channel/ChannelCollectorTest.java`,
+The only exercise of this code is `application/src/test/java/org/unigrid/hedgehog/model/network/initializer/ChannelCollectorTest.java`,
 which declares two annotated inner classes (`@ChannelCodec` and `@ChannelCodec(Type.SERVER)`) and
 prints the collected result with `System.out.println` — there is no assertion anywhere in it. The
 collector is therefore exercised, not tested.

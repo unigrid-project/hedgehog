@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.channel;
+package org.unigrid.hedgehog.model.network.initializer;
 
 import java.lang.annotation.Annotation;
 import java.net.URL;
@@ -32,6 +32,9 @@ import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec.Type;
 import org.reflections.scanners.Scanners;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
+import org.unigrid.hedgehog.model.network.channel.ChannelHandler;
+import org.unigrid.hedgehog.model.network.channel.ChannelScheduler;
 
 @Slf4j
 public class ChannelCollector {

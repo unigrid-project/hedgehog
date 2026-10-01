@@ -964,7 +964,7 @@ rest mock nothing:
 | `model/network/handler/SporkReceptionTest` | `PublishSporkChannelHandler.receive(...)` without a network: a proposal is held but not stored, a proposal already held is not passed on, a co-signed spork is stored and its proposal dropped, a proposal on top of the stored spork survives the stored spork arriving, and nothing older than the stored spork is passed on. |
 | `model/network/schedule/PublishAndSaveSporkScheduleTest` | `PublishAndSaveSporkSchedule.writeAndFlush(...)` on a Netty `EmbeddedChannel` publishes a held proposal along with the stored sporks, even from an empty database. |
 | `model/spork/MintStorageTest` | Builds a `MintStorage` with ten generated mint locations and dumps it through `TestFileOutput.outputJson`. It writes a file for inspection and asserts nothing. |
-| `model/network/channel/ChannelCollectorTest` | Declares two `@ChannelCodec`-annotated inner classes and prints the result of `ChannelCollector.collectCodecs(...)`. Like `MintStorageTest` it makes no assertion, and `ChannelCollector` itself is unused by both servers (`P2PServer.java:84` and `P2PClient.java:105` both carry `// TODO: Add support for ChannelCollector`), so the class is exercised rather than tested. |
+| `model/network/initializer/ChannelCollectorTest` | Declares two `@ChannelCodec`-annotated inner classes and prints the result of `ChannelCollector.collectCodecs(...)`. Like `MintStorageTest` it makes no assertion, and `ChannelCollector` itself is unused by both servers (`P2PServer.java:84` and `P2PClient.java:105` both carry `// TODO: Add support for ChannelCollector`), so the class is exercised rather than tested. |
 
 ### Adding a test
 

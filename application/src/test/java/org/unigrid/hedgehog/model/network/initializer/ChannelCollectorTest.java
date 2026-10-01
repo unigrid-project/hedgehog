@@ -16,13 +16,14 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.channel;
+package org.unigrid.hedgehog.model.network.initializer;
 
 import java.net.URL;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import org.reflections.util.ClasspathHelper;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 
 public class ChannelCollectorTest {
 	@ChannelCodec
