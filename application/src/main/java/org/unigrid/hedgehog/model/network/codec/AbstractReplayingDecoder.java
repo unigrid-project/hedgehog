@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Slf4j
 public abstract class AbstractReplayingDecoder<T extends Packet> extends ReplayingDecoder<T> {

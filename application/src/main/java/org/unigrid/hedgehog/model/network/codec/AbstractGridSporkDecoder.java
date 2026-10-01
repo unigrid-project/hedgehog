@@ -34,7 +34,7 @@ import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SignatureLog;
 import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
 
 @Slf4j

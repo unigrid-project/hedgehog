@@ -23,6 +23,8 @@ import java.util.List;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import org.unigrid.hedgehog.model.network.Correlated;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.GroupId;
 
 @Data

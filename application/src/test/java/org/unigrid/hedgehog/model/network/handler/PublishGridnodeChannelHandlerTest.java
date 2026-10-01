@@ -41,7 +41,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.ChannelMap;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.TestServer;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.copyOf;

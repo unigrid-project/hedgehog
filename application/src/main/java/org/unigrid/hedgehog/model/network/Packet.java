@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.packet;
+package org.unigrid.hedgehog.model.network;
 
 import io.netty.util.AttributeKey;
 import java.util.Arrays;

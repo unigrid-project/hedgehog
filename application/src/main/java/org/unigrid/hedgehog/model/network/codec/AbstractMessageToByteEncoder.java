@@ -23,7 +23,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 public abstract class AbstractMessageToByteEncoder<T> extends MessageToByteEncoder<T> implements PacketEncoder<T> {
 	private void writeFrameHeader(ChannelHandlerContext ctx, ByteBuf out, int len) throws Exception {

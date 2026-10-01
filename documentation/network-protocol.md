@@ -412,7 +412,7 @@ codecs.
 
 ## Packet catalog
 
-`application/src/main/java/org/unigrid/hedgehog/model/network/packet/Packet.java` declares the type
+`application/src/main/java/org/unigrid/hedgehog/model/network/Packet.java` declares the type
 enum. `Packet.Type.get(short)` maps unknown values to `UNDEFINED`.
 
 | Type | Id | Packet class | Encoder | Decoder | Handler | In a live pipeline |

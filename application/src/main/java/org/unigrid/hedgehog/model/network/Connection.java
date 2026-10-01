@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 public interface Connection {
 	Channel getChannel();

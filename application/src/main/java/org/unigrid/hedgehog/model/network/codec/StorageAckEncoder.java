@@ -24,7 +24,7 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 
 @Sharable

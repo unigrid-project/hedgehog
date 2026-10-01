@@ -27,7 +27,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Builder
 @NoArgsConstructor

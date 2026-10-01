@@ -48,7 +48,7 @@ import org.unigrid.hedgehog.model.network.packet.FetchFragment;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.packet.HasFragment;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.network.packet.StoreFragment;
 import org.unigrid.hedgehog.model.storage.DeleteProof;

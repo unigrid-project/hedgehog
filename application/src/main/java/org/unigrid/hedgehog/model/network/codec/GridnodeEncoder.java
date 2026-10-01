@@ -26,7 +26,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
 @Slf4j

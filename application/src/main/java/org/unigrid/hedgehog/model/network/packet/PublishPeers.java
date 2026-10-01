@@ -26,6 +26,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Data
 @Builder

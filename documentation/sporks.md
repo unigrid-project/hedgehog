@@ -1211,7 +1211,7 @@ Collected here so a reader does not have to rediscover them.
   surfaces as `NoSuchElementException` instead of a clean decode failure
   (`model/network/codec/AbstractGridSporkDecoder.java`).
 - **`ASK_SPORKS` and `GROW_SPORK` are declared with no packet, codec or handler.** They are reserved
-  identifiers, not implemented messages (`model/network/packet/Packet.java`).
+  identifiers, not implemented messages (`model/network/Packet.java`).
 - **Sporks signed by earlier builds are still verified over their Java serialization.** Such a spork
   keeps its old signature only as long as its data is not rebuilt; once it crosses the network its
   signed bytes may differ on the receiver. Re-signing sets `Flag.WIRE_SIGNABLE` and ends that

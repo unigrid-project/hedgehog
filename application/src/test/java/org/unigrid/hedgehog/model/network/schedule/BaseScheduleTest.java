@@ -31,7 +31,7 @@ import mockit.MockUp;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.unigrid.hedgehog.jqwik.MockOn;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 public class BaseScheduleTest<S extends Schedulable, T extends Packet, H> extends BaseHandlerTest<T, H> {
 	@Getter @Setter private Optional<Consumer<Channel>> scheduleCallback = Optional.empty();

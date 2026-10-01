@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.crypto.GroupKey;

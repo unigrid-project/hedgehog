@@ -39,7 +39,6 @@ import lombok.SneakyThrows;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Data
 @Slf4j

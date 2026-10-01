@@ -24,7 +24,7 @@ import io.netty.channel.ChannelHandlerContext;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Slf4j
 public abstract class AbstractGridSporkEncoder<T extends Packet> extends AbstractMessageToByteEncoder<T> {
