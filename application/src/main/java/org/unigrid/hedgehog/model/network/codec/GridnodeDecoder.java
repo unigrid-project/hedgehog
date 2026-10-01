@@ -20,43 +20,57 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import jakarta.inject.Inject;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
 @Slf4j
 public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> implements PacketDecoder<PublishGridnode> {
-
-	@Inject
-	private Topology topology;
+	public static final int ID_LENGTH = Signature.PUBLIC_KEY_HEX_SIZE * 2;
+	public static final int MAX_HOST_LENGTH = 255;
+	public static final int MAX_SIGNATURE_LENGTH = 150;
 
 	@Override
 	public Optional<PublishGridnode> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final PublishGridnode gridnodePacket = PublishGridnode.builder().build();
-		final byte gridnodeStatus = in.readByte();
-		in.skipBytes(5);
-		final short length = in.readShort();
-		final ByteBuf data = in.readBytes(length);
-		final String gridnodeId = data.toString(StandardCharsets.UTF_8);
-		final String hostName = ByteBufUtils.readNullTerminatedString(in);
+		final Gridnode.Status status = Gridnode.Status.get(in.readByte());
+		final long timestamp = in.readLong();
+		final byte[] id = readField(in, ID_LENGTH);
+		final byte[] host = readField(in, MAX_HOST_LENGTH);
+		final byte[] signature = readField(in, MAX_SIGNATURE_LENGTH);
+
+		if (id.length != ID_LENGTH) {
+			throw new CorruptedFrameException("A gridnode id is " + ID_LENGTH + " bytes, not " + id.length);
+		}
+
 		log.atDebug().log("decode gridnode");
 
-		gridnodePacket.setGridnode(Gridnode.builder().hostName(hostName)
-			.id(gridnodeId).status(Gridnode.Status.get(gridnodeStatus)).build());
+		return Optional.of(PublishGridnode.builder().gridnode(Gridnode.builder()
+			.id(new String(id, StandardCharsets.UTF_8)).hostName(new String(host, StandardCharsets.UTF_8))
+			.status(status).timestamp(timestamp).signature(signature).build()).build());
+	}
 
-		return Optional.of(gridnodePacket);
+	/* The limit is checked before the allocation so a hostile length cannot make the node reserve memory */
+	private static byte[] readField(ByteBuf in, int maxLength) {
+		final int length = in.readUnsignedShort();
+
+		if (length > maxLength) {
+			throw new CorruptedFrameException("A gridnode field of " + length + " bytes exceeds " + maxLength);
+		}
+
+		final byte[] field = new byte[length];
+
+		in.readBytes(field);
+		return field;
 	}
 
 	@Override
 	public Packet.Type getCodecType() {
 		return Packet.Type.GRIDNODE;
 	}
-
 }

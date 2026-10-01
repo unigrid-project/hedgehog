@@ -21,40 +21,39 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import jakarta.inject.Inject;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
-import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
 @Slf4j
 public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnode>
 	implements PacketEncoder<PublishGridnode> {
 
-	@Inject
-	private Topology topology;
-
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishGridnode in) throws Exception {
+		final Gridnode gridnode = in.getGridnode();
 		final ByteBuf out = Unpooled.buffer();
+
 		log.atDebug().log("encode gridnode");
-		final byte[] id = in.getGridnode().getId().getBytes();
-
-		out.writeByte(in.getGridnode().getStatus().getValue());
-		out.writeZero(5);
-		out.writeShort(id.length);
-		out.writeBytes(id);
-		ByteBufUtils.writeNullTerminatedString(in.getGridnode().getHostName(), out);
-
+		out.writeByte(gridnode.getStatus().getValue());
+		out.writeLong(gridnode.getTimestamp());
+		writeField(out, gridnode.getId().getBytes(StandardCharsets.UTF_8));
+		writeField(out, gridnode.getHostName().getBytes(StandardCharsets.UTF_8));
+		writeField(out, gridnode.getSignature());
 		return Optional.of(out);
+	}
+
+	private static void writeField(ByteBuf out, byte[] field) {
+		out.writeShort(field.length);
+		out.writeBytes(field);
 	}
 
 	@Override
 	public Packet.Type getCodecType() {
 		return Packet.Type.GRIDNODE;
 	}
-
 }
