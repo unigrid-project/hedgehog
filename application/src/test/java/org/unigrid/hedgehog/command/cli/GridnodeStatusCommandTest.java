@@ -18,13 +18,27 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.List;
+import java.util.Optional;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
+import org.unigrid.hedgehog.jqwik.MockitHook;
 
+@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class GridnodeStatusCommandTest {
 	private static String[] outputOf(GridnodeStatusCommand command, Response response) {
 		final PrintStream out = System.out;
@@ -60,5 +74,22 @@ public class GridnodeStatusCommandTest {
 			assertThat(output[0], is(""));
 			assertThat(output[1], containsString("-G"));
 		}
+	}
+
+	@Property(tries = 30)
+	public void putsAnEmptyTextAndPrintsTheStatusUnlessThereIsNoGridnode(@ForAll boolean start,
+		@ForAll Response.Status status) {
+
+		Assume.that(status != Response.Status.CONFLICT);
+
+		final GridnodeStatusCommand command = start ? new GridnodeStart() : new GridnodeStop();
+		final String location = start ? "/gridnode/start" : "/gridnode/stop";
+		final Result result = RestCommandFixture.run(command, Response.status(status).build());
+
+		assertThat(result.request(), equalTo(Optional.of(new Request(HttpMethod.PUT, location,
+			Optional.of(Entity.text("")), Optional.empty()))));
+
+		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
+		assertThat(result.err(), is(""));
 	}
 }
