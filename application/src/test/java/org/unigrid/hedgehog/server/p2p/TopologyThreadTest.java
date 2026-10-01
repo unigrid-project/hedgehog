@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.server.p2p;
 
 import io.netty.channel.Channel;
 import jakarta.inject.Inject;
@@ -42,6 +42,9 @@ import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.util.Reflection;
 import org.unigrid.hedgehog.server.TestServer;
 

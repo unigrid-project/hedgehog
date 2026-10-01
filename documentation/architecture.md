@@ -396,7 +396,7 @@ and binds a TLS `NioServerSocketChannel`. It keeps its own private `COMMUNICATIO
 rather than reusing `Network.COMMUNICATION_THREADS`. The endpoints behind it are documented in
 [REST interface](rest-api.md).
 
-`TopologyThread` (`model/network/TopologyThread.java`) is the reconnect loop: if the topology is empty
+`TopologyThread` (`server/p2p/TopologyThread.java`) is the reconnect loop: if the topology is empty
 it repopulates from the seeds, then for every known node without a live connection it opens a
 `P2PClient` and registers the resulting channel in the `ChannelMap`. Failures drop the node from the
 topology. It then sleeps for a back-off that grows with the size of the node set, derived from

@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.server.p2p;
 
 import java.util.Optional;
 import java.util.Set;
@@ -28,6 +28,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
+import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 
 @Slf4j
 public class TopologyThread extends Thread {
