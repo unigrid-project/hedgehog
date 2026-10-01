@@ -16,11 +16,8 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.cli;
+package org.unigrid.hedgehog.command.cli.spork;
 
-import org.unigrid.hedgehog.command.cli.spork.MintSupply;
-import org.unigrid.hedgehog.command.cli.spork.MintStorage;
-import org.unigrid.hedgehog.command.cli.spork.Storage;
 import picocli.CommandLine.Command;
 
 @Command(name = "gridspork-get", subcommands = { MintSupply.class, MintStorage.class, Storage.class })

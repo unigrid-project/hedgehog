@@ -19,13 +19,13 @@
 package org.unigrid.hedgehog.command;
 
 import org.unigrid.hedgehog.command.cli.GridSporkCosign;
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGet;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGrow;
 import org.unigrid.hedgehog.command.cli.GridSporkList;
 import org.unigrid.hedgehog.command.cli.GridSporkLog;
 import org.unigrid.hedgehog.command.cli.GridSporkPending;
 import org.unigrid.hedgehog.command.cli.GridSporkRenew;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkSet;
 import org.unigrid.hedgehog.command.cli.GridnodeList;
 import org.unigrid.hedgehog.command.cli.GridnodeStart;
 import org.unigrid.hedgehog.command.cli.GridnodeStop;
