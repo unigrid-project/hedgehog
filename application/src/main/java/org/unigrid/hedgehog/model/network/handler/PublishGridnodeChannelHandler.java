@@ -20,15 +20,12 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Topology;
-import static org.unigrid.hedgehog.model.network.handler.ConnectionHandler.SOCKET_ADDRESS_KEY;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
 @Slf4j
@@ -46,8 +43,6 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			Set<Gridnode> gridnodes = topology.cloneGridnode();
 
-			fillInUnspecifiedHost(ctx, obj.getGridnode());
-
 			if (gridnodes.stream().noneMatch(g -> g.getId().equals(obj.getGridnode().getId()))) {
 				topology.addGridnode(Gridnode.builder().id(obj.getGridnode().getId())
 					.status(obj.getGridnode().getStatus())
@@ -62,21 +57,5 @@ public class PublishGridnodeChannelHandler extends AbstractInboundHandler<Publis
 				});
 			}
 		});
-	}
-
-	/* A gridnode announcing itself on 0.0.0.0 is reachable at the address its connection came from */
-	private static void fillInUnspecifiedHost(ChannelHandlerContext ctx, Gridnode gridnode) {
-		if (gridnode.getHostName().contains("0.0.0.0")
-			&& !gridnode.getId().equals(GridnodeOptions.getGridnodeKey())) {
-
-			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
-
-			if (address != null) {
-				log.atDebug().log(address.toString());
-				log.atTrace().log("Seding with port {} from source {}",
-					address.getPort(), address.getAddress());
-				gridnode.setHostName(address.getAddress().getHostAddress() + ":" + address.getPort());
-			}
-		}
 	}
 }
