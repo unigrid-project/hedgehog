@@ -46,9 +46,13 @@ public final class RestCommandFixture {
 	public static final int PORT = 4321;
 	public static final String TOKEN = "fixture-token";
 
-	/* Logback reports its own start-up on stdout, which must not end up in the output of a command */
 	static {
+		/* Logback reports its own start-up on stdout, which must not end up in the output of a command */
 		LoggerFactory.getILoggerFactory();
+
+		/* JMockit calls the fakes reflectively, but a test run only opens the packages of the tests it selects */
+		RestCommandFixture.class.getModule().addOpens(RestCommandFixture.class.getPackageName(),
+			MockUp.class.getModule());
 	}
 
 	public record Connection(String host, int port, boolean secure, String token) { }
