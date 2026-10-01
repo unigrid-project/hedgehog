@@ -16,18 +16,18 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.producer;
 
-import mockit.Mock;
-import mockit.MockUp;
-import org.bitcoinj.core.ECKey;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Singleton;
+import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 
-public class GridnodeOptionsMockup extends MockUp<GridnodeOptions>{
-
-	@Mock
-	public String getGridnodeKey() {
-		System.out.println("Getting gridnode key");
-		ECKey key = new ECKey();
-		return key.getPublicKeyAsHex();
+@ApplicationScoped
+public class GridnodeProducer {
+	@Produces @Singleton
+	public GridnodeIdentity gridnodeIdentity() {
+		return GridnodeSetup.identity();
 	}
 }

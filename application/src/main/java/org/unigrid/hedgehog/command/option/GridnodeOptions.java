@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.option;
 
+import java.nio.file.Path;
 import lombok.Getter;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
@@ -25,7 +26,12 @@ import picocli.CommandLine.Option;
 public class GridnodeOptions {
 
 	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Start as a gridnode by providing a valid gridnode key", defaultValue = ""
+		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
 	)
-	private static String gridnodeKey;
+	private static Path gridnodeKeyFile;
+
+	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT,
+		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
+	)
+	private static String announceAddress;
 }

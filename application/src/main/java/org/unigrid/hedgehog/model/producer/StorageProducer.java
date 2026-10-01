@@ -28,8 +28,8 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -70,8 +70,8 @@ public class StorageProducer {
 	}
 
 	@Produces @Singleton
-	public GridnodeDirectory gridnodeDirectory() {
-		return new TopologyGridnodeDirectory(topology::cloneGridnode, GridnodeOptions::getGridnodeKey);
+	public GridnodeDirectory gridnodeDirectory(final GridnodeIdentity identity) {
+		return new TopologyGridnodeDirectory(topology::cloneGridnode, () -> identity.id().orElse(""));
 	}
 
 	@Produces @Singleton
