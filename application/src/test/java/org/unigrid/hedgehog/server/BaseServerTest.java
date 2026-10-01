@@ -51,7 +51,7 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	public Arbitrary<List<TestServer>> provideTestServers(@ForAll @IntRange(min = 0, max = NUM_SERVERS - 1) int from,
 		@ForAll @IntRange(min = 1, max = NUM_SERVERS) int num) {
 
-		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS - 1)));
+		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS)));
 	}
 
 	@BeforeTry
