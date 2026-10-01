@@ -21,13 +21,18 @@ package org.unigrid.hedgehog.command.util;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -170,6 +175,15 @@ public final class RestCommandFixture {
 
 		@Mock public Response post(String location, Entity<?> entity) throws ResponseOddityException {
 			return respond(HttpMethod.POST, location, entity, null);
+		}
+
+		/* The command closes a streamed body once sent, so its bytes are kept instead, and its length is the
+		   Content-Length that the connection announces */
+		@Mock public Response postStream(String location, InputStream body, long length)
+			throws ResponseOddityException, IOException {
+
+			return respond(HttpMethod.POST, location, Entity.entity(body.readAllBytes(),
+				MediaType.APPLICATION_OCTET_STREAM), new MultivaluedHashMap<>(Map.of(HttpHeaders.CONTENT_LENGTH, length)));
 		}
 
 		@Mock public Response put(String location, Entity<?> entity) throws ResponseOddityException {
