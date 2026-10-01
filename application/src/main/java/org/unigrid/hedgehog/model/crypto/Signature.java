@@ -19,12 +19,15 @@
 package org.unigrid.hedgehog.model.crypto;
 
 import java.math.BigInteger;
+import java.security.AlgorithmParameters;
+import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
@@ -35,6 +38,7 @@ import java.security.spec.ECPoint;
 import java.security.spec.ECPrivateKeySpec;
 import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
+import java.security.spec.InvalidParameterSpecException;
 import java.security.spec.KeySpec;
 import java.util.Optional;
 
@@ -43,6 +47,7 @@ public class Signature {
 	private static final String SIGNATURE_NAME = "SHA512WithECDSA";
 	private static final String DIGEST_SIGNATURE_NAME = "NONEwithECDSA";
 	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
+	private static final ECParameterSpec CURVE = curve();
 
 	public static final int PRIVATE_KEY_SIZE = 520;
 	public static final int PRIVATE_KEY_HEX_SIZE = 65;
@@ -166,6 +171,46 @@ public class Signature {
 		throws VerifySignatureException {
 
 		return verifier(key).verifyDigest(digest, signatureData);
+	}
+
+	/* Unlike the instance methods this builds no key pair, so it is cheap enough for every gossiped entry */
+	public static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData) {
+		try {
+			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
+
+			signature.initVerify(publicKeyOf(publicKeyHex));
+			signature.update(data);
+			return signature.verify(signatureData);
+
+		} catch (GeneralSecurityException | RuntimeException ex) {
+			/* Whatever the provider objects to in a hostile key or signature, the answer is the same: not signed */
+			return false;
+		}
+	}
+
+	private static PublicKey publicKeyOf(String hex) throws GeneralSecurityException {
+		if (hex.length() != PUBLIC_KEY_HEX_SIZE * 2) {
+			throw new IllegalArgumentException("Wrong public key length");
+		}
+
+		final int midpoint = hex.length() / 2;
+		final ECPoint point = new ECPoint(new BigInteger(hex.substring(0, midpoint), 16),
+			new BigInteger(hex.substring(midpoint), 16)
+		);
+
+		return KeyFactory.getInstance(KEYPAIR_NAME).generatePublic(new ECPublicKeySpec(point, CURVE));
+	}
+
+	private static ECParameterSpec curve() {
+		try {
+			final AlgorithmParameters parameters = AlgorithmParameters.getInstance(KEYPAIR_NAME);
+
+			parameters.init(new ECGenParameterSpec(EC_SEC_NAME));
+			return parameters.getParameterSpec(ECParameterSpec.class);
+
+		} catch (NoSuchAlgorithmException | InvalidParameterSpecException ex) {
+			throw new IllegalStateException("The P-521 curve is not available", ex);
+		}
 	}
 
 	private static Signature verifier(String key) throws VerifySignatureException {
