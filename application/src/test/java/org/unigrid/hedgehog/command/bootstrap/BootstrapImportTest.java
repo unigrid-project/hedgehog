@@ -22,6 +22,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -34,10 +35,15 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.Size;
+import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.BuildReport;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
+import picocli.CommandLine;
 
 public class BootstrapImportTest {
 	private static final Path BLOCKS = Path.of("blocks");
@@ -82,6 +88,25 @@ public class BootstrapImportTest {
 		assertThat(result.out(), containsString(report.toString()));
 		assertThat(result.out(), containsString("Snapshot:           " + snapshot));
 		assertThat(builds, equalTo(List.of(List.of(BLOCKS, snapshot))));
+	}
+
+	@Property(tries = 30)
+	public void shouldWriteTheSnapshotWhereItIsTold(
+		@ForAll @Size(max = 4) List<@AlphaChars @StringLength(min = 1, max = 12) String> directories) {
+
+		final FileSystem fs = snapshot.getFileSystem();
+		final Path output = fs.getPath("/elsewhere", directories.toArray(String[]::new)).resolve("snapshot.dat");
+		final CommandLine line = new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath);
+
+		final HedgehogCli.Result result = HedgehogCli.run(line, "bootstrap", "import", "-b", BLOCKS.toString(),
+			"-o", output.toString()
+		);
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), containsString("Snapshot:           " + output));
+		assertThat(builds, equalTo(List.of(List.of(fs.getPath(BLOCKS.toString()), output))));
+		assertThat(Files.isDirectory(output.getParent()), equalTo(true));
+		assertThat(Files.exists(snapshot.getParent()), equalTo(false));
 	}
 
 	@Example
