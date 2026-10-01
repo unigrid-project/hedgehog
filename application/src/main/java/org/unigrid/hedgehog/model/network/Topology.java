@@ -33,13 +33,11 @@ import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
-import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
@@ -55,10 +53,6 @@ public class Topology {
 	private void init() {
 		repopulate();
 		gridnodes = new HashSet<>();
-		if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-			gridnodes.add(Gridnode.builder().id(GridnodeOptions.getGridnodeKey())
-				.hostName(NetOptions.getHost() + ":" + NetOptions.getPort()).build());
-		}
 	}
 
 	@Protected @Lock(LockMode.WRITE)
@@ -149,19 +143,20 @@ public class Topology {
 		});
 	}
 
+	public static void sendAllExcept(Packet packet, Topology topology, Optional<Node> excluded) {
+		topology.forEach(node -> {
+			if (!excluded.equals(Optional.of(node))) {
+				Node.send(packet, node, Optional.empty());
+			}
+		});
+	}
+
 	@Protected @Lock(LockMode.WRITE)
 	public void modifyGridnode(Gridnode gridnode, Consumer<Gridnode> consumer)  {
 		gridnodes.forEach(g -> {
 			if (gridnode.equals(g)) {
 				consumer.accept(g);
 			}
-		});
-	}
-
-	public void changeGridnodeStatus(String gridnodeId, Gridnode.Status status) {
-		Gridnode gridnode = Gridnode.builder().id(gridnodeId).status(status).build();
-		modifyGridnode(gridnode, (g) -> {
-			g.setStatus(gridnode.getStatus());
 		});
 	}
 
@@ -174,13 +169,37 @@ public class Topology {
 		return false;
 	}
 
+	public boolean offerGridnode(Gridnode gridnode) {
+		return offerGridnode(gridnode, System.currentTimeMillis());
+	}
+
+	/* The cheap checks go first because anyone on the network can send an entry */
 	@Protected @Lock(LockMode.WRITE)
-	public boolean removeGridnode(Gridnode gridnode) {
-		if (!gridnodes.contains(gridnode)) {
-			return gridnodes.remove(gridnode);
+	public boolean offerGridnode(Gridnode gridnode, long nowMillis) {
+		if (GridnodeSignature.isFresh(gridnode, nowMillis) && isNewerThanStored(gridnode)
+			&& GridnodeSignature.verifies(gridnode)) {
+
+			gridnodes.remove(gridnode);
+			return gridnodes.add(gridnode);
 		}
 
 		return false;
+	}
+
+	private boolean isNewerThanStored(Gridnode gridnode) {
+		return gridnodes.stream().filter(gridnode::equals)
+			.allMatch(stored -> gridnode.getTimestamp() > stored.getTimestamp());
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public Optional<Gridnode> findGridnode(String id) {
+		return gridnodes.stream().filter(gridnode -> gridnode.getId().equals(id)).findFirst();
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public void purgeGridnodes(long nowMillis, Optional<String> keep) {
+		gridnodes.removeIf(gridnode -> GridnodeSignature.isExpired(gridnode, nowMillis)
+			&& !keep.equals(Optional.of(gridnode.getId())));
 	}
 
 	@Protected @Lock(LockMode.READ)
