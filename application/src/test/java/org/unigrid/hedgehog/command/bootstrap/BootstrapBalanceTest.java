@@ -34,6 +34,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
@@ -86,7 +87,7 @@ public class BootstrapBalanceTest {
 
 		readerAnswers(address, Optional.of(new AddressBalance(address, balance, transactions)), null, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("balance", address);
+		final HedgehogCli.Result result = BootstrapCli.run("balance", address);
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.out(), equalTo(balance + " in " + transactions + " transactions" + System.lineSeparator()));
@@ -96,7 +97,7 @@ public class BootstrapBalanceTest {
 	public void shouldReportAnAddressThatNeverAppeared() {
 		readerAnswers(ADDRESS, Optional.empty(), null, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("balance", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString(ADDRESS + " never appeared on the legacy chain"));
@@ -106,7 +107,7 @@ public class BootstrapBalanceTest {
 	public void shouldRefuseAMalformedAddressWithoutAStackTrace() {
 		readerAnswers(ADDRESS, Optional.empty(), new IllegalArgumentException("Not a legacy address"), null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("balance", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("Not a legacy address"));
@@ -117,7 +118,7 @@ public class BootstrapBalanceTest {
 	public void shouldRefuseAnUnreadableSnapshotWithoutAStackTrace() {
 		readerAnswers(ADDRESS, Optional.empty(), null, new IOException("does not verify against any trusted key"));
 
-		final BootstrapCli.Result result = BootstrapCli.run("balance", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("balance", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("does not verify against any trusted key"));

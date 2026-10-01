@@ -35,6 +35,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
@@ -93,7 +94,7 @@ public class BootstrapHistoryTest {
 
 		readerAnswers(address, offset, limit, transactions, null, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("history", address,
+		final HedgehogCli.Result result = BootstrapCli.run("history", address,
 			"--offset", String.valueOf(offset), "-n", String.valueOf(limit)
 		);
 
@@ -113,7 +114,7 @@ public class BootstrapHistoryTest {
 
 		readerAnswers(address, DEFAULT_OFFSET, DEFAULT_LIMIT, transactions, null, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("history", address, "--json");
+		final HedgehogCli.Result result = BootstrapCli.run("history", address, "--json");
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(new JsonConfiguration().getContext(AddressTransaction.class).readValue(result.out(),
@@ -125,7 +126,7 @@ public class BootstrapHistoryTest {
 	public void shouldReportAnAddressWithoutTransactions() {
 		readerAnswers(ADDRESS, DEFAULT_OFFSET, DEFAULT_LIMIT, List.of(), null, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("history", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("No transactions for " + ADDRESS));
@@ -137,7 +138,7 @@ public class BootstrapHistoryTest {
 			null
 		);
 
-		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("history", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("Not a legacy address"));
@@ -150,7 +151,7 @@ public class BootstrapHistoryTest {
 			new IOException("does not verify against any trusted key")
 		);
 
-		final BootstrapCli.Result result = BootstrapCli.run("history", ADDRESS);
+		final HedgehogCli.Result result = BootstrapCli.run("history", ADDRESS);
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("does not verify against any trusted key"));

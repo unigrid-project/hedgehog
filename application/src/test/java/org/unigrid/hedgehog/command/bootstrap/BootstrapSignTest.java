@@ -37,6 +37,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
@@ -112,7 +113,7 @@ public class BootstrapSignTest {
 		Files.write(snapshot, contents);
 	}
 
-	private BootstrapCli.Result sign(String... extra) {
+	private HedgehogCli.Result sign(String... extra) {
 		final String[] args = { "sign", "-k", KEY };
 		final String[] all = Arrays.copyOf(args, args.length + extra.length);
 
@@ -129,7 +130,7 @@ public class BootstrapSignTest {
 		existingSnapshot(CONTENT);
 		signatureIsPresent(false);
 
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.out(), containsString("Signed " + snapshot));
@@ -139,7 +140,7 @@ public class BootstrapSignTest {
 
 	@Example
 	public void shouldReportAMissingSnapshot() {
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("There is no snapshot at " + snapshot));
@@ -151,7 +152,7 @@ public class BootstrapSignTest {
 		existingSnapshot(CONTENT);
 		keyIsTrusted(false);
 
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("not one the network trusts"));
@@ -163,7 +164,7 @@ public class BootstrapSignTest {
 		existingSnapshot(CONTENT);
 		inspectorFinds(null, new IOException("Snapshot is format version 3, this build reads 2"));
 
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("format version"));
@@ -176,7 +177,7 @@ public class BootstrapSignTest {
 		existingSnapshot(CONTENT);
 		inspectorFinds(SignatureStatus.INVALID, null);
 
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("does not verify"));
@@ -188,7 +189,7 @@ public class BootstrapSignTest {
 		existingSnapshot(CONTENT);
 		signatureIsPresent(true);
 
-		final BootstrapCli.Result result = sign();
+		final HedgehogCli.Result result = sign();
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("is already signed, pass --force to replace it"));

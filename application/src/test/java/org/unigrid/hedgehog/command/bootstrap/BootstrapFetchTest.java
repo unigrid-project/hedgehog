@@ -42,6 +42,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
 
@@ -114,7 +115,7 @@ public class BootstrapFetchTest {
 	@Example
 	@SneakyThrows
 	public void shouldInstallFromTheDefaultUrl() {
-		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+		final HedgehogCli.Result result = BootstrapCli.run("fetch");
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.out(), containsString("Installed " + snapshot));
@@ -125,7 +126,7 @@ public class BootstrapFetchTest {
 	public void shouldReportEveryTenthOfTheDownload() {
 		downloadReports(null, IntStream.rangeClosed(1, 100).boxed().toList());
 
-		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+		final HedgehogCli.Result result = BootstrapCli.run("fetch");
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.err().lines().toList(), equalTo(IntStream.rangeClosed(1, 10)
@@ -157,7 +158,7 @@ public class BootstrapFetchTest {
 		Files.createDirectories(snapshot.getParent());
 		Files.write(snapshot, new byte[] { 1 });
 
-		final BootstrapCli.Result result = BootstrapCli.run("fetch");
+		final HedgehogCli.Result result = BootstrapCli.run("fetch");
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("already exists, pass --force to replace it"));
@@ -178,7 +179,7 @@ public class BootstrapFetchTest {
 	public void shouldRefuseAnUnverifiableDownloadWithoutAStackTrace() {
 		downloadFails(new IOException("The download does not match the hash published with it and was not installed"));
 
-		final BootstrapCli.Result result = BootstrapCli.run("fetch", "--url", SOURCE);
+		final HedgehogCli.Result result = BootstrapCli.run("fetch", "--url", SOURCE);
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("was not installed"));

@@ -35,6 +35,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.BuildReport;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
 
@@ -75,7 +76,7 @@ public class BootstrapImportTest {
 	public void shouldPrintTheReportOfTheBuild(@ForAll("provideReport") BuildReport report) {
 		builderReports(report);
 
-		final BootstrapCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
+		final HedgehogCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
 
 		assertThat(result.exitCode(), equalTo(0));
 		assertThat(result.out(), containsString(report.toString()));
@@ -93,7 +94,7 @@ public class BootstrapImportTest {
 	public void shouldLeaveAnExistingSnapshotAlone() {
 		existingSnapshot();
 
-		final BootstrapCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
+		final HedgehogCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("already exists, pass --force to overwrite it"));

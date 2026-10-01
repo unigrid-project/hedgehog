@@ -34,6 +34,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
@@ -70,7 +71,7 @@ public class BootstrapInfoTest {
 	public void shouldPrintEveryFieldOfTheSnapshot(@ForAll("provideInfo") SnapshotInfo info) {
 		readerAnswers(info, null);
 
-		final BootstrapCli.Result result = BootstrapCli.run("info");
+		final HedgehogCli.Result result = BootstrapCli.run("info");
 
 		final List<Object> fields = List.of(info.getTipHash(), info.getTipHeight(), info.getAddressCount(),
 			info.getEntryCount(), info.getTransactionCount(), info.getTotalUnspent(), info.getZerocoinMinted(),
@@ -91,7 +92,7 @@ public class BootstrapInfoTest {
 	public void shouldRefuseAnUnreadableSnapshotWithoutAStackTrace() {
 		readerAnswers(null, new IOException("does not verify against any trusted key"));
 
-		final BootstrapCli.Result result = BootstrapCli.run("info");
+		final HedgehogCli.Result result = BootstrapCli.run("info");
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("does not verify against any trusted key"));
