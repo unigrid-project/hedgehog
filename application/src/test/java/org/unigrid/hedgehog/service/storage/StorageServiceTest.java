@@ -47,7 +47,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tuple;
 import net.jqwik.api.Tuple.Tuple2;
 import net.jqwik.api.constraints.IntRange;
-import org.bitcoinj.core.Base58;
+import org.bitcoinj.base.Base58;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;

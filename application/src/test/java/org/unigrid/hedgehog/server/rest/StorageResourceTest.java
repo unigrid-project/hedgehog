@@ -82,7 +82,7 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
-import org.bitcoinj.core.Base58;
+import org.bitcoinj.base.Base58;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;

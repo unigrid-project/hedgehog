@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.model.storage.crypto;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ArbitrarySupplier;
-import org.bitcoinj.core.Base58;
+import org.bitcoinj.base.Base58;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 final class Fingerprints {

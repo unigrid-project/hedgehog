@@ -23,8 +23,8 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import lombok.Getter;
 import lombok.experimental.Accessors;
-import org.bitcoinj.core.AddressFormatException;
-import org.bitcoinj.core.Base58;
+import org.bitcoinj.base.Base58;
+import org.bitcoinj.base.exceptions.AddressFormatException;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 
 public final class Fingerprint {
