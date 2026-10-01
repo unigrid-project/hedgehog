@@ -39,8 +39,8 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
-import org.unigrid.hedgehog.client.ResponseOddityException;
-import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.RestClient;
 
 public class BearerTokenFilterTest extends BaseRestClientTest {
 	private static final int TOKEN_LENGTH = 43;

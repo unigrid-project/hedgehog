@@ -18,10 +18,10 @@
 
 package org.unigrid.hedgehog.model.network.codec.api;
 
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 public interface PacketEncoder<T> extends TypedCodec<Packet.Type> {
 	void encode(ChannelHandlerContext ctx, T entity, ByteBuf out) throws Exception;

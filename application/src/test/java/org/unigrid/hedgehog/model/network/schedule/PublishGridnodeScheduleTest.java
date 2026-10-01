@@ -31,7 +31,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;

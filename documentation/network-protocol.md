@@ -12,7 +12,7 @@ started and wired together see the [Architecture overview](architecture.md) and
 
 The P2P server is `application/src/main/java/org/unigrid/hedgehog/server/p2p/P2PServer.java`, an
 `@Eager @ApplicationScoped` bean whose `@PostConstruct` method builds the whole stack. The client
-side is `application/src/main/java/org/unigrid/hedgehog/client/P2PClient.java`. Both bind a
+side is `application/src/main/java/org/unigrid/hedgehog/client/p2p/P2PClient.java`. Both bind a
 `NioDatagramChannel` through a Netty `Bootstrap` and install a QUIC codec as the datagram handler.
 
 `P2PServer.init()` is where the server side is assembled, in this order:
@@ -244,7 +244,7 @@ Two things about `ChannelCollector` are worth knowing before relying on it:
   `<T extends ChannelHandler>` refers to the *annotation* type in the same package, not to Netty's
   `io.netty.channel.ChannelHandler`.
 
-The only exercise of this code is `application/src/test/java/org/unigrid/hedgehog/model/network/channel/ChannelCollectorTest.java`,
+The only exercise of this code is `application/src/test/java/org/unigrid/hedgehog/model/network/initializer/ChannelCollectorTest.java`,
 which declares two annotated inner classes (`@ChannelCodec` and `@ChannelCodec(Type.SERVER)`) and
 prints the collected result with `System.out.println` — there is no assertion anywhere in it. The
 collector is therefore exercised, not tested.
@@ -407,12 +407,12 @@ it writes nothing at all into the buffer `PublishSporkEncoder` returns, and
 `ReplayingDecoder`s and are not.
 
 `codec/api/PacketEncoder.java` and `codec/api/PacketDecoder.java` both extend
-`codec/chunk/TypedCodec.java`, a one-method interface (`T getCodecType()`) shared with the chunk
+`network/chunk/TypedCodec.java`, a one-method interface (`T getCodecType()`) shared with the chunk
 codecs.
 
 ## Packet catalog
 
-`application/src/main/java/org/unigrid/hedgehog/model/network/packet/Packet.java` declares the type
+`application/src/main/java/org/unigrid/hedgehog/model/network/Packet.java` declares the type
 enum. `Packet.Type.get(short)` maps unknown values to `UNDEFINED`.
 
 | Type | Id | Packet class | Encoder | Decoder | Handler | In a live pipeline |
@@ -647,16 +647,16 @@ runtime by spork type. The mechanism is generic enough to be reused for other pa
   `ChunkGroup group() default ChunkGroup.DEFAULT` and a mandatory `ChunkType type()`.
 - `network/chunk/ChunkGroup.java` — `DEFAULT`, `GRIDSPORK`.
 - `network/chunk/ChunkType.java` — `ENCODER`, `DECODER`.
-- `network/chunk/ChunkData.java` — the payload marker interface; `Serializable`, one method
+- `spork/ChunkData.java` — the payload marker interface; `Serializable`, one method
   `ChunkData empty()`, and Jackson `@JsonTypeInfo(use = Id.DEDUCTION)` with `@JsonSubTypes` listing
   `MintStorage.SporkData`, `MintSupply.SporkData` and `VestingStorage.SporkData`.
   `StatisticsPubKey.SporkData` is **not** in that list, so Jackson has no registered subtype for it.
-- `network/chunk/ChunkScanner.java` — `scan(ChunkType, ChunkGroup)` runs Reflections over
-  `TypedCodec.class.getPackageName()` (`org.unigrid.hedgehog.model.network.codec.chunk`), keeps the
+- `spork/ChunkScanner.java` — `scan(ChunkType, ChunkGroup)` runs Reflections over
+  `ChunkScanner.class.getPackageName()` (`org.unigrid.hedgehog.model.spork`), keeps the
   classes whose `@Chunk` matches both arguments, instantiates each through its no-arg constructor and
   collects them into an `OptionalMap` keyed by `getCodecType()`. A failure to instantiate is rethrown
   as `IllegalStateException("Unable to instantiate chunk converter.")`.
-- `codec/api/ChunkEncoder.java` / `codec/api/ChunkDecoder.java` — `encodeChunk(ctx, T, ByteBuf)` and
+- `spork/ChunkEncoder.java` / `spork/ChunkDecoder.java` — `encodeChunk(ctx, T, ByteBuf)` and
   `Optional<T> decodeChunk(ctx, ByteBuf)`.
 - `model/collection/OptionalMap.java` — an Apache Commons `AbstractMapDecorator` adding
   `getOptional(key)`.
@@ -668,7 +668,7 @@ with `ChunkType.DECODER` and `ChunkGroup.GRIDSPORK`. That happens per codec inst
 suppliers construct fresh codecs for every stream — so every new connection re-runs the decoder scan.
 
 Four chunk types are implemented, all in
-`application/src/main/java/org/unigrid/hedgehog/model/network/codec/chunk/`:
+`application/src/main/java/org/unigrid/hedgehog/model/spork/`:
 
 | `GridSpork.Type` | Id | Encoder | Decoder |
 | --- | ---: | --- | --- |

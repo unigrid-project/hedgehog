@@ -25,7 +25,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 

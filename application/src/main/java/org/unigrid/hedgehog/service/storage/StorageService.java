@@ -29,8 +29,8 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
-import org.unigrid.hedgehog.model.storage.crypto.FingerprintKeys;
+import org.unigrid.hedgehog.model.storage.Fingerprint;
+import org.unigrid.hedgehog.model.storage.FingerprintKeys;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 
 /* Every operation waits on replies that arrive on the Netty event loops, so calling one from a loop deadlocks.

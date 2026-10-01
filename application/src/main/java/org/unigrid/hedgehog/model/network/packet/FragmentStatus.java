@@ -28,6 +28,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Value;
+import org.unigrid.hedgehog.model.network.Correlated;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 

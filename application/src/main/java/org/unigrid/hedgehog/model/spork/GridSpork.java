@@ -43,8 +43,6 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
-import org.unigrid.hedgehog.model.network.codec.SporkContentEncoder;
 
 @Data
 public class GridSpork implements Serializable, Signable {

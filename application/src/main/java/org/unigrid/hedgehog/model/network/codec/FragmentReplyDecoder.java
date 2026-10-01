@@ -23,7 +23,7 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 
 public class FragmentReplyDecoder extends AbstractReplayingDecoder<FragmentReply>

@@ -55,7 +55,7 @@ import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.TestClock;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Holding;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.PutResult;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tier;

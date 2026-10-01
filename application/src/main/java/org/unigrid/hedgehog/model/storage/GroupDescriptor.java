@@ -23,7 +23,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import lombok.Builder;
 import lombok.Value;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 

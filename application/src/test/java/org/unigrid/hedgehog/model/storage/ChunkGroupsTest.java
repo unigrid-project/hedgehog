@@ -36,7 +36,6 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
 import org.unigrid.hedgehog.model.storage.crypto.MerkleTree;
 
 public class ChunkGroupsTest {

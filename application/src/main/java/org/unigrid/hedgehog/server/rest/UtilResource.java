@@ -25,7 +25,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.unigrid.hedgehog.model.ChainHeight;
+import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
 import org.unigrid.hedgehog.model.NodeStatus;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;

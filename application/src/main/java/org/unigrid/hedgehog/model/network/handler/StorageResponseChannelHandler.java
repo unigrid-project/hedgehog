@@ -22,8 +22,8 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.PendingRequests;
-import org.unigrid.hedgehog.model.network.packet.Correlated;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Correlated;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Sharable
 public class StorageResponseChannelHandler<T extends Packet & Correlated> extends AbstractInboundHandler<T> {

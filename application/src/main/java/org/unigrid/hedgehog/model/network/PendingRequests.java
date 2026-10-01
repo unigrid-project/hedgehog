@@ -27,7 +27,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import org.unigrid.hedgehog.model.network.packet.Correlated;
 
 @ApplicationScoped
 public class PendingRequests {

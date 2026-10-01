@@ -25,7 +25,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
+import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;

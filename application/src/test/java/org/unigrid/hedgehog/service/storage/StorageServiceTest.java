@@ -60,10 +60,10 @@ import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.Manifest;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
 import org.unigrid.hedgehog.model.storage.StorageLayout;
-import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
-import org.unigrid.hedgehog.model.storage.crypto.Fingerprint;
-import org.unigrid.hedgehog.model.storage.crypto.FingerprintKeys;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.ChunkCipher;
+import org.unigrid.hedgehog.model.storage.Fingerprint;
+import org.unigrid.hedgehog.model.storage.FingerprintKeys;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 import org.unigrid.hedgehog.model.storage.placement.Placement;
 

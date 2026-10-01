@@ -763,7 +763,7 @@ and the `@PreDestroy` in
 
 ### RestClient
 
-`application/src/main/java/org/unigrid/hedgehog/client/RestClient.java` is an `AutoCloseable` wrapper
+`application/src/main/java/org/unigrid/hedgehog/client/rest/RestClient.java` is an `AutoCloseable` wrapper
 over a JAX-RS `Client`. Its constructor takes `(String host, int port, boolean isSecure, String token)`
 (a three-argument form passes no token, for the S3 mock in the tests) and:
 
@@ -808,7 +808,7 @@ therefore checks for a `409` in `execute` and prints the status line on stderr. 
 `throws ResponseOddityException` but never calls the check, so it silently bypasses this filter.
 
 `ResponseOddityException`
-(`application/src/main/java/org/unigrid/hedgehog/client/ResponseOddityException.java`) is a plain
+(`application/src/main/java/org/unigrid/hedgehog/client/rest/ResponseOddityException.java`) is a plain
 checked `Exception` whose message is formatted `"%d %s (%s)"` from the status code, the `Status` enum
 constant and the reason phrase — e.g. `304 Not Modified (Not Modified)`. It carries no response body.
 

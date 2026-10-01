@@ -39,7 +39,6 @@ import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
-import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
 @ApplicationScoped

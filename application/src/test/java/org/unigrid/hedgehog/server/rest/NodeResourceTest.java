@@ -37,7 +37,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import static org.unigrid.hedgehog.command.option.NetOptions.DEFAULT_PORT;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;

@@ -241,12 +241,12 @@ surfaces as `Unauthorized` on the terminal.
 | --- | --- | --- | --- |
 | `hedgehog` | `Hedgehog` | — | Banner plus usage; `-V` prints `Unigrid Hedgehog <version>` |
 | `cli` | `command/CLI.java` | — | Container; carries the `NetOptions` and `RestOptions` mixins |
-| `cli gridspork-get` | `command/cli/GridSporkGet.java` | — | Container for `mint-supply`, `mint-storage` |
+| `cli gridspork-get` | `command/cli/spork/GridSporkGet.java` | — | Container for `mint-supply`, `mint-storage` |
 | `cli gridspork-get mint-supply` | `command/cli/spork/MintSupply.java` | `GET /gridspork/mint-supply` | Pretty-prints the response body through `Json.parse`; prints `No Content` on `204` |
 | `cli gridspork-get mint-storage` | `command/cli/spork/MintStorage.java` | `GET /gridspork/mint-storage` | Pretty-prints the body; `--address`/`--height` are accepted but unused on this path |
-| `cli gridspork-set` | `command/cli/GridSporkSet.java` | — | Container for `mint-supply`; declares `-D` and `-k` as `required = true` |
+| `cli gridspork-set` | `command/cli/spork/GridSporkSet.java` | — | Container for `mint-supply`; declares `-D` and `-k` as `required = true` |
 | `cli gridspork-set mint-supply` | `command/cli/spork/MintSupply.java` | `PUT /gridspork/mint-supply` | Body is `--data` as `text/plain`; `--key` is sent in a `privateKey` header; prints the proposal it made, with its digest, as pretty JSON |
-| `cli gridspork-grow` | `command/cli/GridSporkGrow.java` | — | Container for `mint-storage`; declares `-D` and `-k` as `required = true` |
+| `cli gridspork-grow` | `command/cli/spork/GridSporkGrow.java` | — | Container for `mint-storage`; declares `-D` and `-k` as `required = true` |
 | `cli gridspork-grow mint-storage` | `command/cli/spork/MintStorage.java` | `PUT /gridspork/mint-storage/{address}/{height}` | Same body/header scheme and output; prints `Both block height and address have to be specified` when the guard trips |
 | `cli gridspork-list` | `command/cli/GridSporkList.java` | `GET /gridspork` | Prints the `SporkDatabaseInfo` as pretty JSON; its `No Content` fallback is unreachable, as that endpoint never returns `204` |
 | `cli gridspork-log` | `command/cli/GridSporkLog.java` | `GET /gridspork/log` | Prints each stored spork's signature log and current signers as pretty JSON; `No sporks to show a signature log for` on `204` |
@@ -396,7 +396,7 @@ and binds a TLS `NioServerSocketChannel`. It keeps its own private `COMMUNICATIO
 rather than reusing `Network.COMMUNICATION_THREADS`. The endpoints behind it are documented in
 [REST interface](rest-api.md).
 
-`TopologyThread` (`model/network/TopologyThread.java`) is the reconnect loop: if the topology is empty
+`TopologyThread` (`server/p2p/TopologyThread.java`) is the reconnect loop: if the topology is empty
 it repopulates from the seeds, then for every known node without a live connection it opens a
 `P2PClient` and registers the resulting channel in the `ChannelMap`. Failures drop the node from the
 topology. It then sleeps for a back-off that grows with the size of the node set, derived from
@@ -533,8 +533,8 @@ collected here. The short version: **content is authenticated, transport and con
 
 * **TLS on both sockets is encryption without authentication.** `P2PServer` and `RestServer` each
   generate a fresh `SelfSignedCertificate` at startup, and both shipped clients accept anything:
-  `client/RestClient.java` installs `InsecureTrustManagerFactory` together with a hostname verifier
-  that returns `true` unconditionally, and `client/P2PClient.java` uses `InsecureTrustManagerFactory`
+  `client/rest/RestClient.java` installs `InsecureTrustManagerFactory` together with a hostname verifier
+  that returns `true` unconditionally, and `client/p2p/P2PClient.java` uses `InsecureTrustManagerFactory`
   for QUIC. An active man in the middle on either socket is not detected.
 * **Spork content is authenticated, by exactly one list of keys.** Every spork write is verified with
   `NetworkKey.isTrusted`, which checks a signature against `NetOptions.getNetworkKeys()`, and a spork

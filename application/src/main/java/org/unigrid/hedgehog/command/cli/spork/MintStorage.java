@@ -26,8 +26,6 @@ import jakarta.ws.rs.core.Response;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.ObjectUtils;
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import picocli.CommandLine;

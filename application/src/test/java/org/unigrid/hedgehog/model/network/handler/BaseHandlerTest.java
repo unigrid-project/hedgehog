@@ -31,7 +31,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.server.BaseServerTest;
 
 @RequiredArgsConstructor

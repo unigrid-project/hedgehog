@@ -24,7 +24,7 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.packet.Hello;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @ChannelCodec(priority = 1)
 public class HelloDecoder extends AbstractReplayingDecoder<Hello> implements PacketDecoder<Hello> {

@@ -36,13 +36,13 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.client.rest.RestClient;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
 import net.jqwik.api.constraints.NotBlank;
 import lombok.Data;
-import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.model.s3.entity.Bucket;
 import org.unigrid.hedgehog.model.s3.entity.ListAllMyBucketsResult;
 

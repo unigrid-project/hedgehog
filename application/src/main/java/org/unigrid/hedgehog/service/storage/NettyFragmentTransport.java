@@ -33,7 +33,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.PendingRequests;
-import org.unigrid.hedgehog.model.network.packet.Correlated;
+import org.unigrid.hedgehog.model.network.Correlated;
 import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.packet.FetchFragment;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;

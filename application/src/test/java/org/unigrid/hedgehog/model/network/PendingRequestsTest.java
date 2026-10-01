@@ -47,7 +47,6 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
-import org.unigrid.hedgehog.model.network.packet.Correlated;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;

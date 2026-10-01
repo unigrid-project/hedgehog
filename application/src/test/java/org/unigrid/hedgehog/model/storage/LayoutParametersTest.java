@@ -27,7 +27,6 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
-import org.unigrid.hedgehog.model.storage.crypto.ChunkCipher;
 import org.unigrid.hedgehog.model.storage.erasure.ReedSolomon;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;

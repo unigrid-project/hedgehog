@@ -10,9 +10,9 @@ replacement is newer, signed by two different keys the node trusts, and extends 
 [proposal](#pending-sporks) until a second key co-signs it.
 
 The data model, the database and the signing live under
-`application/src/main/java/org/unigrid/hedgehog/model/spork/` and `model/crypto/`; the wire codecs
-under `model/network/codec/`, `model/network/codec/chunk/` and `model/network/chunk/` (the
-`ChunkData` marker and the `@Chunk` scanner); the CDI producer, the inbound handler and the publish
+`application/src/main/java/org/unigrid/hedgehog/model/spork/` and `model/crypto/`, together with the
+chunk codecs, the `ChunkData` marker and the `@Chunk` scanner; the packet codecs under
+`model/network/codec/` and the `@Chunk` annotation under `model/network/chunk/`; the CDI producer, the inbound handler and the publish
 schedule under `model/producer/`, `model/network/handler/` and
 `model/network/schedule/`. The read/write surfaces are the REST resources in `server/rest/` and the
 picocli commands in `command/cli/`, documented in [REST interface](rest-api.md) and
@@ -240,7 +240,7 @@ under [the concrete sporks](#the-concrete-sporks).
 
 ## The concrete sporks
 
-`ChunkData` (`model/network/chunk/ChunkData.java`) is the marker interface for every spork payload.
+`ChunkData` (`model/spork/ChunkData.java`) is the marker interface for every spork payload.
 It is annotated for Jackson polymorphism by deduction:
 
 ```java
@@ -347,7 +347,7 @@ boolean isValidSignature();
 
 A spork carrying `Flag.WIRE_SIGNABLE`, which `sign()` sets on every spork it signs, is signed over
 its wire encoding. `GridSpork.getSignable()` then consists of the bytes
-`SporkContentEncoder.encode(spork)` (`model/network/codec/SporkContentEncoder.java`) produces — the
+`SporkContentEncoder.encode(spork)` (`model/spork/SporkContentEncoder.java`) produces — the
 same prefix of a `PUBLISH_SPORK` packet that `AbstractGridSporkEncoder` writes, so the two cannot
 drift: type, flags, the two timestamps in milliseconds, the `data` chunk and the `previousData`
 chunk (see [Wire encoding](#wire-encoding)). A missing timestamp is encoded as the epoch and missing
@@ -1081,17 +1081,17 @@ zero sizes when it has no cosigner, so the wire always carries the cosigner fiel
 layout leaves them out.
 
 Chunk codecs are discovered at construction time by `ChunkScanner.scan(ChunkType, ChunkGroup)`, which
-uses Reflections over the `org.unigrid.hedgehog.model.network.codec.chunk` package and filters on the
+uses Reflections over the `org.unigrid.hedgehog.model.spork` package and filters on the
 `@Chunk` annotation. All spork codecs declare `group = ChunkGroup.GRIDSPORK`; the result is an
 `OptionalMap` from `GridSpork.Type` to `ChunkEncoder` (or `ChunkDecoder`), keyed by each codec's
 `getCodecType()`.
 
 | `GridSpork.Type` | Id | Encoder | Decoder |
 | --- | ---: | --- | --- |
-| `MINT_STORAGE` | 1000 | `codec/chunk/MintStorageEncoder.java` | `codec/chunk/MintStorageDecoder.java` |
-| `MINT_SUPPLY` | 1010 | `codec/chunk/MintSupplyEncoder.java` | `codec/chunk/MintSupplyDecoder.java` |
-| `VESTING_STORAGE` | 1020 | `codec/chunk/VestingStorageEncoder.java` | `codec/chunk/VestingStorageDecoder.java` |
-| `STATISTICS_PUBKEY` | 2001 | `codec/chunk/StatisticsPubKeyEncoder.java` | `codec/chunk/StatisticsPubKeyDecoder.java` |
+| `MINT_STORAGE` | 1000 | `spork/MintStorageEncoder.java` | `spork/MintStorageDecoder.java` |
+| `MINT_SUPPLY` | 1010 | `spork/MintSupplyEncoder.java` | `spork/MintSupplyDecoder.java` |
+| `VESTING_STORAGE` | 1020 | `spork/VestingStorageEncoder.java` | `spork/VestingStorageDecoder.java` |
+| `STATISTICS_PUBKEY` | 2001 | `spork/StatisticsPubKeyEncoder.java` | `spork/StatisticsPubKeyDecoder.java` |
 
 `UNDEFINED` has no codec: the decoder logs *"Unable to handle spork chunk of type {}"* at error level
 and returns `Optional.empty()`; the encoder silently writes nothing.
@@ -1188,7 +1188,7 @@ Collected here so a reader does not have to rediscover them.
 - **`GridSpork.archive()` dereferences `previousData` inside its own null check.** Unreachable
   today only because `data` is never null (`model/spork/GridSpork.java`).
 - **`StatisticsPubKey.SporkData` is missing from `ChunkData`'s `@JsonSubTypes`.** Deduction-based
-  polymorphic JSON cannot reconstruct it (`model/network/chunk/ChunkData.java`).
+  polymorphic JSON cannot reconstruct it (`model/spork/ChunkData.java`).
 - **`StatisticsPubKey` is never published by the schedule.** `writeAndFlush` emits only the other
   three stored sections (`model/network/schedule/PublishAndSaveSporkSchedule.java`);
   co-signing a statistics proposal through `PUT /gridspork/pending/{digest}` is the only path that
@@ -1211,7 +1211,7 @@ Collected here so a reader does not have to rediscover them.
   surfaces as `NoSuchElementException` instead of a clean decode failure
   (`model/network/codec/AbstractGridSporkDecoder.java`).
 - **`ASK_SPORKS` and `GROW_SPORK` are declared with no packet, codec or handler.** They are reserved
-  identifiers, not implemented messages (`model/network/packet/Packet.java`).
+  identifiers, not implemented messages (`model/network/Packet.java`).
 - **Sporks signed by earlier builds are still verified over their Java serialization.** Such a spork
   keeps its old signature only as long as its data is not rebuilt; once it crosses the network its
   signed bytes may differ on the receiver. Re-signing sets `Flag.WIRE_SIGNABLE` and ends that

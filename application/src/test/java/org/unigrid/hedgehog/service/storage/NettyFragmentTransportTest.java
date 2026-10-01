@@ -55,7 +55,7 @@ import org.unigrid.hedgehog.model.network.packet.FetchFragment;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.network.packet.HasFragment;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.StorageAck;
 import org.unigrid.hedgehog.model.network.packet.StoreFragment;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
@@ -63,7 +63,7 @@ import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 import org.unigrid.hedgehog.model.storage.TestClock;
-import org.unigrid.hedgehog.model.storage.crypto.GroupKey;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.model.storage.store.FragmentStore;
 
 public class NettyFragmentTransportTest {

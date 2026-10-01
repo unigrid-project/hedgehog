@@ -42,11 +42,11 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.Hedgehog;
 
 @ApplicationScoped
 public class EncryptedTokenHandler implements QuicTokenHandler {
-	private static final String SERVER_NAME = Hedgehog.class.getSimpleName();
+	/* Part of the token wire format, so it must not follow a rename of the main class */
+	private static final String SERVER_NAME = "Hedgehog";
 	private static final int IPV6_LENGTH = 16;
 	private static final int QUICHE_MAX_CONN_ID_LEN = 18;
 

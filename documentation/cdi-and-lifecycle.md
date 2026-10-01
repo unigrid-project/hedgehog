@@ -455,7 +455,7 @@ container programmatically. Current call sites:
 | `model/network/initializer/RegisterQuicChannelInitializer.java` | `SporkDatabase`, then `PendingSporks` |
 | `model/network/schedule/PublishPeersSchedule.java` | `Topology` |
 | `model/network/schedule/PublishAndSaveSporkSchedule.java` | `ApplicationDirectory`, `SporkDatabase`, `PendingSporks` |
-| `model/network/TopologyThread.java` | `Topology` (held for the whole life of the thread's `run()` loop) |
+| `server/p2p/TopologyThread.java` | `Topology` (held for the whole life of the thread's `run()` loop) |
 
 `model/network/handler/ConnectionHandler.java` is the odd one out — it calls
 `CDI.current().select(Topology.class)` inline and checks `isResolvable()` itself rather than going through
@@ -658,7 +658,7 @@ The periodic schedules do not own threads: `RegisterQuicChannelInitializer#initC
 with `channel.eventLoop().scheduleAtFixedRate(…)` and cancels them from the channel's close future, so
 they run on the Netty event loop of the channel they were attached to.
 
-`TopologyThread` (`model/network/TopologyThread.java`) is the one place the daemon runs container-managed
+`TopologyThread` (`server/p2p/TopologyThread.java`) is the one place the daemon runs container-managed
 state off both the main thread and the Netty event loops. It resolves `Topology` once via
 `CDIUtil.resolveAndRun` and holds that reference for the whole life of its `run()` loop, which repopulates
 from seeds when the topology is empty, opens a `P2PClient` to every node without a connection, and then

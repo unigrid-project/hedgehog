@@ -45,7 +45,7 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.apache.commons.lang3.SerializationUtils;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
