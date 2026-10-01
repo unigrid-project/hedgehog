@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.model.spork;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 /* The signer is null when no known network key signed the proposal */
 public record PendingSporkInfo(GridSpork.Type type, @JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp,

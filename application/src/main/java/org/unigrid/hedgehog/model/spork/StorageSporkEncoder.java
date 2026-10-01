@@ -16,43 +16,49 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.TreeMap;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage.SporkData> {
+public class StorageSporkEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<StorageSpork.SporkData> {
 	/*
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [     n= num mints     ][               reserved               ]
-	   n[                     << address (0-term) >>                   ]
-	    [            height            ][   << amount (0-term) >>  ...n]
+	    [                      max bytes per node                      ]
+	    [          chunk size          ][        fragment size         ]
+	    [ outer parity % ][ max outer   ][ inner parity % ][max parity %]
+	    [   repair interval minutes    ][tombstone days][ copy ][ slack]
+	    [thresh][ pool ][                  reserved                    ]
 	*/
-	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {
-		out.writeMedium(data.getMints().size());
-		out.writeZero(5 /* 40 bits */);
+	private static final int RESERVED_BYTES = 6;
 
-		new TreeMap<>(data.getMints()).forEach((location, amount) -> {
-			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), out);
-			out.writeInt(location.getHeight());
-			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), out);
-		});
+	@Override
+	public void encodeChunk(ChannelHandlerContext ctx, StorageSpork.SporkData data, ByteBuf out) throws Exception {
+		out.writeLong(data.getMaxBytesPerNode());
+		out.writeInt(data.getChunkSize());
+		out.writeInt(data.getFragmentSize());
+		out.writeShort(data.getOuterParityPercent());
+		out.writeShort(data.getMaxOuterDataChunks());
+		out.writeShort(data.getInnerParityPercent());
+		out.writeShort(data.getMaxParityPercent());
+		out.writeInt(data.getRepairIntervalMinutes());
+		out.writeShort(data.getTombstoneDays());
+		out.writeByte(data.getManifestCopies());
+		out.writeByte(data.getPlacementSlack());
+		out.writeByte(data.getRepairThresholdPercent());
+		out.writeByte(data.getExtraPoolPercent());
+		out.writeZero(RESERVED_BYTES);
 	}
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.MINT_STORAGE;
+		return GridSpork.Type.STORAGE;
 	}
 }

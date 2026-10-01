@@ -16,45 +16,35 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.math.BigDecimal;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class StorageSporkDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<StorageSpork.SporkData> {
-	private static final int RESERVED_BYTES = 6;
-
+public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
+	/*
+	    Chunk format:
+	    0..............................................................63
+	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
+	   n[ <max supply (0-term)>                                    ...n]
+	*/
 	@Override
-	public Optional<StorageSpork.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final StorageSpork.SporkData data = new StorageSpork.SporkData();
-
-		data.setMaxBytesPerNode(in.readLong());
-		data.setChunkSize(in.readInt());
-		data.setFragmentSize(in.readInt());
-		data.setOuterParityPercent(in.readUnsignedShort());
-		data.setMaxOuterDataChunks(in.readUnsignedShort());
-		data.setInnerParityPercent(in.readUnsignedShort());
-		data.setMaxParityPercent(in.readUnsignedShort());
-		data.setRepairIntervalMinutes(in.readInt());
-		data.setTombstoneDays(in.readUnsignedShort());
-		data.setManifestCopies(in.readUnsignedByte());
-		data.setPlacementSlack(in.readUnsignedByte());
-		data.setRepairThresholdPercent(in.readUnsignedByte());
-		data.setExtraPoolPercent(in.readUnsignedByte());
-		in.skipBytes(RESERVED_BYTES);
+	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final MintSupply.SporkData data = new MintSupply.SporkData();
+		data.setMaxSupply(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
 		return Optional.of(data);
 	}
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.STORAGE;
+		return GridSpork.Type.MINT_SUPPLY;
 	}
 }

@@ -18,7 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.codec.api;
 
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.List;

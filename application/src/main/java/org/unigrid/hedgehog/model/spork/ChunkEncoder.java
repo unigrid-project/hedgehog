@@ -16,8 +16,11 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
-public interface TypedCodec<T> {
-	T getCodecType();
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+
+public interface ChunkEncoder<T extends ChunkData> {
+	void encodeChunk(ChannelHandlerContext ctx, T chunkData, ByteBuf out) throws Exception;
 }

@@ -16,12 +16,21 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+package org.unigrid.hedgehog.model.spork;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonSubTypes.Type;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.io.Serializable;
 
-public interface ChunkEncoder<T extends ChunkData> {
-	void encodeChunk(ChannelHandlerContext ctx, T chunkData, ByteBuf out) throws Exception;
+@JsonTypeInfo(use = JsonTypeInfo.Id.DEDUCTION)
+@JsonSubTypes({
+	@Type(MintStorage.SporkData.class),
+	@Type(MintSupply.SporkData.class),
+	@Type(VestingStorage.SporkData.class),
+	@Type(StorageSpork.SporkData.class)
+})
+public interface ChunkData extends Serializable {
+	/* Empty on purpose */
+	ChunkData empty();
 }

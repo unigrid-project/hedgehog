@@ -16,22 +16,18 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
-import java.util.Optional;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 
-@Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
+@Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
+public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply.SporkData> {
 	/*
 	    Chunk format:
 	    0..............................................................63
@@ -39,10 +35,8 @@ public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecod
 	   n[ <max supply (0-term)>                                    ...n]
 	*/
 	@Override
-	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-		data.setMaxSupply(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
-		return Optional.of(data);
+	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out) throws Exception {
+		ByteBufUtils.writeNullTerminatedString(data.getMaxSupply().toPlainString(), out);
 	}
 
 	@Override

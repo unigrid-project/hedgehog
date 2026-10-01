@@ -16,58 +16,38 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.Optional;
-import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintStorage;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder {
+public class StatisticsPubKeyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder {
 	/*
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [     n= num mints     ][               reserved               ]
-	   n[                     << address (0-term) >>                   ]
-	    [            height            ][   << amount (0-term) >>  ...n]
+	    [                           reserved                           ]
+	    [                     << pubkey (0-term) >>                    ]
 	*/
 	@Override
-	public Optional<MintStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
-		final int entries = in.readMedium();
+	public Optional<StatisticsPubKey.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
 
-		in.skipBytes(5 /* 40 bits */);
+		in.skipBytes(8 /* 64 bits */);
+		data.setPublicKey(ByteBufUtils.readNullTerminatedString(in));
 
-		while (in.readableBytes() > 0 && mints.size() < entries) {
-			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
-			final int height = in.readInt();
-			final BigDecimal amount = new BigDecimal(ByteBufUtils.readNullTerminatedString(in));
-
-			mints.put(new MintStorage.SporkData.Location(address, height), amount);
-		}
-
-		if (entries == mints.size()) {
-			data.setMints(mints);
-			return Optional.of(data);
-		}
-
-		return Optional.empty();
+		return Optional.of(data);
 	}
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.MINT_STORAGE;
+		return GridSpork.Type.STATISTICS_PUBKEY;
 	}
 }

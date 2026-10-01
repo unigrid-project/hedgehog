@@ -27,15 +27,15 @@ import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
+import org.unigrid.hedgehog.model.spork.ChunkScanner;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SignatureLog;
 import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
 import org.unigrid.hedgehog.model.network.Packet;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.spork.ChunkDecoder;
 
 @Slf4j
 public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T> {

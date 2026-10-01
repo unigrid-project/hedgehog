@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -27,10 +27,7 @@ import net.jqwik.api.Builders;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.unigrid.hedgehog.model.network.codec.chunk.StorageSporkDecoder;
-import org.unigrid.hedgehog.model.network.codec.chunk.StorageSporkEncoder;
 import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
-import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.model.spork.StorageSporkTest.with;

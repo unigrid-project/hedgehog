@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import java.util.Map;
 import java.util.Set;
@@ -28,15 +28,24 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.reflections.Reflections;
+import org.reflections.util.ClasspathHelper;
+import org.reflections.util.ConfigurationBuilder;
+import org.reflections.util.FilterBuilder;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
+import org.unigrid.hedgehog.model.network.chunk.Chunk;
+import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
+import org.unigrid.hedgehog.model.network.chunk.ChunkType;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChunkScanner {
 	public static <K, V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
-		final String packageName = TypedCodec.class.getPackageName();
-		final Set<Class<?>> classes = new Reflections(packageName).getTypesAnnotatedWith(Chunk.class);
+		/* The package is also on the test classpath, where a plain package lookup would find only test classes */
+		final Set<Class<?>> classes = new Reflections(new ConfigurationBuilder()
+			.addUrls(ClasspathHelper.forClass(ChunkScanner.class))
+			.filterInputsBy(new FilterBuilder().includePackage(ChunkScanner.class.getPackageName()))
+		).getTypesAnnotatedWith(Chunk.class);
 
 		final Set<Class<?>> filteredClasses = classes.stream().filter(clazz -> {
 			final Chunk chunk = clazz.getAnnotation(Chunk.class);

@@ -407,7 +407,7 @@ it writes nothing at all into the buffer `PublishSporkEncoder` returns, and
 `ReplayingDecoder`s and are not.
 
 `codec/api/PacketEncoder.java` and `codec/api/PacketDecoder.java` both extend
-`codec/chunk/TypedCodec.java`, a one-method interface (`T getCodecType()`) shared with the chunk
+`network/chunk/TypedCodec.java`, a one-method interface (`T getCodecType()`) shared with the chunk
 codecs.
 
 ## Packet catalog
@@ -647,16 +647,16 @@ runtime by spork type. The mechanism is generic enough to be reused for other pa
   `ChunkGroup group() default ChunkGroup.DEFAULT` and a mandatory `ChunkType type()`.
 - `network/chunk/ChunkGroup.java` — `DEFAULT`, `GRIDSPORK`.
 - `network/chunk/ChunkType.java` — `ENCODER`, `DECODER`.
-- `network/chunk/ChunkData.java` — the payload marker interface; `Serializable`, one method
+- `spork/ChunkData.java` — the payload marker interface; `Serializable`, one method
   `ChunkData empty()`, and Jackson `@JsonTypeInfo(use = Id.DEDUCTION)` with `@JsonSubTypes` listing
   `MintStorage.SporkData`, `MintSupply.SporkData` and `VestingStorage.SporkData`.
   `StatisticsPubKey.SporkData` is **not** in that list, so Jackson has no registered subtype for it.
-- `network/chunk/ChunkScanner.java` — `scan(ChunkType, ChunkGroup)` runs Reflections over
-  `TypedCodec.class.getPackageName()` (`org.unigrid.hedgehog.model.network.codec.chunk`), keeps the
+- `spork/ChunkScanner.java` — `scan(ChunkType, ChunkGroup)` runs Reflections over
+  `ChunkScanner.class.getPackageName()` (`org.unigrid.hedgehog.model.spork`), keeps the
   classes whose `@Chunk` matches both arguments, instantiates each through its no-arg constructor and
   collects them into an `OptionalMap` keyed by `getCodecType()`. A failure to instantiate is rethrown
   as `IllegalStateException("Unable to instantiate chunk converter.")`.
-- `codec/api/ChunkEncoder.java` / `codec/api/ChunkDecoder.java` — `encodeChunk(ctx, T, ByteBuf)` and
+- `spork/ChunkEncoder.java` / `spork/ChunkDecoder.java` — `encodeChunk(ctx, T, ByteBuf)` and
   `Optional<T> decodeChunk(ctx, ByteBuf)`.
 - `model/collection/OptionalMap.java` — an Apache Commons `AbstractMapDecorator` adding
   `getOptional(key)`.
@@ -668,7 +668,7 @@ with `ChunkType.DECODER` and `ChunkGroup.GRIDSPORK`. That happens per codec inst
 suppliers construct fresh codecs for every stream — so every new connection re-runs the decoder scan.
 
 Four chunk types are implemented, all in
-`application/src/main/java/org/unigrid/hedgehog/model/network/codec/chunk/`:
+`application/src/main/java/org/unigrid/hedgehog/model/spork/`:
 
 | `GridSpork.Type` | Id | Encoder | Decoder |
 | --- | ---: | --- | --- |

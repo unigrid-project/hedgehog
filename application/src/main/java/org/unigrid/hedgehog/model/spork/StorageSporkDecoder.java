@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -24,32 +24,35 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class StatisticsPubKeyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder {
-	/*
-	    Chunk format:
-	    0..............................................................63
-	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [                           reserved                           ]
-	    [                     << pubkey (0-term) >>                    ]
-	*/
+public class StorageSporkDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<StorageSpork.SporkData> {
+	private static final int RESERVED_BYTES = 6;
+
 	@Override
-	public Optional<StatisticsPubKey.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
+	public Optional<StorageSpork.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final StorageSpork.SporkData data = new StorageSpork.SporkData();
 
-		in.skipBytes(8 /* 64 bits */);
-		data.setPublicKey(ByteBufUtils.readNullTerminatedString(in));
-
+		data.setMaxBytesPerNode(in.readLong());
+		data.setChunkSize(in.readInt());
+		data.setFragmentSize(in.readInt());
+		data.setOuterParityPercent(in.readUnsignedShort());
+		data.setMaxOuterDataChunks(in.readUnsignedShort());
+		data.setInnerParityPercent(in.readUnsignedShort());
+		data.setMaxParityPercent(in.readUnsignedShort());
+		data.setRepairIntervalMinutes(in.readInt());
+		data.setTombstoneDays(in.readUnsignedShort());
+		data.setManifestCopies(in.readUnsignedByte());
+		data.setPlacementSlack(in.readUnsignedByte());
+		data.setRepairThresholdPercent(in.readUnsignedByte());
+		data.setExtraPoolPercent(in.readUnsignedByte());
+		in.skipBytes(RESERVED_BYTES);
 		return Optional.of(data);
 	}
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.STATISTICS_PUBKEY;
+		return GridSpork.Type.STORAGE;
 	}
 }

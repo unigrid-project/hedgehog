@@ -16,13 +16,8 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.api;
+package org.unigrid.hedgehog.model.network.chunk;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
-
-public interface ChunkDecoder<T extends ChunkData> {
-	Optional<T> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception;
+public interface TypedCodec<T> {
+	T getCodecType();
 }

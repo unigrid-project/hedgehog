@@ -16,68 +16,48 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkDecoder;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.VestingStorage;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
-public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage.SporkData> {
+public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder {
 	/*
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	    [    n= num vestings   ][               reserved               ]
+	    [     n= num mints     ][               reserved               ]
 	   n[                     << address (0-term) >>                   ]
-	    [                     vesting start (seconds)                  ]
-	    [      start (nanos)       ]
-	    [                    vesting duration (seconds)                ]
-	    [     duration (nanos)     ][          vesting parts           ]
-	    [      vesting cliff       ][         vesting percent          ]
-	    [      vesting block       ]
-	    [             << amount (0-term, empty if none) >>         ...n]
+	    [            height            ][   << amount (0-term) >>  ...n]
 	*/
 	@Override
-	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final VestingStorage.SporkData data = new VestingStorage.SporkData();
-		final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
+	public Optional<MintStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final MintStorage.SporkData data = new MintStorage.SporkData();
+		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
 		final int entries = in.readMedium();
 
 		in.skipBytes(5 /* 40 bits */);
 
-		while (in.readableBytes() > 0 && vests.size() < entries) {
+		while (in.readableBytes() > 0 && mints.size() < entries) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
-			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
+			final int height = in.readInt();
+			final BigDecimal amount = new BigDecimal(ByteBufUtils.readNullTerminatedString(in));
 
-			vesting.setStart(Instant.ofEpochSecond(in.readLong(), in.readInt()));
-			vesting.setDuration(Duration.ofSeconds(in.readLong(), in.readInt()));
-			vesting.setParts(in.readInt());
-			vesting.setCliff(in.readInt());
-			vesting.setPercent(in.readInt());
-			vesting.setBlock(in.readInt());
-
-			final String amount = ByteBufUtils.readNullTerminatedString(in);
-
-			vesting.setAmount(amount.isEmpty() ? null : new BigDecimal(amount));
-
-			vests.put(address, vesting);
+			mints.put(new MintStorage.SporkData.Location(address, height), amount);
 		}
 
-		if (entries == vests.size()) {
-			data.setVestingAddresses(vests);
+		if (entries == mints.size()) {
+			data.setMints(mints);
 			return Optional.of(data);
 		}
 
@@ -86,6 +66,6 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.VESTING_STORAGE;
+		return GridSpork.Type.MINT_STORAGE;
 	}
 }

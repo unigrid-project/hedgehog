@@ -16,33 +16,41 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network.codec.chunk;
+package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.TreeMap;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
-import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 
 @Chunk(type = ChunkType.ENCODER, group = ChunkGroup.GRIDSPORK)
-public class MintSupplyEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintSupply.SporkData> {
+public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEncoder<MintStorage.SporkData> {
 	/*
 	    Chunk format:
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
-	   n[ <max supply (0-term)>                                    ...n]
+	    [     n= num mints     ][               reserved               ]
+	   n[                     << address (0-term) >>                   ]
+	    [            height            ][   << amount (0-term) >>  ...n]
 	*/
 	@Override
-	public void encodeChunk(ChannelHandlerContext ctx, MintSupply.SporkData data, ByteBuf out) throws Exception {
-		ByteBufUtils.writeNullTerminatedString(data.getMaxSupply().toPlainString(), out);
+	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {
+		out.writeMedium(data.getMints().size());
+		out.writeZero(5 /* 40 bits */);
+
+		new TreeMap<>(data.getMints()).forEach((location, amount) -> {
+			ByteBufUtils.writeNullTerminatedString(location.getAddress().getWif(), out);
+			out.writeInt(location.getHeight());
+			ByteBufUtils.writeNullTerminatedString(amount.toPlainString(), out);
+		});
 	}
 
 	@Override
 	public GridSpork.Type getCodecType() {
-		return GridSpork.Type.MINT_SUPPLY;
+		return GridSpork.Type.MINT_STORAGE;
 	}
 }
