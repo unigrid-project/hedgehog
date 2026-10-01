@@ -32,6 +32,7 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
+import org.unigrid.hedgehog.jqwik.NamedCDIProvider;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 
 @WeldSetup(TestServer.class)
@@ -54,10 +55,29 @@ public class BaseServerTest extends BaseMockedWeldTest {
 		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS)));
 	}
 
+	protected List<TestServer> servers() {
+		return servers;
+	}
+
+	protected String containerName(int index) {
+		return getClass().getSimpleName() + (index + 1);
+	}
+
+	/* Most tests read the state a server wrote through the shared CDI.current(), so isolating the servers is opt-in */
+	protected boolean isolateContainers() {
+		return false;
+	}
+
 	@BeforeTry
 	public void before() {
-		for (TestServer s : servers) {
-			TestServer.mockProperties(s);
+		for (int i = 0; i < servers.size(); i++) {
+			final TestServer server = servers.get(i);
+
+			if (isolateContainers()) {
+				NamedCDIProvider.within(containerName(i), () -> TestServer.mockProperties(server));
+			} else {
+				TestServer.mockProperties(server);
+			}
 		}
 	}
 }
