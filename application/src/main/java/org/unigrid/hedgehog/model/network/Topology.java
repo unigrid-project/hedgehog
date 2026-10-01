@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -43,8 +44,11 @@ import org.unigrid.hedgehog.model.network.packet.Packet;
 @Slf4j
 @ApplicationScoped
 public class Topology {
+	/* Far above any real network, but low enough that a flood of made-up keys cannot exhaust the memory of a node */
+	public static final int MAX_GRIDNODES = 10_000;
+
 	private HashSet<Node> nodes;
-	private HashSet<Gridnode> gridnodes;
+	private HashMap<String, Gridnode> gridnodes;
 
 	@Inject
 	@Getter private ChannelMap channels;
@@ -52,7 +56,7 @@ public class Topology {
 	@PostConstruct
 	private void init() {
 		repopulate();
-		gridnodes = new HashSet<>();
+		gridnodes = new HashMap<>();
 	}
 
 	@Protected @Lock(LockMode.WRITE)
@@ -155,37 +159,43 @@ public class Topology {
 		return offerGridnode(gridnode, System.currentTimeMillis());
 	}
 
-	/* The cheap checks go first because anyone on the network can send an entry */
-	@Protected @Lock(LockMode.WRITE)
+	/* Anyone on the network can send an entry, so the cheap checks go first and the costly signature check runs
+	   outside the lock, which only guards the final insert */
 	public boolean offerGridnode(Gridnode gridnode, long nowMillis) {
-		if (GridnodeSignature.isFresh(gridnode, nowMillis) && isNewerThanStored(gridnode)
-			&& GridnodeSignature.verifies(gridnode)) {
+		return GridnodeSignature.isFresh(gridnode, nowMillis) && isNewer(gridnode, findGridnode(gridnode.getId()))
+			&& GridnodeSignature.verifies(gridnode) && storeVerified(gridnode);
+	}
 
-			gridnodes.remove(gridnode);
-			return gridnodes.add(gridnode);
+	/* The newer-than check is repeated under the lock, as the stored entry may have changed during verification */
+	@Protected @Lock(LockMode.WRITE)
+	public boolean storeVerified(Gridnode gridnode) {
+		final Optional<Gridnode> stored = Optional.ofNullable(gridnodes.get(gridnode.getId()));
+
+		if (isNewer(gridnode, stored) && (stored.isPresent() || gridnodes.size() < MAX_GRIDNODES)) {
+			gridnodes.put(gridnode.getId(), gridnode);
+			return true;
 		}
 
 		return false;
 	}
 
-	private boolean isNewerThanStored(Gridnode gridnode) {
-		return gridnodes.stream().filter(gridnode::equals)
-			.allMatch(stored -> gridnode.getTimestamp() > stored.getTimestamp());
+	private static boolean isNewer(Gridnode gridnode, Optional<Gridnode> stored) {
+		return stored.map(held -> gridnode.getTimestamp() > held.getTimestamp()).orElse(true);
 	}
 
 	@Protected @Lock(LockMode.READ)
 	public Optional<Gridnode> findGridnode(String id) {
-		return gridnodes.stream().filter(gridnode -> gridnode.getId().equals(id)).findFirst();
+		return Optional.ofNullable(gridnodes.get(id));
 	}
 
 	@Protected @Lock(LockMode.WRITE)
 	public void purgeGridnodes(long nowMillis, Optional<String> keep) {
-		gridnodes.removeIf(gridnode -> GridnodeSignature.isExpired(gridnode, nowMillis)
+		gridnodes.values().removeIf(gridnode -> GridnodeSignature.isExpired(gridnode, nowMillis)
 			&& !keep.equals(Optional.of(gridnode.getId())));
 	}
 
 	@Protected @Lock(LockMode.READ)
 	public Set<Gridnode> cloneGridnode() {
-		return new HashSet(gridnodes);
+		return new HashSet<>(gridnodes.values());
 	}
 }
