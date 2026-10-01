@@ -16,22 +16,30 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.gridnode;
 
-import java.nio.file.Path;
-import lombok.Getter;
-import picocli.CommandLine;
-import picocli.CommandLine.Option;
+import java.util.function.Consumer;
+import org.unigrid.hedgehog.model.crypto.Signature;
 
-public class GridnodeOptions {
+public final class GridnodeFixtures {
+	private GridnodeFixtures() { }
 
-	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
-	)
-	private static Path gridnodeKeyFile;
+	public static Gridnode signed(Signature key, Gridnode.Status status, String host, long timestamp)
+		throws Exception {
 
-	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT,
-		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
-	)
-	private static String announceAddress;
+		final Gridnode gridnode = Gridnode.builder().id(key.getPublicKey()).status(status).hostName(host)
+			.timestamp(timestamp).build();
+
+		gridnode.setSignature(key.sign(GridnodeSignature.message(gridnode)));
+		return gridnode;
+	}
+
+	public static Gridnode copyOf(Gridnode original, Consumer<Gridnode> change) {
+		final Gridnode copy = Gridnode.builder().id(original.getId()).status(original.getStatus())
+			.hostName(original.getHostName()).timestamp(original.getTimestamp())
+			.signature(original.getSignature()).build();
+
+		change.accept(copy);
+		return copy;
+	}
 }

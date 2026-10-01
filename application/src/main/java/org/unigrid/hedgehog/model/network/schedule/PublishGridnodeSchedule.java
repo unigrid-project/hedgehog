@@ -19,14 +19,14 @@
 package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
@@ -35,20 +35,24 @@ import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 @EqualsAndHashCode(callSuper = false)
 public class PublishGridnodeSchedule extends AbstractSchedule implements Schedulable {
 	public PublishGridnodeSchedule() {
-		super(PublishGridnode.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
+		super(PublishGridnode.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, true);
 		log.atDebug().log("Init");
 	}
 
+	/* Sending on creation hands a new link the whole list at once; the period repairs floods that were missed */
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				final Set<Gridnode> gridnodesToSend = topology.cloneGridnode();
+			CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::refresh);
 
-				gridnodesToSend.forEach((g) -> {
-					log.atTrace().log("Sending gridnode");
-					channel.writeAndFlush(PublishGridnode.builder().gridnode(g).build());
-				});
+			CDIUtil.resolveAndRun(Topology.class, topology -> {
+				final long now = System.currentTimeMillis();
+
+				topology.cloneGridnode().stream()
+					.filter(gridnode -> GridnodeSignature.isFresh(gridnode, now)).forEach(gridnode -> {
+						log.atTrace().log("Sending gridnode");
+						channel.writeAndFlush(PublishGridnode.builder().gridnode(gridnode).build());
+					});
 			});
 		};
 	}

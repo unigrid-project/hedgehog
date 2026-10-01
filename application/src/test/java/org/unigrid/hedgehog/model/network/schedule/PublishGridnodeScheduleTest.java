@@ -29,12 +29,13 @@ import lombok.SneakyThrows;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
-import org.bitcoinj.core.ECKey;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -55,21 +56,13 @@ public class PublishGridnodeScheduleTest extends BaseScheduleTest<PublishGridnod
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PublishGridnodeSchedule.class);
 	}
 
-	public List<ECKey> provideKeys(int num) {
-		List<ECKey> keys = new ArrayList<>();
-		for (int i = 0; i < num; i++) {
-			keys.add(new ECKey());
-		}
-		return keys;
-	}
-	
 	private enum Family {
 		IP4, IP6
 	}
 
 	@SneakyThrows
 	public void provideActiveGridnode(@ForAll Family family,
-		@ForAll @IntRange(min = 1024, max = 65535) int port, String key) {
+		@ForAll @IntRange(min = 1024, max = 65535) int port) {
 
 		String address = switch (family) {
 			case IP4 -> ArbitraryGenerator.ip4();
@@ -84,19 +77,18 @@ public class PublishGridnodeScheduleTest extends BaseScheduleTest<PublishGridnod
 			node = Node.fromAddress((family == Family.IP4 ? "%s:%d" : "[%s]:%d").formatted(address, port));
 		}
 		topology.addNode(node);
-		Gridnode gridnode = Gridnode.builder().hostName(node.getAddress().getHostString()).id(key)
-			.status(Gridnode.Status.ACTIVE).build();
-		topology.addGridnode(gridnode);
+		topology.offerGridnode(GridnodeFixtures.signed(new Signature(), Gridnode.Status.ACTIVE,
+			node.getAddress().getHostString(), System.currentTimeMillis()
+		));
 	}
 
 	@Property(tries = 3)
 	public void shoulBeAbleToPropagateNetwork(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
 		final AtomicInteger invocations = new AtomicInteger();
 		final List<Connection> connections = new ArrayList<>();
-		List<ECKey> keys = provideKeys(8);
-		
-		for (ECKey key : keys) {
-			provideActiveGridnode(Family.IP4, new Random().nextInt(1024, 65535), key.getPublicKeyAsHex());
+
+		for (int i = 0; i < 8; i++) {
+			provideActiveGridnode(Family.IP4, new Random().nextInt(1024, 65535));
 		}
 
 		for (TestServer server : servers) {

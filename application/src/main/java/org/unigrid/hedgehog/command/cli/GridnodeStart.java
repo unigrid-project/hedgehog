@@ -16,18 +16,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.network;
+package org.unigrid.hedgehog.command.cli;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import picocli.CommandLine.Command;
 
-@Data
-@Builder
-@AllArgsConstructor
-@NoArgsConstructor
-public class ActivateGridnode {
-	private String gridnodeId;
-	private String publicKey;
+@Command(name = "gridnode-start")
+public class GridnodeStart extends GridnodeStatusCommand {
+	public GridnodeStart() {
+		super("/gridnode/start");
+	}
 }

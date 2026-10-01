@@ -16,22 +16,27 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.command.cli;
 
-import java.nio.file.Path;
-import lombok.Getter;
-import picocli.CommandLine;
-import picocli.CommandLine.Option;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.Response;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.Json;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import picocli.CommandLine.Command;
 
-public class GridnodeOptions {
+@Command(name = "gridnode-list")
+public class GridnodeList extends RestClientCommand {
+	public GridnodeList() {
+		super(HttpMethod.GET, "/gridnode", Optional.of(() -> new HashSet<Gridnode>()));
+	}
 
-	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
-	)
-	private static Path gridnodeKeyFile;
-
-	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT,
-		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
-	)
-	private static String announceAddress;
+	@Override
+	protected void execute(Response response) {
+		System.out.println(Json.parse(response.readEntity(new GenericType<Set<Gridnode>>() { })));
+	}
 }

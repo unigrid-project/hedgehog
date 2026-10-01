@@ -16,15 +16,30 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.gridnode;
+package org.unigrid.hedgehog.command.cli;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Response;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
 
-@Data
-public class Delegation {
-	private String account;
+public abstract class GridnodeStatusCommand extends RestClientCommand {
+	protected GridnodeStatusCommand(String location) {
+		super(HttpMethod.PUT, location);
+	}
 
-	@JsonProperty(value = "delegated_amount")
-	private double delegatedAmount;
+	@Override
+	@SuppressWarnings("unchecked")
+	protected <T> Entity<T> getEntity() {
+		return (Entity<T>) Entity.text("");
+	}
+
+	@Override
+	protected void execute(Response response) {
+		if (response.getStatus() == Response.Status.CONFLICT.getStatusCode()) {
+			System.err.println("This daemon was not started with -G, so it is not a gridnode");
+		} else {
+			System.out.println(response.getStatusInfo());
+		}
+	}
 }

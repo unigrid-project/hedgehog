@@ -18,36 +18,23 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
-import org.bitcoinj.core.ECKey;
-import org.bitcoinj.core.SignatureDecodeException;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.crypto.GridnodeKey;
-import org.unigrid.hedgehog.model.network.Topology;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.gridnode.Delegation;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.network.ActivateGridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
 @Path("/gridnode")
@@ -56,10 +43,10 @@ import org.unigrid.hedgehog.server.p2p.P2PServer;
 public class GridnodeResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
-	private P2PServer p2pServer;
+	private Topology topology;
 
 	@CDIBridgeInject
-	private Topology topology;
+	private GridnodeAnnouncer announcer;
 
 	@GET @Path("/collateral")
 	public Response get() {
@@ -79,104 +66,23 @@ public class GridnodeResource extends CDIBridgeResource {
 
 	@GET
 	public Response list() {
-		Set<Gridnode> gridnodes = topology.cloneGridnode();
-
-		return Response.ok(gridnodes.toString()).build();
+		return Response.ok(topology.cloneGridnode()).build();
 	}
 
-	/**
-	 * *
-	 * Expects base64 encoded Base64.getEncoder().encodeToString(singature.encodeToDER()) ECKey.ECDSASignature as a
-	 * header param.
-	 *
-	 * Gridnode object Gridnode key to activate Hex represenation of the public key
-	 *
-	 * @param gridnode
-	 * @param sign
-	 * @return status 202 if sucssesfull
-	 */
-	@Path("/start")
-	@PUT
-	public Response put(@NotNull ActivateGridnode gridnode,
-		@NotNull @HeaderParam("sign") String sign) {
-		try {
-			byte[] bytes = Hex.decodeHex(gridnode.getPublicKey());
-			ECKey pubKey = ECKey.fromPublicOnly(bytes);
-			byte[] messageBytes = gridnode.getGridnodeId().getBytes();
-			byte[] signBytes = Base64.getDecoder().decode(sign);
-			if (GridnodeKey.verifySignature(messageBytes, signBytes, pubKey)) {
-				final Set<Gridnode> gridnodes = topology.cloneGridnode();
-				gridnodes.forEach(g -> {
-					if (g.getId().equals(gridnode.getGridnodeId())) {
-						log.atTrace().log("Activating node with id {}", g.getId());
-						topology.modifyGridnode(g, n -> {
-							n.setStatus(Gridnode.Status.ACTIVE);
-						});
-						Topology.sendAll(PublishGridnode.builder().gridnode(g).build(),
-							topology, Optional.empty());
-					}
-				});
-				return Response.status(Response.Status.ACCEPTED).build();
-			}
-		} catch (SignatureDecodeException ex) {
-			log.error(ex.getMessage());
-			return Response.status(Response.Status.UNAUTHORIZED).build();
-		} catch (Exception e) {
-			System.out.println(e.getMessage());
-			log.error(e.getMessage());
-			return Response.status(Response.Status.EXPECTATION_FAILED).build();
-		}
-
-		return Response.status(Response.Status.UNAUTHORIZED).build();
+	@PUT @Path("/start")
+	public Response start() {
+		return announce(Gridnode.Status.ACTIVE);
 	}
 
-	@PUT @Path("heartbeat")
-	public Response heartbeat(@NotNull List<Delegation> accounts) {
-		final Map<String, Double> map = accounts.stream()
-			.collect(Collectors.toMap(Delegation::getAccount, Delegation::getDelegatedAmount));
-
-		Collateral collateralCalculator = new Collateral();
-		final Set<Gridnode> gridnodes = topology.cloneGridnode();
-		int numNodes = gridnodes.size();
-		log.atDebug().log("Heartbeat");
-		log.atDebug().log("number of node on the network " + numNodes);
-
-		if (numNodes == 0) {
-			return Response.status(Response.Status.NO_CONTENT).build();
-		}
-
-		map.entrySet().forEach(accountEntry -> {
-			String key = accountEntry.getKey();
-			Double val = accountEntry.getValue();
-			double cost = collateralCalculator.get(gridnodes.size());
-			log.atDebug().log("Account = " + key + " delegated amount = " + val);
-			int i = (int) Math.round(val / cost);
-			log.atDebug().log("Alowed to run " + i + " nodes");
-
-			List<ECKey> keys = GridnodeKey.generateKeys(key, i);
-			List<String> pubKeys = new ArrayList<>();
-			keys.forEach(k -> {
-				pubKeys.add(k.getPublicKeyAsHex());
-			});
-
-			gridnodes.removeIf(gridnode -> gridnode.getStatus() == Gridnode.Status.ACTIVE
-				&& pubKeys.contains(gridnode.getId()));
-		});
-
-		gridnodes.forEach(gridnode -> gridnode.setStatus(Gridnode.Status.INACTIVE));
-		return Response.status(Response.Status.OK).build();
+	@PUT @Path("/stop")
+	public Response stop() {
+		return announce(Gridnode.Status.INACTIVE);
 	}
 
-	/*@Path("heartbeat/hash")
-	@GET
-	public Response getHash() {
-		return Response.ok(gridnodeHash.getHash()).build();
+	private Response announce(Gridnode.Status status) {
+		return announcer.announce(status).map(entry -> {
+			Topology.sendAll(PublishGridnode.builder().gridnode(entry).build(), topology, Optional.empty());
+			return Response.accepted().build();
+		}).orElseGet(() -> Response.status(Response.Status.CONFLICT).build());
 	}
-
-	@Path("heartbeat/hash")
-	@PUT
-	public Response updateHash(@NotNull String hash) {
-		gridnodeHash.setHash(hash);
-		return Response.status(Response.Status.OK).build();
-	}*/
 }

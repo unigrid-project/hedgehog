@@ -26,6 +26,9 @@ import org.unigrid.hedgehog.command.cli.GridSporkLog;
 import org.unigrid.hedgehog.command.cli.GridSporkPending;
 import org.unigrid.hedgehog.command.cli.GridSporkRenew;
 import org.unigrid.hedgehog.command.cli.GridSporkSet;
+import org.unigrid.hedgehog.command.cli.GridnodeList;
+import org.unigrid.hedgehog.command.cli.GridnodeStart;
+import org.unigrid.hedgehog.command.cli.GridnodeStop;
 import org.unigrid.hedgehog.command.cli.NodeAdd;
 import org.unigrid.hedgehog.command.cli.NodeList;
 import org.unigrid.hedgehog.command.cli.NodeRemove;
@@ -41,6 +44,7 @@ import picocli.CommandLine.Mixin;
 @Command(name = "cli", subcommands = { GridSporkGet.class, GridSporkGrow.class, GridSporkSet.class, GridSporkList.class,
 	GridSporkLog.class, GridSporkRenew.class, GridSporkPending.class, GridSporkCosign.class,
 	NodeAdd.class, NodeRemove.class, NodeList.class,
+	GridnodeStart.class, GridnodeStop.class, GridnodeList.class,
 	StoragePut.class, StorageGet.class, StorageDelete.class,
 	Stop.class
 })

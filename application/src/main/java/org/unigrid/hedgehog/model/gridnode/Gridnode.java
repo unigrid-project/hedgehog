@@ -18,12 +18,14 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 @Data
 @Builder
@@ -56,4 +58,8 @@ public class Gridnode {
 	@EqualsAndHashCode.Include
 	private String id;
 	private String hostName;
+	private long timestamp;
+	@JsonIgnore
+	@ToString.Exclude
+	private byte[] signature;
 }

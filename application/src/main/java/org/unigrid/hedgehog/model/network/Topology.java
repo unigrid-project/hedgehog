@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -33,20 +34,21 @@ import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
-import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Lock;
 import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 
 @Slf4j
 @ApplicationScoped
 public class Topology {
+	/* Far above any real network, but low enough that a flood of made-up keys cannot exhaust the memory of a node */
+	public static final int MAX_GRIDNODES = 10_000;
+
 	private HashSet<Node> nodes;
-	private HashSet<Gridnode> gridnodes;
+	private HashMap<String, Gridnode> gridnodes;
 
 	@Inject
 	@Getter private ChannelMap channels;
@@ -54,11 +56,7 @@ public class Topology {
 	@PostConstruct
 	private void init() {
 		repopulate();
-		gridnodes = new HashSet<>();
-		if (!StringUtils.isEmpty(GridnodeOptions.getGridnodeKey())) {
-			gridnodes.add(Gridnode.builder().id(GridnodeOptions.getGridnodeKey())
-				.hostName(NetOptions.getHost() + ":" + NetOptions.getPort()).build());
-		}
+		gridnodes = new HashMap<>();
 	}
 
 	@Protected @Lock(LockMode.WRITE)
@@ -149,42 +147,55 @@ public class Topology {
 		});
 	}
 
-	@Protected @Lock(LockMode.WRITE)
-	public void modifyGridnode(Gridnode gridnode, Consumer<Gridnode> consumer)  {
-		gridnodes.forEach(g -> {
-			if (gridnode.equals(g)) {
-				consumer.accept(g);
+	public static void sendAllExcept(Packet packet, Topology topology, Optional<Node> excluded) {
+		topology.forEach(node -> {
+			if (!excluded.equals(Optional.of(node))) {
+				Node.send(packet, node, Optional.empty());
 			}
 		});
 	}
 
-	public void changeGridnodeStatus(String gridnodeId, Gridnode.Status status) {
-		Gridnode gridnode = Gridnode.builder().id(gridnodeId).status(status).build();
-		modifyGridnode(gridnode, (g) -> {
-			g.setStatus(gridnode.getStatus());
-		});
+	public boolean offerGridnode(Gridnode gridnode) {
+		return offerGridnode(gridnode, System.currentTimeMillis());
 	}
 
+	/* Anyone on the network can send an entry, so the cheap checks go first and the costly signature check runs
+	   outside the lock, which only guards the final insert */
+	public boolean offerGridnode(Gridnode gridnode, long nowMillis) {
+		return GridnodeSignature.isFresh(gridnode, nowMillis) && isNewer(gridnode, findGridnode(gridnode.getId()))
+			&& GridnodeSignature.verifies(gridnode) && storeVerified(gridnode);
+	}
+
+	/* The newer-than check is repeated under the lock, as the stored entry may have changed during verification */
 	@Protected @Lock(LockMode.WRITE)
-	public boolean addGridnode(Gridnode gridnode) {
-		if (!gridnodes.contains(gridnode)) {
-			return gridnodes.add(gridnode);
+	public boolean storeVerified(Gridnode gridnode) {
+		final Optional<Gridnode> stored = Optional.ofNullable(gridnodes.get(gridnode.getId()));
+
+		if (isNewer(gridnode, stored) && (stored.isPresent() || gridnodes.size() < MAX_GRIDNODES)) {
+			gridnodes.put(gridnode.getId(), gridnode);
+			return true;
 		}
 
 		return false;
 	}
 
-	@Protected @Lock(LockMode.WRITE)
-	public boolean removeGridnode(Gridnode gridnode) {
-		if (!gridnodes.contains(gridnode)) {
-			return gridnodes.remove(gridnode);
-		}
+	private static boolean isNewer(Gridnode gridnode, Optional<Gridnode> stored) {
+		return stored.map(held -> gridnode.getTimestamp() > held.getTimestamp()).orElse(true);
+	}
 
-		return false;
+	@Protected @Lock(LockMode.READ)
+	public Optional<Gridnode> findGridnode(String id) {
+		return Optional.ofNullable(gridnodes.get(id));
+	}
+
+	@Protected @Lock(LockMode.WRITE)
+	public void purgeGridnodes(long nowMillis, Optional<String> keep) {
+		gridnodes.values().removeIf(gridnode -> GridnodeSignature.isExpired(gridnode, nowMillis)
+			&& !keep.equals(Optional.of(gridnode.getId())));
 	}
 
 	@Protected @Lock(LockMode.READ)
 	public Set<Gridnode> cloneGridnode() {
-		return new HashSet(gridnodes);
+		return new HashSet<>(gridnodes.values());
 	}
 }

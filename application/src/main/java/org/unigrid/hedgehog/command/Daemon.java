@@ -31,10 +31,14 @@ import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.ParameterException;
+import picocli.CommandLine.Spec;
 
 @ApplicationScoped
 @Command(name = "daemon")
@@ -46,6 +50,19 @@ public class Daemon extends CDIContext implements Runnable {
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
 	@Inject private SnapshotInstaller snapshotInstaller;
+
+	@Spec private CommandSpec spec;
+
+	@Override
+	public void run() {
+		try {
+			GridnodeSetup.validate();
+		} catch (IllegalArgumentException ex) {
+			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
+		}
+
+		super.run();
+	}
 
 	/* The node serves everything else while the snapshot downloads, so startup never waits for it. */
 	@Override

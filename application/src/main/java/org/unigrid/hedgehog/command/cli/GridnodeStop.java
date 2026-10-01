@@ -16,18 +16,13 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.command.cli;
 
-import mockit.Mock;
-import mockit.MockUp;
-import org.bitcoinj.core.ECKey;
+import picocli.CommandLine.Command;
 
-public class GridnodeOptionsMockup extends MockUp<GridnodeOptions>{
-
-	@Mock
-	public String getGridnodeKey() {
-		System.out.println("Getting gridnode key");
-		ECKey key = new ECKey();
-		return key.getPublicKeyAsHex();
+@Command(name = "gridnode-stop")
+public class GridnodeStop extends GridnodeStatusCommand {
+	public GridnodeStop() {
+		super("/gridnode/stop");
 	}
 }

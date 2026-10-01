@@ -27,6 +27,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.client.P2PClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.gridnode.GridnodeAnnouncer;
 
 @Slf4j
 public class TopologyThread extends Thread {
@@ -92,6 +93,8 @@ public class TopologyThread extends Thread {
 				if (topology.isEmpty()) {
 					topology.repopulate();
 				}
+
+				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
 
 				final Set<Node> nodes = topology.cloneNodes();
 				nodes.forEach(new NodeConnectionHandler(topology));

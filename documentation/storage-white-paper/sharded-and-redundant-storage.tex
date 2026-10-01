@@ -1707,6 +1707,10 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      active gridnodes.
 	\item[Eclipse] Placement trusts each node's view of the active gridnodes. An attacker that controls that view,
 	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
+	      Announcements of gridnodes are signed with the gridnode's own key and expire after thirty minutes
+	      without a fresh signature, so a peer can neither forge nor revive an entry; it can still withhold
+	      entries from a node whose connections it controls. Nothing yet ties a key to collateral, so anyone
+	      can announce as many gridnodes as they like.
 	\item[Spork key] The holder of the foundation's spork key can stop new uploads, disable storage with a spork
 	      that fails validation, or set sizes under which old groups can no longer be stored or rebuilt
 	      (Section~\ref{sec:governance}). It cannot read, find or delete a file.
@@ -1766,7 +1770,8 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 	\item Expiry or leases for groups, so that orphaned data does not stay stored forever.
 	\item Batched census queries across groups, and backpressure in the transport.
 	\item Moving fragment verification and disk access off the network event loops.
-	\item Hardening of gridnode discovery, on which placement depends.
+	\item Proof of collateral for a gridnode's key, so that a signed announcement also shows that the gridnode is
+	      paid for.
 	\item Faster field arithmetic, and codes with cheaper repair~\cite{dimakis2010}.
 	\item Stronger storage challenges than spot checks~\cite{ateniese2007,juels2007}.
 \end{itemize}
