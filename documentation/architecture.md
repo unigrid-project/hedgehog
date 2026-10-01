@@ -533,8 +533,8 @@ collected here. The short version: **content is authenticated, transport and con
 
 * **TLS on both sockets is encryption without authentication.** `P2PServer` and `RestServer` each
   generate a fresh `SelfSignedCertificate` at startup, and both shipped clients accept anything:
-  `client/RestClient.java` installs `InsecureTrustManagerFactory` together with a hostname verifier
-  that returns `true` unconditionally, and `client/P2PClient.java` uses `InsecureTrustManagerFactory`
+  `client/rest/RestClient.java` installs `InsecureTrustManagerFactory` together with a hostname verifier
+  that returns `true` unconditionally, and `client/p2p/P2PClient.java` uses `InsecureTrustManagerFactory`
   for QUIC. An active man in the middle on either socket is not detected.
 * **Spork content is authenticated, by exactly one list of keys.** Every spork write is verified with
   `NetworkKey.isTrusted`, which checks a signature against `NetOptions.getNetworkKeys()`, and a spork

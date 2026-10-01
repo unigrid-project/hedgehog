@@ -12,7 +12,7 @@ started and wired together see the [Architecture overview](architecture.md) and
 
 The P2P server is `application/src/main/java/org/unigrid/hedgehog/server/p2p/P2PServer.java`, an
 `@Eager @ApplicationScoped` bean whose `@PostConstruct` method builds the whole stack. The client
-side is `application/src/main/java/org/unigrid/hedgehog/client/P2PClient.java`. Both bind a
+side is `application/src/main/java/org/unigrid/hedgehog/client/p2p/P2PClient.java`. Both bind a
 `NioDatagramChannel` through a Netty `Bootstrap` and install a QUIC codec as the datagram handler.
 
 `P2PServer.init()` is where the server side is assembled, in this order:

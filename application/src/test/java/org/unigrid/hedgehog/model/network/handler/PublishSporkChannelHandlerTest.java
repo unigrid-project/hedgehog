@@ -35,7 +35,7 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
 import org.unigrid.hedgehog.model.network.Connection;

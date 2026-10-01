@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.client;
+package org.unigrid.hedgehog.client.p2p;
 
 import java.util.List;
 import lombok.SneakyThrows;

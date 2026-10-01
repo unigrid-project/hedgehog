@@ -28,7 +28,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeTry;
-import org.unigrid.hedgehog.client.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.option.RestOptions;
 
 /* The declared length is refused before the storage service is reached, so no bucket is needed */

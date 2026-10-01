@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.client;
+package org.unigrid.hedgehog.client.rest;
 
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.ws.rs.client.Client;

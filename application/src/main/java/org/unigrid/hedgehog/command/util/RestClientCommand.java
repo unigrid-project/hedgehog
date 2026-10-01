@@ -28,8 +28,8 @@ import java.nio.file.NoSuchFileException;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
-import org.unigrid.hedgehog.client.ResponseOddityException;
-import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.server.rest.RestToken;
 

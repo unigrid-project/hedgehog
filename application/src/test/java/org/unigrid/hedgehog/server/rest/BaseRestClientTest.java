@@ -39,7 +39,7 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.AfterTry;
 import org.bitcoinj.crypto.ECKey;
-import org.unigrid.hedgehog.client.RestClient;
+import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;

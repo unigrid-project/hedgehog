@@ -32,7 +32,7 @@ import org.hamcrest.Matcher;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
 import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.server.BaseServerTest;
 import org.unigrid.hedgehog.server.TestServer;

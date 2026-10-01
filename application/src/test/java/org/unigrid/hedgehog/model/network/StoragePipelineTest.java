@@ -35,7 +35,7 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.network.packet.Correlated;
 import org.unigrid.hedgehog.model.network.packet.DeleteGroup;
 import org.unigrid.hedgehog.model.network.packet.FetchFragment;
