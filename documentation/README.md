@@ -16,14 +16,17 @@ repository-relative path.
 | [REST interface](rest-api.md) | The Jersey listener and its providers, the full endpoint reference, the S3-compatible object store, error handling and the CLI client | API consumers, CLI work and anyone adding a resource |
 | [CDI container and component lifecycle](cdi-and-lifecycle.md) | Weld bootstrap, bean discovery, `@Eager`, the `@Protected`/`@Lock` interceptor, producers, the Jersey bridge, startup and shutdown ordering, and the test-side container | Adding a bean, an injection point or a CDI-backed test |
 | [Build, testing and native image](build-and-native-image.md) | The reactor and its plugin set, everyday commands, the dependency inventory, the jqwik test infrastructure, the `native-image` module, the workflows and the license header convention | Builds, tests, releases and packaging |
+| [Network storage](storage.md) | The sharded, erasure-coded file store: fingerprints, placement by rendezvous hashing, the gridnode fragment store, the storage packets, repair, deletion, the storage spork, the REST and command-line surface and how it is tested | Work on storage, repair or anything that stores or fetches fragments |
+| [Erasure coding](erasure-coding.md) | GF(2^8) arithmetic, the Reed-Solomon codec, the inner and outer coding layers, layout and overhead arithmetic, chunk sealing, the Merkle tree over fragments and the decoding paths, with worked numbers | Changing the codec or the layout, tuning the storage spork, or auditing the durability maths |
 | [Legacy chain snapshot](legacy-chain-snapshot.md) | Converting the legacy bootstrap into a signed, queryable snapshot of every address, its balance and its transaction history, and publishing it with a release | Migration work, releases and anyone answering questions about the legacy chain |
 
 ## Where to start
 
 1. [Architecture overview](architecture.md), end to end. It opens with a longer, file-by-file path
-   through the source, and the other six documents assume it.
+   through the source, and the other eight documents assume it.
 2. Then whichever layer the work touches: [Peer-to-peer network protocol](network-protocol.md),
-   [Grid sporks](sporks.md) or [REST interface](rest-api.md).
+   [Grid sporks](sporks.md) or [REST interface](rest-api.md). Storage work starts at
+   [Network storage](storage.md), with [Erasure coding](erasure-coding.md) for the codec underneath it.
 3. [CDI container and component lifecycle](cdi-and-lifecycle.md) before adding or moving a bean —
    startup order and the `@Eager` rules are not evident from the source alone.
 4. [Build, testing and native image](build-and-native-image.md) before the first commit, for the test
@@ -50,7 +53,7 @@ jar lands in `application/target/`, and the version already carries the `-SNAPSH
   an editor or `git grep`.
 - The documents describe the code as it is today, rough edges included; they are not a specification
   of intended behavior, and where the source and its comments disagree both are reported.
-- Each of the seven documents ends with a `Known rough edges` section collecting the gaps, surprises
+- Each of the nine documents ends with a `Known rough edges` section collecting the gaps, surprises
   and defects found in that layer.
 - Cross-references between documents use the target document's own title as the link text.
 

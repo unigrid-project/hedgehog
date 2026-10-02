@@ -33,6 +33,8 @@ In-depth documentation of the codebase lives in [documentation/](documentation/R
 - [Peer-to-peer network protocol](documentation/network-protocol.md)
 - [Grid sporks](documentation/sporks.md)
 - [REST interface](documentation/rest-api.md)
+- [Network storage](documentation/storage.md)
+- [Erasure coding](documentation/erasure-coding.md)
 - [CDI container and component lifecycle](documentation/cdi-and-lifecycle.md)
 - [Build, testing and native image](documentation/build-and-native-image.md)
 
