@@ -1,7 +1,9 @@
-name: Coverage
+name: Hedgehog build status
 
 on:
   push:
+    branches: [master]
+  pull_request:
     branches: [master]
   workflow_dispatch:
 
@@ -9,12 +11,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: coverage
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  badge:
-    name: Test coverage badge
+  build:
+    name: Build and test
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     permissions:
@@ -33,6 +35,7 @@ jobs:
         run: mvn -B -ntp -pl common,application verify
 
       - name: Write the badge endpoint
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -46,6 +49,7 @@ jobs:
           ' application/target/jacoco-results/jacoco.csv | tee "$RUNNER_TEMP/coverage.json"
 
       - name: Publish the badge to the badges branch
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         shell: bash
         env:
           TOKEN: ${{ github.token }}

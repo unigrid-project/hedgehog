@@ -1,6 +1,7 @@
 # The Sharded Unigrid Treechain Network
+[![Hedgehog build status](https://github.com/unigrid-project/hedgehog/actions/workflows/build.yml/badge.svg)](https://github.com/unigrid-project/hedgehog/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/unigrid-project/hedgehog)](https://github.com/unigrid-project/hedgehog/releases/latest)
-[![Test coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Funigrid-project%2Fhedgehog%2Fbadges%2Fcoverage.json)](https://github.com/unigrid-project/hedgehog/actions/workflows/coverage.yml)
+[![Test coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Funigrid-project%2Fhedgehog%2Fbadges%2Fcoverage.json)](https://github.com/unigrid-project/hedgehog/actions/workflows/build.yml)
 
 <img align="right" width="300px" height="auto" src="documentation/hedgehog-logo.png" alt="Hedgehog">
 
