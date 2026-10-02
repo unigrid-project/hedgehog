@@ -30,6 +30,7 @@ import org.unigrid.hedgehog.model.network.Packet;
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	public static final int MAGIC = 0xBABE;
 	public static final AttributeKey<Integer> PACKET_SIZE_KEY = AttributeKey.valueOf("PACKET_SIZE");
+	private static final int HEADER_SIZE = 8;
 
 	/*
 	    Packet format:
@@ -38,11 +39,16 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		super(Network.MAX_DATA_SIZE, 4, 4, 0, 8);
+		super(Network.MAX_DATA_SIZE, 4, 4, 0, HEADER_SIZE);
 	}
 
 	@Override
 	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		/* A read can end inside the header, and reading on would fail the decoder and close the stream */
+		if (in.readableBytes() < HEADER_SIZE) {
+			return null;
+		}
+
 		in.markReaderIndex();
 		final int magic = in.readUnsignedShort();
 
