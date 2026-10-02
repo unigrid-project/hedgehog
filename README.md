@@ -27,16 +27,16 @@ __Secondary goals:__
 - Replacement of the network and consensus chain in the [legacy daemon](https://github.com/unigrid-project/daemon), including complete or partial migration to Hedgehog. We are currently investigating different options for the network and what direction makes the most sense for the Unigrid network out of a go-to-market perspective.
 
 ## Documentation
-In-depth documentation of the codebase lives in [documentation/](documentation/README.md):
+In-depth documentation of the codebase lives in the [wiki](https://github.com/unigrid-project/hedgehog/wiki):
 
-- [Architecture overview](documentation/architecture.md)
-- [Peer-to-peer network protocol](documentation/network-protocol.md)
-- [Grid sporks](documentation/sporks.md)
-- [REST interface](documentation/rest-api.md)
-- [Network storage](documentation/storage.md)
-- [Erasure coding](documentation/erasure-coding.md)
-- [CDI container and component lifecycle](documentation/cdi-and-lifecycle.md)
-- [Build, testing and native image](documentation/build-and-native-image.md)
+- [Architecture overview](https://github.com/unigrid-project/hedgehog/wiki/Architecture-overview)
+- [Peer-to-peer network protocol](https://github.com/unigrid-project/hedgehog/wiki/Peer-to-peer-network-protocol)
+- [Grid sporks](https://github.com/unigrid-project/hedgehog/wiki/Grid-sporks)
+- [REST interface](https://github.com/unigrid-project/hedgehog/wiki/REST-interface)
+- [Network storage](https://github.com/unigrid-project/hedgehog/wiki/Network-storage)
+- [Erasure coding](https://github.com/unigrid-project/hedgehog/wiki/Erasure-coding)
+- [CDI container and component lifecycle](https://github.com/unigrid-project/hedgehog/wiki/CDI-container-and-component-lifecycle)
+- [Build, testing and native image](https://github.com/unigrid-project/hedgehog/wiki/Build-testing-and-native-image)
 
 ## For developers that want to build Hedgehog
 Hedgehog requires Java 25+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
@@ -80,7 +80,7 @@ The snapshot additionally carries its own signature inside the file, made with a
 Releases are cut from a clean `master` with `release.sh`, which needs `gh` logged in and the release key's secret half in the keyring of whoever runs it:
 
 1. `./release.sh cut` builds and tests the whole project at the release version, turns the pom's `X.Y.Z-SNAPSHOT` into the release `X.Y.Z` with a commit and the tag `vX.Y.Z`, opens the next snapshot and pushes both. The tag reaching GitHub builds the executables and drafts the release.
-2. Prepare the snapshot as described in [Legacy chain snapshot](documentation/legacy-chain-snapshot.md): `bootstrap import`, then `bootstrap sign` with a board member's key.
+2. Prepare the snapshot as described in [Legacy chain snapshot](https://github.com/unigrid-project/hedgehog/wiki/Legacy-chain-snapshot): `bootstrap import`, then `bootstrap sign` with a board member's key.
 3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` waits for the draft, checks that the snapshot verifies against the keys built into that release, signs every asset, attaches the signatures, `bootstrap.dat.gz` and a signed `SHA256SUMS`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward, so no release ever goes out without one.
 
 A release published without `SHA256SUMS` gets it afterwards with `./release.sh checksums --tag vX.Y.Z`, which refuses unless every asset already carries a signature that verifies.
