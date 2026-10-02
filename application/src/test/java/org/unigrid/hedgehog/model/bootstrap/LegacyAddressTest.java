@@ -22,15 +22,18 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import java.util.Arrays;
 import java.util.HexFormat;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
+import org.bitcoinj.base.Base58;
 
 /* A legacy address is 34 base58 characters starting with H: version 40, a hash160 and a 4 byte checksum */
 public class LegacyAddressTest {
@@ -57,12 +60,29 @@ public class LegacyAddressTest {
 		assertThat(LegacyAddress.encode(Hashing.addressHash(publicKey)), equalTo(DOMAIN_ADDRESS));
 	}
 
+	@Example
+	public void shouldEncodeTheZeroHashAsTheKnownAddress() {
+		assertThat(LegacyAddress.encode(new byte[Hashing.ADDRESS_HASH_SIZE]),
+			equalTo("H6X8PLvXQDY3iLaTynKkQ1tUBBJjSZSf23"));
+	}
+
+	@Example
+	public void shouldEncodeTheAllOnesHashAsTheKnownAddress() {
+		final byte[] hash = new byte[Hashing.ADDRESS_HASH_SIZE];
+
+		Arrays.fill(hash, (byte) 0xff);
+		assertThat(LegacyAddress.encode(hash), equalTo("HVrjNTDp7PzvXmiZ1Cf4t9AFogZg5BbcAE"));
+	}
+
 	@Property(tries = 200)
-	public void shouldAlwaysBeThirtyFourCharactersStartingWithH(@ForAll @Size(Hashing.ADDRESS_HASH_SIZE) byte[] hash) {
+	public void shouldRoundTripEveryHashAsThirtyFourCharactersStartingWithH(
+		@ForAll @Size(Hashing.ADDRESS_HASH_SIZE) byte[] hash) {
+
 		final String address = LegacyAddress.encode(hash);
 
 		assertThat(address, startsWith("H"));
 		assertThat(address.length(), equalTo(ADDRESS_LENGTH));
+		assertThat(LegacyAddress.decode(address), equalTo(hash));
 	}
 
 	@Example
@@ -95,6 +115,37 @@ public class LegacyAddressTest {
 		);
 
 		assertThat(refusal.getMessage(), startsWith("Address is too short"));
+	}
+
+	@Example
+	public void shouldRejectAnOverlyLongAddressBeforeDecodingIt() {
+		final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+			() -> LegacyAddress.decode("1".repeat(51))
+		);
+
+		assertThat(refusal.getMessage(), startsWith("Address is too long"));
+	}
+
+	@Example
+	public void shouldRejectATamperedAddress() {
+		final String tampered = DOMAIN_ADDRESS.substring(0, ADDRESS_LENGTH - 1) + "Z";
+		final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+			() -> LegacyAddress.decode(tampered)
+		);
+
+		assertThat(refusal.getMessage(), startsWith("Address checksum does not match"));
+	}
+
+	@Property(tries = 200)
+	public void shouldRejectAPayloadThatIsNotAHash160(@ForAll @Size(min = 1, max = 30) byte[] payload) {
+		Assume.that(payload.length != Hashing.ADDRESS_HASH_SIZE);
+
+		final String address = Base58.encodeChecked(LegacyAddress.PUBLIC_KEY_VERSION, payload);
+		final IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+			() -> LegacyAddress.decode(address)
+		);
+
+		assertThat(refusal.getMessage(), startsWith("Address payload is not a hash160"));
 	}
 
 	/* Base58 leaves these out because they are easily mistaken for other characters */

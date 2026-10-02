@@ -50,13 +50,6 @@ public final class Hashing {
 		return result;
 	}
 
-	public static byte[] checksum(byte[] input) {
-		final MessageDigest digest = SHA256.get();
-
-		digest.reset();
-		return digest.digest(digest.digest(input));
-	}
-
 	private static MessageDigest createSha256() {
 		try {
 			return MessageDigest.getInstance("SHA-256");
