@@ -5,82 +5,61 @@
 
 <img align="right" width="300px" height="auto" src="documentation/hedgehog-logo.png" alt="Hedgehog">
 
-Hedgehog is a high-performant, concurrent peer-to-peer treechain (blockchain) network built on top of [Netty](https://netty.io/) and [Java NIO](https://docs.oracle.com/javase/8/docs/technotes/guides/io/index.html).
+Hedgehog is a high-performance, concurrent peer-to-peer treechain (blockchain) network built on top of [Netty](https://netty.io/) and QUIC. One executable is the network daemon, the command-line client that controls it and a stand-alone key utility.
 
-__Currently published features:__
-- Gridnode sporks and configurable network properties
-- Peer to peer distriubution
-- REST interface
+__What works today:__
+- Peer-to-peer distribution over QUIC
+- Gridnode sporks: network parameters that take effect only when two network keys have signed them
+- Network storage: files encrypted, erasure coded and spread over the gridnodes, which repair lost fragments themselves
+- REST interface with an S3-compatible object store
+- A signed snapshot of the legacy chain: every address, balance and transaction
 
-__Upcoming features currently in development:__
-- Shard group and network storage (accesible via [Janus](https://github.com/unigrid-project/janus-java) and virtual desktop drives)
-- Built in SOCKS5 Proxy for VPN-like functionality
-- Amazon S3 REST API to access storage on the network
-
-__Features slated for 2023:__
-- Web Assembly support
-- Compute workloads
-- Duality  consensus
-- GPU workloads
-
-__Secondary goals:__
-- Replacement of the network and consensus chain in the [legacy daemon](https://github.com/unigrid-project/daemon), including complete or partial migration to Hedgehog. We are currently investigating different options for the network and what direction makes the most sense for the Unigrid network out of a go-to-market perspective.
+__In development or planned:__
+- Access to network storage through the S3 API, [Janus](https://github.com/unigrid-project/janus-java) and virtual desktop drives
+- Built-in SOCKS5 proxy for VPN-like functionality
+- WebAssembly support, compute and GPU workloads
+- Duality consensus
+- Replacing the network and consensus chain of the [legacy daemon](https://github.com/unigrid-project/daemon)
 
 ## Documentation
-In-depth documentation of the codebase lives in the [wiki](https://github.com/unigrid-project/hedgehog/wiki):
+The [wiki](https://github.com/unigrid-project/hedgehog/wiki) gives a short overview of each part:
 
 - [Architecture overview](https://github.com/unigrid-project/hedgehog/wiki/Architecture-overview)
 - [Peer-to-peer network protocol](https://github.com/unigrid-project/hedgehog/wiki/Peer-to-peer-network-protocol)
 - [Grid sporks](https://github.com/unigrid-project/hedgehog/wiki/Grid-sporks)
 - [REST interface](https://github.com/unigrid-project/hedgehog/wiki/REST-interface)
-- [Network storage](https://github.com/unigrid-project/hedgehog/wiki/Network-storage)
-- [Erasure coding](https://github.com/unigrid-project/hedgehog/wiki/Erasure-coding)
-- [CDI container and component lifecycle](https://github.com/unigrid-project/hedgehog/wiki/CDI-container-and-component-lifecycle)
+- [Network storage](https://github.com/unigrid-project/hedgehog/wiki/Network-storage) and [Erasure coding](https://github.com/unigrid-project/hedgehog/wiki/Erasure-coding)
 - [Build, testing and native image](https://github.com/unigrid-project/hedgehog/wiki/Build-testing-and-native-image)
 
-## For developers that want to build Hedgehog
-Hedgehog requires Java 25+. To run and build the distribution you need [Maven](https://maven.apache.org/). To execute a build you need to run the following command from within the Hedgehog directory:
+## Building and running
+Hedgehog requires Java 25+ and [Maven](https://maven.apache.org/). From the Hedgehog directory:
 
 > mvn clean install
 
-This will create an archive in `application/target/hedgehog-<version>-jar-with-dependencies.jar`. This can then be started with `java -jar hedgehog-<version>-jar-with-dependencies.jar`.
+This creates `application/target/hedgehog-<version>-jar-with-dependencies.jar`. Start it with `java -jar`, and pass `--help` to see every command and option. Depending on the options, Hedgehog acts as a network daemon, a client or a stand-alone application.
 
-## Running Hedgehog
-While most people will not run Hedgehog manually, it is certainly possible. For documentation on all the features in the distribution please run the Hedgehog jar with `java -jar hedgehog-<version>-jar-with-dependencies.jar --help`. This will display all the options available when executing the application.
-
-Depending on the options passed, Hedgehog will act as a network daemon, client or stand-alone application.
-
-## Native Image Support
-Native image support is available via the native-image sub-project. Because of problems with CDI and dependencies being reliant on a full CDI implementation, the native image is not really native, but wraps a JVM and the hedgehog jar into a native version for execution.
-
-To build the native image, execute `mvn package` inside the native-image module/project. Depending on the operating system, this will generate an executable `hedgehog.exe` or `hedgehog.bin` file inside `native-image/target/`.
-
-The native build needs a GraalVM 25 installation as well; point `GRAALVM_HOME` at it. Maven itself runs on any JDK 25, which is also the runtime bundled into the executable.
+The native executable wraps a JVM and the Hedgehog jar. Build it with `mvn package` inside `native-image`, with `GRAALVM_HOME` pointing at a GraalVM 25 installation. The result is `native-image/target/hedgehog.bin`, or `hedgehog.exe` on Windows.
 
 ## Releases
-Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon, and Windows, the runnable jar, the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads together with its hash `bootstrap.dat.gz.sha256`, a detached signature (`.asc`) for each of them, and `SHA256SUMS`, the hash of every asset, with its own signature `SHA256SUMS.asc`. Intel Macs run the jar. The signatures are made with the Unigrid Foundation release key, whose public half is [release-key.asc](release-key.asc) and whose fingerprint is
+Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon and Windows, the runnable jar, and the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads. Intel Macs run the jar.
+
+Every asset has a detached signature (`.asc`) made with the Unigrid Foundation release key, [release-key.asc](release-key.asc), fingerprint
 
 > A1CB 0037 B3B9 2D59 5FA1 536C 95A9 8E88 8B0B A5D9
 
-To verify a download:
+To verify all downloads at once, from the directory that holds them:
 
 > gpg --import release-key.asc
 >
-> gpg --verify hedgehog-0.0.8-x86_64-linux-gnu.bin.asc hedgehog-0.0.8-x86_64-linux-gnu.bin
-
-Or check all downloads at once, from the directory that holds them:
-
 > gpg --verify SHA256SUMS.asc SHA256SUMS
 >
 > sha256sum -c SHA256SUMS
 
-The snapshot additionally carries its own signature inside the file, made with a board member's network key, which is what `bootstrap fetch` checks before installing it.
-
 ### Cutting a release
-Releases are cut from a clean `master` with `release.sh`, which needs `gh` logged in and the release key's secret half in the keyring of whoever runs it:
+Releases are cut from a clean `master` with `release.sh`, which needs `gh` logged in and the secret half of the release key:
 
-1. `./release.sh cut` builds and tests the whole project at the release version, turns the pom's `X.Y.Z-SNAPSHOT` into the release `X.Y.Z` with a commit and the tag `vX.Y.Z`, opens the next snapshot and pushes both. The tag reaching GitHub builds the executables and drafts the release.
-2. Prepare the snapshot as described in [Legacy chain snapshot](https://github.com/unigrid-project/hedgehog/wiki/Legacy-chain-snapshot): `bootstrap import`, then `bootstrap sign` with a board member's key.
-3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` waits for the draft, checks that the snapshot verifies against the keys built into that release, signs every asset, attaches the signatures, `bootstrap.dat.gz` and a signed `SHA256SUMS`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward, so no release ever goes out without one.
+1. `./release.sh cut` builds and tests the project, tags `vX.Y.Z`, opens the next snapshot version and pushes. The tag builds the executables and drafts the release.
+2. Prepare the snapshot with `bootstrap import` and `bootstrap sign`, as described in [Legacy chain snapshot](https://github.com/unigrid-project/hedgehog/wiki/Legacy-chain-snapshot).
+3. `./release.sh publish --bootstrap bootstrap.dat --codename "<Name>"` signs every asset, attaches the snapshot and a signed `SHA256SUMS`, and publishes. Without `--bootstrap` the previous release's snapshot is carried forward.
 
-A release published without `SHA256SUMS` gets it afterwards with `./release.sh checksums --tag vX.Y.Z`, which refuses unless every asset already carries a signature that verifies.
+`./release.sh --help` lists the remaining options.
