@@ -6,7 +6,8 @@ packet types, their wire layouts, the Netty pipeline that encodes and decodes th
 act on them and the topology bookkeeping they drive are all described here. For how the daemon is
 started and wired together see the [Architecture overview](architecture.md) and
 [CDI container and component lifecycle](cdi-and-lifecycle.md); the payloads carried by
-`PUBLISH_SPORK` are covered in [Grid sporks](sporks.md).
+`PUBLISH_SPORK` are covered in [Grid sporks](sporks.md), and what the seven storage packets ask for
+and how a gridnode answers them in [Network storage](storage.md).
 
 ## Transport
 
@@ -46,7 +47,7 @@ P2P tests learn which host and port the server actually landed on. `AbstractServ
 | Constant | Value | Used for |
 | --- | ---: | --- |
 | `COMMUNICATION_THREADS` | `4` | Size of the `NioEventLoopGroup` on both server and client |
-| `MAX_DATA_SIZE` | `1024 * 1024 * 256` (256 MiB) | QUIC `initialMaxData`, both `initialMaxStreamDataBidirectional*` values, and the `maxFrameLength` of `FrameDecoder` |
+| `MAX_DATA_SIZE` | `1024 * 1024 * 256` (256 MiB) | QUIC `initialMaxData`, both `initialMaxStreamDataBidirectional*` values, the `maxFrameLength` of `FrameDecoder`, and the largest byte-array length `StorageCodecs.readBytes` accepts |
 | `MAX_STREAMS` | `512` | QUIC `initialMaxStreamsBidirectional` |
 | `IDLE_TIME_MINUTES` | `15` | QUIC `maxIdleTimeout` |
 | `CONNECTION_TIMEOUT_MS` | `2000` | Timeout on `QuicChannel.newBootstrap(...).connect()` in `P2PClient` |
@@ -66,8 +67,9 @@ connection: …"* on the TLS alert 120 in the `QuicConnectionCloseEvent` — whe
 otherwise see only a failed handshake and the client only its connect timeout. A node of a release
 older than this handler logs nothing of the kind. The version moved from `0.0.2` to `0.0.3` when the
 signature log was added to `PUBLISH_SPORK`, and to `0.0.4` when the cosignature fields were added to
-it; each time older nodes cannot read the new layout. The same array is echoed by the REST version
-endpoint (see [REST interface](rest-api.md)).
+it; each time older nodes cannot read the new layout. It did not move again when the gridnode packet,
+the storage packets and the storage spork were added (see [Known rough edges](#known-rough-edges)).
+The same array is echoed by the REST version endpoint (see [REST interface](rest-api.md)).
 
 `SEEDS` is the six-entry list `seed1.unigrid.org` … `seed6.unigrid.org`. `Network.getSeeds()` returns
 it only when `NetOptions.isSeeds()` is true (the `--no-seeds` picocli option is negatable and
@@ -163,6 +165,7 @@ Server pipeline (in order):
 LoggingHandler(DEBUG)
 FrameDecoder
 HelloDecoder
+GridnodeEncoder        GridnodeDecoder
 PingEncoder            PingDecoder
 PublishSporkEncoder    PublishSporkDecoder
 PublishPeersEncoder    PublishPeersDecoder
@@ -170,6 +173,8 @@ PingChannelHandler
 PublishSporkChannelHandler
 HelloChannelHandler
 PublishPeersChannelHandler
+PublishGridnodeChannelHandler
+StoragePipeline.handlers()
 ```
 
 Client pipeline (in order):
@@ -178,20 +183,61 @@ Client pipeline (in order):
 LoggingHandler(DEBUG)
 FrameDecoder
 HelloEncoder
+GridnodeEncoder        GridnodeDecoder
 PingEncoder            PingDecoder
 PublishSporkEncoder    PublishSporkDecoder
 PublishPeersEncoder    PublishPeersDecoder
 PingChannelHandler
 PublishSporkChannelHandler
 PublishPeersChannelHandler
+PublishGridnodeChannelHandler
+StoragePipeline.handlers()
 ```
 
 The asymmetry is deliberate for `HELLO` — only the client sends it and only the server decodes it —
 but it means a `HELLO` sent by a server would be dropped by the client, since the client has no
 `HelloDecoder`. Neither pipeline contains the `ASK_PEERS` or `ASK_NODE_DETAILS` codecs.
 
-Both sides register the same three schedules: `PingSchedule`, `PublishPeersSchedule` and
-`PublishAndSaveSporkSchedule`.
+Both sides register the same four schedules: `PingSchedule`, `PublishPeersSchedule`,
+`PublishAndSaveSporkSchedule` and `PublishGridnodeSchedule`.
+
+### Storage stages
+
+Both handler suppliers end with `handlers.addAll(StoragePipeline.handlers())`.
+`application/src/main/java/org/unigrid/hedgehog/model/network/initializer/StoragePipeline.java`
+builds a new list on every call, so every stream gets its own instances, in this order:
+
+```
+StoreFragmentEncoder   StoreFragmentDecoder
+FetchFragmentEncoder   FetchFragmentDecoder
+FragmentReplyEncoder   FragmentReplyDecoder
+HasFragmentEncoder     HasFragmentDecoder
+FragmentStatusEncoder  FragmentStatusDecoder
+DeleteGroupEncoder     DeleteGroupDecoder
+StorageAckEncoder      StorageAckDecoder
+StoreFragmentChannelHandler
+FetchFragmentChannelHandler
+HasFragmentChannelHandler
+DeleteGroupChannelHandler
+StorageResponseChannelHandler(StorageAck.class)
+StorageResponseChannelHandler(FragmentReply.class)
+StorageResponseChannelHandler(FragmentStatus.class)
+```
+
+That is fourteen codecs, four request handlers and three response handlers, identical on both
+sides. Unlike `HELLO`, every storage packet can therefore travel in either direction of a stream:
+whichever end dialed, either node can send a request and answer one.
+
+Appending them last works because nothing earlier claims a storage frame. Every earlier decoder
+finds a foreign type in `Packet.KEY` and forwards the raw buffer, and every earlier
+`AbstractInboundHandler` passes on any object that is not its own packet type, so a storage frame
+reaches its decoder at the end of the chain while the older packets keep their old paths. Outbound,
+the storage encoders sit between the storage handlers and the head of the pipeline, so both a reply
+written with `ctx.writeAndFlush(...)` from a storage handler and a request written with
+`channel.writeAndFlush(...)` from the tail pass through them. On the way back, each
+`StorageResponseChannelHandler` hands its reply type to `PendingRequests.complete(...)`, which
+completes the request waiting for it — see
+[Storage handlers and request correlation](#storage-handlers-and-request-correlation).
 
 ### Annotation-driven discovery
 
@@ -228,8 +274,9 @@ Only `@ChannelCodec` is actually applied anywhere in main sources:
 | `PublishSporkEncoder` | `10` |
 | `PublishSporkDecoder` | `11` |
 
-`PublishPeersEncoder`/`PublishPeersDecoder`, `AskPeersEncoder`/`AskPeersDecoder` and
-`AskNodeDetailsEncoder`/`AskNodeDetailsDecoder` carry no annotation, and no class anywhere carries
+`PublishPeersEncoder`/`PublishPeersDecoder`, `AskPeersEncoder`/`AskPeersDecoder`,
+`AskNodeDetailsEncoder`/`AskNodeDetailsDecoder`, `GridnodeEncoder`/`GridnodeDecoder` and the fourteen
+storage codecs carry no annotation, and no class anywhere carries
 `@ChannelHandler` or `@ChannelScheduler`. The ordering the priorities encode matches the hand-written
 pipelines: the frame decoder first, then codecs grouped per packet type.
 
@@ -364,16 +411,17 @@ The path where no decoder matches has no such drain. Every decoder retained the 
 readable cumulation; only the pipeline tail's release balances the last retain. Each decoder then merges
 the next frame onto its leftover bytes rather than starting clean, and its `numReads` counter keeps
 climbing toward `discardAfterReads` (16 by default) with `discardSomeReadBytes()` as the only cleanup.
-The leading decoder of each pipeline — `HelloDecoder` on the server, `PingDecoder` on the client — sees
-every frame of every type, so it is the one that carries this residue.
+The leading decoder of each pipeline — `HelloDecoder` on the server, `GridnodeDecoder` on the
+client — sees every frame of every type, so it is the one that carries this residue.
 
 `AbstractReplayingDecoder.decode` reads `PACKET_SIZE_KEY` into a local, adds the decoded entity to the
 output list if present, and carries a `// TODO: Verify size with PACKET_SIZE_KEY` — the announced
 payload length is currently never validated against what the decoder consumed. The `BaseCodecTest`
 harness does check the equivalent invariant offline: `PingIntegrityTest`, `PublishPeersIntegrityTest`,
-`AskNodeDetailsIntegrityTest` and `PublishSporkIntegrityTest` all assert that the decoder's final
-reader index equals the frame's writer index, i.e. that decoding consumes exactly the bytes the
-encoder produced.
+`AskNodeDetailsIntegrityTest`, `GridnodeIntegrityTest` and `PublishSporkIntegrityTest` all assert that
+the decoder's final reader index equals the frame's writer index, i.e. that decoding consumes exactly
+the bytes the encoder produced. `StoragePacketIntegrityTest` round-trips the seven storage packets
+through the same harness without that check.
 
 The server pipeline's decoder chain, in order:
 
@@ -382,17 +430,24 @@ flowchart TD
     A[QUIC stream bytes] --> B[FrameDecoder]
     B -->|"sets Packet.KEY and PACKET_SIZE_KEY;<br/>strips 8-byte header"| C[HelloDecoder]
     C -->|type matches| C1[Hello]
-    C -->|"resetReaderIndex + retain + fireChannelRead"| D[PingDecoder]
+    C -->|"resetReaderIndex + retain + fireChannelRead"| GD["GridnodeDecoder"]
+    GD -->|type matches| GD1["PublishGridnode"]
+    GD -->|forward| D[PingDecoder]
     D -->|type matches| D1[Ping]
     D -->|forward| E[PublishSporkDecoder]
     E -->|type matches| E1[PublishSpork]
     E -->|forward| F[PublishPeersDecoder]
     F -->|type matches| F1[PublishPeers]
-    F -->|forward| G["pipeline tail: buffer discarded"]
+    F -->|forward| PH["five packet handlers pass the buffer on"]
+    PH --> S["seven storage decoders,<br/>StoreFragmentDecoder to StorageAckDecoder"]
+    S -->|type matches| S1["storage packet"]
+    S -->|forward| G["pipeline tail: buffer discarded"]
     C1 --> H[AbstractInboundHandler chain]
+    GD1 --> H
     D1 --> H
     E1 --> H
     F1 --> H
+    S1 --> SH["storage handlers"]
 ```
 
 The encoders are simpler. `AbstractMessageToByteEncoder<T>` extends `MessageToByteEncoder<T>`,
@@ -403,8 +458,8 @@ payload — but no encoder in the repository ever does: every `encode` implement
 `Optional.of(out)`. When `AbstractGridSporkEncoder` finds no chunk encoder registered for a spork type
 it writes nothing at all into the buffer `PublishSporkEncoder` returns, and
 `AbstractMessageToByteEncoder` still writes an eight-byte `PUBLISH_SPORK` frame with
-`payload length = 0` onto the wire. All encoders are annotated `@Sharable`; the decoders are stateful
-`ReplayingDecoder`s and are not.
+`payload length = 0` onto the wire. Every encoder but `GridnodeEncoder` is annotated `@Sharable`; the
+decoders are stateful `ReplayingDecoder`s and are not.
 
 `codec/api/PacketEncoder.java` and `codec/api/PacketDecoder.java` both extend
 `network/chunk/TypedCodec.java`, a one-method interface (`T getCodecType()`) shared with the chunk
@@ -427,15 +482,27 @@ enum. `Packet.Type.get(short)` maps unknown values to `UNDEFINED`.
 | `ASK_SPORKS` | 2000 | — | — | — | — | not implemented |
 | `GROW_SPORK` | 2010 | — | — | — | — | not implemented |
 | `PUBLISH_SPORK` | 2020 | `PublishSpork` | `PublishSporkEncoder` | `PublishSporkDecoder` | `PublishSporkChannelHandler` | yes, both sides |
+| `GRIDNODE` | 2030 | `PublishGridnode` | `GridnodeEncoder` | `GridnodeDecoder` | `PublishGridnodeChannelHandler` | yes, both sides |
+| `STORE_FRAGMENT` | 3000 | `StoreFragment` | `StoreFragmentEncoder` | `StoreFragmentDecoder` | `StoreFragmentChannelHandler` | yes, both sides |
+| `FETCH_FRAGMENT` | 3010 | `FetchFragment` | `FetchFragmentEncoder` | `FetchFragmentDecoder` | `FetchFragmentChannelHandler` | yes, both sides |
+| `FRAGMENT_REPLY` | 3020 | `FragmentReply` | `FragmentReplyEncoder` | `FragmentReplyDecoder` | `StorageResponseChannelHandler` | yes, both sides |
+| `HAS_FRAGMENT` | 3030 | `HasFragment` | `HasFragmentEncoder` | `HasFragmentDecoder` | `HasFragmentChannelHandler` | yes, both sides |
+| `FRAGMENT_STATUS` | 3040 | `FragmentStatus` | `FragmentStatusEncoder` | `FragmentStatusDecoder` | `StorageResponseChannelHandler` | yes, both sides |
+| `DELETE_GROUP` | 3050 | `DeleteGroup` | `DeleteGroupEncoder` | `DeleteGroupDecoder` | `DeleteGroupChannelHandler` | yes, both sides |
+| `STORAGE_ACK` | 3060 | `StorageAck` | `StorageAckEncoder` | `StorageAckDecoder` | `StorageResponseChannelHandler` | yes, both sides |
 
-So of the nine defined non-`UNDEFINED` types, six have codecs, three (`PUBLISH_NODE_DETAILS`,
-`ASK_SPORKS`, `GROW_SPORK`) have no packet class, no codec and no handler, and of the six with codecs
-only four (`HELLO`, `PING`, `PUBLISH_PEERS`, `PUBLISH_SPORK`) are reachable on a live connection.
+So of the seventeen defined non-`UNDEFINED` types, fourteen have codecs, three
+(`PUBLISH_NODE_DETAILS`, `ASK_SPORKS`, `GROW_SPORK`) have no packet class, no codec and no handler, and
+of the fourteen with codecs twelve (`HELLO`, `PING`, `PUBLISH_PEERS`, `PUBLISH_SPORK`, `GRIDNODE` and
+the seven storage types from `STORE_FRAGMENT` to `STORAGE_ACK`) are reachable on a live connection.
+`StoragePacketIntegrityTest.everyTypeIsFoundByItsValue` and `unassignedValuesAreUndefined` pin the
+lookup down for every value of the enum and every other `short`.
 
-Every packet class extends `Packet`, is a Lombok `@Data @Builder @AllArgsConstructor
-@EqualsAndHashCode(callSuper = false)` type implementing `Serializable`, and sets its own type in its
-no-argument constructor. `@Builder` goes through the `@AllArgsConstructor`, which covers only the fields
-declared in the subclass, so a builder-constructed packet leaves the inherited `type` null while a
+Every packet class extends `Packet` and sets its own type in its no-argument constructor. All but the
+seven storage packets are Lombok `@Data @Builder @AllArgsConstructor
+@EqualsAndHashCode(callSuper = false)` types implementing `Serializable`. For those, `@Builder` goes
+through the `@AllArgsConstructor`, which covers only the fields declared in the subclass, so a
+builder-constructed packet leaves the inherited `type` null while a
 decoder-constructed one — `new Ping()`, `new Hello()` — sets it. That difference is invisible to
 `equals`, since `callSuper = false` keeps `type` out of Lombok's generated comparison, but it is visible
 to the shazamcrest `sameBeanAs(...)` matcher the integrity tests use, which serializes the whole object
@@ -443,6 +510,13 @@ graph including inherited fields. `PingIntegrityTest` and `AskNodeDetailsIntegri
 `setType(...)` on the expected value, because `PingDecoder` and `AskNodeDetailsDecoder` construct
 through the no-argument constructor. `PublishPeersIntegrityTest` and `PublishSporkIntegrityTest` need no
 such fixup: their decoders build through the builder too, so both sides end up with `type == null`.
+
+The storage packets are `@Data @EqualsAndHashCode(callSuper = false)` types implementing
+`Serializable` and `network/Correlated.java`, a one-method interface (`long getRequestId()`). They put
+`@Builder` on an explicit all-fields constructor that starts with `this()`, so a builder-constructed
+storage packet carries its type as well; `StoragePacketIntegrityTest.buildersSetThePacketType` pins
+that down, and the storage round trips compare with plain `equalTo`. `FragmentStatus` nests a `State`
+enum and an `Entry` value class holding a group id, a state, an index and an optional `DeleteProof`.
 
 The class comment at the top of `Packet.java` describes a header of
 `[ type ][resrvd][ packet size ][ reserved ]`, which does not match what `FrameDecoder` and
@@ -637,6 +711,155 @@ The receiving side handles the two failure shapes differently:
 
 `PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES` is `3`.
 
+### Storage packets
+
+The seven storage packets, type ids 3000 to 3060, carry the requests and replies of the network
+storage service. What each one asks for, who sends it and how a gridnode decides its answer are
+described under [Wire protocol](storage.md#wire-protocol) in Network storage; this section covers the
+bytes. The codecs are `codec/<Packet>Encoder.java` and `codec/<Packet>Decoder.java`, every payload
+starts with the 64-bit request id (`writeLong` / `readLong`), and the sizes given are those at the
+default storage spork settings. The shared field helpers are in `codec/StorageCodecs.java`:
+
+| Helper | Wire form | Encoder side | Decoder side |
+| --- | --- | --- | --- |
+| `writeBytes(out, bytes)` / `readBytes(in)` | u32 length, then the bytes | no check | refuses a negative length or one above `Network.MAX_DATA_SIZE` (256 MiB) |
+| `writeBytes(out, bytes, size)` / `readBytes(in, size)` | u32 length, then the bytes | refuses any length but `size` | refuses any length but `size` before reading the bytes |
+| `writeGroupId` / `readGroupId` | 32 raw bytes, no length | — | `GroupId.of` on exactly 32 bytes |
+| `writeCount` / `readCount` | u16 | refuses more than 4,096 (`MAX_GROUPS_PER_PACKET`) | `readUnsignedShort()`, refuses more than 4,096 |
+| `writeIndex` | u8 | refuses anything outside 0 to 255 (`MAX_INDEX`) | read inline with `readUnsignedByte()` |
+
+`readBytes` takes a slice of the announced length before it copies, so a forged length never sizes an
+allocation beyond the bytes that are present. A status byte is the ordinal of `StorageStatus` and is
+read back through `StorageStatus.of`, which turns an unknown byte into `ERROR`; a state byte is the
+ordinal of `FragmentStatus.State`, read through `State.of`, which turns an unknown byte into `NONE`.
+Both tables are under [Status and state codes](storage.md#status-and-state-codes).
+
+Every refusal is an `IllegalArgumentException`. An encoder that throws fails the write, which fails a
+request at once and turns a reply into a closed stream (see
+[Storage handlers and request correlation](#storage-handlers-and-request-correlation)). A decoder's
+refusal is wrapped in a `DecoderException` by `ReplayingDecoder.callDecode` and travels down the
+pipeline to the first `AbstractInboundHandler` after the storage decoders,
+`StoreFragmentChannelHandler`, which logs it at warn level and closes the stream.
+
+What the decoders do not refuse is a frame whose size disagrees with its fields. They read through
+Netty's replaying buffer, where a read past the end raises the `REPLAY` signal rather than an
+exception, so a fixed-size field cut short, or a length prefix of up to 256 MiB that points past the
+end of the frame, rewinds the reader index to where the packet began and leaves those bytes behind in
+the cumulation — the same residue an unknown spork type leaves in a `PUBLISH_SPORK` frame. In the
+other direction, the replaying decoder loops for as long as bytes remain, so bytes left over after one
+packet are decoded as another packet of the same type.
+`StoragePacketIntegrityTest.readBytesRefusesLengthsBeyondTheBuffer` sees an
+`IndexOutOfBoundsException` only because it calls `StorageCodecs.readBytes` on a plain buffer.
+
+### STORE_FRAGMENT — variable
+
+`codec/StoreFragmentEncoder.java`, `codec/StoreFragmentDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 4 | `n` = fragment length | `StorageCodecs.writeBytes` / `readBytes` |
+| 12 | n | encoded fragment | raw bytes |
+
+The fragment travels as an opaque byte array. Its own layout — descriptor, index, Merkle proof and
+data, 65,838 bytes at defaults — is described under [The fragment](erasure-coding.md#the-fragment), so
+the payload is 65,850 bytes. Neither codec looks inside it; `FragmentKeeper` decodes and verifies it.
+Answered with `STORAGE_ACK`.
+
+### FETCH_FRAGMENT — 40 bytes
+
+`codec/FetchFragmentEncoder.java`, `codec/FetchFragmentDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 32 | group id | `StorageCodecs.writeGroupId` / `readGroupId` |
+
+Answered with `FRAGMENT_REPLY`.
+
+### FRAGMENT_REPLY — 13 bytes plus the fragment
+
+`codec/FragmentReplyEncoder.java`, `codec/FragmentReplyDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 1 | status | `status.ordinal()` / `StorageStatus.of(readUnsignedByte())` |
+| 9 | 4 | `n` = fragment length | `StorageCodecs.writeBytes` / `readBytes` |
+| 13 | n | fragment | raw bytes |
+
+`FetchFragmentChannelHandler` sends `OK` with the stored bytes or `NOT_FOUND` with `n = 0`, and no
+other status. The decoder accepts any status with any length; the requester verifies the fragment
+against the group it asked for.
+
+### HAS_FRAGMENT — 10 bytes plus 32 per group
+
+`codec/HasFragmentEncoder.java`, `codec/HasFragmentDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 2 | `n` = group count | `StorageCodecs.writeCount` / `readCount`, at most 4,096 |
+| 10 | 32 · n | group ids | `writeGroupId` / `readGroupId`, back to back |
+
+Answered with `FRAGMENT_STATUS`. The repairer asks about one group per packet, 42 bytes.
+
+### FRAGMENT_STATUS — variable
+
+`codec/FragmentStatusEncoder.java`, `codec/FragmentStatusDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 2 | `n` = entry count | `StorageCodecs.writeCount` / `readCount`, at most 4,096 |
+
+followed by `n` entries of:
+
+| Size | Field | Encoding |
+| ---: | --- | --- |
+| 32 | group id | `writeGroupId` / `readGroupId` |
+| 1 | state | `state.ordinal()` / `State.of(readUnsignedByte())` |
+| 1 | fragment index | `StorageCodecs.writeIndex` / `readUnsignedByte()`; the keeper sends `0` unless the state is `HELD` |
+| 32 | public key | `TOMBSTONE` only; raw, no length |
+| 8 | timestamp | `TOMBSTONE` only; epoch milliseconds, `writeLong` / `readLong` |
+| 64 | signature | `TOMBSTONE` only; raw, no length |
+
+An entry is 34 bytes, or 138 with the delete proof a tombstone carries. The encoder refuses a
+`TOMBSTONE` entry whose proof is missing or not well formed (`DeleteProof.isWellFormed`: a 32-byte key
+and a 64-byte signature). Because the decoded state decides whether a proof follows, and an unknown
+state byte reads as `NONE` without one, a state that carried data of its own could not be added
+without older decoders misreading every entry after it.
+
+### DELETE_GROUP — 152 bytes
+
+`codec/DeleteGroupEncoder.java`, `codec/DeleteGroupDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 32 | group id | `StorageCodecs.writeGroupId` / `readGroupId` |
+| 40 | 4 | public key length | `StorageCodecs.writeBytes(out, key, 32)` / `readBytes(in, 32)`, exactly 32 |
+| 44 | 32 | public key | raw Ed25519 public key |
+| 76 | 8 | timestamp | epoch milliseconds, `writeLong` / `readLong` |
+| 84 | 4 | signature length | `writeBytes(out, signature, 64)` / `readBytes(in, 64)`, exactly 64 |
+| 88 | 64 | signature | raw Ed25519 signature |
+
+The last three fields are the delete proof that `FRAGMENT_STATUS` carries without length prefixes;
+what it signs is described under
+[Deletion, tombstones and retention](storage.md#deletion-tombstones-and-retention). Answered with
+`STORAGE_ACK`.
+
+### STORAGE_ACK — 9 bytes
+
+`codec/StorageAckEncoder.java`, `codec/StorageAckDecoder.java`
+
+| Offset | Size | Field | Encoding |
+| ---: | ---: | --- | --- |
+| 0 | 8 | request id | `writeLong` / `readLong` |
+| 8 | 1 | status | `status.ordinal()` / `StorageStatus.of(readUnsignedByte())` |
+
+The reply to `STORE_FRAGMENT` and `DELETE_GROUP`.
+
 ## Grid spork payloads and chunk codecs
 
 The spork body is not encoded by the packet codec; it is delegated to a *chunk* codec selected at
@@ -649,7 +872,8 @@ runtime by spork type. The mechanism is generic enough to be reused for other pa
 - `network/chunk/ChunkType.java` — `ENCODER`, `DECODER`.
 - `spork/ChunkData.java` — the payload marker interface; `Serializable`, one method
   `ChunkData empty()`, and Jackson `@JsonTypeInfo(use = Id.DEDUCTION)` with `@JsonSubTypes` listing
-  `MintStorage.SporkData`, `MintSupply.SporkData` and `VestingStorage.SporkData`.
+  `MintStorage.SporkData`, `MintSupply.SporkData`, `VestingStorage.SporkData` and
+  `StorageSpork.SporkData`.
   `StatisticsPubKey.SporkData` is **not** in that list, so Jackson has no registered subtype for it.
 - `spork/ChunkScanner.java` — `scan(ChunkType, ChunkGroup)` runs Reflections over
   `ChunkScanner.class.getPackageName()` (`org.unigrid.hedgehog.model.spork`), keeps the
@@ -667,7 +891,7 @@ holder, and both `AbstractGridSporkEncoder` and `GridSpork.getSignable()` go thr
 with `ChunkType.DECODER` and `ChunkGroup.GRIDSPORK`. That happens per codec instance, and the pipeline
 suppliers construct fresh codecs for every stream — so every new connection re-runs the decoder scan.
 
-Four chunk types are implemented, all in
+Five chunk types are implemented, all in
 `application/src/main/java/org/unigrid/hedgehog/model/spork/`:
 
 | `GridSpork.Type` | Id | Encoder | Decoder |
@@ -675,6 +899,7 @@ Four chunk types are implemented, all in
 | `MINT_STORAGE` | 1000 | `MintStorageEncoder` | `MintStorageDecoder` |
 | `MINT_SUPPLY` | 1010 | `MintSupplyEncoder` | `MintSupplyDecoder` |
 | `VESTING_STORAGE` | 1020 | `VestingStorageEncoder` | `VestingStorageDecoder` |
+| `STORAGE` | 1030 | `StorageSporkEncoder` | `StorageSporkDecoder` |
 | `STATISTICS_PUBKEY` | 2001 | `StatisticsPubKeyEncoder` | `StatisticsPubKeyDecoder` |
 
 ### MINT_STORAGE chunk
@@ -707,7 +932,7 @@ scale is preserved exactly. Note that `AbstractGridSporkDecoder` unwraps the chu
 | ---: | --- | --- |
 | var | max supply | NUL-terminated UTF-8 of `BigDecimal.toPlainString()` |
 
-No count and no reserved padding — the shortest chunk of the four.
+No count and no reserved padding — the shortest chunk of the five.
 
 ### VESTING_STORAGE chunk
 
@@ -734,6 +959,37 @@ then `n` repetitions of:
 Entries are written sorted by address, like the MINT_STORAGE entries are sorted by address and
 height, so equal content always encodes to equal bytes.
 
+### STORAGE chunk
+
+`StorageSporkEncoder`, `StorageSporkDecoder` — a fixed 40 bytes, one field per `StorageSpork.SporkData`
+property in declaration order:
+
+| Size | Field | Encoding |
+| ---: | --- | --- |
+| 8 | `maxBytesPerNode` | `writeLong` / `readLong` |
+| 4 | `chunkSize` | `writeInt` / `readInt` |
+| 4 | `fragmentSize` | `writeInt` / `readInt` |
+| 2 | `outerParityPercent` | `writeShort` / `readUnsignedShort` |
+| 2 | `maxOuterDataChunks` | `writeShort` / `readUnsignedShort` |
+| 2 | `innerParityPercent` | `writeShort` / `readUnsignedShort` |
+| 2 | `maxParityPercent` | `writeShort` / `readUnsignedShort` |
+| 4 | `repairIntervalMinutes` | `writeInt` / `readInt` |
+| 2 | `tombstoneDays` | `writeShort` / `readUnsignedShort` |
+| 1 | `manifestCopies` | `writeByte` / `readUnsignedByte` |
+| 1 | `placementSlack` | `writeByte` / `readUnsignedByte` |
+| 1 | `repairThresholdPercent` | `writeByte` / `readUnsignedByte` |
+| 1 | `extraPoolPercent` | `writeByte` / `readUnsignedByte` |
+| 6 | reserved | zero |
+
+What each field controls, its default and its valid range are described under
+[Parameters: the storage spork](storage.md#parameters-the-storage-spork). Neither codec validates:
+the encoder narrows each value to its field width, and the decoder accepts whatever arrives.
+`SporkData.validate()` runs where a spork is proposed over REST and on every use through
+`StorageProducer.storageSpork()`, not on receipt, and every range it allows fits the field it is
+written to, so a validated spork decodes to the values that were signed. The spork lives in
+`SporkDatabase.storageSpork` and travels like the others; `StorageSporkIntegrityTest` covers the
+round trip.
+
 ### STATISTICS_PUBKEY chunk
 
 | Size | Field | Encoding |
@@ -743,10 +999,10 @@ height, so equal content always encodes to equal bytes.
 
 The reserved eight bytes come first, unlike every other chunk.
 
-Note that `PublishAndSaveSporkSchedule` publishes only `MINT_STORAGE`, `MINT_SUPPLY` and
-`VESTING_STORAGE`; the statistics public key spork has full codec support but is never sent on the
-wire by the current code. It can still arrive from a peer, and is stored like any other type — see
-[Grid sporks](sporks.md).
+Note that `PublishAndSaveSporkSchedule` publishes only `MINT_STORAGE`, `MINT_SUPPLY`,
+`VESTING_STORAGE` and `STORAGE`; the statistics public key spork has full codec support but is never
+sent on the wire by the current code. It can still arrive from a peer, and is stored like any other
+type — see [Grid sporks](sporks.md).
 
 ## Buffer primitives
 
@@ -789,6 +1045,12 @@ packets.
 | `PingChannelHandler` | `Ping` | Echoes requests, records latency for responses |
 | `PublishPeersChannelHandler` | `PublishPeers` | Adds every announced node to the topology |
 | `PublishSporkChannelHandler` | `PublishSpork` | Holds a proposal, or validates and stores a co-signed spork, and re-broadcasts what was new |
+| `PublishGridnodeChannelHandler` | `PublishGridnode` | Offers the entry to `Topology.offerGridnode` and forwards an accepted one to every peer except the sender |
+| `StoreFragmentChannelHandler` | `StoreFragment` | Answers with a `StorageAck` carrying the status of `FragmentKeeper.store` |
+| `FetchFragmentChannelHandler` | `FetchFragment` | Answers with a `FragmentReply` from `FragmentKeeper.fetch` |
+| `HasFragmentChannelHandler` | `HasFragment` | Answers with a `FragmentStatus` from `FragmentKeeper.census` |
+| `DeleteGroupChannelHandler` | `DeleteGroup` | Answers with a `StorageAck` carrying the status of `FragmentKeeper.delete` |
+| `StorageResponseChannelHandler` | `StorageAck`, `FragmentReply` or `FragmentStatus`, one instance each | Completes the matching request in `PendingRequests` |
 | `AskPeersChannelHandler` | `AskPeers` | Empty body — the reply is commented out |
 | `AskNodeDetailsChannelHandler` | `AskNodeDetails` | Empty body — `//TODO: Implement me` |
 
@@ -909,6 +1171,49 @@ propagation are not observed.
 `greaterThanOrEqualTo` on the invocation count, with a comment explaining that the flooding makes an
 exact count unpredictable. `SporkReceptionTest` exercises `receive` directly, with real keys and no
 network.
+
+### Storage handlers and request correlation
+
+The four request handlers share one shape: resolve `FragmentKeeper` through `CDIUtil.resolveAndRun`,
+call it on the event loop, and answer on the same stream with `ctx.writeAndFlush(...)`, copying the
+request id into the reply and attaching `ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE`.
+
+| Request | Handler | Keeper call | Reply |
+| --- | --- | --- | --- |
+| `STORE_FRAGMENT` | `StoreFragmentChannelHandler` | `store(fragment)` | `STORAGE_ACK` with the returned status |
+| `FETCH_FRAGMENT` | `FetchFragmentChannelHandler` | `fetch(groupId)` | `FRAGMENT_REPLY`: `OK` with the stored bytes, or `NOT_FOUND` with an empty array |
+| `HAS_FRAGMENT` | `HasFragmentChannelHandler` | `census(groupIds)` | `FRAGMENT_STATUS` with one entry per group asked about, in request order |
+| `DELETE_GROUP` | `DeleteGroupChannelHandler` | `delete(groupId, publicKey, timestamp, signature)` | `STORAGE_ACK` with the returned status |
+
+What the keeper checks and which status it returns is described under
+[`FragmentKeeper`](storage.md#fragmentkeeper). When `FragmentKeeper` cannot be resolved, `CDIUtil`
+logs it and the handler sends nothing, so the requester runs into its timeout. A reply that fails to
+encode or to write is fired into the pipeline as an exception, which the first
+`AbstractInboundHandler` turns into a closed stream.
+
+The replies come back to `StorageResponseChannelHandler`, a generic `AbstractInboundHandler` for any
+`Packet` that is also `Correlated`. `StoragePipeline` installs it three times, once per reply class,
+and each instance resolves `PendingRequests` and calls `complete(ctx.channel(), reply)`.
+`application/src/main/java/org/unigrid/hedgehog/model/network/PendingRequests.java` is the
+`@ApplicationScoped` registry that `NettyFragmentTransport` filled before it sent the request:
+
+1. `nextRequestId()` increments one `AtomicLong`, seeded from `SecureRandom` when the bean is
+   created, and `register(id, channel, replyType)` stores the id with the stream channel of the
+   target node's connection and the reply class it expects.
+2. The request is then written with `channel.writeAndFlush(...)`; a failed write calls
+   `fail(id, cause)`, which fails the request at once.
+3. `complete` looks the reply's id up and completes the request only when the reply arrived on the
+   registered channel and is an instance of the registered class, removing the entry in the same
+   step. A reply with an unknown id, from another channel or of another type is dropped without a
+   trace and leaves the request waiting.
+4. Every request carries `orTimeout(PendingRequests.TIMEOUT)`, 10 seconds, and its entry is removed
+   however it ends.
+
+Why the channel and the type have to match is explained under
+[Request correlation](storage.md#request-correlation). `StoragePipelineTest.answersEveryStorageRequest`
+sends each of the four requests from a `P2PClient` to real `TestServer` instances with a mocked
+keeper and checks every reply; `PendingRequestsTest` covers matching by id, channel and type, explicit
+failure and the timeout.
 
 ## Topology and connection state
 
@@ -1079,7 +1384,7 @@ abstract. `RegisterQuicChannelInitializer` wraps the consumer in a `Runnable` fo
 | --- | --- | --- | --- |
 | `PingSchedule` | `Ping.HEARTBEAT_MINUTES` = 3 minutes | yes | one `Ping` (request), after storing its `nanoTime` in `PING_TIME_KEY` on the channel |
 | `PublishPeersSchedule` | `PublishPeers.DISTRIBUTION_FREQUENCY_MINUTES` = 3 minutes | no | one `PublishPeers` containing `topology.cloneNodes()` |
-| `PublishAndSaveSporkSchedule` | `PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES` = 3 minutes | no | three `PublishSpork` packets (mint storage, mint supply, vesting storage), then persists the database |
+| `PublishAndSaveSporkSchedule` | `PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES` = 3 minutes | no | four `PublishSpork` packets (mint storage, mint supply, vesting storage, storage) and one per held proposal, then persists the database |
 | `PublishGridnodeSchedule` | `PublishGridnode.DISTRIBUTION_FREQUENCY_MINUTES` = 5 minutes | yes | one `PublishGridnode` per stored entry younger than 30 minutes, after `GridnodeAnnouncer.refresh()` has re-signed the node's own entry if it is five minutes old |
 
 All of these are registered on both the server and client pipelines, so both ends of a connection ping,
@@ -1095,22 +1400,25 @@ influence, since nothing sends `ASK_PEERS`.
 `writeAndFlush(Channel, SporkDatabase, PendingSporks)` helper that `RegisterQuicChannelInitializer`
 calls on every new stream, and a private `save(...)` that resolves `ApplicationDirectory`, creates
 the user data directory and writes `SporkDatabase.SPORK_DB_FILE` (`spork.db`), logging at warn level
-on failure rather than propagating. `writeAndFlush` sends the three stored sporks and then one
-`PublishSpork` per proposal `PendingSporks` holds. Its `getConsumer()` resolves `SporkDatabase` and
-`PendingSporks` from CDI and does both in sequence: `writeAndFlush(channel, db, pendingSporks)`
-first, `save(db)` second. Proposals are never saved.
+on failure rather than propagating. `writeAndFlush` sends the four stored sporks — mint storage, mint
+supply, vesting storage and storage — and then one `PublishSpork` per proposal `PendingSporks` holds.
+Its `getConsumer()` resolves `SporkDatabase` and `PendingSporks` from CDI and does both in sequence:
+`writeAndFlush(channel, db, pendingSporks)` first, `save(db)` second. Proposals are never saved.
 
 Both the on-stream-creation push and the periodic run assume the database has sporks in it, and a fresh
 node's does not. `model/producer/SporkDatabaseProducer.java` falls back to
 `SporkDatabase.builder().build()` whenever `spork.db` cannot be read — on first start, and after an
-`IOException`, `ClassCastException` or `SerializationException` — and none of the four spork fields
-carries a `@Builder.Default`, so all four are null. `writeAndFlush` then builds three `PublishSpork`
-packets with `gridSpork == null`, and `AbstractGridSporkEncoder.encodeGridSpork` dereferences that at
-`encoders.getOptional(spork.getType())`. The `NullPointerException` is wrapped by Netty's
+`IOException`, `ClassCastException` or `SerializationException` — and none of the five spork fields
+carries a `@Builder.Default`, so all five are null. `writeAndFlush` then builds four `PublishSpork`
+packets with `gridSpork == null`, and `AbstractGridSporkEncoder.encodeGridSpork` dereferences that in
+its first statement, a trace log of `spork.getType()`. The `NullPointerException` is wrapped by Netty's
 `MessageToByteEncoder` into an `EncoderException` that fails the write promise; since neither call site
 attaches a listener, nothing observes it. A node with an empty database therefore publishes no stored
 spork until a peer has sent it sporks; the failed writes do not stop the proposals it holds from going
-out after them, which `PublishAndSaveSporkScheduleTest` relies on.
+out after them, which `PublishAndSaveSporkScheduleTest` relies on. Each of the four writes fails on its
+own, so the same happens one spork at a time: until the network keys co-sign a storage spork, every
+node that holds the other three still sends those and fails the fourth write on every stream, at
+creation and every three minutes.
 
 The schedule tests override the period through JMockit: `PingScheduleTest` runs at 75 ms with a 15 %
 tolerance and `PublishPeersScheduleTest` at 250 ms with 30 %, both counting only invocations where
@@ -1136,16 +1444,16 @@ sequenceDiagram
     Note over C,S: RegisterQuicChannelInitializer runs on both ends
     C->>S: HELLO { port = NetOptions.getPort() }
     S->>TP: addNode(remote IP + advertised port, connection)
-    C->>S: PUBLISH_SPORK x3 (initial exchange)
-    S->>C: PUBLISH_SPORK x3 (initial exchange)
+    C->>S: PUBLISH_SPORK x4 plus proposals (initial exchange)
+    S->>C: PUBLISH_SPORK x4 plus proposals (initial exchange)
     C->>T: connection established
     T->>TP: modifyNode(node) — set connection, ChannelMap.set(channel, node)
 ```
 
 If the constructor throws — including on the 2000 ms connect timeout — `TopologyThread` removes the
-node from the topology instead. The two `PUBLISH_SPORK` bursts only materialize on a side that already
-has sporks stored; on a node whose database is still empty the encoder throws and nothing goes out (see
-[Scheduled traffic](#scheduled-traffic)).
+node from the topology instead. The four stored sporks of each `PUBLISH_SPORK` burst only materialize
+on a side that actually holds them; for each one a node lacks the encoder throws and nothing of it goes
+out, while held proposals still follow (see [Scheduled traffic](#scheduled-traffic)).
 
 ### Ping and latency
 
@@ -1232,6 +1540,35 @@ sequenceDiagram
 Signature verification uses the network public keys; the key material and the `--network-keys`
 override live in `NetOptions` and are described in [Grid sporks](sporks.md).
 
+### Storage request and reply
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T as NettyFragmentTransport on A
+    participant P as PendingRequests on A
+    participant A as Stream pipeline on A
+    participant B as Stream pipeline on B
+    participant K as FragmentKeeper on B
+
+    T->>P: register(requestId, channel, reply type)
+    T->>A: channel.writeAndFlush(request)
+    A->>B: STORE_FRAGMENT, FETCH_FRAGMENT, HAS_FRAGMENT or DELETE_GROUP
+    Note over B: forwarded past every earlier decoder and handler to its storage decoder
+    B->>K: store, fetch, census or delete, on the event loop
+    K-->>B: a status, the stored bytes or the census entries
+    B->>A: STORAGE_ACK, FRAGMENT_REPLY or FRAGMENT_STATUS with the same request id
+    Note over A: StorageResponseChannelHandler
+    A->>P: complete(channel, reply)
+    P-->>T: completed when id, channel and type match
+    Note over T,P: anything else leaves the request to fail after 10 seconds
+```
+
+Either end of a stream can play either part, since both pipelines carry the same storage stages. When
+the target gridnode is the node itself, `NettyFragmentTransport` calls its own `FragmentKeeper` in
+process and nothing goes on the wire; which gridnodes a request goes to, and what the requester does
+with the answer, is described in [Network storage](storage.md).
+
 ## Known rough edges
 
 Collected here so a reader does not have to rediscover them:
@@ -1259,9 +1596,10 @@ Collected here so a reader does not have to rediscover them:
 - **A forwarded frame that no decoder claims is never drained.** Each decoder in the type-dispatch
   chain keeps the shared cumulation as a readable buffer, so the next frame is merged onto the
   leftover bytes rather than onto an empty one.
-- **An empty spork database poisons every stored-spork publication.** All four fields of a freshly built
-  `SporkDatabase` are null, and `PublishAndSaveSporkSchedule.writeAndFlush` dereferences them in the
-  encoder; the resulting `EncoderException` only fails a write promise nobody inspects.
+- **An empty spork database poisons every stored-spork publication.** All five fields of a freshly built
+  `SporkDatabase` are null, and `PublishAndSaveSporkSchedule.writeAndFlush` dereferences four of them in
+  the encoder; the resulting `EncoderException` only fails a write promise nobody inspects. The same
+  happens to the storage spork alone on every node until one has been co-signed.
 - **An unregistered spork type leaves the reader index mid-frame.** `decodeGridSpork` consumes the two
   type bytes before it looks the chunk decoder up, and the replaying decoder loops back in over the
   rest of the frame.
@@ -1293,3 +1631,30 @@ Collected here so a reader does not have to rediscover them:
 - **TLS is unauthenticated by design today**: a fresh self-signed certificate per server start and
   `InsecureTrustManagerFactory` on the client. The QUIC retry token uses a fixed all-zero IV and a key
   that changes on every restart.
+- **The protocol identifiers stayed at `0.0.4` through the gridnode and storage additions.**
+  `GRIDNODE` (2030), the seven storage packets (3000 to 3060) and spork type `STORAGE` (1030) all came
+  after release 0.0.8, which already offers `hedgehog/0.0.4` and `gridspork/0.0.4`. Such a node
+  completes the handshake and then meets frames it cannot read: a packet type it does not know travels
+  its decoder chain unclaimed, and a storage spork — pushed on every new stream and every three minutes
+  once one is stored — takes the unknown-spork-type path that leaves the reader index mid-frame. Either
+  way its decoders are left holding residue.
+- **Storage frames are not held to their size.** A frame shorter than its fields announce, including a
+  length prefix of up to 256 MiB that points past the end of the frame, is kept in the cumulation by
+  the replaying decoder's `REPLAY` signal instead of being refused, and bytes beyond the first packet
+  are decoded as further packets of the same type. The limits in `StorageCodecs` keep a forged length
+  from sizing an allocation, but not from desynchronizing the stream.
+- **A fragment's size bound applies only after the copy.** `STORE_FRAGMENT` accepts any length a frame
+  can carry; the decoder copies it into a byte array, and `FragmentKeeper.store` decodes and verifies
+  it — signature and Merkle proof included — before it compares the descriptor's fragment size with
+  the spork's bounds, 4 KiB to 1 MiB at defaults. Any key can sign a descriptor for a group of its
+  own, so a peer can make a storing gridnode do that work for fragments far above the bound.
+- **Storage requests are served on the event loop.** The four request handlers call `FragmentKeeper`
+  directly, disk access and fragment verification included, so a slow disk or the verification of a
+  large fragment holds up every other stream that loop serves.
+- **A request whose stream closes waits out its timeout.** Nothing in `PendingRequests` or
+  `NettyFragmentTransport` watches a channel's close future, and only a failed write fails a request
+  early, so every request already written when a stream closes — including the close that follows a
+  refused frame — waits the full 10 seconds.
+- **Request ids come from one counter.** `PendingRequests.nextRequestId()` increments a single
+  `AtomicLong` for every request the node issues, in process ones included, so a peer that receives
+  two requests learns how many the node issued in between.
