@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" width="960" height="560" font-family="sans-serif" role="img" aria-labelledby="title desc">
+	<title id="title">Roles in Hedgehog network storage</title>
+	<desc id="desc">The owner's node encrypts, codes and places a file and keeps the fingerprint. Gridnodes verify, store and repair fragments over the QUIC network. Network key holders set the storage spork but hold no key to any file.</desc>
+	<defs>
+		<marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="#4a5560"/>
+		</marker>
+	</defs>
+
+	<rect x="0" y="0" width="960" height="560" fill="#f8f9fb"/>
+	<text x="32" y="42" font-size="22" font-weight="bold" fill="#1f2933">Who does what in network storage</text>
+
+	<rect x="32" y="70" width="290" height="330" rx="10" fill="#e6eef8" stroke="#3b6ea8" stroke-width="1.5"/>
+	<text x="52" y="100" font-size="17" font-weight="bold" fill="#1f2933">Owner's node</text>
+	<text x="52" y="121" font-size="13" fill="#3d4a57">Any Hedgehog daemon the user trusts</text>
+	<g font-size="13" fill="#1f2933" text-anchor="middle">
+		<rect x="52" y="136" width="250" height="46" rx="6" fill="#ffffff" stroke="#3b6ea8"/>
+		<text x="177" y="155" font-weight="bold">storage-put, -get, -delete</text>
+		<text x="177" y="173">REST /storage on localhost</text>
+		<rect x="52" y="192" width="250" height="46" rx="6" fill="#ffffff" stroke="#3b6ea8"/>
+		<text x="177" y="211" font-weight="bold">StorageService</text>
+		<text x="177" y="229">StorageUpload, Retrieval</text>
+		<rect x="52" y="248" width="250" height="46" rx="6" fill="#ffffff" stroke="#3b6ea8"/>
+		<text x="177" y="267">Encrypts and codes chunks,</text>
+		<text x="177" y="285">seals and places groups</text>
+		<rect x="52" y="304" width="250" height="46" rx="6" fill="#ffffff" stroke="#3b6ea8"/>
+		<text x="177" y="323" font-weight="bold">Fingerprint</text>
+		<text x="177" y="341">the only key to the file</text>
+	</g>
+	<text x="52" y="372" font-size="13" fill="#3d4a57">Knows the plaintext, the fingerprint</text>
+	<text x="52" y="390" font-size="13" fill="#3d4a57">and how the file is laid out</text>
+
+	<rect x="650" y="82" width="290" height="330" rx="10" fill="#f2f8f4" stroke="#3d8b5a" stroke-opacity="0.5"/>
+	<rect x="644" y="76" width="290" height="330" rx="10" fill="#edf6f0" stroke="#3d8b5a" stroke-opacity="0.7"/>
+	<rect x="638" y="70" width="290" height="330" rx="10" fill="#e7f2ea" stroke="#3d8b5a" stroke-width="1.5"/>
+	<text x="658" y="100" font-size="17" font-weight="bold" fill="#1f2933">Gridnodes</text>
+	<text x="658" y="121" font-size="13" fill="#3d4a57">Signed ACTIVE entry, -G key file</text>
+	<g font-size="13" fill="#1f2933" text-anchor="middle">
+		<rect x="658" y="136" width="250" height="46" rx="6" fill="#ffffff" stroke="#3d8b5a"/>
+		<text x="783" y="155" font-weight="bold">FragmentKeeper</text>
+		<text x="783" y="173">verifies, stores, answers</text>
+		<rect x="658" y="192" width="250" height="46" rx="6" fill="#ffffff" stroke="#3d8b5a"/>
+		<text x="783" y="211" font-weight="bold">FragmentStore</text>
+		<text x="783" y="229">fragments, quota, tombstones</text>
+		<rect x="658" y="248" width="250" height="46" rx="6" fill="#ffffff" stroke="#3d8b5a"/>
+		<text x="783" y="267" font-weight="bold">RepairService, GroupRepairer</text>
+		<text x="783" y="285">census, rebuild, relocate</text>
+		<rect x="658" y="304" width="250" height="46" rx="6" fill="#ffffff" stroke="#3d8b5a"/>
+		<text x="783" y="323" font-weight="bold">Between gridnodes</text>
+		<text x="783" y="341">HAS_FRAGMENT, fetch, store</text>
+	</g>
+	<text x="658" y="372" font-size="13" fill="#3d4a57">Sees ciphertext fragments and</text>
+	<text x="658" y="390" font-size="13" fill="#3d4a57">signed descriptors, never a key</text>
+
+	<text x="480" y="150" font-size="15" font-weight="bold" fill="#1f2933" text-anchor="middle">P2P network, QUIC</text>
+	<line x1="330" y1="180" x2="628" y2="180" stroke="#4a5560" stroke-width="2" marker-end="url(#head)"/>
+	<g font-size="12" fill="#1f2933" text-anchor="middle">
+		<text x="480" y="200">STORE_FRAGMENT</text>
+		<text x="480" y="218">FETCH_FRAGMENT</text>
+		<text x="480" y="236">DELETE_GROUP</text>
+	</g>
+	<line x1="628" y1="272" x2="330" y2="272" stroke="#4a5560" stroke-width="2" marker-end="url(#head)"/>
+	<g font-size="12" fill="#1f2933" text-anchor="middle">
+		<text x="480" y="292">STORAGE_ACK</text>
+		<text x="480" y="310">FRAGMENT_REPLY</text>
+	</g>
+	<text x="480" y="352" font-size="12" fill="#3d4a57" text-anchor="middle">Every request carries a 64-bit id</text>
+	<text x="480" y="370" font-size="12" fill="#3d4a57" text-anchor="middle">and times out after 10 seconds</text>
+
+	<rect x="32" y="436" width="896" height="100" rx="10" fill="#eef0f3" stroke="#7a8591" stroke-width="1.5"/>
+	<text x="52" y="466" font-size="17" font-weight="bold" fill="#1f2933">Network key holders</text>
+	<text x="52" y="490" font-size="13" fill="#1f2933">Propose and co-sign the StorageSpork, spork type 1030: chunk and fragment sizes, parity, quota,</text>
+	<text x="52" y="510" font-size="13" fill="#1f2933">window slack, repair cadence and tombstone lifetime. They hold no key that reads, finds or deletes a file.</text>
+	<line x1="177" y1="434" x2="177" y2="406" stroke="#4a5560" stroke-width="1.5" marker-end="url(#head)"/>
+	<line x1="783" y1="434" x2="783" y2="418" stroke="#4a5560" stroke-width="1.5" marker-end="url(#head)"/>
+	<text x="187" y="425" font-size="12" fill="#3d4a57">parameters</text>
+	<text x="793" y="431" font-size="12" fill="#3d4a57">parameters</text>
+</svg>

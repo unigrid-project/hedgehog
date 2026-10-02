@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" font-family="sans-serif" role="img" aria-labelledby="title desc">
+	<title id="title">A gridnode's fragment store</title>
+	<desc id="desc">Fragment files carry a 12-byte header before the encoded fragment, and tombstone files hold 112 bytes. Guaranteed fragments may use the whole quota, extras at most 20 percent of it, and every entry is charged at least 4 KiB.</desc>
+
+	<rect x="0" y="0" width="960" height="480" fill="#f8f9fb"/>
+	<text x="32" y="42" font-size="22" font-weight="bold" fill="#1f2933">A gridnode's fragment store</text>
+
+	<text x="32" y="82" font-size="15" font-weight="bold" fill="#1f2933">On disk, under the data directory</text>
+	<text x="32" y="110" font-size="13" fill="#1f2933">fragments/ab/cd/&lt;group id hex&gt;.frag</text>
+	<g font-size="12" fill="#1f2933" text-anchor="middle">
+		<rect x="32" y="120" width="88" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="76" y="140">format, 1 B</text>
+		<rect x="120" y="120" width="88" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="164" y="140">slots, 1 B</text>
+		<rect x="208" y="120" width="88" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="252" y="140">tier, 1 B</text>
+		<rect x="296" y="120" width="88" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="340" y="140">index, 1 B</text>
+		<rect x="384" y="120" width="136" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="452" y="140">sequence, 8 B</text>
+		<rect x="520" y="120" width="392" height="30" fill="#cfe0f3" stroke="#3b6ea8"/><text x="716" y="140">encoded fragment, 65,838 B at defaults</text>
+	</g>
+	<g font-size="12" fill="#3d4a57">
+		<text x="32" y="170">The header restores the accounting at startup, and the sequence orders extras for eviction.</text>
+		<text x="32" y="186">Every write goes to a .tmp file first and is renamed into place, without forcing it to disk.</text>
+	</g>
+
+	<text x="32" y="222" font-size="13" fill="#1f2933">fragments/tombstones/&lt;group id hex&gt;</text>
+	<g font-size="12" fill="#1f2933" text-anchor="middle">
+		<rect x="32" y="232" width="150" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="107" y="252">expiry, 8 B</text>
+		<rect x="182" y="232" width="190" height="30" fill="#e3e6ea" stroke="#8a949e"/><text x="277" y="252">delete timestamp, 8 B</text>
+		<rect x="372" y="232" width="240" height="30" fill="#ffffff" stroke="#8a949e"/><text x="492" y="252">group public key, 32 B</text>
+		<rect x="612" y="232" width="300" height="30" fill="#ffffff" stroke="#8a949e"/><text x="762" y="252">Ed25519 signature, 64 B</text>
+	</g>
+	<text x="32" y="282" font-size="12" fill="#3d4a57">A tombstone keeps the owner's delete proof. Until it expires it blocks stores of the group and answers every census.</text>
+
+	<text x="32" y="322" font-size="15" font-weight="bold" fill="#1f2933">Quota: maxBytesPerNode, 10 GiB by default</text>
+	<g font-size="12" text-anchor="middle">
+		<rect x="32" y="336" width="438" height="36" fill="#cfe0f3" stroke="#3b6ea8"/><text x="251" y="359" fill="#1f2933">guaranteed fragments</text>
+		<rect x="470" y="336" width="40" height="36" fill="#e3e6ea" stroke="#8a949e"/>
+		<rect x="510" y="336" width="176" height="36" fill="#f8dcc0" stroke="#c27a2c"/><text x="598" y="359" fill="#1f2933">extras</text>
+		<rect x="686" y="336" width="226" height="36" fill="#ffffff" stroke="#9aa4ae" stroke-dasharray="4 3"/><text x="799" y="359" fill="#5b6670">free</text>
+	</g>
+	<g font-size="12" fill="#1f2933" text-anchor="middle">
+		<text x="251" y="392">may use the whole quota</text>
+		<text x="490" y="392">tombstones</text>
+		<text x="598" y="408">at most 20 percent, 2 GiB</text>
+	</g>
+	<g font-size="12" fill="#3d4a57">
+		<text x="32" y="436">A guaranteed store that does not fit evicts the oldest extras first, and answers QUOTA only when no extra is left to evict.</text>
+		<text x="32" y="454">Every entry costs at least 4 KiB. Tombstones for groups the node does not hold stay within 1 percent of the quota, 26,214 at defaults.</text>
+	</g>
+</svg>
