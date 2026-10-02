@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.model.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -40,10 +39,10 @@ public class VarIntTest {
 		}
 	}
 
+	/* Written by bitcoinj, so a pass also shows that the encoding is the standard one */
 	private static long readBack(long value) {
-		final ByteBuffer buffer = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN);
+		final ByteBuffer buffer = org.bitcoinj.base.VarInt.of(value).write(ByteBuffer.allocate(Long.BYTES + 1));
 
-		VarInt.write(buffer, value);
 		return VarInt.read(buffer.flip());
 	}
 }

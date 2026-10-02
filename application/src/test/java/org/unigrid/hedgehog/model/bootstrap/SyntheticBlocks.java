@@ -25,7 +25,6 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
@@ -90,10 +89,7 @@ public final class SyntheticBlocks {
 	}
 
 	private static void writeCounted(ByteArrayOutputStream buffer, List<byte[]> items) {
-		final ByteBuffer count = ByteBuffer.allocate(Long.BYTES + 1).order(ByteOrder.LITTLE_ENDIAN);
-
-		VarInt.write(count, items.size());
-		buffer.writeBytes(Arrays.copyOf(count.array(), count.position()));
+		buffer.writeBytes(org.bitcoinj.base.VarInt.of(items.size()).serialize());
 		items.forEach(buffer::writeBytes);
 	}
 

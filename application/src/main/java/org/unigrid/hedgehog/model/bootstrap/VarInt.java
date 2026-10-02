@@ -52,16 +52,4 @@ public final class VarInt {
 
 		return (int) value;
 	}
-
-	public static void write(ByteBuffer buffer, long value) {
-		if (value < TWO_BYTE_MARKER) {
-			buffer.put((byte) value);
-		} else if (value <= 0xffffL) {
-			buffer.put((byte) TWO_BYTE_MARKER).putShort((short) value);
-		} else if (value <= 0xffffffffL) {
-			buffer.put((byte) FOUR_BYTE_MARKER).putInt((int) value);
-		} else {
-			buffer.put((byte) EIGHT_BYTE_MARKER).putLong(value);
-		}
-	}
 }
