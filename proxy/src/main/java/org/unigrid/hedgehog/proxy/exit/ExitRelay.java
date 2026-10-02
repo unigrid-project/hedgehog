@@ -100,11 +100,15 @@ public final class ExitRelay {
 		return datagrams == null ? 0 : datagrams.dropped();
 	}
 
-	/* The socket of an association is opened once the lock is released, as a connector may answer at once and on
-	   a thread of its own */
+	/* The socket of an association is opened, and the destination of a stream admitted, once the lock is released,
+	   as a connector may answer at once and on a thread of its own */
 	public void handle(SealedMessage message) {
-		if (take(message) == State.OPENING) {
+		final State taken = take(message);
+
+		if (taken == State.OPENING) {
 			open();
+		} else if (taken == State.CONNECTING && message instanceof Connect connect) {
+			admitOrResolve(connect.destination());
 		}
 	}
 
@@ -186,7 +190,6 @@ public final class ExitRelay {
 			refuse(Socks5CommandStatus.FORBIDDEN);
 		} else {
 			state = State.CONNECTING;
-			resolve(connect.destination());
 		}
 	}
 
@@ -211,18 +214,29 @@ public final class ExitRelay {
 		}
 	}
 
+	/* An IP literal needs no lookup, so it never queues behind the names of other clients, which may fill the
+	   resolving executor */
+	private void admitOrResolve(SocksAddress destination) {
+		if (Socks5AddressType.DOMAIN.equals(destination.type())) {
+			resolve(destination);
+		} else {
+			admit(destination);
+		}
+	}
+
 	/* An executor that is full or shut down refuses the lookup, and the client must still get its reply */
 	private void resolve(SocksAddress destination) {
 		try {
 			context.resolving().execute(() -> admit(destination));
 		} catch (RejectedExecutionException ex) {
 			log.warn("Admitting a destination failed with {}", ex.getClass().getName());
-			refuse(Socks5CommandStatus.FAILURE);
+			failed(Socks5CommandStatus.FAILURE);
 		}
 	}
 
-	/* Runs on the resolving executor and holds no lock, because a lookup blocks. The connector gets the
-	   addresses the policy checked and never the name, so a second lookup cannot swap in another address. */
+	/* Runs on the resolving executor for a name, as a lookup blocks, and on the caller's thread for an IP literal,
+	   holding no lock either way. The connector gets the addresses the policy checked and never the name, so a
+	   second lookup cannot swap in another address. */
 	private void admit(SocksAddress destination) {
 		if (!isConnecting()) {
 			return;

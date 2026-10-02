@@ -76,9 +76,10 @@ final class ExitContexts {
 		}, new NettyUdpConnector(connector::group));
 	}
 
-	/* A lookup blocks for as long as the name server takes, and the client chooses the names, so a stranger that asks
-	   for names that never answer fills these threads and the queue behind them, which holds one lookup for every
-	   relay, and is then refused: it does not fill the node with threads */
+	/* Only names are looked up here, never an IP literal: one for each stream relay and up to four at once for each
+	   association. A lookup blocks for as long as the name server takes, and the client chooses the names, so a
+	   stranger that asks for names that never answer fills these threads and the queue behind them and is then
+	   refused: it does not fill the node with threads. */
 	private static ThreadPoolExecutor resolver() {
 		final ThreadPoolExecutor resolving = new ThreadPoolExecutor(RESOLVER_THREADS, RESOLVER_THREADS,
 			RESOLVER_IDLE_SECONDS, TimeUnit.SECONDS, new ArrayBlockingQueue<>(ChainExit.MAX_RELAYS),

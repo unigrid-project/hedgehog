@@ -1071,18 +1071,29 @@ public class ChainExitTest {
 		assertThat(List.of(first.closed, second.closed), everyItem(is(true)));
 	}
 
+	/* A name needs a thread of the resolver, an IP literal none */
 	@Example
-	public void tellsTheClientTheDestinationIsUnreachableWhenTheResolverHasNoRoom() {
+	public void tellsTheClientANameIsUnreachableWhenTheResolverHasNoRoomAndStillConnectsALiteral() {
 		final Rig rig = new Rig(ChainFleet.group(), built -> built.exit(built.fleet.clock::get, command -> {
 			throw new RejectedExecutionException();
 		}));
-		final Caller caller = rig.caller(1);
+		final Caller named = rig.caller(1, EXIT, rig.fleet.chain(), new Connect(Socks5CommandType.CONNECT,
+			new SocksAddress(Socks5AddressType.DOMAIN, "example.org", 8080)));
 
-		caller.open();
+		named.open();
 
-		assertThat(caller.received, contains(new Connected(Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED),
+		assertThat(named.received, contains(new Connected(Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED),
 			new Close(CloseReason.UNREACHABLE)));
 		assertThat(rig.exit.openRelays(), is(0));
+
+		final Caller literal = rig.caller(2);
+
+		literal.open();
+		rig.connector.connect();
+		rig.drive();
+
+		assertThat(literal.received, contains(CONNECTED));
+		assertThat(rig.exit.openRelays(), is(1));
 	}
 
 	@Example

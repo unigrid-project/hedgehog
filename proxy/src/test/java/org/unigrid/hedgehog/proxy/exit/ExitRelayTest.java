@@ -27,6 +27,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,9 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+import org.slf4j.event.Level;
+import org.slf4j.event.SubstituteLoggingEvent;
+import org.slf4j.helpers.SubstituteLogger;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.Close;
@@ -57,12 +61,14 @@ import org.unigrid.hedgehog.proxy.session.Resolver;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.hamcrest.Matchers.not;
 
 public class ExitRelayTest {
 	private static final SocksAddress PUBLIC_LITERAL = new SocksAddress(Socks5AddressType.IPv4, "93.184.215.14", 443);
@@ -75,6 +81,11 @@ public class ExitRelayTest {
 	private static final Executor REJECTING = command -> {
 		throw new RejectedExecutionException("no room for lookups");
 	};
+
+	/* Takes a lookup and never gets to it, as a pool whose threads all wait on names that never answer */
+	private static final Executor SATURATED = command -> { };
+	private static final SocksAddress PUBLIC_IPV6_LITERAL = new SocksAddress(Socks5AddressType.IPv6,
+		"2606:2800:21f::1", 443);
 	private static final List<Socks5CommandStatus> REFUSING = List.of(Socks5CommandStatus.FORBIDDEN,
 		Socks5CommandStatus.COMMAND_UNSUPPORTED, Socks5CommandStatus.ADDRESS_UNSUPPORTED);
 	private static final List<Socks5CommandStatus> UNREACHING = List.of(Socks5CommandStatus.FAILURE,
@@ -284,6 +295,77 @@ public class ExitRelayTest {
 		assertThat(relay.isOpen(), is(false));
 	}
 
+	/* The names of other clients may hold every thread of the pool and every place in its queue, which an IP
+	   literal never waits for */
+	@Example
+	public void shouldConnectToALiteralWhileNoLookupCanBeQueued() throws UnknownHostException {
+		for (SocksAddress literal : List.of(PUBLIC_LITERAL, PUBLIC_IPV6_LITERAL)) {
+			for (Executor resolving : List.of(SATURATED, REJECTING)) {
+				final SessionPair pair = new SessionPair(connect(literal));
+				final ExitRelay relay = relay(pair, new ExitContext(ProxySettings.DEFAULTS,
+					DestinationPolicy.publicOnly(), NEVER, resolving, connector));
+
+				assertThat(connector.last().addresses(), equalTo(List.of(address(literal.host()))));
+				connected(pair);
+				assertThat(relay.isOpen(), is(true));
+			}
+		}
+
+		final SessionPair name = new SessionPair(connect(NAME));
+
+		relay(name, new ExitContext(ProxySettings.DEFAULTS, DestinationPolicy.publicOnly(), NEVER, REJECTING,
+			connector));
+		assertThat(name.toClient(), equalTo(refusal(Socks5CommandStatus.FAILURE, CloseReason.UNREACHABLE)));
+		assertThat(connector.requests.size(), is(4));
+	}
+
+	@Example
+	public void shouldRefuseALocalLiteralWithoutALookup() {
+		final SessionPair pair = new SessionPair(connect(new SocksAddress(Socks5AddressType.IPv4, "192.168.1.10",
+			443)));
+
+		relay(pair, new ExitContext(ProxySettings.DEFAULTS, DestinationPolicy.publicOnly(), NEVER, REJECTING,
+			connector));
+		assertThat(pair.toClient(), equalTo(refusal(Socks5CommandStatus.FORBIDDEN, CloseReason.REFUSED)));
+		assertThat(connector.requests, is(empty()));
+	}
+
+	/* A literal is admitted on the host's thread, where a connector that throws must still end in a reply; the log
+	   names the class of the failure alone, as its message may quote the destination */
+	@Example
+	public void shouldAnswerAndLogOnlyTheClassWhenTheConnectToALiteralThrows() {
+		final SessionPair pair = new SessionPair(connect(PUBLIC_LITERAL));
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final ExitRelay relay = new ExitRelay(pair.exit, new ExitContext(ProxySettings.DEFAULTS,
+			DestinationPolicy.publicOnly(), NEVER, REJECTING, (addresses, port, listener) -> {
+				throw new IllegalStateException("No room to reach 93.184.215.14");
+			}), new SubstituteLogger("exit", events, false));
+
+		pair.toExit().forEach(relay::handle);
+		assertThat(pair.toClient(), equalTo(refusal(Socks5CommandStatus.FAILURE, CloseReason.UNREACHABLE)));
+		assertThat(relay.isOpen(), is(false));
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { IllegalStateException.class.getName() }));
+		assertThat(events.peek().getMessage(), not(containsString("93.184.215.14")));
+	}
+
+	@Example
+	public void shouldHoldNoLockOfTheRelayWhileItConnectsToALiteral() {
+		final SessionPair pair = new SessionPair(connect(PUBLIC_LITERAL));
+		final AtomicReference<ExitRelay> relayed = new AtomicReference<>();
+		final List<Boolean> locked = new ArrayList<>();
+		final ExitRelay relay = new ExitRelay(pair.exit, new ExitContext(ProxySettings.DEFAULTS,
+			DestinationPolicy.publicOnly(), NEVER, Runnable::run, (addresses, port, listener) -> {
+				locked.add(Thread.holdsLock(relayed.get()));
+				return ExitConnector.Attempt.NONE;
+			}));
+
+		relayed.set(relay);
+		pair.toExit().forEach(relay::handle);
+		assertThat(locked, equalTo(List.of(false)));
+	}
+
 	@Example
 	public void shouldCloseWithRefusedOnlyForARefusalOfTheRequest() {
 		for (Socks5CommandStatus status : REFUSING) {
@@ -435,7 +517,7 @@ public class ExitRelayTest {
 	public void shouldCancelAConnectThatStartedAsTheRelayEnded() {
 		final AtomicReference<ExitRelay> relayed = new AtomicReference<>();
 		final AtomicInteger cancels = new AtomicInteger();
-		final ExitRelay relay = admitting(new SessionPair(connect(PUBLIC_LITERAL)), NEVER,
+		final ExitRelay relay = admitting(new SessionPair(connect(NAME)), host -> List.of(address("93.184.215.14")),
 			(addresses, port, listener) -> {
 				relayed.get().close(CloseReason.DONE);
 				return cancels::incrementAndGet;
