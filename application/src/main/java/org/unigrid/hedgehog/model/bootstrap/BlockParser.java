@@ -25,6 +25,7 @@ import java.util.HexFormat;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.ArrayUtils;
 
 /*
    The genesis block is hashed with Quark rather than SHA-256, so its hash cannot be derived from
@@ -177,22 +178,13 @@ public final class BlockParser {
 	}
 
 	private static boolean isZero(byte[] bytes) {
-		for (final byte value : bytes) {
-			if (value != 0) {
-				return false;
-			}
-		}
-
-		return true;
+		return Arrays.equals(bytes, new byte[bytes.length]);
 	}
 
 	private static byte[] reverse(byte[] bytes) {
-		final byte[] result = new byte[bytes.length];
+		final byte[] result = bytes.clone();
 
-		for (int i = 0; i < bytes.length; i++) {
-			result[i] = bytes[bytes.length - 1 - i];
-		}
-
+		ArrayUtils.reverse(result);
 		return result;
 	}
 
