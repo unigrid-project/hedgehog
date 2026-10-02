@@ -18,9 +18,13 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import io.netty.channel.ChannelFuture;
 import java.math.BigDecimal;
 import java.util.HexFormat;
 import java.util.List;
@@ -42,15 +46,17 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.ShrinkingMode;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.apache.commons.lang3.SerializationUtils;
+import org.awaitility.core.ConditionTimeoutException;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -69,6 +75,10 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 	private static long versions;
 
 	private final Set<String> received = ConcurrentHashMap.newKeySet();
+
+	/* A node closes the stream on any pipeline failure and the test logs nowhere, so this is where one shows up */
+	private final ListAppender<ILoggingEvent> pipelineLog = new ListAppender<>();
+	private final Logger pipelineLogger = (Logger) LoggerFactory.getLogger(AbstractInboundHandler.class);
 
 	/* MintStorage compares equal to any other MintStorage, so a version is told apart by its time and signatures */
 	private static String identity(GridSpork spork) {
@@ -94,11 +104,20 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 		proposer = new Signature();
 		cosigner = new Signature();
 
+		pipelineLog.start();
+		pipelineLogger.addAppender(pipelineLog);
+
 		setChannelCallback(Optional.of((ctx, publishSpork) -> {
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				received.add(identity(publishSpork.getGridSpork()));
 			}
 		}));
+	}
+
+	@AfterProperty
+	private void detachPipelineLog() {
+		pipelineLogger.detachAppender(pipelineLog);
+		pipelineLog.stop();
 	}
 
 	@BeforeTry
@@ -148,11 +167,19 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 	/* Returns once a node has handled this very spork, so what it did with it can be checked */
 	@SneakyThrows
 	private void send(TestServer server, GridSpork spork) {
-		final Connection connection = new P2PClient(server.getP2p().getHostName(), server.getP2p().getPort());
+		final P2PClient client = new P2PClient(server.getP2p().getHostName(), server.getP2p().getPort());
+		final ChannelFuture write = client.send(PublishSpork.builder().gridSpork(spork).build());
 
-		connection.send(PublishSpork.builder().gridSpork(spork).build());
-		await().until(() -> received.contains(identity(spork)));
-		connection.closeDirty();
+		try {
+			await().until(() -> received.contains(identity(spork)));
+		} catch (ConditionTimeoutException ex) {
+			throw new AssertionError("No node handled the spork. Write: " + write + ", cause: " + write.cause()
+				+ ", stream active: " + client.getChannel().isActive() + ", pipeline log: "
+				+ pipelineLog.list.stream().map(ILoggingEvent::getFormattedMessage).toList(), ex
+			);
+		} finally {
+			client.closeDirty();
+		}
 	}
 
 	/* Few addresses, so mints share Address objects, which once changed the signed bytes on the way */
