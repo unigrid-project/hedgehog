@@ -572,8 +572,9 @@ The codecs live in `model/network/codec/` as `<Packet>Encoder.java` and `<Packet
 shared helpers in `StorageCodecs.java`. The decoders refuse a group count above 4,096
 (`StorageCodecs.MAX_GROUPS_PER_PACKET`), a negative byte-array length or one above 256 MiB, and public
 keys and signatures of any size but 32 and 64 bytes. A length-prefixed array is sliced off the buffer
-before it is copied, so a forged length fails on the bytes actually present instead of driving an
-allocation.
+before it is copied, so a forged length cannot drive an allocation. In the live pipeline the failure
+shows up as the replaying decoder's `REPLAY` signal rather than a refusal; see
+[Peer-to-peer network protocol](network-protocol.md) under `Known rough edges`.
 
 ### Packets
 
