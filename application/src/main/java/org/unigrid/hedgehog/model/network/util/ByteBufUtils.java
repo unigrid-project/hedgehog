@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2023 Stiftelsen The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation, UGD Software AB
 
     Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
     UGD Software AB (org. nr: 559339-5824)
