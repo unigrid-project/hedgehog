@@ -238,8 +238,8 @@ public class ChainExit implements ChainDrain {
 		closeChain(chainId, CloseReason.DONE);
 	}
 
-	/* Run once a second: ends the sessions of the chains the host dropped or rebuilt, places what the outboxes hold,
-	   ticks every relay and forgets the relays that ended */
+	/* Run once a second: ends the sessions of the chains the host dropped or rebuilt and of the feeds that ended,
+	   places what the outboxes hold, ticks every relay and forgets the relays that ended */
 	void tick() {
 		final long now = clock.getAsLong();
 
@@ -307,13 +307,14 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* This node's feed on the chain the host holds now. A chain the host rebuilt, because the spork changed its limits
-	   or the proxy was off for a while, is not the one an earlier feed went on: the sessions of that feed end, and a
-	   feed of its own starts on the new chain. The tick hands the outbox's level to the relays right after the outbox
-	   ticked, which is where it would tell a change, so it tells nobody. */
+	   or the proxy was off for a while, is not the one an earlier feed went on, and a feed whose outbox ended takes
+	   nothing more: the sessions of that feed end, and a feed of its own starts on the chain. The tick hands the
+	   outbox's level to the relays right after the outbox ticked, which is where it would tell a change, so it tells
+	   nobody. */
 	private ExitChain feedOn(final Chain chain) {
 		final ExitChain known = chains.get(chain.id());
 
-		if (known != null && known.chain() == chain) {
+		if (known != null && known.chain() == chain && !known.outbox().hasEnded()) {
 			return known;
 		}
 
@@ -330,10 +331,11 @@ public class ChainExit implements ChainDrain {
 	}
 
 	private boolean isStale(final ExitChain feed) {
-		return host.chain(feed.chain().id()).filter(chain -> chain == feed.chain()).isEmpty();
+		return feed.outbox().hasEnded() || host.chain(feed.chain().id()).filter(chain -> chain == feed.chain())
+			.isEmpty();
 	}
 
-	/* What the sessions of a feed whose chain is gone write reaches nobody */
+	/* What the sessions of a feed whose chain is gone or whose outbox ended write reaches nobody */
 	private void retire(final ExitChain feed) {
 		chains.remove(feed.chain().id(), feed);
 		relays.values().stream().filter(relayed -> relayed.feed() == feed)

@@ -44,6 +44,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.From;
+import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tuple;
@@ -61,13 +62,16 @@ import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.proxy.chain.Admission;
+import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 public class ChainOutboxTest {
 	private static final int EARLIER = 10_000;
 	private static final int UNTIL_THE_CROWD_EXPIRES = 21_000;
+	private static final int RETENTION_MILLIS = 30_000;
 	private static final int WRITER = 1;
 	private static final int TIMEOUT_SECONDS = 10;
 	private static final int ROUNDS = 20;
@@ -76,9 +80,14 @@ public class ChainOutboxTest {
 	private static final ChainId CHAIN = new ChainId(new byte[ChainId.SIZE]);
 	private static final List<Entry> FEED = ChainFleet.entries(ChainFleet.key(WRITER), CHAIN, 1000, ChainFleet.NOW);
 
-	/* Every answer but those that keep an entry waiting or end the outbox: the chain took it or never will */
-	private static final EnumSet<Admission> FOR_GOOD = EnumSet.complementOf(EnumSet.of(Admission.FULL,
-		Admission.WRONG_CHAIN));
+	/* The answers that say the chain holds the entry or is past it, so the next entry of the feed may follow */
+	private static final EnumSet<Admission> TAKEN = EnumSet.of(Admission.ACCEPTED, Admission.AHEAD, Admission.DUPLICATE,
+		Admission.REPLAYED);
+
+	/* The answers that end the outbox: every one that says the chain will never take the entry, and a chain that is
+	   gone */
+	private static final List<Admission> ENDING = List.of(Admission.BROKEN, Admission.TOO_LARGE, Admission.FUTURE,
+		Admission.EXPIRED, Admission.NOT_AUTHENTIC, Admission.WRONG_CHAIN);
 
 	private final ChainFleet fleet = ChainFleet.group(ChainFleet.tinyChains());
 	private final ChainHost host = fleet.host("gn-1");
@@ -202,7 +211,7 @@ public class ChainOutboxTest {
 	}
 
 	/* Each post is of the entry posted before it again when that one found no room or the host failed, and of the
-	   next entry of the feed otherwise, beginning with the first; nothing follows a chain that is gone */
+	   next entry of the feed otherwise, beginning with the first; nothing follows an answer that ends the outbox */
 	private static void assertPostedInFeedOrder(final ScriptedHost host) {
 		for (int post = 0; post < host.posted.size(); post++) {
 			final boolean again = post > 0 && host.answered.get(post - 1).filter(admission ->
@@ -210,9 +219,20 @@ public class ChainOutboxTest {
 			final long previous = post == 0 ? -1 : host.posted.get(post - 1).header().seq();
 
 			assertThat(host.posted.get(post).header().seq(), is(again ? previous : previous + 1));
-			assertThat(post > 0 && host.answered.get(post - 1).equals(Optional.of(Admission.WRONG_CHAIN)),
-				is(false));
+			assertThat(post > 0 && host.answered.get(post - 1).filter(ENDING::contains).isPresent(), is(false));
 		}
+	}
+
+	private static boolean hasEnded(final ScriptedHost host) {
+		return host.answered.stream().flatMap(Optional::stream).anyMatch(ENDING::contains);
+	}
+
+	private static List<String> messagesOf(final List<ILoggingEvent> warnings) {
+		return warnings.stream().map(ILoggingEvent::getFormattedMessage).toList();
+	}
+
+	private static String endedBy(final Admission answer) {
+		return "The feed of a writer of this node ends, as its chain answered an entry with " + answer;
 	}
 
 	/* What the listener heard changes each time, beginning with a pause, since it starts out writable */
@@ -263,14 +283,14 @@ public class ChainOutboxTest {
 	Arbitrary<Optional<Admission>> answers() {
 		return Arbitraries.frequencyOf(Tuple.of(8, Arbitraries.just(Optional.of(Admission.ACCEPTED))),
 			Tuple.of(8, Arbitraries.just(Optional.of(Admission.FULL))),
-			Tuple.of(3, Arbitraries.of(FOR_GOOD).map(Optional::of)),
+			Tuple.of(3, Arbitraries.of(TAKEN).map(Optional::of)),
 			Tuple.of(1, Arbitraries.just(Optional.<Admission>empty())),
-			Tuple.of(1, Arbitraries.just(Optional.of(Admission.WRONG_CHAIN))));
+			Tuple.of(1, Arbitraries.of(ENDING).map(Optional::of)));
 	}
 
 	@Provide
-	Arbitrary<Admission> forGood() {
-		return Arbitraries.of(FOR_GOOD);
+	Arbitrary<Admission> taken() {
+		return Arbitraries.of(TAKEN);
 	}
 
 	private List<Entry> mine(final int count) {
@@ -582,8 +602,8 @@ public class ChainOutboxTest {
 		assertThat(scripted.host().posted, contains(FEED.get(0)));
 	}
 
-	@Property(tries = 50)
-	public void letsGoOfAnEntryTheChainTookOrNeverWill(@ForAll("forGood") Admission answer) {
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void letsGoOfAnEntryTheChainHoldsOrIsPast(@ForAll("taken") Admission answer) {
 		final Scripted direct = Scripted.answering(answer);
 		final Scripted waited = Scripted.answering(Admission.FULL, answer);
 
@@ -601,37 +621,101 @@ public class ChainOutboxTest {
 		}
 	}
 
+	/* An entry the chain will never take would leave a gap that every later entry of the feed waits behind, so it
+	   ends the outbox as a chain that is gone does, and the log hears of it once */
 	@Example
-	public void takesNothingMoreOnceItsChainIsGone() {
-		final Scripted scripted = Scripted.answering(Admission.WRONG_CHAIN);
+	public void takesNothingMoreOnceItsChainIsGoneOrWillNeverTakeAnEntry() {
+		for (final Admission answer : ENDING) {
+			final Scripted scripted = Scripted.answering(answer);
+			final List<ILoggingEvent> warnings = warningsWhile(() -> {
+				scripted.accept(0, 2);
+				scripted.host().pauses().pause(EntryRefused.of(FEED.get(0), Admission.FULL));
 
-		scripted.accept(0, 2);
-		scripted.host().pauses().pause(EntryRefused.of(FEED.get(0), Admission.FULL));
+				assertThat(answer.name(), scripted.host().posted, contains(FEED.get(0)));
+				assertThat(answer.name(), scripted.outbox().isWritable(), is(false));
 
-		assertThat(scripted.host().posted, contains(FEED.get(0)));
-		assertThat(scripted.outbox().isWritable(), is(false));
+				scripted.outbox().tick();
+				scripted.accept(2, 3);
+				scripted.outbox().tick();
+			});
 
-		scripted.outbox().tick();
-		scripted.accept(2, 3);
-		scripted.outbox().tick();
-
-		assertThat(scripted.host().posted, contains(FEED.get(0)));
-		assertThat(scripted.host().isPaused(), is(false));
-		assertThat(scripted.outbox().isWritable(), is(false));
-		assertThat(scripted.told(), contains(false));
+			assertThat(answer.name(), scripted.host().posted, contains(FEED.get(0)));
+			assertThat(answer.name(), scripted.host().isPaused(), is(false));
+			assertThat(answer.name(), scripted.outbox().isWritable(), is(false));
+			assertThat(answer.name(), scripted.outbox().hasEnded(), is(true));
+			assertThat(answer.name(), scripted.told(), contains(false));
+			assertThat(answer.name(), messagesOf(warnings), contains(endedBy(answer)));
+		}
 	}
 
 	@Example
-	public void dropsWhatWaitedOnceItsChainIsGone() {
-		final Scripted scripted = Scripted.answering(Admission.FULL, Admission.WRONG_CHAIN);
+	public void dropsWhatWaitedOnceItsChainIsGoneOrWillNeverTakeTheFirst() {
+		for (final Admission answer : ENDING) {
+			final Scripted scripted = Scripted.answering(Admission.FULL, answer);
+			final List<ILoggingEvent> warnings = warningsWhile(() -> {
+				scripted.accept(0, 3);
+				scripted.outbox().tick();
+				scripted.accept(3, 5);
+				scripted.outbox().tick();
+			});
 
-		scripted.accept(0, 3);
-		scripted.outbox().tick();
-		scripted.outbox().tick();
+			assertThat(answer.name(), scripted.postedSeqs(), contains(0L, 0L));
+			assertThat(answer.name(), scripted.outbox().isWritable(), is(false));
+			assertThat(answer.name(), scripted.outbox().hasEnded(), is(true));
+			assertThat(answer.name(), scripted.told(), contains(false));
+			assertThat(answer.name(), messagesOf(warnings), contains(endedBy(answer)));
+		}
+	}
 
-		assertThat(scripted.postedSeqs(), contains(0L, 0L));
-		assertThat(scripted.outbox().isWritable(), is(false));
-		assertThat(scripted.told(), contains(false));
+	/* An entry is stamped as it is written, so one that waited for room longer than the chain keeps entries is too
+	   old for it, and every later entry of the writer would wait behind the gap it left until that expired */
+	@Example
+	public void endsTheFeedOfAnEntryThatWaitedForRoomLongerThanTheChainKeepsEntries() {
+		final FeedWriter feed = new FeedWriter(ChainFleet.key(WRITER), fleet.chain());
+
+		fillTheChain();
+		ChainFleet.write(feed, 2, ChainFleet.NOW).forEach(outbox::accept);
+		outbox.tick();
+		assertThat(announced, contains(false));
+
+		fleet.clock.addAndGet(RETENTION_MILLIS + 1);
+		host.maintain();
+		outbox.tick();
+		ChainFleet.write(feed, 1, fleet.clock.get()).forEach(outbox::accept);
+		outbox.tick();
+
+		final Chain chain = host.chain(fleet.chain()).orElseThrow();
+
+		assertThat(chain.heads().containsKey(ChainFleet.writer(WRITER)), is(false));
+		assertThat(chain.heldBytes(), is(0L));
+		assertThat(outbox.isWritable(), is(false));
+		assertThat(outbox.hasEnded(), is(true));
+		assertThat(announced, contains(false));
+	}
+
+	/* The writer holds the latest time it stamped, so once the clock stepped back further than the chain keeps
+	   entries, every entry it writes is ahead of the chain's clock until the clock is back */
+	@Example
+	public void endsTheFeedWhenTheClockStepsBackFurtherThanTheChainKeepsEntries() {
+		final FeedWriter feed = new FeedWriter(ChainFleet.key(WRITER), fleet.chain());
+		final List<Entry> before = ChainFleet.write(feed, 1, fleet.clock.get());
+
+		before.forEach(outbox::accept);
+		fleet.clock.addAndGet(-RETENTION_MILLIS - 1);
+		ChainFleet.write(feed, 2, fleet.clock.get()).forEach(outbox::accept);
+		outbox.tick();
+
+		assertThat(outbox.isWritable(), is(false));
+		assertThat(outbox.hasEnded(), is(true));
+		assertThat(announced, contains(false));
+
+		fleet.clock.addAndGet(RETENTION_MILLIS + 1);
+		ChainFleet.write(feed, 1, fleet.clock.get()).forEach(outbox::accept);
+		outbox.tick();
+
+		assertThat(host.chain(fleet.chain()).orElseThrow().entries(), equalTo(before));
+		assertThat(host.chain(fleet.chain()).orElseThrow().heldBytes(), is(0L));
+		assertThat(announced, contains(false));
 	}
 
 	@Example
@@ -683,9 +767,10 @@ public class ChainOutboxTest {
 				assertThat(lastTold(scripted.told()), is(scripted.outbox().isWritable()));
 			}
 
-			final boolean gone = scripted.host().answered.contains(Optional.of(Admission.WRONG_CHAIN));
+			final boolean ended = hasEnded(scripted.host());
 
-			assertThat(scripted.outbox().isWritable(), is(!gone && scripted.host().placed.size() == written));
+			assertThat(scripted.outbox().isWritable(), is(!ended && scripted.host().placed.size() == written));
+			assertThat(scripted.outbox().hasEnded(), is(ended));
 		}
 
 		/* A tick posts once at least while anything waits, so the answers run out before the ticks do */
@@ -693,7 +778,7 @@ public class ChainOutboxTest {
 		assertPostedInFeedOrder(scripted.host());
 		assertToldChangesOnly(scripted.told());
 
-		if (scripted.host().answered.contains(Optional.of(Admission.WRONG_CHAIN))) {
+		if (hasEnded(scripted.host())) {
 			assertThat(scripted.outbox().isWritable(), is(false));
 			assertThat(lastTold(scripted.told()), is(false));
 		} else {

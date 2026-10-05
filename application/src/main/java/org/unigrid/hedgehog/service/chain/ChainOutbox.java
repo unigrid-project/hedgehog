@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.service.chain;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,10 +38,20 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
    tick alone. The writers post under the locks of their sessions, which the listener takes too, so the lock of the
    outbox guards its own fields only and is never held while the host or the listener is called. The replica also
    answers FULL for a writer it takes no more of until the epoch changes, so a writer that can never be placed stays
-   paused, and its owner ends its sessions on their idle limit. */
+   paused until what waits is too old for the chain, which ends the outbox. */
 @Slf4j
 @RequiredArgsConstructor
 public final class ChainOutbox implements Consumer<Entry> {
+	/* Every answer but FULL and those that say the chain holds the entry or is past it. An entry the chain will never
+	   take leaves a gap in the feed, which every later entry of the writer waits behind until it expires and breaks
+	   every session of the writer. FUTURE is among them though the clock may catch up: the writer holds the latest
+	   time it stamped, so after the clock stepped back that far every entry it writes would wait as long as the step,
+	   while a new writer stamps the clock as it reads. AHEAD waits past a gap the chain fills or skips without the
+	   outbox, and REPLAYED is behind a head that only entries of this writer move, as no anchor names a writer of
+	   this node. */
+	private static final Set<Admission> ENDS_THE_FEED = EnumSet.complementOf(EnumSet.of(Admission.ACCEPTED,
+		Admission.AHEAD, Admission.DUPLICATE, Admission.REPLAYED, Admission.FULL));
+
 	private final ChainHost host;
 	private final ChainId chainId;
 	private final WriterId writer;
@@ -49,10 +61,11 @@ public final class ChainOutbox implements Consumer<Entry> {
 	/* Held by whoever posts, accept or tick, so that no entry is posted while an earlier one is on its way */
 	private boolean posting;
 
-	/* A chain the host neither hosts nor follows any more may come back with the same id but empty, and the feed
-	   does not continue on that, so the outbox drops what waits, takes nothing more and stays unwritable: its owner
-	   replaces it, and meanwhile its sessions end on their idle limit. */
-	private boolean gone;
+	/* An entry the chain will never take ends the feed, and so does a chain the host neither hosts nor follows any
+	   more, as it may come back with the same id but empty and the feed does not continue on that. The outbox then
+	   drops what waits, takes nothing more and stays unwritable: its owner replaces it with the feed of a new writer,
+	   and meanwhile its sessions end on their idle limit. */
+	private boolean ended;
 	private boolean told = true;
 
 	/* Posts at once while nothing waits and nothing is on its way, and queues the entry behind them otherwise */
@@ -79,6 +92,10 @@ public final class ChainOutbox implements Consumer<Entry> {
 		return isClear() && !host.pauses().isPaused(chainId, writer);
 	}
 
+	public synchronized boolean hasEnded() {
+		return ended;
+	}
+
 	/* Run about once a second, on one thread. What a member refused is offered again before what waited is placed,
 	   as lifting the pause of what waited would lift that refusal with it, and what is placed now goes out once. */
 	public void tick() {
@@ -88,7 +105,8 @@ public final class ChainOutbox implements Consumer<Entry> {
 	}
 
 	/* The entry is signed, so one that is lost leaves a gap in the feed that every session of the writer shares: a
-	   host that fails is taken to have had no room, and the entry is offered again. */
+	   host that fails is taken to have had no room, and the entry is offered again. An answer that ends the outbox is
+	   the last one it gets, as nothing is posted after it, so the log hears of the end once. */
 	private Admission post(final Entry entry) {
 		Admission admission;
 
@@ -101,6 +119,9 @@ public final class ChainOutbox implements Consumer<Entry> {
 
 		if (admission == Admission.FULL) {
 			host.pauses().pause(EntryRefused.of(entry, Admission.FULL));
+		} else if (ENDS_THE_FEED.contains(admission)) {
+			log.warn("The feed of a writer of this node ends, as its chain answered an entry with {}",
+				admission);
 		}
 
 		return admission;
@@ -150,7 +171,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	}
 
 	private synchronized boolean claimFor(final Entry entry) {
-		if (gone) {
+		if (ended) {
 			return false;
 		}
 
@@ -169,8 +190,8 @@ public final class ChainOutbox implements Consumer<Entry> {
 
 		if (admission == Admission.FULL) {
 			waiting.addFirst(entry);
-		} else if (admission == Admission.WRONG_CHAIN) {
-			abandon();
+		} else if (ENDS_THE_FEED.contains(admission)) {
+			end();
 		}
 	}
 
@@ -189,8 +210,8 @@ public final class ChainOutbox implements Consumer<Entry> {
 
 	/* Answers whether the entry left the queue and the next may follow it */
 	private synchronized boolean settleFirst(final Admission admission) {
-		if (admission == Admission.WRONG_CHAIN) {
-			abandon();
+		if (ENDS_THE_FEED.contains(admission)) {
+			end();
 		} else if (admission != Admission.FULL) {
 			waiting.pollFirst();
 			return true;
@@ -203,13 +224,13 @@ public final class ChainOutbox implements Consumer<Entry> {
 		posting = false;
 	}
 
-	private synchronized void abandon() {
-		gone = true;
+	private synchronized void end() {
+		ended = true;
 		waiting.clear();
 	}
 
 	private synchronized boolean isClear() {
-		return !gone && waiting.isEmpty();
+		return !ended && waiting.isEmpty();
 	}
 
 	private synchronized boolean differsFromTold(final boolean writable) {

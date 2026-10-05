@@ -103,6 +103,7 @@ public final class ClientSessions implements SessionOpener {
 				TimeUnit.SECONDS);
 		}
 
+		releaseEnded();
 		client.attachment().whenComplete((attachment, error) -> joined(handle, attachment, error));
 		return handle;
 	}
@@ -110,6 +111,7 @@ public final class ClientSessions implements SessionOpener {
 	/* Run about once a second, on one thread. Every attachment is asked whether it is still the one in use, sessions
 	   on it or not, as that is also where the node notices the proxy turning off and leaves the chain. */
 	public void tick() {
+		releaseEnded();
 		attached.forEach((attachment, chain) -> {
 			final boolean current = client.isCurrent(attachment);
 
@@ -120,6 +122,17 @@ public final class ClientSessions implements SessionOpener {
 			chain.handles().removeIf(handle -> handle.ended);
 
 			if (!current && dropped(attachment)) {
+				client.release(attachment);
+			}
+		});
+	}
+
+	/* An attachment whose feed ended is let go like one whose chain was lost, so that the next session joins with a
+	   writer of its own, while the sessions on it run on for the grace or end on their idle limit. Only the first
+	   release of an attachment counts. */
+	private void releaseEnded() {
+		attached.forEach((attachment, chain) -> {
+			if (chain.outbox().hasEnded()) {
 				client.release(attachment);
 			}
 		});

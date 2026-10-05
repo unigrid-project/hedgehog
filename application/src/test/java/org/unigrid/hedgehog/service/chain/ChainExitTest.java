@@ -1033,6 +1033,81 @@ public class ChainExitTest {
 		assertThat(rig.exit.heldChains(), is(1));
 	}
 
+	/* What the destination sent waited for room longer than the chain keeps entries, so the chain will never take it:
+	   the tick ends the sessions of that feed as it does those of a chain the host dropped, and the next OPEN gets a
+	   feed of its own */
+	@Example
+	public void endsTheSessionsOfAFeedWhoseEntryWaitedTooLongAndStartsAFeedOfItsOwn() {
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+
+		rig.caller(1).open();
+
+		final FakeConnector.FakeTarget old = rig.connector.connect();
+		final WriterId feed = rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer();
+
+		rig.drive();
+		rig.fleet.clock.addAndGet(15_000);
+		rig.connector.requests.get(0).listener().received(new byte[300]);
+		rig.exit.tick();
+		rig.fleet.clock.addAndGet(31_000);
+		rig.fleet.host(EXIT).maintain();
+		rig.exit.tick();
+		rig.exit.tick();
+
+		assertThat(old.closed, is(true));
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.exit.heldChains(), is(0));
+
+		final Caller caller = rig.caller(2);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+
+		assertThat(caller.received, contains(CONNECTED));
+		assertThat(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).stream().map(accept -> accept.header().writer())
+			.toList(), everyItem(not(feed)));
+		assertThat(rig.exit.heldChains(), is(1));
+	}
+
+	/* The exit's writer holds the latest time it stamped, so once the clock stepped back further than the chain keeps
+	   entries the chain takes nothing more of that feed: an OPEN that arrives before the next tick already gets a feed
+	   of its own, and the sessions of the old one end */
+	@Example
+	public void startsAFeedOfItsOwnAtOnceWhenTheClockSteppedBackFurtherThanTheChainKeepsEntries() {
+		final Rig rig = new Rig();
+		final Caller first = rig.caller(1);
+
+		first.open();
+
+		final FakeConnector.FakeTarget old = rig.connector.connect();
+		final TargetListener destination = rig.connector.requests.get(0).listener();
+		final WriterId feed = rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer();
+
+		rig.drive();
+		rig.fleet.clock.addAndGet(40_000);
+		destination.received(new byte[] { 1 });
+		rig.drive();
+		rig.fleet.clock.addAndGet(-31_000);
+		destination.received(new byte[] { 2 });
+
+		final Caller caller = rig.caller(2);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+
+		assertThat(old.closed, is(true));
+		assertThat(first.received, contains(CONNECTED, new Data(new byte[] { 1 })));
+		assertThat(caller.received, contains(CONNECTED));
+		assertThat(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).stream().map(accept -> accept.header().writer())
+			.toList(), everyItem(not(feed)));
+
+		rig.exit.tick();
+		assertThat(rig.exit.heldRelays(), is(1));
+		assertThat(rig.exit.heldChains(), is(1));
+	}
+
 	@Example
 	public void endsTheRelaysAndForgetsTheFeedOfAChainTheHostDropped() {
 		final Rig rig = new Rig();

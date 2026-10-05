@@ -852,6 +852,77 @@ public class ClientSessionsTest {
 		assertThat(late.writability, equalTo(List.of(true)));
 	}
 
+	/* What a session sent waited for room longer than the chain keeps entries, so the chain will never take it: the
+	   tick lets the attachment go as it does one whose chain was lost, its session ends on its idle limit, and the
+	   next session joins with a writer of its own and carries on */
+	@Example
+	public void joinsWithANewWriterOnceAnEntryWaitedForRoomLongerThanTheChainKeepsEntries() {
+		final ProxySettings tiny = ChainFleet.tinyChains();
+		final Rig rig = new Rig(ChainFleet.group(tiny));
+		final Listener stuck = new Listener();
+		final SessionHandle handle = rig.sessions.open(CONNECT, stuck);
+
+		rig.fleet.deliver();
+
+		final ChainAttachment earlier = rig.attachment();
+		final List<Session> answered = rig.exitSessions();
+
+		rig.fleet.clock.addAndGet(15_000);
+		handle.send(new Data(new byte[300]));
+		rig.fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
+		rig.maintainAll();
+		rig.after(0);
+		rig.after(0);
+
+		assertThat(rig.sent(LeaveChain.class), is((long) earlier.streams().size()));
+		assertThat(handle.isWritable(), is(false));
+
+		carriesOnWithANewWriter(rig, earlier, answered, new Listener());
+		assertThat(rig.exitReceived(), equalTo(List.of(CONNECT, CONNECT)));
+
+		rig.after(tiny.sessionIdleMillis());
+		assertThat(stuck.messages, equalTo(List.of(new Close(CloseReason.IDLE))));
+	}
+
+	/* The client's writer holds the latest time it stamped, so once the clock stepped back further than the chain
+	   keeps entries the chain takes nothing more of that feed: a session opened before the next tick already joins
+	   with a writer of its own */
+	@Example
+	public void joinsWithANewWriterAtOnceWhenTheClockSteppedBackFurtherThanTheChainKeepsEntries() {
+		final Rig rig = new Rig(ChainFleet.group());
+		final SessionHandle handle = rig.sessions.open(CONNECT, new Listener());
+
+		rig.fleet.deliver();
+
+		final ChainAttachment earlier = rig.attachment();
+		final List<Session> answered = rig.exitSessions();
+
+		rig.fleet.clock.addAndGet(40_000);
+		handle.send(data(1));
+		rig.fleet.deliver();
+		rig.fleet.clock.addAndGet(-RETENTION_MILLIS - 1000);
+		handle.send(data(2));
+		carriesOnWithANewWriter(rig, earlier, answered, new Listener());
+
+		assertThat(rig.exitReceived(), containsInAnyOrder(CONNECT, data(1), CONNECT));
+		assertThat(rig.sent(LeaveChain.class), is((long) earlier.streams().size()));
+	}
+
+	/* A session opened now joins with a writer of its own, whose CONNECT reaches an exit and whose exit's reply
+	   reaches it */
+	private static void carriesOnWithANewWriter(final Rig rig, final ChainAttachment earlier,
+		final List<Session> answered, final Listener listener) {
+
+		rig.sessions.open(CONNECT, listener);
+		rig.fleet.deliver();
+		assertThat(rig.attachment().writerId(), not(equalTo(earlier.writerId())));
+
+		rig.exitSessions().stream().filter(exit -> !answered.contains(exit)).forEach(exit -> exit.send(CONNECTED));
+		rig.fleet.deliver();
+
+		assertThat(listener.messages, equalTo(List.of(CONNECTED)));
+	}
+
 	/* The listener that throws is enrolled before the one told after it, and one whose opener closed it before the
 	   pause is told nothing. The chains hold two kilobytes. */
 	@Example
