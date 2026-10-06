@@ -43,6 +43,9 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SporkDatabase implements Serializable {
+	/* The value released builds computed for this class, so the spork.db files they wrote keep loading */
+	private static final long serialVersionUID = 5650360876357285601L;
+
 	public static final String SPORK_DB_FILE = "spork.db";
 
 	private static final Map<Type, Function<SporkDatabase, GridSpork>> GETTERS = Map.of(
