@@ -31,8 +31,8 @@ import java.util.regex.Pattern;
 /* Keeps an exit off its own host and networks: it refuses loopback, unspecified, private (RFC 1918 and
    fc00::/7), shared (100.64/10), link-local, site-local, multicast, reserved, benchmarking, documentation and
    local-use NAT64 addresses, and the IPv4 inside IPv4-mapped, IPv4-translated, IPv4-compatible, NAT64, 6to4,
-   Teredo and ISATAP IPv6 addresses is held to the IPv4 rules. It is the only gate: an exit's own ports, and those
-   of other gridnodes, are out of reach only because their addresses are. */
+   Teredo and ISATAP IPv6 addresses is held to the IPv4 rules. It is the only gate, and it knows nothing of the
+   exit's own interfaces: a service that listens on the exit's public address can be reached through it. */
 public final class DestinationPolicy {
 	private static final int IPV4_SIZE = 4;
 

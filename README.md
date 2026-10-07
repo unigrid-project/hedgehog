@@ -134,6 +134,11 @@ after `sessionIdleSeconds` without traffic.
 - The proxy's UDP socket cannot tell the client from another program that sends from the client's IP address, if the client
   names no port and the other program sends first. Keep the proxy on loopback on a machine you trust, or have the client name
   its port in the request.
+- A TCP connection has no half-close: a client that shuts down its sending side closes the whole connection and with it the
+  session, so a protocol that sends a request, shuts down its output and then waits for the answer gets none.
+- A chain takes at most 4096 writers in an epoch, a writer being a client attached to it or the feed of an exit, and never
+  gives one back. Whoever can write to a chain can use them up, and until the epoch turns no new client can attach to it and
+  no exit can start a feed on it.
 
 ## Native Image Support
 Native image support is available via the native-image sub-project. Because of problems with CDI and dependencies being reliant on a full CDI implementation, the native image is not really native, but wraps a JVM and the hedgehog jar into a native version for execution.
