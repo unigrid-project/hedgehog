@@ -22,9 +22,11 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 
 /* Sets up each stream a peer opens: the second one carries chain traffic, every other one is a main stream. Stream
-   numbers are counted per connection and the number tells who opened a stream, so the number alone is enough. */
+   numbers are counted per connection and the number tells who opened a stream, so the number is enough to find the
+   second one. A peer of the previous release has no chain stream: every stream it opens is a main one. */
 @RequiredArgsConstructor
 public class StreamRouter extends ChannelInitializer<QuicStreamChannel> {
 	private final RegisterQuicChannelInitializer main;
@@ -32,10 +34,10 @@ public class StreamRouter extends ChannelInitializer<QuicStreamChannel> {
 
 	@Override
 	protected void initChannel(final QuicStreamChannel channel) {
-		channel.pipeline().addLast(initializerOf(channel.streamId()));
+		channel.pipeline().addLast(initializerOf(channel.streamId(), PeerProtocol.speaksProxy(channel)));
 	}
 
-	ChannelInitializer<QuicStreamChannel> initializerOf(final long streamId) {
-		return streamId == Network.CHAIN_STREAM_ID ? chain : main;
+	ChannelInitializer<QuicStreamChannel> initializerOf(final long streamId, final boolean speaksProxy) {
+		return speaksProxy && streamId == Network.CHAIN_STREAM_ID ? chain : main;
 	}
 }

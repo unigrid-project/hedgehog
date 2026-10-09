@@ -32,6 +32,7 @@ import java.util.Optional;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
@@ -75,7 +76,8 @@ public class CommunicationSporkResource extends CDIBridgeResource {
 
 		return ResourceHelper.commitAndSign(spork, privateKey, sporkDatabase, false, signed -> {
 			sporkDatabase.setCommunicationSpork(signed);
-			Topology.sendAll(PublishSpork.builder().gridSpork(signed).build(), topology, Optional.empty());
+			Topology.sendAll(PublishSpork.builder().gridSpork(signed).build(), topology,
+				PeerProtocol::speaksProxy, Optional.empty());
 		});
 	}
 }

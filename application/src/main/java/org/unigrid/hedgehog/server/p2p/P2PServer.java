@@ -29,12 +29,14 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.incubator.codec.quic.QuicTokenHandler;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -87,15 +89,27 @@ public class P2PServer extends AbstractServer {
 	private void init() {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		log.atDebug().log("Init P2P server");
+		channel = new Bootstrap().group(group)
+			.channel(NioDatagramChannel.class)
+			.handler(codec(encryptedTokenHandler, Network.getProtocols()))
+			.bind(NetOptions.getHost(), NetOptions.getPort())
+			.sync().channel();
+		log.atDebug().log("Init topology");
+		topologyThread = new TopologyThread();
+		topologyThread.start();
+	}
+
+	/* Takes the protocols to offer, so that a server offering those of another release can be stood up */
+	static ChannelHandler codec(QuicTokenHandler tokenHandler, String... protocols) throws CertificateException {
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(Network.getProtocols()).build();
+			.applicationProtocols(protocols).build();
 		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
-		final ChannelHandler codec = new QuicServerCodecBuilder()
+		return new QuicServerCodecBuilder()
 			.sslContext(context)
-			.tokenHandler(encryptedTokenHandler)
+			.tokenHandler(tokenHandler)
 			.initialMaxData(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
@@ -128,15 +142,6 @@ public class P2PServer extends AbstractServer {
 				);
 			}, RegisterQuicChannelInitializer.Type.SERVER),
 				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
-
-		channel = new Bootstrap().group(group)
-			.channel(NioDatagramChannel.class)
-			.handler(codec)
-			.bind(NetOptions.getHost(), NetOptions.getPort())
-			.sync().channel();
-		log.atDebug().log("Init topology");
-		topologyThread = new TopologyThread();
-		topologyThread.start();
 	}
 
 	@Override

@@ -50,6 +50,7 @@ import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -77,13 +78,20 @@ public class P2PClient extends ConnectionContainer {
 	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, CertificateException,
 		NoSuchAlgorithmException, TimeoutException {
 
+		this(hostname, port, Network.getProtocols());
+	}
+
+	/* Offers other protocols than this release does, as a node of another release would */
+	public P2PClient(String hostname, int port, String... protocols) throws ExecutionException, InterruptedException,
+		CertificateException, NoSuchAlgorithmException, TimeoutException {
+
 		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
 
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
-			.applicationProtocols(Network.getProtocols())
+			.applicationProtocols(protocols)
 			.build();
 
 		final ChannelHandler codec = new QuicClientCodecBuilder()
@@ -142,7 +150,9 @@ public class P2PClient extends ConnectionContainer {
 			}, RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();
 
-		openChainStream(quicChannel);
+		if (PeerProtocol.speaksProxy(quicChannel)) {
+			openChainStream(quicChannel);
+		}
 	}
 
 	/* The main stream carries everything else, so a connection that cannot open a stream for chain traffic is kept.

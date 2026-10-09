@@ -22,12 +22,14 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.netty.channel.Channel;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -53,8 +55,11 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.QuicLoopback;
+import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -98,6 +103,7 @@ public class PublishCommunicationSporkTest extends BaseMockedWeldTest {
 	private SporkDatabase sporkDatabase;
 
 	private final List<Packet> relayed = new ArrayList<>();
+	private final List<Predicate<Channel>> receivers = new ArrayList<>();
 	private Signature trustedSigner;
 
 	/* A fake outlives its property, so a property opts in to unchecked signatures through this flag */
@@ -123,8 +129,12 @@ public class PublishCommunicationSporkTest extends BaseMockedWeldTest {
 		};
 
 		new MockUp<Topology>() {
-			@Mock public void sendAll(Packet packet, Topology topology, Optional<?> consumer) {
+			@Mock public void sendAll(Packet packet, Topology topology, Predicate<Channel> to,
+				Optional<?> consumer) {
+
+
 				relayed.add(packet);
+				receivers.add(to);
 			}
 		};
 	}
@@ -132,7 +142,9 @@ public class PublishCommunicationSporkTest extends BaseMockedWeldTest {
 	@BeforeTry
 	private void startFromAnEmptyDatabase() {
 		sporkDatabase.setCommunicationSpork(null);
+		sporkDatabase.setMintSupply(null);
 		relayed.clear();
+		receivers.clear();
 	}
 
 	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
@@ -355,5 +367,33 @@ public class PublishCommunicationSporkTest extends BaseMockedWeldTest {
 
 		assertThat(sporkDatabase.getMintSupply(), sameInstance(spork));
 		assertThat(relayed, contains(sameInstance(packet)));
+	}
+
+	@Example
+	public void relaysACommunicationSporkToNodesOfThisReleaseOnly() throws InterruptedException {
+		publish(signed(STORED_AT, data -> { }));
+
+		try (QuicLoopback current = QuicLoopback.between(Network.getProtocols(), Network.getProtocols());
+			QuicLoopback previous = QuicLoopback.between(PREVIOUS_RELEASE, Network.getProtocols())) {
+
+			assertThat(receivers, hasSize(1));
+			assertThat(receivers.get(0).test(current.stream()), is(true));
+			assertThat(receivers.get(0).test(previous.stream()), is(false));
+		}
+	}
+
+	@Example
+	public void relaysASporkOfAnotherTypeToNodesOfThePreviousReleaseToo() throws InterruptedException {
+		everySignatureTrusted = true;
+
+		final MintSupply spork = new MintSupply();
+
+		spork.setTimeStamp(STORED_AT);
+		publish(spork);
+
+		try (QuicLoopback previous = QuicLoopback.between(PREVIOUS_RELEASE, Network.getProtocols())) {
+			assertThat(receivers, hasSize(1));
+			assertThat(receivers.get(0).test(previous.stream()), is(true));
+		}
 	}
 }

@@ -49,6 +49,10 @@ talking to the others. They are derived anew every epoch. A session on a chain o
 minutes, or for the length of an epoch if that is shorter, and is then closed at both ends; a chain of an ended epoch that no
 client or session holds is dropped once `retentionSeconds` have passed.
 
+The proxy runs between nodes of this release, which agree on the protocol `hedgehog/0.0.5` when they connect. A node that
+offers only `hedgehog/0.0.2` and `gridspork/0.0.2` still connects and exchanges the other sporks, but takes no part in the
+proxy: it is sent no communication spork and gets no stream for chain traffic.
+
 ### Turning it on
 The proxy is off until a communication spork, signed with one of the network keys, says otherwise. While there is no valid
 spork the gridnodes host no chains and a SOCKS client is answered "connection not allowed by ruleset", and so is a command

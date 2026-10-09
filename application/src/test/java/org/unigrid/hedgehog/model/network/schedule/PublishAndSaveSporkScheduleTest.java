@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.schedule;
 
+import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.List;
 import java.util.Objects;
@@ -30,6 +31,9 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.QuicLoopback;
+import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -55,35 +59,64 @@ public class PublishAndSaveSporkScheduleTest {
 			.communicationSpork(new CommunicationSpork());
 	}
 
-	@Example
-	public void publishesTheCommunicationSpork() {
-		final CommunicationSpork spork = new CommunicationSpork();
-		final SporkDatabase sporkDatabase = SporkDatabase.builder().communicationSpork(spork).build();
-		final EmbeddedChannel channel = new EmbeddedChannel();
+	/* Written on a stream of a QUIC connection that agreed on the protocols, the sporks are kept instead of sent */
+	private static List<GridSpork> publishedOver(String[] serverProtocols, SporkDatabase sporkDatabase)
+		throws InterruptedException {
 
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, sporkDatabase);
-		assertThat(published(channel), hasItem(sameInstance(spork)));
+		try (QuicLoopback loopback = QuicLoopback.between(serverProtocols, Network.getProtocols())) {
+			final EmbeddedChannel channel = new EmbeddedChannel(loopback.clientEnd(),
+				DefaultChannelId.newInstance(), true, false);
+
+			PublishAndSaveSporkSchedule.writeAndFlush(channel, sporkDatabase);
+			return published(channel);
+		}
 	}
 
 	@Example
-	public void publishesEverySporkInOrder() {
+	public void publishesTheCommunicationSporkToANodeOfThisRelease() throws InterruptedException {
+		final CommunicationSpork spork = new CommunicationSpork();
+		final SporkDatabase sporkDatabase = SporkDatabase.builder().communicationSpork(spork).build();
+
+		assertThat(publishedOver(Network.getProtocols(), sporkDatabase), hasItem(sameInstance(spork)));
+	}
+
+	@Example
+	public void publishesEverySporkInOrderToANodeOfThisRelease() throws InterruptedException {
+		final SporkDatabase sporkDatabase = completeDatabase().build();
+		final List<GridSpork> published = publishedOver(Network.getProtocols(), sporkDatabase);
+
+		assertThat(published, contains(same(sporkDatabase.getMintStorage()),
+			same(sporkDatabase.getMintSupply()), same(sporkDatabase.getVestingStorage()),
+			same(sporkDatabase.getStorageSpork()), same(sporkDatabase.getCommunicationSpork())));
+	}
+
+	@Example
+	public void publishesNullForAMissingCommunicationSporkToANodeOfThisRelease() throws InterruptedException {
+		final SporkDatabase sporkDatabase = completeDatabase().communicationSpork(null).build();
+		final List<GridSpork> published = publishedOver(Network.getProtocols(), sporkDatabase);
+
+		assertThat(published, contains(same(sporkDatabase.getMintStorage()),
+			same(sporkDatabase.getMintSupply()), same(sporkDatabase.getVestingStorage()),
+			same(sporkDatabase.getStorageSpork()), nullValue(GridSpork.class)));
+	}
+
+	@Example
+	public void publishesEverySporkButTheCommunicationSporkToANodeOfThePreviousRelease() throws InterruptedException {
+		final SporkDatabase sporkDatabase = completeDatabase().build();
+
+		assertThat(publishedOver(PREVIOUS_RELEASE, sporkDatabase), contains(same(sporkDatabase.getMintStorage()),
+			same(sporkDatabase.getMintSupply()), same(sporkDatabase.getVestingStorage()),
+			same(sporkDatabase.getStorageSpork())));
+	}
+
+	@Example
+	public void publishesNoCommunicationSporkWhileThePeerIsNotKnownToTakeIt() {
 		final SporkDatabase sporkDatabase = completeDatabase().build();
 		final EmbeddedChannel channel = new EmbeddedChannel();
 
 		PublishAndSaveSporkSchedule.writeAndFlush(channel, sporkDatabase);
 		assertThat(published(channel), contains(same(sporkDatabase.getMintStorage()),
 			same(sporkDatabase.getMintSupply()), same(sporkDatabase.getVestingStorage()),
-			same(sporkDatabase.getStorageSpork()), same(sporkDatabase.getCommunicationSpork())));
-	}
-
-	@Example
-	public void publishesNullForAMissingCommunicationSpork() {
-		final SporkDatabase sporkDatabase = completeDatabase().communicationSpork(null).build();
-		final EmbeddedChannel channel = new EmbeddedChannel();
-
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, sporkDatabase);
-		assertThat(published(channel), contains(same(sporkDatabase.getMintStorage()),
-			same(sporkDatabase.getMintSupply()), same(sporkDatabase.getVestingStorage()),
-			same(sporkDatabase.getStorageSpork()), nullValue(GridSpork.class)));
+			same(sporkDatabase.getStorageSpork())));
 	}
 }

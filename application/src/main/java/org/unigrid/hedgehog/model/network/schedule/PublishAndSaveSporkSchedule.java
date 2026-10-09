@@ -28,6 +28,7 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -77,7 +78,9 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 		channel.writeAndFlush(PublishSpork.builder()
 			.gridSpork(sporkDatabase.getStorageSpork()).build());
 
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getCommunicationSpork()).build());
+		if (PeerProtocol.speaksProxy(channel)) {
+			channel.writeAndFlush(PublishSpork.builder()
+				.gridSpork(sporkDatabase.getCommunicationSpork()).build());
+		}
 	}
 }

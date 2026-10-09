@@ -23,7 +23,14 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Slf4j
 public class Network {
+	/* Not 0.0.3 or 0.0.4, which name the spork formats with signature logs and cosignatures that this one lacks */
+	public static final String PROXY_PROTOCOL = "hedgehog/0.0.5";
+
+	/* The server takes the first of its protocols that the client offers too, so the newest one leads: two nodes of
+	   this release agree on it, and a node of the previous release, which offers only the ones after it, still
+	   connects, see PeerProtocol */
 	private static final String[] PROTOCOLS = {
+		PROXY_PROTOCOL,
 		"hedgehog/0.0.2",
 		"gridspork/0.0.2"
 	};

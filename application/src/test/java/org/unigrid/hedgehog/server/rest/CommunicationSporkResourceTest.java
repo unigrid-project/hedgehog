@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import io.netty.channel.Channel;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Client;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import javax.net.ssl.SSLContext;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -50,13 +52,17 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.ResponseOddityException;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.QuicLoopback;
+import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -77,6 +83,7 @@ public class CommunicationSporkResourceTest extends BaseRestClientTest {
 	private SporkDatabase sporkDatabase;
 
 	private final List<Packet> relayed = new ArrayList<>();
+	private final List<Predicate<Channel>> receivers = new ArrayList<>();
 
 	/* The client of the other tests drops the body of a refusal, and the body is what several tests here check */
 	private Client rawClient;
@@ -116,8 +123,12 @@ public class CommunicationSporkResourceTest extends BaseRestClientTest {
 	@BeforeProperty
 	private void collectRelayedPackets() {
 		new MockUp<Topology>() {
-			@Mock public void sendAll(Packet packet, Topology topology, Optional<?> consumer) {
+			@Mock public void sendAll(Packet packet, Topology topology, Predicate<Channel> to,
+				Optional<?> consumer) {
+
+
 				relayed.add(packet);
+				receivers.add(to);
 			}
 		};
 	}
@@ -125,6 +136,7 @@ public class CommunicationSporkResourceTest extends BaseRestClientTest {
 	@BeforeTry
 	private void forgetRelayedPackets() {
 		relayed.clear();
+		receivers.clear();
 	}
 
 	@BeforeTry
@@ -300,6 +312,21 @@ public class CommunicationSporkResourceTest extends BaseRestClientTest {
 
 		final CommunicationSpork replaced = setSpork(signature, otherThan(first));
 		assertThat(relayedSporks(), contains(sameInstance(stored), sameInstance(replaced)));
+	}
+
+	@Property(tries = 1)
+	public void relaysASporkToNodesOfThisReleaseOnly(@ForAll("provideSignature") final Signature signature,
+		@ForAll("validData") final SporkData data) throws InterruptedException {
+
+		setSpork(signature, data);
+
+		try (QuicLoopback current = QuicLoopback.between(Network.getProtocols(), Network.getProtocols());
+			QuicLoopback previous = QuicLoopback.between(PREVIOUS_RELEASE, Network.getProtocols())) {
+
+			assertThat(receivers, hasSize(1));
+			assertThat(receivers.get(0).test(current.stream()), is(true));
+			assertThat(receivers.get(0).test(previous.stream()), is(false));
+		}
 	}
 
 	@SneakyThrows

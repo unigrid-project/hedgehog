@@ -42,19 +42,31 @@ public class StreamRouterTest {
 	@Example
 	public void givesTheSecondBidirectionalStreamOfTheClientTheChainPipeline() {
 		assertThat(Network.CHAIN_STREAM_ID, is(4L));
-		assertThat(router.initializerOf(Network.CHAIN_STREAM_ID), is(sameInstance(chain)));
+		assertThat(router.initializerOf(Network.CHAIN_STREAM_ID, true), is(sameInstance(chain)));
 	}
 
 	@Example
 	public void givesTheStreamsAroundItTheMainPipeline() {
 		for (long streamId : new long[] {0, 1, 2, 3, 5, 6, 7, 8, 12}) {
-			assertThat(router.initializerOf(streamId), is(sameInstance(main)));
+			assertThat(router.initializerOf(streamId, true), is(sameInstance(main)));
 		}
 	}
 
 	@Property
 	public void givesEveryOtherStreamTheMainPipeline(@ForAll @LongRange(max = LARGEST_STREAM_ID) long streamId) {
 		Assume.that(streamId != Network.CHAIN_STREAM_ID);
-		assertThat(router.initializerOf(streamId), is(sameInstance(main)));
+		assertThat(router.initializerOf(streamId, true), is(sameInstance(main)));
+	}
+
+	@Example
+	public void givesTheSecondStreamOfAPeerOfThePreviousReleaseTheMainPipeline() {
+		assertThat(router.initializerOf(Network.CHAIN_STREAM_ID, false), is(sameInstance(main)));
+	}
+
+	@Property
+	public void givesEveryStreamOfAPeerOfThePreviousReleaseTheMainPipeline(
+		@ForAll @LongRange(max = LARGEST_STREAM_ID) long streamId) {
+
+		assertThat(router.initializerOf(streamId, false), is(sameInstance(main)));
 	}
 }

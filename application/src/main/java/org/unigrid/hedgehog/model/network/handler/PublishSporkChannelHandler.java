@@ -18,13 +18,16 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.collection.NullableMap;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
@@ -66,10 +69,14 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 				CDIUtil.resolveAndRun(Topology.class, topology -> {
 					// TODO: Handle errors better rather than sending Optional.empty()
-					Topology.sendAll(publishSpork, topology, Optional.empty());
+					Topology.sendAll(publishSpork, topology, readersOf(newSpork), Optional.empty());
 				});
 			}
 		});
+	}
+
+	private static Predicate<Channel> readersOf(GridSpork spork) {
+		return spork.getType() == COMMUNICATION ? PeerProtocol::speaksProxy : peer -> true;
 	}
 
 	/* Checked after the signature, so that only a trusted signer can make a node write this line to its log */
