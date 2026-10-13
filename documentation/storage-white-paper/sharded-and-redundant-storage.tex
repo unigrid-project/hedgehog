@@ -81,7 +81,7 @@ limits.
 
 The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that give the network storage
 space, communication channels and compute cycles, and that are meant to lock collateral. The idea descends from the masternodes of
-Darkcoin~\cite{darkcoin2014}. Hedgehog is the Java implementation of the network's node software. This paper
+Darkcoin~\cite{darkcoin2014}. Hedgehog is the reference implementation of the network's node software. This paper
 describes its storage layer: how a file is cut up, encrypted, coded, placed, found again, repaired and deleted, and
 what every participant can and cannot learn along the way.
 
@@ -129,6 +129,14 @@ about names, folders or buckets. An object-storage interface in the style of S3 
 top of it. This paper describes the protocol as implemented in Hedgehog. Every constant in it is the value the
 implementation uses at default settings, and Stiftelsen The Unigrid Foundation can change most of them
 (Section~\ref{sec:governance}).
+
+Hedgehog is written in Java 25, but the format does not depend on the language: its structures are byte layouts,
+given in this paper, and another implementation can read and repair what Hedgehog stores. Three properties of the
+platform matter to storage. Gridnodes parse fragments and packets that strangers send, and in a memory-safe language
+a malformed length or index raises an exception instead of overwriting memory. Hedgehog ships as one executable per
+platform, a launcher built with GraalVM Native Image~\cite{graalvm} that carries its own Java runtime, so an operator
+installs nothing else. And the platform reaches vector instructions and native libraries~\cite{jep508,jep454}, which
+the field arithmetic can use (Section~\ref{sec:performance}).
 
 Section~\ref{sec:background} introduces the building blocks, and Section~\ref{sec:goals} states the goals, the
 trust assumptions and the threat model. Section~\ref{sec:overview} gives an overview of the design and follows one
@@ -1857,8 +1865,9 @@ trees, every gridnode's verification and every store. On a real network this wor
 an upload is bounded by the uploader's bandwidth, since it sends about three times the file.
 
 Three improvements would raise these figures without any change to the format: split-table or vector
-$\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, a decode path that skips the work when all data shards are
-present, and placing and fetching several groups at once.
+$\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, through the Vector API of the platform or a native call
+into such a library~\cite{jep508,jep454}, a decode path that skips the work when all data shards are present, and
+placing and fetching several groups at once.
 
 \section{Security analysis and known limits}
 \label{sec:security}
@@ -2578,6 +2587,27 @@ format identifier lets the network adopt those that change stored structures bes
 	\emph{"Netty: an asynchronous event-driven network application framework"},
 	\href{https://netty.io/}{netty.io},
 	\the\year{}.
+
+\bibitem{jep454}
+	OpenJDK,
+	\emph{"JEP 454: Foreign Function \& Memory API"},
+	JDK Enhancement Proposal, delivered in JDK 22,
+	\href{https://openjdk.org/jeps/454}{openjdk.org},
+	2024.
+
+\bibitem{jep508}
+	OpenJDK,
+	\emph{"JEP 508: Vector API (Tenth Incubator)"},
+	JDK Enhancement Proposal, delivered in JDK 25,
+	\href{https://openjdk.org/jeps/508}{openjdk.org},
+	2025.
+
+\bibitem{graalvm}
+	Oracle,
+	\emph{"Native Image"},
+	GraalVM for JDK 25 Reference Manual,
+	\href{https://www.graalvm.org/jdk25/reference-manual/native-image/}{www.graalvm.org},
+	2025.
 
 \bibitem{maymounkov2002}
 	Petar Maymounkov \& David Mazi\`{e}res,
