@@ -68,7 +68,8 @@ survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks s
 Stiftelsen The Unigrid Foundation sets the parameters of new uploads through a \emph{StorageSpork} that two of its
 four board keys must sign; the spork takes no part in storing, reading, repairing or deleting a file. Each file records
 the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
-fragment, so the network can evolve without breaking what it already holds. This paper describes the design as
+fragment. Parameters and formats can therefore change for new uploads while every stored file stays readable and
+repairable in the layout and format it was written with. This paper describes the design as
 implemented, explains the reasons behind it, and analyses its durability, cost and security, including its known
 limits.
 \end{abstract}
@@ -213,7 +214,11 @@ The design has six goals:
 	\item \textbf{Governance.} The foundation tunes new uploads through a spork that two of its board keys must
 	      sign, and every file keeps the layout it was written with.
 	\item \textbf{Evolvability.} A format identifier travels with the fingerprint, the manifest and every fragment,
-	      so a later format can live beside the current one.
+	      so a later format can live beside the current one. The network changes in two ways: the spork tunes
+	      parameters for new uploads, and a new format, such as one that encrypts outer parity under keys of its own
+	      (Section~\ref{sec:future}), gets a new identifier. Neither breaks a stored file: its fingerprint still
+	      resolves and decrypts, its fragments still verify and are repaired in their own format, and nothing stored
+	      is rewritten.
 \end{enumerate}
 
 \subsection{Trust}
