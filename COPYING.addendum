@@ -22,8 +22,8 @@ distributed by this software, as well as any binary distributions of the
 software.
 
   As used herein, "Unigrid website" refers to any links to web resources
-associated with the Unigrid Foundation. Examples
-include [http://www.unigrid.org] and [https://unigrid.org].
+associated with the Unigrid Foundation. Examples include
+[http://www.unigrid.org] and [https://unigrid.org].
 
   As used herein, "this network" refers to the physical Hedgehog network as
 a running entity and as defined by The Unigrid Foundation.
@@ -44,9 +44,9 @@ this addendum complements the additional terms with the following conditions;
    b) This code and CLI header must clearly and visibly attribute The Unigrid
    Foundation.
 
-   c) Any mention of The Unigrid Foundation or links to any
-   Unigrid website may not be removed from the code itself or any of the
-   accompanying documents.
+   c) Any mention of The Unigrid Foundation or links to any Unigrid website
+   may not be removed from the code itself or any of the accompanying
+   documents.
 
    d) You may not use any non-direct or direct means to purposely hide
    references to the website of The Unigrid Foundation.
@@ -58,17 +58,16 @@ this addendum complements the additional terms with the following conditions;
    f) Anybody contributing code or other work in the form of pull requests,
    git commits or any other means to the official Hedgehog repository
    [https://github.com/unigrid-project/hedgehog] agrees to grant The Unigrid
-   Foundation shared copyright for that contributed work
-   and to accept the license terms of this software as outlined by the
-   original GNU Affero General Public License and this addendum.
+   Foundation shared copyright for that contributed work and to accept the
+   license terms of this software as outlined by the original GNU Affero
+   General Public License and this addendum.
 
    g) Any work contributed to this repository by a contributor as described
    in section f of this document that is under a license or patent as
    outlined by section 11 of the original GNU Affero General Public License,
-   grants The Unigrid Foundation a perpetual sublicense
-   or subpatent to indefinetly use that contribution in this code. The
-   contributor also ensures that they are the current owner of that license
-   or patent.
+   grants The Unigrid Foundation a perpetual sublicense or subpatent to
+   indefinetly use that contribution in this code. The contributor also
+   ensures that they are the current owner of that license or patent.
 
                      END OF TERMS AND CONDITIONS
 
