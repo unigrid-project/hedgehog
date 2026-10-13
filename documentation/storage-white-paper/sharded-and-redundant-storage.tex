@@ -1789,9 +1789,9 @@ authentication tag. For large files the outer and inner parity each add 50\,\%, 
 chunk for the inner code, which seals all 32 slots at once, and up to 16 rows per stripe for the outer code. Decoding
 inverts a $k \times k$ matrix, at most $32 \times 32$, then recomputes every data shard from $k$ surviving shards,
 even the shards that arrived intact, and re-encodes all parity. Its cost is therefore the same whether one shard or
-eight are missing, two to three times that of encoding. Retrieval skips the outer decode when every data chunk
-arrived, but it always runs the inner decode. AES-GCM runs in hardware on processors with AES instructions. Hashing
-adds one SHA-256 pass over each fragment for its Merkle leaf.
+eight are missing, about two to three times that of encoding (Table~\ref{tab:throughput}). Retrieval skips the
+outer decode when every data chunk arrived, but it always runs the inner decode. AES-GCM runs in hardware on
+processors with AES instructions. Hashing adds one SHA-256 pass over each fragment for its Merkle leaf.
 
 \paragraph{Memory.} An upload or download holds one stripe at a time: up to 32 pieces of plaintext beside the 48
 chunks of 1\,MiB, about 80\,MiB, plus the fragments of the group being sealed or decoded. Memory therefore does not
@@ -1815,9 +1815,12 @@ grow with file size, but it does grow with the number of concurrent requests.
 	      and as many replies. It answers about as many queries from other gridnodes.
 \end{itemize}
 
-\paragraph{Measured throughput.} Table~\ref{tab:throughput} gives single-threaded measurements on one core of a
-1.7\,GHz Intel server processor with AES instructions, running Java 17. Each figure is the median of five runs of
-at least 64\,MiB after warm-up, counted in input data. They are indicative, within about 10\,\%.
+\paragraph{Measured throughput.} Table~\ref{tab:throughput} gives single-threaded measurements on one core of an
+Intel server processor with AES instructions, rated at 1.7\,GHz and clocking up to 2.9\,GHz, running Temurin 25.0.3,
+the runtime that Hedgehog ships. Each figure is the median of three passes, and each pass the median of five runs
+of at least 64\,MiB after warm-up, counted in input data. The machine was shared with other work, so the figures are
+indicative, within about 15\,\%. With the Graal compiler of GraalVM 25 instead of HotSpot, the Reed-Solomon figures
+come out 10 to 30\,\% lower.
 
 \begin{table}[H]
 \centering
@@ -1826,14 +1829,14 @@ at least 64\,MiB after warm-up, counted in input data. They are indicative, with
 \toprule
 Operation & MiB/s \\
 \midrule
-Inner code encode, 16 + 16 fragments of 64\,KiB, as a chunk is sealed & 81 \\
-Inner code decode, 16 + 16 fragments, 8 data fragments missing & 41 \\
-Outer code encode, 32 + 16 chunks of 1\,MiB & 78 \\
-Outer code decode, 16 data chunks missing & 26 \\
-AES-256-GCM encrypt, 1\,MiB chunk & 1\,002 \\
-AES-256-GCM decrypt, 1\,MiB chunk & 1\,027 \\
-Store of a 64\,MiB file, 48 simulated gridnodes in one process & 13.2 \\
-Retrieve of the same file, no fragment missing & 26.7 \\
+Inner code encode, 16 + 16 fragments of 64\,KiB, as a chunk is sealed & 68 \\
+Inner code decode, 16 + 16 fragments, 8 data fragments missing & 38 \\
+Outer code encode, 32 + 16 chunks of 1\,MiB & 64 \\
+Outer code decode, 16 data chunks missing & 22 \\
+AES-256-GCM encrypt, 1\,MiB chunk & 971 \\
+AES-256-GCM decrypt, 1\,MiB chunk & 848 \\
+Store of a 64\,MiB file, 48 simulated gridnodes in one process & 13.6 \\
+Retrieve of the same file, no fragment missing & 27.2 \\
 \bottomrule
 \end{tabular}
 \caption{Single-threaded throughput, in memory, without network or disk.}
