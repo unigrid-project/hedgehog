@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2025 Stiftelsen The Unigrid Foundation
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
     Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
 
@@ -36,7 +36,7 @@ import picocli.CommandLine.Option;
 	scope = CommandLine.ScopeType.INHERIT, header = {
 		"",
 		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
-		"    :   _.:.:.:.:.::.           © 2021-2025 Stiftelsen The Unigrid Foundation",
+		"    :   _.:.:.:.:.::.            © 2021-2026 Stiftelsen The Unigrid Foundation",
 		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
 		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""
