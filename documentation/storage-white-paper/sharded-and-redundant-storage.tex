@@ -78,8 +78,8 @@ limits.
 \section{Introduction}
 \label{sec:intro}
 
-The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that lock collateral and give
-the network storage space, communication channels and compute cycles. The idea descends from the masternodes of
+The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that give the network storage
+space, communication channels and compute cycles, and that are meant to lock collateral. The idea descends from the masternodes of
 Darkcoin~\cite{darkcoin2014}. Hedgehog is the Java implementation of the network's node software. This paper
 describes its storage layer: how a file is cut up, encrypted, coded, placed, found again, repaired and deleted, and
 what every participant can and cannot learn along the way.
@@ -217,21 +217,51 @@ The design has six goals:
 \end{enumerate}
 
 \subsection{Trust}
+\label{sec:trust}
 
-The design trusts three kinds of party, each for a different purpose:
+No single gridnode needs to be trusted, but storage is not free of trust. A user stores and reads files through the
+REST interface of their own Hedgehog node, which listens on localhost by default and sees the plaintext and the
+fingerprint. Gridnodes store, check and repair fragments, and each of them may be curious, lazy or malicious.
+Gridnodes are meant to lock collateral~\cite{unigrid-whitepaper}, which would make large numbers of them expensive
+to run and so limit Sybil attacks~\cite{douceur2002}; Hedgehog does not enforce collateral yet
+(Section~\ref{sec:security}). Two of the four board keys of Stiftelsen The Unigrid Foundation set the storage
+parameters (Section~\ref{sec:signers}). Table~\ref{tab:trust} lists what a user still relies on, for what, and what
+follows when that trust fails.
 
-\begin{description}
-	\item[The owner's node.] A user stores and reads files through the REST interface of their own Hedgehog node,
-	      which listens on localhost by default. That node sees the plaintext and the fingerprint. It is the user's own
-	      software and is trusted like any other program that handles the file.
-	\item[Gridnodes.] Gridnodes store, check and repair fragments. None of them is trusted: each may be curious,
-	      lazy or malicious. Gridnodes lock collateral~\cite{unigrid-whitepaper}, which makes large numbers of them
-	      expensive to run and so limits Sybil attacks~\cite{douceur2002}. Section~\ref{sec:durability} shows how
-	      many losses the design tolerates.
-	\item[Stiftelsen The Unigrid Foundation.] Two of the foundation's four board keys must sign the StorageSpork
-	      (Section~\ref{sec:governance}). The keys play no part in encryption, placement, repair or deletion. They set
-	      the parameters of new uploads, but they cannot read, find or delete a file.
-\end{description}
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.7cm}>{\hsize=0.9\hsize}L>{\hsize=0.75\hsize}L
+	>{\hsize=1.35\hsize}L@{}}
+\toprule
+Relied on & For & Not for & If it fails \\
+\midrule
+The owner's node and the Hedgehog software & Everything: it sees the plaintext and the fingerprint & --- & The file
+and its fingerprint are exposed. The node runs on the user's own machine, and its source is public \\
+\addlinespace
+The cryptography: AES-256-GCM, SHA-256, Ed25519, HKDF & Confidentiality, integrity and the right to delete & --- &
+The property that the broken primitive carries is lost. The format identifier lets a later format replace it
+(Section~\ref{sec:versioning}) \\
+\addlinespace
+The gridnodes as a whole & Durability and availability & Confidentiality and integrity & Files are lost when a large
+share of gridnodes fails, or drops data, together (Section~\ref{sec:durability}) \\
+\addlinespace
+Any single gridnode & Nothing & Anything & Its fragments are missing or rejected, and repair replaces them \\
+\addlinespace
+The list of active gridnodes & Placement: which gridnodes hold a group & Confidentiality and integrity & An attacker
+who controls a node's view can steer its uploads to its own gridnodes (Section~\ref{sec:security}) \\
+\addlinespace
+Board keys, two of four & Parameters of new uploads, and whether storage runs at all & Reading, finding, deleting
+or changing a stored file & New uploads stop, or old groups decay under badly chosen sizes
+(Section~\ref{sec:security}) \\
+\bottomrule
+\end{tabularx}
+\caption{What a user of storage still trusts.}
+\label{tab:trust}
+\end{table}
+
+Storage thus replaces trust in a provider with trust in public software and cryptography, and in a population of
+gridnodes of which a minority may fail or cheat without harm.
 
 \subsection{Threat model}
 
@@ -1804,12 +1834,14 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 \section{Conclusion}
 \label{sec:conclusion}
 
-Hedgehog stores files on gridnodes that nobody needs to trust. One random fingerprint names, decrypts and controls a
-file, and nothing else about the file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
+Hedgehog stores files on gridnodes of which no single one needs to be trusted. No gridnode and no foundation key can
+read, alter or delete a file, and durability rests on the gridnodes as a whole; what a user still trusts is listed
+in Section~\ref{sec:trust}. One random fingerprint names, decrypts and controls a file, and nothing else about the
+file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
 knows from what the network needs: the owner's outer code spans many chunks and stays secret, while the public inner
 code lets gridnodes check, repair and move each chunk on their own. Signed descriptors and Merkle proofs make every
-fragment self-verifying, rendezvous hashing places fragments without a directory, and a signed spork tunes the
-network while every file keeps the layout it was written with. The known limits are stated plainly in
+fragment self-verifying, rendezvous hashing places fragments without a directory, and a spork signed by two board
+keys tunes new uploads while every file keeps the layout it was written with. The known limits are stated plainly in
 Section~\ref{sec:security}: linked groups in short stripes, traffic that reveals structure, a transport without peer
 authentication, and outer redundancy that is never renewed. Each has a remedy in Section~\ref{sec:future}, and the
 format identifier lets the network adopt those that change stored structures beside the current format.
