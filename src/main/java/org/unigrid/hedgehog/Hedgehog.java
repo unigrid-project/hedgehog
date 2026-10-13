@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2022 The Unigrid Foundation, UGD Software AB
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
@@ -34,7 +34,7 @@ import picocli.CommandLine.Option;
 	scope = CommandLine.ScopeType.INHERIT, header = {
 		"",
 		"     .:.:.:.:.:.:.:.               ${HEDGEHOG_VERSION_PAD}${HEDGEHOG_VERSION}",
-		"    :   _.:.:.:.:.::.     © 2021-2022 The Unigrid Foundation, UGD Software AB",
+		"    :   _.:.:.:.:.::.            © 2021-2026 Stiftelsen The Unigrid Foundation",
 		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
 		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""
