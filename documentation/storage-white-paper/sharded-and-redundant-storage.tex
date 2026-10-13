@@ -369,6 +369,73 @@ Five terms recur through this paper:
 	      window, and a gridnode that stores one of them is a \emph{holder} of the group.
 \end{description}
 
+Figure~\ref{fig:hierarchy} shows how these pieces nest for the file of Section~\ref{sec:life}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+	box/.style={draw, rounded corners=2pt, align=center, font=\scriptsize, inner sep=3pt, minimum height=8mm},
+	zoom/.style={draw=black!35, dashed},
+	level/.style={align=left, anchor=west, font=\small, text width=3cm},
+	sub/.style={font=\scriptsize, anchor=north, fill=white, inner sep=1pt}]
+	\node[level] at (-3.4, 0) {\textbf{File}\\{\scriptsize 100\,MiB}};
+	\node[level] at (-3.4, -1.6) {\textbf{Stripes}\\{\scriptsize 4, known only to the owner}};
+	\node[level] at (-3.4, -3.4) {\textbf{Chunks}\\{\scriptsize 155 of 1\,MiB, each one group}};
+	\node[level] at (-3.4, -5.4) {\textbf{Fragments}\\{\scriptsize 24 + 8 of 64\,KiB per group}};
+	\node[level] at (-3.4, -7.4) {\textbf{Gridnodes}\\{\scriptsize one fragment of a group each}};
+	\node[box, minimum width=11.6cm] (file) at (5.8, 0) {100\,MiB file, encrypted on the owner's node into 101 data
+		chunks};
+	\foreach \t [count=\i] in {32 + 16, 32 + 16, 32 + 16, 5 + 3} {
+		\pgfmathtruncatemacro{\s}{\i - 1}
+		\node[box, minimum width=2.1cm, fill=blue!5] (s\i) at (\i*2.35 - 1.15, -1.6) {Stripe \s\\\t\ chunks};
+		\draw (file.south) -- (s\i.north);
+	}
+	\node[box, minimum width=2.1cm] (man) at (10.6, -1.6) {Manifest\\3 copies};
+	\draw (file.south) -- (man.north);
+	\foreach \i in {0,...,6} \node[cell, fill=blue!10] (b\i) at (0.3 + \i*0.55, -3.4) {};
+	\node at (4.15, -3.4) {$\cdots$};
+	\node[cell, fill=blue!10] (blast) at (4.7, -3.4) {};
+	\foreach \i in {0,...,3} \node[cell, fill=orange!25] (o\i) at (5.45 + \i*0.55, -3.4) {};
+	\node at (7.65, -3.4) {$\cdots$};
+	\node[cell, fill=orange!25] (olast) at (8.2, -3.4) {};
+	\node[cell, fill=blue!10, very thick] (pick) at (b2) {};
+	\node[sub] at (2.5, -3.75) {32 data chunks};
+	\node[sub] at (6.825, -3.75) {16 parity chunks};
+	\begin{scope}[on background layer]
+		\draw[zoom] (s1.south west) -- (b0.north west);
+		\draw[zoom] (s1.south east) -- (olast.north east);
+	\end{scope}
+	\foreach \i in {0,...,5} \node[cell, fill=blue!10] (f\i) at (0.3 + \i*0.55, -5.4) {};
+	\node at (3.6, -5.4) {$\cdots$};
+	\node[cell, fill=blue!10] (flast) at (4.15, -5.4) {};
+	\foreach \i in {0,...,2} \node[cell, fill=orange!25] (g\i) at (4.9 + \i*0.55, -5.4) {};
+	\node at (6.55, -5.4) {$\cdots$};
+	\node[cell, fill=orange!25] (glast) at (7.1, -5.4) {};
+	\foreach \i in {0,...,2} \node[cell, dashed, fill=orange!8] (x\i) at (7.85 + \i*0.55, -5.4) {};
+	\node at (9.5, -5.4) {$\cdots$};
+	\node[cell, dashed, fill=orange!8] (xlast) at (10.05, -5.4) {};
+	\node[sub] at (2.225, -5.75) {16 data};
+	\node[sub] at (5.75, -5.75) {8 guaranteed parity};
+	\node[sub] at (8.95, -5.75) {8 extra};
+	\begin{scope}[on background layer]
+		\draw[zoom] (pick.south west) -- (f0.north west);
+		\draw[zoom] (pick.south east) -- (xlast.north east);
+	\end{scope}
+	\foreach \i in {0,...,17} \node[hash] (n\i) at (0.3 + \i*0.6, -7.4) {};
+	\foreach \f/\n in {f0/n3, f1/n0, flast/n8, glast/n12, x0/n16} {
+		\node[hash, fill=blue!10] at (\n) {};
+		\draw[-{Stealth[length=1.6mm]}] (\f.south) -- (\n.north);
+	}
+	\node[font=\scriptsize, anchor=west] at (10.8, -7.4) {$\cdots$};
+\end{tikzpicture}
+\caption{How the 100\,MiB file of Section~\ref{sec:life} breaks up. The outer code arranges its 101 data chunks
+into four stripes and adds 51 parity chunks; with the 3 manifest copies that makes 155 chunks of 1\,MiB. Each chunk
+is one group on the network. The inner code cuts it into 16 fragments of 64\,KiB and adds 8 guaranteed and 8 extra
+parity fragments, each stored on a different gridnode of the group's window. Only the owner knows which chunks form
+a stripe.}
+\label{fig:hierarchy}
+\end{figure}
+
 The split into two layers is the core of the design. The owner applies the outer code across whole chunks and keeps
 the grouping to itself. Gridnodes see only single chunks, each coded again into fragments that they can rebuild on
 their own. A repairer therefore holds at most one chunk of ciphertext, and, apart from the short stripes of
