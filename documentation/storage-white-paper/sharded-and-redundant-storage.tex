@@ -1913,9 +1913,9 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      Section~\ref{sec:repair}.
 	\item[Coalitions] An attacker that runs a large share of the gridnodes holds a similar share of every window.
 	      By dropping its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its share:
-	      a fifth of the gridnodes already threatens small files and manifests. Collateral makes gridnodes expensive
-	      to run and so limits Sybil attacks~\cite{douceur2002}; the storage layer relies on it and on the list of
-	      active gridnodes.
+	      a fifth of the gridnodes already threatens small files and manifests. Collateral is meant to make
+	      gridnodes expensive to run and so limit Sybil attacks~\cite{douceur2002}. The storage layer relies on it
+	      and on the list of active gridnodes, but nothing enforces collateral yet (see \emph{Eclipse}).
 	\item[Eclipse] Placement trusts each node's view of the active gridnodes. An attacker that controls that view,
 	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
 	      Announcements of gridnodes are signed with the gridnode's own key and expire after thirty minutes
