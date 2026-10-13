@@ -106,10 +106,23 @@ owner. The owner keeps a single string of 50 characters, the fingerprint, and no
 
 The core of the design is the split of the erasure code into two layers. The owner applies an outer code across
 many chunks and keeps its structure to itself. The network applies an inner code within each chunk, and that code
-is public. Repair then needs only public information, and it reveals nothing that links chunks into files. Other
-systems that erasure-code data across untrusted nodes leave repair to the owner, to a client that holds a
-capability for the file, or to a coordinator that knows which pieces form each file
-(Section~\ref{sec:related}). Hedgehog needs none of them.
+is public. Repair then needs only public information, and apart from the short stripes of
+Section~\ref{sec:security}, it reveals nothing that links chunks into files.
+
+The paper makes three contributions:
+
+\begin{itemize}
+	\item \textbf{Repair without the owner, a capability or a coordinator.} Other systems that erasure-code data
+	      across untrusted nodes leave repair to the owner, to a client that holds a capability for the file, or to
+	      a coordinator that knows which pieces form each file (Section~\ref{sec:related}). In Hedgehog the gridnodes
+	      repair every chunk themselves, with no key and without knowing which chunks form a file.
+	\item \textbf{One secret and no owner record.} A single random fingerprint locates, decrypts and controls a
+	      file. The network keeps no account, index or uploader signature, and two uploads of the same file share
+	      nothing.
+	\item \textbf{Fragments that stay verifiable through repair.} The owner signs a Merkle root over every fragment
+	      slot of a chunk, extras included. Anyone can check any fragment, and the fragments that a repairer rebuilds
+	      carry valid proofs although the repairer holds no key.
+\end{itemize}
 
 The storage layer is deliberately low level. It stores opaque files and returns a fingerprint; it knows nothing
 about names, folders or buckets. An object-storage interface in the style of S3 is planned as a separate layer on
