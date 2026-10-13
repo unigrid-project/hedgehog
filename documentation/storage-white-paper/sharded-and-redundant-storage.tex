@@ -80,10 +80,10 @@ limits.
 \label{sec:intro}
 
 The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that give the network storage
-space, communication channels and compute cycles, and that are meant to lock collateral. The idea descends from the masternodes of
-Darkcoin~\cite{darkcoin2014}. Hedgehog is the reference implementation of the network's node software. This paper
-describes its storage layer: how a file is cut up, encrypted, coded, placed, found again, repaired and deleted, and
-what every participant can and cannot learn along the way.
+space, communication channels and compute cycles, and that are meant to lock collateral. The idea descends from the
+masternodes of Darkcoin~\cite{darkcoin2014}. Hedgehog is the reference implementation of the network's node
+software. This paper describes its storage layer: how a file is cut up, encrypted, coded, placed, found again,
+repaired and deleted, and what every participant can and cannot learn along the way.
 
 Storing data on machines that strangers run is hard for four reasons:
 
@@ -106,8 +106,7 @@ owner. The owner keeps a single string of 50 characters, the fingerprint, and no
 
 The core of the design is the split of the erasure code into two layers. The owner applies an outer code across
 many chunks and keeps its structure to itself. The network applies an inner code within each chunk, and that code
-is public. Repair then needs only public information, and apart from the short stripes of
-Section~\ref{sec:security}, it reveals nothing that links chunks into files.
+is public, so repair needs only public information.
 
 The paper makes three contributions:
 
@@ -115,7 +114,8 @@ The paper makes three contributions:
 	\item \textbf{Repair without the owner, a capability or a coordinator.} Other systems that erasure-code data
 	      across untrusted nodes leave repair to the owner, to a client that holds a capability for the file, or to
 	      a coordinator that knows which pieces form each file (Section~\ref{sec:related}). In Hedgehog the gridnodes
-	      repair every chunk themselves, with no key and without knowing which chunks form a file.
+	      repair every chunk themselves, with no key and, apart from the short stripes of Section~\ref{sec:security},
+	      without knowing which chunks form a file.
 	\item \textbf{One secret and no owner record.} A single random fingerprint locates, decrypts and controls a
 	      file. The network keeps no account, no index and nothing that identifies the uploader, and two uploads of
 	      the same file share nothing.
@@ -139,12 +139,13 @@ installs nothing else. And the platform reaches vector instructions and native l
 the field arithmetic could use (Section~\ref{sec:performance}).
 
 Section~\ref{sec:background} introduces the building blocks, and Section~\ref{sec:goals} states the goals, the
-trust assumptions and the threat model. Section~\ref{sec:overview} gives an overview of the design and follows one
-file through its life. Sections~\ref{sec:keys} to~\ref{sec:versioning} describe the formats: keys, encryption,
-coding, fragments, placement and the manifest. Sections~\ref{sec:operations} to~\ref{sec:protocol} describe the
-operations, ownership, repair, quotas, governance and the wire protocol. Sections~\ref{sec:analysis}
-and~\ref{sec:security} analyse durability, cost, performance and security. Section~\ref{sec:related} compares the
-design with related systems, and Section~\ref{sec:future} lists future work.
+trust assumptions, the threat model and the incentives. Section~\ref{sec:overview} gives an overview of the design
+and follows one file through its life. Sections~\ref{sec:keys} to~\ref{sec:versioning} describe the formats: keys,
+encryption, coding, fragments, placement and the manifest. Sections~\ref{sec:operations} to~\ref{sec:protocol}
+describe the operations, ownership, repair, quotas, governance and the wire protocol. Sections~\ref{sec:analysis}
+and~\ref{sec:security} analyse durability, cost, performance and security, and Section~\ref{sec:jurisdiction} gives
+the facts that bear on data protection. Section~\ref{sec:related} compares the design with related systems, and
+Section~\ref{sec:future} lists future work.
 
 \section{Building blocks}
 \label{sec:background}
@@ -351,21 +352,21 @@ the numbered notes below.}
 	\item It can store any content under its own fingerprint, harmful or not, but cannot read, alter or delete anyone
 	      else's file; its fragments only compete for quota (Section~\ref{sec:quotas}). See \emph{Malicious content}
 	      below.
-	\item Together they can disable storage, lengthen the repair interval, or set sizes under which old groups decay
+	\item Together they can stop storage, lengthen the repair interval, or set sizes under which old groups decay
 	      (Sections~\ref{sec:governance} and~\ref{sec:security}).
 \end{enumerate}
 }
 
 \paragraph{Malicious content.} A fragment is opaque data. Gridnodes never execute, decompress or interpret what it
-carries. They check its descriptor, signature and Merkle proof before they store it and serve the stored bytes back,
-and a repairer computes Reed-Solomon combinations of fragment data, which treat the bytes as numbers and nothing
-else. The decoders of storage packets check counts, lengths and key sizes against fixed bounds before they allocate
-memory (Section~\ref{sec:protocol}). A fragment that does not verify is never stored, and since a holder serves its
-stored bytes without checking them again, every reader and repairer verifies what it receives. Data disguised as a
-fragment is therefore rejected, whatever it contains, unless the holder of the group's key committed to it. The design does not judge content,
-though. A reader gets back exactly the bytes that the fingerprint holder stored, and neither the network nor the
-reader's node can tell whether they are safe. Integrity here means only that the file is the one that was stored,
-and a file fetched from the network deserves the care due to any download.
+carries. They check its descriptor, signature and Merkle proof before they store it, and a repairer computes
+Reed-Solomon combinations of fragment data, which treat the bytes as numbers and nothing else. The decoders of
+storage packets check counts, lengths and key sizes against fixed bounds before they allocate memory
+(Section~\ref{sec:protocol}). A fragment that does not verify is never stored, and since a holder serves its stored
+bytes without checking them again, every reader and repairer verifies what it receives. Data disguised as a fragment
+is therefore rejected, whatever it contains, unless the fingerprint holder committed to it. The design does not
+judge content, though. A reader gets back exactly the bytes that the fingerprint holder stored, and neither the
+network nor the reader's node can tell whether they are safe. Integrity here means only that the file is the one
+that was stored, and a file fetched from the network deserves the care due to any download.
 
 Out of scope are an attacker that controls a large share of all gridnodes, global traffic analysis, attacks on the
 owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
@@ -374,8 +375,8 @@ how quickly losses grow with the share of gridnodes that fail, or drop their dat
 \subsection{Incentives and misbehaviour}
 \label{sec:incentives}
 
-The storage layer has no rewards and no penalties. No gridnode is paid for the fragments it keeps, and nothing in
-this layer punishes one that cheats. What limits misbehaviour today is the structure of the design:
+The storage layer neither pays a gridnode for the fragments it keeps nor punishes one that cheats. What limits
+misbehaviour today is the structure of the design:
 
 \begin{itemize}
 	\item \textbf{Hoarding.} Honest uploaders and repairers send a gridnode only fragments of groups whose window it
@@ -1492,7 +1493,7 @@ place.
 Sporks are signed messages that switch or tune network behaviour without a software release. Unigrid inherits them
 from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry structured data~\cite{unigrid-whitepaper}.
 Stiftelsen The Unigrid Foundation sets the storage parameters through a spork of type 1030, distributed like every
-other spork. Its 40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork whose
+other spork. Its 40 bytes of data hold the fields in Table~\ref{tab:spork} and six reserved bytes. A spork whose
 parameters fail validation is treated as absent: rather than run with bad values, the node then stores, reads,
 deletes and repairs nothing, although it still serves the fragments it holds and answers censuses about them. A
 spork whose signatures fail never
@@ -1539,11 +1540,11 @@ Every version also records a signed digest of the version it replaced. The diges
 who signed each earlier version, and rewriting that history breaks the current signatures. Sporks are signed with
 ECDSA over the P-521 curve and SHA-512~\cite{fips1865}.
 
-Every node checks a spork itself when it arrives and keeps the newest correctly signed one of each type. The trusted keys are a
-default of the node's configuration: an operator can name others with \code{--network-keys}, at the price of following
-other parameters than the rest of the network. For some sporks the foundation may instead put a change to a vote of
-the network. Hedgehog does not implement such votes yet, and the StorageSpork is a settings spork that the board keys
-sign.
+Every node checks a spork itself when it arrives and keeps the newest correctly signed one of each type. The network
+keys are a default of the node's configuration: an operator can name others with \code{--network-keys}, at the price
+of following different parameters from the rest of the network. For some sporks the foundation may instead put a
+change to a vote of the network. Hedgehog does not implement such votes yet, and the StorageSpork is a settings spork
+that the board keys sign.
 
 The spork carries parameters and nothing else. The board keys sign no file, group or fragment, and they take no part
 in uploads, reads, repair or deletes. No storage operation contacts the foundation or waits for a signature: every
@@ -1846,7 +1847,7 @@ an upload is bounded by the uploader's bandwidth, since it sends about three tim
 
 Three improvements would raise these figures without any change to the format: split-table or vector
 $\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, through the Vector API of the platform or a native call
-into such a library~\cite{jep508,jep454}, a decode path that skips the work when all data shards are present, and
+into such a library~\cite{jep508,jep454}; a decode path that skips the work when all data shards are present; and
 placing and fetching several groups at once.
 
 \section{Security analysis and known limits}
@@ -1915,8 +1916,8 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      once its list is full, so a flood of announcements can also keep real gridnodes out of its view.
 	\item[Board keys] Two of the foundation's board keys acting together can stop storage on every node, with
 	      parameters that fail validation, or set sizes under which old groups can no longer be stored or rebuilt
-	      (Section~\ref{sec:governance}). Stopped storage halts uploads, reads, deletes and repair alike. One key alone can do none of this, and no number of them can read,
-	      find or delete a file.
+	      (Section~\ref{sec:governance}). Stopped storage halts uploads, reads, deletes and repair alike. One key
+	      alone can do none of this, and no number of them can read, find or delete a file.
 	\item[Tombstones on plain nodes] Any Hedgehog node that receives a valid delete keeps the tombstone until it
 	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
 \end{description}
@@ -1926,18 +1927,19 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 
 Storage on machines that strangers run raises legal questions as well as technical ones: whose data a gridnode
 holds, whether a file can be erased, and in which country its pieces lie. This section states the technical facts
-that such an assessment needs. It is not legal advice and draws no legal conclusions.
+that a legal assessment needs. It is not legal advice and draws no legal conclusions.
 
 \paragraph{What a gridnode holds.} A gridnode holds AES-256-GCM ciphertext, or parity computed from it, with signed
 descriptors and Merkle proofs (Sections~\ref{sec:encryption} and~\ref{sec:fragments}). It holds no key and no
 fingerprint, and nothing it stores names the owner or ties a fragment to the node that sent it
 (Section~\ref{sec:ownership}). Under the GDPR, whether a person is identifiable from information depends on all the
-means reasonably likely to be used to identify them~\cite{gdpr2016}. Reading the definition of personal data in the
-same way as the GDPR, the Court of Justice has held that pseudonymised data are not personal data in all cases and
-for every person: where the measures in fact prevent a recipient from identifying the people concerned, also by
-cross-checking with other data, the data may not be personal for that recipient~\cite{cjeu2025srb}. The draft
-guidelines of the European Data Protection Board treat pseudonymised data as personal data and count cryptographic
-keys among the secrets that make them so; their final version is still pending~\cite{edpb2025pseudo}. Whether
+means reasonably likely to be used to identify them~\cite{gdpr2016}. In a case under Regulation (EU) 2018/1725,
+whose definition of personal data it reads in the same way as the GDPR's, the Court of Justice has held that
+pseudonymised data are not personal data in all cases and for every person: where the measures in fact prevent a
+recipient from identifying the people concerned, even by cross-checking with other data, the data may not be
+personal for that recipient~\cite{cjeu2025srb}. The draft guidelines of the European Data Protection Board treat
+pseudonymised data as personal data and count cryptographic keys among the pseudonymisation secrets; their final
+version is still pending~\cite{edpb2025pseudo}. Whether
 fragments are personal data for a gridnode operator is therefore a legal assessment of the stored file and of the
 means open to that operator. The design keeps those means as small as it can: the key exists only in the
 fingerprint, which never leaves the owner's node unless the owner shares it.
@@ -1963,8 +1965,8 @@ administrative board~\cite{stiftelselag}.
 personal data or data bound to a country, because they never see content. A protocol that let them would break the
 confidentiality the design exists for. Any classification has to come from the owner, before upload.
 
-\paragraph{Owner-chosen placement.} The natural extension lets an owner restrict where a file's fragments go, for
-example to gridnodes in the European Union. Gridnodes would claim a region in their signed announcements, and
+\paragraph{Owner-chosen placement.} The natural extension would let an owner restrict where a file's fragments go,
+for example to gridnodes in the European Union. Gridnodes would claim a region in their signed announcements, and
 placement would rank only the gridnodes whose claims match. A reader needs the restriction before it can find the
 manifest, so the restriction would travel with the fingerprint under a new format identifier. Such claims cannot be
 proven: a gridnode can lie about where it runs, and measurements of network delay locate a machine only roughly and
@@ -2037,11 +2039,11 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 \section{Conclusion}
 \label{sec:conclusion}
 
-Hedgehog stores files on gridnodes of which no single one needs to be trusted. No gridnode and no foundation key can
-read, alter or delete a file, and durability rests on the gridnodes as a whole; what a user still trusts is listed
-in Section~\ref{sec:trust}. One random fingerprint names, decrypts and controls a file, and nothing else about the
-file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
-knows from what the network needs: the owner's outer code spans many chunks and stays secret, while the public inner
+Hedgehog stores files on gridnodes, none of which needs to be trusted on its own. No gridnode and no foundation key
+can read, alter or delete a file, and durability rests on the gridnodes as a whole; what a user still trusts is
+listed in Section~\ref{sec:trust}. One random fingerprint names, decrypts and controls a file, and nothing else about
+the file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner knows from what the network
+needs: the owner's outer code spans many chunks and stays secret, while the public inner
 code lets gridnodes check, repair and move each chunk on their own. Signed descriptors and Merkle proofs make every
 fragment self-verifying, rendezvous hashing places fragments without a directory, and a spork signed by two board
 keys tunes storage while every file keeps the layout it was written with. The known limits are stated plainly in
