@@ -117,8 +117,8 @@ The paper makes three contributions:
 	      a coordinator that knows which pieces form each file (Section~\ref{sec:related}). In Hedgehog the gridnodes
 	      repair every chunk themselves, with no key and without knowing which chunks form a file.
 	\item \textbf{One secret and no owner record.} A single random fingerprint locates, decrypts and controls a
-	      file. The network keeps no account, index or uploader signature, and two uploads of the same file share
-	      nothing.
+	      file. The network keeps no account, no index and nothing that identifies the uploader, and two uploads of
+	      the same file share nothing.
 	\item \textbf{Fragments that stay verifiable through repair.} The owner signs a Merkle root over every fragment
 	      slot of a chunk, extras included. Anyone can check any fragment, and the fragments that a repairer rebuilds
 	      carry valid proofs although the repairer holds no key.
@@ -136,7 +136,7 @@ platform matter to storage. Gridnodes parse fragments and packets that strangers
 a malformed length or index raises an exception instead of overwriting memory. Hedgehog ships as one executable per
 platform, a launcher built with GraalVM Native Image~\cite{graalvm} that carries its own Java runtime, so an operator
 installs nothing else. And the platform reaches vector instructions and native libraries~\cite{jep508,jep454}, which
-the field arithmetic can use (Section~\ref{sec:performance}).
+the field arithmetic could use (Section~\ref{sec:performance}).
 
 Section~\ref{sec:background} introduces the building blocks, and Section~\ref{sec:goals} states the goals, the
 trust assumptions and the threat model. Section~\ref{sec:overview} gives an overview of the design and follows one
@@ -269,8 +269,9 @@ The cryptography: AES-256-GCM, SHA-256, Ed25519, HKDF & Confidentiality, integri
 The property that the broken primitive carries is lost. The format identifier lets a later format replace it
 (Section~\ref{sec:versioning}) \\
 \addlinespace
-The gridnodes as a whole & Durability and availability & Confidentiality and integrity & Files are lost when a large
-share of gridnodes fails, or drops data, together (Section~\ref{sec:durability}) \\
+The gridnodes as a whole & Durability, availability and the effect of deletes & Confidentiality and integrity & Files
+are lost when a large share of gridnodes fails, or drops data, together (Section~\ref{sec:durability}). A holder that
+ignores a delete keeps serving its fragment (Section~\ref{sec:incentives}) \\
 \addlinespace
 Any single gridnode & Nothing & Anything & Its fragments are missing or rejected, and repair replaces them \\
 \addlinespace
@@ -287,7 +288,7 @@ or changing a stored file & Storage stops on every node, or old groups decay und
 \end{table}
 
 Storage thus replaces trust in a provider with trust in public software and cryptography, and in a population of
-gridnodes of which a minority may fail or cheat without harm.
+gridnodes of which a small share may fail or cheat without harm (Table~\ref{tab:loss}).
 
 \subsection{Threat model}
 
@@ -338,7 +339,7 @@ the numbered notes below.}
 	      (Section~\ref{sec:security}). The groups of full stripes cannot be linked by their content.
 	\item It sees which node sent each request, but nothing stored ties a fragment to that node.
 	\item It can drop its own fragments, at most one per group, and repair replaces them.
-	\item False claims of holding a fragment delay repair, and random spot checks catch them over time. Six or more
+	\item False claims of holding a fragment delay repair, and random spot checks catch them over time. Five or more
 	      colluding liars in one window can let a group be lost before repair starts (Section~\ref{sec:repair}). A
 	      tombstone claim needs the owner's signed proof, so lying cannot delete a group.
 	\item It sees which nodes exchange how much encrypted QUIC traffic, and when. The volume of an upload hints at
@@ -347,8 +348,9 @@ the numbered notes below.}
 	      them, as a lying census peer or a gridnode that drops data would. Forged fragments still fail verification.
 	\item By dropping all its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its
 	      share of the gridnodes.
-	\item It can store any content under its own fingerprint, harmful or not, but cannot touch anyone else's file;
-	      see \emph{Malicious content} below.
+	\item It can store any content under its own fingerprint, harmful or not, but cannot read, alter or delete anyone
+	      else's file; its fragments only compete for quota (Section~\ref{sec:quotas}). See \emph{Malicious content}
+	      below.
 	\item Together they can disable storage, lengthen the repair interval, or set sizes under which old groups decay
 	      (Sections~\ref{sec:governance} and~\ref{sec:security}).
 \end{enumerate}
@@ -1519,7 +1521,8 @@ from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry st
 Stiftelsen The Unigrid Foundation sets the storage parameters through a spork of type 1030, distributed like every
 other spork. Its 40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork whose
 parameters fail validation is treated as absent: rather than run with bad values, the node then stores, reads,
-deletes and repairs nothing, although it still serves the fragments it holds. A spork whose signatures fail never
+deletes and repairs nothing, although it still serves the fragments it holds and answers censuses about them. A
+spork whose signatures fail never
 replaces the stored one.
 
 \begin{table}[H]
@@ -1563,7 +1566,7 @@ Every version also records a signed digest of the version it replaced. The diges
 who signed each earlier version, and rewriting that history breaks the current signatures. Sporks are signed with
 ECDSA over the P-521 curve and SHA-512~\cite{fips1865}.
 
-Every node checks a spork itself when it arrives and keeps the newest valid one of each type. The trusted keys are a
+Every node checks a spork itself when it arrives and keeps the newest correctly signed one of each type. The trusted keys are a
 default of the node's configuration: an operator can name others with \code{--network-keys}, at the price of following
 other parameters than the rest of the network. For some sporks the foundation may instead put a change to a vote of
 the network. Hedgehog does not implement such votes yet, and the StorageSpork is a settings spork that the board keys
@@ -1927,8 +1930,8 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	\item[Coalitions] An attacker that runs a large share of the gridnodes holds a similar share of every window.
 	      By dropping its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its share:
 	      a fifth of the gridnodes already threatens small files and manifests. Collateral is meant to make
-	      gridnodes expensive to run and so limit Sybil attacks~\cite{douceur2002}. The storage layer relies on it
-	      and on the list of active gridnodes, but nothing enforces collateral yet (see \emph{Eclipse}).
+	      gridnodes expensive to run and so limit Sybil attacks~\cite{douceur2002}, but nothing enforces it yet (see
+	      \emph{Eclipse}).
 	\item[Eclipse] Placement trusts each node's view of the active gridnodes. An attacker that controls that view,
 	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
 	      Announcements of gridnodes are signed with the gridnode's own key and expire after thirty minutes
@@ -1968,9 +1971,11 @@ fingerprint, which never leaves the owner's node unless the owner shares it.
 
 \paragraph{Erasure.} The fingerprint holder can delete a file at any time. Gridnodes drop their fragments on a valid
 delete, and holders that missed it learn of it within about $W$ epochs, 40 hours by default
-(Section~\ref{sec:ownership}). Two cases fall short of erasure. Nobody can delete a file whose fingerprint is lost,
-because nobody can sign the delete, and its groups stay stored (Section~\ref{sec:security}). And a gridnode that
-ignores deletes keeps its fragments and still serves them (Section~\ref{sec:incentives}). In both cases what remains
+(Section~\ref{sec:ownership}). Three cases fall short of erasure. Nobody can delete a file whose fingerprint is
+lost, because nobody can sign the delete, and its groups stay stored (Section~\ref{sec:security}). A gridnode that
+ignores deletes keeps its fragments and still serves them (Section~\ref{sec:incentives}). And holders that return
+after every tombstone has expired, or a manifest copy outside the data window, can escape a delete
+(\emph{Resurrection} in Section~\ref{sec:security}). In each case what remains
 is ciphertext whose key exists only in the fingerprint, so destroying every copy of the fingerprint leaves the file
 unreadable for as long as AES-256 holds.
 
@@ -2068,8 +2073,9 @@ code lets gridnodes check, repair and move each chunk on their own. Signed descr
 fragment self-verifying, rendezvous hashing places fragments without a directory, and a spork signed by two board
 keys tunes storage while every file keeps the layout it was written with. The known limits are stated plainly in
 Section~\ref{sec:security}: linked groups in short stripes, traffic that reveals structure, a transport without peer
-authentication, and outer redundancy that is never renewed. Each has a remedy in Section~\ref{sec:future}, and the
-format identifier lets the network adopt those that change stored structures beside the current format.
+authentication, collateral that is not yet enforced, and outer redundancy that is never renewed. Each has a remedy
+in Section~\ref{sec:future}, and the format identifier lets the network adopt those that change stored structures
+beside the current format.
 
 \appendix
 
