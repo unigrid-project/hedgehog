@@ -283,36 +283,68 @@ gridnodes of which a minority may fail or cheat without harm.
 
 \subsection{Threat model}
 
-Table~\ref{tab:threats} lists what each party can see or do, and what the design denies it. Censuses, tombstones
-and spot checks are described in Sections~\ref{sec:ownership} and~\ref{sec:repair}.
+Table~\ref{tab:threats} lists, for each party, what it can learn about a file and what it can do to it. Every
+gridnode, whatever else it does, sees its own fragments with one signed descriptor each, the node that sent each
+request and when, and any fragment it fetches by group identifier; any chunk it assembles from them is ciphertext. A
+repairer also learns which gridnodes hold the fragments of the group it repairs. Censuses, tombstones and spot
+checks are described in Sections~\ref{sec:ownership} and~\ref{sec:repair}.
 
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.6cm}LL@{}}
+\setlength{\tabcolsep}{3pt}
+\newcommand{\no}{No}
+\newcommand{\yes}{\textbf{Yes}}
+\newcommand{\pt}[1]{Partly$^{#1}$}
+\begin{tabularx}{\linewidth}{@{}L*{9}{>{\centering\arraybackslash}p{1.2cm}}@{}}
 \toprule
-Party & Sees or can do & Cannot \\
+& \multicolumn{4}{c}{Can learn} & \multicolumn{5}{c}{Can do} \\
+\cmidrule(lr){2-5} \cmidrule(l){6-10}
+Party & Content & File size & Link groups & Who stored it & Forge or alter & Delete & Delay repair & Destroy & Tune storage \\
 \midrule
-Curious gridnode & Its own fragments, one signed descriptor per fragment, the node that sent each request and
-when, and any fragment it fetches by group identifier & Read plaintext: any chunk it assembles is ciphertext. Apart
-from the limits of Section~\ref{sec:security}, it cannot link two groups or learn a file's size \\
-Repairing gridnode & The ciphertext of one chunk and the gridnodes that hold its fragments & Decrypt that chunk or
-find the other chunks of the same file \\
-Fragment forger & Send made-up or corrupted fragments & Have them stored or used: every fragment is checked
-against its group identifier, a signed descriptor and a Merkle proof \\
-Lying census peer & Answer repair queries falsely & Delete a group: a tombstone claim must carry the owner's signed
-proof. False claims of holding a fragment can delay repair, and random spot checks catch them over time \\
-Passive network observer & Encrypted QUIC traffic and its timing & Read packet contents \\
-Active network attacker & Intercept connections, because peers do not authenticate each other yet & Learn more
-than a curious gridnode, or have forged fragments accepted \\
-Board keys, two of four & Sign new storage parameters together & Read, find or delete a file, or change the layout
-of a stored file. A single key cannot sign alone \\
-Fingerprint holder & Find, read and delete the file & --- \\
+Curious gridnode & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \no & \pt{3} & \no \\
+Repairing gridnode & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \no & \no & \no \\
+Lying census peer & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \pt{4} & \pt{4} & \no \\
+Gridnode coalition & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \pt{4} & \pt{7} & \no \\
+\addlinespace
+Fragment forger & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+Malicious uploader$^8$ & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+\addlinespace
+Passive observer & \no & \pt{5} & \pt{5} & \pt{5} & \no & \no & \no & \no & \no \\
+On-path attacker & \no & \pt{5} & \pt{1} & \pt{2} & \no & \no & \pt{6} & \pt{6} & \no \\
+\addlinespace
+Board key, alone & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+Board keys, two of four & \no & \no & \no & \no & \no & \no & \pt{9} & \pt{9} & \yes \\
+\addlinespace
+Fingerprint holder & \yes & \yes & \yes & --- & --- & \yes & --- & \yes & \no \\
 \bottomrule
 \end{tabularx}
-\caption{What each party can and cannot learn or do.}
+\caption{What each party can learn about a file, and what it can do to it. ``Partly'' holds within the limits of
+the numbered notes below.}
 \label{tab:threats}
 \end{table}
+
+{\small
+\begin{enumerate}[label=\arabic*., leftmargin=*, itemsep=1pt]
+	\item Through the content links of short stripes and the order and timing of traffic
+	      (Section~\ref{sec:security}). The groups of full stripes cannot be linked by their content.
+	\item It sees which node sent each request, but nothing stored ties a fragment to that node.
+	\item It can drop its own fragments, at most one per group, and repair replaces them.
+	\item False claims of holding a fragment delay repair, and random spot checks catch them over time. Six or more
+	      colluding liars in one window can let a group be lost before repair starts (Section~\ref{sec:repair}). A
+	      tombstone claim needs the owner's signed proof, so lying cannot delete a group.
+	\item It sees which nodes exchange how much encrypted QUIC traffic, and when. The volume of an upload hints at
+	      the size of the file.
+	\item Peers do not authenticate each other yet, so it can intercept connections and drop or answer requests on
+	      them, as a lying census peer or a gridnode that drops data would. Forged fragments still fail verification.
+	\item By dropping all its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its
+	      share of the gridnodes.
+	\item It can store any content under its own fingerprint, harmful or not, but cannot touch anyone else's file;
+	      see \emph{Malicious content} below.
+	\item Together they can disable storage, lengthen the repair interval, or set sizes under which old groups decay
+	      (Sections~\ref{sec:governance} and~\ref{sec:security}).
+\end{enumerate}
+}
 
 Out of scope are an attacker that controls a large share of all gridnodes, global traffic analysis, attacks on the
 owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
