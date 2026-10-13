@@ -1,6 +1,6 @@
 /*
     Unigrid Hedgehog
-    Copyright © 2021-2023 Stiftelsen The Unigrid Foundation
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
     Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
 
