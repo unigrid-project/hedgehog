@@ -2,9 +2,9 @@
     Sale Portal
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
-    This program is the intelectual property of The Unigrid Foundation and UGD Software AB.
+    This program is the intelectual property of Stiftelsen The Unigrid Foundation.
     Any and all redistribution is strictly prohibited. Aavailability in any form outside the
-    oversight of either The Unigrid Foundation or UGD Software AB is not allowed.
+    oversight of Stiftelsen The Unigrid Foundation is not allowed.
 */
 
 package org.unigrid.hedgehog.model;
