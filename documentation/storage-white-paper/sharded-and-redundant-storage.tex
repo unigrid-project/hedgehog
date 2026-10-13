@@ -66,7 +66,7 @@ An inner layer lets gridnodes verify and rebuild every chunk on their own, witho
 stripes, which chunks belong together. At default settings a large file costs about 2.3 times its size, a chunk
 survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks survives the loss of any 16 of them.
 Stiftelsen The Unigrid Foundation sets the parameters of new uploads through a \emph{StorageSpork} that two of its
-four board keys must sign; the spork takes no part in storing, reading, repairing or deleting a file. Each file records
+four board keys must sign; the keys take no part in storing, reading, repairing or deleting a file. Each file records
 the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
 fragment. Parameters and formats can therefore change for new uploads while every stored file stays readable and
 repairable in the layout and format it was written with. This paper describes the design as
@@ -278,7 +278,7 @@ The list of active gridnodes & Placement: which gridnodes hold a group & Confide
 who controls a node's view can steer its uploads to its own gridnodes (Section~\ref{sec:security}) \\
 \addlinespace
 Board keys, two of four & Parameters of new uploads, and whether storage runs at all & Reading, finding, deleting
-or changing a stored file & New uploads stop, or old groups decay under badly chosen sizes
+or changing a stored file & Storage stops on every node, or old groups decay under badly chosen sizes
 (Section~\ref{sec:security}) \\
 \bottomrule
 \end{tabularx}
@@ -1515,8 +1515,10 @@ place.
 Sporks are signed messages that switch or tune network behaviour without a software release. Unigrid inherits them
 from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry structured data~\cite{unigrid-whitepaper}.
 Stiftelsen The Unigrid Foundation sets the storage parameters through a spork of type 1030, distributed like every
-other spork. Its 40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork that
-fails validation is treated as absent, which disables storage on that node rather than running it with bad values.
+other spork. Its 40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork whose
+parameters fail validation is treated as absent: rather than run with bad values, the node then stores, reads,
+deletes and repairs nothing, although it still serves the fragments it holds. A spork whose signatures fail never
+replaces the stored one.
 
 \begin{table}[H]
 \centering
@@ -1931,9 +1933,9 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      without a fresh signature, so a peer can neither forge nor revive an entry; it can still withhold
 	      entries from a node whose connections it controls. Nothing yet ties a key to collateral, so anyone
 	      can announce as many gridnodes as they like.
-	\item[Board keys] Two of the foundation's board keys acting together can stop new uploads, disable storage
-	      with a spork that fails validation, or set sizes under which old groups can no longer be stored or
-	      rebuilt (Section~\ref{sec:governance}). One key alone can do none of this, and no number of them can read,
+	\item[Board keys] Two of the foundation's board keys acting together can stop storage on every node, with
+	      parameters that fail validation, or set sizes under which old groups can no longer be stored or rebuilt
+	      (Section~\ref{sec:governance}). Stopped storage halts uploads, reads, deletes and repair alike. One key alone can do none of this, and no number of them can read,
 	      find or delete a file.
 	\item[Tombstones on plain nodes] Any Hedgehog node that receives a valid delete keeps the tombstone until it
 	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
