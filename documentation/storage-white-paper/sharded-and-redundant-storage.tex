@@ -65,7 +65,8 @@ the work. An outer layer, whose structure only the owner knows, protects the fil
 An inner layer lets gridnodes verify and rebuild every chunk on their own, without learning, except in short
 stripes, which chunks belong together. At default settings a large file costs about 2.3 times its size, a chunk
 survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks survives the loss of any 16 of them.
-Stiftelsen The Unigrid Foundation governs every parameter through a signed \emph{StorageSpork}. Each file records
+Stiftelsen The Unigrid Foundation sets the parameters of new uploads through a \emph{StorageSpork} that two of its
+four board keys must sign; the spork takes no part in storing, reading, repairing or deleting a file. Each file records
 the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
 fragment, so the network can evolve without breaking what it already holds. This paper describes the design as
 implemented, explains the reasons behind it, and analyses its durability, cost and security, including its known
@@ -209,8 +210,8 @@ The design has six goals:
 	      \emph{unlinkable} when an observer cannot tell whether they are related any better than it could without
 	      seeing them~\cite{pfitzmann2010}.
 	\item \textbf{Self-verification.} Anyone can check that a fragment is genuine without knowing a secret.
-	\item \textbf{Governance.} The foundation tunes the network through one signed spork, and every file keeps the
-	      layout it was written with.
+	\item \textbf{Governance.} The foundation tunes new uploads through a spork that two of its board keys must
+	      sign, and every file keeps the layout it was written with.
 	\item \textbf{Evolvability.} A format identifier travels with the fingerprint, the manifest and every fragment,
 	      so a later format can live beside the current one.
 \end{enumerate}
@@ -227,8 +228,9 @@ The design trusts three kinds of party, each for a different purpose:
 	      lazy or malicious. Gridnodes lock collateral~\cite{unigrid-whitepaper}, which makes large numbers of them
 	      expensive to run and so limits Sybil attacks~\cite{douceur2002}. Section~\ref{sec:durability} shows how
 	      many losses the design tolerates.
-	\item[Stiftelsen The Unigrid Foundation.] The foundation signs the StorageSpork. Its key plays no part in encryption,
-	      placement or deletion. It sets the parameters of new uploads, but it cannot read, find or delete a file.
+	\item[Stiftelsen The Unigrid Foundation.] Two of the foundation's four board keys must sign the StorageSpork
+	      (Section~\ref{sec:governance}). The keys play no part in encryption, placement, repair or deletion. They set
+	      the parameters of new uploads, but they cannot read, find or delete a file.
 \end{description}
 
 \subsection{Threat model}
@@ -255,7 +257,8 @@ proof. False claims of holding a fragment can delay repair, and random spot chec
 Passive network observer & Encrypted QUIC traffic and its timing & Read packet contents \\
 Active network attacker & Intercept connections, because peers do not authenticate each other yet & Learn more
 than a curious gridnode, or have forged fragments accepted \\
-Spork signer & Sign new storage parameters & Read, find or delete a file, or change the layout of a stored file \\
+Board keys, two of four & Sign new storage parameters together & Read, find or delete a file, or change the layout
+of a stored file. A single key cannot sign alone \\
 Fingerprint holder & Find, read and delete the file & --- \\
 \bottomrule
 \end{tabularx}
@@ -1316,10 +1319,9 @@ place.
 
 Sporks are signed messages that switch or tune network behaviour without a software release. Unigrid inherits them
 from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry structured data~\cite{unigrid-whitepaper}.
-Stiftelsen The Unigrid Foundation controls storage through a signed spork of type 1030, distributed like every other
-spork. Its
-40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork that fails validation is
-treated as absent, which disables storage on that node rather than running it with bad values.
+Stiftelsen The Unigrid Foundation sets the storage parameters through a spork of type 1030, distributed like every
+other spork. Its 40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork that
+fails validation is treated as absent, which disables storage on that node rather than running it with bad values.
 
 \begin{table}[H]
 \centering
@@ -1351,6 +1353,28 @@ $\mathit{maxOuterDataChunks} + \mathrm{pct}(\mathit{maxOuterDataChunks}, \mathit
 New values apply to new uploads at once. Existing files keep the layout their manifest records. Repair uses each
 group's own slot count from its signed descriptor, together with the current slack and threshold, and the growth
 limits of Section~\ref{sec:repair} follow the current spork as well.
+
+\subsection{Who signs, and what the spork does not do}
+\label{sec:signers}
+
+A spork takes effect only when two different network keys have signed it. By default these are the four keys of
+the foundation's board members, so no single board member, and no single stolen key, can change a parameter. A
+change starts as a proposal signed by one key and becomes a spork when a second key co-signs exactly the same bytes.
+Every version also records a signed digest of the version it replaced. The digests form a chain, so a node can show
+who signed each earlier version, and rewriting that history breaks the current signatures. Sporks are signed with
+ECDSA over the P-521 curve and SHA-512~\cite{fips1865}.
+
+Every node checks a spork itself when it arrives and keeps the newest valid one of each type. The trusted keys are a
+default of the node's configuration: an operator can name others with \code{--network-keys}, at the price of following
+other parameters than the rest of the network. For some sporks the foundation may instead put a change to a vote of
+the network. Hedgehog does not implement such votes yet, and the StorageSpork is a settings spork that the board keys
+sign.
+
+The spork carries parameters and nothing else. The board keys sign no file, group or fragment, and they take no part
+in uploads, reads, repair or deletes. No storage operation contacts the foundation or waits for a signature: every
+node reads the parameters from the spork it already holds. Storage therefore costs the foundation nothing per file,
+and it keeps working while the foundation is offline. What two board keys acting together can do is listed in
+Section~\ref{sec:security}.
 
 \subsection{Changing parameters safely}
 
@@ -1711,9 +1735,10 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      without a fresh signature, so a peer can neither forge nor revive an entry; it can still withhold
 	      entries from a node whose connections it controls. Nothing yet ties a key to collateral, so anyone
 	      can announce as many gridnodes as they like.
-	\item[Spork key] The holder of the foundation's spork key can stop new uploads, disable storage with a spork
-	      that fails validation, or set sizes under which old groups can no longer be stored or rebuilt
-	      (Section~\ref{sec:governance}). It cannot read, find or delete a file.
+	\item[Board keys] Two of the foundation's board keys acting together can stop new uploads, disable storage
+	      with a spork that fails validation, or set sizes under which old groups can no longer be stored or
+	      rebuilt (Section~\ref{sec:governance}). One key alone can do none of this, and no number of them can read,
+	      find or delete a file.
 	\item[Tombstones on plain nodes] Any Hedgehog node that receives a valid delete keeps the tombstone until it
 	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
 \end{description}
@@ -2268,6 +2293,13 @@ format identifier lets the network adopt those that change stored structures bes
 	Federal Information Processing Standards Publication 180-4,
 	\href{https://doi.org/10.6028/NIST.FIPS.180-4}{doi.org},
 	2015.
+
+\bibitem{fips1865}
+	National Institute of Standards and Technology,
+	\emph{"Digital Signature Standard (DSS)"},
+	Federal Information Processing Standards Publication 186-5,
+	\href{https://doi.org/10.6028/NIST.FIPS.186-5}{doi.org},
+	2023.
 
 \bibitem{netty}
 	The Netty Project,
