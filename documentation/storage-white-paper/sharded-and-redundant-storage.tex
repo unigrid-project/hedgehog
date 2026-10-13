@@ -355,10 +355,12 @@ the numbered notes below.}
 }
 
 \paragraph{Malicious content.} A fragment is opaque data. Gridnodes never execute, decompress or interpret what it
-carries: they check its descriptor, signature and Merkle proof, store the bytes and serve them back. Every decoder
-checks counts and lengths against fixed bounds before it allocates memory (Section~\ref{sec:protocol}), and a
-fragment that does not verify is never stored, served or used. Data disguised as a fragment is therefore rejected,
-whatever it contains, unless the holder of the group's key committed to it. The design does not judge content,
+carries. They check its descriptor, signature and Merkle proof before they store it and serve the stored bytes back,
+and a repairer computes Reed-Solomon combinations of fragment data, which treat the bytes as numbers and nothing
+else. The decoders of storage packets check counts, lengths and key sizes against fixed bounds before they allocate
+memory (Section~\ref{sec:protocol}). A fragment that does not verify is never stored, and since a holder serves its
+stored bytes without checking them again, every reader and repairer verifies what it receives. Data disguised as a
+fragment is therefore rejected, whatever it contains, unless the holder of the group's key committed to it. The design does not judge content,
 though. A reader gets back exactly the bytes that the fingerprint holder stored, and neither the network nor the
 reader's node can tell whether they are safe. Integrity here means only that the file is the one that was stored,
 and a file fetched from the network deserves the care due to any download.
