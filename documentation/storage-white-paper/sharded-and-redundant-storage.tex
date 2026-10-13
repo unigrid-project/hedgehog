@@ -359,6 +359,37 @@ Out of scope are an attacker that controls a large share of all gridnodes, globa
 owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
 how quickly losses grow with the share of gridnodes that fail, or drop their data, together.
 
+\subsection{Incentives and misbehaviour}
+\label{sec:incentives}
+
+The storage layer has no rewards and no penalties. No gridnode is paid for the fragments it keeps, and nothing in
+this layer punishes one that cheats. What limits misbehaviour today is the structure of the design:
+
+\begin{itemize}
+	\item \textbf{Hoarding.} Honest uploaders and repairers send a gridnode only fragments of groups whose window it
+	      belongs to, at most one per group, and its quota caps how many it keeps. It can also fetch the fragments of
+	      any group whose identifier it knows and keep whole chunks, as a repairer does, but these are ciphertext and
+	      tell it no more than repair would. Keeping a fragment after a delete gains it nothing either: without the
+	      fingerprint the fragment is unreadable, and gridnodes that keep the tombstone refuse the group
+	      (Section~\ref{sec:ownership}). Deletion does rest on holders that obey it, though. A gridnode that
+	      ignores a delete still serves its fragment, and while enough such fragments survive, a fingerprint holder
+	      can still read the file.
+	\item \textbf{Withholding and false claims.} A gridnode that drops fragments, or claims ones it no longer has, is
+	      found out by censuses and spot checks, and repair restores what it lost (Section~\ref{sec:repair}). A failed
+	      spot check only discounts that claim for the visit; nothing records it against the gridnode.
+	\item \textbf{Free riding.} A gridnode can announce itself and then refuse every store. Uploads move on to the
+	      next spare, and repair stores on other members of the window.
+	\item \textbf{Scale.} The harm one party can do grows with the share of gridnodes it runs
+	      (Table~\ref{tab:loss}). Collateral is meant to make that share expensive, but Hedgehog does not enforce it
+	      yet.
+\end{itemize}
+
+Three mechanisms would add incentives on top of this structure, and all of them are future work: collateral bound to
+each gridnode key, so that running many gridnodes costs stake that can be lost; a reputation that records failed
+spot checks and refused stores; and payment for storage held over time, once the network has a ledger to settle it.
+How gridnodes are rewarded is a question for the Unigrid network as a whole, and the orange paper describes the
+intent~\cite{unigrid-orangepaper}.
+
 \section{Design overview}
 \label{sec:overview}
 
@@ -1953,6 +1984,8 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 	\item Moving fragment verification and disk access off the network event loops.
 	\item Proof of collateral for a gridnode's key, so that a signed announcement also shows that the gridnode is
 	      paid for.
+	\item A reputation built from failed spot checks and refused stores, and payment for storage once the network
+	      has a ledger (Section~\ref{sec:incentives}).
 	\item Faster field arithmetic, and codes with cheaper repair~\cite{dimakis2010}.
 	\item Stronger storage challenges than spot checks~\cite{ateniese2007,juels2007}.
 \end{itemize}
@@ -2201,6 +2234,13 @@ format identifier lets the network adopt those that change stored structures bes
 	\emph{"Darkcoin: Peer-to-Peer Crypto-Currency with Anonymous Blockchain Transactions and an Improved Proof-of-Work System"},
 	\href{https://dashpay.atlassian.net/wiki/download/attachments/132120878/Darkcoin\%20Whitepaper.pdf}{dashpay.atlassian.net},
 	2014.
+
+\bibitem{unigrid-orangepaper}
+	Evan Green \& Adam Waldenberg, Stiftelsen The Unigrid Foundation,
+	\emph{"Unigrid: The Next Internet Revolution"},
+	orange paper,
+	\href{https://github.com/unigrid-project/documentation-orange-paper}{github.com},
+	\the\year{}.
 
 \bibitem{macwilliams1977}
 	F. Jessie MacWilliams \& Neil J. A. Sloane,
