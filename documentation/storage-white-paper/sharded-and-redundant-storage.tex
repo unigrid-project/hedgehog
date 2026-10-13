@@ -65,11 +65,11 @@ the work. An outer layer, whose structure only the owner knows, protects the fil
 An inner layer lets gridnodes verify and rebuild every chunk on their own, without learning, except in short
 stripes, which chunks belong together. At default settings a large file costs about 2.3 times its size, a chunk
 survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks survives the loss of any 16 of them.
-Stiftelsen The Unigrid Foundation sets the parameters of new uploads through a \emph{StorageSpork} that two of its
-four board keys must sign; the keys take no part in storing, reading, repairing or deleting a file. Each file records
-the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
-fragment. Parameters and formats can therefore change for new uploads while every stored file stays readable and
-repairable in the layout and format it was written with. This paper describes the design as
+Stiftelsen The Unigrid Foundation sets the storage parameters through a \emph{StorageSpork} that two of its four
+board keys must sign; the keys take no part in storing, reading, repairing or deleting a file. Each file records its
+layout, and a format identifier travels with the fingerprint, the manifest and every fragment. Parameters and formats
+can therefore change for new uploads, within limits, while every stored file stays readable and repairable in the
+layout and format it was written with. This paper describes the design as
 implemented, explains the reasons behind it, and analyses its durability, cost and security, including its known
 limits.
 \end{abstract}
@@ -232,14 +232,14 @@ The design has six goals:
 	      \emph{unlinkable} when an observer cannot tell whether they are related any better than it could without
 	      seeing them~\cite{pfitzmann2010}.
 	\item \textbf{Self-verification.} Anyone can check that a fragment is genuine without knowing a secret.
-	\item \textbf{Governance.} The foundation tunes new uploads through a spork that two of its board keys must
-	      sign, and every file keeps the layout it was written with.
+	\item \textbf{Governance.} The foundation tunes storage through a spork that two of its board keys must sign,
+	      and every file keeps the layout it was written with.
 	\item \textbf{Evolvability.} A format identifier travels with the fingerprint, the manifest and every fragment,
-	      so a later format can live beside the current one. The network changes in two ways: the spork tunes
-	      parameters for new uploads, and a new format, such as one that encrypts outer parity under keys of its own
-	      (Section~\ref{sec:future}), gets a new identifier. Neither breaks a stored file: its fingerprint still
-	      resolves and decrypts, its fragments still verify and are repaired in their own format, and nothing stored
-	      is rewritten.
+	      so a later format can live beside the current one. A new format, such as one that encrypts outer parity
+	      under keys of its own (Section~\ref{sec:future}), gets a new identifier. Neither a new format nor a spork
+	      that keeps sizes within the limits of Section~\ref{sec:governance} breaks a stored file: its fingerprint
+	      still resolves and decrypts, its fragments still verify and are repaired in their own format, and nothing
+	      stored is rewritten.
 \end{enumerate}
 
 \subsection{Trust}
@@ -277,7 +277,7 @@ Any single gridnode & Nothing & Anything & Its fragments are missing or rejected
 The list of active gridnodes & Placement: which gridnodes hold a group & Confidentiality and integrity & An attacker
 who controls a node's view can steer its uploads to its own gridnodes (Section~\ref{sec:security}) \\
 \addlinespace
-Board keys, two of four & Parameters of new uploads, and whether storage runs at all & Reading, finding, deleting
+Board keys, two of four & The storage parameters, and whether storage runs at all & Reading, finding, deleting
 or changing a stored file & Storage stops on every node, or old groups decay under badly chosen sizes
 (Section~\ref{sec:security}) \\
 \bottomrule
@@ -2066,7 +2066,7 @@ file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
 knows from what the network needs: the owner's outer code spans many chunks and stays secret, while the public inner
 code lets gridnodes check, repair and move each chunk on their own. Signed descriptors and Merkle proofs make every
 fragment self-verifying, rendezvous hashing places fragments without a directory, and a spork signed by two board
-keys tunes new uploads while every file keeps the layout it was written with. The known limits are stated plainly in
+keys tunes storage while every file keeps the layout it was written with. The known limits are stated plainly in
 Section~\ref{sec:security}: linked groups in short stripes, traffic that reveals structure, a transport without peer
 authentication, and outer redundancy that is never renewed. Each has a remedy in Section~\ref{sec:future}, and the
 format identifier lets the network adopt those that change stored structures beside the current format.
