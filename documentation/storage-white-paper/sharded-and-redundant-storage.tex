@@ -346,6 +346,15 @@ the numbered notes below.}
 \end{enumerate}
 }
 
+\paragraph{Malicious content.} A fragment is opaque data. Gridnodes never execute, decompress or interpret what it
+carries: they check its descriptor, signature and Merkle proof, store the bytes and serve them back. Every decoder
+checks counts and lengths against fixed bounds before it allocates memory (Section~\ref{sec:protocol}), and a
+fragment that does not verify is never stored, served or used. Data disguised as a fragment is therefore rejected,
+whatever it contains, unless the holder of the group's key committed to it. The design does not judge content,
+though. A reader gets back exactly the bytes that the fingerprint holder stored, and neither the network nor the
+reader's node can tell whether they are safe. Integrity here means only that the file is the one that was stored,
+and a file fetched from the network deserves the care due to any download.
+
 Out of scope are an attacker that controls a large share of all gridnodes, global traffic analysis, attacks on the
 owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
 how quickly losses grow with the share of gridnodes that fail, or drop their data, together.
