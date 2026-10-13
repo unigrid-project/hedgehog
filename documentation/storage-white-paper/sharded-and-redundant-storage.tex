@@ -1933,8 +1933,10 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
 	      Announcements of gridnodes are signed with the gridnode's own key and expire after thirty minutes
 	      without a fresh signature, so a peer can neither forge nor revive an entry; it can still withhold
-	      entries from a node whose connections it controls. Nothing yet ties a key to collateral, so anyone
-	      can announce as many gridnodes as they like.
+	      entries from a node whose connections it controls. An expired entry stays in a node's view, and can be
+	      ranked, until the node's next sweep of its gridnode list. Nothing yet ties a key to collateral, so anyone
+	      can announce as many gridnodes as they like. A node keeps at most 10\,000 of them and refuses new ones
+	      once its list is full, so a flood of announcements can also keep real gridnodes out of its view.
 	\item[Board keys] Two of the foundation's board keys acting together can stop storage on every node, with
 	      parameters that fail validation, or set sizes under which old groups can no longer be stored or rebuilt
 	      (Section~\ref{sec:governance}). Stopped storage halts uploads, reads, deletes and repair alike. One key alone can do none of this, and no number of them can read,
