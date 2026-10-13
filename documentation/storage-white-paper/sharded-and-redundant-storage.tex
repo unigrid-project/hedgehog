@@ -1930,6 +1930,55 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
 \end{description}
 
+\section{Data protection and jurisdiction}
+\label{sec:jurisdiction}
+
+Storage on machines that strangers run raises legal questions as well as technical ones: whose data a gridnode
+holds, whether a file can be erased, and in which country its pieces lie. This section states the technical facts
+that such an assessment needs. It is not legal advice and draws no legal conclusions.
+
+\paragraph{What a gridnode holds.} A gridnode holds AES-256-GCM ciphertext, or parity computed from it, with signed
+descriptors and Merkle proofs (Sections~\ref{sec:encryption} and~\ref{sec:fragments}). It holds no key and no
+fingerprint, and nothing it stores names the owner or ties a fragment to the node that sent it
+(Section~\ref{sec:ownership}). Under the GDPR, whether a person is identifiable from information depends on all the
+means reasonably likely to be used to identify them~\cite{gdpr2016}. Reading the definition of personal data in the
+same way as the GDPR, the Court of Justice has held that pseudonymised data are not personal data in all cases and
+for every person: where the measures in fact prevent a recipient from identifying the people concerned, also by
+cross-checking with other data, the data may not be personal for that recipient~\cite{cjeu2025srb}. The draft
+guidelines of the European Data Protection Board treat pseudonymised data as personal data and count cryptographic
+keys among the secrets that make them so; their final version is still pending~\cite{edpb2025pseudo}. Whether
+fragments are personal data for a gridnode operator is therefore a legal assessment of the stored file and of the
+means open to that operator. The design keeps those means as small as it can: the key exists only in the
+fingerprint, which never leaves the owner's node unless the owner shares it.
+
+\paragraph{Erasure.} The fingerprint holder can delete a file at any time. Gridnodes drop their fragments on a valid
+delete, and holders that missed it learn of it within about $W$ epochs, 40 hours by default
+(Section~\ref{sec:ownership}). Two cases fall short of erasure. Nobody can delete a file whose fingerprint is lost,
+because nobody can sign the delete, and its groups stay stored (Section~\ref{sec:security}). And a gridnode that
+ignores deletes keeps its fragments and still serves them (Section~\ref{sec:incentives}). In both cases what remains
+is ciphertext whose key exists only in the fingerprint, so destroying every copy of the fingerprint leaves the file
+unreadable for as long as AES-256 holds.
+
+\paragraph{Location.} Placement ranks gridnodes by a hash and nothing else (Section~\ref{sec:placement}). It knows
+nothing of where gridnodes run, so the fragments of a file may lie in any country with gridnodes, inside or outside
+the European Union, and the design gives no guarantee of residency. Rules on transfers of personal data to third
+countries may matter wherever stored data counts as personal data for someone involved~\cite{gdpr2016}. Stiftelsen
+The Unigrid Foundation, which sets the storage parameters, is a Swedish foundation under the supervision of a county
+administrative board~\cite{stiftelselag}.
+
+\paragraph{Checks at the protocol layer.} Gridnodes cannot flag data that falls under particular rules, such as
+personal data or data bound to a country, because they never see content. A protocol that let them would break the
+confidentiality the design exists for. Any classification has to come from the owner, before upload.
+
+\paragraph{Owner-chosen placement.} The natural extension lets an owner restrict where a file's fragments go, for
+example to gridnodes in the European Union. Gridnodes would claim a region in their signed announcements, and
+placement would rank only the gridnodes whose claims match. A reader needs the restriction before it can find the
+manifest, so the restriction would travel with the fingerprint under a new format identifier. Such claims cannot be
+proven: a gridnode can lie about where it runs, and measurements of network delay locate a machine only roughly and
+can be deceived~\cite{gill2010}. The claims would carry weight only through collateral and the accountability of
+whoever runs the gridnode. A restriction also concentrates a file in one region, where a power or network outage,
+or a legal order, strikes many of its fragments at once (Section~\ref{sec:durability}). This is future work.
+
 \section{Related work}
 \label{sec:related}
 
@@ -1986,6 +2035,8 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 	      paid for.
 	\item A reputation built from failed spot checks and refused stores, and payment for storage once the network
 	      has a ledger (Section~\ref{sec:incentives}).
+	\item Placement restricted by the owner, for example to gridnodes in one region, carried with the fingerprint
+	      under a new format identifier (Section~\ref{sec:jurisdiction}).
 	\item Faster field arithmetic, and codes with cheaper repair~\cite{dimakis2010}.
 	\item Stronger storage challenges than spot checks~\cite{ateniese2007,juels2007}.
 \end{itemize}
@@ -2147,6 +2198,14 @@ format identifier lets the network adopt those that change stored structures bes
 	\href{https://www.usenix.org/conference/atc12/technical-sessions/presentation/huang}{www.usenix.org},
 	2012.
 
+\bibitem{cjeu2025srb}
+	Court of Justice of the European Union (First Chamber),
+	\emph{"Judgment of 4 September 2025, European Data Protection Supervisor (EDPS) v Single Resolution Board (SRB),
+	Case C-413/23 P"},
+	ECLI:EU:C:2025:645, paragraphs 77 and 86,
+	\href{https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62023CJ0413}{eur-lex.europa.eu},
+	2025.
+
 \bibitem{boneh2009}
 	Dan Boneh, David Freeman, Jonathan Katz \& Brent Waters,
 	\emph{"Signing a Linear Subspace: Signature Schemes for Network Coding"},
@@ -2228,6 +2287,21 @@ format identifier lets the network adopt those that change stored structures bes
 	\emph{"Sia: Simple Decentralized Storage"},
 	\href{https://sia.tech/whitepaper.pdf}{sia.tech},
 	2014.
+
+\bibitem{edpb2025pseudo}
+	European Data Protection Board,
+	\emph{"Guidelines 01/2025 on Pseudonymisation"},
+	adopted 16 January 2025, version for public consultation,
+	\href{https://www.edpb.europa.eu/system/files/2025-01/edpb_guidelines_202501_pseudonymisation_en.pdf}{www.edpb.europa.eu},
+	2025.
+
+\bibitem{gdpr2016}
+	European Parliament and Council of the European Union,
+	\emph{"Regulation (EU) 2016/679 on the protection of natural persons with regard to the processing of personal
+	data and on the free movement of such data (General Data Protection Regulation)"},
+	OJ L 119, 4.5.2016, pp.~1--88, recital 26 and Article 44,
+	\href{https://eur-lex.europa.eu/eli/reg/2016/679/oj}{eur-lex.europa.eu},
+	2016.
 
 \bibitem{darkcoin2014}
 	Evan Duffield \& Kyle Hagan, The Darkcoin Developers,
@@ -2526,6 +2600,13 @@ format identifier lets the network adopt those that change stored structures bes
 	\href{https://doi.org/10.1145/586110.586125}{doi.org},
 	2002.
 
+\bibitem{gill2010}
+	Phillipa Gill, Yashar Ganjali, Bernard Wong \& David Lie,
+	\emph{"Dude, where's that IP? Circumventing measurement-based IP geolocation"},
+	19th USENIX Security Symposium,
+	\href{https://www.usenix.org/conference/usenixsecurity10/dude-wheres-ip-circumventing-measurement-based-ip-geolocation}{www.usenix.org},
+	2010.
+
 \bibitem{filecoin2017}
 	Protocol Labs,
 	\emph{"Filecoin: A Decentralized Storage Network"},
@@ -2608,6 +2689,13 @@ format identifier lets the network adopt those that change stored structures bes
 	3rd Symposium on Networked Systems Design and Implementation (NSDI 06),
 	\href{https://www.usenix.org/conference/nsdi-06/subtleties-tolerating-correlated-failures-wide-area-storage-systems}{www.usenix.org},
 	2006.
+
+\bibitem{stiftelselag}
+	Sveriges riksdag,
+	\emph{"Stiftelselag (1994:1220)"},
+	SFS 1994:1220, chapter 9, section 1,
+	\href{https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/stiftelselag-19941220_sfs-1994-1220/}{www.riksdagen.se},
+	1994.
 
 \bibitem{estrada2018}
 	Vero Estrada-Gali\~{n}anes, Ethan Miller, Pascal Felber \& Jehan-Fran\c{c}ois P\^{a}ris,
