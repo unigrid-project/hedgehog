@@ -464,7 +464,7 @@ Figure~\ref{fig:hierarchy} shows how these pieces nest for the file of Section~\
 	sub/.style={font=\scriptsize, anchor=north, fill=white, inner sep=1pt}]
 	\node[level] at (-3.4, 0) {\textbf{File}\\{\scriptsize 100\,MiB}};
 	\node[level] at (-3.4, -1.6) {\textbf{Stripes}\\{\scriptsize 4, known only to the owner}};
-	\node[level] at (-3.4, -3.4) {\textbf{Chunks}\\{\scriptsize 155 of 1\,MiB, each one group}};
+	\node[level] at (-3.4, -3.4) {\textbf{Chunks}\\{\scriptsize 155 of 1\,MiB, each a public group}};
 	\node[level] at (-3.4, -5.4) {\textbf{Fragments}\\{\scriptsize 24 + 8 of 64\,KiB per group}};
 	\node[level] at (-3.4, -7.4) {\textbf{Gridnodes}\\{\scriptsize one fragment of a group each}};
 	\node[box, minimum width=11.6cm] (file) at (5.8, 0) {100\,MiB file, encrypted on the owner's node into 101 data
@@ -512,11 +512,12 @@ Figure~\ref{fig:hierarchy} shows how these pieces nest for the file of Section~\
 	}
 	\node[font=\scriptsize, anchor=west] at (10.8, -7.4) {$\cdots$};
 \end{tikzpicture}
-\caption{How the 100\,MiB file of Section~\ref{sec:life} breaks up. The outer code arranges its 101 data chunks
-into four stripes and adds 51 parity chunks; with the 3 manifest copies that makes 155 chunks of 1\,MiB. Each chunk
-is one group on the network. The inner code cuts it into 16 fragments of 64\,KiB and adds 8 guaranteed and 8 extra
-parity fragments, each stored on a different gridnode of the group's window. Only the owner knows which chunks form
-a stripe.}
+\caption{How the 100\,MiB file of Section~\ref{sec:life} breaks up. The owner's node arranges its 101 data chunks
+into four stripes, and the outer code adds 51 parity chunks; with the 3 manifest copies that makes 155 chunks of
+1\,MiB. Each chunk is one group on the network. The inner code cuts it into 16 fragments of 64\,KiB and adds 8
+guaranteed and 8 extra parity fragments, each stored on a different gridnode of the group's window. The outer code
+spans a stripe that only the owner can reconstruct; the inner code spans one chunk and is visible to every gridnode
+that stores it.}
 \label{fig:hierarchy}
 \end{figure}
 
@@ -524,35 +525,7 @@ The split into two layers is the core of the design. The owner applies the outer
 the grouping to itself. Gridnodes see only single chunks, each coded again into fragments that they can rebuild on
 their own. A repairer therefore holds at most one chunk of ciphertext, and, apart from the short stripes of
 Section~\ref{sec:security}, nothing in the group tells it which other chunks belong to the same file
-(Figure~\ref{fig:layers}).
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}
-	\foreach \i in {0,...,5} \node[cell, fill=blue!10] at (\i*0.55, 0) {};
-	\node at (3.6, 0) {$\cdots$};
-	\node[cell, fill=blue!10] (dlast) at (4.2, 0) {};
-	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (5.0+\i*0.55, 0) {};
-	\node at (7.4, 0) {$\cdots$};
-	\node[cell, fill=orange!25] (plast) at (8.0, 0) {};
-	\node[font=\small, anchor=south] at (2.1, 0.35) {32 data chunks};
-	\node[font=\small, anchor=south] at (6.5, 0.35) {16 parity chunks};
-	\node[font=\small, anchor=east] at (-0.4, 0) {Stripe (secret)};
-	\node[cell, fill=blue!10, very thick] (pick) at (1.1, 0) {};
-	\foreach \i in {0,...,7} \node[cell, fill=blue!10] at (\i*0.55-0.8, -2.2) {};
-	\node at (3.75, -2.2) {$\cdots$};
-	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (4.4+\i*0.55, -2.2) {};
-	\foreach \i in {0,...,3} \node[cell, dashed, fill=orange!8] at (7.4+\i*0.55, -2.2) {};
-	\node[font=\small, anchor=north] at (1.4, -2.55) {16 data fragments};
-	\node[font=\small, anchor=north] at (5.2, -2.55) {8 guaranteed parity};
-	\node[font=\small, anchor=north] at (8.25, -2.55) {8 extra parity};
-	\node[font=\small, anchor=east] at (-1.2, -2.2) {Group (public)};
-	\draw[flow] (pick.south) -- (1.1, -1.85) node[midway, right, font=\small] {inner code, per chunk};
-\end{tikzpicture}
-\caption{Two-level coding at default settings. The outer code spans a stripe that only the owner can reconstruct;
-the inner code spans one chunk and is visible to every gridnode that stores it.}
-\label{fig:layers}
-\end{figure}
+(Figure~\ref{fig:hierarchy}).
 
 \subsection{Why two layers}
 \label{sec:why-two}
