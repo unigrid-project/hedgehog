@@ -19,6 +19,8 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Objects;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -102,6 +104,29 @@ public class BallotTest {
 			not(equalTo(ballot)));
 		assertThat(new Ballot(ballot.type(), 5, 2, Ballot.NIL, ballot.validator(), ballot.signature()),
 			not(equalTo(ballot)));
+	}
+
+	@Example
+	public void shouldHashEqualBallotsBuiltApartToTheSameCode() {
+		for (final Ballot.Type type : Ballot.Type.values()) {
+			final Ballot ballot = Ballot.signed(type, seed(1), CHAIN, 5, 2, HASH);
+			final Ballot built = Ballot.signed(type, seed(1), CHAIN, 5, 2, Digests.sha512("block".getBytes(
+				StandardCharsets.US_ASCII)));
+
+			assertThat(built, equalTo(ballot));
+			assertThat(built.hashCode(), equalTo(ballot.hashCode()));
+		}
+	}
+
+	@Example
+	public void shouldHashFromTheOrdinalOfTheTypeSoTheCodeIsTheSameOnEveryRun() {
+		for (final Ballot.Type type : Ballot.Type.values()) {
+			final Ballot ballot = Ballot.signed(type, seed(1), CHAIN, 5, 2, HASH);
+			final int fromFields = 31 * (31 * Objects.hash(type.ordinal(), 5L, 2, ballot.validator())
+				+ Arrays.hashCode(HASH)) + Arrays.hashCode(ballot.signature());
+
+			assertThat(ballot.hashCode(), equalTo(fromFields));
+		}
 	}
 
 	@Example

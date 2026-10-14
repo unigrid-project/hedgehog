@@ -88,9 +88,11 @@ public record Ballot(Type type, long height, int view, byte[] blockHash, Account
 			&& Arrays.equals(signature, ballot.signature);
 	}
 
+	/* The ordinal, not the enum: an enum hashes by identity, which differs between runs, and the simulator must
+	   replay the same run from the same seed */
 	@Override
 	public int hashCode() {
-		return 31 * (31 * Objects.hash(type, height, view, validator) + Arrays.hashCode(blockHash))
+		return 31 * (31 * Objects.hash(type.ordinal(), height, view, validator) + Arrays.hashCode(blockHash))
 			+ Arrays.hashCode(signature);
 	}
 
