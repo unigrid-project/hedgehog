@@ -26,6 +26,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
@@ -96,5 +97,13 @@ public class TransactionCodecTest {
 
 		TransactionCodec.decode(in);
 		assertThat(in.remaining(), equalTo(3));
+	}
+
+	@Example
+	public void shouldNameAnUnknownKindUnsigned() {
+		final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+			() -> TransactionCodec.decode(ByteBuffer.wrap(new byte[] { (byte) 200 })));
+
+		assertThat(thrown.getMessage(), containsString("200"));
 	}
 }

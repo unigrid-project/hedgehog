@@ -34,7 +34,8 @@ public final class TransactionCodec {
 			case Mint.KIND -> decodeMint(in);
 			case Vote.KIND -> decodeVote(in);
 			case Claim.KIND -> decodeClaim(in);
-			default -> throw new IllegalArgumentException("Unknown transaction kind " + kind);
+			default -> throw new IllegalArgumentException(
+				"Unknown transaction kind " + Byte.toUnsignedInt(kind));
 		};
 	}
 
