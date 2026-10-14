@@ -492,6 +492,7 @@ public class ConsensusSimulationTest {
 		assertThat(net.agreement(), is(true));
 	}
 
+	/* The form of the attack that the nodes get through: the proposals alone, without the prevotes of the liar */
 	@Example
 	public void shouldMoveOnWhenTheProposerTellsTwoHalvesOfTheNetworkTwoBlocks() {
 		final SimulatedNetwork net = network(4, 3, 6);
@@ -516,8 +517,10 @@ public class ConsensusSimulationTest {
 		assertThat(net.nodes.get(1).decided.get(0).getView(), greaterThan(0));
 	}
 
-	/* Only agreement is claimed. The node told about the first block counts the first prevote of the liar and never
-	   learns that the other two are locked on the second block, so the three of them may not finish */
+	/* Only agreement is claimed. The three honest nodes cannot finish at present: the node told about the first block
+	   counts only the first prevote of the liar, so it never sees a prevote quorum for the second block, and nodes do
+	   not learn each other's locks. A known gap, closed once a re-proposal carries proof of its prevote quorum.
+	   TODO: assert that the three honest nodes decide once a re-proposal carries proof of its prevote quorum */
 	@Example
 	public void shouldNeverDecideTwoBlocksWhenTheProposerPrevotesForBothOfThem() {
 		final SimulatedNetwork net = network(4, 3, 6);
@@ -583,6 +586,11 @@ public class ConsensusSimulationTest {
 		assertThat(net.nodes.get(1).decided.get(0).hash(), equalTo(block.hash()));
 	}
 
+	/* Node 0 is cut off from the locked nodes once they have heard its proposal and prevote, so it decides alone
+	   while they lock on the same block and never see enough precommits to decide. The nil precommit of the liar, at
+	   three links, makes the third precommit of view 0 and so arms the timer that takes the locked nodes to view 1;
+	   without it they would sit in the precommit step with no timer and the attack would never be tried. Its
+	   proposal, at eight links, arrives when they are already in view 1. */
 	@Example
 	public void shouldKeepTheNodesLockedOnABlockThatAnotherNodeDecidedWhenALiarProposesAnotherBlock() {
 		final SimulatedNetwork net = network(4, 3, 12);
