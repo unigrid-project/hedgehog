@@ -77,7 +77,7 @@ public final class Mempool {
 	   everything else the sender has waiting. One for the same nonce replaces the first only by a higher fee. */
 	private boolean admit(Transfer transfer, LedgerState state) {
 		final Object slot = slotOf(transfer);
-		final Transfer rival = (Transfer) pending.get(slot);
+		final Transfer rival = pending.get(slot) instanceof Transfer found ? found : null;
 
 		if (crowdedOut(rival, transfer) || !inWindow(transfer, state)
 			|| state.rejectionOfQueued(transfer).isPresent() || !coveredByWaiting(transfer, rival, state)) {
@@ -139,7 +139,7 @@ public final class Mempool {
 		final List<Transaction> ordered = new ArrayList<>();
 
 		for (final Transaction waiting : pending.values()) {
-			if (ordered.size() == max) {
+			if (ordered.size() >= max) {
 				break;
 			}
 
