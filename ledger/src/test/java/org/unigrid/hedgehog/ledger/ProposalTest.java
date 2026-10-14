@@ -191,6 +191,20 @@ public class ProposalTest {
 	}
 
 	@Example
+	public void shouldKeepAndHandOutCopiesOfTheSignature() {
+		final Block block = block(4, 0);
+		final Proposal signed = Proposal.signed(seed(1), CHAIN, 4, 2, 0, block);
+		final byte[] signature = signed.signature();
+		final Proposal proposal = new Proposal(4, 2, 0, block, List.of(), signed.sender(), signature);
+
+		signature[0]++;
+		proposal.signature()[0]++;
+
+		assertThat(proposal.signature(), equalTo(signed.signature()));
+		assertThat(proposal.hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
 	public void shouldRefuseWhatIsNotAProposal() {
 		final Block block = block(4, 0);
 

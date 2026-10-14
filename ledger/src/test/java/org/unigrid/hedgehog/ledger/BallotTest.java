@@ -130,6 +130,40 @@ public class BallotTest {
 	}
 
 	@Example
+	public void shouldKeepItsOwnCopyOfTheHashAndTheSignatureItWasBuiltFrom() {
+		final Ballot signed = Ballot.signed(Ballot.Type.PREVOTE, seed(1), CHAIN, 5, 2, HASH);
+		final byte[] hash = HASH.clone();
+		final byte[] signature = signed.signature();
+		final Ballot ballot = new Ballot(signed.type(), 5, 2, hash, signed.validator(), signature);
+
+		hash[0]++;
+		signature[0]++;
+
+		assertThat(ballot.blockHash(), equalTo(HASH));
+		assertThat(ballot.signature(), equalTo(signed.signature()));
+		assertThat(ballot.hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
+	public void shouldHandOutCopiesOfTheHashAndTheSignature() {
+		final Ballot ballot = Ballot.signed(Ballot.Type.PREVOTE, seed(1), CHAIN, 5, 2, HASH);
+
+		ballot.blockHash()[0]++;
+		ballot.signature()[0]++;
+
+		assertThat(ballot.blockHash(), equalTo(HASH));
+		assertThat(ballot.hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
+	public void shouldRefuseASignatureOfTheWrongLength() {
+		for (final int length : new int[] {0, Ed25519.SIGNATURE_SIZE - 1, Ed25519.SIGNATURE_SIZE + 1}) {
+			assertThrows(IllegalArgumentException.class,
+				() -> new Ballot(Ballot.Type.PREVOTE, 1, 0, HASH, key(1), new byte[length]));
+		}
+	}
+
+	@Example
 	public void shouldRefuseWhatIsNotABallot() {
 		assertThrows(IllegalArgumentException.class,
 			() -> Ballot.signed(Ballot.Type.PREVOTE, seed(1), CHAIN, 0, 0, HASH));
