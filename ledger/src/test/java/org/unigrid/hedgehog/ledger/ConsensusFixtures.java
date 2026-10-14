@@ -36,6 +36,35 @@ final class ConsensusFixtures {
 		return new ValidatorSet(LedgerFixtures.seeds(1, count).stream().map(Ed25519::publicKey).toList());
 	}
 
+	/* Signed by the proposer of the view in a set of four validators, at the first height */
+	static Proposal proposal(int view, int validRound, Block block) {
+		return Proposal.signed(LedgerFixtures.seed(1 + (view % 4)), CHAIN, 1, view, validRound, block);
+	}
+
+	static Ballot ballot(Ballot.Type type, int validator, int view, Block block) {
+		return Ballot.signed(type, LedgerFixtures.seed(validator), CHAIN, 1, view,
+			block == null ? null : block.hash());
+	}
+
+	static List<Ballot> ballots(List<Action> actions) {
+		return actions.stream().filter(a -> a instanceof Action.Broadcast b && b.message() instanceof Ballot)
+			.map(a -> (Ballot) ((Action.Broadcast) a).message()).toList();
+	}
+
+	static List<Proposal> proposalsSent(List<Action> actions) {
+		return actions.stream().filter(a -> a instanceof Action.Broadcast b && b.message() instanceof Proposal)
+			.map(a -> (Proposal) ((Action.Broadcast) a).message()).toList();
+	}
+
+	static Block decidedBlock(List<Action> actions) {
+		return actions.stream().filter(a -> a instanceof Action.Decide).map(a -> ((Action.Decide) a).block())
+			.findFirst().orElseThrow();
+	}
+
+	static boolean decides(List<Action> actions) {
+		return actions.stream().anyMatch(a -> a instanceof Action.Decide);
+	}
+
 	/* An application with a chain of blocks that carry nothing: it builds them, checks them and knows how many
 	   it wants before it has no more work */
 	static final class FakeApp implements ConsensusApp {

@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
@@ -47,8 +48,8 @@ public final class Consensus {
 	private final byte[] seed;
 	private final AccountKey self;
 	private final Timeouts timeouts;
-	private final List<BooleanSupplier> rules = List.of(this::decide, this::voteOnProposal, this::lockOnPolka,
-		this::precommitNil);
+	private final List<BooleanSupplier> rules = List.of(this::decide, this::skip, this::voteOnProposal,
+		this::lockOnPolka, this::precommitNil, this::armPrevoteTimer, this::armPrecommitTimer);
 
 	private long height;
 	private ValidatorSet validators;
@@ -66,6 +67,8 @@ public final class Consensus {
 	private final Map<Integer, Proposal> proposals = new TreeMap<>();
 	private final Map<ByteBuffer, Boolean> validity = new HashMap<>();
 	private final Set<Integer> polkas = new HashSet<>();
+	private final Set<Integer> prevoteTimers = new HashSet<>();
+	private final Set<Integer> precommitTimers = new HashSet<>();
 	private List<Action> out = new ArrayList<>();
 	private long now;
 
@@ -78,8 +81,8 @@ public final class Consensus {
 		this.timeouts = timeouts;
 	}
 
-	/* Begins a height. The first view starts at once when there is work; otherwise nothing runs until a message
-	   for this height turns up. */
+	/* Begins a height. The first view starts at once when there is work; otherwise nothing runs until work turns up
+	   or a message for this height does. */
 	public List<Action> start(long newHeight, ValidatorSet newValidators, long at) {
 		return run(at, () -> {
 			reset(newHeight, newValidators);
@@ -92,6 +95,51 @@ public final class Consensus {
 
 	public List<Action> onMessage(Message message, long at) {
 		return run(at, () -> receive(message));
+	}
+
+	/* There is work now: a quiet node starts its first view, and a proposer that had nothing to propose does it */
+	public List<Action> onWork(long at) {
+		return run(at, () -> {
+			if (height != 0 && !decided && app.hasWork(at)) {
+				beginOrPropose();
+			}
+		});
+	}
+
+	public List<Action> onTimeout(Timeout timeout, long at) {
+		return run(at, () -> {
+			if (running && !decided && timeout.height() == height && timeout.view() == view) {
+				expire(timeout.kind());
+			}
+		});
+	}
+
+	/* The timers are gone, say after a restart of the driver, but the state of the height is not: the timers that
+	   were armed are set again and what this node said is said again, without voting anew */
+	public List<Action> resume(long at) {
+		return run(at, () -> {
+			if (running && !decided) {
+				out.addAll(armedTimers());
+				outbox().forEach(message -> out.add(new Broadcast(message)));
+			}
+		});
+	}
+
+	/* What this node has said at this height, for a resend: the decision once there is one */
+	public List<Message> outbox() {
+		if (decision != null) {
+			return List.of(decision);
+		}
+
+		final List<Message> own = new ArrayList<>();
+
+		proposals.values().stream().filter(proposal -> proposal.sender().equals(self)).forEach(own::add);
+
+		if (box != null && self != null) {
+			own.addAll(box.ballotsBy(self));
+		}
+
+		return own;
 	}
 
 	public long height() {
@@ -108,6 +156,10 @@ public final class Consensus {
 
 	int lockedView() {
 		return lockedView;
+	}
+
+	int storedBallots() {
+		return box == null ? 0 : box.size();
 	}
 
 	public List<BallotBox.Equivocation> evidence() {
@@ -147,6 +199,8 @@ public final class Consensus {
 		proposals.clear();
 		validity.clear();
 		polkas.clear();
+		prevoteTimers.clear();
+		precommitTimers.clear();
 	}
 
 	private void begin() {
@@ -154,12 +208,82 @@ public final class Consensus {
 		startRound(0);
 	}
 
+	private void beginOrPropose() {
+		if (running) {
+			proposeIfDue();
+		} else {
+			begin();
+		}
+	}
+
+	/* Every node waits for the proposal of a view, a proposer too, as it may have had nothing to put forward */
 	private void startRound(int newView) {
 		view = newView;
 		step = Step.PROPOSE;
 
 		if (isProposer()) {
 			tryPropose();
+		}
+
+		out.add(proposeTimer());
+	}
+
+	private void proposeIfDue() {
+		if (step == Step.PROPOSE && isProposer()) {
+			tryPropose();
+		}
+	}
+
+	private Schedule proposeTimer() {
+		return new Schedule(new Timeout(Timeout.Kind.PROPOSE, height, view), timeouts.propose(view));
+	}
+
+	private Schedule prevoteTimer() {
+		return new Schedule(new Timeout(Timeout.Kind.PREVOTE, height, view), timeouts.prevote(view));
+	}
+
+	private Schedule precommitTimer() {
+		return new Schedule(new Timeout(Timeout.Kind.PRECOMMIT, height, view), timeouts.precommit(view));
+	}
+
+	private List<Action> armedTimers() {
+		final List<Action> timers = new ArrayList<>();
+
+		if (step == Step.PROPOSE) {
+			timers.add(proposeTimer());
+		}
+
+		if (step == Step.PREVOTE && prevoteTimers.contains(view)) {
+			timers.add(prevoteTimer());
+		}
+
+		if (precommitTimers.contains(view)) {
+			timers.add(precommitTimer());
+		}
+
+		return timers;
+	}
+
+	private void expire(Timeout.Kind kind) {
+		switch (kind) {
+			case PROPOSE -> moveOn(Step.PROPOSE, Ballot.Type.PREVOTE, Step.PREVOTE);
+			case PREVOTE -> moveOn(Step.PREVOTE, Ballot.Type.PRECOMMIT, Step.PRECOMMIT);
+			case PRECOMMIT -> startNextView();
+		}
+	}
+
+	/* A step that has been left in the meantime has nothing to give up on */
+	private void moveOn(Step from, Ballot.Type vote, Step to) {
+		if (step == from) {
+			vote(vote, null);
+			step = to;
+		}
+	}
+
+	/* The last view has no successor: adding one would wrap around to a negative view */
+	private void startNextView() {
+		if (view < Integer.MAX_VALUE) {
+			startRound(view + 1);
 		}
 	}
 
@@ -384,6 +508,36 @@ public final class Consensus {
 
 		vote(Ballot.Type.PRECOMMIT, null);
 		step = Step.PRECOMMIT;
+		return true;
+	}
+
+	/* Rule: when more than 1/3 of the validators are already in a later view, go there; at least one of them is
+	   honest. The box names a view only when it is later than this one, so the rule cannot fire twice in a row. */
+	private boolean skip() {
+		final OptionalInt target = box.skipTo(view);
+
+		target.ifPresent(this::startRound);
+		return target.isPresent();
+	}
+
+	/* Rule: the first time more than 2/3 of the prevotes of the view are in, whatever they are for, the node waits
+	   a while longer for the rest before it gives up on a block */
+	private boolean armPrevoteTimer() {
+		if (step != Step.PREVOTE || !box.quorumAny(Ballot.Type.PREVOTE, view) || !prevoteTimers.add(view)) {
+			return false;
+		}
+
+		out.add(prevoteTimer());
+		return true;
+	}
+
+	/* Rule: likewise for the precommits, in whatever step the node is */
+	private boolean armPrecommitTimer() {
+		if (!box.quorumAny(Ballot.Type.PRECOMMIT, view) || !precommitTimers.add(view)) {
+			return false;
+		}
+
+		out.add(precommitTimer());
 		return true;
 	}
 }

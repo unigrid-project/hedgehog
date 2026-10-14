@@ -36,33 +36,6 @@ public class ConsensusViewTest {
 		return app.block(1, view, validators.proposerAt(1, view), 100, note);
 	}
 
-	private Proposal proposal(int view, int validRound, Block block) {
-		return Proposal.signed(seed(1 + (view % 4)), CHAIN, 1, view, validRound, block);
-	}
-
-	private static Ballot ballot(Ballot.Type type, int validator, int view, Block block) {
-		return Ballot.signed(type, seed(validator), CHAIN, 1, view, block == null ? null : block.hash());
-	}
-
-	private static List<Ballot> ballots(List<Action> actions) {
-		return actions.stream().filter(a -> a instanceof Broadcast b && b.message() instanceof Ballot)
-			.map(a -> (Ballot) ((Broadcast) a).message()).toList();
-	}
-
-	private static List<Proposal> proposalsSent(List<Action> actions) {
-		return actions.stream().filter(a -> a instanceof Broadcast b && b.message() instanceof Proposal)
-			.map(a -> (Proposal) ((Broadcast) a).message()).toList();
-	}
-
-	private static Block decidedBlock(List<Action> actions) {
-		return actions.stream().filter(a -> a instanceof Decide).map(a -> ((Decide) a).block()).findFirst()
-			.orElseThrow();
-	}
-
-	private static boolean decides(List<Action> actions) {
-		return actions.stream().anyMatch(a -> a instanceof Decide);
-	}
-
 	private List<Action> precommitQuorum(int view, Block block) {
 		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, view, block), 20);
 		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, view, block), 21);
@@ -291,16 +264,20 @@ public class ConsensusViewTest {
 
 	@Example
 	public void shouldDecideInAViewOtherThanTheCurrentOne() {
-		final Block block = proposed(2, "a");
+		final Block block = proposed(0, "a");
 
 		engine.start(1, validators, 0);
-		engine.onMessage(proposal(2, -1, block), 10);
+		engine.onMessage(proposal(0, -1, block), 10);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 2, null), 11);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 3, 2, null), 12);
 
-		final Block decided = decidedBlock(precommitQuorum(2, block));
+		assertThat(engine.view(), equalTo(2));
 
-		assertThat(engine.view(), equalTo(0));
+		final Block decided = decidedBlock(precommitQuorum(0, block));
+
+		assertThat(engine.view(), equalTo(2));
 		assertThat(decided.hash(), equalTo(block.hash()));
-		assertThat(decided.getCertificate().view(), equalTo(2));
+		assertThat(decided.getCertificate().view(), equalTo(0));
 		assertThat(app.validateCertified(decided).isEmpty(), is(true));
 	}
 
