@@ -119,7 +119,8 @@ public class LedgerStateTest {
 		leaves.add(Bytes.concat(new byte[] { 'H' }, Bytes.longBytes(state.height())));
 		leaves.add(Bytes.concat(new byte[] { 'S' }, Bytes.longBytes(7)));
 		leaves.add(Bytes.concat(new byte[] { 'U' }, Bytes.longBytes(0)));
-		leaves.add(Bytes.concat(new byte[] { 'A' }, legacy.encode(), Bytes.longBytes(7)));
+		leaves.add(Bytes.concat(new byte[] { 'P' }, Bytes.longBytes(0)));
+		leaves.add(Bytes.concat(new byte[] { 'A' }, legacy.encode(), Bytes.longBytes(7), Bytes.longBytes(0)));
 		leaves.add(Bytes.concat(new byte[] { 'M' }, reference(1).bytes()));
 		state.validators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'V' }, key.bytes())));
 		state.previousValidators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'Q' }, key.bytes())));

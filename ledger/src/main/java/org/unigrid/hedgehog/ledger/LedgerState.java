@@ -44,6 +44,7 @@ public final class LedgerState {
 	private static final byte[] PREVIOUS_VALIDATOR = { 'Q' };
 	private static final byte[] VOTE = { 'T' };
 	private static final byte[] UNCLAIMED = { 'U' };
+	private static final byte[] POOL = { 'P' };
 	private static final byte[] REDIRECT = { 'R' };
 
 	private final LedgerGenesis genesis;
@@ -55,6 +56,7 @@ public final class LedgerState {
 
 	/* A legacy address mapped to the account that claimed it */
 	private Map<Address, Address> redirects = new HashMap<>();
+	private Map<Address, Long> nonces = new HashMap<>();
 	private Set<Reference> minted = new HashSet<>();
 	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
@@ -62,6 +64,7 @@ public final class LedgerState {
 	private long height;
 	private long supply;
 	private long unclaimed;
+	private long pool;
 	private byte[] tipHash;
 	private long tipTime;
 	private Certificate tipCertificate = Certificate.EMPTY;
@@ -97,6 +100,7 @@ public final class LedgerState {
 		verified = other.verified;
 		accounts = new HashMap<>(other.accounts);
 		redirects = new HashMap<>(other.redirects);
+		nonces = new HashMap<>(other.nonces);
 		minted = new HashSet<>(other.minted);
 		votes = new TreeSet<>(other.votes);
 		validators = other.validators;
@@ -104,6 +108,7 @@ public final class LedgerState {
 		height = other.height;
 		supply = other.supply;
 		unclaimed = other.unclaimed;
+		pool = other.pool;
 		tipHash = other.tipHash;
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
@@ -129,6 +134,16 @@ public final class LedgerState {
 	/* What of the snapshot total no claim has taken yet */
 	public long unclaimed() {
 		return unclaimed;
+	}
+
+	/* How many transfers an account has made: the nonce its next transfer must carry */
+	public long nonceOf(AccountKey account) {
+		return nonces.getOrDefault(account, 0L);
+	}
+
+	/* Fees taken by the last block, waiting to be paid to the validators that signed it */
+	public long pool() {
+		return pool;
 	}
 
 	public byte[] tipHash() {
@@ -170,6 +185,7 @@ public final class LedgerState {
 			case Mint mint -> rejectionOf(mint);
 			case Vote vote -> rejectionOf(vote);
 			case Claim claim -> rejectionOf(claim);
+			case Transfer transfer -> rejectionOf(transfer);
 		};
 	}
 
@@ -192,6 +208,7 @@ public final class LedgerState {
 
 		accounts = next.accounts;
 		redirects = next.redirects;
+		nonces = next.nonces;
 		minted = next.minted;
 		votes = next.votes;
 		validators = next.validators;
@@ -199,6 +216,7 @@ public final class LedgerState {
 		height = next.height;
 		supply = next.supply;
 		unclaimed = next.unclaimed;
+		pool = next.pool;
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
 		tipCertificate = next.tipCertificate;
@@ -279,8 +297,10 @@ public final class LedgerState {
 		leaves.add(Bytes.concat(HEIGHT, Bytes.longBytes(height)));
 		leaves.add(Bytes.concat(SUPPLY, Bytes.longBytes(supply)));
 		leaves.add(Bytes.concat(UNCLAIMED, Bytes.longBytes(unclaimed)));
+		leaves.add(Bytes.concat(POOL, Bytes.longBytes(pool)));
 		accounts.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
-			.add(Bytes.concat(ACCOUNT, entry.getKey().encode(), Bytes.longBytes(entry.getValue()))));
+			.add(Bytes.concat(ACCOUNT, entry.getKey().encode(), Bytes.longBytes(entry.getValue()),
+				Bytes.longBytes(nonces.getOrDefault(entry.getKey(), 0L)))));
 		redirects.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
 			.add(Bytes.concat(REDIRECT, entry.getKey().encode(), entry.getValue().encode())));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
@@ -354,6 +374,38 @@ public final class LedgerState {
 		}
 
 		return vouched || authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
+	}
+
+	private Optional<String> rejectionOf(Transfer transfer) {
+		final long next = nonceOf(transfer.sender());
+
+		return transfer.nonce() == next ? rejectionOfQueued(transfer)
+			: Optional.of("Transfer nonce is " + transfer.nonce() + " but the next is " + next);
+	}
+
+	/* A transfer that waits for the ones before it is as good as can be known now: everything but the exact
+	   turn of its nonce is checked, which is what the mempool needs to queue it */
+	public Optional<String> rejectionOfQueued(Transfer transfer) {
+		return usedRejection(transfer).or(() -> coverRejection(transfer)).or(() -> signatureRejection(transfer));
+	}
+
+	private Optional<String> usedRejection(Transfer transfer) {
+		return transfer.nonce() < nonceOf(transfer.sender()) ? Optional.of("Transfer nonce is already used")
+			: Optional.empty();
+	}
+
+	private Optional<String> coverRejection(Transfer transfer) {
+		if (transfer.fee() > Long.MAX_VALUE - transfer.amount()) {
+			return Optional.of("Transfer would overflow");
+		}
+
+		return balanceOf(transfer.sender()) < transfer.amount() + transfer.fee()
+			? Optional.of("Balance does not cover the transfer") : Optional.empty();
+	}
+
+	private Optional<String> signatureRejection(Transfer transfer) {
+		return verified.check(transfer, () -> transfer.hasValidSignature(chainId))
+			? Optional.empty() : Optional.of("Transfer signature is not valid");
 	}
 
 	private Optional<String> rejectionOf(Claim claim) {
@@ -549,6 +601,7 @@ public final class LedgerState {
 			case Mint mint -> apply(mint);
 			case Vote vote -> votes.add(new VoteCast(vote.candidate(), vote.action(), vote.voter()));
 			case Claim claim -> apply(claim);
+			case Transfer transfer -> apply(transfer);
 		}
 	}
 
@@ -569,6 +622,16 @@ public final class LedgerState {
 		redirects.put(address, claim.recipient());
 		minted.add(Reference.ofClaim(genesis.getSnapshotHash(), address));
 		unclaimed -= owed;
+	}
+
+	/* The fee leaves the sender for the pool, so nothing is created or lost; a legacy address that was claimed
+	   is paid to whoever claimed it, as a mint is */
+	private void apply(Transfer transfer) {
+		accounts.put(transfer.sender(), balanceOf(transfer.sender()) - transfer.amount() - transfer.fee());
+		accounts.merge(redirects.getOrDefault(transfer.recipient(), transfer.recipient()), transfer.amount(),
+			Math::addExact);
+		nonces.put(transfer.sender(), Math.addExact(transfer.nonce(), 1L));
+		pool = Math.addExact(pool, transfer.fee());
 	}
 
 	private record VoteCast(AccountKey candidate, Vote.Action action, AccountKey voter)

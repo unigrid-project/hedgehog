@@ -179,7 +179,9 @@ public class LedgerClaimTest {
 		leaves.add(Bytes.concat(new byte[] { 'H' }, Bytes.longBytes(state.height())));
 		leaves.add(Bytes.concat(new byte[] { 'S' }, Bytes.longBytes(OWED)));
 		leaves.add(Bytes.concat(new byte[] { 'U' }, Bytes.longBytes(0)));
-		leaves.add(Bytes.concat(new byte[] { 'A' }, account(1).encode(), Bytes.longBytes(OWED)));
+		leaves.add(Bytes.concat(new byte[] { 'P' }, Bytes.longBytes(0)));
+		leaves.add(Bytes.concat(new byte[] { 'A' }, account(1).encode(), Bytes.longBytes(OWED),
+			Bytes.longBytes(0)));
 		leaves.add(Bytes.concat(new byte[] { 'R' }, LEGACY.encode(), account(1).encode()));
 		leaves.add(Bytes.concat(new byte[] { 'M' }, Reference.ofClaim(SNAPSHOT_HASH, LEGACY).bytes()));
 		addValidatorLeaves(state, leaves);
@@ -204,8 +206,9 @@ public class LedgerClaimTest {
 		leaves.add(Bytes.concat(new byte[] { 'H' }, Bytes.longBytes(state.height())));
 		leaves.add(Bytes.concat(new byte[] { 'S' }, Bytes.longBytes(OWED + 300)));
 		leaves.add(Bytes.concat(new byte[] { 'U' }, Bytes.longBytes(0)));
+		leaves.add(Bytes.concat(new byte[] { 'P' }, Bytes.longBytes(0)));
 		held.forEach((key, amount) -> leaves
-			.add(Bytes.concat(new byte[] { 'A' }, key.encode(), Bytes.longBytes(amount))));
+			.add(Bytes.concat(new byte[] { 'A' }, key.encode(), Bytes.longBytes(amount), Bytes.longBytes(0))));
 		leaves.add(Bytes.concat(new byte[] { 'R' }, low.address().encode(), account(2).encode()));
 		leaves.add(Bytes.concat(new byte[] { 'R' }, high.address().encode(), account(1).encode()));
 		Stream.of(low, high).map(wallet -> Reference.ofClaim(SNAPSHOT_HASH, wallet.address())).sorted()

@@ -91,6 +91,14 @@ public class TransactionCodecTest {
 	}
 
 	@Example
+	public void shouldRefuseATransferWithAnUnknownRecipientType() {
+		final byte[] encoded = CodecFixtures.transfer(new Random(1)).encode();
+
+		encoded[1 + AccountKey.SIZE] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
 	public void shouldLeaveTheBytesAfterATransactionAlone() {
 		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
 		final ByteBuffer in = ByteBuffer.wrap(Arrays.copyOf(encoded, encoded.length + 3));

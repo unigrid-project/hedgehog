@@ -118,7 +118,9 @@ public class BlockCodecTest {
 		final Block full = base.toBuilder().transactions(claims).lastCommit(base.getCertificate()).build();
 
 		assertThat(BlockCodec.encode(full).length <= BlockCodec.MAX_ENCODED_SIZE, equalTo(true));
-		assertThat(Mint.MAX_ENCODED_SIZE <= Claim.MAX_ENCODED_SIZE, equalTo(true));
+		assertThat(Transfer.MAX_ENCODED_SIZE <= BlockCodec.LARGEST_TRANSACTION, equalTo(true));
+		assertThat(Claim.MAX_ENCODED_SIZE <= BlockCodec.LARGEST_TRANSACTION, equalTo(true));
+		assertThat(Vote.ENCODED_SIZE <= BlockCodec.LARGEST_TRANSACTION, equalTo(true));
 	}
 
 	@Example

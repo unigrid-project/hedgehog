@@ -76,6 +76,14 @@ final class LedgerFixtures {
 		return key(1000 + n);
 	}
 
+	static byte[] accountSeed(int n) {
+		return seed(1000 + n);
+	}
+
+	static Transfer transfer(LedgerState state, int from, Address to, long amount, long fee, long nonce) {
+		return Transfer.signed(accountSeed(from), to, amount, fee, nonce, state.chainId());
+	}
+
 	static Reference reference(int n) {
 		return new Reference(ByteBuffer.allocate(Reference.SIZE).putInt(n).array());
 	}

@@ -68,11 +68,19 @@ final class CodecFixtures {
 		return claim(random, random.nextBoolean());
 	}
 
+	static Transfer transfer(Random random) {
+		final Address recipient = random.nextBoolean() ? account(random) : legacyAddress(random);
+
+		return new Transfer(account(random), recipient, 1 + random.nextInt(1_000_000), random.nextInt(1000),
+			random.nextInt(100), random(random, Ed25519.SIGNATURE_SIZE));
+	}
+
 	static Transaction transaction(Random random) {
-		return switch (random.nextInt(3)) {
+		return switch (random.nextInt(4)) {
 			case 0 -> mint(random);
 			case 1 -> vote(random);
-			default -> claim(random);
+			case 2 -> claim(random);
+			default -> transfer(random);
 		};
 	}
 

@@ -34,6 +34,7 @@ public final class TransactionCodec {
 			case Mint.KIND -> decodeMint(in);
 			case Vote.KIND -> decodeVote(in);
 			case Claim.KIND -> decodeClaim(in);
+			case Transfer.KIND -> decodeTransfer(in);
 			default -> throw new IllegalArgumentException(
 				"Unknown transaction kind " + Byte.toUnsignedInt(kind));
 		};
@@ -57,5 +58,10 @@ public final class TransactionCodec {
 		final byte[] key = Bytes.concat(new byte[] { prefix }, Bytes.take(in, Claim.keySize(prefix) - 1));
 
 		return new Claim(key, new AccountKey(Bytes.take(in, AccountKey.SIZE)), Bytes.take(in, LegacySignature.SIZE));
+	}
+
+	private static Transfer decodeTransfer(ByteBuffer in) {
+		return new Transfer(new AccountKey(Bytes.take(in, AccountKey.SIZE)), Address.decode(in),
+			Bytes.takeLong(in), Bytes.takeLong(in), Bytes.takeLong(in), Bytes.take(in, Ed25519.SIGNATURE_SIZE));
 	}
 }

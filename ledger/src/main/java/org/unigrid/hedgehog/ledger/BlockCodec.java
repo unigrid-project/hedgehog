@@ -27,9 +27,12 @@ import java.util.List;
    transactions (a count and each transaction). Lists are grown one decoded entry at a time, never sized from a
    count read off the wire, so a forged count costs nothing until the bytes it promises are really there. */
 public final class BlockCodec {
-	/* The most an encoded block can hold: two full certificates and a full set of the larger transaction kind */
+	static final int LARGEST_TRANSACTION = Math.max(Math.max(Vote.ENCODED_SIZE, Claim.MAX_ENCODED_SIZE),
+		Transfer.MAX_ENCODED_SIZE);
+
+	/* The most an encoded block can hold: two full certificates and a full set of the largest transaction kind */
 	public static final int MAX_ENCODED_SIZE = Block.HEADER_SIZE + 2 * Certificate.MAX_ENCODED_SIZE + Short.BYTES
-		+ Block.MAX_TRANSACTIONS * Math.max(Vote.ENCODED_SIZE, Claim.MAX_ENCODED_SIZE);
+		+ Block.MAX_TRANSACTIONS * LARGEST_TRANSACTION;
 
 	private BlockCodec() {
 		/* Static helpers only */
