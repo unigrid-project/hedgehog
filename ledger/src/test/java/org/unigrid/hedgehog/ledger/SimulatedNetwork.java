@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Random;
@@ -42,9 +43,13 @@ final class SimulatedNetwork {
 		}
 	}
 
+	private record Link(int from, int to) {
+	}
+
 	final List<SimNode> nodes = new ArrayList<>();
 	final ValidatorSet validators;
 	private final PriorityQueue<Event> queue = new PriorityQueue<>();
+	private final Set<Link> cutLinks = new HashSet<>();
 	private final Random random;
 	private long now;
 	private long counter;
@@ -90,8 +95,14 @@ final class SimulatedNetwork {
 		isolated = Set.copyOf(group);
 	}
 
+	/* One direction only: what the first node says no longer reaches the second, while it still hears it */
+	void cutLink(int from, int to) {
+		cutLinks.add(new Link(from, to));
+	}
+
 	void heal() {
 		isolated = Set.of();
+		cutLinks.clear();
 	}
 
 	/* The timers of a process die with it, so the ones armed before the crash must not fire after a restart */
@@ -152,11 +163,13 @@ final class SimulatedNetwork {
 			.map(node -> ByteBuffer.wrap(node.decided.get(index).hash())).distinct().count() <= 1;
 	}
 
-	private void after(long delay, Runnable task) {
+	void after(long delay, Runnable task) {
 		queue.add(new Event(now + delay, counter++, task));
 	}
 
-	private void send(int from, int to, Message message) {
+	/* The links are checked as for any message, but the sender is not: a crashed node can be made to speak, so that
+	   a test can play a validator that lies without an engine of its own getting in the way */
+	void send(int from, int to, Message message) {
 		sent++;
 
 		if (cut(from, to) || random.nextDouble() < dropRate) {
@@ -171,6 +184,10 @@ final class SimulatedNetwork {
 	}
 
 	private boolean cut(int from, int to) {
+		return cutLinks.contains(new Link(from, to)) || separated(from, to);
+	}
+
+	private boolean separated(int from, int to) {
 		return !isolated.isEmpty() && isolated.contains(from) != isolated.contains(to);
 	}
 

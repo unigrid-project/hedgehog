@@ -19,15 +19,20 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
+import static org.unigrid.hedgehog.ledger.Ballot.Type.PRECOMMIT;
+import static org.unigrid.hedgehog.ledger.Ballot.Type.PREVOTE;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.FakeApp;
 
 public class ConsensusSimulationTest {
@@ -41,7 +46,42 @@ public class ConsensusSimulationTest {
 	   about 0.4 seconds at these timeouts and 0.15 seconds longer with every view */
 	private static final long OUTAGE_MILLIS = 60_000;
 
+	/* A decision is a matter of milliseconds once the votes are in, so this catches a disagreement soon after it
+	   happens rather than only when the run is over */
+	private static final long CHECK_MILLIS = 250;
+
+	/* With every message taking this long the order of the events does not depend on chance, which the scenarios with
+	   a liar need to put its words where they should be heard */
+	private static final long LINK_MILLIS = 40;
+
 	private record Standing(long height, int view, Consensus.Step step, int ballots) {
+	}
+
+	/* A validator that lies. Its engine is down, so that nothing honest gets in the way: what it says is signed with
+	   its key by the test and sent to the nodes of the test's choice, at height 1 */
+	private record Liar(SimulatedNetwork net, SimNode node) {
+		Block block(int view, String note) {
+			return node.app.block(1, view, node.app.self, 10, note);
+		}
+
+		Proposal proposal(int view, int validRound, Block block) {
+			return Proposal.signed(node.seed, ConsensusFixtures.CHAIN, 1, view, validRound, block);
+		}
+
+		Ballot vote(Ballot.Type type, int view, Block block) {
+			final byte[] hash = block == null ? null : block.hash();
+
+			return Ballot.signed(type, node.seed, ConsensusFixtures.CHAIN, 1, view, hash);
+		}
+
+		void tell(int to, Message... messages) {
+			Arrays.stream(messages).forEach(message -> net.send(node.index, to, message));
+		}
+	}
+
+	private static Liar liar(SimulatedNetwork net, int index) {
+		net.crash(index);
+		return new Liar(net, net.nodes.get(index));
 	}
 
 	private static SimulatedNetwork network(int nodes, int goal, long seed) {
@@ -64,6 +104,13 @@ public class ConsensusSimulationTest {
 
 	private static void runFor(SimulatedNetwork net, long millis) {
 		net.run(net.now() + millis);
+	}
+
+	private static void runAgreeing(SimulatedNetwork net, long millis) {
+		for (long left = millis; left > 0; left -= CHECK_MILLIS) {
+			runFor(net, Math.min(left, CHECK_MILLIS));
+			assertThat(net.agreement(), is(true));
+		}
 	}
 
 	private static boolean nobodyDecided(SimulatedNetwork net) {
@@ -384,6 +431,110 @@ public class ConsensusSimulationTest {
 	}
 
 	@Example
+	public void shouldMoveOnWhenTheProposerTellsTwoHalvesOfTheNetworkTwoBlocks() {
+		final SimulatedNetwork net = network(4, 3, 6);
+		final Liar liar = liar(net, 0);
+		final Block one = liar.block(0, "one");
+		final Block two = liar.block(0, "two");
+
+		net.begin();
+		net.after(50, () -> {
+			liar.tell(1, liar.proposal(0, -1, one));
+			liar.tell(2, liar.proposal(0, -1, two));
+			liar.tell(3, liar.proposal(0, -1, two));
+		});
+		runAgreeing(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(net.nodes.get(1).decided.get(0).getView(), greaterThan(0));
+	}
+
+	/* Only agreement is claimed. The node told about the first block counts the first prevote of the liar and never
+	   learns that the other two are locked on the second block, so the three of them may not finish */
+	@Example
+	public void shouldNeverDecideTwoBlocksWhenTheProposerPrevotesForBothOfThem() {
+		final SimulatedNetwork net = network(4, 3, 6);
+		final Liar liar = liar(net, 0);
+		final Block one = liar.block(0, "one");
+		final Block two = liar.block(0, "two");
+
+		net.begin();
+		net.after(50, () -> {
+			liar.tell(1, liar.proposal(0, -1, one), liar.vote(Ballot.Type.PREVOTE, 0, one));
+			liar.tell(2, liar.proposal(0, -1, two), liar.vote(Ballot.Type.PREVOTE, 0, two));
+			liar.tell(3, liar.proposal(0, -1, two), liar.vote(Ballot.Type.PREVOTE, 0, two));
+		});
+		runAgreeing(net, SETTLE_MILLIS);
+	}
+
+	@Example
+	public void shouldRecordAValidatorThatPrevotesAnotherBlockAndPrecommitsTwiceAndStillDecideTheProposedBlock() {
+		final SimulatedNetwork net = network(4, 1, 11);
+		final Liar liar = liar(net, 3);
+		final Block other = liar.block(0, "other");
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(1, () -> IntStream.range(0, 3).forEach(to -> liar.tell(to, liar.vote(PREVOTE, 0, other),
+			liar.vote(PRECOMMIT, 0, other), liar.vote(PRECOMMIT, 0, null))));
+		net.run(2 * LINK_MILLIS);
+
+		assertThat(net.nodes.subList(0, 3).stream().allMatch(node -> node.engine.evidence().size() == 1), is(true));
+
+		runAgreeing(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(1, Set.of(3)), is(true));
+		assertThat(net.nodes.get(0).decided.get(0).getView(), equalTo(0));
+	}
+
+	@Example
+	public void shouldCountOnlyTheFirstWordOfAValidatorThatContradictsItself() {
+		final SimulatedNetwork net = network(4, 1, 10);
+		final Liar liar = liar(net, 0);
+		final Block block = liar.block(0, "block");
+
+		net.crash(3);
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(1, () -> IntStream.of(1, 2).forEach(to -> liar.tell(to, liar.proposal(0, -1, block),
+			liar.vote(PREVOTE, 0, block), liar.vote(PRECOMMIT, 0, block), liar.vote(PRECOMMIT, 0, null))));
+		net.run(2 * LINK_MILLIS);
+
+		assertThat(net.nodes.get(1).engine.evidence().size(), equalTo(1));
+		assertThat(net.nodes.get(2).engine.evidence().size(), equalTo(1));
+
+		runAgreeing(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(1, Set.of(0, 3)), is(true));
+		assertThat(net.nodes.get(1).decided.get(0).hash(), equalTo(block.hash()));
+	}
+
+	@Example
+	public void shouldKeepTheNodesLockedOnABlockThatAnotherNodeDecidedWhenALiarProposesAnotherBlock() {
+		final SimulatedNetwork net = network(4, 3, 12);
+		final Liar liar = liar(net, 1);
+		final Block other = liar.block(1, "other");
+		final Set<Integer> locked = Set.of(2, 3);
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(LINK_MILLIS + 1, () -> locked.forEach(to -> net.cutLink(0, to)));
+		net.after(3 * LINK_MILLIS, () -> locked.forEach(to -> liar.tell(to, liar.vote(PRECOMMIT, 0, null))));
+		net.after(8 * LINK_MILLIS, () -> locked.forEach(to -> liar.tell(to, liar.proposal(1, -1, other),
+			liar.vote(PREVOTE, 1, other), liar.vote(PRECOMMIT, 1, other))));
+		runAgreeing(net, OUTAGE_MILLIS);
+
+		assertThat(net.nodes.get(0).decided.size(), equalTo(1));
+		assertThat(locked.stream().allMatch(index -> net.nodes.get(index).decided.isEmpty()), is(true));
+		assertThat(locked.stream().allMatch(index -> net.nodes.get(index).engine.lockedView() == 0), is(true));
+
+		net.heal();
+		runAgreeing(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of(1)), is(true));
+	}
+
+	@Example
 	public void shouldGiveADifferentRunForADifferentSeed() {
 		final SimulatedNetwork seven = slowNetwork(4, 7);
 		final SimulatedNetwork eight = slowNetwork(4, 8);
@@ -431,6 +582,52 @@ public class ConsensusSimulationTest {
 		net.run(40);
 
 		assertThat(atTheMinimum, lessThan(receivedByAll(net)));
+	}
+
+	@Example
+	public void shouldCutOneDirectionOfALinkUntilTheNetworkHeals() {
+		final SimulatedNetwork net = network(4, 0, 1);
+		final Message message = ConsensusFixtures.ballot(PREVOTE, 1, 0, null);
+
+		net.cutLink(0, 1);
+		net.send(0, 1, message);
+		net.send(1, 0, message);
+		net.run(100);
+
+		assertThat(net.nodes.get(1).received, equalTo(0));
+		assertThat(net.nodes.get(0).received, equalTo(1));
+
+		net.heal();
+		net.send(0, 1, message);
+		net.run(200);
+
+		assertThat(net.nodes.get(1).received, equalTo(1));
+	}
+
+	@Example
+	public void shouldLetACrashedNodeSpeakThroughSend() {
+		final SimulatedNetwork net = network(4, 0, 1);
+
+		net.crash(0);
+		net.send(0, 1, ConsensusFixtures.ballot(PREVOTE, 1, 0, null));
+		net.run(100);
+
+		assertThat(net.nodes.get(1).received, equalTo(1));
+	}
+
+	@Example
+	public void shouldRunATaskAtTheTimeItWasSetFor() {
+		final SimulatedNetwork net = network(4, 0, 1);
+		final List<Long> ranAt = new ArrayList<>();
+
+		net.after(100, () -> ranAt.add(net.now()));
+		net.run(99);
+
+		assertThat(ranAt.isEmpty(), is(true));
+
+		net.run(150);
+
+		assertThat(ranAt, equalTo(List.of(100L)));
 	}
 
 	@Example
