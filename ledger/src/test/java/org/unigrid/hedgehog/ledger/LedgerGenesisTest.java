@@ -68,4 +68,43 @@ public class LedgerGenesisTest {
 		assertThat(genesis.getRoundLength(), equalTo(10));
 		assertThat(genesis.getTime(), equalTo(5L));
 	}
+
+	private static byte[] hashOf(int fill) {
+		final byte[] hash = new byte[Digests.HASH_SIZE];
+
+		java.util.Arrays.fill(hash, (byte) fill);
+		return hash;
+	}
+
+	@Example
+	public void shouldHaveNoSnapshotUnlessGivenOne() {
+		final LedgerGenesis genesis = new LedgerGenesis(5, 10, VALIDATORS);
+
+		assertThat(genesis.getSnapshotHash(), equalTo(hashOf(0)));
+		assertThat(genesis.getSnapshotTotal(), equalTo(0L));
+	}
+
+	@Example
+	public void shouldCommitTheChainIdToTheSnapshot() {
+		final byte[] base = new LedgerGenesis(5, 10, VALIDATORS).chainId();
+
+		assertThat(new LedgerGenesis(5, 10, VALIDATORS, hashOf(1), 0).chainId(), not(equalTo(base)));
+		assertThat(new LedgerGenesis(5, 10, VALIDATORS, hashOf(0), 7).chainId(), not(equalTo(base)));
+		assertThat(new LedgerGenesis(5, 10, VALIDATORS, hashOf(0), 0).chainId(), equalTo(base));
+	}
+
+	@Example
+	public void shouldRefuseABadSnapshot() {
+		assertThrows(IllegalArgumentException.class, () -> new LedgerGenesis(5, 10, VALIDATORS, new byte[32], 0));
+		assertThrows(IllegalArgumentException.class, () -> new LedgerGenesis(5, 10, VALIDATORS, hashOf(0), -1));
+	}
+
+	@Example
+	public void shouldNotLetTheSnapshotHashBeChangedFromOutside() {
+		final LedgerGenesis genesis = new LedgerGenesis(5, 10, VALIDATORS, hashOf(1), 3);
+		final byte[] chainId = genesis.chainId();
+
+		genesis.getSnapshotHash()[0] ^= 1;
+		assertThat(genesis.chainId(), equalTo(chainId));
+	}
 }
