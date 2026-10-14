@@ -19,28 +19,38 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 
 public final class Ledger implements LedgerApplication {
 	private final LedgerState state;
 	private final BlockLog log;
 	private final Mempool mempool = new Mempool();
 	private final Map<AccountKey, Promise> promises = new HashMap<>();
+	private final LongSupplier clock;
+
+	public Ledger(LedgerState state, BlockLog log) {
+		this(state, log, System::currentTimeMillis);
+	}
 
 	/* The log is replayed into the state, block by block and with every check, so a log that was tampered
 	   with does not come up as a state */
-	public Ledger(LedgerState state, BlockLog log) {
+	public Ledger(LedgerState state, BlockLog log, LongSupplier clock) {
 		this.state = state;
 		this.log = log;
+		this.clock = clock;
 		log.blocks().forEach(state::apply);
 	}
 
 	@Override
 	public synchronized Optional<String> submit(Transaction transaction) {
+		state.askAuthorityAt(clock.getAsLong());
+
 		if (mempool.admit(transaction, state)) {
 			return Optional.empty();
 		}
@@ -74,14 +84,23 @@ public final class Ledger implements LedgerApplication {
 			return Optional.ofNullable(earlier.proposal());
 		}
 
-		final List<Transaction> transactions = state.applicable(mempool.take(Block.MAX_TRANSACTIONS));
+		final long blockTime = Math.max(time, state.tipTime());
+
+		state.askAuthorityAt(blockTime);
+
+		final List<Transaction> candidates = new ArrayList<>(state.dueMints(blockTime));
+
+		candidates.addAll(mempool.take(Block.MAX_TRANSACTIONS));
+
+		final List<Transaction> transactions = state.applicable(candidates.stream()
+			.limit(Block.MAX_TRANSACTIONS).toList());
 
 		if (transactions.isEmpty() && state.pool() == 0) {
 			return Optional.empty();
 		}
 
 		final Block block = Block.builder().height(height).previousHash(state.tipHash())
-			.time(Math.max(time, state.tipTime())).stateRoot(state.rootAfter(height, transactions))
+			.time(blockTime).stateRoot(state.rootAfter(height, transactions))
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
 			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of())
 			.lastCommit(state.tipCertificate()).build();

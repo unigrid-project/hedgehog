@@ -30,7 +30,8 @@ public interface LedgerApplication {
 
 	Optional<String> submit(Heartbeat heartbeat);
 
-	/* Empty when it is not this key's turn, or when nothing is waiting: no transaction and no fee to pay out */
+	/* Empty when it is not this key's turn, or when nothing is waiting: no transaction, no mint that is due and
+	   no fee to pay out */
 	Optional<Block> propose(byte[] proposerSeed, long time);
 
 	Block sign(Block block, byte[] validatorSeed);
