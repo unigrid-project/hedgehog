@@ -128,6 +128,74 @@ public class MempoolTransferTest {
 	}
 
 	@Example
+	public void shouldHandOutEachSendersTransfersInItsOwnNonceOrderInTheirPlaces() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool();
+		final Transfer firstLater = send(state, 1, 1, 1, 1);
+		final Transfer secondLater = send(state, 2, 1, 1, 1);
+		final Transfer secondEarlier = send(state, 2, 1, 1, 0);
+		final Transfer firstEarlier = send(state, 1, 1, 1, 0);
+
+		mempool.admit(firstLater, state);
+		mempool.admit(secondLater, state);
+		mempool.admit(secondEarlier, state);
+		mempool.admit(firstEarlier, state);
+
+		final List<Transaction> taken = mempool.take(10);
+
+		assertThat(taken, equalTo(List.of(firstEarlier, secondEarlier, secondLater, firstLater)));
+		assertThat(state.applicable(taken).size(), equalTo(4));
+	}
+
+	@Example
+	public void shouldHandOutNothingForANegativeLimit() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool();
+
+		mempool.admit(send(state, 1, 1, 1, 0), state);
+
+		assertThat(mempool.take(-1), equalTo(List.of()));
+	}
+
+	@Example
+	public void shouldReplaceATransferAtAFullPoolButQueueNoOtherOne() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool(1);
+
+		assertThat(mempool.admit(send(state, 1, 1, 5, 0), state), is(true));
+		assertThat(mempool.admit(send(state, 1, 1, 6, 0), state), is(true));
+		assertThat(mempool.admit(send(state, 1, 1, 5, 1), state), is(false));
+		assertThat(mempool.size(), equalTo(1));
+		assertThat(((Transfer) mempool.take(10).get(0)).fee(), equalTo(6L));
+	}
+
+	@Example
+	public void shouldMoveTheWindowUpWithTheNonceOfTheSender() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool();
+
+		state.apply(soloBlock(state, send(state, 1, 1, 1, 0)));
+
+		assertThat(mempool.admit(send(state, 1, 1, 1, Mempool.NONCE_WINDOW), state), is(true));
+		assertThat(mempool.admit(send(state, 1, 1, 1, Mempool.NONCE_WINDOW + 1), state), is(false));
+	}
+
+	@Example
+	public void shouldCountWhatWaitsWhenTheBalanceIsNearTheLargestLong() {
+		final long half = Long.MAX_VALUE / 2 - 10;
+		final LedgerState state = soloState(ANY_MINT);
+		final Mempool mempool = new Mempool();
+
+		state.apply(soloBlock(state, new Mint(account(1), half, reference(1)),
+			new Mint(account(1), half, reference(2))));
+
+		assertThat(mempool.admit(send(state, 1, half - 10, 1, 0), state), is(true));
+		assertThat(mempool.admit(send(state, 1, half - 10, 1, 1), state), is(true));
+		assertThat(mempool.admit(send(state, 1, 100, 1, 2), state), is(false));
+		assertThat(mempool.admit(send(state, 1, 5, 1, 2), state), is(true));
+	}
+
+	@Example
 	public void shouldKeepTheLaterTransfersWhenABlockTakesTheEarlierOnes() {
 		final LedgerState state = funded();
 		final Mempool mempool = new Mempool();
@@ -156,6 +224,21 @@ public class MempoolTransferTest {
 
 		state.apply(block);
 		mempool.removeCommitted(block, state);
+
+		assertThat(mempool.size(), equalTo(0));
+	}
+
+	@Example
+	public void shouldDropAQueuedTransferWhoseNonceAnotherTransferUsedUp() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool();
+
+		assertThat(mempool.admit(send(state, 1, 1, 1, 1), state), is(true));
+
+		final Block unrelated = soloBlock(state, mint(5, 7));
+
+		state.apply(soloBlock(state, send(state, 1, 2, 1, 0), send(state, 1, 3, 1, 1)));
+		mempool.removeCommitted(unrelated, state);
 
 		assertThat(mempool.size(), equalTo(0));
 	}

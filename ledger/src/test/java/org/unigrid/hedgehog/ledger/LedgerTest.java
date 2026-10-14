@@ -84,6 +84,10 @@ public class LedgerTest {
 		return block;
 	}
 
+	private static Transfer send(long amount, long nonce) {
+		return Transfer.signed(accountSeed(1), account(9), amount, 1, nonce, chainId());
+	}
+
 	private static Vote voteAdd(Ledger ledger, int voter, byte[] candidate, long round) {
 		return Vote.signed(seed(voter), Ed25519.publicKey(candidate), Vote.Action.ADD, round, ledger.chainId());
 	}
@@ -249,6 +253,46 @@ public class LedgerTest {
 			assertThat(ledger.submit(mint(1, 500)), equalTo(Optional.empty()));
 			assertThat(ledger.submit(mint(1, 500)).isPresent(), is(true));
 			assertThat(ledger.pending(), equalTo(1));
+		}
+	}
+
+	@Example
+	public void shouldSayThatAWaitingTransactionThatIsNoTransferIsWaiting() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			assertThat(ledger.submit(mint(1, 500)), equalTo(Optional.of("Already waiting for a block")));
+		}
+	}
+
+	@Example
+	public void shouldGiveATransferThatCannotBeQueuedItsOwnReason() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+			seal(ledger, FOUNDATION, 2000);
+
+			assertThat(ledger.submit(send(1, 0)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(send(1, 0)).get(), containsString("Not queued"));
+			assertThat(ledger.submit(send(1, Mempool.NONCE_WINDOW)).get(), containsString("Not queued"));
+			assertThat(ledger.pending(), equalTo(1));
+		}
+	}
+
+	@Example
+	public void shouldNameAUsedNonceWhenATransferIsSubmittedForIt() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+			seal(ledger, FOUNDATION, 2000);
+			ledger.submit(send(1, 0));
+			seal(ledger, FOUNDATION, 2001);
+
+			assertThat(ledger.submit(send(2, 0)).get(), containsString("already used"));
 		}
 	}
 
