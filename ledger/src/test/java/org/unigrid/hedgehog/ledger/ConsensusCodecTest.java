@@ -40,13 +40,21 @@ import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 public class ConsensusCodecTest {
 	private static final int LARGEST_PROOF = 4;
 	private static final int PROOF_SIZE = 3;
+	private static final byte DECISION_KIND = 3;
+	private static final byte NO_KIND = 0;
+	private static final byte FIRST_UNUSED_KIND = 4;
+	private static final byte ALL_BITS_KIND = (byte) 0xff;
+	private static final int KIND_SIZE = Byte.BYTES;
+	private static final byte PRECOMMIT_CODE = 1;
+	private static final byte UNUSED_TYPE_CODE = 2;
 	private static final int HEIGHT_OFFSET = 1;
 	private static final int VIEW_OFFSET = HEIGHT_OFFSET + Long.BYTES;
 	private static final int VALID_ROUND_OFFSET = VIEW_OFFSET + Integer.BYTES;
 	private static final int BLOCK_LENGTH_OFFSET = VALID_ROUND_OFFSET + Integer.BYTES + AccountKey.SIZE
 		+ Ed25519.SIGNATURE_SIZE;
 	private static final int BALLOT_TYPE_OFFSET = 0;
-	private static final int BALLOT_VIEW_OFFSET = BALLOT_TYPE_OFFSET + Byte.BYTES + Long.BYTES;
+	private static final int BALLOT_HEIGHT_OFFSET = BALLOT_TYPE_OFFSET + Byte.BYTES;
+	private static final int BALLOT_VIEW_OFFSET = BALLOT_HEIGHT_OFFSET + Long.BYTES;
 	private static final int BALLOT_HASH_OFFSET = BALLOT_VIEW_OFFSET + Integer.BYTES;
 
 	private static Block block() {
@@ -79,6 +87,11 @@ public class ConsensusCodecTest {
 
 	private static void assertRefused(byte[] encoded) {
 		assertThrows(IllegalArgumentException.class, () -> ConsensusCodec.decode(encoded, LARGEST_PROOF));
+	}
+
+	private static String refusalOf(byte[] encoded) {
+		return assertThrows(IllegalArgumentException.class, () -> ConsensusCodec.decode(encoded, LARGEST_PROOF))
+			.getMessage();
 	}
 
 	private static int proofBallotSize() {
@@ -129,6 +142,26 @@ public class ConsensusCodecTest {
 		assertRoundTrip(decision());
 	}
 
+	/* The offsets and bytes are written out on purpose: a change of the layout has to break this test, which an
+	   encoder and a decoder that were changed together would not */
+	@Example
+	public void shouldPlaceTheKindTheTypeAndTheFieldsOfAMessageAtFixedOffsets() {
+		final byte[] prevote = ConsensusCodec.encode(ConsensusFixtures.ballot(PREVOTE, 2, 5, block()));
+		final byte[] precommit = ConsensusCodec.encode(ConsensusFixtures.ballot(PRECOMMIT, 3, 7, block()));
+		final Proposal proposal = firstProposal();
+		final byte[] first = ConsensusCodec.encode(proposal);
+		final byte[] decided = ConsensusCodec.encode(decision());
+
+		assertThat(Bytes.hex(Arrays.copyOf(prevote, 14)), equalTo("01" + "00" + "0000000000000001" + "00000005"));
+		assertThat(Bytes.hex(Arrays.copyOf(precommit, 14)), equalTo("01" + "01" + "0000000000000001" + "00000007"));
+		assertThat(Bytes.hex(Arrays.copyOf(first, 17)),
+			equalTo("02" + "0000000000000001" + "00000000" + "ffffffff"));
+		assertThat(Arrays.copyOfRange(first, 17, 49), equalTo(proposal.sender().bytes()));
+		assertThat(Arrays.copyOfRange(first, 49, 113), equalTo(proposal.signature()));
+		assertThat(ByteBuffer.wrap(first).getInt(113), equalTo(BlockCodec.encode(block()).length));
+		assertThat(decided[0], equalTo(DECISION_KIND));
+	}
+
 	@Property(tries = 50)
 	public void shouldRoundTripAnyBallot(@ForAll boolean precommit, @ForAll @LongRange(min = 1, max = 1000) long height,
 		@ForAll @IntRange(min = 0, max = 1000) int view, @ForAll boolean nil,
@@ -171,9 +204,9 @@ public class ConsensusCodecTest {
 
 	@Example
 	public void shouldRefuseAnUnknownKind() {
-		assertRefused(new byte[] { 0 });
-		assertRefused(new byte[] { 4 });
-		assertRefused(new byte[] { (byte) 0xff });
+		assertRefused(new byte[] { NO_KIND });
+		assertRefused(new byte[] { FIRST_UNUSED_KIND });
+		assertRefused(new byte[] { ALL_BITS_KIND });
 	}
 
 	@Example
@@ -199,7 +232,7 @@ public class ConsensusCodecTest {
 	public void shouldRefuseABallotTypeThatIsNeitherPrevoteNorPrecommit() {
 		final byte[] encoded = ConsensusCodec.encode(ConsensusFixtures.ballot(PREVOTE, 1, 1, block()));
 
-		encoded[1] = 2;
+		encoded[KIND_SIZE + BALLOT_TYPE_OFFSET] = UNUSED_TYPE_CODE;
 		assertRefused(encoded);
 	}
 
@@ -244,7 +277,7 @@ public class ConsensusCodecTest {
 
 	@Example
 	public void shouldRefuseABlockLengthOfZero() {
-		assertRefused(withLength((byte) 3, 0));
+		assertRefused(withLength(DECISION_KIND, 0));
 
 		final byte[] encoded = ConsensusCodec.encode(firstProposal());
 
@@ -255,24 +288,32 @@ public class ConsensusCodecTest {
 	@Example
 	public void shouldRefuseABlockLengthAboveTheLargestBlockBeforeTakingItsBytes() {
 		final int tooLong = BlockCodec.MAX_ENCODED_SIZE + 1;
-		final IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
-			() -> ConsensusCodec.decode(withLength((byte) 3, tooLong), LARGEST_PROOF));
+		final String refusal = refusalOf(withLength(DECISION_KIND, tooLong));
 
-		assertThat(refused.getMessage(), containsString(String.valueOf(tooLong)));
-		assertRefused(withLength((byte) 3, -1));
+		assertThat(refusal, containsString(String.valueOf(tooLong)));
+		assertThat(refusal, not(containsString("Truncated")));
+		assertRefused(withLength(DECISION_KIND, -1));
 
 		final byte[] encoded = ConsensusCodec.encode(firstProposal());
 
 		ByteBuffer.wrap(encoded).putInt(BLOCK_LENGTH_OFFSET, tooLong);
-		assertRefused(encoded);
+		assertThat(refusalOf(encoded), not(containsString("Truncated")));
 	}
 
 	@Example
 	public void shouldRefuseAProofBallotThatIsNotAPrevote() {
 		final byte[] encoded = ConsensusCodec.encode(proposalWithProof(PROOF_SIZE));
 
-		encoded[firstProofBallot(encoded) + BALLOT_TYPE_OFFSET] = 1;
+		encoded[firstProofBallot(encoded) + BALLOT_TYPE_OFFSET] = PRECOMMIT_CODE;
 		assertRefused(encoded);
+	}
+
+	@Example
+	public void shouldRefuseAProofBallotOfAnotherHeight() {
+		final byte[] encoded = ConsensusCodec.encode(proposalWithProof(PROOF_SIZE));
+
+		ByteBuffer.wrap(encoded).putLong(firstProofBallot(encoded) + BALLOT_HEIGHT_OFFSET, 2L);
+		assertThat(refusalOf(encoded), containsString("height 1"));
 	}
 
 	@Example

@@ -72,6 +72,7 @@ public final class ConsensusCodec {
 		return message;
 	}
 
+	/* After a refused message the position of the buffer means nothing, so the caller drops the buffer */
 	public static Message decode(ByteBuffer in, int largestProof) {
 		final byte kind = Bytes.take(in, 1)[0];
 
