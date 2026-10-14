@@ -87,6 +87,14 @@ public class ConsensusViewsTest {
 			prevoteBy(signer, 1, block).signature());
 	}
 
+	/* A new block from the proposer of the view, with a signature that is not the proposer's */
+	private Proposal forgedProposal(int view) {
+		final AccountKey proposer = validators.proposerAt(1, view);
+
+		return new Proposal(1, view, -1, app.block(1, view, proposer, 100, "forged"), List.of(), proposer,
+			new byte[Ed25519.SIGNATURE_SIZE]);
+	}
+
 	/* A proof of the prevotes of view 1 in which the third ballot carries the signature of another validator */
 	private static List<Ballot> withForgedThird(Block block) {
 		return List.of(prevoteBy(1, 1, block), prevoteBy(2, 1, block), forgedPrevote(3, 4, block));
@@ -389,6 +397,27 @@ public class ConsensusViewsTest {
 		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 3, null), 5);
 		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 5, null), 6);
 
+		assertThat(engine.view(), equalTo(0));
+	}
+
+	@Example
+	public void shouldSkipOnTheProposalsAloneOfMoreThanOneThirdAtALaterView() {
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(1, -1, proposed(1, "a")), 5);
+
+		assertThat(engine.view(), equalTo(0));
+
+		engine.onMessage(proposal(2, -1, proposed(2, "b")), 6);
+
+		assertThat(engine.view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldNotMoveOnForgedProposalsFarAhead() {
+		engine.start(1, validators, 0);
+
+		assertThat(engine.onMessage(forgedProposal(Consensus.MAX_VIEW_AHEAD + 1), 5).isEmpty(), is(true));
+		assertThat(engine.onMessage(forgedProposal(Consensus.MAX_VIEW_AHEAD + 2), 6).isEmpty(), is(true));
 		assertThat(engine.view(), equalTo(0));
 	}
 
