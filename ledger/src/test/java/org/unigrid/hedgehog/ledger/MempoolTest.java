@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.List;
+import java.util.Map;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -291,5 +292,24 @@ public class MempoolTest {
 		mempool.removeCommitted(block, state);
 		assertThat(mempool.heartbeats(), hasSize(0));
 		assertThat(mempool.isProgressing(state, 1000, 60), is(false));
+	}
+
+	@Example
+	public void shouldDropAWaitingClaimOnceABlockHasTakenItsAddress() {
+		final LegacyWallet taken = new LegacyWallet(1, true);
+		final LegacyWallet kept = new LegacyWallet(2, true);
+		final LedgerState state = soloSnapshotState(ANY_MINT, Map.of(taken.address(), 500L, kept.address(), 300L));
+		final Mempool mempool = new Mempool();
+
+		assertThat(mempool.admit(taken.claim(account(1), state.chainId()), state), is(true));
+		assertThat(mempool.admit(kept.claim(account(2), state.chainId()), state), is(true));
+
+		final Block block = soloBlock(state, taken.claim(account(3), state.chainId()));
+
+		state.apply(block);
+		mempool.removeCommitted(block, state);
+
+		assertThat(mempool.size(), equalTo(1));
+		assertThat(mempool.take(10).get(0), equalTo(kept.claim(account(2), state.chainId())));
 	}
 }
