@@ -27,7 +27,8 @@ import java.util.Objects;
    What the address holds is not in the transaction but in the state, and it can be claimed only once. */
 public record Claim(byte[] publicKey, AccountKey recipient, byte[] signature) implements Transaction {
 	public static final byte KIND = 3;
-	public static final int MAX_ENCODED_SIZE = 1 + 65 + AccountKey.SIZE + LegacySignature.SIZE;
+	public static final int MAX_ENCODED_SIZE = 1 + LegacySignature.UNCOMPRESSED_KEY_SIZE + AccountKey.SIZE
+		+ LegacySignature.SIZE;
 
 	public Claim {
 		Objects.requireNonNull(recipient);
@@ -38,8 +39,8 @@ public record Claim(byte[] publicKey, AccountKey recipient, byte[] signature) im
 	/* The first byte of an encoded secp256k1 key fixes its width */
 	static int keySize(byte prefix) {
 		return switch (prefix) {
-			case 2, 3 -> 33;
-			case 4 -> 65;
+			case 2, 3 -> LegacySignature.COMPRESSED_KEY_SIZE;
+			case 4 -> LegacySignature.UNCOMPRESSED_KEY_SIZE;
 			default -> throw new IllegalArgumentException(
 				"Unknown public key prefix " + Byte.toUnsignedInt(prefix));
 		};

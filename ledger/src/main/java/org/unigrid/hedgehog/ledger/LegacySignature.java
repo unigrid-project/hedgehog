@@ -38,8 +38,8 @@ public final class LegacySignature {
 	private static final int FIRST_HEADER = 27;
 	private static final int FIRST_COMPRESSED_HEADER = 31;
 	private static final int LAST_HEADER = 34;
-	private static final int COMPRESSED_KEY_SIZE = 33;
-	private static final int UNCOMPRESSED_KEY_SIZE = 65;
+	static final int COMPRESSED_KEY_SIZE = 33;
+	static final int UNCOMPRESSED_KEY_SIZE = 65;
 	private static final int EVEN_Y_PREFIX = 2;
 	private static final int ODD_Y_PREFIX = 3;
 	private static final int UNCOMPRESSED_PREFIX = 4;
