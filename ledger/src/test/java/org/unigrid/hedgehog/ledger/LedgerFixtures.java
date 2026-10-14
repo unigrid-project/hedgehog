@@ -92,7 +92,7 @@ final class LedgerFixtures {
 			.transactions(transactions).proposer(proposer).endorsements(List.of()).build();
 		int endorsed = 0;
 
-		block = block.endorsedBy(seedOf(proposer, seeds));
+		block = block.endorsedBy(seedOf(proposer, seeds), state.chainId());
 		endorsed++;
 
 		for (final AccountKey key : set.keys()) {
@@ -101,7 +101,7 @@ final class LedgerFixtures {
 			}
 
 			if (!key.equals(proposer)) {
-				block = block.endorsedBy(seedOf(key, seeds));
+				block = block.endorsedBy(seedOf(key, seeds), state.chainId());
 				endorsed++;
 			}
 		}

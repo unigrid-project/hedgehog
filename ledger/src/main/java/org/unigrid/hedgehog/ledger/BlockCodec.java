@@ -22,13 +22,12 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-/* The header, then the certificate (a count and the endorsements), then the transactions (a count and
+/* The header, then the certificate (its view, a count and the endorsements), then the transactions (a count and
    each transaction). Lists are grown one decoded entry at a time, never sized from a count read off the
    wire, so a forged count costs nothing until the bytes it promises are really there. */
 public final class BlockCodec {
 	/* The most an encoded block can hold: a full certificate and a full set of the larger transaction kind */
-	public static final int MAX_ENCODED_SIZE = Block.HEADER_SIZE + Short.BYTES
-		+ ValidatorSet.MAX_SIZE * (AccountKey.SIZE + Ed25519.SIGNATURE_SIZE) + Short.BYTES
+	public static final int MAX_ENCODED_SIZE = Block.HEADER_SIZE + Certificate.MAX_ENCODED_SIZE + Short.BYTES
 		+ Block.MAX_TRANSACTIONS * Vote.ENCODED_SIZE;
 
 	private BlockCodec() {
@@ -36,22 +35,18 @@ public final class BlockCodec {
 	}
 
 	public static byte[] encode(Block block) {
-		if (block.getEndorsements().size() > ValidatorSet.MAX_SIZE
-			|| block.getTransactions().size() > Block.MAX_TRANSACTIONS) {
-			throw new IllegalArgumentException("A block holds at most " + ValidatorSet.MAX_SIZE
-				+ " endorsements and " + Block.MAX_TRANSACTIONS + " transactions");
+		if (block.getTransactions().size() > Block.MAX_TRANSACTIONS) {
+			throw new IllegalArgumentException("A block holds at most " + Block.MAX_TRANSACTIONS
+				+ " transactions");
 		}
 
 		final List<byte[]> transactions = block.getTransactions().stream().map(Transaction::encode).toList();
-		final int size = Block.HEADER_SIZE + Short.BYTES
-			+ block.getEndorsements().size() * (AccountKey.SIZE + Ed25519.SIGNATURE_SIZE) + Short.BYTES
+		final byte[] certificate = block.getCertificate().encode();
+		final int size = Block.HEADER_SIZE + certificate.length + Short.BYTES
 			+ transactions.stream().mapToInt(encoded -> encoded.length).sum();
 		final ByteBuffer out = ByteBuffer.allocate(size);
 
-		out.put(block.headerBytes()).putShort((short) block.getEndorsements().size());
-		block.getEndorsements().forEach(endorsement -> out.put(endorsement.signer().bytes())
-			.put(endorsement.signature()));
-		out.putShort((short) transactions.size());
+		out.put(block.headerBytes()).put(certificate).putShort((short) transactions.size());
 		transactions.forEach(out::put);
 		return out.array();
 	}
@@ -59,37 +54,21 @@ public final class BlockCodec {
 	public static Block decode(byte[] data) {
 		final ByteBuffer in = ByteBuffer.wrap(data);
 		final long height = Bytes.takeLong(in);
+		final int view = Bytes.takeInt(in);
 		final byte[] previousHash = Bytes.take(in, Digests.HASH_SIZE);
 		final long time = Bytes.takeLong(in);
 		final byte[] stateRoot = Bytes.take(in, Digests.HASH_SIZE);
 		final byte[] transactionRoot = Bytes.take(in, Digests.HASH_SIZE);
 		final AccountKey proposer = new AccountKey(Bytes.take(in, AccountKey.SIZE));
-		final List<Endorsement> endorsements = decodeEndorsements(in);
+		final Certificate certificate = Certificate.decode(in);
 		final List<Transaction> transactions = decodeTransactions(in);
 
 		if (in.hasRemaining()) {
 			throw new IllegalArgumentException(in.remaining() + " bytes follow the block");
 		}
 
-		return new Block(height, previousHash, time, stateRoot, transactionRoot, transactions, proposer,
-			endorsements);
-	}
-
-	private static List<Endorsement> decodeEndorsements(ByteBuffer in) {
-		final int count = Bytes.takeUnsignedShort(in);
-
-		if (count > ValidatorSet.MAX_SIZE) {
-			throw new IllegalArgumentException("Too many endorsements: " + count);
-		}
-
-		final List<Endorsement> endorsements = new ArrayList<>();
-
-		for (int i = 0; i < count; i++) {
-			endorsements.add(new Endorsement(new AccountKey(Bytes.take(in, AccountKey.SIZE)),
-				Bytes.take(in, Ed25519.SIGNATURE_SIZE)));
-		}
-
-		return endorsements;
+		return new Block(height, view, previousHash, time, stateRoot, transactionRoot, transactions, proposer,
+			certificate);
 	}
 
 	private static List<Transaction> decodeTransactions(ByteBuffer in) {

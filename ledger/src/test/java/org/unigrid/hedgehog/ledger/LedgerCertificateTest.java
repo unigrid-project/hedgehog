@@ -93,19 +93,62 @@ public class LedgerCertificateTest {
 	@Example
 	public void shouldRefuseASignerOutsideTheSet() {
 		final LedgerState state = state(1000, ANY_MINT, FOUR);
-		final Block withOutsider = certified(state, FOUR, 3).endorsedBy(seed(50));
+		final Block withOutsider = certified(state, FOUR, 3).endorsedBy(seed(50), state.chainId());
 
 		assertThat(reasonOf(state.rejectionOf(withOutsider)), containsString("not a validator"));
 	}
 
+	/* The proposer of a block may have gone by the time a later view commits it */
 	@Example
-	public void shouldRefuseACertificateWithoutTheProposer() {
+	public void shouldAcceptACertificateWithoutTheProposer() {
 		final LedgerState state = state(1000, ANY_MINT, FOUR);
 		final Block unsigned = certified(state, FOUR, 1).toBuilder().endorsements(List.of()).build();
-		final Block withoutProposer = unsigned.endorsedBy(seed(2)).endorsedBy(seed(3)).endorsedBy(seed(4));
+		final Block withoutProposer = unsigned.endorsedBy(seed(2), state.chainId())
+			.endorsedBy(seed(3), state.chainId()).endorsedBy(seed(4), state.chainId());
 
 		assertThat(state.validators().proposerAt(1), equalTo(key(1)));
-		assertThat(reasonOf(state.rejectionOf(withoutProposer)), containsString("proposer"));
+		assertThat(state.rejectionOf(withoutProposer).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldAcceptACertificateMadeInALaterViewThanTheBlock() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		Block later = certified(state, FOUR, 1).toBuilder().certificate(new Certificate(3, List.of())).build();
+
+		for (final byte[] seed : FOUR) {
+			later = later.endorsedBy(seed, state.chainId());
+		}
+
+		assertThat(later.getView(), equalTo(0));
+		assertThat(state.rejectionOf(later).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldRefuseEndorsementsMadeInAnotherViewThanTheCertificateNames() {
+		final LedgerState state = state(1000, ANY_MINT, THREE);
+		final Block good = certified(state, THREE, 3);
+		final Block renamed = good.toBuilder().certificate(new Certificate(1, good.getEndorsements())).build();
+
+		assertThat(reasonOf(state.rejectionOf(renamed)), containsString("signature"));
+	}
+
+	@Example
+	public void shouldTakeTheProposerOfTheViewOfTheBlock() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		final Block base = certified(state, FOUR, 1);
+		final Block unsigned = base.toBuilder().view(1).proposer(state.validators().proposerAt(1, 1))
+			.certificate(Certificate.EMPTY).build();
+		final Block wrongProposer = unsigned.toBuilder().proposer(base.getProposer()).build();
+		Block inViewOne = unsigned;
+		Block inViewOneByTheFirst = wrongProposer;
+
+		for (final byte[] seed : FOUR) {
+			inViewOne = inViewOne.endorsedBy(seed, state.chainId());
+			inViewOneByTheFirst = inViewOneByTheFirst.endorsedBy(seed, state.chainId());
+		}
+
+		assertThat(state.rejectionOf(inViewOne).isPresent(), is(false));
+		assertThat(reasonOf(state.rejectionOf(inViewOneByTheFirst)), containsString("proposer"));
 	}
 
 	/* Signatures made for another block must not carry over, however valid they are for that block */

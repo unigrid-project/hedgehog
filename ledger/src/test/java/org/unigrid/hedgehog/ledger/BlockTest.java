@@ -31,6 +31,8 @@ import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 
 public class BlockTest {
+	private static final byte[] CHAIN = filled(7);
+
 	private static byte[] seed(int first) {
 		final byte[] seed = new byte[Ed25519.SEED_SIZE];
 
@@ -71,8 +73,9 @@ public class BlockTest {
 	public void shouldHashEveryHeaderFieldButNotTheCertificate() {
 		final byte[] base = builder().build().hash();
 
-		assertThat(builder().build().endorsedBy(seed(1)).hash(), equalTo(base));
+		assertThat(builder().build().endorsedBy(seed(1), CHAIN).hash(), equalTo(base));
 		assertThat(builder().height(2).build().hash(), not(equalTo(base)));
+		assertThat(builder().view(1).build().hash(), not(equalTo(base)));
 		assertThat(builder().previousHash(filled(9)).build().hash(), not(equalTo(base)));
 		assertThat(builder().time(11).build().hash(), not(equalTo(base)));
 		assertThat(builder().stateRoot(filled(9)).build().hash(), not(equalTo(base)));
@@ -81,13 +84,30 @@ public class BlockTest {
 	}
 
 	@Example
-	public void shouldEndorseWithASignatureOverItsHash() {
-		final Block block = builder().build().endorsedBy(seed(2));
+	public void shouldEndorseWithAPrecommitOverItsHash() {
+		final Block block = builder().build().endorsedBy(seed(2), CHAIN);
 		final Endorsement endorsement = block.getEndorsements().get(0);
 
 		assertThat(endorsement.signer(), equalTo(Ed25519.publicKey(seed(2))));
-		assertThat(block.isSigned(endorsement), is(true));
-		assertThat(builder().time(11).build().isSigned(endorsement), is(false));
+		assertThat(block.isSigned(endorsement, CHAIN), is(true));
+		assertThat(block.isSigned(endorsement, filled(8)), is(false));
+		assertThat(builder().time(11).build().isSigned(endorsement, CHAIN), is(false));
+	}
+
+	@Example
+	public void shouldEndorseInTheViewOfItsCertificate() {
+		final Block inViewTwo = builder().certificate(new Certificate(2, List.of())).build()
+			.endorsedBy(seed(2), CHAIN);
+		final Endorsement endorsement = inViewTwo.getEndorsements().get(0);
+
+		assertThat(inViewTwo.getCertificate().view(), equalTo(2));
+		assertThat(inViewTwo.isSigned(endorsement, CHAIN), is(true));
+		assertThat(builder().build().isSigned(endorsement, CHAIN), is(false));
+	}
+
+	@Example
+	public void shouldRefuseANegativeView() {
+		assertThrows(IllegalArgumentException.class, () -> builder().view(-1).build());
 	}
 
 	@Property(tries = 50)
@@ -99,21 +119,21 @@ public class BlockTest {
 		Block block = builder().build();
 
 		for (final byte[] seed : seeds) {
-			block = block.endorsedBy(seed);
+			block = block.endorsedBy(seed, CHAIN);
 		}
 
 		final List<AccountKey> signers = block.getEndorsements().stream().map(Endorsement::signer).toList();
 
 		assertThat(signers, equalTo(signers.stream().sorted().toList()));
-		assertThat(block, equalTo(builder().build().endorsedBy(seed(1)).endorsedBy(seed(2)).endorsedBy(seed(3))
-			.endorsedBy(seed(4))));
+		assertThat(block, equalTo(builder().build().endorsedBy(seed(1), CHAIN).endorsedBy(seed(2), CHAIN)
+			.endorsedBy(seed(3), CHAIN).endorsedBy(seed(4), CHAIN)));
 	}
 
 	@Example
 	public void shouldRefuseToEndorseTwiceWithTheSameKey() {
-		final Block block = builder().build().endorsedBy(seed(2));
+		final Block block = builder().build().endorsedBy(seed(2), CHAIN);
 
-		assertThrows(IllegalArgumentException.class, () -> block.endorsedBy(seed(2)));
+		assertThrows(IllegalArgumentException.class, () -> block.endorsedBy(seed(2), CHAIN));
 	}
 
 	@Example

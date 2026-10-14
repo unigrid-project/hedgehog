@@ -32,8 +32,12 @@ import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 public class BlockCodecTest {
 	private static final int ENDORSEMENT_SIZE = AccountKey.SIZE + Ed25519.SIGNATURE_SIZE;
 
+	private static int certificateSize(int endorsements) {
+		return Integer.BYTES + Short.BYTES + endorsements * ENDORSEMENT_SIZE;
+	}
+
 	private static int transactionCountOffset(int endorsements) {
-		return Block.HEADER_SIZE + Short.BYTES + endorsements * ENDORSEMENT_SIZE;
+		return Block.HEADER_SIZE + certificateSize(endorsements);
 	}
 
 	@Property(tries = 100)
@@ -83,9 +87,25 @@ public class BlockCodecTest {
 	public void shouldRefuseAnEndorsementCountAboveTheMaximum() {
 		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));
 
-		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE, (short) (ValidatorSet.MAX_SIZE + 1));
+		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE + Integer.BYTES, (short) (ValidatorSet.MAX_SIZE + 1));
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
-		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE, (short) 0xffff);
+		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE + Integer.BYTES, (short) 0xffff);
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
+	}
+
+	@Example
+	public void shouldRefuseANegativeCertificateView() {
+		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));
+
+		ByteBuffer.wrap(encoded).putInt(Block.HEADER_SIZE, -1);
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
+	}
+
+	@Example
+	public void shouldRefuseANegativeBlockView() {
+		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));
+
+		ByteBuffer.wrap(encoded).putInt(Long.BYTES, -1);
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
 	}
 
@@ -106,7 +126,7 @@ public class BlockCodecTest {
 		final byte[] moreEndorsements = encoded.clone();
 
 		ByteBuffer.wrap(moreTransactions).putShort(transactionCountOffset(2), (short) 5);
-		ByteBuffer.wrap(moreEndorsements).putShort(Block.HEADER_SIZE, (short) 9);
+		ByteBuffer.wrap(moreEndorsements).putShort(Block.HEADER_SIZE + Integer.BYTES, (short) 9);
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(moreTransactions));
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(moreEndorsements));
 	}

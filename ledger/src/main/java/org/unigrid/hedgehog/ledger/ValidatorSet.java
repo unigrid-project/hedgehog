@@ -46,13 +46,21 @@ public record ValidatorSet(List<AccountKey> keys) {
 		return keys.contains(key);
 	}
 
-	/* Round-robin over the set, starting with the first key at height 1 */
+	/* Round-robin over the set, starting with the first key at height 1; every view of a height moves one key on */
 	public AccountKey proposerAt(long height) {
+		return proposerAt(height, 0);
+	}
+
+	public AccountKey proposerAt(long height, int view) {
 		if (height < 1) {
 			throw new IllegalArgumentException("Heights start at 1, found " + height);
 		}
 
-		return keys.get((int) ((height - 1) % keys.size()));
+		if (view < 0) {
+			throw new IllegalArgumentException("A view is 0 or more, found " + view);
+		}
+
+		return keys.get((int) (((height - 1) % keys.size() + view) % keys.size()));
 	}
 
 	/* The smallest number of validators that is more than two thirds of the set */

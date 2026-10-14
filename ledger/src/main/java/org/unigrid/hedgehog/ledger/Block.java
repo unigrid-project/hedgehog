@@ -27,36 +27,49 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.Value;
 
-/* A block is its header, its transactions and the certificate: the validators' signatures over the hash of
-   the header. The hash leaves the certificate out, so a block has one identity however its signatures were
-   gathered. */
+/* A block is its header, its transactions and the certificate: the validators' signatures that commit the block
+   in one view of its height. The hash covers the header only, so a block has one identity however its
+   signatures were gathered, and in whichever view they were made. */
 @Value
 public class Block {
 	public static final int MAX_TRANSACTIONS = 1000;
-	public static final int HEADER_SIZE = Long.BYTES + Digests.HASH_SIZE + Long.BYTES + Digests.HASH_SIZE
-		+ Digests.HASH_SIZE + AccountKey.SIZE;
+	public static final int HEADER_SIZE = Long.BYTES + Integer.BYTES + Digests.HASH_SIZE + Long.BYTES
+		+ Digests.HASH_SIZE + Digests.HASH_SIZE + AccountKey.SIZE;
 
 	private final long height;
+	private final int view;
 	@Getter(AccessLevel.NONE) private final byte[] previousHash;
 	private final long time;
 	@Getter(AccessLevel.NONE) private final byte[] stateRoot;
 	@Getter(AccessLevel.NONE) private final byte[] transactionRoot;
 	private final List<Transaction> transactions;
 	private final AccountKey proposer;
-	private final List<Endorsement> endorsements;
+	private final Certificate certificate;
 
 	@Builder(toBuilder = true)
 	@SuppressWarnings("checkstyle:ParameterNumber")
-	public Block(long height, byte[] previousHash, long time, byte[] stateRoot, byte[] transactionRoot,
-		List<Transaction> transactions, AccountKey proposer, List<Endorsement> endorsements) {
+	public Block(long height, int view, byte[] previousHash, long time, byte[] stateRoot, byte[] transactionRoot,
+		List<Transaction> transactions, AccountKey proposer, Certificate certificate) {
+		if (view < 0) {
+			throw new IllegalArgumentException("A view is 0 or more, found " + view);
+		}
+
 		this.height = height;
+		this.view = view;
 		this.previousHash = Bytes.requireSize(previousHash, Digests.HASH_SIZE, "A previous block hash");
 		this.time = time;
 		this.stateRoot = Bytes.requireSize(stateRoot, Digests.HASH_SIZE, "A state root");
 		this.transactionRoot = Bytes.requireSize(transactionRoot, Digests.HASH_SIZE, "A transaction root");
 		this.transactions = List.copyOf(transactions);
 		this.proposer = proposer;
-		this.endorsements = List.copyOf(endorsements);
+		this.certificate = certificate == null ? Certificate.EMPTY : certificate;
+	}
+
+	public static class BlockBuilder {
+		/* The endorsements of a certificate in the view the builder holds, which is 0 until one is set */
+		public BlockBuilder endorsements(List<Endorsement> endorsements) {
+			return certificate(new Certificate(certificate == null ? 0 : certificate.view(), endorsements));
+		}
 	}
 
 	public byte[] getPreviousHash() {
@@ -71,9 +84,13 @@ public class Block {
 		return transactionRoot.clone();
 	}
 
+	public List<Endorsement> getEndorsements() {
+		return certificate.endorsements();
+	}
+
 	public byte[] headerBytes() {
-		return ByteBuffer.allocate(HEADER_SIZE).putLong(height).put(previousHash).putLong(time).put(stateRoot)
-			.put(transactionRoot).put(proposer.bytes()).array();
+		return ByteBuffer.allocate(HEADER_SIZE).putLong(height).putInt(view).put(previousHash).putLong(time)
+			.put(stateRoot).put(transactionRoot).put(proposer.bytes()).array();
 	}
 
 	public byte[] hash() {
@@ -81,22 +98,22 @@ public class Block {
 	}
 
 	/* Kept sorted by signer, so the same signatures give the same block bytes whatever order they arrived in */
-	public Block endorsedBy(byte[] validatorSeed) {
+	public Block endorsedBy(byte[] validatorSeed, byte[] chainId) {
 		final AccountKey signer = Ed25519.publicKey(validatorSeed);
 
-		if (endorsements.stream().anyMatch(endorsement -> endorsement.signer().equals(signer))) {
+		if (certificate.endorsements().stream().anyMatch(endorsement -> endorsement.signer().equals(signer))) {
 			throw new IllegalArgumentException("Validator " + signer + " has already endorsed this block");
 		}
 
-		final List<Endorsement> all = new ArrayList<>(endorsements);
+		final List<Endorsement> all = new ArrayList<>(certificate.endorsements());
 
-		all.add(new Endorsement(signer, Ed25519.sign(validatorSeed, hash())));
+		all.add(new Endorsement(signer, Precommit.sign(validatorSeed, chainId, height, certificate.view(), hash())));
 		all.sort(Comparator.comparing(Endorsement::signer));
-		return toBuilder().endorsements(all).build();
+		return toBuilder().certificate(new Certificate(certificate.view(), all)).build();
 	}
 
-	public boolean isSigned(Endorsement endorsement) {
-		return Ed25519.verify(endorsement.signer(), hash(), endorsement.signature());
+	public boolean isSigned(Endorsement endorsement, byte[] chainId) {
+		return Precommit.isSigned(endorsement, chainId, height, certificate.view(), hash());
 	}
 
 	public static byte[] transactionRootOf(List<Transaction> transactions) {

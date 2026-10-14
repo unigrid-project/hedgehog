@@ -54,12 +54,13 @@ final class CodecFixtures {
 	}
 
 	static Block block(Random random, int transactions, int endorsements) {
-		return Block.builder().height(random.nextInt(1000) + 1L).previousHash(random(random, Digests.HASH_SIZE))
-			.time(random.nextInt(100000)).stateRoot(random(random, Digests.HASH_SIZE))
-			.transactionRoot(random(random, Digests.HASH_SIZE))
+		return Block.builder().height(random.nextInt(1000) + 1L).view(random.nextInt(5))
+			.previousHash(random(random, Digests.HASH_SIZE)).time(random.nextInt(100000))
+			.stateRoot(random(random, Digests.HASH_SIZE)).transactionRoot(random(random, Digests.HASH_SIZE))
 			.transactions(IntStream.range(0, transactions).mapToObj(i -> transaction(random)).toList())
 			.proposer(account(random))
-			.endorsements(IntStream.range(0, endorsements).mapToObj(i -> new Endorsement(account(random),
-				random(random, Ed25519.SIGNATURE_SIZE))).toList()).build();
+			.certificate(new Certificate(random.nextInt(5), IntStream.range(0, endorsements)
+				.mapToObj(i -> new Endorsement(account(random), random(random, Ed25519.SIGNATURE_SIZE))).toList()))
+			.build();
 	}
 }

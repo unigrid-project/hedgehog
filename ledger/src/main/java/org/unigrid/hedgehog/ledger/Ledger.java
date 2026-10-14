@@ -80,7 +80,7 @@ public final class Ledger implements LedgerApplication {
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
 			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of()).build();
 
-		final Block proposal = block.endorsedBy(proposerSeed);
+		final Block proposal = block.endorsedBy(proposerSeed, state.chainId());
 
 		promises.put(proposer, new Promise(height, block.hash(), proposal));
 		return Optional.of(proposal);
@@ -101,7 +101,7 @@ public final class Ledger implements LedgerApplication {
 			throw new InvalidBlockException(reason);
 		});
 		promiseNoOtherBlock(signer, block);
-		return block.endorsedBy(validatorSeed);
+		return block.endorsedBy(validatorSeed, state.chainId());
 	}
 
 	private void promiseNoOtherBlock(AccountKey signer, Block block) {

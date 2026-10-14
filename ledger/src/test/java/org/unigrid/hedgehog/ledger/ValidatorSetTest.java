@@ -100,4 +100,22 @@ public class ValidatorSetTest {
 	public void shouldRefuseAProposerForHeightZero() {
 		assertThrows(IllegalArgumentException.class, () -> setOf(3).proposerAt(0));
 	}
+
+	@Example
+	public void shouldMoveTheProposerOnWithTheView() {
+		final ValidatorSet set = setOf(3);
+
+		assertThat(set.proposerAt(1, 0), equalTo(set.proposerAt(1)));
+		assertThat(set.proposerAt(1, 1), equalTo(key(1)));
+		assertThat(set.proposerAt(2, 1), equalTo(key(2)));
+		assertThat(set.proposerAt(3, 2), equalTo(key(1)));
+	}
+
+	@Example
+	public void shouldPickAProposerForTheLargestViewAndHeight() {
+		final ValidatorSet set = setOf(7);
+
+		assertThat(set.keys().contains(set.proposerAt(Long.MAX_VALUE, Integer.MAX_VALUE)), is(true));
+		assertThrows(IllegalArgumentException.class, () -> set.proposerAt(1, -1));
+	}
 }

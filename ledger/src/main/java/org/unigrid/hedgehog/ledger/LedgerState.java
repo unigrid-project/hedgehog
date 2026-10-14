@@ -358,33 +358,34 @@ public final class LedgerState {
 			: Optional.of("State root does not match");
 	}
 
-	/* Each signature in the certificate must be over this very block. This comes last because it costs the
-	   most. */
-	private static Optional<String> signaturesRejection(Block block) {
-		return block.getEndorsements().stream().allMatch(block::isSigned) ? Optional.empty()
-			: Optional.of("Certificate holds a signature that is not valid for this block");
+	/* Each signature in the certificate must be a precommit for this very block, in the view the certificate
+	   names. This comes last because it costs the most. */
+	private Optional<String> signaturesRejection(Block block) {
+		return block.getEndorsements().stream().allMatch(endorsement -> block.isSigned(endorsement, chainId))
+			? Optional.empty() : Optional.of("Certificate holds a signature that is not valid for this block");
 	}
 
-	/* Who signed, before any signature is checked: more than 2/3 of the set, each once and in order, the
-	   proposer among them. */
+	/* The proposer need not be among the signers: a block proposed in one view can be committed in a later one,
+	   when its proposer has gone. */
 	private Optional<String> certificateRejection(Block block) {
-		final List<Endorsement> endorsements = block.getEndorsements();
+		return shapeRejection("Certificate", block.getCertificate(), validators);
+	}
 
-		if (endorsements.size() < validators.quorum()) {
-			return Optional.of("Certificate has no quorum");
+	/* Who signed, before any signature is checked: more than 2/3 of the set, each once and in order */
+	private static Optional<String> shapeRejection(String name, Certificate certificate, ValidatorSet signers) {
+		final List<Endorsement> endorsements = certificate.endorsements();
+
+		if (endorsements.size() < signers.quorum()) {
+			return Optional.of(name + " has no quorum");
 		}
 
-		if (!endorsements.stream().allMatch(endorsement -> validators.contains(endorsement.signer()))) {
-			return Optional.of("Certificate holds a signer that is not a validator");
+		if (!endorsements.stream().allMatch(endorsement -> signers.contains(endorsement.signer()))) {
+			return Optional.of(name + " holds a signer that is not a validator");
 		}
 
-		if (!IntStream.range(1, endorsements.size()).allMatch(i -> endorsements.get(i - 1).signer()
-			.compareTo(endorsements.get(i).signer()) < 0)) {
-			return Optional.of("Certificate is not sorted with each signer once");
-		}
-
-		return endorsements.stream().anyMatch(endorsement -> endorsement.signer().equals(block.getProposer()))
-			? Optional.empty() : Optional.of("Certificate lacks the proposer");
+		return IntStream.range(1, endorsements.size()).allMatch(i -> endorsements.get(i - 1).signer()
+			.compareTo(endorsements.get(i).signer()) < 0) ? Optional.empty()
+			: Optional.of(name + " is not sorted with each signer once");
 	}
 
 	private Optional<String> headerRejection(Block block) {
@@ -402,7 +403,7 @@ public final class LedgerState {
 			return Optional.of("Previous hash is not the tip");
 		}
 
-		if (!block.getProposer().equals(validators.proposerAt(block.getHeight()))) {
+		if (!block.getProposer().equals(validators.proposerAt(block.getHeight(), block.getView()))) {
 			return Optional.of("Block is not from the proposer of this height");
 		}
 
