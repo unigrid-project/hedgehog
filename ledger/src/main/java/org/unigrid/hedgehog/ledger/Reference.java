@@ -27,6 +27,7 @@ public record Reference(byte[] bytes) implements Comparable<Reference> {
 	public static final int SIZE = 32;
 
 	private static final byte[] CLAIM_TAG = "Unigrid claim v1".getBytes(StandardCharsets.US_ASCII);
+	private static final byte[] SPORK_TAG = "Unigrid mint v1".getBytes(StandardCharsets.US_ASCII);
 
 	public Reference {
 		bytes = Bytes.requireSize(bytes, SIZE, "A reference");
@@ -35,6 +36,12 @@ public record Reference(byte[] bytes) implements Comparable<Reference> {
 	/* One reference for the snapshot balance of each legacy address, so it is taken from the snapshot once */
 	public static Reference ofClaim(byte[] snapshotHash, LegacyAddress address) {
 		return new Reference(Arrays.copyOf(Digests.sha512(CLAIM_TAG, snapshotHash, address.bytes()), SIZE));
+	}
+
+	/* The reference of the mint of a spork entry, so an entry is made once whatever node proposes it */
+	public static Reference ofSpork(Address address, long height) {
+		return new Reference(Arrays.copyOf(Digests.sha512(SPORK_TAG, address.encode(), Bytes.longBytes(height)),
+			SIZE));
 	}
 
 	@Override

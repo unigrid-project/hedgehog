@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.Arrays;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -30,6 +31,7 @@ import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
+import static org.unigrid.hedgehog.ledger.LedgerFixtures.account;
 
 public class ReferenceTest {
 	@Property
@@ -70,6 +72,19 @@ public class ReferenceTest {
 		assertThat(Reference.ofClaim(hash, one), equalTo(Reference.ofClaim(hash, one)));
 		assertThat(Reference.ofClaim(hash, one), not(equalTo(Reference.ofClaim(hash, new LegacyAddress(other)))));
 		assertThat(Reference.ofClaim(hash, one), not(equalTo(Reference.ofClaim(otherHash, one))));
+	}
+
+	@Example
+	public void shouldMakeTheReferenceOfASporkMintFromTheAddressAndTheHeight() {
+		final Address key = account(1);
+		final Address legacy = new LegacyAddress(Arrays.copyOf(key.bytes(), LegacyAddress.SIZE));
+
+		assertThat(Reference.ofSpork(key, 7), equalTo(Reference.ofSpork(key, 7)));
+		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofSpork(key, 8))));
+		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofSpork(account(2), 7))));
+		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofSpork(legacy, 7))));
+		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofClaim(new byte[Digests.HASH_SIZE],
+			new LegacyAddress(new byte[LegacyAddress.SIZE])))));
 	}
 
 	@Example
