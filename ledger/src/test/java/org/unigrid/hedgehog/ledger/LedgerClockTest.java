@@ -120,6 +120,56 @@ public class LedgerClockTest {
 		}
 	}
 
+	@Example
+	public void shouldPutTheDueMintsBeforeWhatWaitsInTheMempool() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint waiting = mint(2, 5);
+			final LedgerAuthority due = TestAuthority.open().withSchedule(time -> List.of(DUE));
+			final Ledger ledger = open(fileSystem, "a", due, new AtomicLong(30_000));
+
+			ledger.submit(waiting);
+
+			assertThat(proposal(ledger, 30_000).orElseThrow().getTransactions(), equalTo(List.of(DUE, waiting)));
+		}
+	}
+
+	/* An earlier time than the tip's is lifted to it, and the due mints are listed, checked and sealed at that
+	   lifted time: a mint due exactly then is proposed, in a block that carries that time */
+	@Example
+	public void shouldProposeAtTheTimeOfTheTipWhenGivenAnEarlierOne() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint gated = mint(2, 5);
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(gated, 40_000L)), new AtomicLong(100_000));
+
+			ledger.commit(block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, FOUNDATION.size(), 40_000,
+				List.of(mint(3, 5))));
+
+			final Block next = proposal(ledger, 10_000).orElseThrow();
+
+			assertThat(next.getTime(), equalTo(40_000L));
+			assertThat(next.getTransactions(), equalTo(List.of(gated)));
+			assertThat(ledger.sign(next, seedOtherThanTheProposerOf(next)).getEndorsements().size(), equalTo(2));
+		}
+	}
+
+	@Example
+	public void shouldApplyADueMintThatAlsoWaitsInTheMempoolOnce() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), new AtomicLong(30_000));
+
+			ledger.submit(DUE);
+
+			final Block block = proposal(ledger, 30_000).orElseThrow();
+
+			assertThat(block.getTransactions(), equalTo(List.of(DUE)));
+
+			ledger.commit(certified(ledger, block));
+
+			assertThat(ledger.balanceOf(account(1)), equalTo(700L));
+			assertThat(ledger.pending(), equalTo(0));
+		}
+	}
+
 	/* A block proposed for a time before the clock leaves that time with the state, but what waits in the mempool
 	   is checked again at the time of the node */
 	@Example

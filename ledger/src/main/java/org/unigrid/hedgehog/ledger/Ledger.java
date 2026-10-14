@@ -29,7 +29,7 @@ import java.util.function.LongSupplier;
 
 public final class Ledger implements LedgerApplication {
 	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
-	   early by dating its block into the future */
+	   more than this early by dating its block ahead */
 	public static final long MAX_CLOCK_SKEW_MILLIS = 30_000;
 
 	private final LedgerState state;
