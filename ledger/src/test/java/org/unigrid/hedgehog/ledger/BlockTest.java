@@ -57,6 +57,17 @@ public class BlockTest {
 	}
 
 	@Example
+	public void shouldNotLetAGetterChangeTheHash() {
+		final Block block = builder().build();
+		final byte[] hash = block.hash();
+
+		block.getPreviousHash()[0] ^= 1;
+		block.getStateRoot()[0] ^= 1;
+		block.getTransactionRoot()[0] ^= 1;
+		assertThat(block.hash(), equalTo(hash));
+	}
+
+	@Example
 	public void shouldHashEveryHeaderFieldButNotTheCertificate() {
 		final byte[] base = builder().build().hash();
 

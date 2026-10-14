@@ -22,7 +22,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import lombok.AccessLevel;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.Value;
 
 /* A block is its header, its transactions and the certificate: the validators' signatures over the hash of
@@ -35,10 +37,10 @@ public class Block {
 		+ Digests.HASH_SIZE + AccountKey.SIZE;
 
 	private final long height;
-	private final byte[] previousHash;
+	@Getter(AccessLevel.NONE) private final byte[] previousHash;
 	private final long time;
-	private final byte[] stateRoot;
-	private final byte[] transactionRoot;
+	@Getter(AccessLevel.NONE) private final byte[] stateRoot;
+	@Getter(AccessLevel.NONE) private final byte[] transactionRoot;
 	private final List<Transaction> transactions;
 	private final AccountKey proposer;
 	private final List<Endorsement> endorsements;
@@ -55,6 +57,18 @@ public class Block {
 		this.transactions = List.copyOf(transactions);
 		this.proposer = proposer;
 		this.endorsements = List.copyOf(endorsements);
+	}
+
+	public byte[] getPreviousHash() {
+		return previousHash.clone();
+	}
+
+	public byte[] getStateRoot() {
+		return stateRoot.clone();
+	}
+
+	public byte[] getTransactionRoot() {
+		return transactionRoot.clone();
 	}
 
 	public byte[] headerBytes() {
