@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
@@ -85,6 +86,15 @@ public class ReferenceTest {
 		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofSpork(legacy, 7))));
 		assertThat(Reference.ofSpork(key, 7), not(equalTo(Reference.ofClaim(new byte[Digests.HASH_SIZE],
 			new LegacyAddress(new byte[LegacyAddress.SIZE])))));
+	}
+
+	@Example
+	public void shouldCutTheReferenceOfASporkMintFromTheTaggedHashOfTheAddressAndTheHeight() {
+		final Address key = account(1);
+		final byte[] tag = "Unigrid mint v1".getBytes(StandardCharsets.US_ASCII);
+		final byte[] hash = Digests.sha512(tag, key.encode(), Bytes.longBytes(7));
+
+		assertThat(Reference.ofSpork(key, 7), equalTo(new Reference(Arrays.copyOf(hash, Reference.SIZE))));
 	}
 
 	@Example

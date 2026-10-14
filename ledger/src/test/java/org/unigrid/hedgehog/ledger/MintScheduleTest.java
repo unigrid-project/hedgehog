@@ -41,6 +41,11 @@ public class MintScheduleTest {
 	}
 
 	@Example
+	public void shouldAcceptATipAndATimeOfZero() {
+		assertThat(new MintSchedule(0, 0).dueTime(1), equalTo(60_000L));
+	}
+
+	@Example
 	public void shouldRefuseAHeightThatDoesNotMintOnTheLedger() {
 		assertThrows(IllegalArgumentException.class, () -> SCHEDULE.dueTime(3_172_666));
 		assertThrows(IllegalArgumentException.class, () -> SCHEDULE.dueTime(0));
