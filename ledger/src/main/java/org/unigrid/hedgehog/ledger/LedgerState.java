@@ -141,7 +141,7 @@ public final class LedgerState {
 
 	/* The time the authority is asked about: the time of a block when a block is checked, the time of the node
 	   for what it takes in or proposes. Whoever owns this state sets it before asking. */
-	public void askAuthorityAt(long time) {
+	void askAuthorityAt(long time) {
 		authorityTime = time;
 	}
 
@@ -502,7 +502,7 @@ public final class LedgerState {
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
 
-		next.authorityTime = block.getTime();
+		next.askAuthorityAt(block.getTime());
 
 		final Optional<String> rejection = headerRejection(block).or(() -> viewRejection(block))
 			.or(() -> lastCommitRejection(block)).or(() -> lastCommitSignaturesRejection(block))

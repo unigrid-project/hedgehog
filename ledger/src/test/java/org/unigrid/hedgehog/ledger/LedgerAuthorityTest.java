@@ -26,6 +26,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerAuthorityTest {
@@ -53,6 +54,39 @@ public class LedgerAuthorityTest {
 
 		assertThat(reasonOf(state.proposalRejection(early)), containsString("not authorized"));
 		assertThat(state.proposalRejection(late).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldAskAtTheTimeItWasToldToWhenPickingAndSealingTheTransactionsOfABlock() {
+		final LedgerState state = soloState(mintsWhen((mint, time) -> time >= 5000));
+		final LedgerState maker = soloState(ANY_MINT);
+
+		maker.apply(soloBlock(maker, mint(1, 5)));
+		state.askAuthorityAt(4999);
+
+		assertThat(state.applicable(List.of(mint(1, 5))), equalTo(List.of()));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 5))));
+
+		state.askAuthorityAt(5000);
+
+		assertThat(state.applicable(List.of(mint(1, 5))), equalTo(List.of(mint(1, 5))));
+		assertThat(state.rootAfter(1, List.of(mint(1, 5))), equalTo(maker.stateRoot()));
+	}
+
+	@Example
+	public void shouldCarryTheTimeToACopyAndKeepItApartFromTheOriginal() {
+		final LedgerState state = soloState(mintsWhen((mint, time) -> time >= 5000));
+
+		state.askAuthorityAt(4999);
+
+		final LedgerState early = state.copy();
+
+		state.askAuthorityAt(5000);
+
+		final LedgerState late = state.copy();
+
+		assertThat(reasonOf(early.rejectionOf(mint(1, 5))), containsString("not authorized"));
+		assertThat(late.rejectionOf(mint(1, 5)).isPresent(), is(false));
 	}
 
 	@Example

@@ -36,5 +36,6 @@ public interface LedgerAuthority {
 	/* No default for these two: an authority that forgot one would let anything through */
 	boolean authorizes(Claim claim);
 
+	/* The question about the fee a node demands: does this transfer pay enough for this node to take it? */
 	boolean authorizes(Transfer transfer);
 }
