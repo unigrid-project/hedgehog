@@ -33,6 +33,14 @@ import static org.unigrid.hedgehog.ledger.ConsensusFixtures.FakeApp;
 public class ConsensusSimulationTest {
 	private static final long PROPOSE_MILLIS = 300;
 
+	/* The slowest of the runs that wait for a recovery needs about two virtual seconds on a network that works, so a
+	   minute is more than twenty times that and still ends a run that is stuck */
+	private static final long SETTLE_MILLIS = 60_000;
+
+	/* Long enough for a node that has no quorum to go through twenty views or more: a view that ends in silence lasts
+	   about 0.4 seconds at these timeouts and 0.15 seconds longer with every view */
+	private static final long OUTAGE_MILLIS = 60_000;
+
 	private record Standing(long height, int view, Consensus.Step step, int ballots) {
 	}
 
@@ -52,6 +60,14 @@ public class ConsensusSimulationTest {
 		}
 
 		assertThat(reached.getAsBoolean(), is(true));
+	}
+
+	private static void runFor(SimulatedNetwork net, long millis) {
+		net.run(net.now() + millis);
+	}
+
+	private static boolean nobodyDecided(SimulatedNetwork net) {
+		return net.nodes.stream().allMatch(node -> node.decided.isEmpty());
 	}
 
 	private static SimNode nonProposerOfViewZero(SimulatedNetwork net, long height) {
@@ -104,7 +120,7 @@ public class ConsensusSimulationTest {
 		net.begin();
 		net.run(60_000);
 
-		assertThat(net.nodes.stream().allMatch(node -> node.decided.isEmpty()), is(true));
+		assertThat(nobodyDecided(net), is(true));
 		assertThat(net.nodes.stream().allMatch(node -> node.engine.view() == 0), is(true));
 		assertThat(net.sent(), equalTo(0L));
 	}
@@ -243,7 +259,7 @@ public class ConsensusSimulationTest {
 
 		assertThat(net.sent(), greaterThan(0L));
 		assertThat(receivedByAll(net), equalTo(0));
-		assertThat(net.nodes.stream().allMatch(node -> node.decided.isEmpty()), is(true));
+		assertThat(nobodyDecided(net), is(true));
 	}
 
 	@Example
@@ -254,11 +270,114 @@ public class ConsensusSimulationTest {
 		net.begin();
 		net.run(30_000);
 
-		assertThat(net.nodes.stream().allMatch(node -> node.decided.isEmpty()), is(true));
+		assertThat(nobodyDecided(net), is(true));
 		assertThat(net.agreement(), is(true));
 
 		net.heal();
 		net.run(net.now() + 180_000);
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldMoveOnWhenTheProposerOfTheFirstViewIsCrashed() {
+		final SimulatedNetwork net = network(4, 5, 2);
+
+		net.crash(0);
+		net.begin();
+		net.run(SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(5, Set.of(0)), is(true));
+		assertThat(net.agreement(), is(true));
+		assertThat(net.nodes.get(1).decided.get(0).getView(), greaterThan(0));
+		assertThat(net.nodes.get(1).decided.get(4).getView(), greaterThan(0));
+	}
+
+	@Example
+	public void shouldDecideNothingOnEitherSideOfASplitWithoutAQuorumAndEverythingOnceItHeals() {
+		final SimulatedNetwork net = network(7, 3, 3);
+
+		net.partition(Set.of(0, 1, 2));
+		net.begin();
+		net.run(OUTAGE_MILLIS);
+
+		assertThat(nobodyDecided(net), is(true));
+		assertThat(net.agreement(), is(true));
+
+		net.heal();
+		runFor(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldKeepGoingWithOneValidatorGoneForGood() {
+		final SimulatedNetwork net = network(4, 4, 4);
+
+		net.crash(3);
+		net.begin();
+		net.run(SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(4, Set.of(3)), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldBringARestartedNodeBackToTheChain() {
+		final SimulatedNetwork net = network(4, 5, 5);
+
+		net.crash(2);
+		net.begin();
+		net.run(OUTAGE_MILLIS);
+
+		assertThat(net.everyoneReached(5, Set.of(2)), is(true));
+		assertThat(net.nodes.get(2).decided.isEmpty(), is(true));
+		assertThat(net.agreement(), is(true));
+
+		net.restart(2);
+		runFor(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(5, Set.of()), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldAgreeWithANodeThatCrashedInTheMiddleOfAViewChangeAndCameBackLater() {
+		final SimulatedNetwork net = network(4, 3, 8);
+		final SimNode node = net.nodes.get(3);
+
+		net.crash(0);
+		net.begin();
+		runUntil(net, () -> node.engine.view() == 1);
+		net.crash(node.index);
+		runFor(net, OUTAGE_MILLIS);
+
+		assertThat(nobodyDecided(net), is(true));
+		assertThat(net.agreement(), is(true));
+
+		net.restart(node.index);
+		runFor(net, SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldLetAnIsolatedNodeCatchUpThroughResentDecisionsOnceTheNetworkHeals() {
+		final SimulatedNetwork net = network(4, 3, 9);
+
+		net.partition(Set.of(3));
+		net.begin();
+		net.run(OUTAGE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of(3)), is(true));
+		assertThat(net.nodes.get(3).decided.isEmpty(), is(true));
+		assertThat(net.agreement(), is(true));
+
+		net.heal();
+		runFor(net, SETTLE_MILLIS);
 
 		assertThat(net.everyoneReached(3, Set.of()), is(true));
 		assertThat(net.agreement(), is(true));
