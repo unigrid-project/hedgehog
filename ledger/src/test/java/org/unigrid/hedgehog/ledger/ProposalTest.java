@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -37,6 +39,15 @@ public class ProposalTest {
 			.transactions(List.of()).proposer(key(1)).build();
 	}
 
+	private static Ballot prevote(int validator, long height, int view, Block block) {
+		return Ballot.signed(Ballot.Type.PREVOTE, seed(validator), CHAIN, height, view, block.hash());
+	}
+
+	private static List<Ballot> prevotes(long height, int view, Block block) {
+		return List.of(prevote(1, height, view, block), prevote(2, height, view, block),
+			prevote(3, height, view, block));
+	}
+
 	@Example
 	public void shouldVerifyOnlyForTheFieldsItWasSignedOver() {
 		final Block block = block(4, 0);
@@ -47,11 +58,11 @@ public class ProposalTest {
 
 		assertThat(proposal.hasValidSignature(CHAIN), is(true));
 		assertThat(proposal.hasValidSignature(otherChain), is(false));
-		assertThat(new Proposal(4, 3, 0, block, proposal.sender(), proposal.signature()).hasValidSignature(CHAIN),
-			is(false));
-		assertThat(new Proposal(4, 2, 1, block, proposal.sender(), proposal.signature()).hasValidSignature(CHAIN),
-			is(false));
-		assertThat(new Proposal(4, 2, 0, block(4, 1), proposal.sender(), proposal.signature())
+		assertThat(new Proposal(4, 3, 0, block, List.of(), proposal.sender(), proposal.signature())
+			.hasValidSignature(CHAIN), is(false));
+		assertThat(new Proposal(4, 2, 1, block, List.of(), proposal.sender(), proposal.signature())
+			.hasValidSignature(CHAIN), is(false));
+		assertThat(new Proposal(4, 2, 0, block(4, 1), List.of(), proposal.sender(), proposal.signature())
 			.hasValidSignature(CHAIN), is(false));
 	}
 
@@ -59,15 +70,105 @@ public class ProposalTest {
 	public void shouldBeEqualByContent() {
 		final Block block = block(4, 0);
 		final Proposal proposal = Proposal.signed(seed(1), CHAIN, 4, 2, 0, block);
-		final Proposal same = new Proposal(4, 2, 0, block, proposal.sender(), proposal.signature());
+		final Proposal same = new Proposal(4, 2, 0, block, List.of(), proposal.sender(), proposal.signature());
 
 		assertThat(proposal, equalTo(same));
 		assertThat(proposal.hashCode(), equalTo(same.hashCode()));
 		assertThat(Proposal.signed(seed(2), CHAIN, 4, 2, 0, block), not(equalTo(proposal)));
-		assertThat(new Proposal(4, 3, 0, block, proposal.sender(), proposal.signature()), not(equalTo(proposal)));
-		assertThat(new Proposal(4, 2, 1, block, proposal.sender(), proposal.signature()), not(equalTo(proposal)));
-		assertThat(new Proposal(4, 2, 0, block(4, 1), proposal.sender(), proposal.signature()),
+		assertThat(new Proposal(4, 3, 0, block, List.of(), proposal.sender(), proposal.signature()),
 			not(equalTo(proposal)));
+		assertThat(new Proposal(4, 2, 1, block, List.of(), proposal.sender(), proposal.signature()),
+			not(equalTo(proposal)));
+		assertThat(new Proposal(4, 2, 0, block(4, 1), List.of(), proposal.sender(), proposal.signature()),
+			not(equalTo(proposal)));
+	}
+
+	@Example
+	public void shouldCarryTheProofOfThePrevotesItNames() {
+		final Block block = block(4, 0);
+		final List<Ballot> proof = prevotes(4, 1, block);
+		final Proposal proposal = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, proof);
+
+		assertThat(proposal.polka(), equalTo(proof));
+		assertThat(Proposal.signed(seed(1), CHAIN, 4, 2, 1, block).polka().isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldLeaveTheProofOutOfTheSignature() {
+		final Block block = block(4, 0);
+		final Proposal bare = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block);
+		final Proposal proved = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, prevotes(4, 1, block));
+		final Proposal stripped = new Proposal(4, 2, 1, block, List.of(), proved.sender(), proved.signature());
+		final Proposal swapped = new Proposal(4, 2, 1, block, prevotes(4, 1, block).subList(0, 2), proved.sender(),
+			proved.signature());
+
+		assertThat(bare.hasValidSignature(CHAIN), is(true));
+		assertThat(proved.hasValidSignature(CHAIN), is(true));
+		assertThat(stripped.hasValidSignature(CHAIN), is(true));
+		assertThat(swapped.hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
+	public void shouldNotBeEqualToAProposalWithAnotherProof() {
+		final Block block = block(4, 0);
+		final Proposal proved = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, prevotes(4, 1, block));
+		final Proposal same = new Proposal(4, 2, 1, block, prevotes(4, 1, block), proved.sender(),
+			proved.signature());
+		final Proposal fewer = new Proposal(4, 2, 1, block, prevotes(4, 1, block).subList(0, 2), proved.sender(),
+			proved.signature());
+
+		assertThat(proved, equalTo(same));
+		assertThat(proved.hashCode(), equalTo(same.hashCode()));
+		assertThat(fewer, not(equalTo(proved)));
+		assertThat(Proposal.signed(seed(1), CHAIN, 4, 2, 1, block), not(equalTo(proved)));
+	}
+
+	@Example
+	public void shouldRefuseAProofBallotThatDoesNotProveThisBlockInTheValidRound() {
+		final Block block = block(4, 0);
+		final Ballot precommit = Ballot.signed(Ballot.Type.PRECOMMIT, seed(1), CHAIN, 4, 1, block.hash());
+
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			List.of(precommit)));
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			List.of(prevote(1, 5, 1, block))));
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			List.of(prevote(1, 4, 0, block))));
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			List.of(prevote(1, 4, 1, block(4, 1)))));
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			List.of(prevote(1, 4, 1, block), prevote(2, 4, 1, block(4, 1)))));
+	}
+
+	@Example
+	public void shouldRefuseAProofForANewBlock() {
+		final Block block = block(4, 0);
+
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, -1, block,
+			prevotes(4, 0, block)));
+	}
+
+	@Example
+	public void shouldRefuseMoreProofBallotsThanThereCanBeValidators() {
+		final Block block = block(4, 0);
+		final Ballot ballot = prevote(1, 4, 1, block);
+
+		assertThat(Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			Collections.nCopies(ValidatorSet.MAX_SIZE, ballot)).polka().size(), is(ValidatorSet.MAX_SIZE));
+		assertThrows(IllegalArgumentException.class, () -> Proposal.signed(seed(1), CHAIN, 4, 2, 1, block,
+			Collections.nCopies(ValidatorSet.MAX_SIZE + 1, ballot)));
+	}
+
+	@Example
+	public void shouldKeepItsOwnCopyOfTheProof() {
+		final Block block = block(4, 0);
+		final List<Ballot> proof = new ArrayList<>(prevotes(4, 1, block));
+		final Proposal proposal = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, proof);
+
+		proof.clear();
+
+		assertThat(proposal.polka().size(), is(3));
+		assertThrows(UnsupportedOperationException.class, () -> proposal.polka().clear());
 	}
 
 	@Example

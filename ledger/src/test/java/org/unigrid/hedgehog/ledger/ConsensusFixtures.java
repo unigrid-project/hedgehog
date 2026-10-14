@@ -38,7 +38,11 @@ final class ConsensusFixtures {
 
 	/* Signed by the proposer of the view in a set of four validators, at the first height */
 	static Proposal proposal(int view, int validRound, Block block) {
-		return Proposal.signed(LedgerFixtures.seed(1 + (view % 4)), CHAIN, 1, view, validRound, block);
+		return proposal(view, validRound, block, List.of());
+	}
+
+	static Proposal proposal(int view, int validRound, Block block, List<Ballot> polka) {
+		return Proposal.signed(LedgerFixtures.seed(1 + (view % 4)), CHAIN, 1, view, validRound, block, polka);
 	}
 
 	static Ballot ballot(Ballot.Type type, int validator, int view, Block block) {

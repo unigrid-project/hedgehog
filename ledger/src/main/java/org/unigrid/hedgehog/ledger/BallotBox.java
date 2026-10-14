@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.stream.Stream;
 
 /* The ballots of one height as they come in: who said what in which view. The box checks the signature of every
    ballot it has not seen before, so a forged ballot can neither count towards a quorum nor become evidence. A
@@ -95,8 +96,12 @@ final class BallotBox {
 	}
 
 	int count(Ballot.Type type, int view, byte[] hash) {
-		return (int) slot(type, view).values().stream().filter(ballot -> Arrays.equals(ballot.blockHash(), hash))
-			.count();
+		return (int) forHash(type, view, hash).count();
+	}
+
+	/* The ballots as they were stored, for a proof that a node which never saw them can check by itself */
+	List<Ballot> ballotsFor(Ballot.Type type, int view, byte[] hash) {
+		return forHash(type, view, hash).toList();
 	}
 
 	int countAny(Ballot.Type type, int view) {
@@ -112,8 +117,7 @@ final class BallotBox {
 	}
 
 	List<Endorsement> endorsements(int view, byte[] hash) {
-		return slot(Ballot.Type.PRECOMMIT, view).values().stream()
-			.filter(ballot -> Arrays.equals(ballot.blockHash(), hash)).map(Ballot::endorsement)
+		return forHash(Ballot.Type.PRECOMMIT, view, hash).map(Ballot::endorsement)
 			.sorted(Comparator.comparing(Endorsement::signer)).toList();
 	}
 
@@ -162,6 +166,10 @@ final class BallotBox {
 
 	private static boolean sameBlock(Ballot one, Ballot other) {
 		return Arrays.equals(one.blockHash(), other.blockHash());
+	}
+
+	private Stream<Ballot> forHash(Ballot.Type type, int view, byte[] hash) {
+		return slot(type, view).values().stream().filter(ballot -> Arrays.equals(ballot.blockHash(), hash));
 	}
 
 	/* A question about a view nobody has voted in must not allocate a slot, or a far-ahead view would grow the box */

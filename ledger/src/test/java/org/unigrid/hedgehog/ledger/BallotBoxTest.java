@@ -298,6 +298,51 @@ public class BallotBoxTest {
 	}
 
 	@Example
+	public void shouldListThePrevotesForOneHashAndViewInTheOrderTheyWereStored() {
+		final BallotBox box = box();
+		final Ballot first = ballot(PREVOTE, 3, 0, A);
+		final Ballot second = ballot(PREVOTE, 1, 0, A);
+		final Ballot third = ballot(PREVOTE, 4, 0, A);
+
+		box.add(first);
+		box.add(ballot(PREVOTE, 2, 0, B));
+		box.add(second);
+		box.add(ballot(PREVOTE, 2, 1, A));
+		box.add(ballot(PRECOMMIT, 2, 0, A));
+		box.add(third);
+
+		assertThat(box.ballotsFor(PREVOTE, 0, A), equalTo(List.of(first, second, third)));
+	}
+
+	@Example
+	public void shouldListNoBallotsForAnotherHashViewOrType() {
+		final BallotBox box = box();
+
+		box.add(ballot(PREVOTE, 1, 0, A));
+		box.add(ballot(PRECOMMIT, 2, 0, A));
+
+		assertThat(box.ballotsFor(PREVOTE, 0, B).isEmpty(), is(true));
+		assertThat(box.ballotsFor(PREVOTE, 1, A).isEmpty(), is(true));
+		assertThat(box.ballotsFor(PRECOMMIT, 0, B).isEmpty(), is(true));
+		assertThat(box.ballotsFor(PREVOTE, 1_000_000, A).isEmpty(), is(true));
+		assertThat(box.size(), equalTo(2));
+	}
+
+	@Example
+	public void shouldNotListARefusedOrContradictingBallotForAHash() {
+		final BallotBox box = box();
+		final Ballot kept = ballot(PREVOTE, 1, 0, A);
+
+		box.add(kept);
+		box.add(ballot(PREVOTE, 1, 0, B));
+		box.add(forged(PREVOTE, 2, 0, A));
+		box.add(Ballot.signed(PREVOTE, seed(3), CHAIN, 2, 0, A));
+
+		assertThat(box.ballotsFor(PREVOTE, 0, A), equalTo(List.of(kept)));
+		assertThat(box.ballotsFor(PREVOTE, 0, B).isEmpty(), is(true));
+	}
+
+	@Example
 	public void shouldCountTheBallotsStoredInAllSlots() {
 		final BallotBox box = box();
 

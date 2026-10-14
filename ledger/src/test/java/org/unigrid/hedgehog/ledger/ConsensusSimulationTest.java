@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BooleanSupplier;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -45,6 +46,11 @@ public class ConsensusSimulationTest {
 	/* The slowest of the runs that wait for a recovery needs about two virtual seconds on a network that works, so a
 	   minute is more than twenty times that and still ends a run that is stuck */
 	private static final long SETTLE_MILLIS = 60_000;
+
+	/* With a liar that tells different stories the nodes decide in view 2, after the first two views have failed, in
+	   about one and a third virtual seconds on links of constant delay. Half a minute is more than twenty times that
+	   and still ends a run that is stuck. */
+	private static final long LIAR_SETTLE_MILLIS = 30_000;
 
 	/* A stretch in which fewer than a quorum of the nodes can talk to one another. The prevote and precommit timers
 	   only arm once a quorum of ballots is in, so here they never do and the nodes stay where they are, in view 0 in
@@ -190,6 +196,21 @@ public class ConsensusSimulationTest {
 
 		return net.nodes.stream().filter(node -> !Ed25519.publicKey(node.seed).equals(proposer)).findFirst()
 			.orElseThrow();
+	}
+
+	/* What the liar tells a node it wants to mislead: a proposal and a prevote for the same block, and then more */
+	private static Message[] story(Liar liar, Block block, Message... more) {
+		final Stream<Message> told = Stream.of(liar.proposal(0, -1, block), liar.vote(PREVOTE, 0, block));
+
+		return Stream.concat(told, Arrays.stream(more)).toArray(Message[]::new);
+	}
+
+	private static boolean decidedFirst(SimulatedNetwork net, int index, Block block) {
+		return Arrays.equals(net.nodes.get(index).decided.get(0).hash(), block.hash());
+	}
+
+	private static boolean decidedInViewTwoOrLater(SimulatedNetwork net, int index) {
+		return net.nodes.get(index).decided.get(0).getCertificate().view() >= 2;
 	}
 
 	private static List<List<ByteBuffer>> decidedHashes(SimulatedNetwork net) {
@@ -498,7 +519,7 @@ public class ConsensusSimulationTest {
 		assertThat(net.agreement(), is(true));
 	}
 
-	/* The form of the attack that the nodes get through: the proposals alone, without the prevotes of the liar */
+	/* The proposals alone, without the prevotes of the liar: no block gets a prevote quorum in view 0 */
 	@Example
 	public void shouldMoveOnWhenTheProposerTellsTwoHalvesOfTheNetworkTwoBlocks() {
 		final SimulatedNetwork net = network(4, 3, 6);
@@ -523,12 +544,11 @@ public class ConsensusSimulationTest {
 		assertThat(net.nodes.get(1).decided.get(0).getView(), greaterThan(0));
 	}
 
-	/* Only agreement is claimed. The three honest nodes cannot finish at present: the node told about the first block
-	   counts only the first prevote of the liar, so it never sees a prevote quorum for the second block, and nodes do
-	   not learn each other's locks. A known gap, closed once a re-proposal carries proof of its prevote quorum.
-	   TODO: assert that the three honest nodes decide once a re-proposal carries proof of its prevote quorum */
+	/* The two nodes told about the second block see a prevote quorum for it, the liar and themselves, and lock on it.
+	   The node told about the first block counts only the first prevote of the liar and never sees that quorum, so
+	   it can follow a later view only by the proof that the block put forward again carries. */
 	@Example
-	public void shouldNeverDecideTwoBlocksWhenTheProposerPrevotesForBothOfThem() {
+	public void shouldAgreeOnTheLockedBlockWhenTheProposerProposesAndPrevotesTwoBlocks() {
 		final SimulatedNetwork net = network(4, 3, 6);
 		final Liar liar = liar(net, 0);
 		final Block one = liar.block(0, "one");
@@ -538,16 +558,74 @@ public class ConsensusSimulationTest {
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
 		net.after(50, () -> {
-			liar.tell(1, liar.proposal(0, -1, one), liar.vote(PREVOTE, 0, one));
-			liar.tell(2, liar.proposal(0, -1, two), liar.vote(PREVOTE, 0, two));
-			liar.tell(3, liar.proposal(0, -1, two), liar.vote(PREVOTE, 0, two));
+			liar.tell(1, story(liar, one));
+			liar.tell(2, story(liar, two));
+			liar.tell(3, story(liar, two));
 		});
 		net.run(100);
 
 		assertThat(allInStep(net, honest, Consensus.Step.PREVOTE), is(true));
 		assertThat(honest.stream().allMatch(index -> net.nodes.get(index).engine.storedBallots() == 2), is(true));
 
-		runAgreeing(net, SETTLE_MILLIS);
+		runAgreeingUntil(net, LIAR_SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of(0)));
+
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(honest.stream().allMatch(index -> decidedFirst(net, index, two)), is(true));
+	}
+
+	/* The liar also takes back its precommit, which each node sees as a second word of the liar in that view and
+	   keeps as evidence. Its first word is a precommit for no block, which makes the third precommit of view 0 at the
+	   nodes that lock and so takes them to the next view instead of letting them decide at once. */
+	@Example
+	public void shouldAgreeOnTheLockedBlockWhenTheProposerAlsoPrecommitsTwice() {
+		final SimulatedNetwork net = network(4, 3, 6);
+		final Liar liar = liar(net, 0);
+		final Block one = liar.block(0, "one");
+		final Block two = liar.block(0, "two");
+		final Set<Integer> honest = Set.of(1, 2, 3);
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(50, () -> {
+			liar.tell(1, story(liar, one, liar.vote(PRECOMMIT, 0, null), liar.vote(PRECOMMIT, 0, one)));
+			liar.tell(2, story(liar, two, liar.vote(PRECOMMIT, 0, null), liar.vote(PRECOMMIT, 0, two)));
+			liar.tell(3, story(liar, two, liar.vote(PRECOMMIT, 0, null), liar.vote(PRECOMMIT, 0, two)));
+		});
+		net.run(100);
+
+		assertThat(allInStep(net, honest, Consensus.Step.PREVOTE), is(true));
+		assertThat(honest.stream().allMatch(index -> net.nodes.get(index).engine.storedBallots() == 3), is(true));
+		assertThat(honest.stream().allMatch(index -> net.nodes.get(index).engine.evidence().size() == 1), is(true));
+
+		runAgreeingUntil(net, LIAR_SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of(0)));
+
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(honest.stream().allMatch(index -> decidedFirst(net, index, two)), is(true));
+	}
+
+	/* Node 1 is the proposer of view 1 and node 0, the one of view 0, is down. The block the liar puts forward is a
+	   right one, with the header of view 0, so that it is the proof alone that the nodes have to judge: ballots that
+	   carry the keys of the validators and the signature of the liar. */
+	@Example
+	public void shouldIgnoreAMadeUpProofOfAProposerInALaterViewAndStillAgree() {
+		final SimulatedNetwork net = network(7, 1, 15);
+		final Liar liar = liar(net, 1);
+		final Set<Integer> honest = Set.of(2, 3, 4, 5, 6);
+		final Block made = net.nodes.get(2).app.block(1, 0, net.validators.proposerAt(1, 0), 10, "made up");
+		final byte[] signature = liar.vote(PREVOTE, 0, made).signature();
+		final List<Ballot> madeUp = honest.stream().sorted().map(index -> new Ballot(PREVOTE, 1, 0, made.hash(),
+			net.validators.keys().get(index), signature)).toList();
+
+		net.crash(0);
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(1, () -> honest.forEach(to -> liar.tell(to,
+			Proposal.signed(liar.node.seed, ConsensusFixtures.CHAIN, 1, 1, 0, made, madeUp))));
+		runAgreeingUntil(net, LIAR_SETTLE_MILLIS, () -> net.everyoneReached(1, Set.of(0, 1)));
+
+		assertThat(net.everyoneReached(1, Set.of(0, 1)), is(true));
+		assertThat(honest.stream().noneMatch(index -> decidedFirst(net, index, made)), is(true));
+		assertThat(honest.stream().allMatch(index -> decidedInViewTwoOrLater(net, index)), is(true));
 	}
 
 	@Example

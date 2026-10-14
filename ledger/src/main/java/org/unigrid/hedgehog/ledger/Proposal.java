@@ -20,13 +20,17 @@ package org.unigrid.hedgehog.ledger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 
 /* The proposer of a view puts a block forward. `validRound` is -1 for a block that is new, or the earlier view in
    which the block already got more than 2/3 of the prevotes, when the proposer puts it forward again; the block
-   keeps its own header, so it keeps its identity. The sender signs the view, the valid round and the block hash. */
-public record Proposal(long height, int view, int validRound, Block block, AccountKey sender, byte[] signature)
-	implements Message {
+   keeps its own header, so it keeps its identity. The sender signs the view, the valid round and the block hash.
+   `polka` holds the prevotes that prove that quorum, for a node that never saw them. The signature leaves it out:
+   every ballot proves itself, so a proof that is stripped or changed on the way only becomes useless to the
+   receiver and can never make it believe something false. */
+public record Proposal(long height, int view, int validRound, Block block, List<Ballot> polka, AccountKey sender,
+	byte[] signature) implements Message {
 	private static final byte[] TAG = "Unigrid proposal v1".getBytes(StandardCharsets.US_ASCII);
 
 	public Proposal {
@@ -43,11 +47,18 @@ public record Proposal(long height, int view, int validRound, Block block, Accou
 				+ ", not " + height);
 		}
 
+		polka = List.copyOf(polka);
+		requireProofOf(height, validRound, block, polka);
 		signature = Bytes.requireSize(signature, Ed25519.SIGNATURE_SIZE, "A proposal signature");
 	}
 
 	public static Proposal signed(byte[] seed, byte[] chainId, long height, int view, int validRound, Block block) {
-		return new Proposal(height, view, validRound, block, Ed25519.publicKey(seed),
+		return signed(seed, chainId, height, view, validRound, block, List.of());
+	}
+
+	public static Proposal signed(byte[] seed, byte[] chainId, long height, int view, int validRound, Block block,
+		List<Ballot> polka) {
+		return new Proposal(height, view, validRound, block, polka, Ed25519.publicKey(seed),
 			Ed25519.sign(seed, payload(chainId, height, view, validRound, block.hash())));
 	}
 
@@ -63,16 +74,40 @@ public record Proposal(long height, int view, int validRound, Block block, Accou
 	@Override
 	public boolean equals(Object other) {
 		return other instanceof Proposal proposal && sameRound(proposal) && block.equals(proposal.block)
-			&& sender.equals(proposal.sender) && Arrays.equals(signature, proposal.signature);
+			&& polka.equals(proposal.polka) && sender.equals(proposal.sender)
+			&& Arrays.equals(signature, proposal.signature);
 	}
 
 	@Override
 	public int hashCode() {
-		return 31 * Objects.hash(height, view, validRound, block, sender) + Arrays.hashCode(signature);
+		return 31 * Objects.hash(height, view, validRound, block, polka, sender) + Arrays.hashCode(signature);
 	}
 
 	private boolean sameRound(Proposal other) {
 		return height == other.height && view == other.view && validRound == other.validRound;
+	}
+
+	private static void requireProofOf(long height, int validRound, Block block, List<Ballot> polka) {
+		if (polka.size() > ValidatorSet.MAX_SIZE) {
+			throw new IllegalArgumentException("A proof holds at most " + ValidatorSet.MAX_SIZE
+				+ " ballots, found " + polka.size());
+		}
+
+		if (validRound == -1 && !polka.isEmpty()) {
+			throw new IllegalArgumentException("A new block has no earlier prevotes to prove");
+		}
+
+		final byte[] blockHash = block.hash();
+
+		polka.forEach(ballot -> requireOnePrevoteOf(ballot, height, validRound, blockHash));
+	}
+
+	private static void requireOnePrevoteOf(Ballot ballot, long height, int validRound, byte[] blockHash) {
+		if (ballot.type() != Ballot.Type.PREVOTE || ballot.height() != height || ballot.view() != validRound
+			|| !Arrays.equals(ballot.blockHash(), blockHash)) {
+			throw new IllegalArgumentException("A proof holds only prevotes of height " + height + ", view "
+				+ validRound + " and the hash of the block, found " + ballot);
+		}
 	}
 
 	private static byte[] payload(byte[] chainId, long height, int view, int validRound, byte[] blockHash) {

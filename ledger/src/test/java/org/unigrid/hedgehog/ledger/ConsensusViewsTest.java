@@ -18,10 +18,12 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.Arrays;
 import java.util.List;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.Action.*;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.*;
@@ -66,6 +68,39 @@ public class ConsensusViewsTest {
 		engine.onMessage(proposal(view, validRound, block), 100 + view);
 		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, view, block), 100 + view);
 		engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, view, block), 100 + view);
+	}
+
+	private static Ballot prevoteBy(int validator, int view, Block block) {
+		return ballot(Ballot.Type.PREVOTE, validator, view, block);
+	}
+
+	private static List<Ballot> prevotesOf(Block block, int view, int... voters) {
+		return Arrays.stream(voters).mapToObj(voter -> prevoteBy(voter, view, block)).toList();
+	}
+
+	/* A proof of the prevotes of view 1 in which the third ballot carries the signature of another validator */
+	private static List<Ballot> withForgedThird(Block block) {
+		final Ballot forged = new Ballot(Ballot.Type.PREVOTE, 1, 1, block.hash(), key(3),
+			prevoteBy(4, 1, block).signature());
+
+		return List.of(prevoteBy(1, 1, block), prevoteBy(2, 1, block), forged);
+	}
+
+	/* The node has seen nothing of view 1: two validators that are already in view 2 take it there */
+	private void inViewTwo() {
+		engine.start(1, validators, 0);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 2, null), 20);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 2, null), 21);
+
+		assertThat(engine.view(), equalTo(2));
+	}
+
+	/* A proposal whose block cannot be proven yet is neither voted for nor voted against at once: the node waits for
+	   the proof to turn up, and gives up on the block when the time for the proposal of the view is over */
+	private void prevotesNilOnlyWhenTheProposeTimerFires(Proposal proposal) {
+		assertThat(ballots(engine.onMessage(proposal, 6000)).isEmpty(), is(true));
+		assertThat(engine.step(), equalTo(Consensus.Step.PROPOSE));
+		assertThat(prevoteOf(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 2), 9000)).isNil(), is(true));
 	}
 
 	/* More than 2/3 of the precommits are in, none of them decisive, so the precommit timeout takes the node on */
@@ -465,6 +500,148 @@ public class ConsensusViewsTest {
 		assertThat(engine.view(), equalTo(2));
 
 		final Ballot prevote = prevoteOf(engine.onMessage(again, 6000));
+
+		assertThat(prevote.view(), equalTo(2));
+		assertThat(prevote.blockHash(), equalTo(b.hash()));
+	}
+
+	@Example
+	public void shouldPrevoteABlockPutForwardAgainWhenItsProofHoldsThePrevotesItNeverSaw() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		final Ballot prevote = prevoteOf(engine.onMessage(proposal(2, 1, b, prevotesOf(b, 1, 1, 2, 3)), 6000));
+
+		assertThat(prevote.view(), equalTo(2));
+		assertThat(prevote.blockHash(), equalTo(b.hash()));
+		assertThat(engine.storedBallots(), equalTo(3));
+	}
+
+	@Example
+	public void shouldPrevoteNilForABlockPutForwardAgainWithTooFewPrevotesInItsProof() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, prevotesOf(b, 1, 1, 2)));
+	}
+
+	@Example
+	public void shouldPrevoteNilForABlockPutForwardAgainWithAForgedPrevoteInItsProof() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, withForgedThird(b)));
+	}
+
+	@Example
+	public void shouldCountEachValidatorOnceInTheProofOfABlockPutForwardAgain() {
+		final Block b = proposed(1, "b");
+		final Ballot one = ballot(Ballot.Type.PREVOTE, 1, 1, b);
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, List.of(one, one, prevoteBy(2, 1, b))));
+	}
+
+	@Example
+	public void shouldNotCountAKeyOutsideTheSetInTheProofOfABlockPutForwardAgain() {
+		final Block b = proposed(1, "b");
+		final Ballot stranger = Ballot.signed(Ballot.Type.PREVOTE, seed(9), CHAIN, 1, 1, b.hash());
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, List.of(prevoteBy(1, 1, b), prevoteBy(2, 1, b),
+			stranger)));
+	}
+
+	@Example
+	public void shouldStayLockedOnAnotherBlockWhateverTheProofOfABlockPutForwardAgainSays() {
+		final Block b = proposed(0, "b");
+		final Block c = proposed(1, "c");
+
+		engine.start(1, validators, 0);
+		engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000);
+		endView(0);
+		lockOn(1, -1, c);
+		endView(1);
+
+		assertThat(engine.view(), equalTo(2));
+		assertThat(engine.lockedView(), equalTo(1));
+		assertThat(prevoteOf(engine.onMessage(proposal(2, 0, b, prevotesOf(b, 0, 1, 2, 3)), 5001)).isNil(),
+			is(true));
+	}
+
+	@Example
+	public void shouldPrevoteABlockPutForwardAgainWithAProofWhenLockedOnAnotherAtOrBeforeItsValidRound() {
+		final Block a = proposed(0, "a");
+		final Block b = proposed(1, "b");
+
+		engine.start(1, validators, 0);
+		lockOn(0, -1, a);
+		endView(0);
+		endView(1);
+
+		assertThat(engine.view(), equalTo(2));
+		assertThat(engine.lockedView(), equalTo(0));
+
+		final Ballot prevote = prevoteOf(engine.onMessage(proposal(2, 1, b, prevotesOf(b, 1, 1, 2, 3)), 5001));
+
+		assertThat(prevote.view(), equalTo(2));
+		assertThat(prevote.blockHash(), equalTo(b.hash()));
+	}
+
+	@Example
+	public void shouldCarryTheQuorumOfPrevotesItSawWhenItPutsABlockForwardAgain() {
+		final Block a = proposed(0, "a");
+
+		leader.start(1, validators, 0);
+		leader.onMessage(proposal(0, -1, a), 10);
+		leader.onMessage(ballot(Ballot.Type.PREVOTE, 1, 0, a), 11);
+		leader.onMessage(ballot(Ballot.Type.PREVOTE, 3, 0, a), 12);
+		leader.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 13);
+		leader.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, null), 14);
+		leader.onMessage(ballot(Ballot.Type.PRECOMMIT, 4, 0, null), 15);
+
+		final Proposal again = proposalsSent(leader.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 5000)).get(0);
+
+		assertThat(again.validRound(), equalTo(0));
+		assertThat(again.polka().size(), greaterThanOrEqualTo(validators.quorum()));
+		assertThat(again.polka().stream().map(Ballot::validator).distinct().count(),
+			equalTo((long) again.polka().size()));
+		assertThat(again.polka().stream().allMatch(vote -> vote.type() == Ballot.Type.PREVOTE && vote.view() == 0
+			&& Arrays.equals(vote.blockHash(), a.hash()) && vote.hasValidSignature(CHAIN)), is(true));
+		assertThat(again.hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
+	public void shouldCarryNoProofForANewBlock() {
+		leader.start(1, validators, 0);
+		leader.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000);
+		leader.onMessage(ballot(Ballot.Type.PREVOTE, 1, 0, null), 3001);
+		leader.onMessage(ballot(Ballot.Type.PREVOTE, 3, 0, null), 3002);
+		leader.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 3003);
+		leader.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, null), 3004);
+
+		final Proposal fresh = proposalsSent(leader.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 4005)).get(0);
+
+		assertThat(fresh.validRound(), equalTo(-1));
+		assertThat(fresh.polka().isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldStillPrevoteABlockOnceItsRealQuorumArrivesAfterAProofThatDidNotHold() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		assertThat(ballots(engine.onMessage(proposal(2, 1, b, withForgedThird(b)), 6000)).isEmpty(), is(true));
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 1, b), 6001);
+		assertThat(engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 1, b), 6002).isEmpty(), is(true));
+
+		final Ballot prevote = prevoteOf(engine.onMessage(ballot(Ballot.Type.PREVOTE, 3, 1, b), 6003));
 
 		assertThat(prevote.view(), equalTo(2));
 		assertThat(prevote.blockHash(), equalTo(b.hash()));

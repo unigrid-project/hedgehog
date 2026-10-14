@@ -66,6 +66,7 @@ public final class Consensus {
 	/* Ordered by view, so that when two views have a quorum the same one is found first on every run */
 	private final Map<Integer, Proposal> proposals = new TreeMap<>();
 	private final Map<ByteBuffer, Boolean> validity = new HashMap<>();
+	private final Map<Integer, Boolean> proofs = new HashMap<>();
 	private final Set<Integer> polkas = new HashSet<>();
 	private final Set<Integer> prevoteTimers = new HashSet<>();
 	private final Set<Integer> precommitTimers = new HashSet<>();
@@ -198,6 +199,7 @@ public final class Consensus {
 		validView = -1;
 		proposals.clear();
 		validity.clear();
+		proofs.clear();
 		polkas.clear();
 		prevoteTimers.clear();
 		precommitTimers.clear();
@@ -307,8 +309,10 @@ public final class Consensus {
 		return validBlock != null ? Optional.of(validBlock) : app.propose(height, view, now);
 	}
 
+	/* A new block has no valid view, so there are no prevotes to carry along with it */
 	private void sendProposal(Block block) {
-		final Proposal proposal = Proposal.signed(seed, chainId, height, view, validView, block);
+		final List<Ballot> polka = box.ballotsFor(Ballot.Type.PREVOTE, validView, block.hash());
+		final Proposal proposal = Proposal.signed(seed, chainId, height, view, validView, block, polka);
 
 		proposals.put(view, proposal);
 		box.seen(self, view);
@@ -456,7 +460,31 @@ public final class Consensus {
 
 	private boolean readyToVote(Proposal proposal) {
 		return proposal.validRound() == -1
-			|| box.quorumFor(Ballot.Type.PREVOTE, proposal.validRound(), proposal.block().hash());
+			|| box.quorumFor(Ballot.Type.PREVOTE, proposal.validRound(), proposal.block().hash())
+			|| proofHolds(proposal);
+	}
+
+	/* A re-proposal may carry the prevotes that make up its quorum, for a node that never saw them: the quorum
+	   counts when more than 2/3 of the validators, each once, signed for this block in that view on this chain.
+	   It is worked out once per view and not kept in the ballot box. */
+	private boolean proofHolds(Proposal proposal) {
+		return proofs.computeIfAbsent(proposal.view(), key -> checkProof(proposal));
+	}
+
+	private boolean checkProof(Proposal proposal) {
+		final Set<AccountKey> signers = new HashSet<>();
+
+		for (final Ballot vote : proposal.polka()) {
+			if (isNewSigner(vote, signers) && vote.hasValidSignature(chainId)) {
+				signers.add(vote.validator());
+			}
+		}
+
+		return signers.size() >= validators.quorum();
+	}
+
+	private boolean isNewSigner(Ballot vote, Set<AccountKey> signers) {
+		return validators.contains(vote.validator()) && !signers.contains(vote.validator());
 	}
 
 	/* A node locked on a block votes only for it, unless the proposal proves that more than 2/3 prevoted for the

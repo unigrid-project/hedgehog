@@ -80,7 +80,7 @@ public class ConsensusViewTest {
 	@Example
 	public void shouldIgnoreAProposalThatIsNotRightAndStillTakeTheRealOne() {
 		final Block block = proposed(0, "a");
-		final Proposal forged = new Proposal(1, 0, -1, block, key(1), new byte[64]);
+		final Proposal forged = new Proposal(1, 0, -1, block, List.of(), key(1), new byte[64]);
 		final Proposal otherChain = Proposal.signed(seed(1), new byte[Digests.HASH_SIZE], 1, 0, -1, block);
 		final Proposal otherHeight = Proposal.signed(seed(1), CHAIN, 2, 0, -1, app.block(2, 0, key(1), 100, "a"));
 
