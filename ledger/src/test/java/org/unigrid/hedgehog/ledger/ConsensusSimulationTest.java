@@ -55,8 +55,8 @@ public class ConsensusSimulationTest {
 	private static final long LIAR_SETTLE_MILLIS = 30_000;
 
 	/* A stretch in which fewer than a quorum of the nodes can talk to one another. The prevote and precommit timers
-	   only arm once a quorum of ballots is in, so here they never do and the nodes stay where they are, in view 0 in
-	   the prevote step. What the minute checks is that nobody decides without a quorum. */
+	   only arm once a quorum of ballots is in, so here they never do and the nodes stay where they are, in the view
+	   and the step the outage found them in. What the minute checks is that nobody decides without a quorum. */
 	private static final long OUTAGE_MILLIS = 60_000;
 
 	/* A decision is a matter of milliseconds once the votes are in, so this catches a disagreement soon after it
@@ -550,6 +550,7 @@ public class ConsensusSimulationTest {
 		final Block two = liar.block(0, "two");
 		final Set<Integer> honest = Set.of(1, 2, 3);
 
+		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
 		net.after(50, () -> {
 			liar.tell(1, liar.proposal(0, -1, one));
