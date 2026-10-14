@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
@@ -313,15 +314,18 @@ public class LedgerTest {
 	@Example
 	public void shouldRefuseToClaimTheSameAddressAgainThroughTheLedger() throws IOException {
 		final LegacyWallet wallet = new LegacyWallet(1, true);
+		final Map<LegacyAddress, Long> balances = Map.of(wallet.address(), 200L,
+			new LegacyWallet(2, true).address(), 300L);
 
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem,
-				stateWithSnapshot(ANY_MINT, FOUNDATION, 500, Map.of(wallet.address(), 500L)));
+			final Ledger ledger = open(fileSystem, stateWithSnapshot(ANY_MINT, FOUNDATION, 500, balances));
 
 			ledger.submit(wallet.claim(account(1), ledger.chainId()));
 			seal(ledger, FOUNDATION, 2000);
 
-			assertThat(ledger.submit(wallet.claim(account(2), ledger.chainId())).isPresent(), is(true));
+			final Optional<String> refused = ledger.submit(wallet.claim(account(2), ledger.chainId()));
+
+			assertThat(refused.orElse(""), containsString("already claimed"));
 			assertThat(ledger.balanceOf(account(2)), equalTo(0L));
 		}
 	}

@@ -243,7 +243,9 @@ public class LedgerClaimTest {
 		final Block block = withTransactions(state, soloBlock(state, valid), valid,
 			OTHER.claim(account(2), state.chainId()));
 
-		assertThrows(InvalidBlockException.class, () -> state.apply(block));
+		final InvalidBlockException refused = assertThrows(InvalidBlockException.class, () -> state.apply(block));
+
+		assertThat(refused.getMessage(), containsString("Nothing to claim"));
 		assertThat(state.unclaimed(), equalTo(OWED));
 		assertThat(state.balanceOf(account(1)), equalTo(0L));
 		assertThat(state.balanceOf(LEGACY), equalTo(30L));
