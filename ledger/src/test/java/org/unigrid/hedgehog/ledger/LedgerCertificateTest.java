@@ -123,6 +123,47 @@ public class LedgerCertificateTest {
 		assertThat(state.rejectionOf(later).isPresent(), is(false));
 	}
 
+	private static Block proposedInViewAndCertifiedInView(LedgerState state, int blockView, int certificateView) {
+		Block block = certified(state, FOUR, 1).toBuilder().view(blockView)
+			.proposer(state.validators().proposerAt(1, blockView))
+			.certificate(new Certificate(certificateView, List.of())).build();
+
+		for (final byte[] seed : FOUR) {
+			block = block.endorsedBy(seed, state.chainId());
+		}
+
+		return block;
+	}
+
+	/* A block proposed in one view can only be committed in that view or a later one */
+	@Example
+	public void shouldRefuseACertificateMadeInAnEarlierViewThanTheBlock() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		final Block earlier = proposedInViewAndCertifiedInView(state, 2, 1);
+
+		assertThat(reasonOf(state.rejectionOf(earlier)), containsString("earlier view"));
+		assertThrows(InvalidBlockException.class, () -> state.apply(earlier));
+	}
+
+	@Example
+	public void shouldRefuseToSignABlockWhoseCertificateIsFromAnEarlierViewThanTheBlock() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+
+		assertThat(reasonOf(state.proposalRejection(proposedInViewAndCertifiedInView(state, 2, 1))),
+			containsString("earlier view"));
+		assertThat(state.proposalRejection(proposedInViewAndCertifiedInView(state, 2, 2)).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldAcceptALaterViewCertificateForABlockProposedInViewOne() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		final Block block = proposedInViewAndCertifiedInView(state, 1, 3);
+
+		assertThat(block.getView(), equalTo(1));
+		assertThat(block.getCertificate().view(), equalTo(3));
+		assertThat(state.rejectionOf(block).isPresent(), is(false));
+	}
+
 	@Example
 	public void shouldRefuseEndorsementsMadeInAnotherViewThanTheCertificateNames() {
 		final LedgerState state = state(1000, ANY_MINT, THREE);
@@ -137,7 +178,7 @@ public class LedgerCertificateTest {
 		final LedgerState state = state(1000, ANY_MINT, FOUR);
 		final Block base = certified(state, FOUR, 1);
 		final Block unsigned = base.toBuilder().view(1).proposer(state.validators().proposerAt(1, 1))
-			.certificate(Certificate.EMPTY).build();
+			.certificate(new Certificate(1, List.of())).build();
 		final Block wrongProposer = unsigned.toBuilder().proposer(base.getProposer()).build();
 		Block inViewOne = unsigned;
 		Block inViewOneByTheFirst = wrongProposer;

@@ -345,12 +345,14 @@ public final class LedgerState {
 		return sealed;
 	}
 
-	/* Whether a block is right apart from its certificate, which is what a validator checks before it signs:
-	   its place in the chain, its transactions and the root they lead to */
+	/* Whether a block is right apart from the signatures of its certificate, which is what a validator checks
+	   before it signs: its place in the chain, the view of its certificate, its transactions and the root they
+	   lead to */
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
-		final Optional<String> rejection = headerRejection(block).or(() -> lastCommitRejection(block))
-			.or(() -> lastCommitSignaturesRejection(block)).or(() -> next.applyTransactions(block));
+		final Optional<String> rejection = headerRejection(block).or(() -> viewRejection(block))
+			.or(() -> lastCommitRejection(block)).or(() -> lastCommitSignaturesRejection(block))
+			.or(() -> next.applyTransactions(block));
 
 		if (rejection.isPresent()) {
 			return rejection;
@@ -388,9 +390,14 @@ public final class LedgerState {
 	}
 
 	/* The proposer need not be among the signers: a block proposed in one view can be committed in a later one,
-	   when its proposer has gone. */
+	   when its proposer has gone. It cannot be committed in an earlier one. */
 	private Optional<String> certificateRejection(Block block) {
-		return shapeRejection("Certificate", block.getCertificate(), validators);
+		return viewRejection(block).or(() -> shapeRejection("Certificate", block.getCertificate(), validators));
+	}
+
+	private static Optional<String> viewRejection(Block block) {
+		return block.getCertificate().view() >= block.getView() ? Optional.empty()
+			: Optional.of("Certificate is from an earlier view than the block");
 	}
 
 	/* The block before this one was committed by the validators of its time, which are not always today's: the
