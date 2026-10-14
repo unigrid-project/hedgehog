@@ -66,6 +66,19 @@ public class LedgerClockTest {
 		return IntStream.range(from, from + count).mapToObj(n -> mint(n, 1)).toList();
 	}
 
+	private static void fundFirstAccount(Ledger lenient, Ledger picky) throws IOException {
+		lenient.submit(mint(1, 1000));
+
+		final Block funding = certified(lenient, proposal(lenient, 10_000).orElseThrow());
+
+		lenient.commit(funding);
+		picky.commit(funding);
+	}
+
+	private static Transfer paying(long fee, Ledger ledger) {
+		return Transfer.signed(accountSeed(1), account(2), 10, fee, 0, ledger.chainId());
+	}
+
 	@Example
 	public void shouldProposeADueMintOnlyOnceItsTimeHasCome() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
@@ -300,6 +313,53 @@ public class LedgerClockTest {
 			behind.commit(block);
 
 			assertThat(behind.balanceOf(account(1)), equalTo(5L));
+		}
+	}
+
+	@Example
+	public void shouldTakeProposeAndSignATransferAtTheMinimumFeeButNotOneBelowIt() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong clock = new AtomicLong(10_000);
+			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
+			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
+
+			fundFirstAccount(lenient, picky);
+
+			final Transfer enough = paying(5, picky);
+
+			assertThat(picky.submit(paying(4, picky)).orElse(""), containsString("Fee is below"));
+			assertThat(picky.pending(), equalTo(0));
+			assertThat(picky.submit(enough), equalTo(Optional.empty()));
+
+			final Block block = proposal(picky, 11_000).orElseThrow();
+
+			assertThat(block.getTransactions(), equalTo(List.of(enough)));
+			assertThat(picky.sign(block, seedOtherThanTheProposerOf(block)).getEndorsements().size(), equalTo(2));
+		}
+	}
+
+	/* The fee a node demands is its own policy, so a block that the validators signed is applied whatever the fee */
+	@Example
+	public void shouldNotSignATransferBelowTheMinimumFeeButApplyItInACertifiedBlock() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong clock = new AtomicLong(10_000);
+			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
+			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
+
+			fundFirstAccount(lenient, picky);
+
+			assertThat(lenient.submit(paying(4, lenient)), equalTo(Optional.empty()));
+
+			final Block block = proposal(lenient, 11_000).orElseThrow();
+			final byte[] validator = seedOtherThanTheProposerOf(block);
+			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
+				() -> picky.sign(block, validator));
+
+			assertThat(refused.getMessage(), containsString("Fee is below"));
+
+			picky.commit(certified(lenient, block));
+
+			assertThat(picky.balanceOf(account(2)), equalTo(10L));
 		}
 	}
 
