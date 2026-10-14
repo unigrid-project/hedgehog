@@ -18,11 +18,23 @@
 
 package org.unigrid.hedgehog.ledger;
 
-/* The one thing the ledger asks of the outside: may this mint be made, and may this claim be taken? The node
-   answers from whatever it trusts, and a node that does not know yet answers no, which only delays the block. */
-public interface LedgerAuthority {
-	boolean authorizes(Mint mint);
+import java.util.List;
 
-	/* No default: an authority that forgot claims would let a held-back address claim */
+/* What the ledger asks of the outside, because only the node knows it: which mints are due, which it will take,
+   which claims it holds back and what fee it demands. The answers are this node's policy and may differ between
+   nodes, so they are asked only of what is not certified yet; a block that more than 2/3 of the validators
+   signed stands whatever the answers are, which is what keeps a change of policy from forking the chain. A
+   node that does not know yet answers no, which only delays a block. */
+public interface LedgerAuthority {
+	/* The mints this node knows to be due at this time, in a fixed order. The ledger leaves out the ones it
+	   has already made. */
+	List<Mint> due(long time);
+
+	/* The entry, the amount and the moment: may this mint be made in a block of this time? */
+	boolean authorizes(Mint mint, long time);
+
+	/* No default for these two: an authority that forgot one would let anything through */
 	boolean authorizes(Claim claim);
+
+	boolean authorizes(Transfer transfer);
 }

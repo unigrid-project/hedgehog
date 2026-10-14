@@ -24,11 +24,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
 final class LedgerFixtures {
-	static final LedgerAuthority ANY_MINT = authority(true, true);
-	static final LedgerAuthority NO_MINT = authority(false, true);
+	static final LedgerAuthority ANY_MINT = TestAuthority.open();
+	static final LedgerAuthority NO_MINT = TestAuthority.open().withMints((mint, time) -> false);
 	static final byte[] SNAPSHOT_HASH = Digests.sha512("snapshot".getBytes(StandardCharsets.US_ASCII));
 
 	private LedgerFixtures() {
@@ -36,31 +38,33 @@ final class LedgerFixtures {
 	}
 
 	static LedgerAuthority authority(boolean mints, boolean claims) {
-		return new LedgerAuthority() {
-			@Override
-			public boolean authorizes(Mint mint) {
-				return mints;
-			}
-
-			@Override
-			public boolean authorizes(Claim claim) {
-				return claims;
-			}
-		};
+		return TestAuthority.open().withMints((mint, time) -> mints).withClaims(claim -> claims);
 	}
 
 	static LedgerAuthority mintsWhere(Predicate<Mint> allowed) {
-		return new LedgerAuthority() {
-			@Override
-			public boolean authorizes(Mint mint) {
-				return allowed.test(mint);
-			}
+		return TestAuthority.open().withMints((mint, time) -> allowed.test(mint));
+	}
 
-			@Override
-			public boolean authorizes(Claim claim) {
-				return true;
-			}
-		};
+	static LedgerAuthority mintsWhen(BiPredicate<Mint, Long> allowed) {
+		return TestAuthority.open().withMints(allowed);
+	}
+
+	/* Claims of these legacy addresses are held back; everything else is allowed */
+	static LedgerAuthority blacklisting(Set<LegacyAddress> held) {
+		return TestAuthority.open().withClaims(claim -> !held.contains(claim.address()));
+	}
+
+	static LedgerAuthority minimumFee(long least) {
+		return TestAuthority.open().withTransfers(transfer -> transfer.fee() >= least);
+	}
+
+	/* These mints are due from the given times on, are listed by `due` in order of their time, and are
+	   authorized from then on and not before */
+	static LedgerAuthority dueAt(Map<Mint, Long> dueTimes) {
+		return TestAuthority.open()
+			.withSchedule(time -> dueTimes.entrySet().stream().filter(entry -> entry.getValue() <= time)
+				.sorted(Map.Entry.comparingByValue()).map(Map.Entry::getKey).toList())
+			.withMints((mint, time) -> dueTimes.containsKey(mint) && dueTimes.get(mint) <= time);
 	}
 
 	static byte[] seed(int n) {

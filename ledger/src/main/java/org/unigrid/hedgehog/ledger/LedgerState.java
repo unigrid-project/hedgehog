@@ -68,6 +68,7 @@ public final class LedgerState {
 	private byte[] tipHash;
 	private long tipTime;
 	private Certificate tipCertificate = Certificate.EMPTY;
+	private long authorityTime;
 
 	/* Set only on the scratch copy a certified block is checked against. More than 2/3 of the validators signed
 	   that block after asking their authorities, so this node's own authority, which may not know the mint yet
@@ -90,6 +91,7 @@ public final class LedgerState {
 		this.unclaimed = genesis.getSnapshotTotal();
 		this.tipHash = chainId;
 		this.tipTime = genesis.getTime();
+		this.authorityTime = genesis.getTime();
 	}
 
 	private LedgerState(LedgerState other) {
@@ -112,6 +114,7 @@ public final class LedgerState {
 		tipHash = other.tipHash;
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
+		authorityTime = other.authorityTime;
 	}
 
 	public LedgerState copy() {
@@ -134,6 +137,17 @@ public final class LedgerState {
 	/* What of the snapshot total no claim has taken yet */
 	public long unclaimed() {
 		return unclaimed;
+	}
+
+	/* The time the authority is asked about: the time of a block when a block is checked, the time of the node
+	   for what it takes in or proposes. Whoever owns this state sets it before asking. */
+	public void askAuthorityAt(long time) {
+		authorityTime = time;
+	}
+
+	/* The mints that are due at this time and not yet made, in the order the authority lists them */
+	public List<Mint> dueMints(long time) {
+		return authority.due(time).stream().filter(mint -> !minted.contains(mint.reference())).toList();
 	}
 
 	/* How many transfers an account has made: the nonce its next transfer must carry */
@@ -378,7 +392,8 @@ public final class LedgerState {
 			return Optional.of("Supply would overflow");
 		}
 
-		return vouched || authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
+		return vouched || authority.authorizes(mint, authorityTime) ? Optional.empty()
+			: Optional.of("Mint is not authorized");
 	}
 
 	private Optional<String> rejectionOf(Transfer transfer) {
@@ -480,6 +495,9 @@ public final class LedgerState {
 	   set that signed the tip, with valid precommits for the tip), its transactions and the root they lead to */
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
+
+		next.authorityTime = block.getTime();
+
 		final Optional<String> rejection = headerRejection(block).or(() -> viewRejection(block))
 			.or(() -> lastCommitRejection(block)).or(() -> lastCommitSignaturesRejection(block))
 			.or(() -> next.applyTransactions(block));
