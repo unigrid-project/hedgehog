@@ -75,7 +75,9 @@ public class LedgerTransferTest {
 		state.apply(soloBlock(state, transfer(state, 1, account(3), 200, 5, 1)));
 
 		assertThat(state.nonceOf(account(1)), equalTo(2L));
-		assertThat(state.pool(), equalTo(15L));
+		/* The second block paid the fee of the first to the one validator that signed it */
+		assertThat(state.pool(), equalTo(5L));
+		assertThat(state.balanceOf(key(1)), equalTo(10L));
 		assertThat(state.balanceOf(account(1)), equalTo(FUNDS - 300 - 10 - 200 - 5));
 		assertThat(state.balanceOf(account(2)), equalTo(300L));
 		assertThat(state.balanceOf(account(3)), equalTo(200L));

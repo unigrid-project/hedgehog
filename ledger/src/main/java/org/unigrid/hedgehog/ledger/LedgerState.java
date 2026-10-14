@@ -228,6 +228,8 @@ public final class LedgerState {
 		final LedgerState scratch = copy();
 		final List<Transaction> kept = new ArrayList<>();
 
+		scratch.payFees(tipCertificate);
+
 		for (final Transaction candidate : candidates) {
 			if (scratch.rejectionOf(candidate).isEmpty()) {
 				scratch.apply(candidate);
@@ -238,9 +240,12 @@ public final class LedgerState {
 		return kept;
 	}
 
-	/* What the root would be if these transactions made the block at blockHeight, for a proposer to commit to */
+	/* What the root would be if these transactions made the block at blockHeight, for a proposer to commit to. A
+	   proposer carries the tip certificate as last commit, so that is what is paid. */
 	public byte[] rootAfter(long blockHeight, List<Transaction> transactions) {
 		final LedgerState next = copy();
+
+		next.payFees(tipCertificate);
 
 		for (final Transaction transaction : transactions) {
 			final Optional<String> rejection = next.rejectionOf(transaction);
@@ -488,6 +493,8 @@ public final class LedgerState {
 	}
 
 	private Optional<String> applyTransactions(Block block) {
+		payFees(block.getLastCommit());
+
 		for (final Transaction transaction : block.getTransactions()) {
 			final Optional<String> rejection = rejectionOf(transaction);
 
@@ -499,6 +506,25 @@ public final class LedgerState {
 		}
 
 		return Optional.empty();
+	}
+
+	/* The fees of the last block go to the validators that signed it, in equal parts, and what does not divide
+	   goes one unit each to the first signers in key order. The signers are the ones the block's own last
+	   commit names, which has been proven to be the commit of the tip. */
+	private void payFees(Certificate lastCommit) {
+		if (pool == 0) {
+			return;
+		}
+
+		final List<Endorsement> signers = lastCommit.endorsements();
+		final long share = pool / signers.size();
+		final long extra = pool % signers.size();
+
+		for (int i = 0; i < signers.size(); i++) {
+			accounts.merge(signers.get(i).signer(), share + (i < extra ? 1 : 0), Math::addExact);
+		}
+
+		pool = 0;
 	}
 
 	/* On a state that has the block applied: that its root is the block's */
@@ -584,9 +610,13 @@ public final class LedgerState {
 		return block.getTime() < tipTime ? Optional.of("Block is older than the tip") : Optional.empty();
 	}
 
+	/* A block with nothing in it exists to pay out fees that wait, so a quiet chain never holds them back */
 	private Optional<String> contentRejection(Block block) {
-		if (block.getTransactions().isEmpty() || block.getTransactions().size() > Block.MAX_TRANSACTIONS) {
-			return Optional.of("A block holds 1 to " + Block.MAX_TRANSACTIONS + " transactions");
+		final int count = block.getTransactions().size();
+
+		if (count > Block.MAX_TRANSACTIONS || count == 0 && pool == 0) {
+			return Optional.of("A block holds " + (pool > 0 ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
+				+ " transactions");
 		}
 
 		if (!Arrays.equals(block.getTransactionRoot(), Block.transactionRootOf(block.getTransactions()))) {

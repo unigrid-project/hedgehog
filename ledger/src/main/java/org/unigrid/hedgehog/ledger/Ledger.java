@@ -71,7 +71,7 @@ public final class Ledger implements LedgerApplication {
 
 		final List<Transaction> transactions = state.applicable(mempool.take(Block.MAX_TRANSACTIONS));
 
-		if (transactions.isEmpty()) {
+		if (transactions.isEmpty() && state.pool() == 0) {
 			return Optional.empty();
 		}
 
