@@ -19,8 +19,9 @@
 package org.unigrid.hedgehog.ledger;
 
 /* When a mint of the spork becomes due. The chain before this one counted blocks and the entries of the mint
-   spork sit at heights of that chain. This chain has no such heights, so a height is turned into a time: the
-   time of the last block of the snapshot plus one block interval of the old chain for every height after it.
+   spork sit at heights of that chain. This chain has no such heights, so a height is turned into a time in Unix
+   milliseconds: the time of the last block of the snapshot plus one block interval of the old chain for every
+   height after it.
    Entries at or below the snapshot tip are already in the snapshot balances and never mint here. */
 public record MintSchedule(long tipHeight, long tipTime) {
 	public static final long INTERVAL = 60_000;

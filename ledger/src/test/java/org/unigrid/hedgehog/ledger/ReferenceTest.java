@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import net.jqwik.api.Assume;
@@ -92,7 +93,8 @@ public class ReferenceTest {
 	public void shouldCutTheReferenceOfASporkMintFromTheTaggedHashOfTheAddressAndTheHeight() {
 		final Address key = account(1);
 		final byte[] tag = "Unigrid mint v1".getBytes(StandardCharsets.US_ASCII);
-		final byte[] hash = Digests.sha512(tag, key.encode(), Bytes.longBytes(7));
+		final byte[] height = ByteBuffer.allocate(Long.BYTES).putLong(7).array();
+		final byte[] hash = Digests.sha512(tag, key.encode(), height);
 
 		assertThat(Reference.ofSpork(key, 7), equalTo(new Reference(Arrays.copyOf(hash, Reference.SIZE))));
 	}

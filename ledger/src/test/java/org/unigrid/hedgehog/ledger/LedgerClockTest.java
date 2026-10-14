@@ -267,9 +267,10 @@ public class LedgerClockTest {
 	}
 
 	/* The block's own time makes the mint due when the block is checked, so only the clock stands between a
-	   proposer that dates its block ahead and a mint that is not due yet */
+	   proposer that dates its block ahead and a mint that is not due yet: a validator signs it up to the skew
+	   before its time by the clock of the validator, and not earlier */
 	@Example
-	public void shouldNotSignAMintThatIsNotDueAtTheClockInABlockDatedBeyondTheSkew() throws IOException {
+	public void shouldSignAMintUpToTheSkewBeforeItsTimeAndNotEarlier() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(100_000);
 			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 200_000L)), clock);

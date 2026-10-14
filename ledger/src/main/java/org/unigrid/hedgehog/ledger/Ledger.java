@@ -29,7 +29,8 @@ import java.util.function.LongSupplier;
 
 public final class Ledger implements LedgerApplication {
 	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
-	   more than this early by dating its block ahead */
+	   more than this early by dating its block ahead. A validator whose clock runs late may therefore sign a
+	   mint up to this long before its time. */
 	public static final long MAX_CLOCK_SKEW_MILLIS = 30_000;
 
 	private final LedgerState state;
@@ -159,6 +160,7 @@ public final class Ledger implements LedgerApplication {
 	private record Promise(long height, byte[] hash, Block proposal) {
 	}
 
+	/* For certified blocks, which stand whatever the policy of this node says, so no policy is asked */
 	@Override
 	public synchronized Optional<String> validate(Block block) {
 		return state.rejectionOf(block);
