@@ -117,6 +117,7 @@ public class LedgerStateTest {
 
 		state.apply(soloBlock(state, new Mint(legacy, 7, reference(1))));
 		leaves.add(Bytes.concat(new byte[] { 'H' }, Bytes.longBytes(state.height())));
+		leaves.add(Bytes.concat(new byte[] { 'S' }, Bytes.longBytes(7)));
 		leaves.add(Bytes.concat(new byte[] { 'A' }, legacy.encode(), Bytes.longBytes(7)));
 		leaves.add(Bytes.concat(new byte[] { 'M' }, reference(1).bytes()));
 		state.validators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'V' }, key.bytes())));
@@ -192,7 +193,49 @@ public class LedgerStateTest {
 		state.apply(soloBlock(state, new Mint(account(1), Long.MAX_VALUE, reference(1))));
 
 		assertThat(reasonOf(state.rejectionOf(new Mint(account(1), 1, reference(2)))), containsString("overflow"));
-		assertThat(state.rejectionOf(new Mint(account(2), 1, reference(2))).isPresent(), is(false));
+		assertThat(reasonOf(state.rejectionOf(new Mint(account(2), 1, reference(2)))), containsString("overflow"));
+	}
+
+	private static LedgerState stateWithSnapshotTotal(long total) {
+		final ValidatorSet validators = genesis(1000, seeds(1, 1)).getValidators();
+
+		return new LedgerState(new LedgerGenesis(1000, 1000, validators, new byte[Digests.HASH_SIZE], total),
+			ANY_MINT);
+	}
+
+	@Example
+	public void shouldStartTheSupplyAtTheSnapshotTotalAndGrowItWithEveryMint() {
+		final LedgerState state = stateWithSnapshotTotal(40);
+
+		assertThat(state.supply(), equalTo(40L));
+		state.apply(soloBlock(state, new Mint(account(1), 5, reference(1)), new Mint(account(2), 7, reference(2))));
+		assertThat(state.supply(), equalTo(52L));
+	}
+
+	@Example
+	public void shouldRefuseAMintThatWouldPassTheLargestSupply() {
+		final LedgerState state = stateWithSnapshotTotal(Long.MAX_VALUE - 4);
+
+		assertThat(reasonOf(state.rejectionOf(new Mint(account(1), 5, reference(1)))), containsString("overflow"));
+		assertThat(state.rejectionOf(new Mint(account(1), 4, reference(1))).isPresent(), is(false));
+		state.apply(soloBlock(state, new Mint(account(1), 4, reference(1))));
+		assertThat(state.supply(), equalTo(Long.MAX_VALUE));
+		assertThat(reasonOf(state.rejectionOf(new Mint(account(1), 1, reference(2)))), containsString("overflow"));
+	}
+
+	@Example
+	public void shouldCommitTheRootToTheSupply() {
+		assertThat(stateWithSnapshotTotal(1).stateRoot(), not(equalTo(stateWithSnapshotTotal(2).stateRoot())));
+		assertThat(stateWithSnapshotTotal(1).stateRoot(), equalTo(stateWithSnapshotTotal(1).stateRoot()));
+	}
+
+	@Example
+	public void shouldNotChangeTheSupplyWhenABlockIsRefused() {
+		final LedgerState state = stateWithSnapshotTotal(10);
+		final Block bad = soloBlock(state, new Mint(account(1), 5, reference(1))).toBuilder().height(9).build();
+
+		assertThrows(InvalidBlockException.class, () -> state.apply(bad));
+		assertThat(state.supply(), equalTo(10L));
 	}
 
 	@Example

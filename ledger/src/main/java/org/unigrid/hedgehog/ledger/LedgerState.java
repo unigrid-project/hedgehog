@@ -37,6 +37,7 @@ public final class LedgerState {
 	public static final int MAX_VOTES_PER_VALIDATOR = 64;
 
 	private static final byte[] HEIGHT = { 'H' };
+	private static final byte[] SUPPLY = { 'S' };
 	private static final byte[] ACCOUNT = { 'A' };
 	private static final byte[] REFERENCE = { 'M' };
 	private static final byte[] VALIDATOR = { 'V' };
@@ -52,6 +53,7 @@ public final class LedgerState {
 	private ValidatorSet validators;
 	private ValidatorSet previousValidators;
 	private long height;
+	private long supply;
 	private byte[] tipHash;
 	private long tipTime;
 	private Certificate tipCertificate = Certificate.EMPTY;
@@ -67,6 +69,7 @@ public final class LedgerState {
 		this.chainId = genesis.chainId();
 		this.validators = genesis.getValidators();
 		this.previousValidators = genesis.getValidators();
+		this.supply = genesis.getSnapshotTotal();
 		this.tipHash = chainId;
 		this.tipTime = genesis.getTime();
 	}
@@ -81,6 +84,7 @@ public final class LedgerState {
 		validators = other.validators;
 		previousValidators = other.previousValidators;
 		height = other.height;
+		supply = other.supply;
 		tipHash = other.tipHash;
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
@@ -96,6 +100,11 @@ public final class LedgerState {
 
 	public long height() {
 		return height;
+	}
+
+	/* Everything that can be spent: the snapshot of the earlier chain the genesis commits to, and every mint since */
+	public long supply() {
+		return supply;
 	}
 
 	public byte[] tipHash() {
@@ -167,6 +176,7 @@ public final class LedgerState {
 		validators = next.validators;
 		previousValidators = next.previousValidators;
 		height = next.height;
+		supply = next.supply;
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
 		tipCertificate = next.tipCertificate;
@@ -245,6 +255,7 @@ public final class LedgerState {
 		final List<byte[]> leaves = new ArrayList<>();
 
 		leaves.add(Bytes.concat(HEIGHT, Bytes.longBytes(height)));
+		leaves.add(Bytes.concat(SUPPLY, Bytes.longBytes(supply)));
 		accounts.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
 			.add(Bytes.concat(ACCOUNT, entry.getKey().encode(), Bytes.longBytes(entry.getValue()))));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
@@ -312,8 +323,9 @@ public final class LedgerState {
 			return Optional.of("Reference already used");
 		}
 
-		if (balanceOf(mint.recipient()) > Long.MAX_VALUE - mint.amount()) {
-			return Optional.of("Balance would overflow");
+		/* No balance can pass the supply, so the supply is the one sum to guard */
+		if (supply > Long.MAX_VALUE - mint.amount()) {
+			return Optional.of("Supply would overflow");
 		}
 
 		return vouched || authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
@@ -474,6 +486,7 @@ public final class LedgerState {
 	private void apply(Transaction transaction) {
 		if (transaction instanceof Mint mint) {
 			accounts.merge(mint.recipient(), mint.amount(), Long::sum);
+			supply += mint.amount();
 			minted.add(mint.reference());
 		} else if (transaction instanceof Vote vote) {
 			votes.add(new VoteCast(vote.candidate(), vote.action(), vote.voter()));
