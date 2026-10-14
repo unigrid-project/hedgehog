@@ -79,4 +79,26 @@ public class LedgerAuthorityTest {
 
 		assertThat(state.dueMints(2500), equalTo(List.of(second)));
 	}
+
+	@Example
+	public void shouldDemandTheMinimumFeeWhereATransferIsTakenInButNotOfACertifiedBlock() {
+		final LedgerState maker = soloState(ANY_MINT);
+
+		maker.apply(soloBlock(maker, mint(1, 1000)));
+
+		final LedgerState picky = soloState(minimumFee(5));
+
+		picky.apply(soloBlock(picky, mint(1, 1000)));
+
+		final Transfer cheap = transfer(picky, 1, account(2), 10, 4, 0);
+		final Transfer fair = transfer(picky, 1, account(2), 10, 5, 0);
+
+		assertThat(reasonOf(picky.rejectionOfQueued(cheap)), containsString("Fee is below"));
+		assertThat(reasonOf(picky.rejectionOf(cheap)), containsString("Fee is below"));
+		assertThat(picky.rejectionOf(fair).isPresent(), is(false));
+
+		picky.apply(block(maker, seeds(1, 1), 1, 2000, List.of(transfer(maker, 1, account(2), 10, 0, 0))));
+
+		assertThat(picky.balanceOf(account(2)), equalTo(10L));
+	}
 }

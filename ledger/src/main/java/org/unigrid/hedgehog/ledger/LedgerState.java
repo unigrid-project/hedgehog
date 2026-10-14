@@ -406,7 +406,8 @@ public final class LedgerState {
 	/* A transfer that waits for the ones before it is as good as can be known now: everything but the exact
 	   turn of its nonce is checked, which is what the mempool needs to queue it */
 	public Optional<String> rejectionOfQueued(Transfer transfer) {
-		return usedRejection(transfer).or(() -> coverRejection(transfer)).or(() -> signatureRejection(transfer));
+		return usedRejection(transfer).or(() -> coverRejection(transfer)).or(() -> signatureRejection(transfer))
+			.or(() -> authorityRejection(transfer));
 	}
 
 	private Optional<String> usedRejection(Transfer transfer) {
@@ -426,6 +427,11 @@ public final class LedgerState {
 	private Optional<String> signatureRejection(Transfer transfer) {
 		return verified.check(transfer, () -> transfer.hasValidSignature(chainId))
 			? Optional.empty() : Optional.of("Transfer signature is not valid");
+	}
+
+	private Optional<String> authorityRejection(Transfer transfer) {
+		return vouched || authority.authorizes(transfer) ? Optional.empty()
+			: Optional.of("Fee is below what this node demands");
 	}
 
 	private Optional<String> rejectionOf(Claim claim) {
