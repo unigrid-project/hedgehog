@@ -35,7 +35,14 @@ import static org.unigrid.hedgehog.ledger.Action.*;
 /* One validator's side of the agreement on a block at one height, written after Algorithm 1 of the Tendermint
    paper (arXiv 1807.04938), with its rounds called views. It is a state machine and nothing else: it is told what
    happened and answers with what to do, so it has no clock, no network and no thread of its own, and the same
-   inputs always give the same answers. After every event the rules are tried until none applies any more. */
+   inputs always give the same answers. After every event the rules are tried until none applies any more.
+
+   What the driver has to do for it, as the engine does none of it itself: it never sends anything twice, and a node
+   that has precommitted nil waits for more precommits with no timer running, so the driver calls resume() or
+   outbox() now and then, which does no harm when repeated, and serves the decided blocks to a node that is behind.
+   It is not thread-safe, so events come one at a time. evidence() is lost at the next start(), so it is read before
+   that. The ballot box is wiped by start() as well, so a restart is safe only if the caller has kept what this node
+   signed and does not let it sign anything different for the same view. */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 
