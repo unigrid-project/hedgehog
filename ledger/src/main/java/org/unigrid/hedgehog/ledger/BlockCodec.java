@@ -29,7 +29,7 @@ import java.util.List;
 public final class BlockCodec {
 	/* The most an encoded block can hold: two full certificates and a full set of the larger transaction kind */
 	public static final int MAX_ENCODED_SIZE = Block.HEADER_SIZE + 2 * Certificate.MAX_ENCODED_SIZE + Short.BYTES
-		+ Block.MAX_TRANSACTIONS * Vote.ENCODED_SIZE;
+		+ Block.MAX_TRANSACTIONS * Math.max(Vote.ENCODED_SIZE, Claim.MAX_ENCODED_SIZE);
 
 	private BlockCodec() {
 		/* Static helpers only */

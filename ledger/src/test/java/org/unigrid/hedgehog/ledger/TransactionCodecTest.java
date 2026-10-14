@@ -65,6 +65,14 @@ public class TransactionCodecTest {
 	}
 
 	@Example
+	public void shouldRefuseAClaimKeyWithAnUnknownPrefix() {
+		final byte[] encoded = CodecFixtures.claim(new Random(1), true).encode();
+
+		encoded[1] = 5;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
 	public void shouldRefuseAVoteWithAnUnknownAction() {
 		final byte[] encoded = CodecFixtures.vote(new Random(1)).encode();
 

@@ -49,6 +49,10 @@ final class LegacyWallet {
 		return LegacySignature.addressOf(publicKey);
 	}
 
+	Claim claim(AccountKey recipient, byte[] chainId) {
+		return new Claim(publicKey, recipient, sign(Claim.message(chainId, recipient)));
+	}
+
 	byte[] sign(String message) {
 		final ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
 

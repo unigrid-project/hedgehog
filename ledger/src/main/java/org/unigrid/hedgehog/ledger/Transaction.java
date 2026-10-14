@@ -18,7 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
-public sealed interface Transaction permits Mint, Vote {
+public sealed interface Transaction permits Mint, Vote, Claim {
 	byte kind();
 
 	/* The kind byte, then the fields; each has a fixed width or one that its type byte fixes. This is also what a

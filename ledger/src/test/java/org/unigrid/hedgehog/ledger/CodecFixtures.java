@@ -57,8 +57,23 @@ final class CodecFixtures {
 			random(random, Ed25519.SIGNATURE_SIZE));
 	}
 
+	static Claim claim(Random random, boolean compressed) {
+		final byte[] key = random(random, compressed ? 33 : 65);
+
+		key[0] = (byte) (compressed ? 2 + random.nextInt(2) : 4);
+		return new Claim(key, account(random), random(random, LegacySignature.SIZE));
+	}
+
+	static Claim claim(Random random) {
+		return claim(random, random.nextBoolean());
+	}
+
 	static Transaction transaction(Random random) {
-		return random.nextBoolean() ? mint(random) : vote(random);
+		return switch (random.nextInt(3)) {
+			case 0 -> mint(random);
+			case 1 -> vote(random);
+			default -> claim(random);
+		};
 	}
 
 	static Block block(Random random, int transactions, int endorsements) {

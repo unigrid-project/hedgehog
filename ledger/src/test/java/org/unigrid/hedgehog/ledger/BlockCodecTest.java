@@ -20,7 +20,9 @@ package org.unigrid.hedgehog.ledger;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -107,10 +109,16 @@ public class BlockCodecTest {
 		assertThat(BlockCodec.encode(full).length <= BlockCodec.MAX_ENCODED_SIZE, equalTo(true));
 	}
 
-	/* MAX_ENCODED_SIZE is made of the larger transaction kind, so no mint may be larger than a vote */
+	/* MAX_ENCODED_SIZE is made of the largest transaction kind, so a full block of those must still fit */
 	@Example
-	public void shouldNotLetAMintBeLargerThanAVote() {
-		assertThat(Mint.MAX_ENCODED_SIZE <= Vote.ENCODED_SIZE, equalTo(true));
+	public void shouldFitABlockOfOnlyTheLargestTransaction() {
+		final Block base = CodecFixtures.block(new Random(5), 1, ValidatorSet.MAX_SIZE);
+		final List<Transaction> claims = IntStream.range(0, Block.MAX_TRANSACTIONS)
+			.mapToObj(i -> (Transaction) CodecFixtures.claim(new Random(i), false)).toList();
+		final Block full = base.toBuilder().transactions(claims).lastCommit(base.getCertificate()).build();
+
+		assertThat(BlockCodec.encode(full).length <= BlockCodec.MAX_ENCODED_SIZE, equalTo(true));
+		assertThat(Mint.MAX_ENCODED_SIZE <= Claim.MAX_ENCODED_SIZE, equalTo(true));
 	}
 
 	@Example

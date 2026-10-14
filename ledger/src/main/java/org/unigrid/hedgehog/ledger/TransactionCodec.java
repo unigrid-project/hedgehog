@@ -33,6 +33,7 @@ public final class TransactionCodec {
 		return switch (kind) {
 			case Mint.KIND -> decodeMint(in);
 			case Vote.KIND -> decodeVote(in);
+			case Claim.KIND -> decodeClaim(in);
 			default -> throw new IllegalArgumentException("Unknown transaction kind " + kind);
 		};
 	}
@@ -48,5 +49,12 @@ public final class TransactionCodec {
 		final long round = Bytes.takeLong(in);
 
 		return new Vote(voter, candidate, action, round, Bytes.take(in, Ed25519.SIGNATURE_SIZE));
+	}
+
+	private static Claim decodeClaim(ByteBuffer in) {
+		final byte prefix = Bytes.take(in, 1)[0];
+		final byte[] key = Bytes.concat(new byte[] { prefix }, Bytes.take(in, Claim.keySize(prefix) - 1));
+
+		return new Claim(key, new AccountKey(Bytes.take(in, AccountKey.SIZE)), Bytes.take(in, LegacySignature.SIZE));
 	}
 }

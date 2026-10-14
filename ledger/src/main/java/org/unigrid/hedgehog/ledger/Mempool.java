@@ -43,19 +43,17 @@ public final class Mempool {
 		this.maxPending = maxPending;
 	}
 
-	/* A slot is what a transaction is about: a mint by its reference, a vote by who votes on whom. A second
-	   one for the same slot has another id but could never be applied after the first. */
 	private record VoteSlot(AccountKey voter, AccountKey candidate) {
 	}
 
+	/* A slot is what a transaction is about: a mint by its reference, a vote by who votes on whom, a claim by the
+	   legacy address. A second one for the same slot has another id but could never be applied after the first. */
 	private static Object slotOf(Transaction transaction) {
-		if (transaction instanceof Mint mint) {
-			return mint.reference();
-		}
-
-		final Vote vote = (Vote) transaction;
-
-		return new VoteSlot(vote.voter(), vote.candidate());
+		return switch (transaction) {
+			case Mint mint -> mint.reference();
+			case Vote vote -> new VoteSlot(vote.voter(), vote.candidate());
+			case Claim claim -> claim.address();
+		};
 	}
 
 	/* Refuses what is already waiting, what the state refuses, and anything that would pass the limits: the
