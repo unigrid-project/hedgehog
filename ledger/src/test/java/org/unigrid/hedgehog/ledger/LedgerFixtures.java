@@ -171,4 +171,12 @@ final class LedgerFixtures {
 	static Block soloBlock(LedgerState state, Transaction... transactions) {
 		return block(state, seeds(1, 1), Arrays.asList(transactions));
 	}
+
+	/* A block with the transactions the state would not take, signed by the solo validator as a certified one */
+	static Block withTransactions(LedgerState state, Block sound, Transaction... transactions) {
+		final List<Transaction> replaced = List.of(transactions);
+
+		return sound.toBuilder().transactions(replaced).transactionRoot(Block.transactionRootOf(replaced))
+			.endorsements(List.of()).build().endorsedBy(seed(1), state.chainId());
+	}
 }

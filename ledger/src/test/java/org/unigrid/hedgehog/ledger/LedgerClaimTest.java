@@ -51,14 +51,6 @@ public class LedgerClaimTest {
 		return rejection.orElse("");
 	}
 
-	/* A block with the transactions the state would not take, signed by the solo validator as a certified one */
-	private static Block withTransactions(LedgerState state, Block sound, Transaction... transactions) {
-		final List<Transaction> replaced = List.of(transactions);
-
-		return sound.toBuilder().transactions(replaced).transactionRoot(Block.transactionRootOf(replaced))
-			.endorsements(List.of()).build().endorsedBy(seed(1), state.chainId());
-	}
-
 	private static void addValidatorLeaves(LedgerState state, List<byte[]> leaves) {
 		state.validators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'V' }, key.bytes())));
 		state.previousValidators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'Q' }, key.bytes())));
