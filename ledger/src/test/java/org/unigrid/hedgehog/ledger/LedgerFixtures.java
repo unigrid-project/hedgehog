@@ -19,13 +19,16 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 final class LedgerFixtures {
 	static final MintAuthority ANY_MINT = mint -> true;
 	static final MintAuthority NO_MINT = mint -> false;
+	static final byte[] SNAPSHOT_HASH = Digests.sha512("snapshot".getBytes(StandardCharsets.US_ASCII));
 
 	private LedgerFixtures() {
 		/* Static helpers only */
@@ -74,6 +77,19 @@ final class LedgerFixtures {
 	/* A single foundation validator, which is quorum on its own */
 	static LedgerState soloState(MintAuthority authority) {
 		return state(1000, authority, seeds(1, 1));
+	}
+
+	static LedgerState stateWithSnapshot(MintAuthority authority, List<byte[]> validatorSeeds, long total,
+		Map<LegacyAddress, Long> balances) {
+		final ValidatorSet validators = new ValidatorSet(validatorSeeds.stream().map(Ed25519::publicKey).toList());
+
+		return new LedgerState(new LedgerGenesis(1000, 1000, validators, SNAPSHOT_HASH, total), authority,
+			address -> balances.getOrDefault(address, 0L));
+	}
+
+	static LedgerState soloSnapshotState(MintAuthority authority, Map<LegacyAddress, Long> balances) {
+		return stateWithSnapshot(authority, seeds(1, 1),
+			balances.values().stream().mapToLong(Long::longValue).sum(), balances);
 	}
 
 	private static byte[] seedOf(AccountKey key, List<byte[]> seeds) {

@@ -18,8 +18,13 @@
 
 package org.unigrid.hedgehog.ledger;
 
-/* The one thing the ledger asks of the outside: may this mint be made? The node answers from whatever
-   it trusts, and a node that does not know yet answers no, which only delays the block. */
+/* The one thing the ledger asks of the outside: may this mint be made, and may this claim be taken? The node
+   answers from whatever it trusts, and a node that does not know yet answers no, which only delays the block. */
 public interface MintAuthority {
 	boolean authorizes(Mint mint);
+
+	/* A claim is open to every legacy address the node has no reason to hold back, such as one on a blacklist */
+	default boolean authorizes(Claim claim) {
+		return true;
+	}
 }

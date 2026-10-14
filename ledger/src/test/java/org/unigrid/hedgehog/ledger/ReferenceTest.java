@@ -56,6 +56,23 @@ public class ReferenceTest {
 	}
 
 	@Example
+	public void shouldMakeTheReferenceOfAClaimFromTheSnapshotAndTheAddress() {
+		final LegacyAddress one = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+		final byte[] other = new byte[LegacyAddress.SIZE];
+
+		other[0] = 1;
+
+		final byte[] hash = new byte[Digests.HASH_SIZE];
+		final byte[] otherHash = new byte[Digests.HASH_SIZE];
+
+		otherHash[0] = 1;
+
+		assertThat(Reference.ofClaim(hash, one), equalTo(Reference.ofClaim(hash, one)));
+		assertThat(Reference.ofClaim(hash, one), not(equalTo(Reference.ofClaim(hash, new LegacyAddress(other)))));
+		assertThat(Reference.ofClaim(hash, one), not(equalTo(Reference.ofClaim(otherHash, one))));
+	}
+
+	@Example
 	public void shouldOrderByUnsignedBytes() {
 		final byte[] low = new byte[Reference.SIZE];
 		final byte[] high = new byte[Reference.SIZE];

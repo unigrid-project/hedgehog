@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /* An opaque id that a mint carries and the ledger lets be used once. What it stands for is not the
@@ -25,8 +26,15 @@ import java.util.Arrays;
 public record Reference(byte[] bytes) implements Comparable<Reference> {
 	public static final int SIZE = 32;
 
+	private static final byte[] CLAIM_TAG = "Unigrid claim v1".getBytes(StandardCharsets.US_ASCII);
+
 	public Reference {
 		bytes = Bytes.requireSize(bytes, SIZE, "A reference");
+	}
+
+	/* One reference for the snapshot balance of each legacy address, so it is taken from the snapshot once */
+	public static Reference ofClaim(byte[] snapshotHash, LegacyAddress address) {
+		return new Reference(Arrays.copyOf(Digests.sha512(CLAIM_TAG, snapshotHash, address.bytes()), SIZE));
 	}
 
 	@Override

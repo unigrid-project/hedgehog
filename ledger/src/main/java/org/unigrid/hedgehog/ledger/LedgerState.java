@@ -43,17 +43,24 @@ public final class LedgerState {
 	private static final byte[] VALIDATOR = { 'V' };
 	private static final byte[] PREVIOUS_VALIDATOR = { 'Q' };
 	private static final byte[] VOTE = { 'T' };
+	private static final byte[] UNCLAIMED = { 'U' };
+	private static final byte[] REDIRECT = { 'R' };
 
 	private final LedgerGenesis genesis;
 	private final MintAuthority authority;
+	private final Snapshot snapshot;
 	private final byte[] chainId;
 	private Map<Address, Long> accounts = new HashMap<>();
+
+	/* A legacy address mapped to the account that claimed it */
+	private Map<Address, Address> redirects = new HashMap<>();
 	private Set<Reference> minted = new HashSet<>();
 	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
 	private ValidatorSet previousValidators;
 	private long height;
 	private long supply;
+	private long unclaimed;
 	private byte[] tipHash;
 	private long tipTime;
 	private Certificate tipCertificate = Certificate.EMPTY;
@@ -64,12 +71,18 @@ public final class LedgerState {
 	private boolean vouched;
 
 	public LedgerState(LedgerGenesis genesis, MintAuthority authority) {
+		this(genesis, authority, Snapshot.EMPTY);
+	}
+
+	public LedgerState(LedgerGenesis genesis, MintAuthority authority, Snapshot snapshot) {
 		this.genesis = genesis;
 		this.authority = authority;
+		this.snapshot = snapshot;
 		this.chainId = genesis.chainId();
 		this.validators = genesis.getValidators();
 		this.previousValidators = genesis.getValidators();
 		this.supply = genesis.getSnapshotTotal();
+		this.unclaimed = genesis.getSnapshotTotal();
 		this.tipHash = chainId;
 		this.tipTime = genesis.getTime();
 	}
@@ -77,14 +90,17 @@ public final class LedgerState {
 	private LedgerState(LedgerState other) {
 		genesis = other.genesis;
 		authority = other.authority;
+		snapshot = other.snapshot;
 		chainId = other.chainId;
 		accounts = new HashMap<>(other.accounts);
+		redirects = new HashMap<>(other.redirects);
 		minted = new HashSet<>(other.minted);
 		votes = new TreeSet<>(other.votes);
 		validators = other.validators;
 		previousValidators = other.previousValidators;
 		height = other.height;
 		supply = other.supply;
+		unclaimed = other.unclaimed;
 		tipHash = other.tipHash;
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
@@ -105,6 +121,11 @@ public final class LedgerState {
 	/* Everything that can be spent: the snapshot of the earlier chain the genesis commits to, and every mint since */
 	public long supply() {
 		return supply;
+	}
+
+	/* What of the snapshot total no claim has taken yet */
+	public long unclaimed() {
+		return unclaimed;
 	}
 
 	public byte[] tipHash() {
@@ -142,15 +163,11 @@ public final class LedgerState {
 	}
 
 	public Optional<String> rejectionOf(Transaction transaction) {
-		if (transaction instanceof Mint mint) {
-			return rejectionOf(mint);
-		}
-
-		if (transaction instanceof Vote vote) {
-			return rejectionOf(vote);
-		}
-
-		return Optional.of("Unsupported transaction kind");
+		return switch (transaction) {
+			case Mint mint -> rejectionOf(mint);
+			case Vote vote -> rejectionOf(vote);
+			case Claim claim -> rejectionOf(claim);
+		};
 	}
 
 	public int votesFor(AccountKey candidate, Vote.Action action) {
@@ -171,12 +188,14 @@ public final class LedgerState {
 		}
 
 		accounts = next.accounts;
+		redirects = next.redirects;
 		minted = next.minted;
 		votes = next.votes;
 		validators = next.validators;
 		previousValidators = next.previousValidators;
 		height = next.height;
 		supply = next.supply;
+		unclaimed = next.unclaimed;
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
 		tipCertificate = next.tipCertificate;
@@ -256,8 +275,11 @@ public final class LedgerState {
 
 		leaves.add(Bytes.concat(HEIGHT, Bytes.longBytes(height)));
 		leaves.add(Bytes.concat(SUPPLY, Bytes.longBytes(supply)));
+		leaves.add(Bytes.concat(UNCLAIMED, Bytes.longBytes(unclaimed)));
 		accounts.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
 			.add(Bytes.concat(ACCOUNT, entry.getKey().encode(), Bytes.longBytes(entry.getValue()))));
+		redirects.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
+			.add(Bytes.concat(REDIRECT, entry.getKey().encode(), entry.getValue().encode())));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
 		validators.keys().forEach(key -> leaves.add(Bytes.concat(VALIDATOR, key.bytes())));
 		previousValidators.keys().forEach(key -> leaves.add(Bytes.concat(PREVIOUS_VALIDATOR, key.bytes())));
@@ -329,6 +351,36 @@ public final class LedgerState {
 		}
 
 		return vouched || authority.authorizes(mint) ? Optional.empty() : Optional.of("Mint is not authorized");
+	}
+
+	private Optional<String> rejectionOf(Claim claim) {
+		return amountRejection(claim.address()).or(() -> signatureRejection(claim))
+			.or(() -> authorityRejection(claim));
+	}
+
+	/* What the snapshot holds is checked against what is left of its total, so a snapshot that does not add up to
+	   the genesis total cannot be drained past it, and with that the sum of the two amounts below cannot pass the
+	   supply. */
+	private Optional<String> amountRejection(LegacyAddress address) {
+		final long owed = snapshot.balanceOf(address);
+
+		if (redirects.containsKey(address)) {
+			return Optional.of("Legacy address is already claimed");
+		}
+
+		if (owed > unclaimed) {
+			return Optional.of("Claim is above what the snapshot has left");
+		}
+
+		return owed + balanceOf(address) == 0 ? Optional.of("Nothing to claim") : Optional.empty();
+	}
+
+	private Optional<String> signatureRejection(Claim claim) {
+		return claim.hasValidSignature(chainId) ? Optional.empty() : Optional.of("Claim signature is not valid");
+	}
+
+	private Optional<String> authorityRejection(Claim claim) {
+		return vouched || authority.authorizes(claim) ? Optional.empty() : Optional.of("Claim is not authorized");
 	}
 
 	/* Applies the block to next, which the caller owns, so the state it was called on is never touched. The
@@ -484,13 +536,30 @@ public final class LedgerState {
 	}
 
 	private void apply(Transaction transaction) {
-		if (transaction instanceof Mint mint) {
-			accounts.merge(mint.recipient(), mint.amount(), Math::addExact);
-			supply += mint.amount();
-			minted.add(mint.reference());
-		} else if (transaction instanceof Vote vote) {
-			votes.add(new VoteCast(vote.candidate(), vote.action(), vote.voter()));
+		switch (transaction) {
+			case Mint mint -> apply(mint);
+			case Vote vote -> votes.add(new VoteCast(vote.candidate(), vote.action(), vote.voter()));
+			case Claim claim -> apply(claim);
 		}
+	}
+
+	/* A claimed legacy address no longer holds anything: what is minted to it goes to whoever claimed it */
+	private void apply(Mint mint) {
+		accounts.merge(redirects.getOrDefault(mint.recipient(), mint.recipient()), mint.amount(), Math::addExact);
+		supply += mint.amount();
+		minted.add(mint.reference());
+	}
+
+	/* The snapshot balance is already in the supply, so a claim moves it and grows nothing */
+	private void apply(Claim claim) {
+		final LegacyAddress address = claim.address();
+		final long owed = snapshot.balanceOf(address);
+
+		accounts.merge(claim.recipient(), Math.addExact(owed, accounts.getOrDefault(address, 0L)), Math::addExact);
+		accounts.remove(address);
+		redirects.put(address, claim.recipient());
+		minted.add(Reference.ofClaim(genesis.getSnapshotHash(), address));
+		unclaimed -= owed;
 	}
 
 	private record VoteCast(AccountKey candidate, Vote.Action action, AccountKey voter)
