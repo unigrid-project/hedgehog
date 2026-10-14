@@ -73,6 +73,11 @@ final class Bytes {
 		return in.getLong();
 	}
 
+	static int takeInt(ByteBuffer in) {
+		requireRemaining(in, Integer.BYTES);
+		return in.getInt();
+	}
+
 	static int takeUnsignedShort(ByteBuffer in) {
 		requireRemaining(in, Short.BYTES);
 		return Short.toUnsignedInt(in.getShort());
