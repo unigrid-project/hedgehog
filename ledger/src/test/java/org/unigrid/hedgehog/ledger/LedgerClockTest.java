@@ -290,6 +290,24 @@ public class LedgerClockTest {
 		}
 	}
 
+	/* A block refused for its time leaves no promise behind: the validator may still sign another block at that
+	   height, which a promise recorded before the check would forbid */
+	@Example
+	public void shouldNotRememberABlockItRefusedForItsTime() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT, new AtomicLong(100_000));
+			final LedgerState lenient = state(1000, ANY_MINT, FOUNDATION);
+			final long tooLate = 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1;
+			final Block ahead = block(lenient, FOUNDATION, 1, tooLate, List.of(mint(1, 5)));
+			final Block onTime = block(lenient, FOUNDATION, 1, 100_000, List.of(mint(1, 5)));
+			final byte[] validator = seedOtherThanTheProposerOf(ahead);
+
+			assertThrows(InvalidBlockException.class, () -> ledger.sign(ahead, validator));
+
+			assertThat(ledger.sign(onTime, validator).getEndorsements().size(), equalTo(2));
+		}
+	}
+
 	@Example
 	public void shouldCheckTheClockBeforeTheContentOfTheBlock() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
@@ -338,7 +356,8 @@ public class LedgerClockTest {
 			final Block block = proposal(picky, 11_000).orElseThrow();
 
 			assertThat(block.getTransactions(), equalTo(List.of(enough)));
-			assertThat(picky.sign(block, seedOtherThanTheProposerOf(block)).getEndorsements().size(), equalTo(2));
+			assertThat(picky.sign(block, seedOtherThanTheProposerOf(block)).getEndorsements().size(),
+				equalTo(2));
 		}
 	}
 

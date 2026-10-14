@@ -135,6 +135,7 @@ public class LedgerBlacklistTest {
 			final Ledger restarted = open(fileSystem, "b", blacklisting(Set.of(HELD.address())));
 
 			assertThat(restarted.balanceOf(account(1)), equalTo(500L));
+			assertThat(restarted.stateRoot(), equalTo(lenient.stateRoot()));
 		}
 	}
 
@@ -144,7 +145,8 @@ public class LedgerBlacklistTest {
 			final Ledger held = open(fileSystem, "a", blacklisting(Set.of(HELD.address())));
 			final Ledger lifted = open(fileSystem, "b", blacklisting(Set.of()));
 
-			assertThat(held.submit(HELD.claim(account(1), held.chainId())).isPresent(), is(true));
+			assertThat(reasonOf(held.submit(HELD.claim(account(1), held.chainId()))),
+				containsString("not authorized"));
 			assertThat(lifted.submit(HELD.claim(account(1), lifted.chainId())), equalTo(Optional.empty()));
 		}
 	}
@@ -155,10 +157,18 @@ public class LedgerBlacklistTest {
 			final Ledger ledger = open(fileSystem, "a", blacklisting(Set.of(HELD.address())));
 
 			assertThat(ledger.submit(new Mint(HELD.address(), 40, reference(1))), equalTo(Optional.empty()));
-			ledger.commit(certified(ledger));
 
+			final Block minting = certified(ledger);
+			final LedgerState replica = chain(ANY_MINT);
+
+			ledger.commit(minting);
+			replica.apply(minting);
+
+			assertThat(ledger.stateRoot(), equalTo(replica.stateRoot()));
+			assertThat(replica.unclaimed(), equalTo(800L));
 			assertThat(ledger.balanceOf(HELD.address()), equalTo(40L));
-			assertThat(ledger.submit(HELD.claim(account(1), ledger.chainId())).isPresent(), is(true));
+			assertThat(reasonOf(ledger.submit(HELD.claim(account(1), ledger.chainId()))),
+				containsString("not authorized"));
 			assertThat(ledger.balanceOf(HELD.address()), equalTo(40L));
 		}
 	}
@@ -219,8 +229,9 @@ public class LedgerBlacklistTest {
 		final LedgerState state = stateWithSnapshot(blacklisting(listed), FOUNDATION, 680, balances);
 
 		for (int i = 0; i < 67; i++) {
-			assertThat("address " + i, reasonOf(state.rejectionOf(wallets.get(i).claim(account(1), state.chainId()))),
-				containsString("not authorized"));
+			final Claim claim = wallets.get(i).claim(account(1), state.chainId());
+
+			assertThat("address " + i, reasonOf(state.rejectionOf(claim)), containsString("not authorized"));
 		}
 
 		assertThat(state.rejectionOf(wallets.get(67).claim(account(1), state.chainId())).isPresent(), is(false));
