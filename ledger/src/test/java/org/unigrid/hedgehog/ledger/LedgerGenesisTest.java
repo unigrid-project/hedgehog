@@ -107,4 +107,15 @@ public class LedgerGenesisTest {
 		genesis.getSnapshotHash()[0] ^= 1;
 		assertThat(genesis.chainId(), equalTo(chainId));
 	}
+
+	@Example
+	public void shouldKeepItsOwnCopyOfTheSnapshotHashItIsGiven() {
+		final byte[] given = hashOf(1);
+		final LedgerGenesis genesis = new LedgerGenesis(5, 10, VALIDATORS, given, 3);
+		final byte[] chainId = genesis.chainId();
+
+		given[0] ^= 1;
+		assertThat(genesis.chainId(), equalTo(chainId));
+		assertThat(genesis.getSnapshotHash(), equalTo(hashOf(1)));
+	}
 }
