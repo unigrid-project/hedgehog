@@ -25,7 +25,8 @@ public final class TransactionCodec {
 		/* Static helpers only */
 	}
 
-	/* Every field has a fixed width, so a decoder never trusts a length it read from the wire */
+	/* Every field has a fixed width, or a width its type byte fixes, so a decoder never trusts a length it read from
+	   the wire */
 	public static Transaction decode(ByteBuffer in) {
 		final byte kind = Bytes.take(in, 1)[0];
 
@@ -37,8 +38,7 @@ public final class TransactionCodec {
 	}
 
 	private static Mint decodeMint(ByteBuffer in) {
-		return new Mint(new AccountKey(Bytes.take(in, AccountKey.SIZE)), Bytes.takeLong(in),
-			new Reference(Bytes.take(in, Reference.SIZE)));
+		return new Mint(Address.decode(in), Bytes.takeLong(in), new Reference(Bytes.take(in, Reference.SIZE)));
 	}
 
 	private static Vote decodeVote(ByteBuffer in) {

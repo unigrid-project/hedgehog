@@ -57,6 +57,14 @@ public class TransactionCodecTest {
 	}
 
 	@Example
+	public void shouldRefuseAMintToAnUnknownKindOfAddress() {
+		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
+
+		encoded[1] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
 	public void shouldRefuseAVoteWithAnUnknownAction() {
 		final byte[] encoded = CodecFixtures.vote(new Random(1)).encode();
 
@@ -66,9 +74,10 @@ public class TransactionCodecTest {
 
 	@Example
 	public void shouldRefuseAMintOfNothing() {
-		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
+		final Mint mint = CodecFixtures.mint(new Random(1));
+		final byte[] encoded = mint.encode();
 
-		ByteBuffer.wrap(encoded).putLong(1 + AccountKey.SIZE, 0);
+		ByteBuffer.wrap(encoded).putLong(1 + mint.recipient().encode().length, 0);
 		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
 	}
 

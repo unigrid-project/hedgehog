@@ -40,8 +40,14 @@ final class CodecFixtures {
 		return new AccountKey(random(random, AccountKey.SIZE));
 	}
 
+	static LegacyAddress legacyAddress(Random random) {
+		return new LegacyAddress(random(random, LegacyAddress.SIZE));
+	}
+
 	static Mint mint(Random random) {
-		return new Mint(account(random), 1 + random.nextInt(1_000_000), new Reference(random(random, Reference.SIZE)));
+		final Address recipient = random.nextBoolean() ? account(random) : legacyAddress(random);
+
+		return new Mint(recipient, 1 + random.nextInt(1_000_000), new Reference(random(random, Reference.SIZE)));
 	}
 
 	static Vote vote(Random random) {

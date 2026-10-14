@@ -46,7 +46,7 @@ public final class LedgerState {
 	private final LedgerGenesis genesis;
 	private final MintAuthority authority;
 	private final byte[] chainId;
-	private Map<AccountKey, Long> accounts = new HashMap<>();
+	private Map<Address, Long> accounts = new HashMap<>();
 	private Set<Reference> minted = new HashSet<>();
 	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
@@ -124,7 +124,7 @@ public final class LedgerState {
 		return previousValidators;
 	}
 
-	public long balanceOf(AccountKey key) {
+	public long balanceOf(Address key) {
 		return accounts.getOrDefault(key, 0L);
 	}
 
@@ -246,7 +246,7 @@ public final class LedgerState {
 
 		leaves.add(Bytes.concat(HEIGHT, Bytes.longBytes(height)));
 		accounts.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> leaves
-			.add(Bytes.concat(ACCOUNT, entry.getKey().bytes(), Bytes.longBytes(entry.getValue()))));
+			.add(Bytes.concat(ACCOUNT, entry.getKey().encode(), Bytes.longBytes(entry.getValue()))));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
 		validators.keys().forEach(key -> leaves.add(Bytes.concat(VALIDATOR, key.bytes())));
 		previousValidators.keys().forEach(key -> leaves.add(Bytes.concat(PREVIOUS_VALIDATOR, key.bytes())));

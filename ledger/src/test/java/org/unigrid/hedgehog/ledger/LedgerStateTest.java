@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -75,6 +76,53 @@ public class LedgerStateTest {
 
 		state.apply(soloBlock(state, first, second));
 		assertThat(state.balanceOf(account(1)), equalTo(12L));
+	}
+
+	@Example
+	public void shouldCreditAMintToALegacyAddressWithoutTouchingAKey() {
+		final LedgerState state = soloState(ANY_MINT);
+		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+		final byte[] before = state.stateRoot();
+
+		state.apply(soloBlock(state, new Mint(legacy, 7, reference(1)), new Mint(account(1), 3, reference(2))));
+
+		assertThat(state.balanceOf(legacy), equalTo(7L));
+		assertThat(state.balanceOf(account(1)), equalTo(3L));
+		assertThat(state.balanceOf(new LegacyAddress(new byte[LegacyAddress.SIZE])), equalTo(7L));
+		assertThat(state.stateRoot(), not(equalTo(before)));
+	}
+
+	/* A key and a legacy address that start with the same bytes are two accounts with two leaves */
+	@Example
+	public void shouldKeepAKeyAndALegacyAddressApartInTheRoot() {
+		final LedgerState toKey = soloState(ANY_MINT);
+		final LedgerState toLegacy = soloState(ANY_MINT);
+		final AccountKey key = new AccountKey(new byte[AccountKey.SIZE]);
+		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+
+		toKey.apply(soloBlock(toKey, new Mint(key, 5, reference(1))));
+		toLegacy.apply(soloBlock(toLegacy, new Mint(legacy, 5, reference(1))));
+
+		assertThat(toKey.balanceOf(legacy), equalTo(0L));
+		assertThat(toLegacy.balanceOf(key), equalTo(0L));
+		assertThat(toKey.stateRoot(), not(equalTo(toLegacy.stateRoot())));
+	}
+
+	/* A key is longer than a legacy address, so only the leaf itself shows that the type byte is written in it */
+	@Example
+	public void shouldWriteTheTypeByteInTheAccountLeaf() {
+		final LedgerState state = soloState(ANY_MINT);
+		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+		final List<byte[]> leaves = new ArrayList<>();
+
+		state.apply(soloBlock(state, new Mint(legacy, 7, reference(1))));
+		leaves.add(Bytes.concat(new byte[] { 'H' }, Bytes.longBytes(state.height())));
+		leaves.add(Bytes.concat(new byte[] { 'A' }, legacy.encode(), Bytes.longBytes(7)));
+		leaves.add(Bytes.concat(new byte[] { 'M' }, reference(1).bytes()));
+		state.validators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'V' }, key.bytes())));
+		state.previousValidators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'Q' }, key.bytes())));
+
+		assertThat(state.stateRoot(), equalTo(MerkleRoot.of(leaves)));
 	}
 
 	@Example

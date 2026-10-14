@@ -107,6 +107,12 @@ public class BlockCodecTest {
 		assertThat(BlockCodec.encode(full).length <= BlockCodec.MAX_ENCODED_SIZE, equalTo(true));
 	}
 
+	/* MAX_ENCODED_SIZE is made of the larger transaction kind, so no mint may be larger than a vote */
+	@Example
+	public void shouldNotLetAMintBeLargerThanAVote() {
+		assertThat(Mint.MAX_ENCODED_SIZE <= Vote.ENCODED_SIZE, equalTo(true));
+	}
+
 	@Example
 	public void shouldRefuseALastCommitCountAboveTheMaximum() {
 		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));

@@ -21,11 +21,12 @@ package org.unigrid.hedgehog.ledger;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-/* Creates an amount in an account. Whether it may be created is not in the transaction but in the
-   MintAuthority the ledger asks, and the reference makes sure each one is created only once. */
-public record Mint(AccountKey recipient, long amount, Reference reference) implements Transaction {
+/* Creates an amount in an account, of either kind of address. Whether it may be created is not in the
+   transaction but in the MintAuthority the ledger asks, and the reference makes sure each one is created only
+   once. */
+public record Mint(Address recipient, long amount, Reference reference) implements Transaction {
 	public static final byte KIND = 1;
-	public static final int ENCODED_SIZE = 1 + AccountKey.SIZE + Long.BYTES + Reference.SIZE;
+	public static final int MAX_ENCODED_SIZE = 1 + 1 + AccountKey.SIZE + Long.BYTES + Reference.SIZE;
 
 	public Mint {
 		Objects.requireNonNull(recipient);
@@ -43,7 +44,9 @@ public record Mint(AccountKey recipient, long amount, Reference reference) imple
 
 	@Override
 	public byte[] encode() {
-		return ByteBuffer.allocate(ENCODED_SIZE).put(KIND).put(recipient.bytes()).putLong(amount)
-			.put(reference.bytes()).array();
+		final byte[] address = recipient.encode();
+
+		return ByteBuffer.allocate(1 + address.length + Long.BYTES + Reference.SIZE).put(KIND).put(address)
+			.putLong(amount).put(reference.bytes()).array();
 	}
 }

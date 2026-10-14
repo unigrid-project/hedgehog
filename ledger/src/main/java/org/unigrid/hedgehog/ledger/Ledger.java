@@ -173,7 +173,7 @@ public final class Ledger implements LedgerApplication {
 		return state.round();
 	}
 
-	public synchronized long balanceOf(AccountKey key) {
+	public synchronized long balanceOf(Address key) {
 		return state.balanceOf(key);
 	}
 

@@ -51,7 +51,7 @@ public class MintTest {
 	public void shouldEncodeKindThenFieldsInFixedWidths() {
 		final byte[] encoded = new Mint(RECIPIENT, 5, REFERENCE).encode();
 
-		assertThat(encoded.length, equalTo(Mint.ENCODED_SIZE));
+		assertThat(encoded.length, equalTo(Mint.MAX_ENCODED_SIZE));
 		assertThat(encoded[0], equalTo(Mint.KIND));
 		assertThat(new Mint(RECIPIENT, 5, REFERENCE).kind(), equalTo(Mint.KIND));
 	}
@@ -67,5 +67,24 @@ public class MintTest {
 		assertThat(new Mint(new AccountKey(other), 5, REFERENCE).id(), not(equalTo(base)));
 		assertThat(new Mint(RECIPIENT, 6, REFERENCE).id(), not(equalTo(base)));
 		assertThat(new Mint(RECIPIENT, 5, new Reference(other)).id(), not(equalTo(base)));
+	}
+
+	@Example
+	public void shouldEncodeALegacyRecipientInItsOwnWidth() {
+		final Mint mint = new Mint(new LegacyAddress(new byte[LegacyAddress.SIZE]), 5, REFERENCE);
+
+		assertThat(mint.encode().length, equalTo(1 + 1 + LegacyAddress.SIZE + Long.BYTES + Reference.SIZE));
+		assertThat(mint.encode()[1], equalTo(Address.LEGACY));
+		assertThat(RECIPIENT.encode().length + 1 + Long.BYTES + Reference.SIZE, equalTo(Mint.MAX_ENCODED_SIZE));
+	}
+
+	/* The same leading bytes under the other kind of address are another recipient, so another transaction */
+	@Example
+	public void shouldGiveTheKindOfAddressItsPartInTheId() {
+		final Mint toKey = new Mint(new AccountKey(new byte[AccountKey.SIZE]), 5, REFERENCE);
+		final Mint toLegacy = new Mint(new LegacyAddress(new byte[LegacyAddress.SIZE]), 5, REFERENCE);
+
+		assertThat(toKey.id(), not(equalTo(toLegacy.id())));
+		assertThat(toKey, not(equalTo(toLegacy)));
 	}
 }
