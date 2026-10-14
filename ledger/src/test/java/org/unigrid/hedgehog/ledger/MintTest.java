@@ -48,7 +48,7 @@ public class MintTest {
 	}
 
 	@Example
-	public void shouldEncodeKindThenFieldsInFixedWidths() {
+	public void shouldEncodeKindThenTheFieldsOfAKeyRecipient() {
 		final byte[] encoded = new Mint(RECIPIENT, 5, REFERENCE).encode();
 
 		assertThat(encoded.length, equalTo(Mint.MAX_ENCODED_SIZE));

@@ -21,7 +21,8 @@ package org.unigrid.hedgehog.ledger;
 public sealed interface Transaction permits Mint, Vote {
 	byte kind();
 
-	/* The kind byte, then the fields in fixed widths; this is also what a transaction id hashes */
+	/* The kind byte, then the fields; each has a fixed width or one that its type byte fixes. This is also what a
+	   transaction id hashes */
 	byte[] encode();
 
 	default byte[] id() {
