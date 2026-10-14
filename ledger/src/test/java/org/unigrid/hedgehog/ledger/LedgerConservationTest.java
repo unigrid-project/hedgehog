@@ -21,10 +21,14 @@ package org.unigrid.hedgehog.ledger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.stream.LongStream;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerConservationTest {
@@ -41,7 +45,7 @@ public class LedgerConservationTest {
 		return total;
 	}
 
-	private static Transaction random(LedgerState state, Random random, int blockNumber, int index) {
+	private static Transaction candidate(LedgerState state, Random random, int blockNumber, int index) {
 		final int from = 1 + random.nextInt(ACCOUNTS);
 
 		if (random.nextInt(3) == 0) {
@@ -52,16 +56,17 @@ public class LedgerConservationTest {
 			random.nextInt(20), state.nonceOf(account(from)) + random.nextInt(2));
 	}
 
-	@Property(tries = 40)
-	public void shouldNeverCreateOrLoseMoneyWhateverIsSent(@ForAll long seed) {
+	private static Outcome run(long seed) {
 		final Random random = new Random(seed);
 		final LedgerState state = soloState(ANY_MINT);
+		int transfers = 0;
+		boolean feesPaid = false;
 
 		for (int blockNumber = 0; blockNumber < 8; blockNumber++) {
 			final List<Transaction> candidates = new ArrayList<>();
 
 			for (int index = 0; index < 6; index++) {
-				candidates.add(random(state, random, blockNumber, index));
+				candidates.add(candidate(state, random, blockNumber, index));
 			}
 
 			final List<Transaction> kept = state.applicable(candidates);
@@ -70,7 +75,29 @@ public class LedgerConservationTest {
 				state.apply(soloBlock(state, kept.toArray(new Transaction[0])));
 			}
 
+			transfers += (int) kept.stream().filter(Transfer.class::isInstance).count();
+			feesPaid |= state.balanceOf(key(1)) > 0;
 			assertThat(held(state), equalTo(state.supply()));
 		}
+
+		return new Outcome(transfers, feesPaid);
+	}
+
+	@Property(tries = 40)
+	public void shouldNeverCreateOrLoseMoneyWhateverIsSent(@ForAll long seed) {
+		run(seed);
+	}
+
+	/* Money is trivially conserved when no transfer is ever applied and no fee ever paid, so the sequences
+	   must be shown to contain both */
+	@Example
+	public void shouldApplyTransfersAndPayFeesInTheSequencesItChecks() {
+		final List<Outcome> outcomes = LongStream.rangeClosed(1, 20).mapToObj(LedgerConservationTest::run).toList();
+
+		assertThat(outcomes.stream().mapToInt(Outcome::transfers).sum(), greaterThan(0));
+		assertThat(outcomes.stream().anyMatch(Outcome::feesPaid), is(true));
+	}
+
+	private record Outcome(int transfers, boolean feesPaid) {
 	}
 }

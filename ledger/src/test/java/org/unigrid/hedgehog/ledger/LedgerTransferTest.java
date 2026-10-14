@@ -128,6 +128,18 @@ public class LedgerTransferTest {
 	}
 
 	@Example
+	public void shouldRefuseABlockThatSpendsOneNonceTwiceEvenWhenCertified() {
+		final LedgerState state = funded();
+		final Block block = withTransactions(state, soloBlock(state, mint(2, 5)),
+			transfer(state, 1, account(2), 100, 1, 0), transfer(state, 1, account(3), 100, 1, 0));
+		final InvalidBlockException refused = assertThrows(InvalidBlockException.class, () -> state.apply(block));
+
+		assertThat(refused.getMessage(), containsString("next is 1"));
+		assertThat(state.nonceOf(account(1)), equalTo(0L));
+		assertThat(state.balanceOf(account(2)), equalTo(0L));
+	}
+
+	@Example
 	public void shouldRefuseAGapInTheNonceWhenAppliedButAcceptItQueued() {
 		final LedgerState state = funded();
 		final Transfer ahead = transfer(state, 1, account(2), 100, 1, 1);

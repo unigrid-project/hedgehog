@@ -312,10 +312,14 @@ public class LedgerTest {
 			seal(ledger, FOUNDATION, 3000);
 
 			assertThat(ledger.balanceOf(account(2)), equalTo(300L));
+			assertThat(ledger.balanceOf(account(1)), equalTo(691L));
 
 			seal(ledger, FOUNDATION, 4000);
 
-			assertThat(ledger.balanceOf(key(1)) + ledger.balanceOf(key(2)) + ledger.balanceOf(key(3)), equalTo(9L));
+			for (int validator = 1; validator <= 3; validator++) {
+				assertThat(ledger.balanceOf(key(validator)), equalTo(3L));
+			}
+
 			assertThat(ledger.supply(), equalTo(1000L));
 
 			for (final byte[] seed : FOUNDATION) {
@@ -338,7 +342,8 @@ public class LedgerTest {
 
 			final Block block = seal(ledger, FOUNDATION, 3000);
 
-			assertThat(block.getTransactions().size(), equalTo(2));
+			assertThat(block.getTransactions().stream().map(transaction -> ((Transfer) transaction).nonce()).toList(),
+				equalTo(List.of(0L, 1L)));
 			assertThat(ledger.balanceOf(account(2)), equalTo(30L));
 		}
 	}
@@ -362,7 +367,7 @@ public class LedgerTest {
 			assertThat(second.balanceOf(account(2)), equalTo(300L));
 			assertThat(second.supply(), equalTo(first.supply()));
 			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
-			assertThat(second.submit(paid).isPresent(), is(true));
+			assertThat(second.submit(paid).orElse(""), containsString("already used"));
 		}
 	}
 
