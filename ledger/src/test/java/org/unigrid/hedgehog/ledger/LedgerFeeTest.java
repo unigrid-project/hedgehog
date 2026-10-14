@@ -41,7 +41,31 @@ public class LedgerFeeTest {
 	}
 
 	private static void commit(LedgerState state, Transaction... transactions) {
-		state.apply(block(state, FOUR, 3, state.tipTime(), Arrays.asList(transactions)));
+		commitSignedBy(state, 3, transactions);
+	}
+
+	private static void commitSignedBy(LedgerState state, int signers, Transaction... transactions) {
+		state.apply(block(state, FOUR, signers, state.tipTime(), Arrays.asList(transactions)));
+	}
+
+	/* A block's hash leaves its certificate out, so the same tip can be committed by three validators on one chain
+	   and by all four on another, and both chains hold the same state */
+	private static LedgerState chainWithFeesWaitingSignedBy(int signers) {
+		final LedgerState state = chain();
+
+		commit(state, mint(1, 1000));
+		commitSignedBy(state, signers, transfer(state, 1, account(2), 300, 10, 0));
+		return state;
+	}
+
+	private static Block signedByThree(Block block, byte[] chainId) {
+		Block signed = block.toBuilder().certificate(Certificate.EMPTY).build();
+
+		for (final byte[] seed : FOUR.subList(0, 3)) {
+			signed = signed.endorsedBy(seed, chainId);
+		}
+
+		return signed;
 	}
 
 	private static List<AccountKey> signersOfTheTip(LedgerState state) {
@@ -164,6 +188,43 @@ public class LedgerFeeTest {
 			assertThat(proposeWhenDue(ledger), equalTo(Optional.empty()));
 			assertThat(ledger.supply(), equalTo(1000L));
 		}
+	}
+
+	/* The tip was committed by three validators, but the fourth signed it too, and a block may carry any valid
+	   commit of its predecessor: what is paid is what the block names, not what this node stored */
+	@Example
+	public void shouldPayTheSignersOfTheLastCommitTheBlockCarries() {
+		final LedgerState state = chainWithFeesWaitingSignedBy(3);
+		final LedgerState wide = chainWithFeesWaitingSignedBy(4);
+		final Block block = block(wide, FOUR, 3, wide.tipTime(), List.of());
+		final List<AccountKey> signers = block.getLastCommit().endorsements().stream().map(Endorsement::signer)
+			.toList();
+
+		assertThat(wide.tipHash(), equalTo(state.tipHash()));
+		assertThat(wide.stateRoot(), equalTo(state.stateRoot()));
+		assertThat(state.tipCertificate().endorsements().size(), equalTo(3));
+		assertThat(signers.size(), equalTo(4));
+		assertThat(state.rejectionOf(block).isPresent(), is(false));
+		assertThat(state.proposalRejection(block).isPresent(), is(false));
+
+		state.apply(block);
+
+		assertThat(signers.stream().map(state::balanceOf).toList(), equalTo(List.of(3L, 3L, 2L, 2L)));
+		assertThat(state.pool(), equalTo(0L));
+		assertThat(state.supply(), equalTo(1000L));
+	}
+
+	@Example
+	public void shouldRefuseABlockWhoseRootWasComputedForAnotherLastCommit() {
+		final LedgerState state = chainWithFeesWaitingSignedBy(3);
+		final LedgerState wide = chainWithFeesWaitingSignedBy(4);
+		final Block rootForFour = block(wide, FOUR, 3, wide.tipTime(), List.of());
+		final Block carryingThree = signedByThree(rootForFour.toBuilder().lastCommit(state.tipCertificate())
+			.build(), state.chainId());
+
+		assertThat(carryingThree.getLastCommit(), equalTo(state.tipCertificate()));
+		assertThat(reasonOf(state.rejectionOf(carryingThree)), containsString("State root does not match"));
+		assertThat(state.rejectionOf(block(state, FOUR, 3, state.tipTime(), List.of())).isPresent(), is(false));
 	}
 
 	@Example
