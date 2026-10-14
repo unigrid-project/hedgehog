@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.ledger;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -29,8 +30,34 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.FakeApp;
 
 public class ConsensusSimulationTest {
+	private static final long PROPOSE_MILLIS = 300;
+
+	private record Standing(long height, int view, Consensus.Step step, int ballots) {
+	}
+
 	private static SimulatedNetwork network(int nodes, int goal, long seed) {
-		return new SimulatedNetwork(nodes, goal, seed, new Timeouts(300, 100, 100, 50, 100, 50));
+		return new SimulatedNetwork(nodes, goal, seed, new Timeouts(PROPOSE_MILLIS, 100, 100, 50, 100, 50));
+	}
+
+	private static Standing standing(SimNode node) {
+		final Consensus engine = node.engine;
+
+		return new Standing(engine.height(), engine.view(), engine.step(), engine.storedBallots());
+	}
+
+	private static void runUntil(SimulatedNetwork net, BooleanSupplier reached) {
+		while (!reached.getAsBoolean() && net.now() < 60_000) {
+			net.run(net.now() + 1);
+		}
+
+		assertThat(reached.getAsBoolean(), is(true));
+	}
+
+	private static SimNode nonProposerOfViewZero(SimulatedNetwork net, long height) {
+		final AccountKey proposer = net.validators.proposerAt(height, 0);
+
+		return net.nodes.stream().filter(node -> !Ed25519.publicKey(node.seed).equals(proposer)).findFirst()
+			.orElseThrow();
 	}
 
 	private static List<List<ByteBuffer>> decidedHashes(SimulatedNetwork net) {
@@ -121,6 +148,81 @@ public class ConsensusSimulationTest {
 
 		assertThat(net.everyoneReached(3, Set.of()), is(true));
 		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldKeepTheStateOfANodeThatCrashesMidHeightAndComesBack() {
+		final SimulatedNetwork net = network(4, 8, 1);
+		final SimNode node = nonProposerOfViewZero(net, 2);
+
+		net.begin();
+		runUntil(net, () -> node.engine.height() == 2 && node.engine.storedBallots() > 0);
+
+		final Standing before = standing(node);
+		final int firedBefore = node.fired;
+
+		net.crash(node.index);
+		net.run(net.now() + 1000);
+		assertThat(standing(node), equalTo(before));
+		assertThat(node.fired, equalTo(firedBefore));
+
+		net.restart(node.index);
+		assertThat(standing(node), equalTo(before));
+
+		net.run(60_000);
+		assertThat(net.everyoneReached(8, Set.of()), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldLetACrashTakeTheTimersOfTheNodeWithIt() {
+		final SimulatedNetwork net = network(4, 3, 1);
+		final SimNode waiting = nonProposerOfViewZero(net, 1);
+
+		net.dropRate(1.0);
+		net.begin();
+		net.run(100);
+		net.crash(waiting.index);
+		net.run(150);
+		net.restart(waiting.index);
+
+		net.run(150 + PROPOSE_MILLIS - 1);
+		assertThat(waiting.engine.step(), equalTo(Consensus.Step.PROPOSE));
+
+		net.run(150 + PROPOSE_MILLIS);
+		assertThat(waiting.engine.step(), equalTo(Consensus.Step.PREVOTE));
+	}
+
+	@Example
+	public void shouldDeliverAMessageSentWhileTheNodeWasDownThatArrivesAfterItCameBack() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.latency(40, 40);
+		net.begin();
+		net.run(30);
+		net.crash(1);
+		net.run(50);
+		net.restart(1);
+		net.run(85);
+
+		assertThat(net.nodes.get(1).received, greaterThan(0));
+	}
+
+	@Example
+	public void shouldRefuseToBeginTwice() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.begin();
+
+		Expect.assertThrows(IllegalStateException.class, net::begin);
+	}
+
+	@Example
+	public void shouldRefuseALatencyThatIsNotAPositiveRange() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		Expect.assertThrows(IllegalArgumentException.class, () -> net.latency(0, 5));
+		Expect.assertThrows(IllegalArgumentException.class, () -> net.latency(10, 5));
 	}
 
 	@Example

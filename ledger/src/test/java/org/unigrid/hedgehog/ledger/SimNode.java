@@ -29,6 +29,8 @@ final class SimNode {
 	final Consensus engine;
 	final List<Block> decided = new ArrayList<>();
 	int received;
+	int fired;
+	int incarnation;
 	boolean crashed;
 
 	SimNode(int index, ValidatorSet validators, int goal, Timeouts timeouts) {

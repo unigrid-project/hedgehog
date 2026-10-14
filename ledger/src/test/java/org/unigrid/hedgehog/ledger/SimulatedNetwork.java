@@ -49,6 +49,7 @@ final class SimulatedNetwork {
 	private long now;
 	private long counter;
 	private long sent;
+	private boolean begun;
 	private long minLatency = 5;
 	private long maxLatency = 50;
 	private double dropRate;
@@ -72,6 +73,10 @@ final class SimulatedNetwork {
 	}
 
 	void latency(long min, long max) {
+		if (min < 1 || max < min) {
+			throw new IllegalArgumentException("Latency needs 1 <= min <= max, found " + min + " and " + max);
+		}
+
 		minLatency = min;
 		maxLatency = max;
 	}
@@ -89,8 +94,12 @@ final class SimulatedNetwork {
 		isolated = Set.of();
 	}
 
+	/* The timers of a process die with it, so the ones armed before the crash must not fire after a restart */
 	void crash(int index) {
-		nodes.get(index).crashed = true;
+		final SimNode node = nodes.get(index);
+
+		node.crashed = true;
+		node.incarnation++;
 	}
 
 	/* A node that was down from the start has no height yet, so it starts instead of resuming */
@@ -102,6 +111,11 @@ final class SimulatedNetwork {
 	}
 
 	void begin() {
+		if (begun) {
+			throw new IllegalStateException("The network has begun already");
+		}
+
+		begun = true;
 		nodes.stream().filter(node -> !node.crashed).forEach(node -> perform(node, start(node)));
 		after(RESEND_MILLIS, this::resend);
 	}
@@ -145,11 +159,15 @@ final class SimulatedNetwork {
 	private void send(int from, int to, Message message) {
 		sent++;
 
-		if (nodes.get(to).crashed || cut(from, to) || random.nextDouble() < dropRate) {
+		if (cut(from, to) || random.nextDouble() < dropRate) {
 			return;
 		}
 
-		after(minLatency + (long) (random.nextDouble() * (maxLatency - minLatency)), () -> deliver(to, message));
+		after(travelTime(), () -> deliver(to, message));
+	}
+
+	private long travelTime() {
+		return Math.min(maxLatency, minLatency + (long) (random.nextDouble() * (maxLatency - minLatency + 1)));
 	}
 
 	private boolean cut(int from, int to) {
@@ -173,15 +191,22 @@ final class SimulatedNetwork {
 		for (final Action action : actions) {
 			switch (action) {
 				case Broadcast broadcast -> tellOthers(node, broadcast.message());
-				case Schedule schedule -> after(schedule.delayMillis(), () -> fire(node, schedule));
+				case Schedule schedule -> arm(node, schedule);
 				case Decide decide -> commit(node, decide.block());
 			}
 		}
 	}
 
-	private void fire(SimNode node, Schedule schedule) {
-		if (!node.crashed) {
-			perform(node, node.engine.onTimeout(schedule.timeout(), now));
+	private void arm(SimNode node, Schedule schedule) {
+		final int armedIn = node.incarnation;
+
+		after(schedule.delayMillis(), () -> fire(node, armedIn, schedule.timeout()));
+	}
+
+	private void fire(SimNode node, int armedIn, Timeout timeout) {
+		if (node.incarnation == armedIn) {
+			node.fired++;
+			perform(node, node.engine.onTimeout(timeout, now));
 		}
 	}
 
