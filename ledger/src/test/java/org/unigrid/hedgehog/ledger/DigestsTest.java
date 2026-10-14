@@ -36,6 +36,21 @@ public class DigestsTest {
 			equalTo(ABC_SHA512));
 	}
 
+	@Example
+	public void shouldHashWithSha256() {
+		assertThat(Digests.sha256("abc".getBytes(StandardCharsets.US_ASCII)), equalTo(HexFormat.of()
+			.parseHex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")));
+	}
+
+	/* The compressed public key of the private key 1, whose address everyone knows: 1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH */
+	@Example
+	public void shouldHashAKeyTheWayTheLegacyChainDid() {
+		final byte[] key = HexFormat.of()
+			.parseHex("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
+
+		assertThat(Digests.hash160(key), equalTo(HexFormat.of().parseHex("751e76e8199196d454941c45d1b3a323f1433bd6")));
+	}
+
 	@Property(tries = 100)
 	public void shouldHashPartsAsTheirConcatenation(@ForAll byte[] first, @ForAll byte[] second) {
 		assertThat(Digests.sha512(first, second), equalTo(Digests.sha512(Bytes.concat(first, second))));
