@@ -28,6 +28,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerTransferTest {
@@ -44,6 +45,14 @@ public class LedgerTransferTest {
 		return rejection.orElse("");
 	}
 
+	/* A block with the transactions the state would not take, signed by the solo validator as a certified one */
+	private static Block withTransactions(LedgerState state, Block sound, Transaction... transactions) {
+		final List<Transaction> replaced = List.of(transactions);
+
+		return sound.toBuilder().transactions(replaced).transactionRoot(Block.transactionRootOf(replaced))
+			.endorsements(List.of()).build().endorsedBy(seed(1), state.chainId());
+	}
+
 	@Example
 	public void shouldMoveTheAmountAndBankTheFee() {
 		final LedgerState state = funded();
@@ -54,7 +63,54 @@ public class LedgerTransferTest {
 		assertThat(state.balanceOf(account(2)), equalTo(300L));
 		assertThat(state.pool(), equalTo(10L));
 		assertThat(state.nonceOf(account(1)), equalTo(1L));
-		assertThat(state.supply(), equalTo(FUNDS));
+		assertThat(state.balanceOf(account(1)) + state.balanceOf(account(2)) + state.pool() + state.unclaimed(),
+			equalTo(state.supply()));
+	}
+
+	@Example
+	public void shouldCarryTheNonceAndThePoolFromBlockToBlock() {
+		final LedgerState state = funded();
+
+		state.apply(soloBlock(state, transfer(state, 1, account(2), 300, 10, 0)));
+		state.apply(soloBlock(state, transfer(state, 1, account(3), 200, 5, 1)));
+
+		assertThat(state.nonceOf(account(1)), equalTo(2L));
+		assertThat(state.pool(), equalTo(15L));
+		assertThat(state.balanceOf(account(1)), equalTo(FUNDS - 300 - 10 - 200 - 5));
+		assertThat(state.balanceOf(account(2)), equalTo(300L));
+		assertThat(state.balanceOf(account(3)), equalTo(200L));
+	}
+
+	@Example
+	public void shouldLeaveTheStateAloneWhenALaterTransferOfTheBlockIsRefused() {
+		final LedgerState state = funded();
+		final byte[] root = state.stateRoot();
+		final Transfer good = transfer(state, 1, account(2), 300, 10, 0);
+		final Block block = withTransactions(state, soloBlock(state, good), good,
+			transfer(state, 1, account(3), FUNDS, 1, 1));
+
+		final InvalidBlockException refused = assertThrows(InvalidBlockException.class, () -> state.apply(block));
+
+		assertThat(refused.getMessage(), containsString("does not cover"));
+		assertThat(state.nonceOf(account(1)), equalTo(0L));
+		assertThat(state.pool(), equalTo(0L));
+		assertThat(state.balanceOf(account(1)), equalTo(FUNDS));
+		assertThat(state.balanceOf(account(2)), equalTo(0L));
+		assertThat(state.stateRoot(), equalTo(root));
+	}
+
+	@Example
+	public void shouldRefuseAUsedNonceInALaterBlock() {
+		final LedgerState state = funded();
+		final Transfer first = transfer(state, 1, account(2), 300, 10, 0);
+
+		state.apply(soloBlock(state, first));
+
+		final Block replay = withTransactions(state, soloBlock(state, mint(2, 5)), first);
+		final InvalidBlockException refused = assertThrows(InvalidBlockException.class, () -> state.apply(replay));
+
+		assertThat(refused.getMessage(), containsString("next is"));
+		assertThat(state.balanceOf(account(2)), equalTo(300L));
 	}
 
 	@Example
@@ -119,6 +175,17 @@ public class LedgerTransferTest {
 	}
 
 	@Example
+	public void shouldNotTakeAForgedSignatureForOneThatWasChecked() {
+		final LedgerState state = funded();
+		final Transfer valid = transfer(state, 1, account(2), 100, 1, 0);
+		final Transfer forged = new Transfer(valid.sender(), valid.recipient(), valid.amount(), valid.fee(),
+			valid.nonce(), new byte[Ed25519.SIGNATURE_SIZE]);
+
+		assertThat(state.rejectionOf(valid).isPresent(), is(false));
+		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+	}
+
+	@Example
 	public void shouldLetAnAccountPayItselfAndCostOnlyTheFee() {
 		final LedgerState state = funded();
 
@@ -144,6 +211,7 @@ public class LedgerTransferTest {
 	@Example
 	public void shouldCommitToTheNonceAndThePoolInTheRoot() {
 		final LedgerState state = funded();
+		final Map<AccountKey, Long> nonces = Map.of(account(1), 1L, account(2), 0L);
 		final List<byte[]> leaves = new ArrayList<>();
 
 		state.apply(soloBlock(state, transfer(state, 1, account(2), 300, 10, 0)));
@@ -152,7 +220,7 @@ public class LedgerTransferTest {
 		leaves.add(Bytes.concat(new byte[] { 'U' }, Bytes.longBytes(0)));
 		leaves.add(Bytes.concat(new byte[] { 'P' }, Bytes.longBytes(10)));
 		Stream.of(account(1), account(2)).sorted().forEach(account -> leaves.add(Bytes.concat(new byte[] { 'A' },
-			account.encode(), Bytes.longBytes(state.balanceOf(account)), Bytes.longBytes(state.nonceOf(account)))));
+			account.encode(), Bytes.longBytes(state.balanceOf(account)), Bytes.longBytes(nonces.get(account)))));
 		leaves.add(Bytes.concat(new byte[] { 'M' }, reference(1).bytes()));
 		state.validators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'V' }, key.bytes())));
 		state.previousValidators().keys().forEach(key -> leaves.add(Bytes.concat(new byte[] { 'Q' }, key.bytes())));

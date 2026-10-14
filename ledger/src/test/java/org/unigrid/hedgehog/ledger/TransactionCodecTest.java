@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -96,6 +97,34 @@ public class TransactionCodecTest {
 
 		encoded[1 + AccountKey.SIZE] = 9;
 		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldReadTheAmountFeeAndNonceOfATransferAtTheirOffsets() {
+		final Transfer decoded = (Transfer) TransactionCodec.decode(ByteBuffer.wrap(transferWith(7, 8, 9)));
+
+		assertThat(decoded.amount(), equalTo(7L));
+		assertThat(decoded.fee(), equalTo(8L));
+		assertThat(decoded.nonce(), equalTo(9L));
+	}
+
+	@Example
+	public void shouldRefuseATransferWithAnAmountFeeOrNonceOutOfRange() {
+		for (final byte[] encoded : List.of(transferWith(0, 1, 0), transferWith(Long.MIN_VALUE, 1, 0),
+			transferWith(5, -1, 0), transferWith(5, 1, -1))) {
+			assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+		}
+	}
+
+	private static byte[] transferWith(long amount, long fee, long nonce) {
+		final Random random = new Random(1);
+		final byte[] encoded = new Transfer(CodecFixtures.account(random), CodecFixtures.account(random), 5, 1, 0,
+			CodecFixtures.random(random, Ed25519.SIGNATURE_SIZE)).encode();
+		final int amountAt = 1 + AccountKey.SIZE + 1 + AccountKey.SIZE;
+
+		ByteBuffer.wrap(encoded).putLong(amountAt, amount).putLong(amountAt + Long.BYTES, fee)
+			.putLong(amountAt + 2 * Long.BYTES, nonce);
+		return encoded;
 	}
 
 	@Example

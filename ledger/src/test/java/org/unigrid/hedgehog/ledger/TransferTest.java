@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -48,6 +49,25 @@ public class TransferTest {
 		assertThat(transfer, equalTo(same));
 		assertThat(transfer.hashCode(), equalTo(same.hashCode()));
 		assertThat(transfer.id(), equalTo(same.id()));
+	}
+
+	@Example
+	public void shouldBeUnequalWithAnotherIdWhenAnyPartDiffers() {
+		final Transfer base = signed();
+		final byte[] flipped = base.signature();
+
+		flipped[0] ^= 1;
+
+		for (final Transfer other : List.of(
+			new Transfer(account(3), base.recipient(), 300, 10, 4, base.signature()),
+			new Transfer(base.sender(), account(3), 300, 10, 4, base.signature()),
+			new Transfer(base.sender(), base.recipient(), 301, 10, 4, base.signature()),
+			new Transfer(base.sender(), base.recipient(), 300, 11, 4, base.signature()),
+			new Transfer(base.sender(), base.recipient(), 300, 10, 5, base.signature()),
+			new Transfer(base.sender(), base.recipient(), 300, 10, 4, flipped))) {
+			assertThat(other, not(equalTo(base)));
+			assertThat(other.id(), not(equalTo(base.id())));
+		}
 	}
 
 	@Example
