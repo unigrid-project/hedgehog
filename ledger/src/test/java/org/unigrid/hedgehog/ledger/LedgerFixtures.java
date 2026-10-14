@@ -27,16 +27,16 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 final class LedgerFixtures {
-	static final MintAuthority ANY_MINT = authority(true, true);
-	static final MintAuthority NO_MINT = authority(false, true);
+	static final LedgerAuthority ANY_MINT = authority(true, true);
+	static final LedgerAuthority NO_MINT = authority(false, true);
 	static final byte[] SNAPSHOT_HASH = Digests.sha512("snapshot".getBytes(StandardCharsets.US_ASCII));
 
 	private LedgerFixtures() {
 		/* Static helpers only */
 	}
 
-	static MintAuthority authority(boolean mints, boolean claims) {
-		return new MintAuthority() {
+	static LedgerAuthority authority(boolean mints, boolean claims) {
+		return new LedgerAuthority() {
 			@Override
 			public boolean authorizes(Mint mint) {
 				return mints;
@@ -49,8 +49,8 @@ final class LedgerFixtures {
 		};
 	}
 
-	static MintAuthority mintsWhere(Predicate<Mint> allowed) {
-		return new MintAuthority() {
+	static LedgerAuthority mintsWhere(Predicate<Mint> allowed) {
+		return new LedgerAuthority() {
 			@Override
 			public boolean authorizes(Mint mint) {
 				return allowed.test(mint);
@@ -107,16 +107,16 @@ final class LedgerFixtures {
 			new ValidatorSet(validatorSeeds.stream().map(Ed25519::publicKey).toList()));
 	}
 
-	static LedgerState state(int roundLength, MintAuthority authority, List<byte[]> validatorSeeds) {
+	static LedgerState state(int roundLength, LedgerAuthority authority, List<byte[]> validatorSeeds) {
 		return new LedgerState(genesis(roundLength, validatorSeeds), authority);
 	}
 
 	/* A single foundation validator, which is quorum on its own */
-	static LedgerState soloState(MintAuthority authority) {
+	static LedgerState soloState(LedgerAuthority authority) {
 		return state(1000, authority, seeds(1, 1));
 	}
 
-	static LedgerState stateWithSnapshot(MintAuthority authority, List<byte[]> validatorSeeds, long total,
+	static LedgerState stateWithSnapshot(LedgerAuthority authority, List<byte[]> validatorSeeds, long total,
 		Map<LegacyAddress, Long> balances) {
 		final ValidatorSet validators = new ValidatorSet(validatorSeeds.stream().map(Ed25519::publicKey).toList());
 
@@ -124,7 +124,7 @@ final class LedgerFixtures {
 			address -> balances.getOrDefault(address, 0L));
 	}
 
-	static LedgerState soloSnapshotState(MintAuthority authority, Map<LegacyAddress, Long> balances) {
+	static LedgerState soloSnapshotState(LedgerAuthority authority, Map<LegacyAddress, Long> balances) {
 		return stateWithSnapshot(authority, seeds(1, 1),
 			balances.values().stream().mapToLong(Long::longValue).sum(), balances);
 	}

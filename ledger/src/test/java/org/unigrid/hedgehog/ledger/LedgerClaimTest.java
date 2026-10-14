@@ -39,7 +39,7 @@ public class LedgerClaimTest {
 	private static final LegacyWallet OTHER = new LegacyWallet(2, true);
 	private static final long OWED = 500;
 
-	private static LedgerState claimState(MintAuthority authority) {
+	private static LedgerState claimState(LedgerAuthority authority) {
 		return soloSnapshotState(authority, Map.of(LEGACY, OWED));
 	}
 
@@ -149,7 +149,7 @@ public class LedgerClaimTest {
 	   signed stands for every node, or the nodes would disagree about the same chain */
 	@Example
 	public void shouldAskTheAuthorityAboutAClaimButTakeACertifiedOne() {
-		final MintAuthority blacklist = authority(true, false);
+		final LedgerAuthority blacklist = authority(true, false);
 		final LedgerState signer = claimState(ANY_MINT);
 		final Block certified = soloBlock(signer, claim(signer, account(1)));
 		final LedgerState follower = claimState(blacklist);

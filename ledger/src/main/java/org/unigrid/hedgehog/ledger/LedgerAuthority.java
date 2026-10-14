@@ -20,7 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 /* The one thing the ledger asks of the outside: may this mint be made, and may this claim be taken? The node
    answers from whatever it trusts, and a node that does not know yet answers no, which only delays the block. */
-public interface MintAuthority {
+public interface LedgerAuthority {
 	boolean authorizes(Mint mint);
 
 	/* No default: an authority that forgot claims would let a held-back address claim */

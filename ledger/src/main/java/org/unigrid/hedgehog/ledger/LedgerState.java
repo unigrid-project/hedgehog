@@ -48,7 +48,7 @@ public final class LedgerState {
 	private static final byte[] REDIRECT = { 'R' };
 
 	private final LedgerGenesis genesis;
-	private final MintAuthority authority;
+	private final LedgerAuthority authority;
 	private final Snapshot snapshot;
 	private final byte[] chainId;
 	private final VerifiedSignatures verified;
@@ -74,11 +74,11 @@ public final class LedgerState {
 	   or any longer, is not asked again and cannot make it disagree with the others. */
 	private boolean vouched;
 
-	public LedgerState(LedgerGenesis genesis, MintAuthority authority) {
+	public LedgerState(LedgerGenesis genesis, LedgerAuthority authority) {
 		this(genesis, authority, Snapshot.EMPTY);
 	}
 
-	public LedgerState(LedgerGenesis genesis, MintAuthority authority, Snapshot snapshot) {
+	public LedgerState(LedgerGenesis genesis, LedgerAuthority authority, Snapshot snapshot) {
 		this.genesis = genesis;
 		this.authority = authority;
 		this.snapshot = snapshot;

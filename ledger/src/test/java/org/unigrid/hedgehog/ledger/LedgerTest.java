@@ -41,7 +41,7 @@ public class LedgerTest {
 		return new Ledger(state, BlockLog.open(fileSystem.getPath("/data/blocks.log")));
 	}
 
-	private static Ledger open(FileSystem fileSystem, int roundLength, MintAuthority authority) throws IOException {
+	private static Ledger open(FileSystem fileSystem, int roundLength, LedgerAuthority authority) throws IOException {
 		return open(fileSystem, state(roundLength, authority, FOUNDATION));
 	}
 

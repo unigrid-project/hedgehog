@@ -22,7 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.Objects;
 
 /* Creates an amount in an account, of either kind of address. Whether it may be created is not in the
-   transaction but in the MintAuthority the ledger asks, and the reference makes sure each one is created only
+   transaction but in the LedgerAuthority the ledger asks, and the reference makes sure each one is created only
    once. */
 public record Mint(Address recipient, long amount, Reference reference) implements Transaction {
 	public static final byte KIND = 1;
