@@ -175,6 +175,10 @@ public class ConsensusSimulationTest {
 		return net.nodes.stream().allMatch(node -> node.decided.isEmpty());
 	}
 
+	private static boolean allInStep(SimulatedNetwork net, Set<Integer> indexes, Consensus.Step step) {
+		return indexes.stream().allMatch(index -> net.nodes.get(index).engine.step() == step);
+	}
+
 	private static SimNode nonProposerOfViewZero(SimulatedNetwork net, long height) {
 		final AccountKey proposer = net.validators.proposerAt(height, 0);
 
@@ -494,6 +498,7 @@ public class ConsensusSimulationTest {
 		final Liar liar = liar(net, 0);
 		final Block one = liar.block(0, "one");
 		final Block two = liar.block(0, "two");
+		final Set<Integer> honest = Set.of(1, 2, 3);
 
 		net.begin();
 		net.after(50, () -> {
@@ -501,6 +506,10 @@ public class ConsensusSimulationTest {
 			liar.tell(2, liar.proposal(0, -1, two));
 			liar.tell(3, liar.proposal(0, -1, two));
 		});
+		net.run(100);
+
+		assertThat(allInStep(net, honest, Consensus.Step.PREVOTE), is(true));
+
 		runAgreeing(net, SETTLE_MILLIS);
 
 		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
@@ -515,13 +524,20 @@ public class ConsensusSimulationTest {
 		final Liar liar = liar(net, 0);
 		final Block one = liar.block(0, "one");
 		final Block two = liar.block(0, "two");
+		final Set<Integer> honest = Set.of(1, 2, 3);
 
+		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
 		net.after(50, () -> {
-			liar.tell(1, liar.proposal(0, -1, one), liar.vote(Ballot.Type.PREVOTE, 0, one));
-			liar.tell(2, liar.proposal(0, -1, two), liar.vote(Ballot.Type.PREVOTE, 0, two));
-			liar.tell(3, liar.proposal(0, -1, two), liar.vote(Ballot.Type.PREVOTE, 0, two));
+			liar.tell(1, liar.proposal(0, -1, one), liar.vote(PREVOTE, 0, one));
+			liar.tell(2, liar.proposal(0, -1, two), liar.vote(PREVOTE, 0, two));
+			liar.tell(3, liar.proposal(0, -1, two), liar.vote(PREVOTE, 0, two));
 		});
+		net.run(100);
+
+		assertThat(allInStep(net, honest, Consensus.Step.PREVOTE), is(true));
+		assertThat(honest.stream().allMatch(index -> net.nodes.get(index).engine.storedBallots() == 2), is(true));
+
 		runAgreeing(net, SETTLE_MILLIS);
 	}
 
@@ -580,6 +596,11 @@ public class ConsensusSimulationTest {
 		net.after(3 * LINK_MILLIS, () -> locked.forEach(to -> liar.tell(to, liar.vote(PRECOMMIT, 0, null))));
 		net.after(8 * LINK_MILLIS, () -> locked.forEach(to -> liar.tell(to, liar.proposal(1, -1, other),
 			liar.vote(PREVOTE, 1, other), liar.vote(PRECOMMIT, 1, other))));
+		runAgreeing(net, 10 * LINK_MILLIS);
+
+		assertThat(locked.stream().allMatch(index -> net.nodes.get(index).engine.view() == 1), is(true));
+		assertThat(allInStep(net, locked, Consensus.Step.PREVOTE), is(true));
+
 		runAgreeing(net, OUTAGE_MILLIS);
 
 		assertThat(net.nodes.get(0).decided.size(), equalTo(1));
