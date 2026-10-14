@@ -614,7 +614,7 @@ public final class LedgerState {
 	private Optional<String> contentRejection(Block block) {
 		final int count = block.getTransactions().size();
 
-		if (count > Block.MAX_TRANSACTIONS || count == 0 && pool == 0) {
+		if (count > Block.MAX_TRANSACTIONS || (count == 0 && pool == 0)) {
 			return Optional.of("A block holds " + (pool > 0 ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
 				+ " transactions");
 		}
