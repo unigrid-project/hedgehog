@@ -69,13 +69,14 @@ public final class Mempool {
 	}
 
 	public synchronized boolean admit(Transaction transaction, LedgerState state) {
-		return transaction instanceof Transfer transfer ? admit(transfer, state) : admitOther(transaction, state);
+		return transaction instanceof Transfer transfer ? admitTransfer(transfer, state)
+			: admitOther(transaction, state);
 	}
 
 	/* A transfer may wait for the ones before it. It is queued when its nonce lies in the window above the next
 	   one, the state does not refuse it for any reason but its turn, and the balance covers it together with
 	   everything else the sender has waiting. One for the same nonce replaces the first only by a higher fee. */
-	private boolean admit(Transfer transfer, LedgerState state) {
+	private boolean admitTransfer(Transfer transfer, LedgerState state) {
 		final Object slot = slotOf(transfer);
 		final Transfer rival = pending.get(slot) instanceof Transfer found ? found : null;
 
