@@ -612,7 +612,7 @@ public class ConsensusViewsTest {
 	}
 
 	@Example
-	public void shouldStayLockedOnAnotherBlockWhateverTheProofOfABlockPutForwardAgainSays() {
+	public void shouldPrevoteNilForABlockWithAGoodProofWhenLockedOneViewAfterItsValidRound() {
 		final Block b = proposed(0, "b");
 		final Block c = proposed(1, "c");
 
@@ -626,6 +626,34 @@ public class ConsensusViewsTest {
 		assertThat(engine.lockedView(), equalTo(1));
 		assertThat(prevoteOf(engine.onMessage(proposal(2, 0, b, prevotesOf(b, 0, 1, 2, 3)), 5001)).isNil(),
 			is(true));
+	}
+
+	@Example
+	public void shouldPrevoteABlockWithAGoodProofWhenLockedInExactlyItsValidRound() {
+		final Block b = proposed(0, "b");
+		final Block c = proposed(1, "c");
+
+		engine.start(1, validators, 0);
+		engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000);
+		endView(0);
+		lockOn(1, -1, c);
+		endView(1);
+
+		assertThat(engine.view(), equalTo(2));
+		assertThat(engine.lockedView(), equalTo(1));
+		assertThat(prevoteOf(engine.onMessage(proposal(2, 1, b, prevotesOf(b, 1, 1, 2, 3)), 5001)).blockHash(),
+			equalTo(b.hash()));
+	}
+
+	@Example
+	public void shouldNotLetAForgedBallotOfAValidatorShadowItsRealBallotInAProof() {
+		final Block b = proposed(1, "b");
+		final List<Ballot> proof = List.of(forgedPrevote(1, 4, b), prevoteBy(1, 1, b), prevoteBy(2, 1, b),
+			prevoteBy(3, 1, b));
+
+		inViewTwo();
+
+		assertThat(prevoteOf(engine.onMessage(proposal(2, 1, b, proof), 6000)).blockHash(), equalTo(b.hash()));
 	}
 
 	@Example
