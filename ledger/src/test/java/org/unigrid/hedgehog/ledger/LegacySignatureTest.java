@@ -113,6 +113,38 @@ public class LegacySignatureTest {
 	}
 
 	@Example
+	public void shouldRefuseAHybridKeyThatHashesToAnotherAddress() {
+		final LegacyWallet wallet = new LegacyWallet(7, false);
+		final byte[] signature = wallet.sign(MESSAGE);
+
+		for (final byte prefix : new byte[] { 6, 7 }) {
+			final byte[] hybrid = wallet.publicKey();
+
+			hybrid[0] = prefix;
+			assertThat("prefix " + prefix, LegacySignature.verify(hybrid, signature, MESSAGE), is(false));
+		}
+	}
+
+	@Example
+	public void shouldRefuseAKeyWithAnUnknownPrefixOfTheRightSize() {
+		for (final boolean compressed : new boolean[] { true, false }) {
+			final LegacyWallet wallet = new LegacyWallet(7, compressed);
+			final byte[] key = wallet.publicKey();
+
+			key[0] = 5;
+			assertThat(LegacySignature.verify(key, wallet.sign(MESSAGE), MESSAGE), is(false));
+		}
+	}
+
+	@Example
+	public void shouldRefuseACharacterThatAsciiCannotCarry() {
+		final LegacyWallet wallet = new LegacyWallet(7, true);
+
+		assertThrows(IllegalArgumentException.class, () -> LegacySignature.messageHash("café"));
+		assertThat(LegacySignature.verify(wallet.publicKey(), wallet.sign("caf?"), "café"), is(false));
+	}
+
+	@Example
 	public void shouldHashTheMagicAndTheMessageEachLedByItsLength() throws NoSuchAlgorithmException {
 		final MessageDigest sha = MessageDigest.getInstance("SHA-256");
 		final byte[] magic = "DarkNet Signed Message:\n".getBytes(StandardCharsets.US_ASCII);

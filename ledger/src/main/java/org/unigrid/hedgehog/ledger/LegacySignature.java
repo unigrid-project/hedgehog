@@ -40,6 +40,9 @@ public final class LegacySignature {
 	private static final int LAST_HEADER = 34;
 	private static final int COMPRESSED_KEY_SIZE = 33;
 	private static final int UNCOMPRESSED_KEY_SIZE = 65;
+	private static final int EVEN_Y_PREFIX = 2;
+	private static final int ODD_Y_PREFIX = 3;
+	private static final int UNCOMPRESSED_PREFIX = 4;
 	private static final int COORDINATE_SIZE = 32;
 	private static final int ONE_BYTE_LENGTH_LIMIT = 252;
 
@@ -51,7 +54,9 @@ public final class LegacySignature {
 		return new LegacyAddress(Digests.hash160(publicKey));
 	}
 
-	/* A low s only, as the wallet makes them, so the same signature cannot be written in two ways */
+	/* A low s only, so the s and n - s twins are not both valid. The recovery id in the header is left unchecked
+	   because the key is supplied, so one signature verifies under four header bytes: a claim is identified by
+	   its address, never by its signature bytes. */
 	public static boolean verify(byte[] publicKey, byte[] signature, String message) {
 		if (signature.length != SIZE || !headerFits(publicKey, signature[0])) {
 			return false;
@@ -77,14 +82,31 @@ public final class LegacySignature {
 	private static boolean headerFits(byte[] publicKey, byte header) {
 		final int value = Byte.toUnsignedInt(header);
 
-		final int keySize = value >= FIRST_COMPRESSED_HEADER ? COMPRESSED_KEY_SIZE : UNCOMPRESSED_KEY_SIZE;
+		if (value < FIRST_HEADER || value > LAST_HEADER) {
+			return false;
+		}
 
-		return value >= FIRST_HEADER && value <= LAST_HEADER && publicKey.length == keySize;
+		return value >= FIRST_COMPRESSED_HEADER ? isCompressed(publicKey) : isUncompressed(publicKey);
+	}
+
+	/* Only the two encodings a wallet writes: a hybrid key decodes too, yet hashes to another address */
+	private static boolean isCompressed(byte[] publicKey) {
+		return publicKey.length == COMPRESSED_KEY_SIZE
+			&& (publicKey[0] == EVEN_Y_PREFIX || publicKey[0] == ODD_Y_PREFIX);
+	}
+
+	private static boolean isUncompressed(byte[] publicKey) {
+		return publicKey.length == UNCOMPRESSED_KEY_SIZE && publicKey[0] == UNCOMPRESSED_PREFIX;
 	}
 
 	/* The wallet hashes the magic and the message, each led by its length, twice with SHA-256. A length below 253
-	   is a single byte, and the text of a claim is far shorter than that. */
+	   is a single byte, and the text of a claim is far shorter than that. Encoding a character outside ASCII would
+	   turn it into a question mark and let two messages hash alike, so it is refused. */
 	static byte[] messageHash(String message) {
+		if (!StandardCharsets.US_ASCII.newEncoder().canEncode(message)) {
+			throw new IllegalArgumentException("A message is plain ASCII");
+		}
+
 		final byte[] magic = MAGIC.getBytes(StandardCharsets.US_ASCII);
 		final byte[] text = message.getBytes(StandardCharsets.US_ASCII);
 
