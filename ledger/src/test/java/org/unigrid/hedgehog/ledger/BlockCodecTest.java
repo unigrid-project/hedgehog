@@ -37,6 +37,11 @@ public class BlockCodecTest {
 	}
 
 	private static int transactionCountOffset(int endorsements) {
+		return Block.HEADER_SIZE + certificateSize(endorsements)
+			+ certificateSize(CodecFixtures.LAST_COMMIT_ENDORSEMENTS);
+	}
+
+	private static int lastCommitOffset(int endorsements) {
 		return Block.HEADER_SIZE + certificateSize(endorsements);
 	}
 
@@ -90,6 +95,33 @@ public class BlockCodecTest {
 		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE + Integer.BYTES, (short) (ValidatorSet.MAX_SIZE + 1));
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
 		ByteBuffer.wrap(encoded).putShort(Block.HEADER_SIZE + Integer.BYTES, (short) 0xffff);
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
+	}
+
+	@Example
+	public void shouldRoundTripABlockWithAFullLastCommit() {
+		final Block block = CodecFixtures.block(new Random(5), 3, ValidatorSet.MAX_SIZE);
+		final Block full = block.toBuilder().lastCommit(block.getCertificate()).build();
+
+		assertThat(BlockCodec.decode(BlockCodec.encode(full)), equalTo(full));
+		assertThat(BlockCodec.encode(full).length <= BlockCodec.MAX_ENCODED_SIZE, equalTo(true));
+	}
+
+	@Example
+	public void shouldRefuseALastCommitCountAboveTheMaximum() {
+		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));
+
+		ByteBuffer.wrap(encoded).putShort(lastCommitOffset(2) + Integer.BYTES, (short) (ValidatorSet.MAX_SIZE + 1));
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
+	}
+
+	/* The header names the last commit by its hash, and a header that names another is not a block */
+	@Example
+	public void shouldRefuseAHeaderThatNamesAnotherLastCommit() {
+		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));
+		final int hashOffset = Block.HEADER_SIZE - AccountKey.SIZE - Digests.HASH_SIZE;
+
+		encoded[hashOffset] ^= 1;
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
 	}
 

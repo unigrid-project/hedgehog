@@ -23,6 +23,8 @@ import java.util.stream.IntStream;
 
 /* Structurally valid values made of random bytes; their signatures do not verify */
 final class CodecFixtures {
+	static final int LAST_COMMIT_ENDORSEMENTS = 2;
+
 	private CodecFixtures() {
 		/* Static helpers only */
 	}
@@ -60,6 +62,8 @@ final class CodecFixtures {
 			.transactions(IntStream.range(0, transactions).mapToObj(i -> transaction(random)).toList())
 			.proposer(account(random))
 			.certificate(new Certificate(random.nextInt(5), IntStream.range(0, endorsements)
+				.mapToObj(i -> new Endorsement(account(random), random(random, Ed25519.SIGNATURE_SIZE))).toList()))
+			.lastCommit(new Certificate(random.nextInt(5), IntStream.range(0, LAST_COMMIT_ENDORSEMENTS)
 				.mapToObj(i -> new Endorsement(account(random), random(random, Ed25519.SIGNATURE_SIZE))).toList()))
 			.build();
 	}

@@ -29,12 +29,13 @@ import lombok.Value;
 
 /* A block is its header, its transactions and the certificate: the validators' signatures that commit the block
    in one view of its height. The hash covers the header only, so a block has one identity however its
-   signatures were gathered, and in whichever view they were made. */
+   signatures were gathered, and in whichever view they were made. The header also commits to the certificate of
+   the block before it, its last commit. */
 @Value
 public class Block {
 	public static final int MAX_TRANSACTIONS = 1000;
 	public static final int HEADER_SIZE = Long.BYTES + Integer.BYTES + Digests.HASH_SIZE + Long.BYTES
-		+ Digests.HASH_SIZE + Digests.HASH_SIZE + AccountKey.SIZE;
+		+ Digests.HASH_SIZE + Digests.HASH_SIZE + Digests.HASH_SIZE + AccountKey.SIZE;
 
 	private final long height;
 	private final int view;
@@ -45,11 +46,13 @@ public class Block {
 	private final List<Transaction> transactions;
 	private final AccountKey proposer;
 	private final Certificate certificate;
+	private final Certificate lastCommit;
+	@Getter(AccessLevel.NONE) private final byte[] lastCommitHash;
 
 	@Builder(toBuilder = true)
 	@SuppressWarnings("checkstyle:ParameterNumber")
 	public Block(long height, int view, byte[] previousHash, long time, byte[] stateRoot, byte[] transactionRoot,
-		List<Transaction> transactions, AccountKey proposer, Certificate certificate) {
+		List<Transaction> transactions, AccountKey proposer, Certificate certificate, Certificate lastCommit) {
 		if (view < 0) {
 			throw new IllegalArgumentException("A view is 0 or more, found " + view);
 		}
@@ -63,6 +66,8 @@ public class Block {
 		this.transactions = List.copyOf(transactions);
 		this.proposer = proposer;
 		this.certificate = certificate == null ? Certificate.EMPTY : certificate;
+		this.lastCommit = lastCommit == null ? Certificate.EMPTY : lastCommit;
+		this.lastCommitHash = this.lastCommit.hash();
 	}
 
 	public static class BlockBuilder {
@@ -84,13 +89,17 @@ public class Block {
 		return transactionRoot.clone();
 	}
 
+	public byte[] getLastCommitHash() {
+		return lastCommitHash.clone();
+	}
+
 	public List<Endorsement> getEndorsements() {
 		return certificate.endorsements();
 	}
 
 	public byte[] headerBytes() {
 		return ByteBuffer.allocate(HEADER_SIZE).putLong(height).putInt(view).put(previousHash).putLong(time)
-			.put(stateRoot).put(transactionRoot).put(proposer.bytes()).array();
+			.put(stateRoot).put(transactionRoot).put(lastCommitHash).put(proposer.bytes()).array();
 	}
 
 	public byte[] hash() {

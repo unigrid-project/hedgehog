@@ -78,7 +78,8 @@ public final class Ledger implements LedgerApplication {
 		final Block block = Block.builder().height(height).previousHash(state.tipHash())
 			.time(Math.max(time, state.tipTime())).stateRoot(state.rootAfter(height, transactions))
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
-			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of()).build();
+			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of())
+			.lastCommit(state.tipCertificate()).build();
 
 		final Block proposal = block.endorsedBy(proposerSeed, state.chainId());
 

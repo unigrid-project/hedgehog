@@ -89,7 +89,8 @@ final class LedgerFixtures {
 		final AccountKey proposer = set.proposerAt(height);
 		Block block = Block.builder().height(height).previousHash(state.tipHash()).time(time)
 			.stateRoot(state.rootAfter(height, transactions)).transactionRoot(Block.transactionRootOf(transactions))
-			.transactions(transactions).proposer(proposer).endorsements(List.of()).build();
+			.transactions(transactions).proposer(proposer).endorsements(List.of())
+			.lastCommit(state.tipCertificate()).build();
 		int endorsed = 0;
 
 		block = block.endorsedBy(seedOf(proposer, seeds), state.chainId());

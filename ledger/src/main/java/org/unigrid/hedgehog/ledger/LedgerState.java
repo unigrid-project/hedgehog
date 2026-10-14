@@ -40,6 +40,7 @@ public final class LedgerState {
 	private static final byte[] ACCOUNT = { 'A' };
 	private static final byte[] REFERENCE = { 'M' };
 	private static final byte[] VALIDATOR = { 'V' };
+	private static final byte[] PREVIOUS_VALIDATOR = { 'Q' };
 	private static final byte[] VOTE = { 'T' };
 
 	private final LedgerGenesis genesis;
@@ -49,9 +50,11 @@ public final class LedgerState {
 	private Set<Reference> minted = new HashSet<>();
 	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
+	private ValidatorSet previousValidators;
 	private long height;
 	private byte[] tipHash;
 	private long tipTime;
+	private Certificate tipCertificate = Certificate.EMPTY;
 
 	/* Set only on the scratch copy a certified block is checked against. More than 2/3 of the validators signed
 	   that block after asking their authorities, so this node's own authority, which may not know the mint yet
@@ -63,6 +66,7 @@ public final class LedgerState {
 		this.authority = authority;
 		this.chainId = genesis.chainId();
 		this.validators = genesis.getValidators();
+		this.previousValidators = genesis.getValidators();
 		this.tipHash = chainId;
 		this.tipTime = genesis.getTime();
 	}
@@ -75,9 +79,11 @@ public final class LedgerState {
 		minted = new HashSet<>(other.minted);
 		votes = new TreeSet<>(other.votes);
 		validators = other.validators;
+		previousValidators = other.previousValidators;
 		height = other.height;
 		tipHash = other.tipHash;
 		tipTime = other.tipTime;
+		tipCertificate = other.tipCertificate;
 	}
 
 	public LedgerState copy() {
@@ -100,6 +106,10 @@ public final class LedgerState {
 		return tipTime;
 	}
 
+	public Certificate tipCertificate() {
+		return tipCertificate;
+	}
+
 	/* The round the next block belongs to; a round is roundLength blocks, counted from 0 */
 	public long round() {
 		return height / genesis.getRoundLength();
@@ -107,6 +117,11 @@ public final class LedgerState {
 
 	public ValidatorSet validators() {
 		return validators;
+	}
+
+	/* The validators in force when the tip block was checked, who are the ones that signed it */
+	public ValidatorSet previousValidators() {
+		return previousValidators;
 	}
 
 	public long balanceOf(AccountKey key) {
@@ -150,9 +165,11 @@ public final class LedgerState {
 		minted = next.minted;
 		votes = next.votes;
 		validators = next.validators;
+		previousValidators = next.previousValidators;
 		height = next.height;
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
+		tipCertificate = next.tipCertificate;
 	}
 
 	/* The candidates that can go in one block, in order: each is kept if it is still valid after the ones kept
@@ -193,6 +210,7 @@ public final class LedgerState {
 	   next round, and the votes start over */
 	private void finishBlock(long blockHeight) {
 		height = blockHeight;
+		previousValidators = validators;
 
 		if (blockHeight % genesis.getRoundLength() == 0) {
 			endRound();
@@ -231,6 +249,7 @@ public final class LedgerState {
 			.add(Bytes.concat(ACCOUNT, entry.getKey().bytes(), Bytes.longBytes(entry.getValue()))));
 		minted.stream().sorted().forEach(reference -> leaves.add(Bytes.concat(REFERENCE, reference.bytes())));
 		validators.keys().forEach(key -> leaves.add(Bytes.concat(VALIDATOR, key.bytes())));
+		previousValidators.keys().forEach(key -> leaves.add(Bytes.concat(PREVIOUS_VALIDATOR, key.bytes())));
 		votes.forEach(cast -> leaves.add(Bytes.concat(VOTE, cast.candidate().bytes(),
 			new byte[] { cast.action().wire() }, cast.voter().bytes())));
 		return MerkleRoot.of(leaves);
@@ -301,12 +320,13 @@ public final class LedgerState {
 	}
 
 	/* Applies the block to next, which the caller owns, so the state it was called on is never touched. The
-	   cheap checks come first and the signature checks last. */
+	   cheap checks come first and the signature checks after them. */
 	private Optional<String> rejectionOf(Block block, LedgerState next) {
 		next.vouched = true;
 
 		final Optional<String> rejection = headerRejection(block).or(() -> certificateRejection(block))
-			.or(() -> signaturesRejection(block)).or(() -> next.applyTransactions(block));
+			.or(() -> lastCommitRejection(block)).or(() -> signaturesRejection(block))
+			.or(() -> lastCommitSignaturesRejection(block)).or(() -> next.applyTransactions(block));
 
 		if (rejection.isPresent()) {
 			return rejection;
@@ -319,6 +339,7 @@ public final class LedgerState {
 		if (sealed.isEmpty()) {
 			next.tipHash = block.hash();
 			next.tipTime = block.getTime();
+			next.tipCertificate = block.getCertificate();
 		}
 
 		return sealed;
@@ -328,7 +349,8 @@ public final class LedgerState {
 	   its place in the chain, its transactions and the root they lead to */
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
-		final Optional<String> rejection = headerRejection(block).or(() -> next.applyTransactions(block));
+		final Optional<String> rejection = headerRejection(block).or(() -> lastCommitRejection(block))
+			.or(() -> lastCommitSignaturesRejection(block)).or(() -> next.applyTransactions(block));
 
 		if (rejection.isPresent()) {
 			return rejection;
@@ -369,6 +391,26 @@ public final class LedgerState {
 	   when its proposer has gone. */
 	private Optional<String> certificateRejection(Block block) {
 		return shapeRejection("Certificate", block.getCertificate(), validators);
+	}
+
+	/* The block before this one was committed by the validators of its time, which are not always today's: the
+	   block that ended a round may have changed the set. The first block has nothing to carry. */
+	private Optional<String> lastCommitRejection(Block block) {
+		if (height == 0) {
+			return block.getLastCommit().equals(Certificate.EMPTY) ? Optional.empty()
+				: Optional.of("The first block has no last commit");
+		}
+
+		return shapeRejection("Last commit", block.getLastCommit(), previousValidators);
+	}
+
+	private Optional<String> lastCommitSignaturesRejection(Block block) {
+		final Certificate commit = block.getLastCommit();
+
+		return height == 0 || commit.endorsements().stream().allMatch(
+			endorsement -> Precommit.isSigned(endorsement, chainId, height, commit.view(), tipHash))
+			? Optional.empty()
+			: Optional.of("Last commit holds a signature that is not valid for the previous block");
 	}
 
 	/* Who signed, before any signature is checked: more than 2/3 of the set, each once and in order */

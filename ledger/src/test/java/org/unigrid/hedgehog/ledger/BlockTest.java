@@ -59,6 +59,29 @@ public class BlockTest {
 	}
 
 	@Example
+	public void shouldHashTheLastCommitIntoTheHeader() {
+		final byte[] base = builder().build().hash();
+		final Certificate commit = new Certificate(1, List.of(new Endorsement(Ed25519.publicKey(seed(1)),
+			new byte[Ed25519.SIGNATURE_SIZE])));
+		final Block withCommit = builder().lastCommit(commit).build();
+
+		assertThat(withCommit.hash(), not(equalTo(base)));
+		assertThat(withCommit.getLastCommitHash(), equalTo(commit.hash()));
+		assertThat(builder().build().getLastCommit(), equalTo(Certificate.EMPTY));
+		assertThat(builder().build().getLastCommitHash(), equalTo(Certificate.EMPTY.hash()));
+		assertThat(builder().build().headerBytes().length, equalTo(Block.HEADER_SIZE));
+	}
+
+	@Example
+	public void shouldNotLetAGetterChangeTheLastCommitHash() {
+		final Block block = builder().build();
+		final byte[] hash = block.hash();
+
+		block.getLastCommitHash()[0] ^= 1;
+		assertThat(block.hash(), equalTo(hash));
+	}
+
+	@Example
 	public void shouldNotLetAGetterChangeTheHash() {
 		final Block block = builder().build();
 		final byte[] hash = block.hash();
