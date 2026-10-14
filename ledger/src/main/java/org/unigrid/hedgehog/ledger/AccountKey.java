@@ -21,11 +21,16 @@ package org.unigrid.hedgehog.ledger;
 import java.util.Arrays;
 import java.util.HexFormat;
 
-public record AccountKey(byte[] bytes) implements Comparable<AccountKey> {
+public record AccountKey(byte[] bytes) implements Address {
 	public static final int SIZE = 32;
 
 	public AccountKey {
 		bytes = Bytes.requireSize(bytes, SIZE, "An account key");
+	}
+
+	@Override
+	public byte type() {
+		return ED25519;
 	}
 
 	public static AccountKey fromHex(String hex) {
@@ -45,11 +50,6 @@ public record AccountKey(byte[] bytes) implements Comparable<AccountKey> {
 	@Override
 	public int hashCode() {
 		return Arrays.hashCode(bytes);
-	}
-
-	@Override
-	public int compareTo(AccountKey other) {
-		return Arrays.compareUnsigned(bytes, other.bytes);
 	}
 
 	@Override
