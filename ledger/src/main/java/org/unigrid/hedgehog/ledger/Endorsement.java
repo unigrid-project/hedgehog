@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.ledger;
 import java.util.Arrays;
 import java.util.Objects;
 
-/* One validator's signature over a block hash; more than 2/3 of the set make the block's certificate */
+/* One validator's precommit signature for a block; more than 2/3 of the set make the block's certificate */
 public record Endorsement(AccountKey signer, byte[] signature) {
 	public Endorsement {
 		Objects.requireNonNull(signer);

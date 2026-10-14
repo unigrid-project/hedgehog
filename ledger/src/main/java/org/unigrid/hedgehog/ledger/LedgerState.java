@@ -346,8 +346,8 @@ public final class LedgerState {
 	}
 
 	/* Whether a block is right apart from the signatures of its certificate, which is what a validator checks
-	   before it signs: its place in the chain, the view of its certificate, its transactions and the root they
-	   lead to */
+	   before it signs: its place in the chain, the view of its certificate, its last commit (a quorum of the
+	   set that signed the tip, with valid precommits for the tip), its transactions and the root they lead to */
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
 		final Optional<String> rejection = headerRejection(block).or(() -> viewRejection(block))

@@ -24,8 +24,10 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -36,6 +38,7 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 public class LedgerLastCommitTest {
 	private static final List<byte[]> FOUR = seeds(1, 4);
 	private static final List<byte[]> THREE = seeds(1, 3);
+	private static final List<byte[]> FIVE = Stream.concat(FOUR.stream(), Stream.of(seed(200))).toList();
 
 	private static String reasonOf(Optional<String> rejection) {
 		return rejection.orElse("");
@@ -61,6 +64,10 @@ public class LedgerLastCommitTest {
 		}
 
 		return signed;
+	}
+
+	private static Certificate certificateOfAnotherFirstBlock() {
+		return block(state(1000, ANY_MINT, THREE), THREE, List.of(mint(9, 5))).getCertificate();
 	}
 
 	@Example
@@ -123,12 +130,12 @@ public class LedgerLastCommitTest {
 		assertThat(reasonOf(state.rejectionOf(outsider)), containsString("not a validator"));
 	}
 
-	/* Signatures for the block before the previous one, or made in another view, commit nothing here */
+	/* Signatures for another block at the same height, or the same signatures presented in another view, commit
+	   nothing here */
 	@Example
 	public void shouldRefuseALastCommitSignedForAnotherBlock() {
 		final LedgerState state = afterOneBlock(THREE);
-		final Block other = block(state, THREE, List.of(mint(9, 5)));
-		final Block forged = nextWith(state, THREE, other.getCertificate());
+		final Block forged = nextWith(state, THREE, certificateOfAnotherFirstBlock());
 		final Block otherView = nextWith(state, THREE, new Certificate(1, state.tipCertificate().endorsements()));
 
 		assertThat(reasonOf(state.rejectionOf(forged)), containsString("previous block"));
@@ -188,8 +195,7 @@ public class LedgerLastCommitTest {
 	@Example
 	public void shouldRefuseToSignABlockWhoseLastCommitIsForAnotherBlock() {
 		final LedgerState state = afterOneBlock(THREE);
-		final Block rival = block(state(1000, ANY_MINT, THREE), THREE, List.of(mint(9, 5)));
-		final Block forged = nextWith(state, THREE, rival.getCertificate());
+		final Block forged = nextWith(state, THREE, certificateOfAnotherFirstBlock());
 		final Block otherView = nextWith(state, THREE, new Certificate(1, state.tipCertificate().endorsements()));
 
 		assertThat(reasonOf(state.proposalRejection(forged)), containsString("previous block"));
@@ -245,5 +251,51 @@ public class LedgerLastCommitTest {
 
 		assertThat(second.getLastCommit().endorsements().size(), equalTo(3));
 		assertThat(state.rejectionOf(second).isPresent(), is(false));
+	}
+
+	/* The gridnode joins in the first round and the second round's block, which it signs, votes it out again */
+	private static LedgerState afterTheGridnodeIsVotedOut() {
+		final LedgerState state = afterTheSetGrows();
+		final List<Transaction> removals = FOUR.stream().<Transaction>map(voter -> Vote.signed(voter, key(200),
+			Vote.Action.REMOVE, state.round(), state.chainId())).toList();
+
+		state.apply(block(state, FIVE, removals));
+		return state;
+	}
+
+	@Example
+	public void shouldRefuseALastCommitSignedByAValidatorThatJoinedWhenTheRoundEnded() {
+		final LedgerState state = afterTheSetGrows();
+		final List<Endorsement> joined = new ArrayList<>(state.tipCertificate().endorsements());
+
+		joined.add(new Endorsement(key(200),
+			Precommit.sign(seed(200), state.chainId(), state.height(), 0, state.tipHash())));
+		joined.sort(Comparator.comparing(Endorsement::signer));
+
+		final Block block = nextWith(state, FIVE, new Certificate(0, joined));
+
+		assertThat(state.validators().contains(key(200)), is(true));
+		assertThat(reasonOf(state.rejectionOf(block)), containsString("not a validator"));
+	}
+
+	@Example
+	public void shouldAcceptALastCommitSignedByAValidatorThatWasRemovedWhenTheRoundEnded() {
+		final LedgerState state = afterTheGridnodeIsVotedOut();
+
+		assertThat(state.validators().contains(key(200)), is(false));
+		assertThat(state.previousValidators().contains(key(200)), is(true));
+		assertThat(state.tipCertificate().endorsements().stream().anyMatch(e -> e.signer().equals(key(200))),
+			is(true));
+		assertThat(state.rejectionOf(next(state, FIVE)).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldRefuseALastCommitBelowTheQuorumOfTheSetThatSignedIt() {
+		final LedgerState state = afterTheSetGrows();
+		final List<Endorsement> two = state.tipCertificate().endorsements().subList(0, 2);
+		final Block thin = nextWith(state, FIVE, new Certificate(0, two));
+
+		assertThat(state.previousValidators().quorum(), equalTo(3));
+		assertThat(reasonOf(state.rejectionOf(thin)), containsString("quorum"));
 	}
 }
