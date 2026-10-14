@@ -155,6 +155,25 @@ public class LegacySignatureTest {
 		assertThat(LegacySignature.messageHash(MESSAGE), equalTo(expected));
 	}
 
+	/* Made outside this code: the hash with hashlib from the formula of the wallet, the signature with OpenSSL (s
+	   made low, header 32 from the recovery id found by recovering the key), so a change in how the hash is built or
+	   how a signature is read fails here and not against a real wallet. The text is that of a claim. */
+	@Example
+	public void shouldAcceptASignatureMadeByAnIndependentImplementation() {
+		final String text = "claim 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+			+ "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f "
+			+ "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f";
+		final byte[] publicKey = HexFormat.of()
+			.parseHex("03b7a54a585232eb13d78fe2c8724d2f54d44ef191da6db6024588b89bbce4f893");
+		final byte[] signature = HexFormat.of()
+			.parseHex("206bb1c205594abdf713698aea2bd5937810978ae3f854fe0b9d488af16293f3"
+				+ "343e4622f691864c24107266e817d6285eb5cedb598de44aa07c0dff1abf84f2cc");
+
+		assertThat(LegacySignature.messageHash(text), equalTo(
+			HexFormat.of().parseHex("d56f2842c39980121551f9d40fed5e42d862bf826b34b5770dfb3fdd21af1896")));
+		assertThat(LegacySignature.verify(publicKey, signature, text), is(true));
+	}
+
 	@Example
 	public void shouldRefuseAMessageThatNeedsMoreThanOneLengthByte() {
 		assertThrows(IllegalArgumentException.class, () -> LegacySignature.messageHash("x".repeat(253)));

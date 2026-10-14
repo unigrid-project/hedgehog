@@ -86,11 +86,25 @@ public class ClaimTest {
 		assertThat(claim.hasValidSignature(otherChain), is(false));
 	}
 
+	/* The wallet signs this very text, so it is spelled out here and not built the way the code builds it */
 	@Example
-	public void shouldNameTheChainAndTheRecipientInTheMessageAndStayShort() {
-		final String message = Claim.message(CHAIN, RECIPIENT);
+	public void shouldSpellTheMessageAsTheChainAndTheRecipientInHexAndStayShort() {
+		final byte[] chain = new byte[Digests.HASH_SIZE];
+		final byte[] recipient = new byte[AccountKey.SIZE];
 
-		assertThat(message, equalTo("claim " + Bytes.hex(CHAIN) + " " + RECIPIENT));
+		for (int i = 0; i < chain.length; i++) {
+			chain[i] = (byte) i;
+		}
+
+		for (int i = 0; i < recipient.length; i++) {
+			recipient[i] = (byte) (0x80 + i);
+		}
+
+		final String message = Claim.message(chain, new AccountKey(recipient));
+
+		assertThat(message, equalTo("claim 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+			+ "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f "
+			+ "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"));
 		assertThat(message.length() <= 252, is(true));
 	}
 

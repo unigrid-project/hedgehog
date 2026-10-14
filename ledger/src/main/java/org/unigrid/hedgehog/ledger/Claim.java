@@ -47,7 +47,7 @@ public record Claim(byte[] publicKey, AccountKey recipient, byte[] signature) im
 
 	/* What the owner signs with the wallet: signmessage "<address>" "<this text>" */
 	public static String message(byte[] chainId, AccountKey recipient) {
-		return "claim " + Bytes.hex(chainId) + " " + recipient;
+		return "claim " + Bytes.hex(chainId) + " " + Bytes.hex(recipient.bytes());
 	}
 
 	public LegacyAddress address() {
