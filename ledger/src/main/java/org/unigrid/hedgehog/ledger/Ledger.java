@@ -176,6 +176,7 @@ public final class Ledger implements LedgerApplication {
 
 		log.append(block);
 		state.apply(block);
+		state.askAuthorityAt(clock.getAsLong());
 		mempool.removeCommitted(block, state);
 	}
 

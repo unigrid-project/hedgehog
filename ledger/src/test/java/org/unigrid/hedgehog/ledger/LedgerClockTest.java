@@ -120,6 +120,22 @@ public class LedgerClockTest {
 		}
 	}
 
+	/* A block proposed for a time before the clock leaves that time with the state, but what waits in the mempool
+	   is checked again at the time of the node */
+	@Example
+	public void shouldCheckTheWaitingAgainAtTheClockAfterACommit() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint earlier = mint(2, 5);
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L, earlier, 10_000L)),
+				new AtomicLong(20_000));
+
+			ledger.submit(DUE);
+			ledger.commit(certified(ledger, proposal(ledger, 15_000).orElseThrow()));
+
+			assertThat(ledger.pending(), equalTo(1));
+		}
+	}
+
 	/* The cap on a block comes after the checks: what the authority holds back must not take the places of what can
 	   go in */
 	@Example
