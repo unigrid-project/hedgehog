@@ -141,7 +141,7 @@ public final class LedgerState {
 		return nonces.getOrDefault(account, 0L);
 	}
 
-	/* Fees taken by the last block, waiting to be paid to the validators that signed it */
+	/* Fees waiting to be paid out to the validators */
 	public long pool() {
 		return pool;
 	}
@@ -627,11 +627,22 @@ public final class LedgerState {
 	/* The fee leaves the sender for the pool, so nothing is created or lost; a legacy address that was claimed
 	   is paid to whoever claimed it, as a mint is */
 	private void apply(Transfer transfer) {
-		accounts.put(transfer.sender(), balanceOf(transfer.sender()) - transfer.amount() - transfer.fee());
+		accounts.put(transfer.sender(), balanceAfter(transfer));
 		accounts.merge(redirects.getOrDefault(transfer.recipient(), transfer.recipient()), transfer.amount(),
 			Math::addExact);
 		nonces.put(transfer.sender(), Math.addExact(transfer.nonce(), 1L));
 		pool = Math.addExact(pool, transfer.fee());
+	}
+
+	/* A transfer is checked before it is applied; this makes an unchecked one fail instead of overdraw */
+	private long balanceAfter(Transfer transfer) {
+		final long left = balanceOf(transfer.sender()) - Math.addExact(transfer.amount(), transfer.fee());
+
+		if (left < 0) {
+			throw new IllegalStateException("A transfer would overdraw " + transfer.sender());
+		}
+
+		return left;
 	}
 
 	private record VoteCast(AccountKey candidate, Vote.Action action, AccountKey voter)
