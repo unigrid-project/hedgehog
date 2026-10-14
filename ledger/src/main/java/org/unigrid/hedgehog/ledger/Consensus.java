@@ -471,16 +471,26 @@ public final class Consensus {
 		return proofs.computeIfAbsent(proposal.view(), key -> checkProof(proposal));
 	}
 
+	/* Every validator prevotes once in a view, so an honest proof never holds more ballots than there are validators;
+	   a longer one is refused before a signature is looked at, as it can only be there to make the node work */
 	private boolean checkProof(Proposal proposal) {
+		return proposal.polka().size() <= validators.size() && reachesQuorum(proposal.polka());
+	}
+
+	private boolean reachesQuorum(List<Ballot> polka) {
 		final Set<AccountKey> signers = new HashSet<>();
 
-		for (final Ballot vote : proposal.polka()) {
+		for (final Ballot vote : polka) {
 			if (isNewSigner(vote, signers) && vote.hasValidSignature(chainId)) {
 				signers.add(vote.validator());
 			}
+
+			if (signers.size() >= validators.quorum()) {
+				return true;
+			}
 		}
 
-		return signers.size() >= validators.quorum();
+		return false;
 	}
 
 	private boolean isNewSigner(Ballot vote, Set<AccountKey> signers) {

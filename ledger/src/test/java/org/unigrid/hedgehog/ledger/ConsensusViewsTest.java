@@ -78,12 +78,15 @@ public class ConsensusViewsTest {
 		return Arrays.stream(voters).mapToObj(voter -> prevoteBy(voter, view, block)).toList();
 	}
 
+	/* A prevote of view 1 that claims to be from one validator and carries the signature of another */
+	private static Ballot forgedPrevote(int claimed, int signer, Block block) {
+		return new Ballot(Ballot.Type.PREVOTE, 1, 1, block.hash(), key(claimed),
+			prevoteBy(signer, 1, block).signature());
+	}
+
 	/* A proof of the prevotes of view 1 in which the third ballot carries the signature of another validator */
 	private static List<Ballot> withForgedThird(Block block) {
-		final Ballot forged = new Ballot(Ballot.Type.PREVOTE, 1, 1, block.hash(), key(3),
-			prevoteBy(4, 1, block).signature());
-
-		return List.of(prevoteBy(1, 1, block), prevoteBy(2, 1, block), forged);
+		return List.of(prevoteBy(1, 1, block), prevoteBy(2, 1, block), forgedPrevote(3, 4, block));
 	}
 
 	/* The node has seen nothing of view 1: two validators that are already in view 2 take it there */
@@ -555,6 +558,38 @@ public class ConsensusViewsTest {
 
 		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, List.of(prevoteBy(1, 1, b), prevoteBy(2, 1, b),
 			stranger)));
+	}
+
+	@Example
+	public void shouldIgnoreAProofOfMoreBallotsThanThereAreValidatorsEvenWhenItHoldsAQuorum() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, List.of(prevoteBy(1, 1, b), prevoteBy(2, 1, b),
+			prevoteBy(3, 1, b), prevoteBy(1, 1, b), prevoteBy(2, 1, b))));
+	}
+
+	@Example
+	public void shouldPrevoteWhenTheQuorumOfAProofIsFollowedByBallotsThatAreNotRight() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		final List<Ballot> proof = List.of(prevoteBy(1, 1, b), prevoteBy(2, 1, b), prevoteBy(3, 1, b),
+			forgedPrevote(4, 1, b));
+
+		assertThat(prevoteOf(engine.onMessage(proposal(2, 1, b, proof), 6000)).blockHash(), equalTo(b.hash()));
+	}
+
+	@Example
+	public void shouldPrevoteNilWhenFewerThanAQuorumOfAProofAreRightWhateverOrderTheyAreIn() {
+		final Block b = proposed(1, "b");
+
+		inViewTwo();
+
+		prevotesNilOnlyWhenTheProposeTimerFires(proposal(2, 1, b, List.of(forgedPrevote(1, 4, b),
+			forgedPrevote(2, 4, b), prevoteBy(3, 1, b), prevoteBy(4, 1, b))));
 	}
 
 	@Example

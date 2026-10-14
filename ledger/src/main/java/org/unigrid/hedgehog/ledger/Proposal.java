@@ -90,12 +90,16 @@ public record Proposal(long height, int view, int validRound, Block block, List<
 	}
 
 	private static void requireProofOf(long height, int validRound, Block block, List<Ballot> polka) {
+		if (polka.isEmpty()) {
+			return;
+		}
+
 		if (polka.size() > ValidatorSet.MAX_SIZE) {
 			throw new IllegalArgumentException("A proof holds at most " + ValidatorSet.MAX_SIZE
 				+ " ballots, found " + polka.size());
 		}
 
-		if (validRound == -1 && !polka.isEmpty()) {
+		if (validRound == -1) {
 			throw new IllegalArgumentException("A new block has no earlier prevotes to prove");
 		}
 
