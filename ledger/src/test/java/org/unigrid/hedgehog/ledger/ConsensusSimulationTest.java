@@ -22,10 +22,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.BooleanSupplier;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
@@ -54,7 +58,20 @@ public class ConsensusSimulationTest {
 	   a liar need to put its words where they should be heard */
 	private static final long LINK_MILLIS = 40;
 
+	private static final int FAULTY_GOAL = 3;
+
+	/* Enough time for twenty views or so to go by in the bad weather, with the nodes in different views */
+	private static final long BAD_NETWORK_MIN_MILLIS = 20_000;
+	private static final long BAD_NETWORK_SPREAD_MILLIS = 20_000;
+
+	/* Over 1500 random runs the slowest needed 5 seconds to finish once the network worked again, so ten minutes are
+	   more than a hundred times that and still end a run that is stuck */
+	private static final long RECOVERY_MILLIS = 600_000;
+
 	private record Standing(long height, int view, Consensus.Step step, int ballots) {
+	}
+
+	private record Run(SimulatedNetwork net, Set<Integer> crashed) {
 	}
 
 	/* A validator that lies. Its engine is down, so that nothing honest gets in the way: what it says is signed with
@@ -77,6 +94,43 @@ public class ConsensusSimulationTest {
 		void tell(int to, Message... messages) {
 			Arrays.stream(messages).forEach(message -> net.send(node.index, to, message));
 		}
+	}
+
+	/* Delays up to nearly half a second, up to two messages in five lost, as many validators down from the start as the
+	   engines are meant to stand and, half of the time, the network cut in two: first a stretch of that weather, then
+	   a network that works. Agreement is checked all along. */
+	private static Run faultyRun(long seed) {
+		final Random random = new Random(seed);
+		final int count = 4 + random.nextInt(4);
+		final SimulatedNetwork net = network(count, FAULTY_GOAL, seed);
+		final Set<Integer> crashed = randomNodes(random, count, random.nextInt((count - 1) / 3 + 1));
+
+		net.latency(5, 20 + random.nextInt(400));
+		net.dropRate(random.nextDouble() * 0.4);
+		crashed.forEach(net::crash);
+
+		if (random.nextBoolean()) {
+			net.partition(randomNodes(random, count, 1 + random.nextInt(count - 1)));
+		}
+
+		net.begin();
+		runAgreeing(net, BAD_NETWORK_MIN_MILLIS + random.nextInt((int) BAD_NETWORK_SPREAD_MILLIS));
+
+		net.latency(5, 50);
+		net.dropRate(0);
+		net.heal();
+		runAgreeingUntil(net, RECOVERY_MILLIS, () -> net.everyoneReached(FAULTY_GOAL, crashed));
+		return new Run(net, crashed);
+	}
+
+	private static Set<Integer> randomNodes(Random random, int count, int wanted) {
+		final Set<Integer> nodes = new TreeSet<>();
+
+		while (nodes.size() < wanted) {
+			nodes.add(random.nextInt(count));
+		}
+
+		return nodes;
 	}
 
 	private static Liar liar(SimulatedNetwork net, int index) {
@@ -107,7 +161,11 @@ public class ConsensusSimulationTest {
 	}
 
 	private static void runAgreeing(SimulatedNetwork net, long millis) {
-		for (long left = millis; left > 0; left -= CHECK_MILLIS) {
+		runAgreeingUntil(net, millis, () -> false);
+	}
+
+	private static void runAgreeingUntil(SimulatedNetwork net, long millis, BooleanSupplier done) {
+		for (long left = millis; left > 0 && !done.getAsBoolean(); left -= CHECK_MILLIS) {
 			runFor(net, Math.min(left, CHECK_MILLIS));
 			assertThat(net.agreement(), is(true));
 		}
@@ -532,6 +590,53 @@ public class ConsensusSimulationTest {
 		runAgreeing(net, SETTLE_MILLIS);
 
 		assertThat(net.everyoneReached(3, Set.of(1)), is(true));
+	}
+
+	@Example
+	public void shouldDecideWithTwoValidatorsGoneInANetworkOfSeven() {
+		final SimulatedNetwork net = network(7, 4, 13);
+
+		net.crash(0);
+		net.crash(1);
+		net.begin();
+		runAgreeingUntil(net, SETTLE_MILLIS, () -> net.everyoneReached(4, Set.of(0, 1)));
+
+		assertThat(net.everyoneReached(4, Set.of(0, 1)), is(true));
+	}
+
+	@Example
+	public void shouldDecideNothingWithMoreValidatorsGoneThanTheEnginesStandAndAgreeWhenOneComesBack() {
+		final SimulatedNetwork net = network(4, 3, 14);
+
+		net.crash(2);
+		net.crash(3);
+		net.begin();
+		runAgreeing(net, OUTAGE_MILLIS);
+
+		assertThat(nobodyDecided(net), is(true));
+
+		net.restart(3);
+		runAgreeingUntil(net, SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of(2)));
+
+		assertThat(net.everyoneReached(3, Set.of(2)), is(true));
+	}
+
+	@Property(tries = 40)
+	public void shouldAlwaysAgreeAndFinishOnceTheNetworkSettles(@ForAll long seed) {
+		final Run run = faultyRun(seed);
+
+		assertThat(run.net().agreement(), is(true));
+		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
+	}
+
+	@Example
+	public void shouldGiveTheSameRunWithFaultsForTheSameSeed() {
+		final SimulatedNetwork first = faultyRun(31).net();
+		final SimulatedNetwork second = faultyRun(31).net();
+
+		assertThat(decidedHashes(first), equalTo(decidedHashes(second)));
+		assertThat(first.sent(), equalTo(second.sent()));
+		assertThat(first.now(), equalTo(second.now()));
 	}
 
 	@Example
