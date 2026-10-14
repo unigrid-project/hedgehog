@@ -59,7 +59,8 @@ public final class Mempool {
 	}
 
 	/* Refuses what is already waiting, what the state refuses, and anything that would pass the limits: the
-	   mempool as a whole, and each validator's waiting votes, which count as much as cast ones do */
+	   mempool as a whole, and the votes waiting from each validator, as many as it may cast in a round.
+	   Votes already cast are the state's to count, and a waiting vote it would refuse never makes a block. */
 	public synchronized boolean admit(Transaction transaction, LedgerState state) {
 		final Object slot = slotOf(transaction);
 
