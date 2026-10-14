@@ -359,13 +359,18 @@ public final class LedgerState {
 	}
 
 	/* What the snapshot holds is checked against what is left of its total, so a snapshot that does not add up to
-	   the genesis total cannot be drained past it, and with that the sum of the two amounts below cannot pass the
+	   the genesis total cannot be drained past it. What is owed is then at most the unclaimed part of the supply
+	   and the ledger balance of the address at most what was minted to it, so the two together cannot pass the
 	   supply. */
 	private Optional<String> amountRejection(LegacyAddress address) {
 		final long owed = snapshot.balanceOf(address);
 
 		if (redirects.containsKey(address)) {
 			return Optional.of("Legacy address is already claimed");
+		}
+
+		if (owed < 0) {
+			return Optional.of("Snapshot balance is negative");
 		}
 
 		if (owed > unclaimed) {
