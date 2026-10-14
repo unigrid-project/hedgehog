@@ -63,6 +63,12 @@ public class ConsensusViewTest {
 		return actions.stream().anyMatch(a -> a instanceof Decide);
 	}
 
+	private List<Action> precommitQuorum(int view, Block block) {
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, view, block), 20);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, view, block), 21);
+		return engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 4, view, block), 22);
+	}
+
 	@Example
 	public void shouldPrevoteTheBlockOfTheProposerOfTheView() {
 		final Block block = proposed(0, "a");
@@ -112,6 +118,57 @@ public class ConsensusViewTest {
 		assertThat(engine.onMessage(otherHeight, 10).isEmpty(), is(true));
 		assertThat(engine.step(), equalTo(Consensus.Step.PROPOSE));
 		assertThat(ballots(engine.onMessage(proposal(0, -1, block), 11)).size(), equalTo(1));
+	}
+
+	@Example
+	public void shouldIgnoreAProposalWhoseBlockHeaderNamesAnotherView() {
+		final Block elsewhere = app.block(1, 3, validators.proposerAt(1, 3), 100, "a");
+
+		engine.start(1, validators, 0);
+
+		assertThat(engine.onMessage(proposal(0, -1, elsewhere), 10).isEmpty(), is(true));
+		assertThat(engine.step(), equalTo(Consensus.Step.PROPOSE));
+		assertThat(ballots(engine.onMessage(proposal(0, -1, proposed(0, "a")), 11)).size(), equalTo(1));
+	}
+
+	@Example
+	public void shouldIgnoreANewBlockWhoseHeaderIsOfAnEarlierViewThanItsProposal() {
+		final Block block = proposed(0, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(1, -1, block), 10);
+
+		assertThat(decides(precommitQuorum(1, block)), is(false));
+	}
+
+	@Example
+	public void shouldIgnoreAPutForwardBlockWhoseHeaderIsOfALaterViewThanItsValidRound() {
+		final Block block = proposed(2, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(2, 1, block), 10);
+
+		assertThat(decides(precommitQuorum(2, block)), is(false));
+	}
+
+	@Example
+	public void shouldTakeAPutForwardBlockWhoseHeaderIsOfTheValidRound() {
+		final Block block = proposed(1, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(2, 1, block), 10);
+
+		assertThat(decidedBlock(precommitQuorum(2, block)).hash(), equalTo(block.hash()));
+	}
+
+	@Example
+	public void shouldTakeAPutForwardBlockWhoseHeaderIsOfAnEarlierViewThanItsValidRound() {
+		final Block block = proposed(0, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(2, 1, block), 10);
+
+		assertThat(decidedBlock(precommitQuorum(2, block)).hash(), equalTo(block.hash()));
 	}
 
 	@Example

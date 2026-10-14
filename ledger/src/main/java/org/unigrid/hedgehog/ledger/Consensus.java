@@ -231,7 +231,7 @@ public final class Consensus {
 
 	/* Only the first proposal of a view counts, whatever else its proposer signs for that view */
 	private boolean accept(Proposal proposal) {
-		if (!isFirstFromProposer(proposal) || !proposal.hasValidSignature(chainId)) {
+		if (!isFirstFromProposer(proposal) || !headerAgrees(proposal) || !proposal.hasValidSignature(chainId)) {
 			return false;
 		}
 
@@ -247,6 +247,15 @@ public final class Consensus {
 	private boolean isFirstFromProposer(Proposal proposal) {
 		return proposal.height() == height && !proposals.containsKey(proposal.view())
 			&& proposal.sender().equals(validators.proposerAt(height, proposal.view()));
+	}
+
+	/* The header of a block is not signed by anyone, so nothing else ties it to the vote. A new block is of the view
+	   it is proposed in; one put forward again keeps the view it was first proposed in, which is no later than the
+	   view where it got its prevotes. A block of a later view than its certificate could never be committed. */
+	private static boolean headerAgrees(Proposal proposal) {
+		final int headerView = proposal.block().getView();
+
+		return proposal.validRound() == -1 ? headerView == proposal.view() : headerView <= proposal.validRound();
 	}
 
 	private boolean accept(Decision other) {
