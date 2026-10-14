@@ -37,7 +37,7 @@ final class BallotBox {
 	private final Map<Slot, Map<AccountKey, Ballot>> ballots = new LinkedHashMap<>();
 	private final Map<AccountKey, List<Ballot>> ballotsByValidator = new LinkedHashMap<>();
 	private final Map<AccountKey, Integer> highest = new LinkedHashMap<>();
-	private final List<Equivocation> evidence = new ArrayList<>();
+	private final Map<EvidenceKey, Equivocation> evidence = new LinkedHashMap<>();
 
 	BallotBox(long height, ValidatorSet validators) {
 		this.height = height;
@@ -54,31 +54,27 @@ final class BallotBox {
 	private record Slot(Ballot.Type type, int view) {
 	}
 
+	private record EvidenceKey(Slot slot, AccountKey validator) {
+	}
+
 	Result add(Ballot ballot) {
-		if (ballot.height() != height || !validators.contains(ballot.validator())) {
+		if (isForeign(ballot)) {
 			return Result.REFUSED;
 		}
 
-		final Ballot earlier = slotToFill(ballot).putIfAbsent(ballot.validator(), ballot);
+		final Ballot earlier = slot(ballot.type(), ballot.view()).get(ballot.validator());
 
-		if (earlier == null) {
-			ballotsByValidator.computeIfAbsent(ballot.validator(), key -> new ArrayList<>()).add(ballot);
-			seen(ballot.validator(), ballot.view());
-			return Result.ADDED;
-		}
-
-		if (Arrays.equals(earlier.blockHash(), ballot.blockHash())) {
+		if (isKnown(earlier, ballot)) {
 			return Result.DUPLICATE;
 		}
 
-		evidence.add(new Equivocation(earlier, ballot));
-		return Result.EQUIVOCATION;
+		return earlier == null ? store(ballot) : recordEquivocation(earlier, ballot);
 	}
 
 	boolean has(Ballot ballot) {
 		final Ballot earlier = slot(ballot.type(), ballot.view()).get(ballot.validator());
 
-		return earlier != null && Arrays.equals(earlier.blockHash(), ballot.blockHash());
+		return earlier != null && sameBlock(earlier, ballot);
 	}
 
 	void seen(AccountKey validator, int view) {
@@ -129,7 +125,36 @@ final class BallotBox {
 	}
 
 	List<Equivocation> evidence() {
-		return List.copyOf(evidence);
+		return List.copyOf(evidence.values());
+	}
+
+	private boolean isForeign(Ballot ballot) {
+		return ballot.height() != height || !validators.contains(ballot.validator());
+	}
+
+	/* A validator that already contradicted itself in this slot is old news, however many more things it says */
+	private boolean isKnown(Ballot earlier, Ballot ballot) {
+		return earlier != null && (sameBlock(earlier, ballot) || evidence.containsKey(evidenceKey(ballot)));
+	}
+
+	private Result store(Ballot ballot) {
+		slotToFill(ballot).put(ballot.validator(), ballot);
+		ballotsByValidator.computeIfAbsent(ballot.validator(), key -> new ArrayList<>()).add(ballot);
+		seen(ballot.validator(), ballot.view());
+		return Result.ADDED;
+	}
+
+	private Result recordEquivocation(Ballot earlier, Ballot ballot) {
+		evidence.putIfAbsent(evidenceKey(ballot), new Equivocation(earlier, ballot));
+		return Result.EQUIVOCATION;
+	}
+
+	private static EvidenceKey evidenceKey(Ballot ballot) {
+		return new EvidenceKey(new Slot(ballot.type(), ballot.view()), ballot.validator());
+	}
+
+	private static boolean sameBlock(Ballot one, Ballot other) {
+		return Arrays.equals(one.blockHash(), other.blockHash());
 	}
 
 	/* A question about a view nobody has voted in must not allocate a slot, or a far-ahead view would grow the box */

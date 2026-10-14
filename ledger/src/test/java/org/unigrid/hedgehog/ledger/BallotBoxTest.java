@@ -103,6 +103,24 @@ public class BallotBoxTest {
 	}
 
 	@Example
+	public void shouldKeepOnePieceOfEvidenceForAValidatorThatKeepsSayingOtherThings() {
+		final BallotBox box = box();
+		final byte[] other = Digests.sha512("c".getBytes(StandardCharsets.US_ASCII));
+
+		box.add(ballot(PREVOTE, 1, 0, A));
+
+		assertThat(box.add(ballot(PREVOTE, 1, 0, B)), equalTo(BallotBox.Result.EQUIVOCATION));
+		assertThat(box.add(ballot(PREVOTE, 1, 0, B)), equalTo(BallotBox.Result.DUPLICATE));
+		assertThat(box.add(ballot(PREVOTE, 1, 0, other)), equalTo(BallotBox.Result.DUPLICATE));
+
+		assertThat(box.evidence().size(), equalTo(1));
+		assertThat(box.evidence().get(0).second(), equalTo(ballot(PREVOTE, 1, 0, B)));
+		assertThat(box.add(ballot(PREVOTE, 1, 1, B)), equalTo(BallotBox.Result.ADDED));
+		assertThat(box.add(ballot(PREVOTE, 1, 1, A)), equalTo(BallotBox.Result.EQUIVOCATION));
+		assertThat(box.evidence().size(), equalTo(2));
+	}
+
+	@Example
 	public void shouldRefuseAnotherHeightAndAKeyOutsideTheSet() {
 		final BallotBox box = box();
 
