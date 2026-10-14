@@ -54,6 +54,14 @@ public class LedgerVoteTest {
 		assertThat(state.votesFor(GRIDNODE, Vote.Action.ADD), equalTo(0));
 	}
 
+	/* A vote that could never take effect is refused, rather than passing and being dropped at the end of the round */
+	@Example
+	public void shouldRefuseAVoteToAddAKeyToAFullSet() {
+		final LedgerState full = state(1000, ANY_MINT, seeds(1, ValidatorSet.MAX_SIZE));
+
+		assertThat(reasonOf(full.rejectionOf(add(full, 1, key(ValidatorSet.MAX_SIZE + 1)))), containsString("full"));
+	}
+
 	@Example
 	public void shouldCountTheVotesOfABlock() {
 		final LedgerState state = freshState();

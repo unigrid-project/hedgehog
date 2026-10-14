@@ -214,6 +214,7 @@ public final class LedgerState {
 		final List<AccountKey> keys = validators.keys().stream().filter(key -> !removed.contains(key))
 			.collect(Collectors.toCollection(ArrayList::new));
 
+		/* Several additions may pass in one round and not all fit: the first in key order get the places */
 		added.stream().limit(ValidatorSet.MAX_SIZE - keys.size()).forEach(keys::add);
 		validators = new ValidatorSet(keys);
 		votes.clear();
@@ -267,7 +268,12 @@ public final class LedgerState {
 		final boolean member = validators.contains(vote.candidate());
 
 		if (vote.action() == Vote.Action.ADD) {
-			return member ? Optional.of("Candidate is already a validator") : Optional.empty();
+			if (member) {
+				return Optional.of("Candidate is already a validator");
+			}
+
+			return validators.size() >= ValidatorSet.MAX_SIZE ? Optional.of("The validator set is full")
+				: Optional.empty();
 		}
 
 		if (!member) {
