@@ -34,7 +34,11 @@ public class BallotBoxTest {
 	private static final Ballot.Type PRECOMMIT = Ballot.Type.PRECOMMIT;
 
 	private static BallotBox box() {
-		return new BallotBox(1, new ValidatorSet(seeds(1, 4).stream().map(Ed25519::publicKey).toList()));
+		return new BallotBox(1, new ValidatorSet(seeds(1, 4).stream().map(Ed25519::publicKey).toList()), CHAIN);
+	}
+
+	private static Ballot forged(Ballot.Type type, int validator, int view, byte[] hash) {
+		return new Ballot(type, 1, view, hash, key(validator), ballot(type, validator + 1, view, hash).signature());
 	}
 
 	private static Ballot ballot(Ballot.Type type, int validator, int view, byte[] hash) {
@@ -131,6 +135,53 @@ public class BallotBoxTest {
 	}
 
 	@Example
+	public void shouldRefuseABallotThatIsNotSignedByItsValidatorAndCountItNowhere() {
+		final BallotBox box = box();
+
+		assertThat(box.add(forged(PREVOTE, 1, 7, A)), equalTo(BallotBox.Result.REFUSED));
+		assertThat(box.add(forged(PREVOTE, 2, 7, A)), equalTo(BallotBox.Result.REFUSED));
+
+		assertThat(box.countAny(PREVOTE, 7), equalTo(0));
+		assertThat(box.size(), equalTo(0));
+		assertThat(box.ballotsBy(key(1)).size(), equalTo(0));
+		assertThat(box.skipTo(0).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldRefuseABallotSignedForAnotherChain() {
+		final BallotBox box = box();
+		final byte[] otherChain = new byte[Digests.HASH_SIZE];
+
+		otherChain[0] = 1;
+
+		assertThat(box.add(Ballot.signed(PRECOMMIT, seed(1), otherChain, 1, 0, A)), equalTo(BallotBox.Result.REFUSED));
+		assertThat(box.size(), equalTo(0));
+	}
+
+	@Example
+	public void shouldNotLetAForgedSecondBallotBecomeEvidence() {
+		final BallotBox box = box();
+
+		box.add(ballot(PREVOTE, 1, 0, A));
+
+		assertThat(box.add(forged(PREVOTE, 1, 0, B)), equalTo(BallotBox.Result.REFUSED));
+		assertThat(box.evidence().size(), equalTo(0));
+		assertThat(box.add(ballot(PREVOTE, 1, 0, B)), equalTo(BallotBox.Result.EQUIVOCATION));
+		assertThat(box.evidence().size(), equalTo(1));
+	}
+
+	@Example
+	public void shouldNotVerifyABallotItAlreadyHolds() {
+		final BallotBox box = box();
+		final Ballot held = ballot(PREVOTE, 1, 0, A);
+		final Ballot replayed = new Ballot(PREVOTE, 1, 0, A, held.validator(), new byte[Ed25519.SIGNATURE_SIZE]);
+
+		box.add(held);
+
+		assertThat(box.add(replayed), equalTo(BallotBox.Result.DUPLICATE));
+	}
+
+	@Example
 	public void shouldHandOutTheEndorsementsOfAHashInKeyOrder() {
 		final BallotBox box = box();
 
@@ -170,6 +221,16 @@ public class BallotBoxTest {
 		box.seen(key(1), 7);
 
 		assertThat(box.skipTo(0).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldIgnoreANegativeView() {
+		final BallotBox box = box();
+
+		box.seen(key(1), -3);
+		box.seen(key(2), -3);
+
+		assertThat(box.skipTo(-5).isPresent(), is(false));
 	}
 
 	@Example

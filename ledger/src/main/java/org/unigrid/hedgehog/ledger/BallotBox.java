@@ -26,22 +26,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 
-/* The ballots of one height as they come in: who said what in which view. A validator that says two different
-   things in one view is recorded and only its first word counts, so a validator cannot be counted twice. It also
-   remembers the highest view each validator was heard in, for the rule that skips ahead when more than 1/3 of
-   the validators are already further on. Every map keeps its insertion order, so two runs that see the same
-   ballots in the same order answer in the same order. */
+/* The ballots of one height as they come in: who said what in which view. The box checks the signature of every
+   ballot it has not seen before, so a forged ballot can neither count towards a quorum nor become evidence. A
+   validator that says two different things in one view is recorded once and only its first word counts, so a
+   validator cannot be counted twice. It also remembers the highest view each validator was heard in, for the
+   rule that skips ahead when more than 1/3 of the validators are already further on. Every map keeps its
+   insertion order, so two runs that see the same ballots in the same order answer in the same order. */
 final class BallotBox {
 	private final long height;
 	private final ValidatorSet validators;
+	private final byte[] chainId;
 	private final Map<Slot, Map<AccountKey, Ballot>> ballots = new LinkedHashMap<>();
 	private final Map<AccountKey, List<Ballot>> ballotsByValidator = new LinkedHashMap<>();
 	private final Map<AccountKey, Integer> highest = new LinkedHashMap<>();
 	private final Map<EvidenceKey, Equivocation> evidence = new LinkedHashMap<>();
 
-	BallotBox(long height, ValidatorSet validators) {
+	BallotBox(long height, ValidatorSet validators, byte[] chainId) {
 		this.height = height;
 		this.validators = validators;
+		this.chainId = chainId.clone();
 	}
 
 	enum Result {
@@ -68,6 +71,10 @@ final class BallotBox {
 			return Result.DUPLICATE;
 		}
 
+		if (!ballot.hasValidSignature(chainId)) {
+			return Result.REFUSED;
+		}
+
 		return earlier == null ? store(ballot) : recordEquivocation(earlier, ballot);
 	}
 
@@ -78,7 +85,7 @@ final class BallotBox {
 	}
 
 	void seen(AccountKey validator, int view) {
-		if (validators.contains(validator)) {
+		if (view >= 0 && validators.contains(validator)) {
 			highest.merge(validator, view, Math::max);
 		}
 	}
