@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -35,9 +36,12 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 public class LedgerTest {
 	private static final List<byte[]> FOUNDATION = seeds(1, 3);
 
+	private static Ledger open(FileSystem fileSystem, LedgerState state) throws IOException {
+		return new Ledger(state, BlockLog.open(fileSystem.getPath("/data/blocks.log")));
+	}
+
 	private static Ledger open(FileSystem fileSystem, int roundLength, MintAuthority authority) throws IOException {
-		return new Ledger(state(roundLength, authority, FOUNDATION),
-			BlockLog.open(fileSystem.getPath("/data/blocks.log")));
+		return open(fileSystem, state(roundLength, authority, FOUNDATION));
 	}
 
 	private static Ledger open(FileSystem fileSystem) throws IOException {
@@ -279,6 +283,46 @@ public class LedgerTest {
 			assertThat(second.balanceOf(legacy), equalTo(500L));
 			assertThat(second.supply(), equalTo(500L));
 			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
+		}
+	}
+
+	@Example
+	public void shouldRestoreAClaimAndTheMintsAroundItFromTheLog() throws IOException {
+		final LegacyWallet wallet = new LegacyWallet(1, true);
+		final Map<LegacyAddress, Long> balances = Map.of(wallet.address(), 500L);
+
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger first = open(fileSystem, stateWithSnapshot(ANY_MINT, FOUNDATION, 500, balances));
+
+			first.submit(new Mint(wallet.address(), 30, reference(1)));
+			seal(first, FOUNDATION, 2000);
+			assertThat(first.submit(wallet.claim(account(1), first.chainId())), equalTo(Optional.empty()));
+			seal(first, FOUNDATION, 3000);
+			first.submit(new Mint(wallet.address(), 20, reference(2)));
+			seal(first, FOUNDATION, 4000);
+
+			final Ledger second = open(fileSystem, stateWithSnapshot(NO_MINT, FOUNDATION, 500, balances));
+
+			assertThat(second.balanceOf(account(1)), equalTo(550L));
+			assertThat(second.balanceOf(wallet.address()), equalTo(0L));
+			assertThat(second.supply(), equalTo(550L));
+			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToClaimTheSameAddressAgainThroughTheLedger() throws IOException {
+		final LegacyWallet wallet = new LegacyWallet(1, true);
+
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem,
+				stateWithSnapshot(ANY_MINT, FOUNDATION, 500, Map.of(wallet.address(), 500L)));
+
+			ledger.submit(wallet.claim(account(1), ledger.chainId()));
+			seal(ledger, FOUNDATION, 2000);
+
+			assertThat(ledger.submit(wallet.claim(account(2), ledger.chainId())).isPresent(), is(true));
+			assertThat(ledger.balanceOf(account(2)), equalTo(0L));
 		}
 	}
 
