@@ -46,8 +46,9 @@ public class ConsensusSimulationTest {
 	   minute is more than twenty times that and still ends a run that is stuck */
 	private static final long SETTLE_MILLIS = 60_000;
 
-	/* Long enough for a node that has no quorum to go through twenty views or more: a view that ends in silence lasts
-	   about 0.4 seconds at these timeouts and 0.15 seconds longer with every view */
+	/* A stretch in which fewer than a quorum of the nodes can talk to one another. The prevote and precommit timers
+	   only arm once a quorum of ballots is in, so here they never do and the nodes stay where they are, in view 0 in
+	   the prevote step. What the minute checks is that nobody decides without a quorum. */
 	private static final long OUTAGE_MILLIS = 60_000;
 
 	/* A decision is a matter of milliseconds once the votes are in, so this catches a disagreement soon after it
@@ -60,11 +61,16 @@ public class ConsensusSimulationTest {
 
 	private static final int FAULTY_GOAL = 3;
 
-	/* Enough time for twenty views or so to go by in the bad weather, with the nodes in different views */
+	/* The network and the schedule of faults must not draw from the same stream, or the delays and losses would be
+	   tied to the choice of node count, crashes and split */
+	private static final long NETWORK_SEED_MASK = 0x5DEECE66DL;
+
+	/* Over 1500 random runs more than half were not finished when the weather cleared, and the decided blocks came
+	   from views up to the ninth, so the bad stretch is long enough to leave work and view changes for the rest */
 	private static final long BAD_NETWORK_MIN_MILLIS = 20_000;
 	private static final long BAD_NETWORK_SPREAD_MILLIS = 20_000;
 
-	/* Over 1500 random runs the slowest needed 5 seconds to finish once the network worked again, so ten minutes are
+	/* Over 1500 random runs the slowest needed 5.5 seconds to finish once the network worked again, so ten minutes are
 	   more than a hundred times that and still end a run that is stuck */
 	private static final long RECOVERY_MILLIS = 600_000;
 
@@ -102,7 +108,7 @@ public class ConsensusSimulationTest {
 	private static Run faultyRun(long seed) {
 		final Random random = new Random(seed);
 		final int count = 4 + random.nextInt(4);
-		final SimulatedNetwork net = network(count, FAULTY_GOAL, seed);
+		final SimulatedNetwork net = network(count, FAULTY_GOAL, seed ^ NETWORK_SEED_MASK);
 		final Set<Integer> crashed = randomNodes(random, count, random.nextInt((count - 1) / 3 + 1));
 
 		net.latency(5, 20 + random.nextInt(400));
@@ -565,7 +571,7 @@ public class ConsensusSimulationTest {
 	}
 
 	@Example
-	public void shouldCountOnlyTheFirstWordOfAValidatorThatContradictsItself() {
+	public void shouldRecordAValidatorThatContradictsItselfAndDecideTheBlockOfItsFirstWord() {
 		final SimulatedNetwork net = network(4, 1, 10);
 		final Liar liar = liar(net, 0);
 		final Block block = liar.block(0, "block");
@@ -660,12 +666,13 @@ public class ConsensusSimulationTest {
 
 	@Example
 	public void shouldGiveTheSameRunWithFaultsForTheSameSeed() {
-		final SimulatedNetwork first = faultyRun(31).net();
-		final SimulatedNetwork second = faultyRun(31).net();
+		final Run first = faultyRun(31);
+		final Run second = faultyRun(31);
 
-		assertThat(decidedHashes(first), equalTo(decidedHashes(second)));
-		assertThat(first.sent(), equalTo(second.sent()));
-		assertThat(first.now(), equalTo(second.now()));
+		assertThat(first.net().everyoneReached(FAULTY_GOAL, first.crashed()), is(true));
+		assertThat(decidedHashes(first.net()), equalTo(decidedHashes(second.net())));
+		assertThat(first.net().sent(), equalTo(second.net().sent()));
+		assertThat(first.net().now(), equalTo(second.net().now()));
 	}
 
 	@Example
