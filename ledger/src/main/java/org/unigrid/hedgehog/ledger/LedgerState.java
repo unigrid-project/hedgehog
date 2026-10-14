@@ -485,7 +485,7 @@ public final class LedgerState {
 
 	private void apply(Transaction transaction) {
 		if (transaction instanceof Mint mint) {
-			accounts.merge(mint.recipient(), mint.amount(), Long::sum);
+			accounts.merge(mint.recipient(), mint.amount(), Math::addExact);
 			supply += mint.amount();
 			minted.add(mint.reference());
 		} else if (transaction instanceof Vote vote) {
