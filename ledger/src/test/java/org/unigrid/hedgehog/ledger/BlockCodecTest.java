@@ -89,6 +89,16 @@ public class BlockCodecTest {
 		assertThrows(IllegalArgumentException.class, () -> BlockCodec.decode(encoded));
 	}
 
+	/* What could not be decoded again must not be written, or a log would hold a record that cannot be read */
+	@Example
+	public void shouldRefuseToEncodeMoreThanTheMaximum() {
+		final Block tooManyTransactions = CodecFixtures.block(new Random(3), Block.MAX_TRANSACTIONS + 1, 2);
+		final Block tooManyEndorsements = CodecFixtures.block(new Random(3), 1, ValidatorSet.MAX_SIZE + 1);
+
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.encode(tooManyTransactions));
+		assertThrows(IllegalArgumentException.class, () -> BlockCodec.encode(tooManyEndorsements));
+	}
+
 	@Example
 	public void shouldRefuseCountsLargerThanTheBytesThatFollow() {
 		final byte[] encoded = BlockCodec.encode(CodecFixtures.block(new Random(3), 1, 2));

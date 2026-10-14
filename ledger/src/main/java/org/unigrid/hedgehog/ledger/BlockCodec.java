@@ -36,6 +36,12 @@ public final class BlockCodec {
 	}
 
 	public static byte[] encode(Block block) {
+		if (block.getEndorsements().size() > ValidatorSet.MAX_SIZE
+			|| block.getTransactions().size() > Block.MAX_TRANSACTIONS) {
+			throw new IllegalArgumentException("A block holds at most " + ValidatorSet.MAX_SIZE
+				+ " endorsements and " + Block.MAX_TRANSACTIONS + " transactions");
+		}
+
 		final List<byte[]> transactions = block.getTransactions().stream().map(Transaction::encode).toList();
 		final int size = Block.HEADER_SIZE + Short.BYTES
 			+ block.getEndorsements().size() * (AccountKey.SIZE + Ed25519.SIGNATURE_SIZE) + Short.BYTES
