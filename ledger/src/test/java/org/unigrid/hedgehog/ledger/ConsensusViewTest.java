@@ -219,6 +219,21 @@ public class ConsensusViewTest {
 	}
 
 	@Example
+	public void shouldNotLockOnABlockTheApplicationRefuses() {
+		final Block block = proposed(0, "a");
+
+		app.refuse = true;
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(0, -1, block), 10);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 0, block), 11);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 3, 0, block), 12);
+
+		assertThat(engine.onMessage(ballot(Ballot.Type.PREVOTE, 4, 0, block), 13).isEmpty(), is(true));
+		assertThat(engine.lockedView(), equalTo(-1));
+		assertThat(engine.step(), equalTo(Consensus.Step.PREVOTE));
+	}
+
+	@Example
 	public void shouldPrecommitNilOnMoreThanTwoThirdsOfNilPrevotes() {
 		engine.start(1, validators, 0);
 		engine.onMessage(proposal(0, -1, proposed(0, "a")), 10);

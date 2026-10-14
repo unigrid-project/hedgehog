@@ -231,7 +231,7 @@ public final class Consensus {
 
 	/* Only the first proposal of a view counts, whatever else its proposer signs for that view */
 	private boolean accept(Proposal proposal) {
-		if (!isFirstFromProposer(proposal) || !headerAgrees(proposal) || !proposal.hasValidSignature(chainId)) {
+		if (!isNewFromProposer(proposal) || !headerAgrees(proposal) || !proposal.hasValidSignature(chainId)) {
 			return false;
 		}
 
@@ -244,7 +244,7 @@ public final class Consensus {
 		return true;
 	}
 
-	private boolean isFirstFromProposer(Proposal proposal) {
+	private boolean isNewFromProposer(Proposal proposal) {
 		return proposal.height() == height && !proposals.containsKey(proposal.view())
 			&& proposal.sender().equals(validators.proposerAt(height, proposal.view()));
 	}
