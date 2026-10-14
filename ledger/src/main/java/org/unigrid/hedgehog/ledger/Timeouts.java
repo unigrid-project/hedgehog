@@ -18,11 +18,20 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.stream.LongStream;
+
 /* How long a step waits, in milliseconds. Every view waits a little longer than the one before, so that once the
    network is well behaved a view eventually lasts long enough to finish. */
 public record Timeouts(long proposeBase, long proposeStep, long prevoteBase, long prevoteStep, long precommitBase,
 	long precommitStep) {
 	public static final Timeouts DEFAULT = new Timeouts(3000, 500, 1000, 500, 1000, 500);
+
+	public Timeouts {
+		if (LongStream.of(proposeBase, proposeStep, prevoteBase, prevoteStep, precommitBase, precommitStep)
+			.anyMatch(value -> value <= 0)) {
+			throw new IllegalArgumentException("Every base and step of a timeout is above 0");
+		}
+	}
 
 	public long propose(int view) {
 		return proposeBase + proposeStep * view;

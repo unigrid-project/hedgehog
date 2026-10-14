@@ -24,6 +24,7 @@ import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.Action.*;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.*;
@@ -32,11 +33,13 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 public class ConsensusViewsTest {
 	/* The engine is validator 4, who proposes view 3 and follows in views 0, 1 and 2, with the validators 1, 2 and 3
 	   as the others. The leader is validator 2, who proposes view 1, with 1, 3 and 4 as the others. */
+	private static final Timeouts TIMEOUTS = new Timeouts(3000, 500, 1000, 300, 1500, 700);
+
 	private final ValidatorSet validators = validators(4);
 	private final FakeApp app = new FakeApp(validators, key(4), 3);
-	private final Consensus engine = new Consensus(app, CHAIN, seed(4), Timeouts.DEFAULT);
+	private final Consensus engine = new Consensus(app, CHAIN, seed(4), TIMEOUTS);
 	private final FakeApp leaderApp = new FakeApp(validators, key(2), 3);
-	private final Consensus leader = new Consensus(leaderApp, CHAIN, seed(2), Timeouts.DEFAULT);
+	private final Consensus leader = new Consensus(leaderApp, CHAIN, seed(2), TIMEOUTS);
 
 	/* Both applications have the same empty chain, so a block built by one is right for the other */
 	private Block proposed(int view, String note) {
@@ -47,8 +50,8 @@ public class ConsensusViewsTest {
 		return new Timeout(kind, 1, view);
 	}
 
-	private static Schedule proposeSchedule(int view) {
-		return new Schedule(timeout(Timeout.Kind.PROPOSE, view), Timeouts.DEFAULT.propose(view));
+	private static Schedule schedule(Timeout.Kind kind, int view, long delay) {
+		return new Schedule(timeout(kind, view), delay);
 	}
 
 	private static Block certified(Block block) {
@@ -132,7 +135,7 @@ public class ConsensusViewsTest {
 
 		final List<Action> actions = engine.onWork(5);
 
-		assertThat(actions, equalTo(List.of(proposeSchedule(0))));
+		assertThat(actions, equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 0, 3000))));
 		assertThat(engine.onWork(6).isEmpty(), is(true));
 	}
 
@@ -312,6 +315,49 @@ public class ConsensusViewsTest {
 			Timeout.Kind.PRECOMMIT), is(true));
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, last), 10).isEmpty(), is(true));
 		assertThat(engine.view(), equalTo(last));
+	}
+
+	@Example
+	public void shouldScheduleTheProposeTimeoutWithADelayThatGrowsWithTheView() {
+		assertThat(engine.start(1, validators, 0), hasItem(schedule(Timeout.Kind.PROPOSE, 0, 3000)));
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 2, null), 20);
+
+		assertThat(engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 2, null), 21),
+			hasItem(schedule(Timeout.Kind.PROPOSE, 2, 4000)));
+	}
+
+	@Example
+	public void shouldScheduleThePrevoteTimeoutWithADelayThatGrowsWithTheView() {
+		engine.start(1, validators, 0);
+		engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 0, proposed(0, "a")), 3001);
+
+		assertThat(engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 0, null), 3002),
+			hasItem(schedule(Timeout.Kind.PREVOTE, 0, 1000)));
+
+		engine.start(1, validators, 0);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 1, 2, proposed(2, "a")), 20);
+		engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 2, null), 21);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 2), 9000),
+			hasItem(schedule(Timeout.Kind.PREVOTE, 2, 1600)));
+	}
+
+	@Example
+	public void shouldScheduleThePrecommitTimeoutWithADelayThatGrowsWithTheView() {
+		engine.start(1, validators, 0);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 5);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, null), 6);
+
+		assertThat(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, null), 7),
+			hasItem(schedule(Timeout.Kind.PRECOMMIT, 0, 1500)));
+
+		inViewTwo();
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 2, null), 22);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 2, null), 23);
+
+		assertThat(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 2, null), 24),
+			hasItem(schedule(Timeout.Kind.PRECOMMIT, 2, 2900)));
 	}
 
 	@Example
@@ -798,7 +844,7 @@ public class ConsensusViewsTest {
 
 		final List<Action> actions = engine.resume(50);
 
-		assertThat(actions, equalTo(List.of(proposeSchedule(0))));
+		assertThat(actions, equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 0, 3000))));
 	}
 
 	@Example
@@ -841,11 +887,11 @@ public class ConsensusViewsTest {
 
 	@Example
 	public void shouldKeepTimeAndResumeWithoutAKey() {
-		final Consensus observer = new Consensus(app, CHAIN, null, Timeouts.DEFAULT);
+		final Consensus observer = new Consensus(app, CHAIN, null, TIMEOUTS);
 
 		observer.start(1, validators, 0);
 
-		assertThat(observer.resume(5), equalTo(List.of(proposeSchedule(0))));
+		assertThat(observer.resume(5), equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 0, 3000))));
 		assertThat(observer.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000).isEmpty(), is(true));
 		assertThat(observer.step(), equalTo(Consensus.Step.PREVOTE));
 		assertThat(observer.resume(3001).isEmpty(), is(true));
@@ -854,7 +900,7 @@ public class ConsensusViewsTest {
 
 	@Example
 	public void shouldDecideOnACertifiedBlockWithoutAKeyAndHaveNothingToResume() {
-		final Consensus observer = new Consensus(app, CHAIN, null, Timeouts.DEFAULT);
+		final Consensus observer = new Consensus(app, CHAIN, null, TIMEOUTS);
 		final Block block = proposed(0, "a");
 
 		observer.start(1, validators, 0);
