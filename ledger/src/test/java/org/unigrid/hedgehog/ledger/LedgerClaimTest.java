@@ -312,6 +312,18 @@ public class LedgerClaimTest {
 	}
 
 	@Example
+	public void shouldKeepRefusingAForgedClaimAndKeepAcceptingAGoodOne() {
+		final LedgerState state = claimState(ANY_MINT);
+		final Claim signed = claim(state, account(1));
+		final Claim forged = new Claim(signed.publicKey(), account(2), signed.signature());
+
+		for (int i = 0; i < 3; i++) {
+			assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+			assertThat(state.rejectionOf(signed).isPresent(), is(false));
+		}
+	}
+
+	@Example
 	public void shouldKeepOneWaitingClaimPerLegacyAddress() {
 		final LedgerState state = claimState(ANY_MINT);
 		final Mempool mempool = new Mempool();

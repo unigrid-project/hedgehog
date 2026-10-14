@@ -50,6 +50,7 @@ public final class LedgerState {
 	private final MintAuthority authority;
 	private final Snapshot snapshot;
 	private final byte[] chainId;
+	private final VerifiedSignatures verified;
 	private Map<Address, Long> accounts = new HashMap<>();
 
 	/* A legacy address mapped to the account that claimed it */
@@ -79,6 +80,7 @@ public final class LedgerState {
 		this.authority = authority;
 		this.snapshot = snapshot;
 		this.chainId = genesis.chainId();
+		this.verified = new VerifiedSignatures();
 		this.validators = genesis.getValidators();
 		this.previousValidators = genesis.getValidators();
 		this.supply = genesis.getSnapshotTotal();
@@ -92,6 +94,7 @@ public final class LedgerState {
 		authority = other.authority;
 		snapshot = other.snapshot;
 		chainId = other.chainId;
+		verified = other.verified;
 		accounts = new HashMap<>(other.accounts);
 		redirects = new HashMap<>(other.redirects);
 		minted = new HashSet<>(other.minted);
@@ -381,7 +384,8 @@ public final class LedgerState {
 	}
 
 	private Optional<String> signatureRejection(Claim claim) {
-		return claim.hasValidSignature(chainId) ? Optional.empty() : Optional.of("Claim signature is not valid");
+		return verified.check(claim, () -> claim.hasValidSignature(chainId))
+			? Optional.empty() : Optional.of("Claim signature is not valid");
 	}
 
 	private Optional<String> authorityRejection(Claim claim) {
