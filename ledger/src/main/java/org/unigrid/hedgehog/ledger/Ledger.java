@@ -96,8 +96,10 @@ public final class Ledger implements LedgerApplication {
 
 		candidates.addAll(mempool.take(Block.MAX_TRANSACTIONS));
 
-		final List<Transaction> transactions = state.applicable(candidates.stream()
-			.limit(Block.MAX_TRANSACTIONS).toList());
+		/* The block is cut after the checks, so a due mint the authority holds back takes no place from the
+		   mempool, and what is cut off is the end of a valid sequence, which stays valid */
+		final List<Transaction> transactions = state.applicable(candidates).stream()
+			.limit(Block.MAX_TRANSACTIONS).toList();
 
 		if (transactions.isEmpty() && state.pool() == 0) {
 			return Optional.empty();

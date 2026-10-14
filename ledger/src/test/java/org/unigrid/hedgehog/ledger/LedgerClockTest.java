@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -48,6 +50,22 @@ public class LedgerClockTest {
 		return FOUNDATION.stream().map(seed -> ledger.propose(seed, time)).flatMap(Optional::stream).findFirst();
 	}
 
+	private static Block certified(Ledger ledger, Block proposed) {
+		Block block = proposed;
+
+		for (final byte[] seed : FOUNDATION) {
+			if (!block.getEndorsements().stream().anyMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
+				block = ledger.sign(block, seed);
+			}
+		}
+
+		return block;
+	}
+
+	private static List<Mint> mints(int from, int count) {
+		return IntStream.range(from, from + count).mapToObj(n -> mint(n, 1)).toList();
+	}
+
 	@Example
 	public void shouldProposeADueMintOnlyOnceItsTimeHasCome() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
@@ -67,15 +85,7 @@ public class LedgerClockTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(30_000);
 			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), clock);
-			Block block = proposal(ledger, 30_000).orElseThrow();
-
-			for (final byte[] seed : FOUNDATION) {
-				if (!block.getEndorsements().stream().anyMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
-					block = ledger.sign(block, seed);
-				}
-			}
-
-			ledger.commit(block);
+			ledger.commit(certified(ledger, proposal(ledger, 30_000).orElseThrow()));
 
 			assertThat(ledger.balanceOf(account(1)), equalTo(700L));
 			assertThat(proposal(ledger, 40_000).isPresent(), is(false));
@@ -107,6 +117,44 @@ public class LedgerClockTest {
 			clock.set(20_000);
 
 			assertThat(ledger.submit(DUE), equalTo(Optional.empty()));
+		}
+	}
+
+	/* The cap on a block comes after the checks: what the authority holds back must not take the places of what can
+	   go in */
+	@Example
+	public void shouldFillTheBlockFromTheMempoolWhateverTheAuthorityHoldsBack() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint refused = mint(5000, 1);
+			final List<Mint> waiting = mints(1, Block.MAX_TRANSACTIONS);
+			final LedgerAuthority holdingBack = TestAuthority.open().withSchedule(time -> List.of(refused))
+				.withMints((mint, time) -> !mint.equals(refused));
+			final Ledger ledger = open(fileSystem, "a", holdingBack, new AtomicLong(30_000));
+
+			waiting.forEach(ledger::submit);
+
+			final Block block = proposal(ledger, 30_000).orElseThrow();
+
+			assertThat(block.getTransactions(), equalTo(List.<Transaction>copyOf(waiting)));
+		}
+	}
+
+	@Example
+	public void shouldCutTheBlockAtTheLimitAndLeaveTheRestOfTheDueMintsForTheNext() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final List<Mint> backlog = mints(1, Block.MAX_TRANSACTIONS + 5);
+			final Map<Mint, Long> dueTimes = IntStream.range(0, backlog.size()).boxed()
+				.collect(Collectors.toMap(backlog::get, i -> 10_000L + i));
+			final Ledger ledger = open(fileSystem, "a", dueAt(dueTimes), new AtomicLong(30_000));
+			final Block first = proposal(ledger, 30_000).orElseThrow();
+
+			assertThat(first.getTransactions(),
+				equalTo(List.<Transaction>copyOf(backlog.subList(0, Block.MAX_TRANSACTIONS))));
+
+			ledger.commit(certified(ledger, first));
+
+			assertThat(proposal(ledger, 30_000).orElseThrow().getTransactions(),
+				equalTo(List.<Transaction>copyOf(backlog.subList(Block.MAX_TRANSACTIONS, backlog.size()))));
 		}
 	}
 
@@ -180,14 +228,7 @@ public class LedgerClockTest {
 
 			far.submit(mint(1, 5));
 
-			Block block = proposal(far, 1_000_000).orElseThrow();
-
-			for (final byte[] seed : FOUNDATION) {
-				if (!block.getEndorsements().stream().anyMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
-					block = far.sign(block, seed);
-				}
-			}
-
+			final Block block = certified(far, proposal(far, 1_000_000).orElseThrow());
 			final Ledger behind = open(fileSystem, "b", ANY_MINT, new AtomicLong(1));
 
 			behind.commit(block);
