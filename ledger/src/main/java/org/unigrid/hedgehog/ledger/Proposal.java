@@ -26,14 +26,15 @@ import java.util.stream.Stream;
 
 /* The proposer of a view puts a block forward. `validRound` is -1 for a block that is new, or the earlier view in
    which the block already got more than 2/3 of the prevotes, when the proposer puts it forward again; the block
-   keeps its own header, so it keeps its identity. The sender signs the view, the valid round, the block hash and a
-   digest of `polka`, the prevotes that prove that quorum, for a node that never saw them. The proof is therefore
-   part of what the sender signed: a relay that strips it or changes it, to get a copy that only seems to be as good
-   as the original delivered first, breaks the signature and the copy is dropped. For the same reason an honest
-   proposer builds one proposal per view and resends exactly those bytes, never the same view with another proof. */
+   keeps its own header, so it keeps its identity. The sender signs the chain id, the height, the view, the valid
+   round, the block hash, which covers the header, and a digest of `polka`, the prevotes that prove that quorum, for
+   a node that never saw them. The proof is therefore part of what the sender signed: a relay that strips it or
+   changes it, to get a copy that only seems to be as good as the original delivered first, breaks the signature and
+   the copy is dropped. For the same reason an honest proposer builds one proposal per view and resends exactly
+   those bytes, never the same view with another proof. */
 public record Proposal(long height, int view, int validRound, Block block, List<Ballot> polka, AccountKey sender,
 	byte[] signature) implements Message {
-	private static final byte[] TAG = "Unigrid proposal v1".getBytes(StandardCharsets.US_ASCII);
+	private static final byte[] TAG = "Unigrid proposal v2".getBytes(StandardCharsets.US_ASCII);
 
 	public Proposal {
 		Objects.requireNonNull(block);
