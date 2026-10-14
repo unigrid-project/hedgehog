@@ -264,6 +264,24 @@ public class LedgerTest {
 		}
 	}
 
+	@Example
+	public void shouldRestoreALegacyMintFromTheLog() throws IOException {
+		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger first = open(fileSystem);
+
+			first.submit(new Mint(legacy, 500, reference(1)));
+			seal(first, FOUNDATION, 2000);
+
+			final Ledger second = open(fileSystem);
+
+			assertThat(second.balanceOf(legacy), equalTo(500L));
+			assertThat(second.supply(), equalTo(500L));
+			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
+		}
+	}
+
 	/* Its authority may not have loaded yet when a node starts; the blocks it logged are certified and stand */
 	@Example
 	public void shouldRestoreFromTheLogWhateverTheAuthoritySaysNow() throws IOException {

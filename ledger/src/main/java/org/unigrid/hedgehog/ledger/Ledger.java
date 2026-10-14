@@ -177,6 +177,10 @@ public final class Ledger implements LedgerApplication {
 		return state.balanceOf(key);
 	}
 
+	public synchronized long supply() {
+		return state.supply();
+	}
+
 	public synchronized byte[] stateRoot() {
 		return state.stateRoot();
 	}
