@@ -27,6 +27,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.FakeApp;
 
 public class ConsensusSimulationTest {
@@ -65,13 +66,23 @@ public class ConsensusSimulationTest {
 			.map(node -> node.decided.stream().map(block -> ByteBuffer.wrap(block.hash())).toList()).toList();
 	}
 
-	private static SimulatedNetwork slowRun(int goal, long seed) {
+	private static SimulatedNetwork slowNetwork(int goal, long seed) {
 		final SimulatedNetwork net = network(4, goal, seed);
 
 		net.latency(5, 200);
 		net.begin();
+		return net;
+	}
+
+	private static SimulatedNetwork slowRun(int goal, long seed) {
+		final SimulatedNetwork net = slowNetwork(goal, seed);
+
 		net.run(60_000);
 		return net;
+	}
+
+	private static int receivedByAll(SimulatedNetwork net) {
+		return net.nodes.stream().mapToInt(node -> node.received).sum();
 	}
 
 	@Example
@@ -206,6 +217,101 @@ public class ConsensusSimulationTest {
 		net.run(85);
 
 		assertThat(net.nodes.get(1).received, greaterThan(0));
+	}
+
+	@Example
+	public void shouldLeaveAnIsolatedNodeOutOfTheAgreementOfTheOthers() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.partition(Set.of(0));
+		net.begin();
+		net.run(120_000);
+
+		assertThat(net.nodes.get(0).received, equalTo(0));
+		assertThat(net.nodes.get(0).decided.isEmpty(), is(true));
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldDeliverNothingWhenEveryMessageIsLost() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.dropRate(1.0);
+		net.begin();
+		net.run(60_000);
+
+		assertThat(net.sent(), greaterThan(0L));
+		assertThat(receivedByAll(net), equalTo(0));
+		assertThat(net.nodes.stream().allMatch(node -> node.decided.isEmpty()), is(true));
+	}
+
+	@Example
+	public void shouldDecideNothingWithoutAQuorumAndEverythingOnceTheNetworkHeals() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.partition(Set.of(0, 1));
+		net.begin();
+		net.run(30_000);
+
+		assertThat(net.nodes.stream().allMatch(node -> node.decided.isEmpty()), is(true));
+		assertThat(net.agreement(), is(true));
+
+		net.heal();
+		net.run(net.now() + 180_000);
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertThat(net.agreement(), is(true));
+	}
+
+	@Example
+	public void shouldGiveADifferentRunForADifferentSeed() {
+		final SimulatedNetwork seven = slowNetwork(4, 7);
+		final SimulatedNetwork eight = slowNetwork(4, 8);
+
+		runUntil(seven, () -> !seven.nodes.get(0).decided.isEmpty());
+		runUntil(eight, () -> !eight.nodes.get(0).decided.isEmpty());
+
+		final boolean decidedAtOtherTimes = seven.now() != eight.now();
+
+		seven.run(60_000);
+		eight.run(60_000);
+
+		assertThat(decidedAtOtherTimes || seven.sent() != eight.sent(), is(true));
+	}
+
+	@Example
+	public void shouldKeepEveryMessageOnItsWayForTheMinimumLatency() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.latency(40, 40);
+		net.begin();
+
+		final long sentAtTheStart = net.sent();
+
+		net.run(39);
+
+		assertThat(sentAtTheStart, greaterThan(0L));
+		assertThat(receivedByAll(net), equalTo(0));
+
+		net.run(40);
+
+		assertThat((long) receivedByAll(net), equalTo(sentAtTheStart));
+	}
+
+	@Example
+	public void shouldLetAMessageTakeTheMaximumLatencyToo() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.latency(39, 40);
+		net.begin();
+		net.run(39);
+
+		final int atTheMinimum = receivedByAll(net);
+
+		net.run(40);
+
+		assertThat(atTheMinimum, lessThan(receivedByAll(net)));
 	}
 
 	@Example
