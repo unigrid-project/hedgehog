@@ -503,6 +503,22 @@ public class ConsensusViewsTest {
 	}
 
 	@Example
+	public void shouldIgnoreAReProposalOfABlockWhoseHeaderIsOfALaterViewThanTheQuorumItNames() {
+		final Block b = proposed(1, "b");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, 0, b), 10);
+		engine.onMessage(prevoteBy(2, 0, b), 11);
+		engine.onMessage(prevoteBy(3, 0, b), 12);
+		engine.onMessage(prevoteBy(1, 2, null), 20);
+		engine.onMessage(prevoteBy(2, 2, null), 21);
+
+		assertThat(engine.view(), equalTo(2));
+		assertThat(engine.onMessage(proposal(2, 0, b), 6000).isEmpty(), is(true));
+		assertThat(engine.step(), equalTo(Consensus.Step.PROPOSE));
+	}
+
+	@Example
 	public void shouldPutForwardAgainTheBlockItSawAPrevoteQuorumForWhenItIsTheProposer() {
 		final Block a = proposed(0, "a");
 
