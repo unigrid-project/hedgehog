@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.ledger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -188,7 +189,7 @@ public class ConsensusSimulationTest {
 		return net.nodes.stream().allMatch(node -> node.decided.isEmpty());
 	}
 
-	private static boolean allInStep(SimulatedNetwork net, Set<Integer> indexes, Consensus.Step step) {
+	private static boolean allInStep(SimulatedNetwork net, Collection<Integer> indexes, Consensus.Step step) {
 		return indexes.stream().allMatch(index -> net.nodes.get(index).engine.step() == step);
 	}
 
@@ -662,10 +663,10 @@ public class ConsensusSimulationTest {
 	public void shouldIgnoreAMadeUpProofOfAProposerInALaterViewAndStillAgree() {
 		final SimulatedNetwork net = network(7, 1, 15);
 		final Liar liar = liar(net, 1);
-		final Set<Integer> honest = Set.of(2, 3, 4, 5, 6);
+		final List<Integer> honest = List.of(2, 3, 4, 5, 6);
 		final Block made = net.nodes.get(2).app.block(1, 0, net.validators.proposerAt(1, 0), 10, "made up");
 		final byte[] signature = liar.vote(PREVOTE, 0, made).signature();
-		final List<Ballot> madeUp = honest.stream().sorted().map(index -> new Ballot(PREVOTE, 1, 0, made.hash(),
+		final List<Ballot> madeUp = honest.stream().map(index -> new Ballot(PREVOTE, 1, 0, made.hash(),
 			net.validators.keys().get(index), signature)).toList();
 
 		net.crash(0);
@@ -732,7 +733,7 @@ public class ConsensusSimulationTest {
 		final SimulatedNetwork net = network(4, 3, 12);
 		final Liar liar = liar(net, 1);
 		final Block other = liar.block(1, "other");
-		final Set<Integer> locked = Set.of(2, 3);
+		final List<Integer> locked = List.of(2, 3);
 
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
