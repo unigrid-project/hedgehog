@@ -18,18 +18,25 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /* Two things wait here. The transactions that are to go into the next blocks, and the heartbeats that show
    the chain is alive: blocks only come when they are needed, so a quiet chain makes none for a long while,
    and the heartbeats are how it can still be told from a stalled one. */
 public final class Mempool {
 	public static final int DEFAULT_MAX_PENDING = 10_000;
+
+	/* At most this many transfers wait for one sender: one for each nonce from its next one up, and the window
+	   moves up only as transfers are committed and dropped */
+	public static final int NONCE_WINDOW = 16;
 
 	private final Map<Object, Transaction> pending = new LinkedHashMap<>();
 	private final Map<AccountKey, Heartbeat> heartbeats = new HashMap<>();
@@ -61,10 +68,50 @@ public final class Mempool {
 		};
 	}
 
+	public synchronized boolean admit(Transaction transaction, LedgerState state) {
+		return transaction instanceof Transfer transfer ? admit(transfer, state) : admitOther(transaction, state);
+	}
+
+	/* A transfer may wait for the ones before it. It is queued when its nonce lies in the window above the next
+	   one, the state does not refuse it for any reason but its turn, and the balance covers it together with
+	   everything else the sender has waiting. One for the same nonce replaces the first only by a higher fee. */
+	private boolean admit(Transfer transfer, LedgerState state) {
+		final Object slot = slotOf(transfer);
+		final Transfer rival = (Transfer) pending.get(slot);
+
+		if (crowdedOut(rival, transfer) || !inWindow(transfer, state)
+			|| state.rejectionOfQueued(transfer).isPresent() || !coveredByWaiting(transfer, rival, state)) {
+			return false;
+		}
+
+		pending.put(slot, transfer);
+		return true;
+	}
+
+	private boolean crowdedOut(Transfer rival, Transfer transfer) {
+		return rival == null ? pending.size() >= maxPending : rival.fee() >= transfer.fee();
+	}
+
+	private static boolean inWindow(Transfer transfer, LedgerState state) {
+		return transfer.nonce() - state.nonceOf(transfer.sender()) < NONCE_WINDOW;
+	}
+
+	/* What the sender has waiting, apart from the transfer this one replaces, may not pass what is left of the
+	   balance after this one. The sum saturates instead of wrapping. */
+	private boolean coveredByWaiting(Transfer transfer, Transfer replaced, LedgerState state) {
+		final long left = state.balanceOf(transfer.sender()) - transfer.amount() - transfer.fee();
+		final long others = pending.values().stream().filter(Transfer.class::isInstance).map(Transfer.class::cast)
+			.filter(waiting -> waiting != replaced && waiting.sender().equals(transfer.sender()))
+			.mapToLong(waiting -> waiting.amount() + waiting.fee())
+			.reduce(0L, (sum, next) -> sum > Long.MAX_VALUE - next ? Long.MAX_VALUE : sum + next);
+
+		return others <= left;
+	}
+
 	/* Refuses what is already waiting, what the state refuses, and anything that would pass the limits: the
 	   mempool as a whole, and the votes waiting from each validator, as many as it may cast in a round.
 	   Votes already cast are the state's to count, and a waiting vote it would refuse never makes a block. */
-	public synchronized boolean admit(Transaction transaction, LedgerState state) {
+	private boolean admitOther(Transaction transaction, LedgerState state) {
 		final Object slot = slotOf(transaction);
 
 		if (pending.containsKey(slot) || pending.size() >= maxPending || exceedsVoteLimit(transaction)
@@ -82,9 +129,24 @@ public final class Mempool {
 			>= LedgerState.MAX_VOTES_PER_VALIDATOR;
 	}
 
-	/* Oldest first, and left in place: they leave when a block that holds them is committed */
+	/* Oldest first and left in place: they leave when a block that holds them is committed. The transfers of
+	   one sender are handed out in nonce order, in the places its transfers hold, so a block can take them all. */
 	public synchronized List<Transaction> take(int max) {
-		return new ArrayList<>(pending.values().stream().limit(max).toList());
+		final Map<AccountKey, ArrayDeque<Transfer>> byNonce = pending.values().stream()
+			.filter(Transfer.class::isInstance).map(Transfer.class::cast)
+			.sorted(Comparator.comparingLong(Transfer::nonce))
+			.collect(Collectors.groupingBy(Transfer::sender, Collectors.toCollection(ArrayDeque::new)));
+		final List<Transaction> ordered = new ArrayList<>();
+
+		for (final Transaction waiting : pending.values()) {
+			if (ordered.size() == max) {
+				break;
+			}
+
+			ordered.add(waiting instanceof Transfer transfer ? byNonce.get(transfer.sender()).poll() : waiting);
+		}
+
+		return ordered;
 	}
 
 	public synchronized int size() {
@@ -95,8 +157,14 @@ public final class Mempool {
 	   was for the old tip, is forgotten */
 	public synchronized void removeCommitted(Block block, LedgerState state) {
 		block.getTransactions().forEach(transaction -> pending.remove(slotOf(transaction)));
-		pending.values().removeIf(transaction -> state.rejectionOf(transaction).isPresent());
+		pending.values().removeIf(transaction -> stale(transaction, state));
 		heartbeats.clear();
+	}
+
+	/* A queued transfer stays while it is still good for a later turn; the others must be good now */
+	private static boolean stale(Transaction transaction, LedgerState state) {
+		return transaction instanceof Transfer transfer ? state.rejectionOfQueued(transfer).isPresent()
+			: state.rejectionOf(transaction).isPresent();
 	}
 
 	/* Only the latest heartbeat of each validator is kept, and only one for the current tip from a validator

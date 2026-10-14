@@ -45,7 +45,12 @@ public final class Ledger implements LedgerApplication {
 			return Optional.empty();
 		}
 
-		return Optional.of(state.rejectionOf(transaction).orElse("Already waiting for a block"));
+		final Optional<String> reason = transaction instanceof Transfer transfer ? state.rejectionOfQueued(transfer)
+			: state.rejectionOf(transaction);
+
+		return Optional.of(reason.orElse(transaction instanceof Transfer
+			? "Not queued: one waits for this nonce, or it is outside the window or not covered"
+			: "Already waiting for a block"));
 	}
 
 	@Override
