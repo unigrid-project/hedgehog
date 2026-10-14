@@ -233,6 +233,33 @@ public class LedgerRoundTest {
 		assertThat(withBoth.stateRoot(), not(equalTo(without.stateRoot())));
 	}
 
+	/* Both states are at height 1 with no accounts, no open votes and the same set in the same order; only the set
+	   that signed the tip differs, because one set has just grown and the other has not */
+	@Example
+	public void shouldCommitTheRootToTheSetThatSignedTheTip() {
+		final List<byte[]> four = seeds(1, 4);
+		final List<byte[]> five = new ArrayList<>(four);
+
+		five.add(seed(200));
+
+		final LedgerState grown = state(1, ANY_MINT, four);
+		final LedgerState unchanged = state(1, ANY_MINT, five);
+
+		grown.apply(block(grown, four, List.of(
+			Vote.signed(seed(1), key(200), Vote.Action.ADD, 0, grown.chainId()),
+			Vote.signed(seed(2), key(200), Vote.Action.ADD, 0, grown.chainId()),
+			Vote.signed(seed(3), key(200), Vote.Action.ADD, 0, grown.chainId()))));
+		unchanged.apply(block(unchanged, five, List.of(
+			Vote.signed(seed(1), key(201), Vote.Action.ADD, 0, unchanged.chainId()))));
+
+		assertThat(grown.height(), equalTo(unchanged.height()));
+		assertThat(grown.validators(), equalTo(unchanged.validators()));
+		assertThat(grown.votesFor(key(200), Vote.Action.ADD), equalTo(0));
+		assertThat(unchanged.votesFor(key(201), Vote.Action.ADD), equalTo(0));
+		assertThat(grown.previousValidators(), not(equalTo(unchanged.previousValidators())));
+		assertThat(grown.stateRoot(), not(equalTo(unchanged.stateRoot())));
+	}
+
 	/* Whatever is voted, the foundation validators stay and the set stays valid */
 	@Property(tries = 20)
 	public void shouldNeverLoseAFoundationValidatorOrExceedTheMaximum(@ForAll long seed) {
