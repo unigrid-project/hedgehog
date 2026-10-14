@@ -97,13 +97,14 @@ public final class Mempool {
 	}
 
 	/* What the sender has waiting, apart from the transfer this one replaces, may not pass what is left of the
-	   balance after this one. The sum saturates instead of wrapping. */
+	   balance after this one. The sum cannot wrap: every balance is a part of the supply, which fits a long, and
+	   what is waiting is covered by it. addExact says so loudly if that ever breaks. */
 	private boolean coveredByWaiting(Transfer transfer, Transfer replaced, LedgerState state) {
 		final long left = state.balanceOf(transfer.sender()) - transfer.amount() - transfer.fee();
 		final long others = pending.values().stream().filter(Transfer.class::isInstance).map(Transfer.class::cast)
 			.filter(waiting -> waiting != replaced && waiting.sender().equals(transfer.sender()))
 			.mapToLong(waiting -> waiting.amount() + waiting.fee())
-			.reduce(0L, (sum, next) -> sum > Long.MAX_VALUE - next ? Long.MAX_VALUE : sum + next);
+			.reduce(0L, Math::addExact);
 
 		return others <= left;
 	}
