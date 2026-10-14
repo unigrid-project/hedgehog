@@ -31,7 +31,8 @@ import java.util.stream.Stream;
    a node that never saw them. The proof is therefore part of what the sender signed: a relay that strips it or
    changes it, to get a copy that only seems to be as good as the original delivered first, breaks the signature and
    the copy is dropped. For the same reason an honest proposer builds one proposal per view and resends exactly
-   those bytes, never the same view with another proof. */
+   those bytes, never the same view with another proof. The constructor refuses a malformed proof with an
+   IllegalArgumentException, which the wire codec has to catch when it reads a proposal off the network. */
 public record Proposal(long height, int view, int validRound, Block block, List<Ballot> polka, AccountKey sender,
 	byte[] signature) implements Message {
 	private static final byte[] TAG = "Unigrid proposal v2".getBytes(StandardCharsets.US_ASCII);
