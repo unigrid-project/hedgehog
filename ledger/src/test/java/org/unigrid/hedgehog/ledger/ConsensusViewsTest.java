@@ -558,6 +558,25 @@ public class ConsensusViewsTest {
 	}
 
 	@Example
+	public void shouldIgnoreACopyOfAReProposalWhoseProofWasStrippedOrChangedAndTakeTheRealOneAfterIt() {
+		final Block b = proposed(1, "b");
+		final List<Ballot> proof = prevotesOf(b, 1, 1, 2, 3);
+		final Proposal real = proposal(2, 1, b, proof);
+
+		inViewTwo();
+
+		for (final List<Ballot> changed : List.of(List.<Ballot>of(), proof.subList(0, 2), List.of(proof.get(2),
+			proof.get(1), proof.get(0)), List.of(proof.get(0), proof.get(1), prevoteBy(4, 1, b)))) {
+			final Proposal copy = new Proposal(1, 2, 1, b, changed, real.sender(), real.signature());
+
+			assertThat(engine.onMessage(copy, 6000).isEmpty(), is(true));
+		}
+
+		assertThat(engine.step(), equalTo(Consensus.Step.PROPOSE));
+		assertThat(prevoteOf(engine.onMessage(real, 6001)).blockHash(), equalTo(b.hash()));
+	}
+
+	@Example
 	public void shouldStayLockedOnAnotherBlockWhateverTheProofOfABlockPutForwardAgainSays() {
 		final Block b = proposed(0, "b");
 		final Block c = proposed(1, "c");

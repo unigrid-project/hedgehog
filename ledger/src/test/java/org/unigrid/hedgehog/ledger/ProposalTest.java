@@ -93,19 +93,38 @@ public class ProposalTest {
 		assertThat(Proposal.signed(seed(1), CHAIN, 4, 2, 1, block).polka().isEmpty(), is(true));
 	}
 
+	private static Proposal withProof(Proposal proposal, List<Ballot> proof) {
+		return new Proposal(proposal.height(), proposal.view(), proposal.validRound(), proposal.block(), proof,
+			proposal.sender(), proposal.signature());
+	}
+
 	@Example
-	public void shouldLeaveTheProofOutOfTheSignature() {
+	public void shouldVerifyWithTheProofItWasSignedWithAndWithoutOne() {
 		final Block block = block(4, 0);
 		final Proposal bare = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block);
 		final Proposal proved = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, prevotes(4, 1, block));
-		final Proposal stripped = new Proposal(4, 2, 1, block, List.of(), proved.sender(), proved.signature());
-		final Proposal swapped = new Proposal(4, 2, 1, block, prevotes(4, 1, block).subList(0, 2), proved.sender(),
-			proved.signature());
 
 		assertThat(bare.hasValidSignature(CHAIN), is(true));
 		assertThat(proved.hasValidSignature(CHAIN), is(true));
-		assertThat(stripped.hasValidSignature(CHAIN), is(true));
-		assertThat(swapped.hasValidSignature(CHAIN), is(true));
+		assertThat(withProof(proved, prevotes(4, 1, block)).hasValidSignature(CHAIN), is(true));
+	}
+
+	@Example
+	public void shouldNotVerifyOnceTheProofIsStrippedTrimmedSwappedReorderedOrExtended() {
+		final Block block = block(4, 0);
+		final List<Ballot> proof = prevotes(4, 1, block);
+		final Proposal proved = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block, proof);
+		final Proposal bare = Proposal.signed(seed(1), CHAIN, 4, 2, 1, block);
+		final List<Ballot> reordered = List.of(proof.get(1), proof.get(0), proof.get(2));
+		final List<Ballot> extended = List.of(proof.get(0), proof.get(1), proof.get(2), prevote(4, 4, 1, block));
+		final List<Ballot> swapped = List.of(proof.get(0), proof.get(1), prevote(4, 4, 1, block));
+
+		assertThat(withProof(proved, List.of()).hasValidSignature(CHAIN), is(false));
+		assertThat(withProof(proved, proof.subList(0, 2)).hasValidSignature(CHAIN), is(false));
+		assertThat(withProof(proved, swapped).hasValidSignature(CHAIN), is(false));
+		assertThat(withProof(proved, reordered).hasValidSignature(CHAIN), is(false));
+		assertThat(withProof(proved, extended).hasValidSignature(CHAIN), is(false));
+		assertThat(withProof(bare, proof).hasValidSignature(CHAIN), is(false));
 	}
 
 	@Example

@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.ledger;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
@@ -203,6 +204,26 @@ public class ConsensusSimulationTest {
 		final Stream<Message> told = Stream.of(liar.proposal(0, -1, block), liar.vote(PREVOTE, 0, block));
 
 		return Stream.concat(told, Arrays.stream(more)).toArray(Message[]::new);
+	}
+
+	/* The relay sits on the path to the node, so its copy takes one millisecond while the real message, sent at the
+	   same moment, takes the delay of the link */
+	private static void relayWithoutProofs(SimulatedNetwork net, int to, Set<Proposal> relayed) {
+		for (final SimNode node : net.nodes) {
+			for (final Message message : node.engine.outbox()) {
+				if (node.index != to && message instanceof Proposal proposal && !proposal.polka().isEmpty()
+					&& relayed.add(proposal)) {
+					net.latency(1, 1);
+					net.send(node.index, to, withoutProof(proposal));
+					net.latency(LINK_MILLIS, LINK_MILLIS);
+				}
+			}
+		}
+	}
+
+	private static Proposal withoutProof(Proposal proposal) {
+		return new Proposal(proposal.height(), proposal.view(), proposal.validRound(), proposal.block(), List.of(),
+			proposal.sender(), proposal.signature());
 	}
 
 	private static boolean decidedFirst(SimulatedNetwork net, int index, Block block) {
@@ -601,6 +622,37 @@ public class ConsensusSimulationTest {
 
 		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
 		assertThat(honest.stream().allMatch(index -> decidedFirst(net, index, two)), is(true));
+	}
+
+	/* A relay on the way to node 1 hears every block that the honest nodes put forward again and delivers a copy
+	   without its proof a moment before the real one. If the proof were not part of what the proposer signed, the copy
+	   would pass for the proposal of the view and the real one would be dropped as a second proposal of that view, so
+	   that node 1 could never prevote the locked block and the others could never reach a quorum without it. */
+	@Example
+	public void shouldDecideAlthoughARelayDeliversEveryReProposalWithoutItsProofFirst() {
+		final SimulatedNetwork net = network(4, 3, 6);
+		final Liar liar = liar(net, 0);
+		final Block one = liar.block(0, "one");
+		final Block two = liar.block(0, "two");
+		final Set<Proposal> relayed = new HashSet<>();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.after(50, () -> {
+			liar.tell(1, story(liar, one));
+			liar.tell(2, story(liar, two));
+			liar.tell(3, story(liar, two));
+		});
+
+		for (long step = 0; step < LIAR_SETTLE_MILLIS && !net.everyoneReached(3, Set.of(0)); step++) {
+			net.run(net.now() + 1);
+			relayWithoutProofs(net, 1, relayed);
+		}
+
+		assertThat(relayed.isEmpty(), is(false));
+		assertThat(net.agreement(), is(true));
+		assertThat(net.everyoneReached(3, Set.of(0)), is(true));
+		assertThat(Set.of(1, 2, 3).stream().allMatch(index -> decidedFirst(net, index, two)), is(true));
 	}
 
 	/* Node 1 is the proposer of view 1 and node 0, the one of view 0, is down. The block the liar puts forward is a
