@@ -19,7 +19,10 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -87,6 +90,18 @@ public class BallotBoxTest {
 		assertThat(box.quorumAny(PRECOMMIT, 0), is(true));
 		assertThat(box.quorumFor(PRECOMMIT, 0, A), is(false));
 		assertThat(box.quorumFor(PRECOMMIT, 0, Ballot.NIL), is(false));
+	}
+
+	@Example
+	public void shouldHaveAQuorumForNilLikeForAnyBlock() {
+		final BallotBox box = box();
+
+		box.add(ballot(PRECOMMIT, 1, 0, null));
+		box.add(ballot(PRECOMMIT, 2, 0, null));
+		box.add(ballot(PRECOMMIT, 3, 0, null));
+
+		assertThat(box.quorumFor(PRECOMMIT, 0, Ballot.NIL), is(true));
+		assertThat(box.quorumFor(PRECOMMIT, 0, A), is(false));
 	}
 
 	@Example
@@ -184,17 +199,14 @@ public class BallotBoxTest {
 	@Example
 	public void shouldHandOutTheEndorsementsOfAHashInKeyOrder() {
 		final BallotBox box = box();
+		final List<Integer> reverseKeyOrder = IntStream.rangeClosed(1, 4).boxed()
+			.sorted(Comparator.comparing((Integer validator) -> key(validator)).reversed()).toList();
 
-		box.add(ballot(PRECOMMIT, 3, 2, A));
-		box.add(ballot(PRECOMMIT, 1, 2, A));
-		box.add(ballot(PRECOMMIT, 2, 2, B));
-		box.add(ballot(PRECOMMIT, 4, 2, A));
+		reverseKeyOrder.forEach(validator -> box.add(ballot(PRECOMMIT, validator, 2, validator == 2 ? B : A)));
 
-		final List<Endorsement> endorsements = box.endorsements(2, A);
+		final List<AccountKey> signers = box.endorsements(2, A).stream().map(Endorsement::signer).toList();
 
-		assertThat(endorsements.size(), equalTo(3));
-		assertThat(endorsements.stream().map(Endorsement::signer).toList(),
-			equalTo(endorsements.stream().map(Endorsement::signer).sorted().toList()));
+		assertThat(signers, equalTo(Stream.of(1, 3, 4).map(validator -> key(validator)).sorted().toList()));
 	}
 
 	@Example
@@ -211,6 +223,19 @@ public class BallotBoxTest {
 		assertThat(box.skipTo(0).getAsInt(), equalTo(5));
 		assertThat(box.skipTo(5).isPresent(), is(false));
 		assertThat(box.skipTo(4).getAsInt(), equalTo(5));
+	}
+
+	@Example
+	public void shouldCountAValidatorOnceAtItsHighestViewForASkip() {
+		final BallotBox box = box();
+
+		box.seen(key(1), 5);
+		box.seen(key(1), 9);
+		assertThat(box.skipTo(0).isPresent(), is(false));
+
+		box.seen(key(1), 2);
+		box.seen(key(2), 3);
+		assertThat(box.skipTo(0).getAsInt(), equalTo(3));
 	}
 
 	@Example
