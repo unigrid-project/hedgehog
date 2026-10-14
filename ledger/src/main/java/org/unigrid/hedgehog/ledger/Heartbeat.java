@@ -35,6 +35,10 @@ public record Heartbeat(AccountKey validator, long height, byte[] tipHash, long 
 			throw new IllegalArgumentException("A height is 0 or more, found " + height);
 		}
 
+		if (time < 0) {
+			throw new IllegalArgumentException("A time is 0 or more, found " + time);
+		}
+
 		tipHash = Bytes.requireSize(tipHash, Digests.HASH_SIZE, "A tip hash");
 		signature = Bytes.requireSize(signature, Ed25519.SIGNATURE_SIZE, "A heartbeat signature");
 	}

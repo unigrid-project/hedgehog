@@ -124,6 +124,10 @@ public final class Mempool {
 	/* Alive when more than 2/3 of the validators have said so for the current tip within the window, on
 	   either side of now, so a heartbeat dated far ahead cannot hold the answer up */
 	public synchronized boolean isProgressing(LedgerState state, long now, long window) {
+		if (now < 0) {
+			throw new IllegalArgumentException("A time is 0 or more, found " + now);
+		}
+
 		return heartbeats.values().stream()
 			.filter(heartbeat -> isCurrent(heartbeat, state) && Math.abs(now - heartbeat.time()) <= window)
 			.count() >= state.validators().quorum();

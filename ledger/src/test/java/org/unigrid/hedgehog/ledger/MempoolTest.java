@@ -24,6 +24,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class MempoolTest {
@@ -229,6 +230,15 @@ public class MempoolTest {
 		mempool.admit(beat(state, 2, 5000), state);
 		mempool.admit(beat(state, 3, 5000), state);
 		assertThat(mempool.isProgressing(state, 1000, 60), is(false));
+	}
+
+	@Example
+	public void shouldRefuseANegativeNow() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+
+		mempool.admit(beat(state, 1, 5), state);
+		assertThrows(IllegalArgumentException.class, () -> mempool.isProgressing(state, Long.MIN_VALUE, 60));
 	}
 
 	/* The chain is quiet, no block has been needed for a long time, and the mempool still shows it is alive */

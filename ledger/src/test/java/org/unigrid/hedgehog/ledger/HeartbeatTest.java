@@ -40,6 +40,14 @@ public class HeartbeatTest {
 		return Heartbeat.signed(seed(1), CHAIN, 7, filled(3), 5000);
 	}
 
+	/* A time below 0 would make the distance to now overflow, so that an old heartbeat looks fresh */
+	@Example
+	public void shouldRefuseANegativeTime() {
+		assertThrows(IllegalArgumentException.class, () -> Heartbeat.signed(seed(1), CHAIN, 7, filled(3), -1));
+		assertThrows(IllegalArgumentException.class,
+			() -> Heartbeat.signed(seed(1), CHAIN, 7, filled(3), Long.MIN_VALUE));
+	}
+
 	@Example
 	public void shouldVerifyWhatItSigned() {
 		assertThat(heartbeat().hasValidSignature(CHAIN), is(true));
