@@ -27,6 +27,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
@@ -120,5 +121,13 @@ public class AddressTest {
 		one.bytes()[0] ^= 1;
 		assertThat(one, equalTo(new LegacyAddress(filled(LegacyAddress.SIZE, 5))));
 		assertThat(one.toString(), equalTo("05".repeat(LegacyAddress.SIZE)));
+	}
+
+	@Example
+	public void shouldNameAnUnknownTypeByteUnsigned() {
+		final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+			() -> Address.decode(ByteBuffer.wrap(new byte[] { (byte) 200, 0, 0 })));
+
+		assertThat(thrown.getMessage(), containsString("200"));
 	}
 }

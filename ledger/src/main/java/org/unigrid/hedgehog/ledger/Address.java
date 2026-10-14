@@ -43,7 +43,7 @@ public sealed interface Address extends Comparable<Address> permits AccountKey, 
 		return switch (type) {
 			case ED25519 -> new AccountKey(Bytes.take(in, AccountKey.SIZE));
 			case LEGACY -> new LegacyAddress(Bytes.take(in, LegacyAddress.SIZE));
-			default -> throw new IllegalArgumentException("Unknown address type " + type);
+			default -> throw new IllegalArgumentException("Unknown address type " + Byte.toUnsignedInt(type));
 		};
 	}
 
