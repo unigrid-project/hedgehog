@@ -23,6 +23,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -52,6 +53,15 @@ public class ClaimTest {
 		assertThat(uncompressed.encode().length, equalTo(Claim.MAX_ENCODED_SIZE));
 		assertThat(compressed.encode()[0], equalTo(Claim.KIND));
 		assertThat(compressed.kind(), equalTo(Claim.KIND));
+	}
+
+	@Example
+	public void shouldPrintTheAddressAndTheRecipientAndNoArrayIdentity() {
+		final String text = WALLET.claim(RECIPIENT, CHAIN).toString();
+
+		assertThat(text, containsString(WALLET.address().toString()));
+		assertThat(text, containsString(RECIPIENT.toString()));
+		assertThat(text, not(containsString("[B@")));
 	}
 
 	@Example

@@ -89,4 +89,9 @@ public record Claim(byte[] publicKey, AccountKey recipient, byte[] signature) im
 	public int hashCode() {
 		return Objects.hash(recipient, Arrays.hashCode(publicKey), Arrays.hashCode(signature));
 	}
+
+	@Override
+	public String toString() {
+		return "Claim[address=" + address() + ", recipient=" + recipient + "]";
+	}
 }

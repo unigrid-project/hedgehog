@@ -108,6 +108,11 @@ public record Vote(AccountKey voter, AccountKey candidate, Action action, long r
 		return 31 * Objects.hash(voter, candidate, action, round) + Arrays.hashCode(signature);
 	}
 
+	@Override
+	public String toString() {
+		return "Vote[voter=" + voter + ", candidate=" + candidate + ", action=" + action + ", round=" + round + "]";
+	}
+
 	private static byte[] payload(AccountKey voter, AccountKey candidate, Action action, long round,
 		byte[] chainId) {
 		return Digests.sha512(TAG, chainId, voter.bytes(), candidate.bytes(), new byte[] { action.wire },

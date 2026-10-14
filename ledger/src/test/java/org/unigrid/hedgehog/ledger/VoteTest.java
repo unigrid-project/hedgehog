@@ -24,8 +24,10 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 
 public class VoteTest {
@@ -52,6 +54,15 @@ public class VoteTest {
 		assertThat(vote, equalTo(same));
 		assertThat(vote.hashCode(), equalTo(same.hashCode()));
 		assertThat(vote.id(), equalTo(same.id()));
+	}
+
+	@Example
+	public void shouldPrintItsPartiesAndNoArrayIdentity() {
+		final String text = vote().toString();
+
+		assertThat(text, containsString(Ed25519.publicKey(SEED).toString()));
+		assertThat(text, containsString(CANDIDATE.toString()));
+		assertThat(text, not(containsString("[B@")));
 	}
 
 	@Example
