@@ -266,6 +266,22 @@ public class LedgerClaimTest {
 	}
 
 	@Example
+	public void shouldRefuseAClaimWithAFalseSignatureEvenInACertifiedBlock() {
+		final LedgerState state = claimState(ANY_MINT);
+		final byte[] root = state.stateRoot();
+		final Claim signed = claim(state, account(1));
+		final Claim moved = new Claim(signed.publicKey(), account(2), signed.signature());
+		final Block block = withTransactions(state, soloBlock(state, signed), moved);
+		final InvalidBlockException refused = assertThrows(InvalidBlockException.class, () -> state.apply(block));
+
+		assertThat(refused.getMessage(), containsString("Claim signature"));
+		assertThat(state.balanceOf(account(2)), equalTo(0L));
+		assertThat(state.balanceOf(LEGACY), equalTo(0L));
+		assertThat(state.unclaimed(), equalTo(OWED));
+		assertThat(state.stateRoot(), equalTo(root));
+	}
+
+	@Example
 	public void shouldClaimAnAddressThatHoldsOnlyMintsAndLeaveTheUnclaimedAlone() {
 		final LedgerState state = stateWithSnapshot(ANY_MINT, seeds(1, 1), OWED, Map.of(OTHER.address(), OWED));
 
