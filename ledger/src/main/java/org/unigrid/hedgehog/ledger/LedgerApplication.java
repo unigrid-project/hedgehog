@@ -34,6 +34,7 @@ public interface LedgerApplication {
 	   no fee to pay out */
 	Optional<Block> propose(byte[] proposerSeed, long time);
 
+	/* Refuses a block that is not right, and one dated ahead of the clock of this node by more than it may be */
 	Block sign(Block block, byte[] validatorSeed);
 
 	Optional<String> validate(Block block);

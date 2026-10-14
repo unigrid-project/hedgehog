@@ -31,6 +31,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerClockTest {
@@ -107,5 +108,96 @@ public class LedgerClockTest {
 
 			assertThat(ledger.submit(DUE), equalTo(Optional.empty()));
 		}
+	}
+
+	@Example
+	public void shouldNotSignABlockDatedMoreThanTheSkewAheadOfTheClock() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong clock = new AtomicLong(100_000);
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT, clock);
+
+			ledger.submit(mint(1, 5));
+
+			final Block atTheLimit = proposal(ledger, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS).orElseThrow();
+
+			assertThat(ledger.sign(atTheLimit, seedOtherThanTheProposerOf(atTheLimit)).getEndorsements().size(),
+				equalTo(2));
+
+			final Ledger other = open(fileSystem, "b", ANY_MINT, clock);
+
+			other.submit(mint(1, 5));
+
+			final Block tooLate = proposal(other, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1).orElseThrow();
+			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
+				() -> other.sign(tooLate, seedOtherThanTheProposerOf(tooLate)));
+
+			assertThat(refused.getMessage(), containsString("ahead"));
+		}
+	}
+
+	/* The block's own time makes the mint due when the block is checked, so only the clock stands between a
+	   proposer that dates its block ahead and a mint that is not due yet */
+	@Example
+	public void shouldNotSignAMintThatIsNotDueAtTheClockInABlockDatedBeyondTheSkew() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong clock = new AtomicLong(100_000);
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 200_000L)), clock);
+			final Block early = block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, 1, 200_000, List.of(DUE));
+			final byte[] validator = seedOtherThanTheProposerOf(early);
+			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
+				() -> ledger.sign(early, validator));
+
+			assertThat(refused.getMessage(), containsString("ahead"));
+
+			clock.set(169_999);
+
+			assertThrows(InvalidBlockException.class, () -> ledger.sign(early, validator));
+
+			clock.set(170_000);
+
+			assertThat(ledger.sign(early, validator).getEndorsements().size(), equalTo(2));
+		}
+	}
+
+	@Example
+	public void shouldCheckTheClockBeforeTheContentOfTheBlock() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", NO_MINT, new AtomicLong(100_000));
+			final Block early = block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, 1, 200_000,
+				List.of(mint(1, 5)));
+			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
+				() -> ledger.sign(early, seedOtherThanTheProposerOf(early)));
+
+			assertThat(refused.getMessage(), containsString("ahead"));
+		}
+	}
+
+	@Example
+	public void shouldNeverRefuseACertifiedBlockForItsTime() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong maker = new AtomicLong(1_000_000);
+			final Ledger far = open(fileSystem, "a", ANY_MINT, maker);
+
+			far.submit(mint(1, 5));
+
+			Block block = proposal(far, 1_000_000).orElseThrow();
+
+			for (final byte[] seed : FOUNDATION) {
+				if (!block.getEndorsements().stream().anyMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
+					block = far.sign(block, seed);
+				}
+			}
+
+			final Ledger behind = open(fileSystem, "b", ANY_MINT, new AtomicLong(1));
+
+			behind.commit(block);
+
+			assertThat(behind.balanceOf(account(1)), equalTo(5L));
+		}
+	}
+
+	private static byte[] seedOtherThanTheProposerOf(Block block) {
+		return FOUNDATION.stream().filter(seed -> !Ed25519.publicKey(seed).equals(block.getProposer())).findFirst()
+			.orElseThrow();
 	}
 }

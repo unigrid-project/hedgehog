@@ -28,6 +28,10 @@ import java.util.Optional;
 import java.util.function.LongSupplier;
 
 public final class Ledger implements LedgerApplication {
+	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
+	   early by dating its block into the future */
+	public static final long MAX_CLOCK_SKEW_MILLIS = 30_000;
+
 	private final LedgerState state;
 	private final BlockLog log;
 	private final Mempool mempool = new Mempool();
@@ -120,6 +124,11 @@ public final class Ledger implements LedgerApplication {
 
 		if (!state.validators().contains(signer)) {
 			throw new IllegalArgumentException("Key " + signer + " is not a validator");
+		}
+
+		if (block.getTime() > clock.getAsLong() + MAX_CLOCK_SKEW_MILLIS) {
+			throw new InvalidBlockException("Block time is more than " + MAX_CLOCK_SKEW_MILLIS
+				+ " ms ahead of this node's clock");
 		}
 
 		state.proposalRejection(block).ifPresent(reason -> {
