@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -158,6 +159,41 @@ public class LedgerBlacklistTest {
 
 			assertThat(ledger.balanceOf(HELD.address()), equalTo(40L));
 			assertThat(ledger.submit(HELD.claim(account(1), ledger.chainId())).isPresent(), is(true));
+			assertThat(ledger.balanceOf(HELD.address()), equalTo(40L));
+		}
+	}
+
+	/* The list is the node's own and can change while a claim waits in its mempool, so the proposer asks again */
+	@Example
+	public void shouldLeaveOutOfItsBlockAClaimThatWasAdmittedBeforeTheAddressWasListed() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicReference<Set<LegacyAddress>> held = new AtomicReference<>(Set.of());
+			final Ledger ledger = open(fileSystem, "a",
+				TestAuthority.open().withClaims(claim -> !held.get().contains(claim.address())));
+			final Claim clean = CLEAN.claim(account(2), ledger.chainId());
+
+			assertThat(ledger.submit(HELD.claim(account(1), ledger.chainId())), equalTo(Optional.empty()));
+			assertThat(ledger.submit(clean), equalTo(Optional.empty()));
+
+			held.set(Set.of(HELD.address()));
+
+			assertThat(proposal(ledger).getTransactions(), equalTo(List.of(clean)));
+		}
+	}
+
+	@Example
+	public void shouldLetAnAccountTransferToABlacklistedAddress() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", blacklisting(Set.of(HELD.address())));
+
+			ledger.submit(CLEAN.claim(account(2), ledger.chainId()));
+			ledger.commit(certified(ledger));
+
+			final Transfer toHeld = Transfer.signed(accountSeed(2), HELD.address(), 40, 1, 0, ledger.chainId());
+
+			assertThat(ledger.submit(toHeld), equalTo(Optional.empty()));
+			ledger.commit(certified(ledger));
+
 			assertThat(ledger.balanceOf(HELD.address()), equalTo(40L));
 		}
 	}

@@ -66,13 +66,17 @@ public class LedgerClockTest {
 		return IntStream.range(from, from + count).mapToObj(n -> mint(n, 1)).toList();
 	}
 
-	private static void fundFirstAccount(Ledger lenient, Ledger picky) throws IOException {
-		lenient.submit(mint(1, 1000));
+	private static void fundFirstAndThirdAccount(Ledger funder, Ledger... followers) throws IOException {
+		funder.submit(mint(1, 1000));
+		funder.submit(mint(3, 1000));
 
-		final Block funding = certified(lenient, proposal(lenient, 10_000).orElseThrow());
+		final Block funding = certified(funder, proposal(funder, 10_000).orElseThrow());
 
-		lenient.commit(funding);
-		picky.commit(funding);
+		funder.commit(funding);
+
+		for (final Ledger follower : followers) {
+			follower.commit(funding);
+		}
 	}
 
 	private static Transfer paying(long fee, Ledger ledger) {
@@ -323,7 +327,7 @@ public class LedgerClockTest {
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
 			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
 
-			fundFirstAccount(lenient, picky);
+			fundFirstAndThirdAccount(lenient, picky);
 
 			final Transfer enough = paying(5, picky);
 
@@ -346,7 +350,7 @@ public class LedgerClockTest {
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
 			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
 
-			fundFirstAccount(lenient, picky);
+			fundFirstAndThirdAccount(lenient, picky);
 
 			assertThat(lenient.submit(paying(4, lenient)), equalTo(Optional.empty()));
 
@@ -360,6 +364,47 @@ public class LedgerClockTest {
 			picky.commit(certified(lenient, block));
 
 			assertThat(picky.balanceOf(account(2)), equalTo(10L));
+		}
+	}
+
+	/* The fee a node demands can rise while a transfer waits in its mempool, so the proposer asks again */
+	@Example
+	public void shouldLeaveOutOfItsBlockATransferThatNoLongerPaysTheFeeTheNodeDemands() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong least = new AtomicLong(0);
+			final LedgerAuthority demanding = TestAuthority.open()
+				.withTransfers(transfer -> transfer.fee() >= least.get());
+			final Ledger ledger = open(fileSystem, "a", demanding, new AtomicLong(10_000));
+
+			fundFirstAndThirdAccount(ledger);
+
+			final Transfer enough = Transfer.signed(accountSeed(3), account(2), 10, 5, 0, ledger.chainId());
+
+			assertThat(ledger.submit(paying(1, ledger)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(enough), equalTo(Optional.empty()));
+
+			least.set(5);
+
+			assertThat(proposal(ledger, 11_000).orElseThrow().getTransactions(), equalTo(List.of(enough)));
+		}
+	}
+
+	/* The blocks in the log are certified and stand whatever the clock says when the node starts again */
+	@Example
+	public void shouldRestoreADueMintFromTheLogAtAnyClock() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final LedgerAuthority gated = dueAt(Map.of(DUE, 20_000L));
+			final Ledger first = open(fileSystem, "a", gated, new AtomicLong(30_000));
+
+			first.commit(certified(first, proposal(first, 30_000).orElseThrow()));
+
+			for (final long restartedAt : new long[] { 1, 10_000_000 }) {
+				final Ledger restarted = open(fileSystem, "a", gated, new AtomicLong(restartedAt));
+
+				assertThat(restarted.height(), equalTo(1L));
+				assertThat(restarted.balanceOf(account(1)), equalTo(700L));
+				assertThat(proposal(restarted, restartedAt).isPresent(), is(false));
+			}
 		}
 	}
 
