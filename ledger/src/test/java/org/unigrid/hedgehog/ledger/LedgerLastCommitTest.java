@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
+import java.nio.file.FileSystem;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -154,10 +158,9 @@ public class LedgerLastCommitTest {
 		assertThat(changed.hash(), org.hamcrest.Matchers.not(equalTo(block.hash())));
 	}
 
-	/* The block that ends a round may change the set; the next block still carries the commit of the old set,
-	   which can be smaller than the quorum of the new one */
-	@Example
-	public void shouldCheckTheLastCommitAgainstTheSetThatSignedIt() {
+	/* Rounds of one block and four validators, three of whom vote a gridnode in: the block that ends the round has
+	   a certificate of 3 and leaves a set of 5 behind */
+	private static LedgerState afterTheSetGrows() {
 		final LedgerState state = state(1, ANY_MINT, FOUR);
 		final AccountKey gridnode = key(200);
 		final List<Transaction> votes = List.of(
@@ -166,6 +169,72 @@ public class LedgerLastCommitTest {
 			Vote.signed(seed(3), gridnode, Vote.Action.ADD, state.round(), state.chainId()));
 
 		state.apply(block(state, FOUR, 3, state.tipTime(), votes));
+		return state;
+	}
+
+	private static Ledger ledgerOf(FileSystem fileSystem, int roundLength, List<byte[]> seeds) throws IOException {
+		return new Ledger(state(roundLength, ANY_MINT, seeds), BlockLog.open(fileSystem.getPath("/data/blocks.log")));
+	}
+
+	@Example
+	public void shouldRefuseToSignABlockWithoutTheLastCommit() {
+		final LedgerState state = afterOneBlock(THREE);
+		final Block missing = nextWith(state, THREE, Certificate.EMPTY);
+
+		assertThat(state.proposalRejection(next(state, THREE)).isPresent(), is(false));
+		assertThat(reasonOf(state.proposalRejection(missing)), containsString("quorum"));
+	}
+
+	@Example
+	public void shouldRefuseToSignABlockWhoseLastCommitIsForAnotherBlock() {
+		final LedgerState state = afterOneBlock(THREE);
+		final Block rival = block(state(1000, ANY_MINT, THREE), THREE, List.of(mint(9, 5)));
+		final Block forged = nextWith(state, THREE, rival.getCertificate());
+		final Block otherView = nextWith(state, THREE, new Certificate(1, state.tipCertificate().endorsements()));
+
+		assertThat(reasonOf(state.proposalRejection(forged)), containsString("previous block"));
+		assertThat(reasonOf(state.proposalRejection(otherView)), containsString("previous block"));
+	}
+
+	@Example
+	public void shouldProposeTheLastCommitOfTheSetBeforeTheChange() {
+		final LedgerState state = afterTheSetGrows();
+		final Block second = block(state, FOUR, 4, state.tipTime(), List.of(mint(2, 5)));
+
+		assertThat(state.validators().quorum(), equalTo(4));
+		assertThat(second.getLastCommit().endorsements().size(), equalTo(3));
+		assertThat(state.proposalRejection(second).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldSignWithTheLastCommitOfTheSetBeforeTheChange() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = ledgerOf(fileSystem, 1, FOUR);
+			final List<byte[]> everyone = new ArrayList<>(FOUR);
+
+			everyone.add(seed(200));
+
+			for (int voter = 1; voter <= 3; voter++) {
+				ledger.submit(Vote.signed(seed(voter), key(200), Vote.Action.ADD, 0, ledger.chainId()));
+			}
+
+			ledger.commit(ledger.sign(ledger.sign(ledger.propose(seed(1), 2000).get(), seed(2)), seed(3)));
+			ledger.submit(mint(2, 5));
+
+			final Block second = everyone.stream().map(seed -> ledger.propose(seed, 2001))
+				.flatMap(Optional::stream).findFirst().orElseThrow();
+
+			assertThat(ledger.validators().size(), equalTo(5));
+			assertThat(second.getLastCommit().endorsements().size(), equalTo(3));
+			assertThat(ledger.sign(second, seed(3)).getEndorsements().size(), equalTo(2));
+		}
+	}
+
+	/* The block that ends a round may change the set; the next block still carries the commit of the old set,
+	   which can be smaller than the quorum of the new one */
+	@Example
+	public void shouldCheckTheLastCommitAgainstTheSetThatSignedIt() {
+		final LedgerState state = afterTheSetGrows();
 
 		assertThat(state.validators().size(), equalTo(5));
 		assertThat(state.previousValidators().size(), equalTo(4));
