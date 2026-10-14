@@ -169,7 +169,8 @@ public class BallotBoxTest {
 
 		otherChain[0] = 1;
 
-		assertThat(box.add(Ballot.signed(PRECOMMIT, seed(1), otherChain, 1, 0, A)), equalTo(BallotBox.Result.REFUSED));
+		assertThat(box.add(Ballot.signed(PRECOMMIT, seed(1), otherChain, 1, 0, A)),
+			equalTo(BallotBox.Result.REFUSED));
 		assertThat(box.size(), equalTo(0));
 	}
 

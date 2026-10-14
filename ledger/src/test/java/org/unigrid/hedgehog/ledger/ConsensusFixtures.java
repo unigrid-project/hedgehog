@@ -95,7 +95,8 @@ final class ConsensusFixtures {
 		Block block(long height, int view, AccountKey proposer, long time, String note) {
 			return Block.builder().height(height).view(view).previousHash(tipHash()).time(time)
 				.stateRoot(Digests.sha512(note.getBytes(StandardCharsets.US_ASCII)))
-				.transactionRoot(new byte[Digests.HASH_SIZE]).transactions(List.of()).proposer(proposer).build();
+				.transactionRoot(new byte[Digests.HASH_SIZE]).transactions(List.of()).proposer(proposer)
+				.build();
 		}
 
 		@Override
@@ -132,8 +133,10 @@ final class ConsensusFixtures {
 			}
 
 			final boolean right = endorsements.size() >= validators.quorum()
-				&& new HashSet<>(endorsements.stream().map(Endorsement::signer).toList()).size() == endorsements.size()
-				&& endorsements.stream().allMatch(e -> validators.contains(e.signer()) && block.isSigned(e, CHAIN));
+				&& new HashSet<>(endorsements.stream().map(Endorsement::signer).toList()).size()
+					== endorsements.size()
+				&& endorsements.stream()
+					.allMatch(e -> validators.contains(e.signer()) && block.isSigned(e, CHAIN));
 
 			return right ? Optional.empty() : Optional.of("Certificate is not right");
 		}

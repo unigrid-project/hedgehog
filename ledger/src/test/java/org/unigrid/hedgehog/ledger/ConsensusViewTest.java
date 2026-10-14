@@ -405,7 +405,8 @@ public class ConsensusViewTest {
 		final List<Action> last = observer.onMessage(ballot(Ballot.Type.PRECOMMIT, 4, 0, block), 13);
 
 		assertThat(decides(last), is(true));
-		assertThat(last.stream().noneMatch(a -> a instanceof Broadcast b && b.message() instanceof Ballot), is(true));
+		assertThat(last.stream().noneMatch(a -> a instanceof Broadcast b && b.message() instanceof Ballot),
+			is(true));
 	}
 
 	@Example

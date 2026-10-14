@@ -255,7 +255,8 @@ public class ConsensusViewsTest {
 		engine.onMessage(ballot(Ballot.Type.PREVOTE, 2, 0, null), 6);
 		assertThat(schedules(engine.onMessage(ballot(Ballot.Type.PREVOTE, 3, 0, proposed(0, "b")), 7),
 			Timeout.Kind.PREVOTE), is(false));
-		assertThat(schedules(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000), Timeout.Kind.PREVOTE), is(true));
+		assertThat(schedules(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000), Timeout.Kind.PREVOTE),
+			is(true));
 	}
 
 	@Example
