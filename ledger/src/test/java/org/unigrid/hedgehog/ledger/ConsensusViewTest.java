@@ -275,6 +275,45 @@ public class ConsensusViewTest {
 	}
 
 	@Example
+	public void shouldDecideInAViewOtherThanTheCurrentOne() {
+		final Block block = proposed(2, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(2, -1, block), 10);
+
+		final Block decided = decidedBlock(precommitQuorum(2, block));
+
+		assertThat(engine.view(), equalTo(0));
+		assertThat(decided.hash(), equalTo(block.hash()));
+		assertThat(decided.getCertificate().view(), equalTo(2));
+		assertThat(app.validateCertified(decided).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldDecideInTheLastViewOfTheWindow() {
+		final Block block = proposed(Consensus.MAX_VIEW_AHEAD, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(Consensus.MAX_VIEW_AHEAD, -1, block), 10);
+
+		final Block decided = decidedBlock(precommitQuorum(Consensus.MAX_VIEW_AHEAD, block));
+
+		assertThat(decided.getCertificate().view(), equalTo(Consensus.MAX_VIEW_AHEAD));
+		assertThat(app.validateCertified(decided).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldKeepNothingOfAViewBeyondTheWindow() {
+		final int beyond = Consensus.MAX_VIEW_AHEAD + 1;
+		final Block block = proposed(beyond, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(beyond, -1, block), 10);
+
+		assertThat(decides(precommitQuorum(beyond, block)), is(false));
+	}
+
+	@Example
 	public void shouldNotDecideABlockTheApplicationRefuses() {
 		final Block block = proposed(0, "a");
 
