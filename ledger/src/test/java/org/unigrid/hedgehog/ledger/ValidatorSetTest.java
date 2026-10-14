@@ -87,6 +87,15 @@ public class ValidatorSetTest {
 	}
 
 	@Example
+	public void shouldCountMoreThanOneThird() {
+		assertThat(setOf(1).oneThird(), equalTo(1));
+		assertThat(setOf(3).oneThird(), equalTo(2));
+		assertThat(setOf(4).oneThird(), equalTo(2));
+		assertThat(setOf(6).oneThird(), equalTo(3));
+		assertThat(setOf(7).oneThird(), equalTo(3));
+	}
+
+	@Example
 	public void shouldRotateTheProposerOverTheHeights() {
 		final ValidatorSet set = setOf(3);
 

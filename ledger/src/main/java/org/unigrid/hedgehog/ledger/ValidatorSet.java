@@ -67,4 +67,10 @@ public record ValidatorSet(List<AccountKey> keys) {
 	public int quorum() {
 		return keys.size() * 2 / 3 + 1;
 	}
+
+	/* The smallest number of validators that is more than one third of the set: if this many say something, at
+	   least one of them is honest */
+	public int oneThird() {
+		return keys.size() / 3 + 1;
+	}
 }
