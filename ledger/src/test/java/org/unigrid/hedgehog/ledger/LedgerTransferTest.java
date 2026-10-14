@@ -147,6 +147,20 @@ public class LedgerTransferTest {
 			containsString("does not cover"));
 	}
 
+	/* A signature that passed on one chain is remembered by that chain's state alone */
+	@Example
+	public void shouldRefuseATransferSignedForAnotherChainEvenAfterItsOwnChainTookIt() {
+		final LedgerState own = funded();
+		final LedgerState other = state(1000, ANY_MINT, seeds(2, 1));
+		final Transfer transfer = transfer(own, 1, account(2), 300, 10, 0);
+
+		other.apply(block(other, seeds(2, 1), List.of(mint(1, FUNDS))));
+		assertThat(own.rejectionOf(transfer), equalTo(Optional.empty()));
+		own.apply(soloBlock(own, transfer));
+
+		assertThat(reasonOf(other.rejectionOf(transfer)), containsString("Transfer signature"));
+	}
+
 	@Example
 	public void shouldNeverLetAmountPlusFeeWrap() {
 		final LedgerState state = funded();

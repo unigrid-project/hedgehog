@@ -266,6 +266,19 @@ public class LedgerClaimTest {
 		assertThat(state.stateRoot(), equalTo(root));
 	}
 
+	/* A signature that passed on one chain is remembered by that chain's state alone */
+	@Example
+	public void shouldRefuseAClaimSignedForAnotherChainEvenAfterItsOwnChainTookIt() {
+		final LedgerState own = claimState(ANY_MINT);
+		final LedgerState other = stateWithSnapshot(ANY_MINT, seeds(2, 1), OWED, Map.of(LEGACY, OWED));
+		final Claim claim = claim(own, account(1));
+
+		assertThat(own.rejectionOf(claim), equalTo(Optional.empty()));
+		own.apply(soloBlock(own, claim));
+
+		assertThat(reasonOf(other.rejectionOf(claim)), containsString("Claim signature"));
+	}
+
 	@Example
 	public void shouldClaimAnAddressThatHoldsOnlyMintsAndLeaveTheUnclaimedAlone() {
 		final LedgerState state = stateWithSnapshot(ANY_MINT, seeds(1, 1), OWED, Map.of(OTHER.address(), OWED));
