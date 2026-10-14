@@ -23,8 +23,6 @@ package org.unigrid.hedgehog.ledger;
 public interface MintAuthority {
 	boolean authorizes(Mint mint);
 
-	/* A claim is open to every legacy address the node has no reason to hold back, such as one on a blacklist */
-	default boolean authorizes(Claim claim) {
-		return true;
-	}
+	/* No default: an authority that forgot claims would let a held-back address claim */
+	boolean authorizes(Claim claim);
 }

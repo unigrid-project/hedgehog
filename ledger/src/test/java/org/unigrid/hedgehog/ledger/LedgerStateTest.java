@@ -156,7 +156,7 @@ public class LedgerStateTest {
 	@Example
 	public void shouldAskTheAuthorityAboutEachMint() {
 		final Mint allowed = mint(1, 5);
-		final LedgerState state = soloState(mint -> mint.equals(allowed));
+		final LedgerState state = soloState(mintsWhere(mint -> mint.equals(allowed)));
 
 		assertThat(state.rejectionOf(allowed).isPresent(), is(false));
 		assertThat(state.rejectionOf(mint(2, 5)).isPresent(), is(true));

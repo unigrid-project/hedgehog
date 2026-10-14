@@ -24,14 +24,43 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 final class LedgerFixtures {
-	static final MintAuthority ANY_MINT = mint -> true;
-	static final MintAuthority NO_MINT = mint -> false;
+	static final MintAuthority ANY_MINT = authority(true, true);
+	static final MintAuthority NO_MINT = authority(false, true);
 	static final byte[] SNAPSHOT_HASH = Digests.sha512("snapshot".getBytes(StandardCharsets.US_ASCII));
 
 	private LedgerFixtures() {
 		/* Static helpers only */
+	}
+
+	static MintAuthority authority(boolean mints, boolean claims) {
+		return new MintAuthority() {
+			@Override
+			public boolean authorizes(Mint mint) {
+				return mints;
+			}
+
+			@Override
+			public boolean authorizes(Claim claim) {
+				return claims;
+			}
+		};
+	}
+
+	static MintAuthority mintsWhere(Predicate<Mint> allowed) {
+		return new MintAuthority() {
+			@Override
+			public boolean authorizes(Mint mint) {
+				return allowed.test(mint);
+			}
+
+			@Override
+			public boolean authorizes(Claim claim) {
+				return true;
+			}
+		};
 	}
 
 	static byte[] seed(int n) {

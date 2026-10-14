@@ -157,17 +157,7 @@ public class LedgerClaimTest {
 	   signed stands for every node, or the nodes would disagree about the same chain */
 	@Example
 	public void shouldAskTheAuthorityAboutAClaimButTakeACertifiedOne() {
-		final MintAuthority blacklist = new MintAuthority() {
-			@Override
-			public boolean authorizes(Mint mint) {
-				return true;
-			}
-
-			@Override
-			public boolean authorizes(Claim claim) {
-				return false;
-			}
-		};
+		final MintAuthority blacklist = authority(true, false);
 		final LedgerState signer = claimState(ANY_MINT);
 		final Block certified = soloBlock(signer, claim(signer, account(1)));
 		final LedgerState follower = claimState(blacklist);
