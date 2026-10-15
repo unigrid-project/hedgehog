@@ -849,6 +849,22 @@ public class LedgerDriverTest {
 	}
 
 	@Example
+	public void shouldNotFailTheNodeForAProposalWhoseBlockTheAuthorityCannotJudge() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+
+			rig.breakNode();
+			rig.driver.onMessage(a, rig.proposal());
+
+			assertThat(rig.built, hasSize(1));
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+			assertThat(b.sent(Ballot.class).get(0).blockHash(), equalTo(new byte[Digests.HASH_SIZE]));
+		}
+	}
+
+	@Example
 	public void shouldStillReplaceANodeThatFailsOnATickAfterItemsMadeItThrow() throws IOException {
 		try (DriverRig rig = DriverRig.four()) {
 			final RecordingPeer a = rig.network.connect("A");
