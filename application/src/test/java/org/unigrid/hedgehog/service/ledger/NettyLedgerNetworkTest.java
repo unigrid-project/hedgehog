@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,9 +32,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -67,16 +71,23 @@ public class NettyLedgerNetworkTest {
 	private static final String SECOND = "10.0.0.2";
 	private static final int PORT = 52883;
 
-	@SneakyThrows
-	private static Supplier<Optional<InetAddress>> remote(final String address) {
-		final Optional<InetAddress> resolved = Optional.of(InetAddress.getByName(address));
+	private static Supplier<Optional<InetSocketAddress>> remote(final String address, final int port) {
+		final Optional<InetSocketAddress> resolved = Optional.of(new InetSocketAddress(address, port));
 
 		return () -> resolved;
 	}
 
-	@SneakyThrows
+	private static Supplier<Optional<InetSocketAddress>> remote(final String address) {
+		return remote(address, PORT);
+	}
+
 	private static Node nodeWith(final Channel channel, final String address) {
-		final Node node = Node.fromAddress(address + ":" + PORT);
+		return nodeWith(channel, address, PORT);
+	}
+
+	@SneakyThrows
+	private static Node nodeWith(final Channel channel, final String address, final int port) {
+		final Node node = Node.fromAddress(address + ":" + port);
 
 		node.setConnection(Optional.of(new Connection() {
 			@Override public Channel getChannel() {
@@ -250,8 +261,59 @@ public class NettyLedgerNetworkTest {
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(), not(equalTo(id)));
 	}
 
+	@Property(tries = 20)
+	public void namesARemotePeerByItsAddressWhateverThePort(@ForAll @IntRange(min = 1, max = 65535) int port,
+		@ForAll @IntRange(min = 1, max = 65535) int otherPort) {
+
+		final NettyLedgerNetwork network = networkOf();
+
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(FIRST, port)).id(), equalTo(FIRST));
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(FIRST, otherPort)).id(), equalTo(FIRST));
+	}
+
+	@Property(tries = 20)
+	public void namesALocalPeerByItsAddressAndPort(@ForAll("loopbacks") String address,
+		@ForAll @IntRange(min = 1, max = 65535) int port, @ForAll @IntRange(min = 1, max = 65535) int otherPort) {
+
+		final NettyLedgerNetwork network = networkOf();
+		final String id = network.peerOf(new EmbeddedChannel(), remote(address, port)).id();
+
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(address, port)).id(), equalTo(id));
+		assertThat(id.endsWith(":" + port), is(true));
+
+		if (otherPort != port) {
+			assertThat(network.peerOf(new EmbeddedChannel(), remote(address, otherPort)).id(), not(equalTo(id)));
+		}
+	}
+
+	@Provide
+	Arbitrary<String> loopbacks() {
+		return Arbitraries.of("127.0.0.1", "127.0.0.2", "127.255.255.254", "::1");
+	}
+
+	@Example
+	public void listsTheLocalNodesOfOneHostAsPeersOfTheirOwn() {
+		final NettyLedgerNetwork network = networkOf();
+		final EmbeddedChannel first = new EmbeddedChannel();
+		final EmbeddedChannel second = new EmbeddedChannel();
+
+		network.peerOf(first, remote("127.0.0.1", PORT));
+		network.peerOf(second, remote("127.0.0.1", PORT + 1));
+
+		assertThat(network.peers(), hasSize(2));
+	}
+
+	@Example
+	public void namesALocalNodeOfTheTopologyByItsPort() {
+		final List<LedgerPeer> peers = networkOf(nodeWith(new EmbeddedChannel(), "127.0.0.1", PORT),
+			nodeWith(new EmbeddedChannel(), "127.0.0.1", PORT + 1)).peers();
+
+		assertThat(peers.stream().map(LedgerPeer::id).sorted().toList(),
+			contains("127.0.0.1:" + PORT, "127.0.0.1:" + (PORT + 1)));
+	}
+
 	@SneakyThrows
-	private static Supplier<Optional<InetAddress>> address(final long prefix, final long suffix) {
+	private static Supplier<Optional<InetSocketAddress>> address(final long prefix, final long suffix) {
 		final byte[] bytes = new byte[16];
 
 		for (int i = 0; i < Long.BYTES; i++) {
@@ -261,7 +323,8 @@ public class NettyLedgerNetworkTest {
 
 		bytes[0] = 0x20;
 
-		final Optional<InetAddress> resolved = Optional.of(InetAddress.getByAddress(bytes));
+		final Optional<InetSocketAddress> resolved = Optional.of(new InetSocketAddress(
+			InetAddress.getByAddress(bytes), PORT));
 
 		return () -> resolved;
 	}
@@ -276,7 +339,7 @@ public class NettyLedgerNetworkTest {
 	@Example
 	public void learnsTheAddressOfAPeerWhenItIsKnown() {
 		final EmbeddedChannel channel = new EmbeddedChannel();
-		final Supplier<Optional<InetAddress>> remote = remote(FIRST);
+		final Supplier<Optional<InetSocketAddress>> remote = remote(FIRST);
 		final boolean[] known = new boolean[1];
 		final LedgerPeer peer = networkOf().peerOf(channel, () -> known[0] ? remote.get() : Optional.empty());
 

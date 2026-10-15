@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.service.ledger;
 
 import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,13 +51,13 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	private final Queue<NettyLedgerPeer> seen = new ConcurrentLinkedQueue<>();
 
 	/* One peer for each stream, made the first time it is asked for */
-	public NettyLedgerPeer peerOf(final Channel channel, final Supplier<Optional<InetAddress>> remote) {
+	public NettyLedgerPeer peerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer known = channel.attr(PEER_KEY).get();
 
 		return known != null ? known : register(channel, remote);
 	}
 
-	private NettyLedgerPeer register(final Channel channel, final Supplier<Optional<InetAddress>> remote) {
+	private NettyLedgerPeer register(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer created = new NettyLedgerPeer(channel, remote, pending);
 		final NettyLedgerPeer raced = channel.attr(PEER_KEY).setIfAbsent(created);
 
@@ -90,7 +89,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 			.map(channel -> peerOf(channel, () -> addressOf(node))).stream());
 	}
 
-	private static Optional<InetAddress> addressOf(final Node node) {
-		return Optional.ofNullable(node.getAddress()).map(InetSocketAddress::getAddress);
+	private static Optional<InetSocketAddress> addressOf(final Node node) {
+		return Optional.ofNullable(node.getAddress()).filter(address -> address.getAddress() != null);
 	}
 }

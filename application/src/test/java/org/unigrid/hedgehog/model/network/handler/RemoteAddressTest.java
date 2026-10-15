@@ -21,20 +21,23 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.Channel;
 import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Optional;
-import lombok.SneakyThrows;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
 public class RemoteAddressTest {
 	private static final int PORT = 52883;
+	private static final int CONNECTION_PORT = 40123;
 
-	@SneakyThrows
-	private static Optional<InetAddress> address(final String text) {
-		return Optional.of(InetAddress.getByName(text));
+	private static Optional<InetSocketAddress> address(final String text) {
+		return Optional.of(new InetSocketAddress(text, PORT));
 	}
 
 	private static Channel streamOf(final Channel connection) {
@@ -64,6 +67,39 @@ public class RemoteAddressTest {
 		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.2", PORT));
 		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
 		assertThat(RemoteAddress.of(streamOf(connection)), equalTo(address("10.0.0.1")));
+	}
+
+	private static EmbeddedChannel connectionOf(final String learned, final String connected) {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+
+		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress(learned, PORT));
+		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress(connected,
+			CONNECTION_PORT));
+		return connection;
+	}
+
+	@Provide
+	Arbitrary<String> loopbacks() {
+		return Arbitraries.of("127.0.0.1", "127.0.0.2", "127.255.255.254", "::1");
+	}
+
+	@Property(tries = 10)
+	public void readsTheSocketOfTheConnectionForALocalPeer(@ForAll("loopbacks") String address) {
+		assertThat(RemoteAddress.of(streamOf(connectionOf(address, address))),
+			equalTo(Optional.of(new InetSocketAddress(address, CONNECTION_PORT))));
+	}
+
+	@Example
+	public void readsTheAddressTheServerLearnedWhenALocalPeerHasNoConnectionSocket() {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+
+		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress("127.0.0.1", PORT));
+		assertThat(RemoteAddress.of(streamOf(connection)), equalTo(address("127.0.0.1")));
+	}
+
+	@Example
+	public void keepsTheAddressTheServerLearnedForARemotePeer() {
+		assertThat(RemoteAddress.of(streamOf(connectionOf("10.0.0.1", "127.0.0.1"))), equalTo(address("10.0.0.1")));
 	}
 
 	@Example

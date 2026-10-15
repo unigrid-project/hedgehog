@@ -22,7 +22,7 @@ import io.netty.channel.Channel;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -66,7 +66,7 @@ public class LedgerGateway {
 		driver = null;
 	}
 
-	public NettyLedgerPeer peerOf(final Channel channel, final Supplier<Optional<InetAddress>> remote) {
+	public NettyLedgerPeer peerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		return network.peerOf(channel, remote);
 	}
 

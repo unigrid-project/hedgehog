@@ -104,6 +104,7 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	private static final int FRAME_HEADER_SIZE = 8;
 	private static final int PORT = 52883;
+	private static final int LOOPBACK_NETWORK = 127;
 	private static final String PEER = "10.1.2.3";
 	private static final String OTHER = "10.4.5.6";
 
@@ -179,7 +180,7 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 	@Provide
 	Arbitrary<String> addresses() {
-		return Arbitraries.integers().between(1, 254).list().ofSize(4)
+		return Arbitraries.integers().between(1, 254).list().ofSize(4).filter(parts -> parts.get(0) != LOOPBACK_NETWORK)
 			.map(parts -> String.join(".", parts.stream().map(String::valueOf).toList()));
 	}
 
@@ -260,6 +261,25 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(), contains(PEER));
 		assertThat(calls.stream().map(Call::from).distinct().count(), is(2L));
+	}
+
+	@Example
+	public void namesTwoLocalStreamsApartByTheSocketsOfTheirConnections() {
+		final EmbeddedChannel first = streamOf(localConnection(PORT + 1), new Remainder());
+		final EmbeddedChannel second = streamOf(localConnection(PORT + 2), new Remainder());
+
+		sendAllKinds(first, 1);
+		sendAllKinds(second, 1);
+
+		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(),
+			containsInAnyOrder("127.0.0.1:" + (PORT + 1), "127.0.0.1:" + (PORT + 2)));
+	}
+
+	private static EmbeddedChannel localConnection(final int port) {
+		final EmbeddedChannel connection = connectionFrom("127.0.0.1");
+
+		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("127.0.0.1", port));
+		return connection;
 	}
 
 	@Property(tries = 5)

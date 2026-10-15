@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.service.ledger;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.HexFormat;
 import java.util.Optional;
@@ -46,20 +47,27 @@ import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
 import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 
 /* The other end of one stream. It is named by the remote address, and by the /64 prefix for IPv6, as an attacker
-   with a /64 holds 2^64 addresses and must still share one limit. The address is read when it is asked for, as it can
-   be learned only after the stream exists. The limit protects this node and authenticates no one. */
+   with a /64 holds 2^64 addresses and must still share one limit. A node on this host is named by its port as well,
+   as the nodes of one host share an address and none of them is an attacker that changes it. The address is read
+   when it is asked for, as it can be learned only after the stream exists. The limit protects this node and
+   authenticates no one. */
 @RequiredArgsConstructor
 public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV6_LENGTH = 16;
 	private static final int IPV6_PREFIX_LENGTH = 8;
 
 	private final Channel channel;
-	private final Supplier<Optional<InetAddress>> remote;
+	private final Supplier<Optional<InetSocketAddress>> remote;
 	private final PendingRequests pending;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 
-	static String idOf(final InetAddress address) {
+	static String idOf(final InetSocketAddress socket) {
+		final InetAddress address = socket.getAddress();
 		final byte[] bytes = address.getAddress();
+
+		if (address.isLoopbackAddress()) {
+			return address.getHostAddress() + ":" + socket.getPort();
+		}
 
 		if (bytes.length == IPV6_LENGTH) {
 			return HexFormat.of().formatHex(bytes, 0, IPV6_PREFIX_LENGTH) + "/64";

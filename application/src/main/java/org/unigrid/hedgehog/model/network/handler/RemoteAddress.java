@@ -19,11 +19,10 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 public final class RemoteAddress {
 	private RemoteAddress() {
@@ -31,12 +30,23 @@ public final class RemoteAddress {
 	}
 
 	/* The address is kept on the QUIC connection that the stream belongs to. A server learns it from the connection
-	   event, which follows the peer when it moves; a client knows it from where it connected. */
-	public static Optional<InetAddress> of(final Channel stream) {
-		return Optional.ofNullable(stream.parent()).flatMap(connection -> Stream.of(
-				connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).get(),
-				connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get())
-			.filter(InetSocketAddress.class::isInstance).map(InetSocketAddress.class::cast)
-			.map(InetSocketAddress::getAddress).filter(Objects::nonNull).findFirst());
+	   event, which follows the peer when it moves; a client knows it from where it connected. The port a server
+	   learns is its own, assumed for every peer, so a peer on this host cannot be told from another by it: such a
+	   peer is read from the socket of its connection, where the port is its own. */
+	public static Optional<InetSocketAddress> of(final Channel stream) {
+		return Optional.ofNullable(stream.parent()).flatMap(connection -> {
+			final Optional<InetSocketAddress> learned = resolved(
+				connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).get());
+			final Optional<InetSocketAddress> connected = resolved(
+				connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get());
+
+			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress()).or(() -> connected)
+				.or(() -> learned);
+		});
+	}
+
+	private static Optional<InetSocketAddress> resolved(final SocketAddress address) {
+		return Optional.ofNullable(address).filter(InetSocketAddress.class::isInstance)
+			.map(InetSocketAddress.class::cast).filter(socket -> Objects.nonNull(socket.getAddress()));
 	}
 }
