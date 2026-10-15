@@ -39,9 +39,10 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    IllegalStateException, as saving the state of such an engine could hide what it lost: the driver replaces it by a
    new node over the same files, which restores the state last saved, and the decisions of its peers bring the block
    in. What the failed event signed was neither saved nor sent, so the restored node is free to sign differently for
-   it. submit(), ledger(), height() and outbox() keep working, as they do not run the engine. The pool of
-   transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to send
-   them again.
+   it. submit(), ledger() and height() keep working, as they do not run the engine. outbox() does not: the engine
+   behind it holds what the failed event signed and did not save, and a driver that polls it must not send that. The
+   pool of transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to
+   send them again.
 
    The driver serves the blocks it has committed to nodes that are behind. A node that dies before it has sent the
    Decision of the event that decided loses that Decision, and its peers are told of the block only by what the
@@ -153,7 +154,10 @@ public final class LedgerNode {
 		return engine.height();
 	}
 
+	/* What the node has said at this height, for a driver that says it again. A node that failed is refused it, as its
+	   engine holds what the failed event signed and did not save. */
 	public synchronized List<Message> outbox() {
+		requireNotFailed();
 		return engine.outbox();
 	}
 
@@ -170,16 +174,20 @@ public final class LedgerNode {
 	/* A node that failed, in whatever way, has an engine that may have moved past what the store and the ledger hold,
 	   so it takes no further event: not even one that looks harmless would be safe to save. */
 	private List<Action> guarded(Work work) throws IOException {
-		if (failed) {
-			throw new IllegalStateException(
-				"This node failed earlier and takes no further event: start a new one over the same files");
-		}
+		requireNotFailed();
 
 		try {
 			return work.run();
 		} catch (IOException | RuntimeException e) {
 			failed = true;
 			throw e;
+		}
+	}
+
+	private void requireNotFailed() {
+		if (failed) {
+			throw new IllegalStateException(
+				"This node failed earlier and takes no further event: start a new one over the same files");
 		}
 	}
 

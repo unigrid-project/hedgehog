@@ -831,10 +831,32 @@ public class LedgerNodeTest {
 			assertThrows(IOException.class, node::start);
 
 			assertThat(node.height(), equalTo(1L));
-			assertThat(node.outbox(), is(empty()));
 			assertThat(node.ledger(), equalTo(ledger));
 			assertThat(node.submit(mint(1, 500)), equalTo(Optional.empty()));
 			assertThat(ledger.pending(), equalTo(1));
+		}
+	}
+
+	/* The engine of a node that failed holds what the failed event signed and did not save, and a driver that polls
+	   the outbox to say it again would send exactly that */
+	@Example
+	public void shouldNotHandOutWhatAFailedEventSigned() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore first = new RecordingStore();
+			final LedgerNode before = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, first, clock::get);
+			final Block block = proposedBy(before);
+			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final RecordingStore second = new RecordingStore(first.last());
+			final LedgerNode node = node(reopened, 1, second, clock::get);
+
+			node.start();
+			assertThat(precommitsOf(node.outbox()), is(empty()));
+			node.onMessage(vote(reopened, Ballot.Type.PREVOTE, 2, 1, block));
+			second.failing = true;
+			assertThrows(IOException.class, () -> node.onMessage(vote(reopened, Ballot.Type.PREVOTE, 3, 1, block)));
+			assertThrows(IllegalStateException.class, node::outbox);
+			assertThat(second.saved, is(empty()));
 		}
 	}
 
