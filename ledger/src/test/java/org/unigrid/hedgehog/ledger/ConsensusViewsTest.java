@@ -1080,7 +1080,7 @@ public class ConsensusViewsTest {
 
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PREVOTE, 0), 4000).isEmpty(), is(true));
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 4001).isEmpty(), is(true));
-		assertThat(engine.resume(4002).stream().noneMatch(a -> a instanceof Schedule), is(true));
+		assertThat(engine.resume(4002).stream().noneMatch(action -> action instanceof Schedule), is(true));
 		assertThat(engine.running(), is(false));
 	}
 
@@ -1159,9 +1159,32 @@ public class ConsensusViewsTest {
 	}
 
 	@Example
-	public void shouldRestWhenOnlyABallotOfALaterViewInTheWindowIsHeld() {
+	public void shouldRestWhenOnlyABallotTwentyViewsAheadIsHeld() {
 		startQuietNodeInViewZero();
 		engine.onMessage(prevoteBy(2, 20, null), 10);
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	/* The proposer of a view that far ahead can sign a proposal for it that is kept, as the view is within the window,
+	   but one proposal must not be able to keep the whole chain awake until its view comes: a peer that is really ahead
+	   has signed ballots in the next view too */
+	@Example
+	public void shouldRestWhenOnlyTheProposalOfTheViewAfterTheNextIsHeld() {
+		startQuietNodeInViewZero();
+		engine.onMessage(proposal(2, -1, proposed(2, "c")), 10);
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldRestWhenOnlyTheProposalTwentyViewsAheadIsHeld() {
+		startQuietNodeInViewZero();
+		engine.onMessage(proposal(20, -1, proposed(20, "d")), 10);
 		quorumOfNoBlock(0, 3005);
 
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));

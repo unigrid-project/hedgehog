@@ -45,7 +45,7 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    signed and does not let it sign anything different for the same view.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
-   no lock, no valid block, no decision it refused, holds no proposal of the view or of a later one and no ballot
+   no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and no ballot
    of the next view, it starts no further view: it rests, with no timer, until work or a message of the height
    wakes it in the first view it has signed nothing in. A peer that is still running may have lost a message of the
    node that rests, so while it rests resume() says again what the node signed for a window of three precommit
@@ -360,10 +360,11 @@ public final class Consensus {
 
 	/* A proposal of this view may still be wanted decided. A peer that is in the next view, with a proposal of it or
 	   a ballot, has got ahead and has work, and a node that rested would never be woken to answer what it holds
-	   already. Only the next view counts for ballots: a ballot of a view further on proves nothing about the nodes
-	   that matter, and any validator can sign one, so it must not be able to keep the chain awake for many views. */
+	   already. Only the next view counts: anything further on can be signed by any validator, or by the proposer of one
+	   view in the window, and must not be able to keep the chain awake for many views, while a peer that really is
+	   further on has signed in the next view as well. */
 	private boolean holdsNothingOfThisViewOrAhead() {
-		return proposals.ceilingKey(view) == null && !box.holdsAnyIn(view + 1);
+		return !proposals.containsKey(view) && !proposals.containsKey(view + 1) && !box.holdsAnyIn(view + 1);
 	}
 
 	private boolean isValidator() {
