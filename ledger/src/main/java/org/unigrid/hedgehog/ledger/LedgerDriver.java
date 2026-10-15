@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.stream.LongStream;
@@ -49,8 +50,10 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    asked for again, which would push it out and starve it. A Decide action is information: the node has committed the
    block already, and the timers of that height are cancelled. A node that threw is closed and replaced by a new one
    from the factory, never used again, and what the failed event would have done is lost; peers resend, and the new
-   node restores what the old one had saved. A second failure soon after the first halts the driver: a node that
-   keeps failing is better stopped than restarted for ever.
+   node restores what the old one had saved. A second failure of the node's own soon after the first halts the
+   driver: a node that keeps failing is better stopped than restarted for ever. What an item of a peer makes the
+   node throw is the peer's doing: it is banned, and the replacements it causes are paced instead of counted, so
+   that no peer can halt the driver.
 
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it. */
@@ -58,6 +61,9 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 public final class LedgerDriver implements Closeable {
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String REPLACED = "The ledger node failed and was replaced: send it again";
+	private static final String NOT_CHECKED = "Rejected: it could not be checked";
+	private static final long MAX_BACKOFF_MILLIS = 60_000;
+	private static final int MAX_REASON_LENGTH = 200;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
 	   before it asks for the next. A signing node votes; one that does not only follows. */
@@ -117,6 +123,13 @@ public final class LedgerDriver implements Closeable {
 		T run(LedgerNode node) throws IOException;
 	}
 
+	/* What a peer sent, or this node's own caller when `from` is null, and the kind of limit it was taken under */
+	private record Item(LedgerPeer from, Kind kind, Object wire) {
+	}
+
+	/* What the driver does itself: nothing came from a peer, and what it says goes to every peer */
+	private static final Item OWN = new Item(null, null, null);
+
 	private final NodeFactory factory;
 	private final Serial serial;
 	private final Scheduler scheduler;
@@ -131,7 +144,10 @@ public final class LedgerDriver implements Closeable {
 	private LedgerNode node;
 	private boolean signing;
 	private Cancellable ticker = () -> { };
+	private Cancellable rebuilder = () -> { };
 	private OptionalLong lastFailure = OptionalLong.empty();
+	private OptionalLong lastReplaced = OptionalLong.empty();
+	private long backoff;
 	private long lastHeartbeat;
 	private long lastStatus;
 
@@ -169,15 +185,21 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	public void onTransaction(LedgerPeer from, Transaction transaction) {
-		inbound(from, Kind.TRANSACTION, node -> gossip.transaction(node, transaction), transaction);
+		final Item item = new Item(from, Kind.TRANSACTION, transaction);
+
+		inbound(item, () -> takeIn(item, transaction));
 	}
 
 	public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
-		inbound(from, Kind.HEARTBEAT, node -> gossip.heartbeat(node, heartbeat), heartbeat);
+		final Item item = new Item(from, Kind.HEARTBEAT, heartbeat);
+
+		inbound(item, () -> receive(item, node -> gossip.heartbeat(node, heartbeat)));
 	}
 
 	public void onMessage(LedgerPeer from, Message message) {
-		inbound(from, Kind.CONSENSUS, node -> gossip.message(node, message), message);
+		final Item item = new Item(from, Kind.CONSENSUS, message);
+
+		inbound(item, () -> receive(item, node -> gossip.message(node, message)));
 	}
 
 	/* Placeholder until the full implementation lands: a status says where the chain of a peer stands */
@@ -195,81 +217,130 @@ public final class LedgerDriver implements Closeable {
 		/* Nothing is done with it yet */
 	}
 
-	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer. */
+	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
+	   The answer is made on the serial thread, which is also where a callback of the future runs. */
 	public CompletableFuture<Optional<String>> submit(Transaction transaction) {
-		return CompletableFuture.supplyAsync(() -> running() ? admit(transaction) : Optional.of(NOT_RUNNING),
-			serial::execute);
+		return CompletableFuture.supplyAsync(() -> admit(transaction), serial::execute);
 	}
 
 	private Optional<String> admit(Transaction transaction) {
-		return receive(null, node -> gossip.transaction(node, transaction), transaction)
-			.map(Receipt::rejection).orElse(Optional.of(REPLACED));
+		final LedgerNode asked = node;
+		final Item item = new Item(null, Kind.TRANSACTION, transaction);
+		final Optional<Receipt> receipt = ready() ? takeIn(item, transaction) : Optional.empty();
+
+		return receipt.isPresent() && node == asked ? receipt.get().rejection() : unanswered(asked);
+	}
+
+	private Optional<String> unanswered(LedgerNode asked) {
+		if (!running()) {
+			return Optional.of(NOT_RUNNING);
+		}
+
+		return Optional.of(asked != null && node == asked ? NOT_CHECKED : REPLACED);
 	}
 
 	private boolean running() {
 		return state == State.RUNNING;
 	}
 
-	private void inbound(LedgerPeer from, Kind kind, NodeCall<Receipt> rule, Object wire) {
+	/* Running, and with a node: while a node waits to be rebuilt there is nothing to give the events to */
+	private boolean ready() {
+		return running() && node != null;
+	}
+
+	private void inbound(Item item, Runnable handler) {
 		serial.execute(() -> {
-			if (running() && limiter.allow(from.id(), kind)) {
-				receive(from, rule, wire);
+			if (ready() && limiter.allow(item.from().id(), item.kind())) {
+				handler.run();
 			}
 		});
 	}
 
-	/* Empty when the node failed, and then nothing of the item is acted on. `from` is null for what this node makes
-	   or is given by its own caller: it is sent to every peer and no one is held to account for it. */
-	private Optional<Receipt> receive(LedgerPeer from, NodeCall<Receipt> rule, Object wire) {
-		final Optional<Receipt> receipt = call(rule);
+	/* The transaction goes to the ledger and, if it was taken in, on to the others, and then the node is told that
+	   there may be work for it. A failure of either is the failure of the item. */
+	private Optional<Receipt> takeIn(Item item, Transaction transaction) {
+		final Optional<Receipt> receipt = receive(item, node -> gossip.transaction(node, transaction));
 
-		receipt.ifPresent(taken -> settle(from, wire, taken));
+		if (receipt.isPresent() && receipt.get().rejection().isEmpty()) {
+			itemCall(item, LedgerNode::onWork).ifPresent(actions -> perform(actions, item));
+		}
+
 		return receipt;
 	}
 
-	private void settle(LedgerPeer from, Object wire, Receipt receipt) {
+	/* Empty when the node failed, and then nothing of the item is acted on. `from` is null for what this node's own
+	   caller gives it: it is sent to every peer and no one is held to account for it. */
+	private Optional<Receipt> receive(Item item, NodeCall<Receipt> rule) {
+		final Optional<Receipt> receipt = itemCall(item, rule);
+
+		receipt.ifPresent(taken -> settle(item, taken));
+		return receipt;
+	}
+
+	private void settle(Item item, Receipt receipt) {
 		if (receipt.relay()) {
-			gossip.toOthers(from, wire);
+			gossip.toOthers(item.from(), item.wire());
 		}
 
-		if (from != null && receipt.cost() > 0) {
-			limiter.misbehaved(from.id(), receipt.cost());
+		if (item.from() != null && receipt.cost() > 0) {
+			limiter.misbehaved(item.from().id(), receipt.cost());
 		}
 
-		perform(receipt.actions(), wire, from);
+		perform(receipt.actions(), item);
 	}
 
 	private void run(NodeCall<List<Action>> event) {
-		call(event).ifPresent(actions -> perform(actions, null, null));
+		eventCall(event).ifPresent(actions -> perform(actions, OWN));
 	}
 
-	/* The one place that gives the node a call. Whatever it throws, the node is dead. */
-	private <T> Optional<T> call(NodeCall<T> call) {
+	/* A call for an item of a peer, or of this node's caller. What it throws is the item's doing, not the node's:
+	   whoever sent it is banned, and the node is replaced only if it cannot go on. */
+	private <T> Optional<T> itemCall(Item item, NodeCall<T> call) {
+		return attempt(call, cause -> itemFailed(cause, item));
+	}
+
+	/* A call for the tick, a timeout, the start or a heartbeat of this node's own */
+	private <T> Optional<T> eventCall(NodeCall<T> call) {
+		return attempt(call, this::failed);
+	}
+
+	/* The one place that gives the node a call. A disk that fails is nobody's fault but counts against the node, and
+	   so does an exception of an event. An Error leaves the node in an unknown state: the driver stops. */
+	private <T> Optional<T> attempt(NodeCall<T> call, Consumer<Exception> failure) {
 		try {
 			return Optional.of(call.run(node));
-		} catch (IOException | RuntimeException e) {
+		} catch (IOException e) {
 			failed(e);
-			return Optional.empty();
+		} catch (RuntimeException e) {
+			failure.accept(e);
+		} catch (Error e) {
+			halt("The ledger node hit " + describe(e));
+			throw e;
 		}
+
+		return Optional.empty();
 	}
 
 	/* The engine broadcasts a decision it took from a peer as it does its own. The peer has it already, and a decision
 	   carries a whole block, so it is left out of the broadcast. */
-	private void perform(List<Action> actions, Object received, LedgerPeer from) {
-		actions.forEach(action -> carryOut(action, received, from));
+	private void perform(List<Action> actions, Item item) {
+		actions.forEach(action -> carryOut(action, item));
 
 		if (actions.stream().anyMatch(Decide.class::isInstance)) {
 			sendStatus();
 		}
 	}
 
-	private void carryOut(Action action, Object received, LedgerPeer from) {
+	private void carryOut(Action action, Item item) {
 		switch (action) {
-			case Broadcast broadcast ->
-				gossip.toOthers(broadcast.message().equals(received) ? from : null, broadcast.message());
+			case Broadcast broadcast -> relay(broadcast.message(), item);
 			case Schedule schedule -> arm(schedule.timeout(), schedule.delayMillis());
 			case Decide decide -> disarm(timeout -> timeout.height() <= decide.block().getHeight());
 		}
+	}
+
+	private void relay(Message message, Item item) {
+		gossip.toOthers(message.equals(item.wire()) ? item.from() : null, message);
 	}
 
 	/* A timer that is pending is left as it is: asking again must not push it out */
@@ -279,9 +350,12 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
+	/* A timer that fires with no node to give it to is forgotten all the same, or the node that comes next would
+	   find it pending and never arm it */
 	private void fire(Timeout timeout) {
-		if (running()) {
-			timers.remove(timeout);
+		timers.remove(timeout);
+
+		if (ready()) {
 			run(node -> node.onTimeout(timeout));
 		}
 	}
@@ -312,12 +386,16 @@ public final class LedgerDriver implements Closeable {
 		ticker = scheduler.schedule(() -> serial.execute(this::tick), options.tickMillis());
 	}
 
+	/* The tick comes again whether or not there is a node to give it to */
 	private void tick() {
 		if (running()) {
 			scheduleTick();
-			run(LedgerNode::tick);
-			signHeartbeat();
-			reportStatus();
+
+			if (ready()) {
+				run(LedgerNode::tick);
+				signHeartbeat();
+				reportStatus();
+			}
 		}
 	}
 
@@ -326,17 +404,18 @@ public final class LedgerDriver implements Closeable {
 	private void signHeartbeat() {
 		final long now = clock.getAsLong();
 
-		if (running() && signing && due(lastHeartbeat, now, options.heartbeatMillis())) {
+		if (ready() && signing && due(lastHeartbeat, now, options.heartbeatMillis())) {
 			final Status tip = node.ledger().status();
 			final Heartbeat beat = Heartbeat.signed(seed, tip.chainId(), tip.height(), tip.tipHash(), now);
 
 			lastHeartbeat = now;
-			receive(null, node -> gossip.heartbeat(node, beat), beat);
+			eventCall(node -> gossip.heartbeat(node, beat))
+				.ifPresent(receipt -> settle(new Item(null, Kind.HEARTBEAT, beat), receipt));
 		}
 	}
 
 	private void reportStatus() {
-		if (running() && due(lastStatus, clock.getAsLong(), options.statusMillis())) {
+		if (ready() && due(lastStatus, clock.getAsLong(), options.statusMillis())) {
 			sendStatus();
 		}
 	}
@@ -351,18 +430,63 @@ public final class LedgerDriver implements Closeable {
 		return now < last || now - last >= interval;
 	}
 
+	/* The node failed by its own doing or the disk's, not an item's. The first failure is made good at once; one
+	   soon after it halts the driver, as a node that keeps failing is better stopped than rebuilt for ever. */
 	private void failed(Exception cause) {
 		final long now = clock.getAsLong();
-		final boolean repeated = lastFailure.isPresent()
-			&& now - lastFailure.getAsLong() < options.restartWindowMillis();
+		final boolean repeated = within(lastFailure, now);
 
 		lastFailure = OptionalLong.of(now);
 		log.atWarn().setCause(cause).log("The ledger node failed");
 		closeQuietly(node);
 
 		if (repeated) {
-			halt("The ledger node failed twice within " + options.restartWindowMillis() + " ms: " + cause);
+			halt("The ledger node failed twice within " + options.restartWindowMillis() + " ms: "
+				+ describe(cause));
 		} else {
+			restart();
+		}
+	}
+
+	/* The node threw on an item. A peer that can do that is banned, and does not count towards a halt, or one peer
+	   could stop the driver. Building a node replays the whole log, so replacements are paced: the first is made at
+	   once, and the ones that follow within the window wait twice as long each time, with the events that come
+	   meanwhile dropped. */
+	private void itemFailed(Exception cause, Item item) {
+		log.atWarn().setCause(cause).log("A {} made the ledger node throw", item.kind());
+
+		if (item.from() != null) {
+			limiter.ban(item.from().id());
+		}
+
+		if (!node.usable()) {
+			replaceAfterBackoff();
+		}
+	}
+
+	private void replaceAfterBackoff() {
+		final long now = clock.getAsLong();
+
+		backoff = within(lastReplaced, now) ? backoff : 0;
+		lastReplaced = OptionalLong.of(now);
+		closeQuietly(node);
+
+		if (backoff == 0) {
+			restart();
+			backoff = options.tickMillis();
+		} else {
+			node = null;
+			rebuilder = scheduler.schedule(() -> serial.execute(this::rebuild), backoff);
+			backoff = Math.min(2 * backoff, MAX_BACKOFF_MILLIS);
+		}
+	}
+
+	private boolean within(OptionalLong last, long now) {
+		return last.isPresent() && now - last.getAsLong() < options.restartWindowMillis();
+	}
+
+	private void rebuild() {
+		if (running() && node == null) {
 			restart();
 		}
 	}
@@ -374,7 +498,7 @@ public final class LedgerDriver implements Closeable {
 		try {
 			node = factory.create(signing);
 		} catch (IOException | RuntimeException e) {
-			halt("The ledger node could not be built: " + e);
+			halt("The ledger node could not be built: " + describe(e));
 			return;
 		}
 
@@ -390,7 +514,15 @@ public final class LedgerDriver implements Closeable {
 
 	private void stopTimers() {
 		ticker.cancel();
+		rebuilder.cancel();
 		disarm(timeout -> true);
+	}
+
+	/* What goes into a reason is cut short, as an exception may quote what a peer sent */
+	private static String describe(Throwable cause) {
+		final String text = String.valueOf(cause);
+
+		return text.length() <= MAX_REASON_LENGTH ? text : text.substring(0, MAX_REASON_LENGTH);
 	}
 
 	private static void closeQuietly(LedgerNode node) {

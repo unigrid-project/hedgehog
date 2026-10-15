@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.ledger.PeerLimiter.Rate;
 import org.unigrid.hedgehog.ledger.RecordingNetwork.RecordingPeer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -489,7 +490,7 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldNotPushOutATimerThatIsPendingWhenTheSameOneIsAskedForAgain() throws IOException {
+	public void shouldNotPushOutATimerThatIsPendingWhenTheRestoredNodeAsksForItAgain() throws IOException {
 		try (DriverRig rig = DriverRig.four()) {
 			rig.driver.submit(mint(1, 500));
 
@@ -625,6 +626,7 @@ public class LedgerDriverTest {
 			assertThat(rig.built, equalTo(List.of(true, true)));
 			assertThat(rig.nodes.get(1).height(), equalTo(1L));
 			assertThat(rig.driver.halted(), is(false));
+			assertThrows(IllegalStateException.class, rig.nodes.get(0)::tick);
 
 			rig.tick(DriverRig.TICK);
 			rig.driver.onTransaction(a, mint(1, 500));
@@ -722,6 +724,189 @@ public class LedgerDriverTest {
 	}
 
 	@Example
+	public void shouldBanThePeerAndReplaceTheNodeOnceWhenItsMessageMakesTheNodeThrow() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final LedgerNode before = rig.nodes.get(0);
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(a, rig.proposal());
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(rig.built, equalTo(List.of(true, true)));
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(b.sent(), is(empty()));
+			assertThrows(IllegalStateException.class, before::tick);
+		}
+	}
+
+	@Example
+	public void shouldPaceTheReplacementsAndNeverHaltWhileItemsKeepMakingTheNodeThrow() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer[] peers = IntStream.range(0, 6).mapToObj(n -> rig.network.connect("P" + n))
+				.toArray(RecordingPeer[]::new);
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(peers[0], rig.proposal());
+
+			assertThat(rig.built, hasSize(2));
+			assertThat(rig.timers(), is(empty()));
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(peers[1], rig.proposal());
+
+			assertThat(rig.built, hasSize(2));
+			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
+				contains(DriverRig.TICK));
+
+			rig.driver.onMessage(peers[2], rig.proposal());
+			rig.driver.onTransaction(peers[2], mint(1, 500));
+
+			assertThat(rig.limiter.isPenalised("P2"), is(false));
+			assertThat(rig.built, hasSize(2));
+
+			rig.timers().get(0).fire();
+
+			assertThat(rig.built, hasSize(3));
+			assertThat(rig.nodes.get(2).height(), equalTo(1L));
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(peers[3], rig.proposal());
+
+			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
+				contains(2 * DriverRig.TICK));
+
+			rig.timers().get(0).fire();
+			rig.clock.addAndGet(DriverRig.RESTART_WINDOW);
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(peers[4], rig.proposal());
+
+			assertThat(rig.built, hasSize(5));
+			assertThat(rig.timers(), is(empty()));
+			assertThat(rig.driver.halted(), is(false));
+
+			for (int banned = 0; banned <= 4; banned++) {
+				assertThat(rig.limiter.isPenalised("P" + banned), is(banned != 2));
+			}
+		}
+	}
+
+	@Example
+	public void shouldArmTheTimerAgainThatFiredWhileNoNodeWasThere() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+
+			rig.driver.submit(mint(1, 500));
+
+			final ManualScheduler.Timer propose = rig.timers().get(0);
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(a, rig.proposal());
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(b, rig.proposal());
+
+			assertThat(rig.timers(), hasSize(2));
+
+			propose.fire();
+			rig.timers().stream().filter(timer -> timer.delayMillis() == DriverRig.TICK).findFirst().orElseThrow()
+				.fire();
+
+			assertThat(rig.built, hasSize(3));
+			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
+				contains(Timeouts.DEFAULT.propose(0)));
+		}
+	}
+
+	@Example
+	public void shouldStillReplaceANodeThatFailsOnATickAfterItemsMadeItThrow() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(a, rig.proposal());
+			rig.breakNode();
+			rig.tick(DriverRig.TICK);
+
+			assertThat(rig.built, hasSize(3));
+			assertThat(rig.driver.halted(), is(false));
+
+			rig.breakNode();
+			rig.tick(DriverRig.TICK);
+
+			assertThat(rig.driver.halted(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldBanThePeerButKeepTheNodeWhenOnlyTheRulesThrow() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+
+			rig.driver.onTransaction(a, null);
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(rig.built, hasSize(1));
+			assertThat(rig.driver.halted(), is(false));
+
+			rig.driver.onTransaction(b, mint(1, 500));
+
+			assertThat(rig.ledger().height(), equalTo(1L));
+		}
+	}
+
+	@Example
+	public void shouldAnswerALocalSubmitTheRulesCouldNotHandleWithARefusalAndBanNoOne() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			assertThat(rig.driver.submit(null).join().orElseThrow(), startsWith("Rejected"));
+			assertThat(rig.built, hasSize(1));
+			assertThat(rig.driver.submit(mint(1, 500)).join(), equalTo(Optional.empty()));
+		}
+	}
+
+	@Example
+	public void shouldTellALocalCallerWhoseWorkFailedThatTheNodeWasReplaced() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final Mint mint = mint(1, 500);
+
+			rig.breakSchedule();
+
+			assertThat(rig.driver.submit(mint).join().orElseThrow(), containsString("replaced"));
+			assertThat(rig.built, equalTo(List.of(true, true)));
+			assertThat(a.sent(Transaction.class), equalTo(List.of(mint)));
+			assertThat(rig.driver.halted(), is(false));
+		}
+	}
+
+	@Example
+	public void shouldHaltOnAnErrorFromTheNodeAndPassItOn() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.failSaves(new StackOverflowError("Too deep"));
+
+			assertThrows(StackOverflowError.class, () -> rig.driver.onMessage(a, rig.proposal()));
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.haltReason().orElseThrow(), containsString("StackOverflowError"));
+			assertThat(rig.built, hasSize(1));
+		}
+	}
+
+	@Example
+	public void shouldSendAStatusAtOnceWhenTheClockWasSetBack() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.tick(-5_000);
+
+			assertThat(a.sent(Status.class), equalTo(List.of(rig.ledger().status())));
+		}
+	}
+
+	@Example
 	public void shouldDropAPeerOverItsBurstWithoutCallingTheNode() throws IOException {
 		try (DriverRig rig = DriverRig.solo(burstOf(2))) {
 			final RecordingPeer a = rig.network.connect("A");
@@ -809,8 +994,7 @@ public class LedgerDriverTest {
 
 			rig.driver.close();
 			timeout.fire();
-			rig.scheduler.pending().stream().filter(timer -> timer.delayMillis() == DriverRig.TICK).findFirst()
-				.orElseThrow().fire();
+			rig.ticker().fire();
 			serial.drain();
 
 			assertThat(rig.built, hasSize(1));

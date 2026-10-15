@@ -68,8 +68,9 @@ final class Gossip {
 
 	/* A duplicate, a nonce that is used or too far ahead, a balance that is short, a fee below a node's policy and a
 	   full pool all depend on the node and cost nothing. A signature that does not verify is the same for every
-	   node, and no honest one relays it. */
-	Receipt transaction(LedgerNode node, Transaction transaction) throws IOException {
+	   node, and no honest one relays it. The driver tells the node that there may be work once this has taken the
+	   transaction in, as a call of its own. */
+	Receipt transaction(LedgerNode node, Transaction transaction) {
 		final Optional<String> rejection = node.submit(transaction);
 
 		if (rejection.isPresent()) {
@@ -78,7 +79,7 @@ final class Gossip {
 			return new Receipt(List.of(), rejection, false, forged ? TRANSACTION_COST : 0);
 		}
 
-		return new Receipt(node.onWork(), rejection, true, 0);
+		return new Receipt(List.of(), rejection, true, 0);
 	}
 
 	static boolean forged(Transaction transaction, byte[] chainId) {

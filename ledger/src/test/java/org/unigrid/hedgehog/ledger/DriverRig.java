@@ -37,7 +37,7 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
    that peers send. */
 final class DriverRig implements AutoCloseable {
 	static final long START = 10_000;
-	static final long TICK = 250;
+	static final long TICK = 333;
 	static final long HEARTBEAT = 4_000;
 	static final long STATUS = 6_000;
 	static final long RESTART_WINDOW = 10_000;
@@ -49,11 +49,14 @@ final class DriverRig implements AutoCloseable {
 	static final List<byte[]> SOLO = seeds(1, 1);
 	static final List<byte[]> FOUR = seeds(1, 4);
 
+	/* Answers as the open authority does until it is broken: then every question throws, or, if only its schedule is
+	   broken, the question which mints are due, which the ledger asks outside the checks of what peers send */
 	private static final class Authority implements LedgerAuthority {
 		private volatile boolean broken;
+		private volatile boolean scheduleBroken;
 
-		private LedgerAuthority answering() {
-			if (broken) {
+		private LedgerAuthority answering(boolean schedule) {
+			if (broken || schedule && scheduleBroken) {
 				throw new IllegalStateException("The authority failed");
 			}
 
@@ -62,28 +65,30 @@ final class DriverRig implements AutoCloseable {
 
 		@Override
 		public List<Mint> due(long time) {
-			return answering().due(time);
+			return answering(true).due(time);
 		}
 
 		@Override
 		public boolean authorizes(Mint mint, long time) {
-			return answering().authorizes(mint, time);
+			return answering(false).authorizes(mint, time);
 		}
 
 		@Override
 		public boolean authorizes(Claim claim) {
-			return answering().authorizes(claim);
+			return answering(false).authorizes(claim);
 		}
 
 		@Override
 		public boolean authorizes(Transfer transfer) {
-			return answering().authorizes(transfer);
+			return answering(false).authorizes(transfer);
 		}
 	}
 
+	/* Keeps what it is given in a real file until it is told to fail, with an IOException, a RuntimeException or an
+	   Error, as it is given */
 	private static final class FlakyStore implements SignStore {
 		private final SignStore store;
-		private volatile boolean failing;
+		private volatile Throwable failure;
 
 		private FlakyStore(SignStore store) {
 			this.store = store;
@@ -96,8 +101,16 @@ final class DriverRig implements AutoCloseable {
 
 		@Override
 		public void save(SignState state, int largestProof) throws IOException {
-			if (failing) {
-				throw new IOException("The disk is full");
+			if (failure instanceof IOException io) {
+				throw io;
+			}
+
+			if (failure instanceof RuntimeException runtime) {
+				throw runtime;
+			}
+
+			if (failure instanceof Error error) {
+				throw error;
 			}
 
 			store.save(state, largestProof);
@@ -122,6 +135,7 @@ final class DriverRig implements AutoCloseable {
 	private final List<FlakyStore> stores = new ArrayList<>();
 	private final List<byte[]> validators;
 	private final byte[] seed;
+	private ManualScheduler.Timer ticker;
 	private BlockLog log;
 	private Ledger ledger;
 	private Ledger leader;
@@ -191,9 +205,18 @@ final class DriverRig implements AutoCloseable {
 		authorities.get(authorities.size() - 1).broken = true;
 	}
 
+	/* The newest node's schedule of due mints fails: not what checks a transaction or a block, but what looks for work */
+	void breakSchedule() {
+		authorities.get(authorities.size() - 1).scheduleBroken = true;
+	}
+
 	/* The newest node cannot save what it signs, so the next event that signs something fails */
 	void failSaves() {
-		stores.get(stores.size() - 1).failing = true;
+		failSaves(new IOException("The disk is full"));
+	}
+
+	void failSaves(Throwable failure) {
+		stores.get(stores.size() - 1).failure = failure;
 	}
 
 	/* Every node built from now on fails on its first question, so it cannot even start */
@@ -207,13 +230,28 @@ final class DriverRig implements AutoCloseable {
 
 	/* Moves the clock and lets the tick that waits come */
 	void tick(long advanceMillis) {
+		final int before = scheduler.scheduled().size();
+
 		clock.addAndGet(advanceMillis);
-		scheduler.pending().stream().filter(timer -> timer.delayMillis() == TICK).findFirst().orElseThrow().fire();
+		ticker().fire();
+
+		if (scheduler.scheduled().size() > before) {
+			ticker = scheduler.scheduled().get(before);
+		}
 	}
 
-	/* What the engine has asked to be woken for, which is every pending timer but the tick */
+	/* The tick that waits: the first timer the driver asked for, and after it the first that each tick asks for */
+	ManualScheduler.Timer ticker() {
+		if (ticker == null) {
+			ticker = scheduler.scheduled().get(0);
+		}
+
+		return ticker;
+	}
+
+	/* What the driver waits on besides the tick: the timers the engine asked for, and a node that is to be rebuilt */
 	List<ManualScheduler.Timer> timers() {
-		return scheduler.pending().stream().filter(timer -> timer.delayMillis() != TICK).toList();
+		return scheduler.pending().stream().filter(timer -> timer != ticker()).toList();
 	}
 
 	private Ledger leader() throws IOException {
