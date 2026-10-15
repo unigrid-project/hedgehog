@@ -32,7 +32,7 @@ public class LedgerStatusDecoder extends AbstractReplayingDecoder<LedgerStatus>
 	@Override
 	public Optional<LedgerStatus> typedDecode(final ChannelHandlerContext ctx, final ByteBuf in) throws Exception {
 		return Optional.of(LedgerStatus.builder()
-			.status(WireCodec.decodeStatus(LedgerCodecs.readFixed(in, LedgerCodecs.STATUS_SIZE))).build());
+			.status(WireCodec.decodeStatus(LedgerCodecs.readFixed(in, WireCodec.STATUS_SIZE))).build());
 	}
 
 	@Override

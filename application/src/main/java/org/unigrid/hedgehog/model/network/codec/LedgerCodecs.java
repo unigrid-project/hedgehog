@@ -20,11 +20,8 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.Claim;
-import org.unigrid.hedgehog.ledger.Digests;
-import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.ledger.Vote;
@@ -35,11 +32,6 @@ public final class LedgerCodecs {
 
 	/* The byte bound of a batch counts the blocks only, not its block count and the length of each block */
 	public static final int MAX_BATCH_SIZE = BlockBatch.MAX_BYTES + 64 * 1024;
-
-	public static final int STATUS_SIZE = 2 * Digests.HASH_SIZE + Long.BYTES;
-	public static final int HEARTBEAT_SIZE = AccountKey.SIZE + Long.BYTES + Digests.HASH_SIZE + Long.BYTES
-		+ Ed25519.SIGNATURE_SIZE;
-	public static final int REQUEST_SIZE = Long.BYTES + Integer.BYTES;
 
 	private LedgerCodecs() {
 		/* Static helpers only */

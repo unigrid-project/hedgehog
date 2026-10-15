@@ -31,7 +31,7 @@ public class LedgerHeartbeatDecoder extends AbstractReplayingDecoder<LedgerHeart
 
 	@Override
 	public Optional<LedgerHeartbeat> typedDecode(final ChannelHandlerContext ctx, final ByteBuf in) throws Exception {
-		final byte[] bytes = LedgerCodecs.readFixed(in, LedgerCodecs.HEARTBEAT_SIZE);
+		final byte[] bytes = LedgerCodecs.readFixed(in, WireCodec.HEARTBEAT_SIZE);
 
 		return Optional.of(LedgerHeartbeat.builder().heartbeat(WireCodec.decodeHeartbeat(bytes)).build());
 	}

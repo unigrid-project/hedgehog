@@ -34,7 +34,7 @@ public class LedgerBlockRequestDecoder extends AbstractReplayingDecoder<LedgerBl
 		throws Exception {
 
 		final long requestId = in.readLong();
-		final byte[] bytes = LedgerCodecs.readFixed(in, LedgerCodecs.REQUEST_SIZE);
+		final byte[] bytes = LedgerCodecs.readFixed(in, WireCodec.REQUEST_SIZE);
 
 		return Optional.of(LedgerBlockRequest.builder().requestId(requestId)
 			.request(WireCodec.decodeBlockRequest(bytes)).build());

@@ -31,9 +31,9 @@ import java.util.function.Function;
 public final class WireCodec {
 	/* The proof of a proposal is bounded by the largest validator set there can be; the engine checks the real set */
 	public static final int MAX_MESSAGE_SIZE = ConsensusCodec.maxEncodedSize(ValidatorSet.MAX_SIZE);
-	private static final int STATUS_SIZE = Digests.HASH_SIZE + Long.BYTES + Digests.HASH_SIZE;
-	private static final int REQUEST_SIZE = Long.BYTES + Integer.BYTES;
-	private static final int HEARTBEAT_SIZE = AccountKey.SIZE + Long.BYTES + Digests.HASH_SIZE + Long.BYTES
+	public static final int STATUS_SIZE = Digests.HASH_SIZE + Long.BYTES + Digests.HASH_SIZE;
+	public static final int REQUEST_SIZE = Long.BYTES + Integer.BYTES;
+	public static final int HEARTBEAT_SIZE = AccountKey.SIZE + Long.BYTES + Digests.HASH_SIZE + Long.BYTES
 		+ Ed25519.SIGNATURE_SIZE;
 
 	private WireCodec() {
