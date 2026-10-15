@@ -286,6 +286,24 @@ public class ConsensusCodecTest {
 	}
 
 	@Example
+	public void shouldTakeABlockLengthOnlyFromOneToTheLargestBlockAndTakeNothingElse() {
+		final ByteBuffer in = ByteBuffer.wrap(Bytes.concat(Bytes.intBytes(1),
+			Bytes.intBytes(BlockCodec.MAX_ENCODED_SIZE), new byte[] {7}));
+
+		assertThat(ConsensusCodec.takeBlockLength(in), equalTo(1));
+		assertThat(ConsensusCodec.takeBlockLength(in), equalTo(BlockCodec.MAX_ENCODED_SIZE));
+		assertThat(in.remaining(), equalTo(1));
+
+		for (final int length : new int[] {0, -1, BlockCodec.MAX_ENCODED_SIZE + 1, Integer.MIN_VALUE}) {
+			assertThrows(IllegalArgumentException.class,
+				() -> ConsensusCodec.takeBlockLength(ByteBuffer.wrap(Bytes.intBytes(length))));
+		}
+
+		assertThrows(IllegalArgumentException.class,
+			() -> ConsensusCodec.takeBlockLength(ByteBuffer.wrap(new byte[3])));
+	}
+
+	@Example
 	public void shouldRefuseABlockLengthAboveTheLargestBlockBeforeTakingItsBytes() {
 		final int tooLong = BlockCodec.MAX_ENCODED_SIZE + 1;
 		final String refusal = refusalOf(withLength(DECISION_KIND, tooLong));

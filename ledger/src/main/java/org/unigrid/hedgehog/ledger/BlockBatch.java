@@ -42,7 +42,11 @@ public record BlockBatch(List<Block> blocks) {
 	}
 
 	private static boolean consecutive(List<Block> blocks) {
-		return IntStream.range(1, blocks.size())
-			.allMatch(i -> blocks.get(i).getHeight() == blocks.get(i - 1).getHeight() + 1);
+		return IntStream.range(1, blocks.size()).allMatch(i -> follows(blocks.get(i - 1), blocks.get(i)));
+	}
+
+	/* The highest height has none after it: adding 1 to it would wrap to the lowest */
+	private static boolean follows(Block before, Block after) {
+		return before.getHeight() < Long.MAX_VALUE && after.getHeight() == before.getHeight() + 1;
 	}
 }

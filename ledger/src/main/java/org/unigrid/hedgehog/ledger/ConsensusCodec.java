@@ -159,6 +159,11 @@ public final class ConsensusCodec {
 	}
 
 	static Block decodeBlock(ByteBuffer in) {
+		return BlockCodec.decode(Bytes.take(in, takeBlockLength(in)));
+	}
+
+	/* The length in front of an encoded block, checked before the bytes of the block are taken */
+	static int takeBlockLength(ByteBuffer in) {
 		final int length = Bytes.takeInt(in);
 
 		if (length < 1 || length > BlockCodec.MAX_ENCODED_SIZE) {
@@ -166,6 +171,6 @@ public final class ConsensusCodec {
 				+ " bytes, found " + length);
 		}
 
-		return BlockCodec.decode(Bytes.take(in, length));
+		return length;
 	}
 }

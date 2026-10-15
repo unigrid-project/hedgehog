@@ -377,6 +377,17 @@ public class WireCodecTest {
 	}
 
 	@Example
+	public void shouldNotTakeTheLowestHeightForTheOneAfterTheHighest() {
+		final Block top = block().toBuilder().height(Long.MAX_VALUE).build();
+		final Block bottom = top.toBuilder().height(Long.MIN_VALUE).build();
+		final byte[] wrapping = batchOf(2, entry(BlockCodec.encode(top)), entry(BlockCodec.encode(bottom)));
+
+		assertThrows(IllegalArgumentException.class, () -> new BlockBatch(List.of(top, bottom)));
+		assertThrows(IllegalArgumentException.class, () -> WireCodec.decodeBlockBatch(wrapping));
+		assertThat(new BlockBatch(List.of(top)).blocks().size(), equalTo(1));
+	}
+
+	@Example
 	public void shouldRefuseABatchThatRepeatsOrReversesAHeight() {
 		final List<Block> blocks = consecutive(new Random(1), 5, 2);
 		final byte[] repeating = batchOf(2, entry(BlockCodec.encode(blocks.get(0))),

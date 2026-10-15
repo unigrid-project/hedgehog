@@ -121,7 +121,7 @@ public final class WireCodec {
 		int room = maxBytes;
 
 		for (int i = 0; i < count; i++) {
-			final int length = takeBlockLength(in);
+			final int length = ConsensusCodec.takeBlockLength(in);
 
 			if (length > room) {
 				throw new IllegalArgumentException("A batch holds at most " + maxBytes + " bytes of blocks");
@@ -132,16 +132,5 @@ public final class WireCodec {
 		}
 
 		return new BlockBatch(blocks);
-	}
-
-	private static int takeBlockLength(ByteBuffer in) {
-		final int length = Bytes.takeInt(in);
-
-		if (length < 1 || length > BlockCodec.MAX_ENCODED_SIZE) {
-			throw new IllegalArgumentException("A block is 1 to " + BlockCodec.MAX_ENCODED_SIZE
-				+ " bytes, found " + length);
-		}
-
-		return length;
 	}
 }
