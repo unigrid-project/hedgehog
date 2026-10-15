@@ -359,6 +359,20 @@ public class BallotBoxTest {
 	}
 
 	@Example
+	public void shouldSayWhetherAViewSeenRaisedTheHighestViewOfThatValidator() {
+		final BallotBox box = box();
+
+		assertThat(box.seen(key(1), 5), is(true));
+		assertThat(box.seen(key(1), 5), is(false));
+		assertThat(box.seen(key(1), 3), is(false));
+		assertThat(box.seen(key(1), 6), is(true));
+		assertThat(box.seen(key(2), 5), is(true));
+		assertThat(box.seen(key(9), 7), is(false));
+		assertThat(box.seen(key(3), -1), is(false));
+		assertThat(box.skipTo(0).getAsInt(), equalTo(5));
+	}
+
+	@Example
 	public void shouldHoldAnythingInAViewWhenAnyBallotOfAnyTypeIsStoredInIt() {
 		final BallotBox box = box();
 

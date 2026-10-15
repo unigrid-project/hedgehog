@@ -85,10 +85,17 @@ final class BallotBox {
 		return earlier != null && sameBlock(earlier, ballot);
 	}
 
-	void seen(AccountKey validator, int view) {
-		if (view >= 0 && validators.contains(validator)) {
-			highest.merge(validator, view, Math::max);
+	/* Whether this raised the highest view the validator has been seen in: saying a view again, or an earlier one, is
+	   no news */
+	boolean seen(AccountKey validator, int view) {
+		if (view < 0 || !validators.contains(validator)) {
+			return false;
 		}
+
+		final Integer before = highest.get(validator);
+
+		highest.put(validator, before == null ? view : Math.max(before, view));
+		return before == null || view > before;
 	}
 
 	int size() {

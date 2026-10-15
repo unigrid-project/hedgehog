@@ -437,27 +437,31 @@ public final class Consensus {
 		return tooFarAhead(ballot.view()) ? noteFarAhead(ballot) : box.add(ballot) == BallotBox.Result.ADDED;
 	}
 
+	/* Not kept, but the validator is known to have reached the view; the ballot is news only if that is a view it was
+	   not seen in, so that playing the same ballot back does not wake a node again */
 	private boolean noteFarAhead(Ballot ballot) {
 		if (!validators.contains(ballot.validator()) || !ballot.hasValidSignature(chainId)) {
 			return false;
 		}
 
-		box.seen(ballot.validator(), ballot.view());
-		return true;
+		return box.seen(ballot.validator(), ballot.view());
 	}
 
-	/* Only the first proposal of a view counts, whatever else its proposer signs for that view */
+	/* Only the first proposal of a view counts, whatever else its proposer signs for that view. One beyond the window
+	   is not kept, so it is news only if it takes its proposer to a view it was not seen in, or anyone could play the
+	   same proposal back to wake a node over and over. */
 	private boolean accept(Proposal proposal) {
 		if (!isNewFromProposer(proposal) || !headerAgrees(proposal) || !proposal.hasValidSignature(chainId)) {
 			return false;
 		}
 
-		box.seen(proposal.sender(), proposal.view());
+		final boolean raised = box.seen(proposal.sender(), proposal.view());
 
-		if (!tooFarAhead(proposal.view())) {
-			proposals.put(proposal.view(), proposal);
+		if (tooFarAhead(proposal.view())) {
+			return raised;
 		}
 
+		proposals.put(proposal.view(), proposal);
 		return true;
 	}
 

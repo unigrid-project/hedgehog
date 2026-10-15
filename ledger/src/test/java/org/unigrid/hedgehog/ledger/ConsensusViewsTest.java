@@ -1254,6 +1254,56 @@ public class ConsensusViewsTest {
 		assertThat(engine.running(), is(false));
 	}
 
+	/* A ballot or proposal beyond the window is checked and noted but not kept, so anyone could play the same one back
+	   again and again; only a view that is further on than any this validator has been seen in is news */
+	@Example
+	public void shouldWakeARestingNodeOnceForTheSameBallotFarAhead() {
+		final Ballot far = prevoteBy(1, 500, null);
+
+		goIdleAfterViewZero();
+
+		assertThat(schedules(engine.onMessage(far, 6000), Timeout.Kind.PROPOSE), is(true));
+
+		quorumOfNoBlock(engine.view(), 9500);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
+
+		assertThat(engine.running(), is(false));
+		assertThat(engine.onMessage(far, 20_000).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldWakeARestingNodeForALaterViewOfTheSameValidatorOrTheSameViewOfAnother() {
+		goIdleAfterViewZero();
+		engine.onMessage(prevoteBy(1, 500, null), 6000);
+		quorumOfNoBlock(engine.view(), 9500);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
+
+		assertThat(schedules(engine.onMessage(prevoteBy(1, 600, null), 20_000), Timeout.Kind.PROPOSE), is(true));
+
+		quorumOfNoBlock(engine.view(), 25_000);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 25_002);
+
+		assertThat(engine.running(), is(false));
+		assertThat(schedules(engine.onMessage(prevoteBy(2, 500, null), 30_000), Timeout.Kind.PROPOSE), is(true));
+	}
+
+	@Example
+	public void shouldWakeARestingNodeOnceForTheSameProposalFarAhead() {
+		final Proposal far = proposal(40, -1, proposed(40, "far"));
+
+		goIdleAfterViewZero();
+
+		assertThat(schedules(engine.onMessage(far, 6000), Timeout.Kind.PROPOSE), is(true));
+
+		quorumOfNoBlock(engine.view(), 9500);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
+
+		assertThat(engine.running(), is(false));
+		assertThat(engine.onMessage(far, 20_000).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
 	@Example
 	public void shouldNotSendAgainAfterADecision() {
 		goIdleAfterViewZero();
