@@ -173,6 +173,16 @@ public final class PeerLimiter {
 		}
 	}
 
+	/* The peer is ignored for the whole penalty at once, whatever its score: for what needs no score to judge, such
+	   as an item that made the node fail. A peer that is penalised already keeps the end of the penalty it has. */
+	public void ban(String id) {
+		final long now = advance();
+
+		if (!penalised(id, now)) {
+			penalise(id, now);
+		}
+	}
+
 	/* False for a peer that is not tracked: one whose penalty ended, one that was dropped to make room for a newer
 	   penalty, and one never seen. Nothing is held against a peer once it is forgotten. */
 	public boolean isPenalised(String id) {

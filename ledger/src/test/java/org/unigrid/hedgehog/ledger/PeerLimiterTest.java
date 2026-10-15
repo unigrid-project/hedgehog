@@ -77,6 +77,38 @@ public class PeerLimiterTest {
 	}
 
 	@Example
+	public void shouldBanAPeerAtOnceForTheWholePenaltyWhateverItsScore() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 100));
+
+		limiter.ban("a");
+
+		assertThat(limiter.isPenalised("a"), is(true));
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+
+		clock.addAndGet(59_999);
+		assertThat(limiter.isPenalised("a"), is(true));
+
+		clock.addAndGet(1);
+		assertThat(limiter.isPenalised("a"), is(false));
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+	}
+
+	@Example
+	public void shouldNotPushOutThePenaltyOfAPeerThatIsBannedAgain() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 100));
+
+		limiter.ban("a");
+		clock.addAndGet(30_000);
+		limiter.ban("a");
+		clock.addAndGet(30_000);
+
+		assertThat(limiter.isPenalised("a"), is(false));
+	}
+
+	@Example
 	public void shouldPassABurstOfTheCapacityAndRefuseTheNext() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, buckets(5, 1));
 
