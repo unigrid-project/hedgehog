@@ -1116,35 +1116,6 @@ public class LedgerNodeTest {
 
 	private static final long WAIT_SECONDS = 5;
 
-	/* A store on a real file that stops working when told to, as the disk does when the node dies in an event */
-	private static final class CrashingStore implements SignStore {
-		private final SignStore real;
-		private boolean crashing;
-
-		CrashingStore(SignStore real) {
-			this.real = real;
-		}
-
-		@Override
-		public Optional<SignState> load() throws IOException {
-			return real.load();
-		}
-
-		@Override
-		public void save(SignState state, int largestProof) throws IOException {
-			if (crashing) {
-				throw new IOException("The node died before the state was saved");
-			}
-
-			real.save(state, largestProof);
-		}
-
-		@Override
-		public void close() throws IOException {
-			real.close();
-		}
-	}
-
 	/* A save that does not return until the test lets it, and gives up after a while so that nothing hangs */
 	private static final class BlockingStore implements SignStore {
 		private final CountDownLatch entered = new CountDownLatch(1);
@@ -1190,7 +1161,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final SignStateFile file = signStateOf(fileSystem, "a");
-			final CrashingStore store = new CrashingStore(file);
+			final FlakyStore store = new FlakyStore(file);
 			final LedgerNode node = node(ledger, 1, store, clock::get);
 			final Block block = proposedBy(node);
 
@@ -1200,7 +1171,7 @@ public class LedgerNodeTest {
 
 			final SignState beforeDeciding = file.load().orElseThrow();
 
-			store.crashing = true;
+			store.failWith(new IOException("The node died before the state was saved"));
 			assertThrows(IOException.class, () -> node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 3, 1, block)));
 			assertThat(ledger.height(), equalTo(1L));
 			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));

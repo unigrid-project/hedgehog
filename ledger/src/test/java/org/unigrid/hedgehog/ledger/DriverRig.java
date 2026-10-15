@@ -85,44 +85,6 @@ final class DriverRig implements AutoCloseable {
 		}
 	}
 
-	/* Keeps what it is given in a real file until it is told to fail, with an IOException, a RuntimeException or an
-	   Error, as it is given */
-	private static final class FlakyStore implements SignStore {
-		private final SignStore store;
-		private volatile Throwable failure;
-
-		private FlakyStore(SignStore store) {
-			this.store = store;
-		}
-
-		@Override
-		public Optional<SignState> load() throws IOException {
-			return store.load();
-		}
-
-		@Override
-		public void save(SignState state, int largestProof) throws IOException {
-			if (failure instanceof IOException io) {
-				throw io;
-			}
-
-			if (failure instanceof RuntimeException runtime) {
-				throw runtime;
-			}
-
-			if (failure instanceof Error error) {
-				throw error;
-			}
-
-			store.save(state, largestProof);
-		}
-
-		@Override
-		public void close() throws IOException {
-			store.close();
-		}
-	}
-
 	final FileSystem fileSystem = newFileSystem();
 	final AtomicLong clock = new AtomicLong(START);
 	final ManualScheduler scheduler = new ManualScheduler();
@@ -210,7 +172,8 @@ final class DriverRig implements AutoCloseable {
 		authorities.get(authorities.size() - 1).broken = true;
 	}
 
-	/* The newest node's schedule of due mints fails: not what checks a transaction or a block, but what looks for work */
+	/* The newest node's schedule of due mints fails: not what checks a transaction or a block, but what looks for
+	   work */
 	void breakSchedule() {
 		authorities.get(authorities.size() - 1).scheduleBroken = true;
 	}
@@ -221,7 +184,7 @@ final class DriverRig implements AutoCloseable {
 	}
 
 	void failSaves(Throwable failure) {
-		stores.get(stores.size() - 1).failure = failure;
+		stores.get(stores.size() - 1).failWith(failure);
 	}
 
 	/* Every node built from now on fails on its first question, so it cannot even start */

@@ -190,7 +190,7 @@ public class BallotBoxTest {
 	public void shouldNotVerifyABallotItAlreadyHolds() {
 		final BallotBox box = box();
 		final Ballot held = ballot(PREVOTE, 1, 0, A);
-		final Ballot replayed = new Ballot(PREVOTE, 1, 0, A, held.validator(), new byte[Ed25519.SIGNATURE_SIZE]);
+		final Ballot replayed = ConsensusFixtures.forged(held);
 
 		box.add(held);
 

@@ -53,6 +53,12 @@ final class ConsensusFixtures {
 			block == null ? null : block.hash());
 	}
 
+	/* The same ballot with a signature that is nothing, so that it claims what it has no proof of */
+	static Ballot forged(Ballot real) {
+		return new Ballot(real.type(), real.height(), real.view(), real.blockHash(), real.validator(),
+			new byte[Ed25519.SIGNATURE_SIZE]);
+	}
+
 	static List<Ballot> ballots(List<Action> actions) {
 		return actions.stream().filter(a -> a instanceof Action.Broadcast b && b.message() instanceof Ballot)
 			.map(a -> (Ballot) ((Action.Broadcast) a).message()).toList();

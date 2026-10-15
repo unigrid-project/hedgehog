@@ -98,8 +98,10 @@ public final class Mempool {
 	}
 
 	/* What the sender has waiting, apart from the transfer this one replaces, may not pass what is left of the
-	   balance after this one. The sum cannot wrap: every balance is a part of the supply, which fits a long, and
-	   what is waiting is covered by it. addExact says so loudly if that ever breaks. */
+	   balance after this one. The sum cannot wrap: a transfer whose amount and fee overflow is refused before it is
+	   queued, and what a sender has waiting was covered together by its balance, which is a part of the supply and
+	   fits a long. addExact says so loudly if that ever breaks, and the ledger then answers that the transaction
+	   could not be checked. */
 	private boolean coveredByWaiting(Transfer transfer, Transfer replaced, LedgerState state) {
 		final long left = state.balanceOf(transfer.sender()) - transfer.amount() - transfer.fee();
 		final long others = pending.values().stream().filter(Transfer.class::isInstance).map(Transfer.class::cast)

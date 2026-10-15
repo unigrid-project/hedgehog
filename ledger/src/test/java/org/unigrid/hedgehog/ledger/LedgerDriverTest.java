@@ -51,6 +51,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
+import static org.unigrid.hedgehog.ledger.ConsensusFixtures.forged;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.account;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.key;
@@ -97,11 +98,6 @@ public class LedgerDriverTest {
 		public CompletableFuture<BlockBatch> request(BlockRequest request) {
 			return new CompletableFuture<>();
 		}
-	}
-
-	private static Ballot forged(Ballot real) {
-		return new Ballot(real.type(), real.height(), real.view(), real.blockHash(), real.validator(),
-			new byte[Ed25519.SIGNATURE_SIZE]);
 	}
 
 	/* The default limits, but a bucket of the kind that holds only so many; a score of 100 makes a penalty */
@@ -410,7 +406,7 @@ public class LedgerDriverTest {
 
 	@Example
 	public void shouldKeepTwoHonestNodesFromBanningEachOtherWhenAValidatorEquivocates() throws IOException {
-		try (DriverRig left = new DriverRig(DriverRig.FOUR, seed(2), Policy.DEFAULT, new DirectSerial()).started();
+		try (DriverRig left = DriverRig.four(Policy.DEFAULT);
 			DriverRig right = new DriverRig(DriverRig.FOUR, seed(3), Policy.DEFAULT, new DirectSerial()).started()) {
 			final Link towardsRight = new Link("right");
 			final Link towardsLeft = new Link("left");
@@ -424,7 +420,8 @@ public class LedgerDriverTest {
 
 			for (final Ballot.Type type : Ballot.Type.values()) {
 				for (int view = 0; view <= Consensus.MAX_VIEW_AHEAD; view++) {
-					final Ballot one = Ballot.signed(type, seed(4), left.chainId(), 1, view, left.proposed().hash());
+					final byte[] hash = left.proposed().hash();
+					final Ballot one = Ballot.signed(type, seed(4), left.chainId(), 1, view, hash);
 					final Ballot other = Ballot.signed(type, seed(4), left.chainId(), 1, view, null);
 
 					left.driver.onMessage(byzantineToLeft, one);
@@ -837,8 +834,8 @@ public class LedgerDriverTest {
 			assertThat(rig.timers(), hasSize(2));
 
 			propose.fire();
-			rig.timers().stream().filter(timer -> timer.delayMillis() == DriverRig.TICK).findFirst().orElseThrow()
-				.fire();
+			rig.timers().stream().filter(timer -> timer.delayMillis() == DriverRig.TICK).findFirst()
+				.orElseThrow().fire();
 
 			assertThat(rig.built, hasSize(3));
 			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
@@ -1311,7 +1308,9 @@ public class LedgerDriverTest {
 			go.countDown();
 
 			for (final Future<CompletableFuture<Optional<String>>> call : calls) {
-				assertThat(call.get(10, TimeUnit.SECONDS).get(10, TimeUnit.SECONDS), equalTo(Optional.empty()));
+				final CompletableFuture<Optional<String>> answer = call.get(10, TimeUnit.SECONDS);
+
+				assertThat(answer.get(10, TimeUnit.SECONDS), equalTo(Optional.empty()));
 			}
 
 			rig.driver.close();
