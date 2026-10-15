@@ -22,12 +22,15 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Optional;
 
@@ -37,9 +40,10 @@ import java.util.Optional;
    temporary file is overwritten by the next save and never read. The checksum is what notices damage that the move
    cannot prevent, such as a disk that returns other bytes than it was given. */
 public final class SignStateFile implements SignStore {
-	/* Sizes the largest file that load reads, to fend off one that is garbage. A validator that needs more views
-	   than this for one height has been stalled for days, and what it signed in them is far less than this size. */
-	static final int MAX_VIEWS = 1 << 10;
+	/* The highest view that a file is sized for, which fends off a file that is garbage. The timeouts grow with
+	   the view, so a validator that reaches it has been stalled for more than a month on one height. A state of a
+	   later view is still read if its entries fit the size. */
+	static final int MAX_VIEW = 1 << 12;
 	private static final byte[] MAGIC = "UGSS".getBytes(StandardCharsets.US_ASCII);
 	private static final byte VERSION = 1;
 	private static final int HEADER_SIZE = MAGIC.length + Byte.BYTES + Integer.BYTES;
@@ -47,20 +51,25 @@ public final class SignStateFile implements SignStore {
 
 	private final Path file;
 	private final Path temporary;
-	private final int maxViews;
+	private final int maxView;
 
 	public SignStateFile(Path file) {
-		this(file, MAX_VIEWS);
+		this(file, MAX_VIEW);
 	}
 
-	SignStateFile(Path file, int maxViews) {
+	SignStateFile(Path file, int maxView) {
 		this.file = file.toAbsolutePath();
 		this.temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
-		this.maxViews = maxViews;
+		this.maxView = maxView;
 	}
 
-	static long largestFile(int largestProof, int views) {
-		return HEADER_SIZE + SignState.largestEncodedSize(largestProof, views) + CHECKSUM_SIZE;
+	static long largestFile(int largestProof, int maxView) {
+		return HEADER_SIZE + SignState.largestEncodedSize(largestProof, maxView) + CHECKSUM_SIZE;
+	}
+
+	/* An in-memory file system has no disk to flush to, and Windows does not let a directory be opened */
+	static boolean canForceDirectories(FileSystem fileSystem, String operatingSystem) {
+		return fileSystem == FileSystems.getDefault() && !operatingSystem.startsWith("Windows");
 	}
 
 	@Override
@@ -73,17 +82,26 @@ public final class SignStateFile implements SignStore {
 			return Optional.empty();
 		}
 
-		if (size > largestFile(largestProof, maxViews)) {
+		if (size > largestFile(largestProof, maxView)) {
 			throw corrupt("is " + size + " bytes, more than a sign state can be");
 		}
 
 		return Optional.of(decode(Files.readAllBytes(file), largestProof));
 	}
 
+	/* Refuses a state that load would refuse for its size, so that the validator stops here and not at its next
+	   start, where it could neither sign nor read its own file */
 	@Override
-	public void save(SignState state) throws IOException {
+	public void save(SignState state, int largestProof) throws IOException {
+		final byte[] framed = frame(state.encode());
+
+		if (framed.length > largestFile(largestProof, maxView)) {
+			throw new IllegalArgumentException("A sign state of " + framed.length + " bytes is more than the "
+				+ largestFile(largestProof, maxView) + " bytes that can be read back");
+		}
+
 		Files.createDirectories(file.getParent());
-		write(frame(state.encode()));
+		write(framed);
 		Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		forceDirectory();
 	}
@@ -107,18 +125,17 @@ public final class SignStateFile implements SignStore {
 		}
 	}
 
-	/* The move is only durable once the directory entry is, but not every file system lets a directory be opened
-	   to force it. Where it cannot be opened there is nothing more to do, so only that step is skipped. */
+	/* The move is only durable once the directory entry is. Where a directory cannot be opened for this at all, the
+	   step is skipped and only that step. Anywhere else a failure is the caller's to see, never to be swallowed. What
+	   remains is a platform that is neither Windows nor in-memory and still cannot flush a directory, such as some
+	   network mounts: there the validator stops at its first save, and on Windows the move is as durable as the
+	   system makes a rename. */
 	private void forceDirectory() throws IOException {
-		final FileChannel directory;
-
-		try {
-			directory = FileChannel.open(file.getParent(), StandardOpenOption.READ);
-		} catch (IOException e) {
+		if (!canForceDirectories(file.getFileSystem(), System.getProperty("os.name"))) {
 			return;
 		}
 
-		try (directory) {
+		try (FileChannel directory = FileChannel.open(file.getParent(), StandardOpenOption.READ)) {
 			directory.force(true);
 		}
 	}
@@ -171,10 +188,21 @@ public final class SignStateFile implements SignStore {
 
 	private void requireChecksum(byte[] bytes) throws CorruptSignStateException {
 		final int end = bytes.length - CHECKSUM_SIZE;
-		final byte[] expected = Digests.sha512(Arrays.copyOf(bytes, end));
+		final MessageDigest digest = sha512();
 
-		if (!MessageDigest.isEqual(expected, Arrays.copyOfRange(bytes, end, bytes.length))) {
+		digest.update(bytes, 0, end);
+
+		if (!MessageDigest.isEqual(digest.digest(), Arrays.copyOfRange(bytes, end, bytes.length))) {
 			throw corrupt("does not match its checksum");
+		}
+	}
+
+	/* Hashes the bytes where they lie: Digests takes whole arrays, so it would need a copy of what can be megabytes */
+	private static MessageDigest sha512() {
+		try {
+			return MessageDigest.getInstance("SHA-512");
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException("SHA-512 is required of every Java platform", e);
 		}
 	}
 

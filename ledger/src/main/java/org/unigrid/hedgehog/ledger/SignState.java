@@ -25,16 +25,17 @@ import java.util.Objects;
 
 /* What a validator has signed at one height, and where it stands, so that a restart can carry on without ever
    signing something else for a view it has already signed in. It holds the node's own proposals and ballots as
-   they were sent, the step and view, whether the engine runs, `nextView`, the first view in which nothing has been
-   signed, and the locked and valid blocks with their views, which are -1 when there is no such block. What was only
-   received is not held, as peers send it again.
+   they were sent, the step and view, whether the engine runs, `nextView`, the view an idle engine begins with (it
+   equals `view` while a view runs), and the locked and valid blocks with their views, which are -1 when there is
+   no such block. What was only received is not held, as peers send it again.
 
-   A node signs at most one proposal and two ballots (a prevote and a precommit) in a view, and no view above the
-   current one, so a state holds at most `view + 1` proposals and `2 * (view + 1)` ballots. The constructor and the
-   decoder both refuse more, the decoder before it reads any entry, so that a count in a damaged file costs
-   nothing. The layout is the height, the running flag, the view, the step as its ordinal, `nextView`, each of the
-   two blocks as a marker, the length of the block and the block, then its view, and finally the proposals and the
-   ballots, each a count followed by the messages in the layout of the wire codec. */
+   A node signs at most one proposal and two ballots (a prevote and a precommit) in a view, and none in a view above
+   its current one. The constructor refuses a proposal or ballot of a later view and two of the same view (the same
+   type, for a ballot), so a state holds at most `view + 1` proposals and `2 * (view + 1)` ballots; the decoder
+   checks the counts before it reads any entry, so that a count in a damaged file costs nothing. The layout is the
+   height, the running flag, the view, the step as its ordinal, `nextView`, each of the two blocks as a marker, the
+   length of the block and the block, then its view, and finally the proposals and the ballots, each a count
+   followed by the messages in the layout of the wire codec. */
 public record SignState(long height, boolean running, int view, Consensus.Step step, int nextView, Block lockedBlock,
 	int lockedView, Block validBlock, int validView, List<Proposal> proposals, List<Ballot> ballots) {
 	private static final byte NO = 0;
@@ -42,7 +43,6 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 	private static final int HEAD_SIZE = Long.BYTES + Byte.BYTES + Integer.BYTES + Byte.BYTES + Integer.BYTES;
 	private static final int OPTIONAL_BLOCK_SIZE = Byte.BYTES + Integer.BYTES + BlockCodec.MAX_ENCODED_SIZE
 		+ Integer.BYTES;
-	private static final int ENTRIES_PER_VIEW = 3;
 
 	public SignState {
 		Objects.requireNonNull(step);
@@ -57,18 +57,28 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 		requireBlock("locked", lockedBlock, lockedView, view, height);
 		requireBlock("valid", validBlock, validView, view, height);
 		requireOneHeight(height, proposals, ballots);
+		requireNoLaterView(view, proposals, ballots);
 		requireOnePerView(proposals, ballots);
-		requireWhatOneNodeCanSign(view, proposals.size(), ballots.size());
 	}
 
 	public static SignState empty(long height) {
 		return new SignState(height, false, 0, Consensus.Step.PROPOSE, 0, null, -1, null, -1, List.of(), List.of());
 	}
 
-	/* The most bytes a state can take up when it holds the entries of that many views */
-	static long largestEncodedSize(int largestProof, int views) {
-		return HEAD_SIZE + 2L * OPTIONAL_BLOCK_SIZE + 2L * Integer.BYTES
-			+ (long) views * ENTRIES_PER_VIEW * ConsensusCodec.maxEncodedSize(largestProof);
+	/* The most bytes a state can take up in a set of that many validators, when its view is at most `maxView`. A
+	   validator proposes in one view of each run of `largestProof` under the rotation of proposers, so it holds
+	   that many proposals of the longest kind, and it holds at most two ballots of a view. */
+	static long largestEncodedSize(int largestProof, int maxView) {
+		if (largestProof < 1) {
+			throw new IllegalArgumentException("A set has 1 or more validators, found " + largestProof);
+		}
+
+		final long views = maxView + 1L;
+		final long proposals = (views + largestProof - 1) / largestProof;
+
+		return HEAD_SIZE + 2L * OPTIONAL_BLOCK_SIZE + Integer.BYTES
+			+ proposals * ConsensusCodec.maxEncodedSize(largestProof) + Integer.BYTES
+			+ 2 * views * ConsensusCodec.BALLOT_SIZE;
 	}
 
 	public byte[] encode() {
@@ -133,10 +143,10 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 		}
 	}
 
-	private static void requireWhatOneNodeCanSign(int view, int proposals, int ballots) {
-		if (proposals > view + 1L || ballots > 2 * (view + 1L)) {
-			throw new IllegalArgumentException("A state of view " + view + " holds at most " + (view + 1L)
-				+ " proposals and " + 2 * (view + 1L) + " ballots, found " + proposals + " and " + ballots);
+	private static void requireNoLaterView(int view, List<Proposal> proposals, List<Ballot> ballots) {
+		if (proposals.stream().anyMatch(proposal -> proposal.view() > view)
+			|| ballots.stream().anyMatch(ballot -> ballot.view() > view)) {
+			throw new IllegalArgumentException("A node signs nothing in a view above its own, " + view);
 		}
 	}
 
@@ -149,9 +159,7 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 			return new byte[] { NO };
 		}
 
-		final byte[] encoded = BlockCodec.encode(block);
-
-		return Bytes.concat(new byte[] { YES }, Bytes.intBytes(encoded.length), encoded);
+		return Bytes.concat(new byte[] { YES }, ConsensusCodec.encodeBlock(block));
 	}
 
 	private static byte[] encodeMessages(List<? extends Message> messages) {
@@ -187,18 +195,7 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 	}
 
 	private static Block decodeBlock(ByteBuffer in) {
-		if (!decodeFlag(Bytes.take(in, 1)[0])) {
-			return null;
-		}
-
-		final int length = Bytes.takeInt(in);
-
-		if (length < 1 || length > BlockCodec.MAX_ENCODED_SIZE) {
-			throw new IllegalArgumentException("A block is 1 to " + BlockCodec.MAX_ENCODED_SIZE
-				+ " bytes, found " + length);
-		}
-
-		return BlockCodec.decode(Bytes.take(in, length));
+		return decodeFlag(Bytes.take(in, 1)[0]) ? ConsensusCodec.decodeBlock(in) : null;
 	}
 
 	private static <T extends Message> List<T> decodeMessages(ByteBuffer in, long most, int largestProof,

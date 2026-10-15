@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -267,15 +268,32 @@ public class SignStateTest {
 	}
 
 	@Example
-	public void shouldRefuseMoreEntriesThanAnHonestNodeCanSign() {
-		final SignState most = of(0, null, -1, null, -1, List.of(proposal(0, block(1))),
-			List.of(ballot(PREVOTE, 0, null), ballot(PRECOMMIT, 0, null)));
+	public void shouldRefuseAProposalOfAViewAboveTheView() {
+		assertThrows(IllegalArgumentException.class, () -> of(2, null, -1, null, -1, List.of(proposal(3, block(1))),
+			List.of()));
+		assertRoundTrip(of(3, null, -1, null, -1, List.of(proposal(3, block(1))), List.of()));
+	}
 
-		assertThat(most.ballots().size(), equalTo(2));
-		assertThrows(IllegalArgumentException.class, () -> of(0, null, -1, null, -1, List.of(proposal(0, block(1)),
-			proposal(1, block(2))), List.of()));
-		assertThrows(IllegalArgumentException.class, () -> of(0, null, -1, null, -1, List.of(),
-			List.of(ballot(PREVOTE, 0, null), ballot(PRECOMMIT, 0, null), ballot(PREVOTE, 1, null))));
+	@Example
+	public void shouldRefuseABallotOfAViewAboveTheView() {
+		assertThrows(IllegalArgumentException.class, () -> of(2, null, -1, null, -1, List.of(),
+			List.of(ballot(PREVOTE, 3, null))));
+		assertThrows(IllegalArgumentException.class, () -> of(2, null, -1, null, -1, List.of(),
+			List.of(ballot(PRECOMMIT, 3, null))));
+		assertRoundTrip(of(3, null, -1, null, -1, List.of(),
+			List.of(ballot(PREVOTE, 3, null), ballot(PRECOMMIT, 3, null))));
+	}
+
+	@Example
+	public void shouldRefuseOneEntryPastTheMostANodeCanSign() {
+		final List<Ballot> most = List.of(ballot(PREVOTE, 0, null), ballot(PRECOMMIT, 0, null),
+			ballot(PREVOTE, 1, null), ballot(PRECOMMIT, 1, null));
+		final List<Ballot> past = Stream.concat(most.stream(), Stream.of(ballot(PREVOTE, 1, block(1)))).toList();
+
+		assertRoundTrip(of(1, null, -1, null, -1, List.of(proposal(0, block(1)), proposal(1, block(2))), most));
+		assertThrows(IllegalArgumentException.class, () -> of(1, null, -1, null, -1, List.of(), past));
+		assertThrows(IllegalArgumentException.class, () -> of(1, null, -1, null, -1, List.of(proposal(0, block(1)),
+			proposal(1, block(2)), proposal(1, block(3))), List.of()));
 	}
 
 	@Example
@@ -407,7 +425,42 @@ public class SignStateTest {
 		ByteBuffer.wrap(zero).putInt(LOCKED_LENGTH_OFFSET, 0);
 		ByteBuffer.wrap(tooLong).putInt(LOCKED_LENGTH_OFFSET, BlockCodec.MAX_ENCODED_SIZE + 1);
 
-		assertRefused(zero);
+		assertThat(refusalOf(zero), not(containsString("Truncated")));
 		assertThat(refusalOf(tooLong), not(containsString("Truncated")));
+	}
+
+	@Example
+	public void shouldLayOutAStateWithALockAndAValidBlockAtFixedPlaces() {
+		final byte[] locked = BlockCodec.encode(block(1));
+		final byte[] valid = BlockCodec.encode(block(2));
+		final SignState state = new SignState(1, true, 3, Consensus.Step.PRECOMMIT, 4, block(1), 1, block(2), 2,
+			List.of(), List.of());
+
+		assertThat(Bytes.hex(state.encode()), equalTo("0000000000000001" + "01" + "00000003" + "02" + "00000004"
+			+ "01" + Bytes.hex(Bytes.intBytes(locked.length)) + Bytes.hex(locked) + "00000001"
+			+ "01" + Bytes.hex(Bytes.intBytes(valid.length)) + Bytes.hex(valid) + "00000002"
+			+ "00000000" + "00000000"));
+	}
+
+	@Example
+	public void shouldDecodeAFlippedBitOrRefuseItAsBadInputAndNothingElse() {
+		final byte[] encoded = full().encode();
+
+		for (int position = 0; position < encoded.length; position++) {
+			for (int bit = 0; bit < Byte.SIZE; bit++) {
+				final byte[] damaged = encoded.clone();
+
+				damaged[position] ^= (byte) (1 << bit);
+				decodesOrIsRefused(damaged);
+			}
+		}
+	}
+
+	private static void decodesOrIsRefused(byte[] data) {
+		try {
+			SignState.decode(data, LARGEST_PROOF);
+		} catch (IllegalArgumentException refused) {
+			assertThat(refused.getMessage().isEmpty(), equalTo(false));
+		}
 	}
 }
