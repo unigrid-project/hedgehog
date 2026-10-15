@@ -74,14 +74,19 @@ final class RecordingNetwork implements LedgerNetwork {
 		}
 	}
 
-	private final List<RecordingPeer> peers = new CopyOnWriteArrayList<>();
+	private final List<LedgerPeer> peers = new CopyOnWriteArrayList<>();
 	private final Set<String> threads = ConcurrentHashMap.newKeySet();
 
 	RecordingPeer connect(String id) {
 		final RecordingPeer peer = new RecordingPeer(id);
 
-		peers.add(peer);
+		add(peer);
 		return peer;
+	}
+
+	/* A peer of another kind, such as one that hands what it is sent to another driver */
+	void add(LedgerPeer peer) {
+		peers.add(peer);
 	}
 
 	Set<String> threads() {

@@ -57,6 +57,44 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.seed;
 /* The driver is the only thing that calls a node, so these tests give it events the way peers and timers do, on a
    clock and a scheduler that the test moves, and look at what the node did and at what went out to the peers */
 public class LedgerDriverTest {
+	/* A peer of one driver that is the other driver: what it is sent is handed to the other, who sees the first one as
+	   the sender */
+	private static final class Link implements LedgerPeer {
+		private final String id;
+		private LedgerDriver target;
+		private Link back;
+
+		private Link(String id) {
+			this.id = id;
+		}
+
+		private void connect(LedgerDriver other, Link otherEnd) {
+			this.target = other;
+			this.back = otherEnd;
+		}
+
+		@Override
+		public String id() {
+			return id;
+		}
+
+		@Override
+		public void send(Object wire) {
+			switch (wire) {
+				case Transaction transaction -> target.onTransaction(back, transaction);
+				case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat);
+				case Message message -> target.onMessage(back, message);
+				case Status status -> target.onStatus(back, status);
+				default -> throw new IllegalArgumentException("Not a wire object: " + wire);
+			}
+		}
+
+		@Override
+		public CompletableFuture<BlockBatch> request(BlockRequest request) {
+			return new CompletableFuture<>();
+		}
+	}
+
 	private static Ballot forged(Ballot real) {
 		return new Ballot(real.type(), real.height(), real.view(), real.blockHash(), real.validator(),
 			new byte[Ed25519.SIGNATURE_SIZE]);
@@ -113,21 +151,42 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldScoreAnInvalidTransactionByOneAndForwardNothing() throws IOException {
+	public void shouldScoreATransferWithAFalseSignatureByOneAndForwardNothing() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Transfer genuine = paying(rig.ledger(), 100, 0, 0);
+			final Transfer forged = new Transfer(genuine.sender(), genuine.recipient(), genuine.amount(),
+				genuine.fee(), genuine.nonce(), new byte[Ed25519.SIGNATURE_SIZE]);
+
+			rig.driver.submit(mint(1, 500)).join();
+			rig.driver.onTransaction(a, forged);
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+
+			rig.driver.onTransaction(a, forged);
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(b.sent(Transaction.class), equalTo(List.of(mint(1, 500))));
+			assertThat(rig.ledger().pending(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldNeitherScoreNorForwardWhatOnlyThisNodesStateOrPolicyRefuses() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 			final Transfer unfunded = paying(rig.ledger(), 100, 0, 0);
+			final Transfer wrongNonce = paying(rig.ledger(), 1, 0, 40);
 
-			rig.driver.onTransaction(a, unfunded);
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onTransaction(a, unfunded);
+				rig.driver.onTransaction(a, wrongNonce);
+			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
-
-			rig.driver.onTransaction(a, unfunded);
-
-			assertThat(rig.limiter.isPenalised("A"), is(true));
-			assertThat(b.sent(Transaction.class), is(empty()));
-			assertThat(rig.ledger().height(), equalTo(0L));
+			assertThat(b.sent(), is(empty()));
 		}
 	}
 
@@ -213,6 +272,141 @@ public class LedgerDriverTest {
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldNotScoreWhatAnHonestPeerThatIsBehindSendsOnceTheNodeHasMovedOn() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Decision decision = new Decision(rig.certified());
+
+			rig.driver.onMessage(b, decision);
+
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onMessage(a, decision);
+				rig.driver.onMessage(a, rig.proposal());
+				rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 3));
+			}
+
+			assertThat(rig.ledger().height(), equalTo(1L));
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+			assertThat(b.sent(Ballot.class), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldNotScoreAForgedMessageOfAHeightThatIsNotTheCurrentOne() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final Ballot past = forged(rig.ballot(Ballot.Type.PREVOTE, 3));
+			final Ballot future = forged(Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 5, 0, null));
+
+			rig.driver.onMessage(a, new Decision(rig.certified()));
+
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onMessage(a, past);
+				rig.driver.onMessage(a, future);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldNeitherScoreNorForwardTheSecondWordOfAnEquivocator() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Ballot first = rig.ballot(Ballot.Type.PREVOTE, 3);
+			final Ballot second = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, 0, null);
+
+			rig.driver.onMessage(a, first);
+
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onMessage(a, second);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+			assertThat(b.sent(Ballot.class), hasItem(first));
+			assertThat(b.sent(Ballot.class), not(hasItem(second)));
+		}
+	}
+
+	@Example
+	public void shouldNeitherScoreNorForwardASignedBallotBeyondTheViewsTheEngineKeeps() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final int view = Consensus.MAX_VIEW_AHEAD + 8;
+			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, view, null);
+
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onMessage(a, ahead);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+			assertThat(b.sent(Ballot.class), not(hasItem(ahead)));
+		}
+	}
+
+	@Example
+	public void shouldScoreABallotOfAKeyThatIsNoValidatorByTwo() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Ballot stranger = Ballot.signed(Ballot.Type.PREVOTE, seed(9), rig.chainId(), 1, 0, null);
+
+			rig.driver.onMessage(a, stranger);
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(b.sent(Ballot.class), not(hasItem(stranger)));
+		}
+	}
+
+	@Example
+	public void shouldScoreAProposalThatIsNotFromTheProposerOfItsViewByTwo() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Proposal usurper = Proposal.signed(seed(3), rig.chainId(), 1, 0, -1, rig.proposed());
+
+			rig.driver.onMessage(a, usurper);
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(b.sent(Proposal.class), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldKeepTwoHonestNodesFromBanningEachOtherWhenAValidatorEquivocates() throws IOException {
+		try (DriverRig left = new DriverRig(DriverRig.FOUR, seed(2), Policy.DEFAULT, new DirectSerial()).started();
+			DriverRig right = new DriverRig(DriverRig.FOUR, seed(3), Policy.DEFAULT, new DirectSerial()).started()) {
+			final Link towardsRight = new Link("right");
+			final Link towardsLeft = new Link("left");
+			final RecordingPeer byzantineToLeft = left.network.connect("byzantine");
+			final RecordingPeer byzantineToRight = right.network.connect("byzantine");
+
+			towardsRight.connect(right.driver, towardsLeft);
+			towardsLeft.connect(left.driver, towardsRight);
+			left.network.add(towardsRight);
+			right.network.add(towardsLeft);
+
+			for (final Ballot.Type type : Ballot.Type.values()) {
+				for (int view = 0; view <= Consensus.MAX_VIEW_AHEAD; view++) {
+					final Ballot one = Ballot.signed(type, seed(4), left.chainId(), 1, view, left.proposed().hash());
+					final Ballot other = Ballot.signed(type, seed(4), left.chainId(), 1, view, null);
+
+					left.driver.onMessage(byzantineToLeft, one);
+					right.driver.onMessage(byzantineToRight, other);
+				}
+			}
+
+			assertThat(left.limiter.isPenalised("right"), is(false));
+			assertThat(right.limiter.isPenalised("left"), is(false));
+			assertThat(left.limiter.isPenalised("byzantine"), is(false));
+			assertThat(right.limiter.isPenalised("byzantine"), is(false));
 		}
 	}
 
@@ -547,10 +741,8 @@ public class LedgerDriverTest {
 		try (DriverRig rig = DriverRig.solo()) {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
-			final Transfer unfunded = paying(rig.ledger(), 100, 0, 0);
 
-			rig.driver.onTransaction(a, unfunded);
-			rig.driver.onTransaction(a, unfunded);
+			rig.limiter.misbehaved("A", 2);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 
