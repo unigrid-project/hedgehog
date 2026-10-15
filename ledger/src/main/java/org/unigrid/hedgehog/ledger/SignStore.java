@@ -21,13 +21,14 @@ package org.unigrid.hedgehog.ledger;
 import java.io.IOException;
 import java.util.Optional;
 
-/* Where a validator keeps what it has signed. `largestProof` is the size of the validator set, which both ways
-   need to know what the largest state is that can be read back. save returns only once the state is durable, as the
-   caller sends nothing that depends on it before then, and refuses a state that load would refuse for its size. load
-   answers empty only when nothing was ever saved: a state that is there but cannot be trusted is an exception, never
-   an empty answer, since starting from nothing could sign twice. */
+/* Where a validator keeps what it has signed. `largestProof` is the size of the validator set that the state is saved
+   under, which sets the largest state that can be read back. The store keeps it with the state, as the set may have
+   changed by the time of the next start, and load reads the state under the size it was saved with. save returns only
+   once the state is durable, as the caller sends nothing that depends on it before then, and refuses a state that
+   load would refuse for its size. load answers empty only when nothing was ever saved: a state that is there but
+   cannot be trusted is an exception, never an empty answer, since starting from nothing could sign twice. */
 public interface SignStore {
-	Optional<SignState> load(int largestProof) throws IOException;
+	Optional<SignState> load() throws IOException;
 
 	void save(SignState state, int largestProof) throws IOException;
 }

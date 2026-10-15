@@ -34,19 +34,23 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Optional;
 
-/* The sign state in a file of its own: the magic, a version byte, the length of the payload, the payload and the
-   SHA-512 of everything before it. A save writes the whole file next to the real one, forces it to disk and moves it
-   over the real one in a single step, so a crash leaves the old state or the new one, never a mix, and a leftover
-   temporary file is overwritten by the next save and never read. The checksum is what notices damage that the move
-   cannot prevent, such as a disk that returns other bytes than it was given. */
+/* The sign state in a file of its own: the magic, a version byte, the size of the validator set the state was saved
+   under, the length of the payload, the payload and the SHA-512 of everything before it. A save writes the whole file
+   next to the real one, forces it to disk and moves it over the real one in a single step, so a crash leaves the old
+   state or the new one, never a mix, and a leftover temporary file is overwritten by the next save and never read.
+   The checksum is what notices damage that the move cannot prevent, such as a disk that returns other bytes than it
+   was given. The set size is in the file, as the set may have changed by the time the file is read, and it sizes
+   both what a proof can hold and the largest file that is read: that size is exact for a set of a given size and
+   loose for a tiny set, which could hold many large proposals in theory and never does. */
 public final class SignStateFile implements SignStore {
 	/* The highest view that a file is sized for, which fends off a file that is garbage. The timeouts grow with
 	   the view, so a validator that reaches it has been stalled for more than a month on one height. A state of a
 	   later view is still read if its entries fit the size. */
 	static final int MAX_VIEW = 1 << 12;
 	private static final byte[] MAGIC = "UGSS".getBytes(StandardCharsets.US_ASCII);
-	private static final byte VERSION = 1;
-	private static final int HEADER_SIZE = MAGIC.length + Byte.BYTES + Integer.BYTES;
+	private static final byte VERSION = 2;
+	private static final int LENGTH_OFFSET = MAGIC.length + Byte.BYTES + Integer.BYTES;
+	private static final int HEADER_SIZE = LENGTH_OFFSET + Integer.BYTES;
 	private static final int CHECKSUM_SIZE = Digests.HASH_SIZE;
 
 	private final Path file;
@@ -73,27 +77,33 @@ public final class SignStateFile implements SignStore {
 	}
 
 	@Override
-	public Optional<SignState> load(int largestProof) throws IOException {
-		final long size;
+	public Optional<SignState> load() throws IOException {
+		final FileChannel channel;
 
 		try {
-			size = Files.size(file);
+			channel = FileChannel.open(file, StandardOpenOption.READ);
 		} catch (NoSuchFileException e) {
 			return Optional.empty();
 		}
 
-		if (size > largestFile(largestProof, maxView)) {
-			throw corrupt("is " + size + " bytes, more than a sign state can be");
-		}
+		try (channel) {
+			final long size = channel.size();
+			final int validators = readValidators(channel, size);
 
-		return Optional.of(decode(Files.readAllBytes(file), largestProof));
+			return Optional.of(decode(readAll(channel, size), validators));
+		}
 	}
 
 	/* Refuses a state that load would refuse for its size, so that the validator stops here and not at its next
 	   start, where it could neither sign nor read its own file */
 	@Override
 	public void save(SignState state, int largestProof) throws IOException {
-		final byte[] framed = frame(state.encode());
+		if (!isSetSize(largestProof)) {
+			throw new IllegalArgumentException("A set has 1 to " + ValidatorSet.MAX_SIZE
+				+ " validators, found " + largestProof);
+		}
+
+		final byte[] framed = frame(state.encode(), largestProof);
 
 		if (framed.length > largestFile(largestProof, maxView)) {
 			throw new IllegalArgumentException("A sign state of " + framed.length + " bytes is more than the "
@@ -106,8 +116,13 @@ public final class SignStateFile implements SignStore {
 		forceDirectory();
 	}
 
-	private static byte[] frame(byte[] payload) {
-		final byte[] body = Bytes.concat(MAGIC, new byte[] { VERSION }, Bytes.intBytes(payload.length), payload);
+	private static boolean isSetSize(int validators) {
+		return validators >= 1 && validators <= ValidatorSet.MAX_SIZE;
+	}
+
+	private static byte[] frame(byte[] payload, int validators) {
+		final byte[] body = Bytes.concat(MAGIC, new byte[] { VERSION }, Bytes.intBytes(validators),
+			Bytes.intBytes(payload.length), payload);
 
 		return Bytes.concat(body, Digests.sha512(body));
 	}
@@ -140,46 +155,80 @@ public final class SignStateFile implements SignStore {
 		}
 	}
 
-	private SignState decode(byte[] bytes, int largestProof) throws CorruptSignStateException {
+	/* Reads the header alone and judges the size of the file by the set size that it records, before any more of
+	   the file is read */
+	private int readValidators(FileChannel channel, long size) throws IOException {
+		if (size < HEADER_SIZE + CHECKSUM_SIZE) {
+			throw corrupt("is " + size + " bytes, too short for a sign state");
+		}
+
+		final ByteBuffer header = ByteBuffer.allocate(HEADER_SIZE);
+
+		readFully(channel, header);
+		header.flip();
+		requireMagicAndVersion(header);
+
+		final int validators = header.getInt();
+
+		if (!isSetSize(validators)) {
+			throw corrupt("records a set of " + validators + " validators, not 1 to " + ValidatorSet.MAX_SIZE);
+		}
+
+		if (size > largestFile(validators, maxView)) {
+			throw corrupt("is " + size + " bytes, more than a sign state can be");
+		}
+
+		return validators;
+	}
+
+	private byte[] readAll(FileChannel channel, long size) throws IOException {
+		final ByteBuffer all = ByteBuffer.allocate(Math.toIntExact(size));
+
+		readFully(channel, all);
+		return all.array();
+	}
+
+	private void readFully(FileChannel channel, ByteBuffer buffer) throws IOException {
+		while (buffer.hasRemaining()) {
+			if (channel.read(buffer, buffer.position()) < 0) {
+				throw corrupt("ended before its size said it would");
+			}
+		}
+	}
+
+	private SignState decode(byte[] bytes, int validators) throws CorruptSignStateException {
 		final byte[] payload = unframe(bytes);
 
 		try {
-			return SignState.decode(payload, largestProof);
+			return SignState.decode(payload, validators);
 		} catch (IllegalArgumentException e) {
 			throw new CorruptSignStateException(file + " holds no sign state: " + e.getMessage(), e);
 		}
 	}
 
 	private byte[] unframe(byte[] bytes) throws CorruptSignStateException {
-		if (bytes.length < HEADER_SIZE + CHECKSUM_SIZE) {
-			throw corrupt("is " + bytes.length + " bytes, too short for a sign state");
-		}
+		final int length = ByteBuffer.wrap(bytes).getInt(LENGTH_OFFSET);
+		final int held = bytes.length - HEADER_SIZE - CHECKSUM_SIZE;
 
-		final ByteBuffer in = ByteBuffer.wrap(bytes);
-
-		requireHeader(in);
-
-		final int length = in.getInt();
-
-		if (length != bytes.length - HEADER_SIZE - CHECKSUM_SIZE) {
-			throw corrupt("names a payload length of " + length + " bytes, but the file holds "
-				+ (bytes.length - HEADER_SIZE - CHECKSUM_SIZE) + " bytes of payload");
+		if (length != held) {
+			throw corrupt("names a payload length of " + length + " bytes, but the file holds " + held
+				+ " bytes of payload");
 		}
 
 		requireChecksum(bytes);
 		return Arrays.copyOfRange(bytes, HEADER_SIZE, HEADER_SIZE + length);
 	}
 
-	private void requireHeader(ByteBuffer in) throws CorruptSignStateException {
+	private void requireMagicAndVersion(ByteBuffer header) throws CorruptSignStateException {
 		final byte[] magic = new byte[MAGIC.length];
 
-		in.get(magic);
+		header.get(magic);
 
 		if (!Arrays.equals(magic, MAGIC)) {
 			throw corrupt("does not start with the magic of a sign state");
 		}
 
-		final byte version = in.get();
+		final byte version = header.get();
 
 		if (version != VERSION) {
 			throw corrupt("is of version " + Byte.toUnsignedInt(version) + ", not " + VERSION);

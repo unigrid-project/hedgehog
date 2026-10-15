@@ -48,8 +48,9 @@ public class SignStateFileTest {
 	private static final int PROOF = 3;
 	private static final int LAST_VIEW = 3;
 	private static final byte[] MAGIC = "UGSS".getBytes(StandardCharsets.US_ASCII);
-	private static final byte VERSION = 1;
-	private static final int HEADER_SIZE = 9;
+	private static final byte VERSION = 2;
+	private static final int HEADER_SIZE = 13;
+	private static final int VALIDATORS_OFFSET = 5;
 	private static final int HEAD_SIZE = 18;
 	private static final int COUNT_SIZE = 4;
 	private static final int BALLOT_SIZE = 174;
@@ -122,19 +123,34 @@ public class SignStateFileTest {
 			LAST_VIEW, proposals, ballots);
 	}
 
-	private static byte[] framed(byte[] magic, byte version, int length, byte[] payload) {
-		final byte[] body = Bytes.concat(magic, new byte[] { version }, Bytes.intBytes(length), payload);
+	private static byte[] framed(byte[] magic, byte version, int validators, int length, byte[] payload) {
+		final byte[] body = Bytes.concat(magic, new byte[] { version }, Bytes.intBytes(validators),
+			Bytes.intBytes(length), payload);
 
 		return Bytes.concat(body, Digests.sha512(body));
 	}
 
+	private static byte[] framed(int validators, byte[] payload) {
+		return framed(MAGIC, VERSION, validators, payload.length, payload);
+	}
+
 	private static byte[] framed(byte[] payload) {
-		return framed(MAGIC, VERSION, payload.length, payload);
+		return framed(LARGEST_PROOF, payload);
+	}
+
+	private static String refusalOf(Path file, int maxView) {
+		return assertThrows(CorruptSignStateException.class, () -> new SignStateFile(file, maxView).load())
+			.getMessage();
 	}
 
 	private static String refusalOf(Path file) {
-		return assertThrows(CorruptSignStateException.class, () -> new SignStateFile(file).load(LARGEST_PROOF))
-			.getMessage();
+		return refusalOf(file, SignStateFile.MAX_VIEW);
+	}
+
+	/* A valid header of a file of that size, which holds nothing behind it */
+	private static byte[] headerOnly(int validators, int size) {
+		return Bytes.concat(MAGIC, new byte[] { VERSION }, Bytes.intBytes(validators), Bytes.intBytes(0),
+			new byte[size - HEADER_SIZE]);
 	}
 
 	private static void assertCorrupt(Path file) {
@@ -142,7 +158,7 @@ public class SignStateFileTest {
 	}
 
 	private static Optional<SignState> load(Path file) throws IOException {
-		return new SignStateFile(file).load(LARGEST_PROOF);
+		return new SignStateFile(file).load();
 	}
 
 	@Example
@@ -168,7 +184,7 @@ public class SignStateFileTest {
 			final Path file = fileIn(fileSystem);
 
 			new SignStateFile(file).save(signed(), LARGEST_PROOF);
-			assertThat(new SignStateFile(file).load(LARGEST_PROOF), equalTo(Optional.of(signed())));
+			assertThat(new SignStateFile(file).load(), equalTo(Optional.of(signed())));
 		}
 	}
 
@@ -198,7 +214,7 @@ public class SignStateFileTest {
 	}
 
 	@Example
-	public void shouldWriteTheMagicTheVersionTheLengthThePayloadAndTheChecksum() throws IOException {
+	public void shouldWriteTheMagicTheVersionTheSetSizeTheLengthThePayloadAndTheChecksum() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final Path file = fileIn(fileSystem);
 
@@ -206,12 +222,10 @@ public class SignStateFileTest {
 
 			final byte[] written = Files.readAllBytes(file);
 			final byte[] payload = signed().encode();
-
-			assertThat(Arrays.copyOf(written, 4), equalTo(new byte[] { 'U', 'G', 'S', 'S' }));
-			assertThat(written[4], equalTo((byte) 1));
-			assertThat(ByteBuffer.wrap(written).getInt(5), equalTo(payload.length));
 			final int checksumAt = written.length - CHECKSUM_SIZE;
 
+			assertThat(Bytes.hex(Arrays.copyOf(written, HEADER_SIZE)),
+				equalTo("55475353" + "02" + "00000004" + Bytes.hex(Bytes.intBytes(payload.length))));
 			assertThat(Arrays.copyOfRange(written, HEADER_SIZE, checksumAt), equalTo(payload));
 			assertThat(Arrays.copyOfRange(written, checksumAt, written.length),
 				equalTo(Digests.sha512(Arrays.copyOf(written, checksumAt))));
@@ -305,7 +319,7 @@ public class SignStateFileTest {
 			final byte[] foreign = "UGSX".getBytes(StandardCharsets.US_ASCII);
 
 			Files.createDirectories(file.getParent());
-			Files.write(file, framed(foreign, VERSION, payload.length, payload));
+			Files.write(file, framed(foreign, VERSION, LARGEST_PROOF, payload.length, payload));
 			assertThat(refusalOf(file), containsString("magic"));
 		}
 	}
@@ -317,7 +331,7 @@ public class SignStateFileTest {
 			final byte[] payload = small().encode();
 
 			Files.createDirectories(file.getParent());
-			Files.write(file, framed(MAGIC, (byte) (VERSION + 1), payload.length, payload));
+			Files.write(file, framed(MAGIC, (byte) (VERSION + 1), LARGEST_PROOF, payload.length, payload));
 			assertThat(refusalOf(file), containsString("version"));
 		}
 	}
@@ -329,11 +343,11 @@ public class SignStateFileTest {
 			final byte[] payload = small().encode();
 
 			Files.createDirectories(file.getParent());
-			Files.write(file, framed(MAGIC, VERSION, payload.length + 1, payload));
+			Files.write(file, framed(MAGIC, VERSION, LARGEST_PROOF, payload.length + 1, payload));
 			assertThat(refusalOf(file), containsString("length"));
-			Files.write(file, framed(MAGIC, VERSION, payload.length - 1, payload));
+			Files.write(file, framed(MAGIC, VERSION, LARGEST_PROOF, payload.length - 1, payload));
 			assertThat(refusalOf(file), containsString("length"));
-			Files.write(file, framed(MAGIC, VERSION, -1, payload));
+			Files.write(file, framed(MAGIC, VERSION, LARGEST_PROOF, -1, payload));
 			assertThat(refusalOf(file), containsString("length"));
 		}
 	}
@@ -354,19 +368,97 @@ public class SignStateFileTest {
 		}
 	}
 
+	private static SignState withProofOf(int ballots, long height) {
+		final Block block = block(1).toBuilder().height(height).build();
+		final List<Ballot> polka = IntStream.rangeClosed(1, ballots).mapToObj(validator -> Ballot.signed(PREVOTE,
+			LedgerFixtures.seed(validator), ConsensusFixtures.CHAIN, height, 1, block.hash())).toList();
+		final Proposal reProposal = Proposal.signed(LedgerFixtures.seed(SELF), ConsensusFixtures.CHAIN, height, 3, 1,
+			block, polka);
+
+		return new SignState(height, true, 3, Consensus.Step.PREVOTE, 4, null, -1, null, -1,
+			List.of(reProposal), List.of());
+	}
+
 	@Example
-	public void shouldRefuseAProofLongerThanTheLargestOnLoad() throws IOException {
+	public void shouldLoadAProofAsLongAsTheSetItWasSavedUnderWithoutBeingToldTheSetSize() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final Path file = fileIn(fileSystem);
-			final Block block = block(1);
-			final List<Ballot> polka = IntStream.rangeClosed(1, 3)
-				.mapToObj(validator -> ConsensusFixtures.ballot(PREVOTE, validator, 1, block)).toList();
-			final Proposal reProposal = signedProposal(3, 1, block, polka);
+			final SignState state = withProofOf(LARGEST_PROOF, 1);
 
-			new SignStateFile(file).save(new SignState(1, true, 3, Consensus.Step.PREVOTE, 4, null, -1, null, -1,
-				List.of(reProposal), List.of()), LARGEST_PROOF);
-			assertThat(new SignStateFile(file).load(3).isPresent(), equalTo(true));
-			assertThrows(CorruptSignStateException.class, () -> new SignStateFile(file).load(2));
+			new SignStateFile(file).save(state, LARGEST_PROOF);
+			assertThat(load(file), equalTo(Optional.of(state)));
+		}
+	}
+
+	@Example
+	public void shouldLoadTheStateOfAnEarlierHeightWhoseSetHasShrunkSince() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final SignState stale = withProofOf(LARGEST_PROOF, 5);
+
+			new SignStateFile(file).save(stale, LARGEST_PROOF);
+			assertThat(new SignStateFile(file).load(), equalTo(Optional.of(stale)));
+		}
+	}
+
+	@Example
+	public void shouldReadAProofUnderTheSetSizeThatTheFileRecords() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final byte[] payload = withProofOf(3, 1).encode();
+
+			Files.createDirectories(file.getParent());
+			Files.write(file, framed(3, payload));
+			assertThat(load(file), equalTo(Optional.of(withProofOf(3, 1))));
+			Files.write(file, framed(2, payload));
+			assertCorrupt(file);
+		}
+	}
+
+	@Example
+	public void shouldRefuseASetSizeThatNoSetCanHaveEvenIfTheChecksumIsRight() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final byte[] payload = small().encode();
+
+			Files.createDirectories(file.getParent());
+
+			for (final int validators : new int[] { 0, -1, ValidatorSet.MAX_SIZE + 1, Integer.MAX_VALUE }) {
+				Files.write(file, framed(validators, payload));
+				assertThat(refusalOf(file), containsString("validators"));
+			}
+
+			Files.write(file, framed(ValidatorSet.MAX_SIZE, payload));
+			assertThat(load(file), equalTo(Optional.of(small())));
+			Files.write(file, framed(1, payload));
+			assertThat(load(file), equalTo(Optional.of(small())));
+		}
+	}
+
+	@Example
+	public void shouldNoticeAChangedSetSizeThatStillIsPossible() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+
+			new SignStateFile(file).save(small(), LARGEST_PROOF);
+
+			final byte[] written = Files.readAllBytes(file);
+
+			written[VALIDATORS_OFFSET + Integer.BYTES - 1] ^= 1;
+			Files.write(file, written);
+			assertThat(refusalOf(file), containsString("checksum"));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToSaveForASetSizeThatNoSetCanHave() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+
+			assertThrows(IllegalArgumentException.class, () -> new SignStateFile(file).save(small(), 0));
+			assertThrows(IllegalArgumentException.class,
+				() -> new SignStateFile(file).save(small(), ValidatorSet.MAX_SIZE + 1));
+			assertThat(Files.exists(file), equalTo(false));
 		}
 	}
 
@@ -443,7 +535,7 @@ public class SignStateFileTest {
 			final Path file = fileIn(fileSystem);
 
 			Files.createDirectories(file);
-			assertThrows(IOException.class, () -> new SignStateFile(file).load(LARGEST_PROOF));
+			assertThrows(IOException.class, () -> new SignStateFile(file).load());
 		}
 	}
 
@@ -507,28 +599,43 @@ public class SignStateFileTest {
 			final long limit = SignStateFile.largestFile(PROOF, LAST_VIEW);
 
 			Files.createDirectories(file.getParent());
-			Files.write(file, new byte[(int) limit + 1]);
+			Files.write(file, headerOnly(PROOF, (int) limit + 1));
 
 			final String refusal = assertThrows(CorruptSignStateException.class,
-				() -> new SignStateFile(file, LAST_VIEW).load(PROOF)).getMessage();
+				() -> new SignStateFile(file, LAST_VIEW).load()).getMessage();
 
 			assertThat(refusal, containsString(String.valueOf(limit + 1)));
-			assertThat(refusal, not(containsString("magic")));
+			assertThat(refusal, not(containsString("length")));
+			assertThat(refusal, not(containsString("checksum")));
 		}
 	}
 
 	@Example
-	public void shouldReadAFileOfExactlyTheLargestSize() throws IOException {
+	public void shouldReadAFileOfExactlyTheLargestSizeForTheSetItRecords() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final Path file = fileIn(fileSystem);
 
 			Files.createDirectories(file.getParent());
-			Files.write(file, new byte[(int) SignStateFile.largestFile(PROOF, LAST_VIEW)]);
+			Files.write(file, headerOnly(PROOF, (int) SignStateFile.largestFile(PROOF, LAST_VIEW)));
 
 			final String refusal = assertThrows(CorruptSignStateException.class,
-				() -> new SignStateFile(file, LAST_VIEW).load(PROOF)).getMessage();
+				() -> new SignStateFile(file, LAST_VIEW).load()).getMessage();
 
-			assertThat(refusal, containsString("magic"));
+			assertThat(refusal, containsString("length"));
+		}
+	}
+
+	@Example
+	public void shouldJudgeTheSizeOfAFileBySetSizeItRecordsAndNotByAnotherOne() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final int size = (int) SignStateFile.largestFile(PROOF, LAST_VIEW);
+
+			Files.createDirectories(file.getParent());
+			Files.write(file, headerOnly(1, size));
+			assertThat(refusalOf(file, LAST_VIEW), containsString("length"));
+			Files.write(file, headerOnly(ValidatorSet.MAX_SIZE, size));
+			assertThat(refusalOf(file, LAST_VIEW), containsString("more than"));
 		}
 	}
 
@@ -541,7 +648,7 @@ public class SignStateFileTest {
 
 			store.save(fullest, PROOF);
 			assertThat(Files.size(file), equalTo(SignStateFile.largestFile(PROOF, LAST_VIEW)));
-			assertThat(store.load(PROOF), equalTo(Optional.of(fullest)));
+			assertThat(store.load(), equalTo(Optional.of(fullest)));
 		}
 	}
 
@@ -558,8 +665,27 @@ public class SignStateFileTest {
 				.getMessage();
 
 			assertThat(refusal, containsString(String.valueOf(SignStateFile.largestFile(PROOF, LAST_VIEW))));
-			assertThat(store.load(PROOF), equalTo(Optional.of(SignState.empty(1))));
+			assertThat(store.load(), equalTo(Optional.of(SignState.empty(1))));
 			assertThat(Files.exists(temporaryOf(file)), equalTo(false));
+		}
+	}
+
+	@Example
+	public void shouldKeepTheStateOfTheFirstTwoViewsThroughThePublicConstructor() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final List<Proposal> proposals = List.of(signedProposal(0, -1, block(1), List.of()),
+				signedProposal(1, -1, block(2), List.of()));
+			final List<Ballot> ballots = List.of(ConsensusFixtures.ballot(PREVOTE, SELF, 0, null),
+				ConsensusFixtures.ballot(PRECOMMIT, SELF, 0, null),
+				ConsensusFixtures.ballot(PREVOTE, SELF, 1, null),
+				ConsensusFixtures.ballot(PRECOMMIT, SELF, 1, null));
+			final SignState state = new SignState(1, true, 1, Consensus.Step.PRECOMMIT, 2, null, -1, null, -1,
+				proposals, ballots);
+
+			new SignStateFile(file).save(state, LARGEST_PROOF);
+			assertThat(new SignStateFile(file).load(), equalTo(Optional.of(state)));
+			assertThat(SignStateFile.MAX_VIEW, equalTo(4096));
 		}
 	}
 
