@@ -145,35 +145,39 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		return new ObjenesisStd().newInstance(LedgerDriver.class);
 	}
 
+	private void record(final String method, final LedgerPeer from, final Object argument) {
+		if (failure != null) {
+			throw failure;
+		}
+
+		calls.add(new Call(method, from, argument));
+	}
+
 	private void recordTheCallsOfADriver() {
 		new MockUp<LedgerDriver>() {
 			@Mock public void onTransaction(LedgerPeer from, Transaction transaction) {
-				if (failure != null) {
-					throw failure;
-				}
-
-				calls.add(new Call("onTransaction", from, transaction));
+				record("onTransaction", from, transaction);
 			}
 
 			@Mock public void onMessage(LedgerPeer from, Message message) {
-				calls.add(new Call("onMessage", from, message));
+				record("onMessage", from, message);
 			}
 
 			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
-				calls.add(new Call("onHeartbeat", from, heartbeat));
+				record("onHeartbeat", from, heartbeat);
 			}
 
 			@Mock public void onStatus(LedgerPeer from, Status status) {
-				calls.add(new Call("onStatus", from, status));
+				record("onStatus", from, status);
 			}
 
 			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
-				calls.add(new Call("onBlockRequest", from, request));
+				record("onBlockRequest", from, request);
 				return answer;
 			}
 
 			@Mock public void onPeerConnected(LedgerPeer from) {
-				calls.add(new Call("onPeerConnected", from, null));
+				record("onPeerConnected", from, null);
 			}
 		};
 	}
@@ -381,14 +385,47 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	}
 
 	@Example
-	public void closesTheStreamWhenTheDriverThrows() {
+	public void closesTheStreamWhenTheDriverFails() {
 		final EmbeddedChannel channel = streamFrom(PEER);
 
-		failure = new RejectedExecutionException("The driver takes no more");
+		failure = new IllegalStateException("The driver is broken");
 		channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(1))
 			.build()));
 
 		assertThat(channel.isOpen(), is(false));
+	}
+
+	@Property(tries = 5)
+	public void dropsWhatADriverThatTakesNoMoreWouldGetAndKeepsTheStreamOpen(
+		@ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		failure = new RejectedExecutionException("The driver takes no more");
+		sendAllKinds(channel, seed);
+		channel.checkException();
+
+		assertThat(channel.isOpen(), is(true));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+		assertThat(calls.isEmpty(), is(true));
+
+		failure = null;
+		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
+		assertThat(calls.stream().map(Call::argument).toList(), contains(LedgerWireFixtures.status(seed)));
+	}
+
+	@Property(tries = 5)
+	public void keepsTheScheduleRunningWhateverTheDriverDoes(@ForAll boolean rejects) {
+		final Consumer<Channel> announce = new LedgerStatusSchedule().getConsumer();
+
+		failure = rejects ? new RejectedExecutionException("The driver takes no more")
+			: new IllegalStateException("The driver is broken");
+		announce.accept(streamFrom(PEER));
+		announce.accept(streamFrom(OTHER));
+
+		failure = null;
+		announce.accept(streamFrom(PEER));
+		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
 	}
 
 	@Example

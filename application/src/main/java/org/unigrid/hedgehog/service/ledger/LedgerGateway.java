@@ -25,8 +25,10 @@ import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.BlockRequest;
 import org.unigrid.hedgehog.ledger.Heartbeat;
@@ -40,7 +42,11 @@ import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.Topology;
 
 /* Where the handlers of the pipeline hand what peers send to the driver. A node without a ledger carries the pipeline
-   all the same, and then what peers send is dropped here, so the rest of the node never has to ask. */
+   all the same, and then what peers send is dropped here, so the rest of the node never has to ask.
+
+   Whoever closes the driver takes it out with detach() first. What a driver that has shut down gets is rejected, and
+   that is dropped here too: the stream of a peer carries every protocol, and is not closed for a ledger that is going. */
+@Slf4j
 @ApplicationScoped
 public class LedgerGateway {
 	@Inject private PendingRequests pending;
@@ -94,7 +100,12 @@ public class LedgerGateway {
 			return CompletableFuture.failedFuture(new IllegalStateException("No ledger is attached"));
 		}
 
-		return attached.onBlockRequest(from, request);
+		try {
+			return attached.onBlockRequest(from, request);
+		} catch (RejectedExecutionException ex) {
+			log.atDebug().log("Dropped a block request: the ledger takes no more");
+			return CompletableFuture.failedFuture(ex);
+		}
 	}
 
 	/* The driver is told of a stream once, and the stream is told this node's status by the driver */
@@ -110,7 +121,11 @@ public class LedgerGateway {
 		final LedgerDriver attached = driver;
 
 		if (attached != null) {
-			call.accept(attached);
+			try {
+				call.accept(attached);
+			} catch (RejectedExecutionException ex) {
+				log.atDebug().log("Dropped what a peer sent: the ledger takes no more");
+			}
 		}
 	}
 }
