@@ -1,0 +1,476 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.model.network.handler;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.DefaultChannelId;
+import io.netty.channel.embedded.EmbeddedChannel;
+import jakarta.inject.Inject;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.BeforeTry;
+import org.objenesis.ObjenesisStd;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.WeldSetup;
+import org.unigrid.hedgehog.ledger.BlockBatch;
+import org.unigrid.hedgehog.ledger.BlockRequest;
+import org.unigrid.hedgehog.ledger.Heartbeat;
+import org.unigrid.hedgehog.ledger.LedgerDriver;
+import org.unigrid.hedgehog.ledger.LedgerPeer;
+import org.unigrid.hedgehog.ledger.Message;
+import org.unigrid.hedgehog.ledger.Status;
+import org.unigrid.hedgehog.ledger.Transaction;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
+import org.unigrid.hedgehog.model.network.ChannelMap;
+import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.PendingRequests;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerBlockBatchDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerBlockBatchEncoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerBlockRequestDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerBlockRequestEncoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerConsensusDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerConsensusEncoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerHeartbeatDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerHeartbeatEncoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerStatusDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerStatusEncoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerTransactionDecoder;
+import org.unigrid.hedgehog.model.network.codec.LedgerTransactionEncoder;
+import org.unigrid.hedgehog.model.network.codec.PingEncoder;
+import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
+import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
+import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
+import org.unigrid.hedgehog.model.network.packet.LedgerConsensus;
+import org.unigrid.hedgehog.model.network.packet.LedgerHeartbeat;
+import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
+import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
+import org.unigrid.hedgehog.model.network.packet.Ping;
+import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
+import org.unigrid.hedgehog.service.ledger.LedgerGateway;
+import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
+
+@WeldSetup(value = { LedgerGateway.class, PendingRequests.class, Topology.class, ChannelMap.class,
+	ProtectedInterceptor.class }, scan = false)
+public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
+	private static final int FRAME_HEADER_SIZE = 8;
+	private static final int PORT = 52883;
+	private static final String PEER = "10.1.2.3";
+	private static final String OTHER = "10.4.5.6";
+
+	private record Call(String method, LedgerPeer from, Object argument) {
+	}
+
+	/* Everything that reaches the end of the pipeline, which only what no handler took gets to */
+	private static final class Remainder extends ChannelInboundHandlerAdapter {
+		private final List<Object> read = new ArrayList<>();
+
+		@Override
+		public void channelRead(ChannelHandlerContext ctx, Object message) {
+			read.add(message);
+		}
+	}
+
+	@Mocked private Network network;
+	@Mocked private NetOptions netOptions;
+	@Mocked private RestOptions restOptions;
+
+	@Inject private LedgerGateway gateway;
+	@Inject private PendingRequests pending;
+
+	private final List<Call> calls = new ArrayList<>();
+	private CompletableFuture<BlockBatch> answer;
+	private RuntimeException failure;
+
+	@BeforeTry
+	public void attachAStubDriver() {
+		calls.clear();
+		failure = null;
+		answer = CompletableFuture.completedFuture(LedgerWireFixtures.emptyBatch());
+		recordTheCallsOfADriver();
+		gateway.attach(aDriver());
+	}
+
+	private static LedgerDriver aDriver() {
+		return new ObjenesisStd().newInstance(LedgerDriver.class);
+	}
+
+	private void recordTheCallsOfADriver() {
+		new MockUp<LedgerDriver>() {
+			@Mock public void onTransaction(LedgerPeer from, Transaction transaction) {
+				if (failure != null) {
+					throw failure;
+				}
+
+				calls.add(new Call("onTransaction", from, transaction));
+			}
+
+			@Mock public void onMessage(LedgerPeer from, Message message) {
+				calls.add(new Call("onMessage", from, message));
+			}
+
+			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
+				calls.add(new Call("onHeartbeat", from, heartbeat));
+			}
+
+			@Mock public void onStatus(LedgerPeer from, Status status) {
+				calls.add(new Call("onStatus", from, status));
+			}
+
+			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
+				calls.add(new Call("onBlockRequest", from, request));
+				return answer;
+			}
+
+			@Mock public void onPeerConnected(LedgerPeer from) {
+				calls.add(new Call("onPeerConnected", from, null));
+			}
+		};
+	}
+
+	@Provide
+	Arbitrary<String> addresses() {
+		return Arbitraries.integers().between(1, 254).list().ofSize(4)
+			.map(parts -> String.join(".", parts.stream().map(String::valueOf).toList()));
+	}
+
+	private static EmbeddedChannel connectionFrom(final String address) {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+
+		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress(address, PORT));
+		return connection;
+	}
+
+	private static EmbeddedChannel streamOf(final Channel connection, final Remainder remainder) {
+		final List<ChannelHandler> handlers = new ArrayList<>();
+
+		handlers.add(new FrameDecoder());
+		handlers.addAll(LedgerPipeline.handlers());
+		handlers.add(remainder);
+		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false,
+			handlers.toArray(new ChannelHandler[0]));
+	}
+
+	private static EmbeddedChannel streamFrom(final String address) {
+		return streamOf(connectionFrom(address), new Remainder());
+	}
+
+	private static ByteBuf encoded(final Packet packet) {
+		final EmbeddedChannel channel = new EmbeddedChannel(LedgerPipeline.handlers().toArray(new ChannelHandler[0]));
+
+		channel.writeOutbound(packet);
+		return channel.readOutbound();
+	}
+
+	private static Packet sentBy(final EmbeddedChannel sender) {
+		final Object frame = sender.readOutbound();
+		final EmbeddedChannel receiver = new EmbeddedChannel(new FrameDecoder(), new LedgerTransactionDecoder(),
+			new LedgerConsensusDecoder(), new LedgerHeartbeatDecoder(), new LedgerStatusDecoder(),
+			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder());
+
+		assertThat("Nothing was sent", frame, notNullValue());
+		receiver.writeInbound(frame);
+		return receiver.readInbound();
+	}
+
+	private void sendAllKinds(final EmbeddedChannel channel, final int seed) {
+		channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(seed))
+			.build()));
+		channel.writeInbound(encoded(LedgerConsensus.builder().message(LedgerWireFixtures.message(seed)).build()));
+		channel.writeInbound(encoded(LedgerHeartbeat.builder().heartbeat(LedgerWireFixtures.heartbeat(seed)).build()));
+		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
+		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(seed)
+			.request(LedgerWireFixtures.request(seed)).build()));
+	}
+
+	@Property(tries = 10)
+	public void deliversEachPacketToTheMatchingMethodWithAPeerOfTheRemoteAddress(
+		@ForAll("addresses") String address, @ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamFrom(address);
+
+		sendAllKinds(channel, seed);
+
+		assertThat(calls.stream().map(Call::method).toList(), contains("onTransaction", "onMessage", "onHeartbeat",
+			"onStatus", "onBlockRequest"));
+		assertThat(calls.stream().map(Call::argument).toList(), contains(LedgerWireFixtures.transaction(seed),
+			LedgerWireFixtures.message(seed), LedgerWireFixtures.heartbeat(seed), LedgerWireFixtures.status(seed),
+			LedgerWireFixtures.request(seed)));
+		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(), contains(address));
+		assertThat(calls.stream().map(Call::from).distinct().count(), is(1L));
+		assertThat(calls.get(0).from(), sameInstance(gateway.peerOf(channel, () -> RemoteAddress.of(channel))));
+	}
+
+	@Example
+	public void namesTwoChannelsOfOneAddressAlike() {
+		final EmbeddedChannel first = streamFrom(PEER);
+		final EmbeddedChannel second = streamFrom(PEER);
+
+		sendAllKinds(first, 1);
+		sendAllKinds(second, 1);
+
+		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(), contains(PEER));
+		assertThat(calls.stream().map(Call::from).distinct().count(), is(2L));
+	}
+
+	@Property(tries = 5)
+	public void passesAPacketOfAnotherTypeOnUntouched(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final Remainder remainder = new Remainder();
+		final EmbeddedChannel channel = streamOf(connectionFrom(PEER), remainder);
+		final EmbeddedChannel encoder = new EmbeddedChannel(new PingEncoder());
+
+		encoder.writeOutbound(Ping.builder().nanoTime(seed).build());
+
+		final ByteBuf frame = encoder.readOutbound();
+		final byte[] body = ByteBufUtil.getBytes(frame, FRAME_HEADER_SIZE, frame.readableBytes() - FRAME_HEADER_SIZE);
+
+		channel.writeInbound(frame);
+
+		assertThat(remainder.read.size(), is(1));
+		assertThat(remainder.read.get(0), instanceOf(ByteBuf.class));
+		assertThat(ByteBufUtil.getBytes((ByteBuf) remainder.read.get(0)), equalTo(body));
+		assertThat(calls.isEmpty(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void dropsEveryPacketWhileNoDriverIsAttached(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		gateway.detach();
+		sendAllKinds(channel, seed);
+		channel.writeInbound(encoded(LedgerBlockBatch.builder().requestId(seed)
+			.batch(LedgerWireFixtures.emptyBatch()).build()));
+		channel.checkException();
+
+		assertThat(calls.isEmpty(), is(true));
+		assertThat(channel.isOpen(), is(true));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void answersABlockRequestOnTheChannelItCameOn(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final EmbeddedChannel connection = connectionFrom(PEER);
+		final EmbeddedChannel channel = streamOf(connection, new Remainder());
+		final EmbeddedChannel bystander = streamFrom(OTHER);
+
+		bystander.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
+		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(seed)
+			.request(LedgerWireFixtures.request(seed)).build()));
+
+		final LedgerBlockBatch reply = (LedgerBlockBatch) sentBy(channel);
+
+		assertThat(reply.getRequestId(), equalTo((long) seed));
+		assertThat(reply.getBatch(), equalTo(LedgerWireFixtures.emptyBatch()));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+		assertThat(connection.outboundMessages().isEmpty(), is(true));
+		assertThat(bystander.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void answersWhenTheDriverHasTheBlocksAndNotBefore() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		answer = new CompletableFuture<>();
+		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(7)
+			.request(LedgerWireFixtures.request(7)).build()));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		answer.complete(LedgerWireFixtures.emptyBatch());
+		assertThat(((LedgerBlockBatch) sentBy(channel)).getRequestId(), equalTo(7L));
+	}
+
+	@Example
+	public void leavesARequestUnansweredWhileTheStreamIsBacklogged() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final LedgerBlockRequest request = LedgerBlockRequest.builder().requestId(7)
+			.request(LedgerWireFixtures.request(7)).build();
+
+		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, false);
+		channel.writeInbound(encoded(request));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, true);
+		channel.writeInbound(encoded(request));
+		assertThat(((LedgerBlockBatch) sentBy(channel)).getRequestId(), equalTo(7L));
+	}
+
+	@Example
+	public void closesTheStreamWhenTheDriverThrows() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		failure = new RejectedExecutionException("The driver takes no more");
+		channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(1))
+			.build()));
+
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	@Example
+	public void doesNotAnswerARefusedRequestAndKeepsTheStreamOpen() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		answer = CompletableFuture.failedFuture(new RejectedExecutionException("The request is refused"));
+		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(7)
+			.request(LedgerWireFixtures.request(7)).build()));
+		channel.checkException();
+
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void completesTheRegisteredRequestWithTheBatch(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final long requestId = pending.nextRequestId();
+		final CompletableFuture<LedgerBlockBatch> waiting = pending.register(requestId, channel,
+			LedgerBlockBatch.class);
+
+		channel.writeInbound(encoded(LedgerBlockBatch.builder().requestId(requestId)
+			.batch(LedgerWireFixtures.emptyBatch()).build()));
+
+		assertThat(waiting.isDone(), is(true));
+		assertThat(waiting.getNow(null).getBatch(), equalTo(LedgerWireFixtures.emptyBatch()));
+		assertThat(calls.isEmpty(), is(true));
+	}
+
+	@Example
+	public void ignoresABatchThatComesOnAnotherChannel() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final EmbeddedChannel stranger = streamFrom(OTHER);
+		final long requestId = pending.nextRequestId();
+		final CompletableFuture<LedgerBlockBatch> waiting = pending.register(requestId, channel,
+			LedgerBlockBatch.class);
+
+		stranger.writeInbound(encoded(LedgerBlockBatch.builder().requestId(requestId)
+			.batch(LedgerWireFixtures.emptyBatch()).build()));
+
+		assertThat(waiting.isDone(), is(false));
+		pending.fail(requestId, new RejectedExecutionException("done with the request"));
+	}
+
+	@Example
+	public void completesARequestOfThePeerWithTheReplyOfItsChannel() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final LedgerPeer peer = gateway.peerOf(channel, () -> RemoteAddress.of(channel));
+		final CompletableFuture<BlockBatch> reply = peer.request(LedgerWireFixtures.request(3));
+		final LedgerBlockRequest sent = (LedgerBlockRequest) sentBy(channel);
+
+		assertThat(sent.getRequest(), equalTo(LedgerWireFixtures.request(3)));
+		channel.writeInbound(encoded(LedgerBlockBatch.builder().requestId(sent.getRequestId())
+			.batch(LedgerWireFixtures.emptyBatch()).build()));
+
+		assertThat(reply.getNow(null), equalTo(LedgerWireFixtures.emptyBatch()));
+	}
+
+	@Example
+	public void buildsFreshHandlersWithACodecForEveryLedgerType() {
+		final List<ChannelHandler> first = LedgerPipeline.handlers();
+		final List<ChannelHandler> second = LedgerPipeline.handlers();
+
+		assertThat(first.size(), equalTo(second.size()));
+
+		for (int i = 0; i < first.size(); i++) {
+			assertThat(first.get(i), not(sameInstance(second.get(i))));
+			assertThat(first.get(i).getClass(), equalTo(second.get(i).getClass()));
+		}
+
+		assertThat(first.stream().<Object>map(Object::getClass).toList(), containsInAnyOrder(
+			(Object) LedgerTransactionEncoder.class, LedgerTransactionDecoder.class, LedgerConsensusEncoder.class,
+			LedgerConsensusDecoder.class, LedgerHeartbeatEncoder.class, LedgerHeartbeatDecoder.class,
+			LedgerStatusEncoder.class, LedgerStatusDecoder.class, LedgerBlockRequestEncoder.class,
+			LedgerBlockRequestDecoder.class, LedgerBlockBatchEncoder.class, LedgerBlockBatchDecoder.class,
+			LedgerTransactionChannelHandler.class, LedgerConsensusChannelHandler.class,
+			LedgerHeartbeatChannelHandler.class, LedgerStatusChannelHandler.class,
+			LedgerBlockRequestChannelHandler.class, StorageResponseChannelHandler.class));
+	}
+
+	@Example
+	public void announcesAChannelToTheDriverOnce() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final Consumer<Channel> announce = new LedgerStatusSchedule().getConsumer();
+
+		announce.accept(channel);
+		announce.accept(channel);
+		announce.accept(channel);
+
+		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
+		assertThat(calls.get(0).from().id(), equalTo(PEER));
+	}
+
+	@Example
+	public void announcesAChannelWhenTheDriverComesAndToEachDriverOnce() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final Consumer<Channel> announce = new LedgerStatusSchedule().getConsumer();
+
+		gateway.detach();
+		announce.accept(channel);
+		assertThat(calls.isEmpty(), is(true));
+
+		gateway.attach(aDriver());
+		announce.accept(channel);
+		announce.accept(channel);
+		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
+
+		gateway.attach(aDriver());
+		announce.accept(channel);
+		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected", "onPeerConnected"));
+	}
+
+	@Example
+	public void runsAtOnceWhenTheChannelIsMadeAndThenEveryTenSeconds() {
+		final LedgerStatusSchedule schedule = new LedgerStatusSchedule();
+
+		assertThat(schedule.isExecuteOnCreation(), is(true));
+		assertThat(schedule.getPeriod(), equalTo(10));
+		assertThat(schedule.getTimeUnit(), equalTo(TimeUnit.SECONDS));
+	}
+}

@@ -46,6 +46,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -66,10 +67,12 @@ import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
+import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Slf4j
@@ -107,30 +110,8 @@ public class P2PServer extends AbstractServer {
 					quicChannel.pipeline().addLast(new ConnectionHandler());
 				}
 			})
-			.streamHandler(new RegisterQuicChannelInitializer(() -> {
-				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
-					new LoggingHandler(LogLevel.DEBUG),
-					new FrameDecoder(),
-					new HelloDecoder(),
-					new GridnodeEncoder(), new GridnodeDecoder(),
-					new PingEncoder(), new PingDecoder(),
-					new PublishSporkEncoder(), new PublishSporkDecoder(),
-					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new HelloChannelHandler(), new PublishPeersChannelHandler(),
-					new PublishGridnodeChannelHandler()
-				));
-
-				handlers.addAll(StoragePipeline.handlers());
-				return handlers;
-			}, () -> {
-				return Arrays.asList(
-					new PingSchedule(),
-					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule(),
-					new PublishGridnodeSchedule()
-				);
-			}, RegisterQuicChannelInitializer.Type.SERVER)).build();
+			.streamHandler(new RegisterQuicChannelInitializer(P2PServer::handlers, P2PServer::schedulers,
+				RegisterQuicChannelInitializer.Type.SERVER)).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
@@ -140,6 +121,35 @@ public class P2PServer extends AbstractServer {
 		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
+	}
+
+	static List<ChannelHandler> handlers() {
+		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+			new LoggingHandler(LogLevel.DEBUG),
+			new FrameDecoder(),
+			new HelloDecoder(),
+			new GridnodeEncoder(), new GridnodeDecoder(),
+			new PingEncoder(), new PingDecoder(),
+			new PublishSporkEncoder(), new PublishSporkDecoder(),
+			new PublishPeersEncoder(), new PublishPeersDecoder(),
+			new PingChannelHandler(), new PublishSporkChannelHandler(),
+			new HelloChannelHandler(), new PublishPeersChannelHandler(),
+			new PublishGridnodeChannelHandler()
+		));
+
+		handlers.addAll(StoragePipeline.handlers());
+		handlers.addAll(LedgerPipeline.handlers());
+		return handlers;
+	}
+
+	static List<Schedulable> schedulers() {
+		return Arrays.asList(
+			new PingSchedule(),
+			new PublishPeersSchedule(),
+			new PublishAndSaveSporkSchedule(),
+			new PublishGridnodeSchedule(),
+			new LedgerStatusSchedule()
+		);
 	}
 
 	@Override
