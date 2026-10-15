@@ -94,10 +94,19 @@ public final class Ledger implements ConsensusApp {
 			.proposer(proposer).lastCommit(state.tipCertificate()).build());
 	}
 
-	/* The same test that propose makes, at the same time, so a quiet chain is one where no block could be made */
+	/* The same test that propose makes, at the same time, so a quiet chain is one where no block could be made. The
+	   engine asks it every second of a quiet chain, so when there is no fee to pay out, nothing waiting and no mint
+	   due, the answer is given without the copy of the state that the check of a block makes. */
 	@Override
 	public synchronized boolean hasWork(long time) {
-		return state.pool() > 0 || !applicableAt(blockTimeFor(time)).isEmpty();
+		final long blockTime = blockTimeFor(time);
+
+		state.askAuthorityAt(blockTime);
+		return !isPlainlyQuiet(blockTime) && (state.pool() > 0 || !applicableAt(blockTime).isEmpty());
+	}
+
+	private boolean isPlainlyQuiet(long blockTime) {
+		return state.pool() == 0 && mempool.size() == 0 && state.dueMints(blockTime).isEmpty();
 	}
 
 	/* A block is never dated before the tip */

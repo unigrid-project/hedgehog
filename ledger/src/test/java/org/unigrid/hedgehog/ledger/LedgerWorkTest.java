@@ -171,6 +171,31 @@ public class LedgerWorkTest {
 		}
 	}
 
+	/* A ledger with no fee to pay out, nothing waiting and no mint due says no without looking at any block, and each
+	   of the three alone is enough to make it look */
+	@Example
+	public void shouldLookForWorkWhenAnyOneOfFeesTransactionsAndMintsIsThere() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger quiet = open(fileSystem, "quiet", dueAt(Map.of(DUE, 20_000L)));
+			final Ledger fees = open(fileSystem, "fees", ANY_MINT);
+			final Ledger waiting = open(fileSystem, "waiting", ANY_MINT);
+
+			assertWork(quiet, 19_999, false);
+			assertWork(quiet, 20_000, true);
+
+			fundFirstAndThirdAccount(FOUNDATION, 2000, fees);
+			fees.submit(paying(fees, 10, 10, 0));
+			fees.commit(nextBlock(fees, FOUNDATION, 3000));
+			assertThat(fees.pending(), equalTo(0));
+			assertWork(fees, 3000, true);
+
+			fundFirstAndThirdAccount(FOUNDATION, 2000, waiting);
+			assertWork(waiting, 3000, false);
+			waiting.submit(paying(waiting, 10, 0, 0));
+			assertWork(waiting, 3000, true);
+		}
+	}
+
 	/* The time work is asked about is for the block that would be made: what the node takes in is still judged at
 	   its own clock, so a mint that is due at that later time but not yet by the clock is refused */
 	@Example
