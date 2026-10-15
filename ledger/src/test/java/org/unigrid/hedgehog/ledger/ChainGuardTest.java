@@ -105,6 +105,33 @@ public class ChainGuardTest {
 	}
 
 	@Example
+	public void shouldFindACertifiedNextBlockThatDoesNotFollowTheTipTheSignOfAnotherChain() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Ledger held = ledgerOf(fileSystem, "held", 3, 10);
+			final Ledger other = ledgerOf(fileSystem, "other", 4, 11);
+
+			assertThat(ChainGuard.contradiction(held, trusting(null), first(other, 4)),
+				equalTo(Optional.of("Chain diverged at 4")));
+			assertThat(ChainGuard.contradiction(held, trusting(null), spoiled(first(other, 4))).isPresent(), is(false));
+			assertThat(ChainGuard.contradiction(held, trusting(null), first(other, 3)),
+				equalTo(Optional.of("Two certified blocks at height 3")));
+		}
+	}
+
+	@Example
+	public void shouldSeeABlockAsConflictingOnlyWhenItIsAnotherBlockAtAHeldHeight() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Ledger held = ledgerOf(fileSystem, "held", 3, 10);
+			final Ledger other = ledgerOf(fileSystem, "other", 4, 11);
+
+			assertThat(ChainGuard.conflictsWithHeld(held, first(other, 2)), is(true));
+			assertThat(ChainGuard.conflictsWithHeld(held, spoiled(first(other, 2))), is(true));
+			assertThat(ChainGuard.conflictsWithHeld(held, first(held, 2)), is(false));
+			assertThat(ChainGuard.conflictsWithHeld(held, first(other, 4)), is(false));
+		}
+	}
+
+	@Example
 	public void shouldFindNothingInABlockTheLedgerHoldsOrTheNextOne() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final Ledger held = ledgerOf(fileSystem, "held", 3, 10);

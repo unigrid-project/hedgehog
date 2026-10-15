@@ -273,11 +273,26 @@ public final class LedgerDriver implements Closeable {
 		inbound(item, () -> deliver(item, message));
 	}
 
-	/* A decision that contradicts the chain or the checkpoint is not given to the node: it halts the driver */
 	private void deliver(Item item, Message message) {
-		if (!(message instanceof Decision decision) || syncer.vet(decision.block())) {
+		if (!(message instanceof Decision decision) || admitted(item, decision.block())) {
 			receive(item, node -> gossip.message(node, message));
 		}
+	}
+
+	/* A decision that contradicts the chain or the checkpoint is not given to the node: it halts the driver. One that
+	   holds another block than the ledger holds at its height and that no quorum has certified is forged, and its
+	   sender owes for it. */
+	private boolean admitted(Item item, Block block) {
+		if (!syncer.vet(block)) {
+			return false;
+		}
+
+		if (ChainGuard.conflictsWithHeld(supervisor.ledger(), block)) {
+			limiter.misbehaved(item.from().id(), Gossip.MESSAGE_COST);
+			return false;
+		}
+
+		return true;
 	}
 
 	/* A status says where the chain of a peer stands. It takes its token before anything is made of it. */
@@ -401,12 +416,21 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	/* The engine broadcasts a decision it took from a peer as it does its own. The peer has it already, and a decision
-	   carries a whole block, so it is left out of the broadcast. */
+	   carries a whole block, so it is left out of the broadcast. A block that the node decided itself is held to the
+	   checkpoint before anything is said of it: if it is not the checkpoint the driver halts and says nothing. */
 	private void perform(List<Action> actions, Item item) {
-		actions.forEach(action -> carryOut(action, item));
+		final boolean decided = actions.stream().anyMatch(Decide.class::isInstance);
 
-		if (actions.stream().anyMatch(Decide.class::isInstance)) {
-			sendStatus();
+		if (decided) {
+			ChainGuard.heldContradiction(supervisor.ledger(), options).ifPresent(supervisor::halt);
+		}
+
+		if (supervisor.running()) {
+			actions.forEach(action -> carryOut(action, item));
+
+			if (decided) {
+				sendStatus();
+			}
 		}
 	}
 

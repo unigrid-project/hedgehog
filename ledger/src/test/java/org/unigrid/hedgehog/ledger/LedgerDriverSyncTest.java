@@ -755,27 +755,126 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldNotHaltOnADecisionOfAHeldHeightThatNoQuorumHasCertified() throws IOException {
+	public void shouldNotHaltOnADecisionOfAHeldHeightThatNoQuorumHasCertifiedAndChargeItsSender()
+		throws IOException {
 		try (Chain chain = new Chain(3, 10); Chain fork = new Chain(3, 11); DriverRig rig = fresh(TOUCHY)) {
 			final Server server = new Server("S", chain);
-			final RecordingPeer other = rig.network.connect("O");
 			final Block certified = fork.block(2);
 			final Endorsement one = certified.getEndorsements().get(0);
+			final List<Block> forged = List.of(certifiedBy(certified, List.of(one)),
+				certifiedBy(certified, List.of(one, one, one)), spoiled(certified),
+				certifiedBy(certified, List.of()), LedgerFixtures.certify(certifiedBy(certified, List.of()),
+					certified.getView(), chain.ledger.chainId(), seeds(5, 4)));
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(other, new Decision(certifiedBy(certified, List.of(one))));
-			rig.driver.onMessage(other, new Decision(certifiedBy(certified, List.of(one, one, one))));
-			rig.driver.onMessage(other, new Decision(spoiled(certified)));
-			rig.driver.onMessage(other, new Decision(certifiedBy(certified, List.of())));
-			rig.driver.onMessage(other, new Decision(LedgerFixtures.certify(
-				certifiedBy(certified, List.of()), certified.getView(), chain.ledger.chainId(), seeds(5, 4))));
+
+			for (int n = 0; n < forged.size(); n++) {
+				final RecordingPeer sender = rig.network.connect("O" + n);
+
+				rig.driver.onMessage(sender, new Decision(forged.get(n)));
+
+				assertThat(rig.limiter.isPenalised("O" + n), is(true));
+			}
 
 			assertThat(rig.driver.halted(), is(false));
-			assertThat(rig.limiter.isPenalised("O"), is(false));
 
-			rig.driver.onMessage(other, new Decision(certified));
+			rig.driver.onMessage(rig.network.connect("G"), new Decision(certified));
 
 			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.limiter.isPenalised("G"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenACertifiedBlockOfAnotherChainIsTheNextAndFollowsNotTheTip() throws IOException {
+		try (Chain chain = new Chain(3, 10); Chain other = new Chain(4, 11);
+			DriverRig rig = startedOver(chain, 3, null, TOUCHY)) {
+			final RecordingPeer sender = rig.network.connect("O");
+
+			rig.driver.onMessage(sender, new Decision(other.block(4)));
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Chain diverged at 4")));
+			assertThat(rig.limiter.isPenalised("O"), is(false));
+			assertThat(rig.ledger().height(), equalTo(3L));
+		}
+	}
+
+	@Example
+	public void shouldHaltInsteadOfBlamingAPeerWhoseBlocksAreOfAnotherChainThanTheTip() throws IOException {
+		try (Chain chain = new Chain(3, 10); Chain other = new Chain(8, 11);
+			DriverRig rig = startedOver(chain, 3, null, TOUCHY)) {
+			final Server server = new Server("B", other);
+
+			rig.hears(server, server.status());
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Chain diverged at 4")));
+			assertThat(rig.limiter.isPenalised("B"), is(false));
+			assertThat(rig.ledger().height(), equalTo(3L));
+			assertThat(server.requests, hasSize(1));
+		}
+	}
+
+	@Example
+	public void shouldNotHaltOnABlockOfAnotherChainThatNoQuorumHasCertified() throws IOException {
+		try (Chain chain = new Chain(3, 10); Chain other = new Chain(4, 11);
+			DriverRig rig = startedOver(chain, 3, null, DriverRig.STRICT)) {
+			final RecordingPeer sender = rig.network.connect("O");
+
+			rig.driver.onMessage(sender, new Decision(spoiled(other.block(4))));
+
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.limiter.isPenalised("O"), is(true));
+		}
+	}
+
+	@Example
+	public void shouldBlameAPeerWhoseBatchHoldsAnotherUncertifiedBlockAtAHeldHeight() throws IOException {
+		try (Chain chain = new Chain(3, 10); Chain other = new Chain(3, 11); DriverRig rig = fresh(TOUCHY)) {
+			final Server server = new Server("S", other).holding().serving(
+				request -> spoiling(other.ledger.blocksFrom(request.from(), request.max()), 1));
+			final RecordingPeer live = rig.network.connect("L");
+
+			rig.hears(server, server.status());
+			rig.driver.onMessage(live, new Decision(chain.block(1)));
+			server.release();
+
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.ledger().height(), equalTo(1L));
+			assertThat(rig.limiter.isPenalised("S"), is(true));
+			assertThat(rig.driver.doubts("S"), is(true));
+		}
+	}
+
+	@Example
+	public void shouldHaltBeforeItSaysAnythingWhenItsOwnDecisionIsNotTheCheckpoint() throws IOException {
+		try (Chain other = new Chain(1, 11);
+			DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, new DirectSerial(),
+				trusting(new Checkpoint(1, other.block(1).hash()))).started().promoted()) {
+			final RecordingPeer watcher = rig.network.connect("W");
+
+			rig.driver.submit(mint(1, 500)).join();
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Block 1 differs from the trusted checkpoint")));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(watcher.sent(Decision.class), is(empty()));
+			assertThat(watcher.sent(Status.class), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldNotHaltWhenItsOwnDecisionIsTheCheckpoint() throws IOException {
+		try (DriverRig first = DriverRig.solo()) {
+			first.driver.submit(mint(1, 500)).join();
+
+			final byte[] decided = first.ledger().blocksFrom(1, 1).get(0).hash();
+
+			try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, new DirectSerial(),
+				trusting(new Checkpoint(1, decided))).started().promoted()) {
+				rig.driver.submit(mint(1, 500)).join();
+
+				assertThat(rig.ledger().height(), equalTo(1L));
+				assertThat(rig.driver.halted(), is(false));
+			}
 		}
 	}
 

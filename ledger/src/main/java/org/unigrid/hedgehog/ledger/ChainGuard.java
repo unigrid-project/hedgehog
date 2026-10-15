@@ -37,14 +37,18 @@ final class ChainGuard {
 	}
 
 	/* Why the block must not be applied, if it must not: it is not the checkpoint, or it is a second certified block at
-	   a height the ledger holds */
+	   a height the ledger holds, or a certified block that follows another block than the tip, which is the sign of a
+	   node on another chain */
 	static Optional<String> contradiction(Ledger ledger, DriverOptions options, Block block) {
 		if (clashesWithCheckpoint(ledger, options, block)) {
 			return Optional.of(differsFromCheckpoint(block.getHeight()));
 		}
 
-		return forks(ledger, block) ? Optional.of("Two certified blocks at height " + block.getHeight())
-			: Optional.empty();
+		if (forks(ledger, block)) {
+			return Optional.of("Two certified blocks at height " + block.getHeight());
+		}
+
+		return diverges(ledger, block) ? Optional.of("Chain diverged at " + block.getHeight()) : Optional.empty();
 	}
 
 	/* Only the block that comes next can be certified here, and one that is not valid is left to be refused */
@@ -54,9 +58,21 @@ final class ChainGuard {
 			&& ledger.validateCertified(block).isEmpty();
 	}
 
-	private static boolean forks(Ledger ledger, Block block) {
+	/* A block of a height the ledger holds that is not the block it holds there */
+	static boolean conflictsWithHeld(Ledger ledger, Block block) {
 		return block.getHeight() <= ledger.height() && ledger.hashAt(block.getHeight())
-			.filter(held -> !Arrays.equals(held, block.hash())).isPresent() && certified(ledger, block);
+			.filter(held -> !Arrays.equals(held, block.hash())).isPresent();
+	}
+
+	private static boolean forks(Ledger ledger, Block block) {
+		return conflictsWithHeld(ledger, block) && certified(ledger, block);
+	}
+
+	/* The next block, certified by the validators there are, that does not follow the tip: this node holds a chain that
+	   the validators have not built on */
+	private static boolean diverges(Ledger ledger, Block block) {
+		return block.getHeight() == ledger.height() + 1 && !Arrays.equals(block.getPreviousHash(), ledger.tipHash())
+			&& certified(ledger, block);
 	}
 
 	/* By more than 2/3 of the validators there are now, each counted once, and every signature a precommit for the

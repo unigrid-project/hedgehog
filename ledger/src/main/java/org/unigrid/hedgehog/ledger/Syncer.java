@@ -181,7 +181,7 @@ final class Syncer {
 		final long before = supervisor.ledger().height();
 
 		if (block.getHeight() <= before) {
-			return true;
+			return echoes(peer, block);
 		}
 
 		final Optional<List<Action>> actions = supervisor.itemCall(peer, "block batch",
@@ -189,6 +189,18 @@ final class Syncer {
 
 		actions.ifPresent(this::carryOutSynced);
 		return actions.isPresent() && movedUpByOne(before, peer);
+	}
+
+	/* A block the ledger holds is an echo. Another block at that height that no quorum has certified, for if one had
+	   the driver would have halted, is something that no honest peer serves. */
+	private boolean echoes(LedgerPeer peer, Block block) {
+		final boolean conflicting = ChainGuard.conflictsWithHeld(supervisor.ledger(), block);
+
+		if (conflicting) {
+			blame(peer);
+		}
+
+		return !conflicting;
 	}
 
 	private boolean movedUpByOne(long before, LedgerPeer peer) {
