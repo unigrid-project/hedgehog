@@ -95,7 +95,8 @@ public class ConsensusSimulationTest {
 	private static final long RESTART_WINDOW_MILLIS = 500;
 	private static final int RESTART_ODDS = 10;
 	private static final long[] RESTART_TIMES = {700, 1500, 2300, 3100, 4200};
-	private static final int RESTART_WITHOUT_LAST_EVENT = 2;
+	private static final Consensus.Step[] RESTART_STEPS = {Consensus.Step.PREVOTE, Consensus.Step.PRECOMMIT, null,
+		Consensus.Step.PROPOSE, Consensus.Step.PRECOMMIT};
 	private static final int RESTART_GOAL = 3;
 
 	/* Over 1500 random runs the slowest needed 5.5 seconds to finish once the network worked again, so ten minutes are
@@ -986,13 +987,8 @@ public class ConsensusSimulationTest {
 		assertThat(first.net().now(), equalTo(second.net().now()));
 	}
 
-	/* A node that restarts is found in the state it wrote down. The restart that loses its last event is made at the
-	   first moment on which the node has something on its way, or there would be nothing to lose. */
+	/* A node that restarts is found in the state it wrote down */
 	private static void restartAndExpectTheSameState(SimulatedNetwork net, SimNode node, boolean losingTheLastEvent) {
-		if (losingTheLastEvent) {
-			runUntil(net, () -> net.unsent(node.index) > 0);
-		}
-
 		final SignState before = node.engine.snapshot();
 
 		assertThat(node.decided.size(), lessThan(RESTART_GOAL));
@@ -1006,8 +1002,10 @@ public class ConsensusSimulationTest {
 		assertThat(node.engine.snapshot(), equalTo(before));
 	}
 
-	/* The links take between a fifth and six tenths of a second, so a height lasts several seconds and every
-	   restart finds the node in a height that is not over, in each of the steps of it */
+	/* The links take between a fifth and six tenths of a second, so a height lasts several seconds and every restart
+	   finds the node in a height that is not over. Each restart is made at the first moment from its time on at which
+	   the node is in the step it is meant to hit; the one that loses its last event waits for a moment at which that
+	   event has something on its way, or there would be nothing to lose. */
 	@Example
 	public void shouldAgreeWhenNodesRestartFromDiskAtEveryStep() {
 		final SimulatedNetwork net = network(4, RESTART_GOAL, 5);
@@ -1018,10 +1016,12 @@ public class ConsensusSimulationTest {
 
 		for (int i = 0; i < RESTART_TIMES.length; i++) {
 			final SimNode node = net.nodes.get(i % 4);
+			final Consensus.Step step = RESTART_STEPS[i];
 
 			runWithoutEquivocation(net, RESTART_TIMES[i] - net.now(), () -> false);
+			runUntil(net, () -> step == null ? net.unsent(node.index) > 0 : node.engine.step() == step);
 			stepsHit.add(node.engine.step());
-			restartAndExpectTheSameState(net, node, i == RESTART_WITHOUT_LAST_EVENT);
+			restartAndExpectTheSameState(net, node, step == null);
 		}
 
 		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(RESTART_GOAL, Set.of()));

@@ -26,6 +26,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.Action.*;
 import static org.unigrid.hedgehog.ledger.Ballot.Type.PRECOMMIT;
@@ -176,8 +177,39 @@ public class ConsensusRestoreTest {
 
 		assertRestoredAs(engine, restart);
 		assertThat(restart.engine().step(), equalTo(Consensus.Step.PREVOTE));
-		assertThat(restart.actions(), equalTo(broadcasts(engine.outbox())));
-		assertThat(restart.actions().size(), equalTo(1));
+		assertThat(restart.actions(), equalTo(timersThenMessages(List.of(schedule(Timeout.Kind.PREVOTE, 0, 1000)),
+			engine.outbox())));
+		assertThat(restart.actions().size(), equalTo(2));
+	}
+
+	/* Nothing else is heard from the peers, as when they rest after a downtime longer than they say things again: the
+	   timer of the step is all that takes the node on */
+	@Example
+	public void shouldMoveOnToPrecommitNilByItselfWhenRestoredInThePrevoteStep() {
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(0, -1, proposed(0, "a")), 10);
+
+		final Restart restart = restart(engine, MUCH_LATER);
+		final Consensus again = restart.engine();
+		final List<Ballot> sent = ballots(again.onTimeout(timeout(Timeout.Kind.PREVOTE, 0), MUCH_LATER + 1000));
+
+		assertThat(restart.actions(), hasItem(schedule(Timeout.Kind.PREVOTE, 0, 1000)));
+		assertThat(sent.size(), equalTo(1));
+		assertThat(sent.get(0).type(), equalTo(PRECOMMIT));
+		assertThat(sent.get(0).isNil(), is(true));
+		assertThat(again.step(), equalTo(Consensus.Step.PRECOMMIT));
+	}
+
+	@Example
+	public void shouldMoveOnToTheNextViewByItselfWhenRestoredInThePrecommitStep() {
+		lockOnBlockOfViewZero(proposed(0, "a"));
+
+		final Restart restart = restart(engine, MUCH_LATER);
+
+		assertThat(restart.actions(), hasItem(schedule(Timeout.Kind.PRECOMMIT, 0, 1500)));
+		assertThat(restart.engine().onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), MUCH_LATER + 1500),
+			equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 1, 3500))));
+		assertThat(restart.engine().view(), equalTo(1));
 	}
 
 	@Example
@@ -195,8 +227,9 @@ public class ConsensusRestoreTest {
 		assertThat(state.lockedBlock(), equalTo(block));
 		assertThat(state.validBlock(), equalTo(block));
 		assertThat(state.validView(), equalTo(0));
-		assertThat(restart.actions(), equalTo(broadcasts(engine.outbox())));
-		assertThat(restart.actions().size(), equalTo(2));
+		assertThat(restart.actions(), equalTo(timersThenMessages(List.of(schedule(Timeout.Kind.PRECOMMIT, 0, 1500)),
+			engine.outbox())));
+		assertThat(restart.actions().size(), equalTo(3));
 	}
 
 	@Example
@@ -210,8 +243,9 @@ public class ConsensusRestoreTest {
 
 		assertRestoredAs(engine, restart);
 		assertThat(restart.engine().step(), equalTo(Consensus.Step.PRECOMMIT));
-		assertThat(restart.actions(), equalTo(broadcasts(engine.outbox())));
-		assertThat(restart.actions().size(), equalTo(2));
+		assertThat(restart.actions(), equalTo(timersThenMessages(List.of(schedule(Timeout.Kind.PRECOMMIT, 0, 1500)),
+			engine.outbox())));
+		assertThat(restart.actions().size(), equalTo(3));
 	}
 
 	@Example

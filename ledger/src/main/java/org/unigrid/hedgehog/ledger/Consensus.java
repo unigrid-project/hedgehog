@@ -398,8 +398,21 @@ public final class Consensus {
 		state.proposals().forEach(this::keepOwn);
 		state.ballots().forEach(box::add);
 
-		if (!running) {
+		if (running) {
+			armTimerOfStep();
+		} else {
 			resendUntil = now + resendWindow();
+		}
+	}
+
+	/* The timers died with the process, and the quorum that armed the one of a late step is not in the state, so it is
+	   armed again: it only takes the node on to a vote for no block or to the next view. Without it a node that comes
+	   back after its peers stopped saying things again would wait for a quorum that never turns up. */
+	private void armTimerOfStep() {
+		if (step == Step.PREVOTE) {
+			prevoteTimers.add(view);
+		} else if (step == Step.PRECOMMIT) {
+			precommitTimers.add(view);
 		}
 	}
 
