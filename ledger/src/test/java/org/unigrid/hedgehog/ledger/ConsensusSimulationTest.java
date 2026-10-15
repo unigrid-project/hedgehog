@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
@@ -98,6 +99,16 @@ public class ConsensusSimulationTest {
 	private static final Consensus.Step[] RESTART_STEPS = {Consensus.Step.PREVOTE, Consensus.Step.PRECOMMIT, null,
 		Consensus.Step.PROPOSE, Consensus.Step.PRECOMMIT};
 	private static final int RESTART_GOAL = 3;
+
+	/* A node can be away for longer than the minute at most in which its peers say things again, and the chain has to
+	   move while it is, so the goal is a few heights on links that take their time. A generous time after the last
+	   restart is more than a hundred times what a node needs to catch up. */
+	private static final long LONGEST_DOWNTIME_MILLIS = 70_000;
+	private static final long LATEST_CRASH_MILLIS = 30_000;
+	private static final long FIRST_CRASH_SPREAD_MILLIS = 3_000;
+	private static final long BETWEEN_DOWNTIMES_SPREAD_MILLIS = 5_000;
+	private static final int DOWNTIME_GOAL = 5;
+	private static final long CATCH_UP_MILLIS = 300_000;
 
 	/* Over 1500 random runs the slowest needed 5.5 seconds to finish once the network worked again, so ten minutes are
 	   more than a hundred times that and still end a run that is stuck */
@@ -191,6 +202,59 @@ public class ConsensusSimulationTest {
 				net.restartFromDisk(index);
 			}
 		});
+	}
+
+	/* Nodes go down and come back from their disks after a time of 0 up to 70 seconds, which is more than their peers
+	   keep saying what they signed. The downtimes sit in as many tracks as the engines stand down at one time, one
+	   after the other in each, and no node is down twice at once. What happens is written to the events, for a run
+	   that fails. */
+	private static SimulatedNetwork downtimeRun(long seed, List<String> events) {
+		final Random random = new Random(seed);
+		final int count = 4 + random.nextInt(4);
+		final SimulatedNetwork net = network(count, DOWNTIME_GOAL, seed ^ NETWORK_SEED_MASK);
+		final long[] backAt = new long[count];
+		long lastRestart = 0;
+
+		net.latency(5, 50 + random.nextInt(250));
+		net.dropRate(random.nextDouble() * 0.2);
+
+		for (int track = 0; track < (count - 1) / 3; track++) {
+			long cursor = random.nextInt((int) FIRST_CRASH_SPREAD_MILLIS);
+
+			while (cursor < LATEST_CRASH_MILLIS) {
+				final OptionalInt index = nodeThatIsUpAt(random, backAt, cursor);
+				long downtime = 0;
+
+				if (index.isPresent()) {
+					downtime = random.nextInt((int) LONGEST_DOWNTIME_MILLIS + 1);
+					backAt[index.getAsInt()] = cursor + downtime;
+					lastRestart = Math.max(lastRestart, cursor + downtime);
+					scheduleDowntime(net, index.getAsInt(), cursor, downtime, events);
+				}
+
+				cursor += downtime + 1 + random.nextInt((int) BETWEEN_DOWNTIMES_SPREAD_MILLIS);
+			}
+		}
+
+		net.begin();
+		runChecking(net, lastRestart + 1, () -> false, () -> assertNoEquivocation(net));
+		runChecking(net, CATCH_UP_MILLIS, () -> net.everyoneReached(DOWNTIME_GOAL, Set.of()),
+			() -> assertNoEquivocation(net));
+		return net;
+	}
+
+	/* A node with a downtime planned at or after the time is not up for a new one, whatever comes first */
+	private static OptionalInt nodeThatIsUpAt(Random random, long[] backAt, long time) {
+		final int first = random.nextInt(backAt.length);
+
+		return IntStream.range(0, backAt.length).map(offset -> (first + offset) % backAt.length)
+			.filter(index -> backAt[index] <= time).findFirst();
+	}
+
+	private static void scheduleDowntime(SimulatedNetwork net, int index, long at, long downtime, List<String> events) {
+		events.add("node " + index + " down at " + at + " for " + downtime);
+		net.after(at, () -> net.crash(index));
+		net.after(at + downtime, () -> net.restartFromDisk(index));
 	}
 
 	private static Set<Integer> randomNodes(Random random, int count, int wanted) {
@@ -974,6 +1038,21 @@ public class ConsensusSimulationTest {
 		assertThat(run.net().agreement(), is(true));
 		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
 		assertNoEquivocation(run.net());
+	}
+
+	/* If a seed fails, the events of its run are in the message of the failure */
+	@Property(tries = 30)
+	public void shouldAgreeAndCatchUpWhenNodesAreDownLongerThanTheirPeersSayThingsAgain(@ForAll long seed) {
+		final List<String> events = new ArrayList<>();
+
+		try {
+			final SimulatedNetwork net = downtimeRun(seed, events);
+
+			assertThat(net.everyoneReached(DOWNTIME_GOAL, Set.of()), is(true));
+			assertNoEquivocation(net);
+		} catch (AssertionError failure) {
+			throw new AssertionError("Seed " + seed + ": " + String.join("; ", events), failure);
+		}
 	}
 
 	@Example
