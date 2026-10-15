@@ -62,10 +62,6 @@ public class LedgerServeTest {
 		return sealed;
 	}
 
-	private static int sizeOf(Block block) {
-		return BlockCodec.encode(block).length;
-	}
-
 	private static List<Long> heights(List<Block> blocks) {
 		return blocks.stream().map(Block::getHeight).toList();
 	}
@@ -114,30 +110,16 @@ public class LedgerServeTest {
 	}
 
 	@Example
-	public void shouldStopBeforeTheEncodedBlocksPassTheByteBound() throws IOException {
+	public void shouldGiveNoMoreThanABatchHoldsHoweverManyAreAskedFor() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final Ledger ledger = open(fileSystem);
-			final List<Block> sealed = seal(ledger, BLOCKS);
-			final int firstThree = sizeOf(sealed.get(0)) + sizeOf(sealed.get(1)) + sizeOf(sealed.get(2));
+			final List<Block> sealed = seal(ledger, BlockBatch.MAX_BLOCKS + 4);
 
-			assertThat(ledger.blocksFrom(1, BLOCKS, firstThree), equalTo(sealed.subList(0, 3)));
-			assertThat(ledger.blocksFrom(1, BLOCKS, firstThree - 1), equalTo(sealed.subList(0, 2)));
-			assertThat(ledger.blocksFrom(1, BLOCKS, firstThree + sizeOf(sealed.get(3)) - 1),
-				equalTo(sealed.subList(0, 3)));
-			assertThat(ledger.blocksFrom(3, BLOCKS, sizeOf(sealed.get(2)) + sizeOf(sealed.get(3))),
-				equalTo(sealed.subList(2, 4)));
-			assertThat(ledger.blocksFrom(1, BLOCKS, Integer.MAX_VALUE), equalTo(sealed));
-		}
-	}
-
-	@Example
-	public void shouldGiveNothingWhenTheFirstBlockAloneIsOverTheByteBound() throws IOException {
-		try (FileSystem fileSystem = newFileSystem()) {
-			final Ledger ledger = open(fileSystem);
-			final List<Block> sealed = seal(ledger, BLOCKS);
-
-			assertThat(ledger.blocksFrom(1, BLOCKS, sizeOf(sealed.get(0)) - 1), is(empty()));
-			assertThat(ledger.blocksFrom(1, BLOCKS, 0), is(empty()));
+			assertThat(ledger.blocksFrom(1, BlockBatch.MAX_BLOCKS), equalTo(sealed.subList(0, 16)));
+			assertThat(ledger.blocksFrom(1, 100), equalTo(sealed.subList(0, 16)));
+			assertThat(ledger.blocksFrom(3, Integer.MAX_VALUE), equalTo(sealed.subList(2, 18)));
+			assertThat(ledger.blocksFrom(10, 100), equalTo(sealed.subList(9, 20)));
+			assertThat(new BlockBatch(ledger.blocksFrom(1, 100)).blocks().size(), equalTo(BlockBatch.MAX_BLOCKS));
 		}
 	}
 

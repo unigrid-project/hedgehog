@@ -23,8 +23,7 @@ import java.util.stream.IntStream;
 
 /* The answer to a block request: blocks that follow one another, each one height above the one before. The byte
    bound is of the encoded blocks together. It is no less than MAX_BLOCKS of the largest block there can be, so it
-   never refuses a batch of legal blocks; it is the cap of what a reader takes in for one batch, and what a sender
-   stops at, should the largest block ever grow. */
+   never refuses a batch of legal blocks; it is the cap of what a reader takes in for one batch. */
 public record BlockBatch(List<Block> blocks) {
 	public static final int MAX_BLOCKS = 16;
 	public static final int MAX_BYTES = 8 * 1024 * 1024;
