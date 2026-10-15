@@ -963,10 +963,14 @@ public class ConsensusViewsTest {
 	/* The proposal never came, and more than 2/3 of the precommits are in, none for a block: only the timeout is
 	   left, which is the moment the node decides whether to go on */
 	private List<Action> quorumOfNoBlock(int view, long at) {
-		final List<Action> actions = new ArrayList<>(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, view), at));
+		return quorumOfNoBlock(engine, view, at);
+	}
+
+	private static List<Action> quorumOfNoBlock(Consensus node, int view, long at) {
+		final List<Action> actions = new ArrayList<>(node.onTimeout(timeout(Timeout.Kind.PROPOSE, view), at));
 
 		for (int validator = 1; validator <= 3; validator++) {
-			actions.addAll(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, validator, view, null), at + 1));
+			actions.addAll(node.onMessage(ballot(Ballot.Type.PRECOMMIT, validator, view, null), at + 1));
 		}
 
 		return actions;
@@ -1084,7 +1088,8 @@ public class ConsensusViewsTest {
 		assertThat(engine.running(), is(false));
 	}
 
-	/* The node rested at 3007 in view 0, where a precommit timeout is 1500 ms, so it sends again until 3007 + 4500 */
+	/* The node rested at 3007 in view 0, where three precommit timeouts are 4500 ms, which is less than the shortest
+	   window, so it sends again until 3007 + 5000 */
 	@Example
 	public void shouldSendWhatItSignedAgainWhileItRestsAndThenGoSilent() {
 		goIdleAfterViewZero();
@@ -1094,9 +1099,43 @@ public class ConsensusViewsTest {
 
 		assertThat(signed.size(), equalTo(1));
 		assertThat(again, equalTo(List.of(new Broadcast(signed.get(0)))));
-		assertThat(engine.resume(3007 + 4500), equalTo(again));
-		assertThat(engine.resume(3007 + 4501).isEmpty(), is(true));
+		assertThat(engine.resume(3007 + 5000), equalTo(again));
+		assertThat(engine.resume(3007 + 5001).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldSendAgainForAtLeastFiveSecondsHoweverShortThePrecommitTimeoutIs() {
+		final Consensus quick = new Consensus(app, CHAIN, seed(4), new Timeouts(3000, 500, 1000, 300, 10, 1));
+
+		app.goal = 0;
+		quick.start(1, validators, 0);
+		quick.onMessage(prevoteBy(1, 0, null), 5);
+		quorumOfNoBlock(quick, 0, 3005);
+		quick.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
+
+		assertThat(quick.running(), is(false));
+		assertThat(quick.resume(3007 + 5000).size(), equalTo(1));
+		assertThat(quick.resume(3007 + 5001).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldSendAgainForAtMostAMinuteHoweverLongThePrecommitTimeoutOfTheViewIs() {
+		final int far = 1000;
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, far, null), 5);
+		engine.onMessage(prevoteBy(2, far, null), 6);
+
+		assertThat(engine.view(), equalTo(far));
+
+		quorumOfNoBlock(engine, far, 3005);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, far), 3007);
+
+		assertThat(engine.running(), is(false));
+		assertThat(engine.resume(3007 + 60_000).size(), equalTo(1));
+		assertThat(engine.resume(3007 + 60_001).isEmpty(), is(true));
 	}
 
 	@Example

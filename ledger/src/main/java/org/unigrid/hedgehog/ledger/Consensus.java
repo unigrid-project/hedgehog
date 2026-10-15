@@ -49,12 +49,17 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    of the next view, it starts no further view: it rests, with no timer, until work or a message of the height
    wakes it in the first view it has signed nothing in. A peer that is still running may have lost a message of the
    node that rests, so while it rests resume() says again what the node signed for a window of three precommit
-   timeouts of its view, and after that it is silent; the driver therefore ticks at least about once a second (the
-   default timeouts) and at least three times per window, which is the contract of the simulator's tick of one
-   second. What the node signed stays in outbox(). */
+   timeouts of its view, but at least 5 and at most 60 seconds, and after that it is silent. The driver therefore
+   ticks about once a second, which puts at least a few ticks in every window; that is the contract of the
+   simulator's tick of one second. What the node signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;
+
+	/* A tick of the driver is about a second, so the shortest window holds a few of them however short the timeouts
+	   are, and the longest keeps a rest in a view with a very long timeout from sending again for minutes */
+	private static final long MIN_RESEND_MILLIS = 5_000;
+	private static final long MAX_RESEND_MILLIS = 60_000;
 
 	public enum Step {
 		PROPOSE, PREVOTE, PRECOMMIT
@@ -344,10 +349,14 @@ public final class Consensus {
 
 		if (goesQuiet()) {
 			running = false;
-			resendUntil = now + RESEND_PRECOMMIT_TIMEOUTS * timeouts.precommit(view);
+			resendUntil = now + resendWindow();
 		} else {
 			startRound(view + 1);
 		}
+	}
+
+	private long resendWindow() {
+		return Math.clamp(RESEND_PRECOMMIT_TIMEOUTS * timeouts.precommit(view), MIN_RESEND_MILLIS, MAX_RESEND_MILLIS);
 	}
 
 	/* Nothing is left to wait for or to put forward: no work, no block the node is bound to or would offer again, and

@@ -70,11 +70,13 @@ public class ConsensusSimulationTest {
 	private static final int FAULTY_GOAL = 3;
 
 	/* With the precommit timeout of a second, the view with nothing in it ends at about 1.4 seconds on links of 40 ms
-	   and the nodes then say again what they signed for three timeouts, so by ten seconds they are silent for good,
-	   and the 20 that follow are the quiet that is looked for */
+	   and the nodes then say again what they signed for the five seconds of the shortest window, so by ten seconds
+	   they are silent for good, and the 20 that follow are the quiet that is looked for */
 	private static final long RESTED_BY_MILLIS = 1_500;
 	private static final long QUIET_AFTER_MILLIS = 10_000;
 	private static final long QUIET_WINDOW_MILLIS = 20_000;
+	private static final long QUIET_PRECOMMIT_MILLIS = 600;
+	private static final int QUIET_SEEDS = 5;
 
 	/* No messages can be lost for ever, so every node that is up decides well within this time */
 	private static final long STRANDED_SETTLE_MILLIS = 300_000;
@@ -336,6 +338,36 @@ public class ConsensusSimulationTest {
 		assertThat(receivedByAll(net), equalTo(received));
 		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
 		assertThat(nobodyDecided(net), is(true));
+	}
+
+	/* Links that take any time up to nearly the precommit timeout let some ballots of the one view arrive late, after
+	   a node has rested. They must not start a chain of further views: from a bounded time on the network is silent. */
+	@Example
+	public void shouldGoQuietAgainWhateverTheDelayOfLinksBelowThePrecommitTimeout() {
+		for (long seed = 1; seed <= QUIET_SEEDS; seed++) {
+			final SimulatedNetwork net = new SimulatedNetwork(4, 0, seed,
+				new Timeouts(PROPOSE_MILLIS, 100, 100, 50, QUIET_PRECOMMIT_MILLIS, 50));
+			final Liar liar = liar(net, 1);
+			final Ballot nudge = liar.vote(PREVOTE, 0, null);
+			final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+
+			net.latency(5, QUIET_PRECOMMIT_MILLIS - 100);
+			net.begin();
+			live.forEach(node -> liar.tell(node.index, nudge));
+			net.run(QUIET_AFTER_MILLIS);
+
+			final long sent = net.sent();
+			final int armed = live.stream().mapToInt(node -> node.armed).sum();
+			final int received = receivedByAll(net);
+
+			net.run(QUIET_AFTER_MILLIS + QUIET_WINDOW_MILLIS);
+
+			assertThat("seed " + seed, armed, greaterThan(0));
+			assertThat("seed " + seed, net.sent(), equalTo(sent));
+			assertThat("seed " + seed, live.stream().mapToInt(node -> node.armed).sum(), equalTo(armed));
+			assertThat("seed " + seed, receivedByAll(net), equalTo(received));
+			assertThat("seed " + seed, live.stream().noneMatch(node -> node.engine.running()), is(true));
+		}
 	}
 
 	/* Only one node has work, so the others rest after every view that has nothing for them and wake to its messages.
