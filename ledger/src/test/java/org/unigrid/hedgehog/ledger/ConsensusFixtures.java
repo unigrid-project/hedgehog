@@ -18,11 +18,14 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 final class ConsensusFixtures {
@@ -74,9 +77,12 @@ final class ConsensusFixtures {
 	static final class FakeApp implements ConsensusApp {
 		final List<Block> chain = new ArrayList<>();
 		final AccountKey self;
+		final Map<ByteBuffer, Integer> validateCalls = new HashMap<>();
+		int certifiedCalls;
 		ValidatorSet validators;
 		int goal;
 		boolean refuse;
+		boolean refuseCertified;
 
 		FakeApp(ValidatorSet validators, AccountKey self, int goal) {
 			this.validators = validators;
@@ -105,8 +111,17 @@ final class ConsensusFixtures {
 				: Optional.empty();
 		}
 
+		int validated(Block block) {
+			return validateCalls.getOrDefault(ByteBuffer.wrap(block.hash()), 0);
+		}
+
 		@Override
 		public Optional<String> validate(Block block) {
+			validateCalls.merge(ByteBuffer.wrap(block.hash()), 1, Integer::sum);
+			return check(block);
+		}
+
+		private Optional<String> check(Block block) {
 			if (refuse) {
 				return Optional.of("Refused by the test");
 			}
@@ -121,11 +136,17 @@ final class ConsensusFixtures {
 
 		@Override
 		public Optional<String> validateCertified(Block block) {
-			final Optional<String> rejection = validate(block);
+			final Optional<String> rejection = check(block);
 			final List<Endorsement> endorsements = block.getEndorsements();
+
+			certifiedCalls++;
 
 			if (rejection.isPresent()) {
 				return rejection;
+			}
+
+			if (refuseCertified) {
+				return Optional.of("Refused by the test once certified");
 			}
 
 			if (block.getCertificate().view() < block.getView()) {

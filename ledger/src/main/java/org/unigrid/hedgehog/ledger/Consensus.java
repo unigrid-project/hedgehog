@@ -55,6 +55,9 @@ public final class Consensus {
 		PROPOSE, PREVOTE, PRECOMMIT
 	}
 
+	private record Refusal(int view, ByteBuffer hash) {
+	}
+
 	private final ConsensusApp app;
 	private final byte[] chainId;
 	private final byte[] seed;
@@ -80,7 +83,10 @@ public final class Consensus {
 	private int validView = -1;
 	/* Ordered by view, so that when two views have a quorum the same one is found first on every run */
 	private final Map<Integer, Proposal> proposals = new TreeMap<>();
-	private final Map<ByteBuffer, Boolean> validity = new HashMap<>();
+	private final Set<ByteBuffer> validBlocks = new HashSet<>();
+	/* A refusal can be a matter of this node's clock, so it is kept for the view it was made in and no longer */
+	private final Set<ByteBuffer> refusedBlocks = new HashSet<>();
+	private final Set<Refusal> refusedDecisions = new HashSet<>();
 	private final Map<Integer, Boolean> proofs = new HashMap<>();
 	private final Set<Integer> polkas = new HashSet<>();
 	private final Set<Integer> prevoteTimers = new HashSet<>();
@@ -219,7 +225,9 @@ public final class Consensus {
 		validBlock = null;
 		validView = -1;
 		proposals.clear();
-		validity.clear();
+		validBlocks.clear();
+		refusedBlocks.clear();
+		refusedDecisions.clear();
 		proofs.clear();
 		polkas.clear();
 		prevoteTimers.clear();
@@ -243,6 +251,8 @@ public final class Consensus {
 	private void startRound(int newView) {
 		view = newView;
 		step = Step.PROPOSE;
+		refusedBlocks.clear();
+		refusedDecisions.clear();
 
 		if (isProposer()) {
 			tryPropose();
@@ -449,7 +459,16 @@ public final class Consensus {
 	}
 
 	private boolean isValid(Block block) {
-		return validity.computeIfAbsent(ByteBuffer.wrap(block.hash()), key -> app.validate(block).isEmpty());
+		final ByteBuffer key = ByteBuffer.wrap(block.hash());
+
+		return validBlocks.contains(key) || (!refusedBlocks.contains(key) && askIfValid(block, key));
+	}
+
+	private boolean askIfValid(Block block, ByteBuffer key) {
+		final boolean valid = app.validate(block).isEmpty();
+
+		(valid ? validBlocks : refusedBlocks).add(key);
+		return valid;
 	}
 
 	private void vote(Ballot.Type type, Block block) {
@@ -463,25 +482,39 @@ public final class Consensus {
 		out.add(new Broadcast(ballot));
 	}
 
-	/* Rule: more than 2/3 of the precommits for the block of a proposal, in the view of that proposal, decide */
+	/* Rule: more than 2/3 of the precommits for the block of a proposal, in the view of that proposal, decide, as long
+	   as the application takes the block with the certificate they make, which is what every node asks of a decision */
 	private boolean decide() {
-		final Optional<Proposal> committed = proposals.values().stream().filter(this::committedByQuorum).findFirst();
-
-		committed.ifPresent(this::decideOn);
-		return committed.isPresent();
+		return proposals.values().stream().filter(this::committedByQuorum).anyMatch(this::decideOn);
 	}
 
 	private boolean committedByQuorum(Proposal proposal) {
 		return box.quorumFor(Ballot.Type.PRECOMMIT, proposal.view(), proposal.block().hash())
-			&& isValid(proposal.block());
+			&& !refusedDecisions.contains(refusalOf(proposal));
 	}
 
-	private void decideOn(Proposal proposal) {
+	private boolean decideOn(Proposal proposal) {
+		final Block certified = certify(proposal);
+
+		if (app.validateCertified(certified).isPresent()) {
+			refusedDecisions.add(refusalOf(proposal));
+			return false;
+		}
+
+		finish(new Decision(certified));
+		return true;
+	}
+
+	private static Refusal refusalOf(Proposal proposal) {
+		return new Refusal(proposal.view(), ByteBuffer.wrap(proposal.block().hash()));
+	}
+
+	private Block certify(Proposal proposal) {
 		final Block block = proposal.block();
 		final Certificate certificate = new Certificate(proposal.view(),
 			box.endorsements(proposal.view(), block.hash()));
 
-		finish(new Decision(block.toBuilder().certificate(certificate).build()));
+		return block.toBuilder().certificate(certificate).build();
 	}
 
 	/* Rules for the proposal of the current view while this node still waits for it: a new block is voted for when

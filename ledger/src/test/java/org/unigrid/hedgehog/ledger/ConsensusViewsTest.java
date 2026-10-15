@@ -1172,4 +1172,68 @@ public class ConsensusViewsTest {
 		assertThat(engine.view(), equalTo(Integer.MAX_VALUE));
 		assertThat(engine.running(), is(true));
 	}
+
+	@Example
+	public void shouldJudgeARefusedBlockAgainInTheNextViewButNotWithinTheViewItWasRefusedIn() {
+		final Block b = proposed(0, "b");
+
+		app.refuse = true;
+		engine.start(1, validators, 0);
+
+		assertThat(prevoteOf(engine.onMessage(proposal(0, -1, b), 10)).isNil(), is(true));
+		assertThat(app.validated(b), equalTo(1));
+
+		engine.onMessage(prevoteBy(1, 0, b), 11);
+		engine.onMessage(prevoteBy(2, 0, b), 12);
+		engine.onMessage(prevoteBy(3, 0, b), 13);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 14);
+
+		assertThat(app.validated(b), equalTo(1));
+		assertThat(engine.lockedView(), equalTo(-1));
+
+		endView(0);
+		app.refuse = false;
+
+		final Ballot prevote = prevoteOf(engine.onMessage(proposal(1, 0, b, prevotesOf(b, 0, 1, 2, 3)), 5001));
+
+		assertThat(engine.view(), equalTo(1));
+		assertThat(prevote.view(), equalTo(1));
+		assertThat(prevote.blockHash(), equalTo(b.hash()));
+	}
+
+	@Example
+	public void shouldAskOnlyOnceAboutABlockTheApplicationTookAcrossTheViews() {
+		final Block a = proposed(0, "a");
+
+		engine.start(1, validators, 0);
+		lockOn(0, -1, a);
+		endView(0);
+		engine.onMessage(proposal(1, 0, a), 5001);
+
+		assertThat(app.validated(a), equalTo(1));
+	}
+
+	@Example
+	public void shouldDecideOnlyWhenTheApplicationTakesTheCertifiedBlockAndAskAgainInTheNextView() {
+		final Block block = proposed(0, "a");
+
+		app.refuseCertified = true;
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(0, -1, block), 10);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, block), 11);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, block), 12);
+
+		assertThat(decides(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, block), 13)), is(false));
+		assertThat(app.certifiedCalls, equalTo(1));
+		assertThat(decides(engine.onMessage(prevoteBy(1, 0, block), 14)), is(false));
+		assertThat(app.certifiedCalls, equalTo(1));
+
+		app.refuseCertified = false;
+
+		final Block decided = decidedBlock(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 20));
+
+		assertThat(decided.hash(), equalTo(block.hash()));
+		assertThat(decided.getCertificate().view(), equalTo(0));
+		assertThat(app.certifiedCalls, equalTo(2));
+	}
 }
