@@ -1490,16 +1490,23 @@ public class LedgerDriverSyncTest {
 			final Server liar = new Server("L", chain).serving(request -> List.of());
 
 			rig.hears(liar, liar.statusAt(2));
-			rig.clock.addAndGet(SyncState.MEMORY_MILLIS - 1);
-			rig.hears(liar, liar.statusAt(2));
 
-			assertThat(liar.requests, hasSize(1));
-
-			rig.clock.addAndGet(1);
-			rig.hears(liar, liar.statusAt(2));
-
-			assertThat(liar.requests, hasSize(2));
+			assertIgnoredForTenMinutesAndNotLonger(rig, liar, liar.statusAt(2));
 		}
+	}
+
+	private static void assertIgnoredForTenMinutesAndNotLonger(DriverRig rig, Server liar, Status claim) {
+		final int asked = liar.requests.size();
+
+		rig.clock.addAndGet(SyncState.MEMORY_MILLIS - 1);
+		rig.hears(liar, claim);
+
+		assertThat(liar.requests, hasSize(asked));
+
+		rig.clock.addAndGet(1);
+		rig.hears(liar, claim);
+
+		assertThat(liar.requests, hasSize(asked + 1));
 	}
 
 	@Example
@@ -1637,11 +1644,10 @@ public class LedgerDriverSyncTest {
 				request -> spoiling(chain.ledger.blocksFrom(request.from(), request.max()), 3));
 
 			rig.hears(liar, liar.status());
-			rig.clock.addAndGet(DriverRig.TICK);
-			rig.hears(liar, liar.status());
 
-			assertThat(liar.requests, hasSize(1));
 			assertThat(rig.ledger().height(), equalTo(2L));
+
+			assertIgnoredForTenMinutesAndNotLonger(rig, liar, liar.status());
 		}
 	}
 
@@ -2434,10 +2440,14 @@ public class LedgerDriverSyncTest {
 		state.discredit("P", 5_000);
 
 		assertThat(state.discredited("P", 5_000), is(true));
-		assertThat(state.discredited("P", 5_000 + SyncState.MEMORY_MILLIS - 1), is(true));
-		assertThat(state.discredited("P", 5_000 + SyncState.MEMORY_MILLIS), is(false));
+		assertDoubtedFor(state, 5_000, SyncState.MEMORY_MILLIS);
 		assertThat(state.discredited("P", 1), is(true));
 		assertThat(state.discredited("Q", 5_000), is(false));
+	}
+
+	private static void assertDoubtedFor(SyncState state, long since, long millis) {
+		assertThat(state.discredited("P", since + millis - 1), is(true));
+		assertThat(state.discredited("P", since + millis), is(false));
 	}
 
 	@Example
@@ -2445,32 +2455,23 @@ public class LedgerDriverSyncTest {
 		final SyncState state = new SyncState(1_000, EVERYONE);
 
 		state.failed("P", 0, 1_000);
-
-		assertThat(state.discredited("P", 999), is(true));
-		assertThat(state.discredited("P", 1_000), is(false));
+		assertDoubtedFor(state, 0, 1_000);
 
 		state.failed("P", 10_000, 1_000);
-
-		assertThat(state.discredited("P", 11_999), is(true));
-		assertThat(state.discredited("P", 12_000), is(false));
+		assertDoubtedFor(state, 10_000, 2_000);
 
 		state.failed("P", 20_000, 1_000);
-
-		assertThat(state.discredited("P", 23_999), is(true));
-		assertThat(state.discredited("P", 24_000), is(false));
+		assertDoubtedFor(state, 20_000, 4_000);
 
 		for (int again = 0; again < 40; again++) {
 			state.failed("P", 100_000, 1_000);
 		}
 
-		assertThat(state.discredited("P", 100_000 + SyncState.MEMORY_MILLIS - 1), is(true));
-		assertThat(state.discredited("P", 100_000 + SyncState.MEMORY_MILLIS), is(false));
+		assertDoubtedFor(state, 100_000, SyncState.MEMORY_MILLIS);
 
 		state.delivered("P");
 		state.failed("P", 2_000_000, 1_000);
-
-		assertThat(state.discredited("P", 2_000_999), is(true));
-		assertThat(state.discredited("P", 2_001_000), is(false));
+		assertDoubtedFor(state, 2_000_000, 1_000);
 	}
 
 	@Example
@@ -2480,8 +2481,7 @@ public class LedgerDriverSyncTest {
 		state.discredit("P", 0);
 		state.failed("P", 1_000, 1_000);
 
-		assertThat(state.discredited("P", SyncState.MEMORY_MILLIS - 1), is(true));
-		assertThat(state.discredited("P", SyncState.MEMORY_MILLIS), is(false));
+		assertDoubtedFor(state, 0, SyncState.MEMORY_MILLIS);
 	}
 
 	@Example

@@ -273,7 +273,7 @@ final class DriverRig implements AutoCloseable {
 
 	/* A driver with a key starts as an observer and, with no peer to wait for, takes the key into use when its grace
 	   period ends. The observer is then forgotten, so that the nodes the rig lists are those of the validator and of
-	   what replaces it, as before the driver started as an observer. For a serial executor that runs a task at once. */
+	   what replaces it. For a serial executor that runs a task at once. */
 	DriverRig promoted() {
 		passGrace();
 		built.remove(0);

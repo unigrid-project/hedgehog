@@ -64,6 +64,8 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    For the application: a node with a key waits for a peer at its tip, or for the grace period, before it votes
    after every restart. The node factory is asked for an observer first and, later in the same process, for a node
    that signs: it closes the block log between the two itself, and opens the sign state only for a node that signs.
+   A node with a key is therefore built twice at every start, and the blocks that the observer replayed are replayed
+   again for the node that signs. The driver does not spare that work; a factory may hand the replayed ledger on.
 
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it, except that the answer to a
