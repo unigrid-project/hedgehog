@@ -186,7 +186,7 @@ public final class LedgerNode implements Closeable {
 
 	/* Whether the engine stores this very message. A decision is never held for a node that took it: the commit and
 	   the start of the next height belong to the event that decides, so whether a block is known is for the ledger to
-	   say, by its hashAt(). */
+	   say, by its hashAt(). It sends nothing, so it keeps answering on a node that failed, unlike outbox(). */
 	public synchronized boolean holds(Message message) {
 		return engine.holds(message);
 	}

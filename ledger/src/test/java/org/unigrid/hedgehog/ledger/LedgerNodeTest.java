@@ -1460,6 +1460,30 @@ public class LedgerNodeTest {
 		}
 	}
 
+	/* Asking sends nothing, so unlike the outbox it keeps answering after the node failed */
+	@Example
+	public void shouldKeepSayingWhatItHoldsAfterTheNodeFailed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore first = new RecordingStore();
+			final LedgerNode before = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, first, clock::get);
+			final Block block = proposedBy(before);
+			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final RecordingStore second = new RecordingStore(first.last());
+			final LedgerNode node = node(reopened, 1, second, clock::get);
+			final Ballot held = vote(reopened, Ballot.Type.PREVOTE, 2, 1, block);
+
+			node.start();
+			node.onMessage(held);
+			second.failing = true;
+			assertThrows(IOException.class, () -> node.onMessage(vote(reopened, Ballot.Type.PREVOTE, 3, 1, block)));
+			assertThrows(IllegalStateException.class, node::outbox);
+
+			assertThat(node.holds(held), is(true));
+			assertThat(node.holds(vote(reopened, Ballot.Type.PRECOMMIT, 2, 1, block)), is(false));
+		}
+	}
+
 	/* The commit and the start of the next height belong to the event that decides, so the engine of a node that
 	   took the decision holds nothing of the height any more: the ledger is what tells it from then on */
 	@Example
