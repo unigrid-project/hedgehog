@@ -1112,6 +1112,50 @@ public class ConsensusViewsTest {
 		assertThat(engine.resume(9502 + 3 * 2200 + 1).isEmpty(), is(true));
 	}
 
+	/* The proposer of the next view, who has work, is ahead of this node and its proposal is already here: resting
+	   now would leave the proposal unanswered, as nothing new would ever wake the node for it */
+	@Example
+	public void shouldNotRestWhenTheProposalOfALaterViewIsAlreadyHeld() {
+		final Block next = proposed(1, "b");
+
+		startQuietNodeInViewZero();
+		engine.onMessage(proposal(1, -1, next), 10);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 11);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, null), 12);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, null), 13);
+
+		final List<Action> actions = engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 400);
+
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+		assertThat(prevoteOf(actions).blockHash(), equalTo(next.hash()));
+		assertThat(prevoteOf(actions).view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldRestWhenOnlyABallotOfALaterViewInTheWindowIsHeld() {
+		startQuietNodeInViewZero();
+		engine.onMessage(prevoteBy(2, 20, null), 10);
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldRestWhenTheProposalOfALaterViewIsNotFromTheProposerOfThatView() {
+		final Proposal fromAnother = Proposal.signed(seed(3), CHAIN, 1, 1, -1, proposed(1, "b"));
+
+		startQuietNodeInViewZero();
+
+		assertThat(engine.onMessage(fromAnother, 10).isEmpty(), is(true));
+
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
 	@Example
 	public void shouldNotSendAgainAfterADecision() {
 		goIdleAfterViewZero();

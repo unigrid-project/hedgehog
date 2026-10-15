@@ -78,6 +78,7 @@ public class ConsensusSimulationTest {
 
 	/* No messages can be lost for ever, so every node that is up decides well within this time */
 	private static final long STRANDED_SETTLE_MILLIS = 300_000;
+	private static final int STRANDED_SEEDS = 10;
 
 	/* The network and the schedule of faults must not draw from the same stream, or the delays and losses would be
 	   tied to the choice of node count, crashes and split */
@@ -342,7 +343,7 @@ public class ConsensusSimulationTest {
 	   view it waits in, or it would wait for ever. One node is down all along. */
 	@Example
 	public void shouldNotLeaveTheNodeWithWorkWaitingForAMessageTheRestingNodesLost() {
-		for (long seed = 1; seed <= 10; seed++) {
+		for (long seed = 1; seed <= STRANDED_SEEDS; seed++) {
 			final int down = (int) (seed % 4);
 			final int working = (int) ((down + 1 + seed % 3) % 4);
 			final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, seed);
