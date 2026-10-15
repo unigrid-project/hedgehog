@@ -182,10 +182,27 @@ public class LedgerDriverSyncTest {
 	}
 
 	private static DriverRig freshBelow(Checkpoint trusted) {
-		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
-			DriverRig.GRACE, DriverRig.RESTART_WINDOW, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.of(trusted));
+		return new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, new DirectSerial(), trusting(trusted))
+			.started();
+	}
 
-		return new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, new DirectSerial(), options).started();
+	private static DriverOptions trusting(Checkpoint trusted) {
+		return new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS, DriverRig.GRACE,
+			DriverRig.RESTART_WINDOW, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.ofNullable(trusted));
+	}
+
+	/* A driver that starts over a log that holds the first blocks of the chain already, as after a restart */
+	private static DriverRig startedOver(Chain chain, long blocks, Checkpoint trusted) throws IOException {
+		final DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, new DirectSerial(),
+			trusting(trusted));
+		final BlockLog log = BlockLog.open(rig.fileSystem.getPath("/node/blocks.log"));
+
+		for (long height = 1; height <= blocks; height++) {
+			log.append(chain.block(height));
+		}
+
+		log.close();
+		return rig.started();
 	}
 
 	private static Policy burstOf(Kind kind, int capacity) {
@@ -510,6 +527,50 @@ public class LedgerDriverSyncTest {
 			rig.driver.onStatus(later, later.status());
 
 			assertThat(later.requests, is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaltAtStartWhenTheBlockOnDiskAtTheCheckpointHeightIsAnother() throws IOException {
+		try (Chain chain = new Chain(12, 10); Chain other = new Chain(12, 11);
+			DriverRig rig = startedOver(chain, 12, new Checkpoint(10, other.block(10).hash()))) {
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Block 10 differs from the trusted checkpoint")));
+			assertThat(rig.ledger().height(), equalTo(12L));
+			assertThat(rig.scheduler.pending(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaltAtStartWhenTheTipOnDiskIsTheCheckpointHeightAndIsAnother() throws IOException {
+		try (Chain chain = new Chain(10, 10); Chain other = new Chain(10, 11);
+			DriverRig rig = startedOver(chain, 10, new Checkpoint(10, other.block(10).hash()))) {
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Block 10 differs from the trusted checkpoint")));
+		}
+	}
+
+	@Example
+	public void shouldStartWhenTheBlockOnDiskAtTheCheckpointHeightIsTheCheckpoint() throws IOException {
+		try (Chain chain = new Chain(12, 10);
+			DriverRig rig = startedOver(chain, 12, new Checkpoint(10, chain.block(10).hash()))) {
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.ledger().height(), equalTo(12L));
+		}
+	}
+
+	@Example
+	public void shouldStartWhenTheCheckpointHeightIsNotReachedOnDisk() throws IOException {
+		try (Chain chain = new Chain(12, 10); Chain other = new Chain(12, 11);
+			DriverRig rig = startedOver(chain, 5, new Checkpoint(10, other.block(10).hash()))) {
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.ledger().height(), equalTo(5L));
+		}
+	}
+
+	@Example
+	public void shouldStartOverBlocksOnDiskWithNoCheckpoint() throws IOException {
+		try (Chain chain = new Chain(12, 10); DriverRig rig = startedOver(chain, 12, null)) {
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.ledger().height(), equalTo(12L));
 		}
 	}
 

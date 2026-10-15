@@ -766,7 +766,7 @@ public final class LedgerDriver implements Closeable {
 
 	private Optional<String> contradiction(Block block) {
 		if (clashesWithCheckpoint(block)) {
-			return Optional.of("Block " + block.getHeight() + " differs from the trusted checkpoint");
+			return Optional.of(differsFromCheckpoint(block.getHeight()));
 		}
 
 		return forks(block) ? Optional.of("Two certified blocks at height " + block.getHeight()) : Optional.empty();
@@ -804,7 +804,25 @@ public final class LedgerDriver implements Closeable {
 			scheduleTick();
 			scheduleGrace();
 			restart();
+			checkHeldAgainstCheckpoint();
 		}
+	}
+
+	/* The blocks the node starts with are held to the checkpoint as well as the ones it fetches later */
+	private void checkHeldAgainstCheckpoint() {
+		if (ready()) {
+			options.trusted().filter(this::contradictedByHeld)
+				.ifPresent(checkpoint -> halt(differsFromCheckpoint(checkpoint.height())));
+		}
+	}
+
+	private boolean contradictedByHeld(Checkpoint checkpoint) {
+		return ledger.hashAt(checkpoint.height()).filter(held -> !Arrays.equals(held, checkpoint.hash()))
+			.isPresent();
+	}
+
+	private static String differsFromCheckpoint(long height) {
+		return "Block " + height + " differs from the trusted checkpoint";
 	}
 
 	/* Only a node with a key has anything to wait for */
