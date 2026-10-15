@@ -21,18 +21,21 @@ package org.unigrid.hedgehog.ledger;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /* How high the peers say their chains are, and whether this node is fetching blocks from one of them. What a peer
    says is a claim and proves nothing, as a status is not signed: only certified blocks are proof. A claim tells
    whom to ask. It is dropped for a peer that is asked and cannot back it up, and that peer is not believed for a
    while after, so that a peer which claims a chain it has not got holds nothing up for longer than one request, and
-   cannot do it again at no cost. A claim that is not repeated lapses, which is also how a peer that has left stops
-   being waited for: the driver is told of no disconnect. The most claims and marks kept are limited, and a peer that
-   speaks again takes the place of its last claim and goes to the back. Used by the driver on its serial executor
-   only. */
+   cannot do it again at no cost. A claim that is not repeated lapses, and a claim of a peer that is not connected any
+   more is not counted, so a peer that has left stops being waited for. The most claims and marks kept are limited,
+   and a peer that speaks again takes the place of its last claim and goes to the back. Used by the driver on its
+   serial executor only. */
 final class SyncState {
 	static final int MAX_CLAIMS = 256;
 	static final long MEMORY_MILLIS = 600_000;
@@ -42,15 +45,19 @@ final class SyncState {
 	}
 
 	private final long lapseMillis;
+	private final Supplier<Set<String>> present;
 	private final Map<String, Claim> claims = new LinkedHashMap<>();
 	private final Map<String, Long> marks = new LinkedHashMap<>();
 	private final Map<String, Integer> strikes = new LinkedHashMap<>();
 	private boolean retried;
 	private boolean running;
+	private boolean holding;
 	private long startHeight;
 
-	SyncState(long lapseMillis) {
+	/* `present` is the ids of the peers that are connected now */
+	SyncState(long lapseMillis, Supplier<Set<String>> present) {
 		this.lapseMillis = lapseMillis;
+		this.present = present;
 	}
 
 	void heard(LedgerPeer peer, long height, long now) {
@@ -122,18 +129,36 @@ final class SyncState {
 		return standing(now).mapToLong(Claim::height).max();
 	}
 
-	Optional<Claim> furthestAbove(long height, long now) {
-		return standing(now).filter(claim -> claim.height() > height).max(Comparator.comparingLong(Claim::height));
+	/* The claim that is the least above the height: a peer that claims little is asked before one that claims a great
+	   deal, and what it says is the likeliest to be true. Claims at the same height are told apart by a hash of the
+	   peer and the height, so that the same peer is not first for every node. */
+	Optional<Claim> nearestAbove(long height, long now) {
+		return standing(now).filter(claim -> claim.height() > height).min(Comparator
+			.comparingLong(Claim::height).thenComparingInt(claim -> Objects.hash(claim.peer().id(), height)));
 	}
 
 	boolean claimsAbove(String id, long height, long now) {
-		return Optional.ofNullable(claims.get(id)).filter(claim -> !lapsed(claim, now) && claim.height() > height)
-			.isPresent();
+		return standing(now).anyMatch(claim -> claim.peer().id().equals(id) && claim.height() > height);
+	}
+
+	/* Whether a sync is waiting for an answer, or its last batch moved the ledger: that is what holds back the vote of
+	   a node after the grace. A sync that gets no answer, or none that is right, holds nothing back. */
+	boolean holdsBack() {
+		return running && holding;
+	}
+
+	void stopHolding() {
+		holding = false;
+	}
+
+	void progressed() {
+		holding = true;
 	}
 
 	/* Nothing is waited for and nobody is believed or doubted any more: for a driver that has stopped */
 	void clear() {
 		running = false;
+		holding = false;
 		retried = false;
 		claims.clear();
 		marks.clear();
@@ -146,6 +171,7 @@ final class SyncState {
 
 	void begin(long height) {
 		running = true;
+		holding = true;
 		retried = false;
 		startHeight = height;
 	}
@@ -156,8 +182,16 @@ final class SyncState {
 		return startHeight;
 	}
 
+	/* The claims that have not lapsed, of peers that are connected now: a peer that left holds nothing up */
 	private Stream<Claim> standing(long now) {
-		return claims.values().stream().filter(claim -> !lapsed(claim, now));
+		if (claims.isEmpty()) {
+			return Stream.empty();
+		}
+
+		final Set<String> connected = present.get();
+
+		return claims.values().stream()
+			.filter(claim -> !lapsed(claim, now) && connected.contains(claim.peer().id()));
 	}
 
 	/* A clock that was set back makes nothing lapse */

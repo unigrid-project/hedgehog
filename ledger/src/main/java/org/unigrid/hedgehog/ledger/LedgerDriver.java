@@ -26,11 +26,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.Action.Decide;
@@ -162,16 +164,28 @@ public final class LedgerDriver implements Closeable {
 		this.options = options;
 		this.seed = seed == null ? null : seed.clone();
 		this.gossip = new Gossip(network);
-		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis());
+		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis(), () -> connected(network));
 		this.lanes = new InboundLanes(serial, limiter, options.maxQueuedInbound(), options.maxQueuedPerPeer(),
 			this::accepting, this::guard);
 		this.supervisor = new NodeSupervisor(factory, scheduler, clock, limiter, options, this::control,
 			actions -> perform(actions, OWN), this::stopped);
-		this.promotion = new Promotion(supervisor, sync, limiter, clock, seed != null, options.restartWindowMillis(),
-			this::startSync);
+		this.promotion = new Promotion(supervisor, sync, limiter, clock, seed != null, this::startSync);
 		this.syncer = new Syncer(supervisor, sync, limiter, clock, options, scheduler,
 			new Syncer.Hooks(this::control, action -> carryOut(action, OWN), this::sendStatus,
-				promotion::promoteIfCaughtUp, promotion::demoteIfProvenBehind));
+				promotion::promoteIfCaughtUp));
+	}
+
+	/* The ids of the peers that are connected now; one that cannot say who it is counts for nothing */
+	private static Set<String> connected(LedgerNetwork network) {
+		return network.peers().stream().map(LedgerDriver::idOf).filter(Objects::nonNull).collect(Collectors.toSet());
+	}
+
+	private static String idOf(LedgerPeer peer) {
+		try {
+			return peer.id();
+		} catch (RuntimeException e) {
+			return null;
+		}
 	}
 
 	public void start() {

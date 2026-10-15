@@ -23,7 +23,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
-import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
@@ -48,9 +47,8 @@ final class Syncer {
 	private static final int EMPTY_BATCH_COST = 5;
 
 	/* What the sync asks of the driver: a place in the control lane, the carrying out of an action of the node's own,
-	   a status to the peers, and the two decisions about the vote that a sync may bring */
-	record Hooks(Consumer<Runnable> control, Consumer<Action> carryOut, Runnable sendStatus, Runnable promote,
-		LongConsumer demote) {
+	   a status to the peers, and the decision about the vote that a sync may bring */
+	record Hooks(Consumer<Runnable> control, Consumer<Action> carryOut, Runnable sendStatus, Runnable promote) {
 	}
 
 	private final NodeSupervisor supervisor;
@@ -80,7 +78,7 @@ final class Syncer {
 
 	void startSync() {
 		if (supervisor.ready() && !sync.running()) {
-			sync.furthestAbove(supervisor.ledger().height(), clock.getAsLong()).ifPresent(claim -> {
+			sync.nearestAbove(supervisor.ledger().height(), clock.getAsLong()).ifPresent(claim -> {
 				sync.begin(supervisor.ledger().height());
 				ask(claim.peer());
 			});
@@ -128,11 +126,14 @@ final class Syncer {
 	}
 
 	/* A request that fails or times out costs the peer nothing. The first time it is asked again after a wait, and
-	   when it fails again the claim is dropped and the peer is doubted for a short time, so that another is tried. */
+	   when it fails again the claim is dropped and the peer is doubted for a short time, so that another is tried.
+	   The vote is no longer held back by a request that got no answer. */
 	private void lost(LedgerPeer peer) {
 		if (!supervisor.ready()) {
 			abandon(peer);
 		} else if (sync.retryOnce()) {
+			sync.stopHolding();
+			hooks.promote().run();
 			askAfter(RETRY_MILLIS, peer);
 		} else {
 			sync.failed(peer.id(), clock.getAsLong(), options.statusMillis());
@@ -223,14 +224,14 @@ final class Syncer {
 		} else if (height == before) {
 			abandon(peer);
 		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
-			hooks.demote().accept(height - before);
+			sync.progressed();
 			paceOrConclude(peer);
 		} else {
 			conclude();
 		}
 	}
 
-	/* A demotion that could not build the observer has halted the driver, and then there is no one to ask */
+	/* The sync goes on a pace later, if there is a node to give the blocks to by then */
 	private void paceOrConclude(LedgerPeer peer) {
 		if (supervisor.ready()) {
 			askAfter(PACE_MILLIS, peer);

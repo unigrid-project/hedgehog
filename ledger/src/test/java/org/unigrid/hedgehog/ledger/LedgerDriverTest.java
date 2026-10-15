@@ -1435,6 +1435,12 @@ public class LedgerDriverTest {
 				assertThat(answer.get(10, TimeUnit.SECONDS), equalTo(Optional.empty()));
 			}
 
+			final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+
+			while (rig.driver.queuedInbound() > 0 && System.nanoTime() < deadline) {
+				Thread.onSpinWait();
+			}
+
 			rig.driver.close();
 			serial.submit(() -> { }).get(10, TimeUnit.SECONDS);
 

@@ -95,6 +95,15 @@ final class RecordingNetwork implements LedgerNetwork {
 		peers.add(peer);
 	}
 
+	/* The peer has left; asking whether it is here does not count as a use of the list */
+	void remove(String id) {
+		peers.removeIf(peer -> peer.id().equals(id));
+	}
+
+	boolean has(String id) {
+		return peers.stream().anyMatch(peer -> peer.id().equals(id));
+	}
+
 	Set<String> threads() {
 		return threads;
 	}

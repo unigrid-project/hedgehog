@@ -239,7 +239,16 @@ final class DriverRig implements AutoCloseable {
 		}
 	}
 
-	/* The grace period of a driver that has heard no peer ends: the timer that was set for it fires */
+	/* A status from a peer that is connected, as the application only passes on what a connection says */
+	void hears(LedgerPeer peer, Status status) {
+		if (!network.has(peer.id())) {
+			network.add(peer);
+		}
+
+		driver.onStatus(peer, status);
+	}
+
+	/* The grace period of a driver ends: the timer that was set for it fires */
 	void passGrace() {
 		scheduler.pending().stream().filter(timer -> timer.delayMillis() == options.graceMillis())
 			.forEach(ManualScheduler.Timer::fire);
