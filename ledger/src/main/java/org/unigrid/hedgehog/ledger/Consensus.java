@@ -237,6 +237,22 @@ public final class Consensus {
 		return box == null || self == null ? List.of() : box.ballotsBy(self);
 	}
 
+	/* Whether the engine stores this very message, so that a driver can tell a message that is new from one it has
+	   seen; asking changes nothing. Only the first word of a slot is stored, so a second one is not held, and a
+	   decision is held when the engine decided on its block, whatever certificate it came with. A message the engine
+	   does not keep, such as one beyond the window or of another height, is not held. */
+	public boolean holds(Message message) {
+		return switch (message) {
+			case Proposal proposal -> proposal.equals(proposals.get(proposal.view()));
+			case Ballot ballot -> box != null && box.holds(ballot);
+			case Decision other -> hasDecidedOn(other.block());
+		};
+	}
+
+	private boolean hasDecidedOn(Block block) {
+		return decision != null && Arrays.equals(decision.block().hash(), block.hash());
+	}
+
 	public long height() {
 		return height;
 	}

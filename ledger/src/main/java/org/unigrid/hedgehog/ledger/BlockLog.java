@@ -82,6 +82,13 @@ public final class BlockLog implements Closeable {
 		return List.copyOf(blocks);
 	}
 
+	/* Up to `count` blocks from the position `from`, which is one below the height of the first block: a peer that
+	   asks for a few blocks does not make a copy of the whole log */
+	synchronized List<Block> range(long from, int count) {
+		return from >= blocks.size() ? List.of()
+			: List.copyOf(blocks.subList((int) from, (int) Math.min(blocks.size(), from + count)));
+	}
+
 	public synchronized void append(Block block) throws IOException {
 		final ByteBuffer record = ByteBuffer.wrap(encodeRecord(BlockCodec.encode(block)));
 		final long before = channel.position();

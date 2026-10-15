@@ -1342,11 +1342,16 @@ public class LedgerNodeTest {
 		List<Action> on(LedgerNode node) throws IOException;
 	}
 
+	private static void assertWaitsForItsTurn(Turn second) throws Exception {
+		assertWaitsForItsTurn(second, 2);
+	}
+
 	/* A save that does not return until it is let go, on a thread of its own, and then a second event on another
 	   thread: it has to wait for its turn, as two events at once would corrupt the engine. A thread that waits for the
 	   monitor of the node is blocked, which is what the second thread is looked for in; every wait has a limit, so a
-	   node that lets both through fails the test and does not hang it. */
-	private static void assertWaitsForItsTurn(Turn second) throws Exception {
+	   node that lets both through fails the test and does not hang it. Each event reads the clock once, a question
+	   not at all. */
+	private static void assertWaitsForItsTurn(Turn second, int clockReads) throws Exception {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicInteger reads = new AtomicInteger();
 			final BlockingStore store = new BlockingStore();
@@ -1373,7 +1378,7 @@ public class LedgerNodeTest {
 			waiter.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS));
 			assertThat(holder.isAlive() || waiter.isAlive(), is(false));
 			assertThat(failures, is(empty()));
-			assertThat(reads.get(), equalTo(2));
+			assertThat(reads.get(), equalTo(clockReads));
 		}
 	}
 
@@ -1422,5 +1427,67 @@ public class LedgerNodeTest {
 	@Example
 	public void shouldLetATimeoutWaitForTheEventThatIsBeingSaved() throws Exception {
 		assertWaitsForItsTurn(node -> node.onTimeout(new Timeout(Timeout.Kind.PROPOSE, 1, 0)));
+	}
+
+	@Example
+	public void shouldLetAQuestionAboutWhatItHoldsWaitForTheEventThatIsBeingSaved() throws Exception {
+		assertWaitsForItsTurn(node -> {
+			node.holds(ConsensusFixtures.ballot(Ballot.Type.PREVOTE, 2, 0, null));
+			return List.of();
+		}, 1);
+	}
+
+	@Example
+	public void shouldSayWhatItHoldsOfTheOpenHeight() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 2, signStateOf(fileSystem, "a"), clock::get);
+			final Block block = nextBlock(withMint(fileSystem, clock), FOUR, START);
+			final Ballot prevote = vote(ledger, Ballot.Type.PREVOTE, 1, 1, block);
+
+			assertThat(node.holds(prevote), is(false));
+
+			node.start();
+
+			assertThat(node.holds(prevote), is(false));
+
+			node.onMessage(prevote);
+
+			assertThat(node.holds(prevote), is(true));
+			assertThat(node.holds(vote(ledger, Ballot.Type.PRECOMMIT, 1, 1, block)), is(false));
+			assertThat(node.holds(vote(ledger, Ballot.Type.PREVOTE, 3, 1, block)), is(false));
+		}
+	}
+
+	/* The commit and the start of the next height belong to the event that decides, so the engine of a node that
+	   took the decision holds nothing of the height any more: the ledger is what tells it from then on */
+	@Example
+	public void shouldNotHoldADecisionOnceTheNodeHasMovedOn() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 2, signStateOf(fileSystem, "a"), clock::get);
+			final Decision decision = new Decision(nextBlock(withMint(fileSystem, clock), FOUR, START));
+
+			node.start();
+
+			assertThat(node.holds(decision), is(false));
+
+			node.onMessage(decision);
+
+			assertThat(node.holds(decision), is(false));
+			assertThat(ledger.hashAt(1).orElseThrow(), equalTo(decision.block().hash()));
+		}
+	}
+
+	@Example
+	public void shouldSayWhetherItSigns() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, () -> START);
+
+			assertThat(node(ledger, 1, new RecordingStore(), () -> START).signs(), is(true));
+			assertThat(observer(ledger, UNTOUCHED, () -> START).signs(), is(false));
+		}
 	}
 }

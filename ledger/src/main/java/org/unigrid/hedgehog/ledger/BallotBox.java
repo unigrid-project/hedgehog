@@ -85,6 +85,11 @@ final class BallotBox {
 		return earlier != null && sameBlock(earlier, ballot);
 	}
 
+	/* The very ballot, signature included, as opposed to has(), which only knows what the validator said */
+	boolean holds(Ballot ballot) {
+		return ballot.equals(slot(ballot.type(), ballot.view()).get(ballot.validator()));
+	}
+
 	/* Whether this raised the highest view the validator has been seen in: saying a view again, or an earlier one, is
 	   no news */
 	boolean seen(AccountKey validator, int view) {

@@ -1539,4 +1539,233 @@ public class ConsensusViewsTest {
 		assertThat(decided.getCertificate().view(), equalTo(0));
 		assertThat(app.certifiedCalls, equalTo(2));
 	}
+
+	/* Asking is no event: whatever the answer is, the engine is left exactly as it was */
+	private boolean asked(Message message) {
+		final SignState before = engine.snapshot();
+		final int stored = engine.storedBallots();
+		final List<BallotBox.Equivocation> evidence = engine.evidence();
+		final boolean held = engine.holds(message);
+
+		assertThat(engine.holds(message), equalTo(held));
+		assertThat(engine.snapshot(), equalTo(before));
+		assertThat(engine.storedBallots(), equalTo(stored));
+		assertThat(engine.evidence(), equalTo(evidence));
+		return held;
+	}
+
+	@Example
+	public void shouldHoldABallotOnceItIsStoredAndNotBefore() {
+		final Block block = proposed(0, "a");
+		final Ballot prevote = prevoteBy(1, 0, block);
+
+		engine.start(1, validators, 0);
+
+		assertThat(asked(prevote), is(false));
+
+		engine.onMessage(prevote, 10);
+
+		assertThat(asked(prevote), is(true));
+		assertThat(asked(ballot(Ballot.Type.PRECOMMIT, 1, 0, block)), is(false));
+		assertThat(asked(prevoteBy(2, 0, block)), is(false));
+		assertThat(asked(prevoteBy(1, 1, block)), is(false));
+	}
+
+	@Example
+	public void shouldNotHoldASecondDifferentBallotOfAHeldSlot() {
+		final Ballot first = prevoteBy(1, 0, proposed(0, "a"));
+		final Ballot second = prevoteBy(1, 0, proposed(0, "b"));
+		final Ballot nil = prevoteBy(1, 0, null);
+
+		engine.start(1, validators, 0);
+		engine.onMessage(first, 10);
+
+		assertThat(asked(second), is(false));
+		assertThat(asked(nil), is(false));
+
+		engine.onMessage(second, 11);
+
+		assertThat(engine.evidence().size(), equalTo(1));
+		assertThat(asked(second), is(false));
+		assertThat(asked(first), is(true));
+	}
+
+	@Example
+	public void shouldNotHoldABallotWithABadSignature() {
+		final Block block = proposed(0, "a");
+		final Ballot held = prevoteBy(1, 1, block);
+		final Ballot copy = forgedPrevote(1, 2, block);
+		final Ballot forged = forgedPrevote(3, 4, block);
+
+		engine.start(1, validators, 0);
+		engine.onMessage(held, 10);
+		engine.onMessage(copy, 11);
+		engine.onMessage(forged, 12);
+
+		assertThat(asked(held), is(true));
+		assertThat(asked(copy), is(false));
+		assertThat(asked(forged), is(false));
+	}
+
+	@Example
+	public void shouldHoldABallotOnlyUpToTheEdgeOfTheWindow() {
+		final Block block = proposed(0, "a");
+		final Ballot inside = prevoteBy(1, Consensus.MAX_VIEW_AHEAD, block);
+		final Ballot outside = prevoteBy(1, Consensus.MAX_VIEW_AHEAD + 1, block);
+
+		engine.start(1, validators, 0);
+		engine.onMessage(inside, 10);
+		engine.onMessage(outside, 11);
+
+		assertThat(asked(inside), is(true));
+		assertThat(asked(outside), is(false));
+	}
+
+	@Example
+	public void shouldLeaveABallotBeyondTheWindowNewWhenAskedAboutIt() {
+		final Ballot far = prevoteBy(1, Consensus.MAX_VIEW_AHEAD + 8, proposed(0, "a"));
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+
+		assertThat(asked(far), is(false));
+		assertThat(engine.onMessage(far, 10).isEmpty(), is(false));
+		assertThat(asked(far), is(false));
+		assertThat(engine.onMessage(far, 11).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldHoldTheFirstProposalOfAViewOnceItIsStored() {
+		final Proposal first = proposal(0, -1, proposed(0, "a"));
+		final Proposal second = proposal(0, -1, proposed(0, "b"));
+
+		engine.start(1, validators, 0);
+
+		assertThat(asked(first), is(false));
+
+		engine.onMessage(first, 10);
+
+		assertThat(asked(first), is(true));
+		assertThat(asked(second), is(false));
+
+		engine.onMessage(second, 11);
+
+		assertThat(asked(second), is(false));
+		assertThat(asked(first), is(true));
+	}
+
+	@Example
+	public void shouldNotHoldAProposalThatIsForgedOrBeyondTheWindow() {
+		final int edge = Consensus.MAX_VIEW_AHEAD;
+		final Proposal forged = forgedProposal(1);
+		final Proposal inside = proposal(edge, -1, proposed(edge, "inside"));
+		final Proposal outside = proposal(edge + 1, -1, proposed(edge + 1, "outside"));
+
+		engine.start(1, validators, 0);
+		engine.onMessage(forged, 10);
+		engine.onMessage(inside, 11);
+		engine.onMessage(outside, 12);
+
+		assertThat(asked(forged), is(false));
+		assertThat(asked(inside), is(true));
+		assertThat(asked(outside), is(false));
+	}
+
+	@Example
+	public void shouldLeaveAProposalNewWhenAskedAboutIt() {
+		final Proposal proposal = proposal(0, -1, proposed(0, "a"));
+
+		engine.start(1, validators, 0);
+
+		assertThat(asked(proposal), is(false));
+		assertThat(prevoteOf(engine.onMessage(proposal, 10)).isNil(), is(false));
+		assertThat(asked(proposal), is(true));
+	}
+
+	@Example
+	public void shouldHoldNothingOfAnotherHeight() {
+		final Block next = app.block(2, 0, validators.proposerAt(2, 0), 100, "next");
+		final Ballot ballot = Ballot.signed(Ballot.Type.PREVOTE, seed(1), CHAIN, 2, 0, next.hash());
+		final Proposal proposal = Proposal.signed(seed(1), CHAIN, 2, 0, -1, next);
+		final Decision decision = new Decision(next);
+
+		engine.start(1, validators, 0);
+		engine.onMessage(ballot, 10);
+		engine.onMessage(proposal, 11);
+		engine.onMessage(decision, 12);
+
+		assertThat(asked(ballot), is(false));
+		assertThat(asked(proposal), is(false));
+		assertThat(asked(decision), is(false));
+	}
+
+	@Example
+	public void shouldHoldNothingBeforeItHasStarted() {
+		final Block block = proposed(0, "a");
+
+		assertThat(asked(prevoteBy(1, 0, block)), is(false));
+		assertThat(asked(proposal(0, -1, block)), is(false));
+		assertThat(asked(new Decision(certified(block))), is(false));
+	}
+
+	@Example
+	public void shouldHoldADecisionOnceTheEngineHasDecidedOnThatBlock() {
+		final Block block = proposed(0, "a");
+		final Decision decision = new Decision(certified(block));
+		final Decision otherQuorum = new Decision(block.endorsedBy(seed(2), CHAIN).endorsedBy(seed(3), CHAIN)
+			.endorsedBy(seed(4), CHAIN));
+		final Decision otherBlock = new Decision(certified(proposed(0, "b")));
+
+		engine.start(1, validators, 0);
+
+		assertThat(asked(decision), is(false));
+
+		engine.onMessage(decision, 10);
+
+		assertThat(asked(decision), is(true));
+		assertThat(asked(otherQuorum), is(true));
+		assertThat(asked(otherBlock), is(false));
+		assertThat(asked(new Decision(app.block(2, 0, key(1), 100, "next"))), is(false));
+	}
+
+	@Example
+	public void shouldHoldTheDecisionTheEngineReachedByItself() {
+		final Block block = proposed(0, "a");
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(0, -1, block), 10);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, block), 11);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, block), 12);
+
+		final Block decided = decidedBlock(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, block), 13));
+
+		assertThat(asked(new Decision(decided)), is(true));
+		assertThat(asked(new Decision(certified(proposed(0, "b")))), is(false));
+	}
+
+	@Example
+	public void shouldHoldNothingOfAHeightOnceTheNextOneHasStarted() {
+		final Block block = proposed(0, "a");
+		final Proposal proposal = proposal(0, -1, block);
+		final Ballot prevote = prevoteBy(1, 0, block);
+		final Decision decision = new Decision(certified(block));
+
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal, 10);
+		engine.onMessage(prevote, 11);
+
+		assertThat(asked(proposal), is(true));
+		assertThat(asked(prevote), is(true));
+
+		engine.onMessage(decision, 12);
+		app.commit(block);
+
+		assertThat(asked(decision), is(true));
+
+		engine.start(2, validators, 20);
+
+		assertThat(asked(proposal), is(false));
+		assertThat(asked(prevote), is(false));
+		assertThat(asked(decision), is(false));
+	}
 }

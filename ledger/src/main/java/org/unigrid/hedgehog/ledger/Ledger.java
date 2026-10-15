@@ -162,6 +162,44 @@ public final class Ledger implements ConsensusApp {
 		mempool.removeCommitted(block, state);
 	}
 
+	/* Up to `max` committed blocks from the height `from`, in order, for a node that is behind. They stop before the
+	   encoded blocks pass what a batch can carry, so that a reader takes in all that is sent. Read from the log, so
+	   a request costs what it returns, not the length of the chain. */
+	public synchronized List<Block> blocksFrom(long from, int max) {
+		return blocksFrom(from, max, BlockBatch.MAX_BYTES);
+	}
+
+	synchronized List<Block> blocksFrom(long from, int max, int maxBytes) {
+		if (from < 1 || max < 1) {
+			throw new IllegalArgumentException("A request is from height 1 and for at least 1 block, found "
+				+ from + " and " + max);
+		}
+
+		final List<Block> fitting = new ArrayList<>();
+		long bytes = 0;
+
+		for (final Block block : log.range(from - 1, max)) {
+			bytes += BlockCodec.encode(block).length;
+
+			if (bytes > maxBytes) {
+				break;
+			}
+
+			fitting.add(block);
+		}
+
+		return fitting;
+	}
+
+	/* Empty at height 0, above the tip and below the first height */
+	public synchronized Optional<byte[]> hashAt(long height) {
+		return height < 1 ? Optional.empty() : log.range(height - 1, 1).stream().findFirst().map(Block::hash);
+	}
+
+	public synchronized Status status() {
+		return new Status(state.chainId(), state.height(), state.tipHash());
+	}
+
 	public synchronized ValidatorSet validators() {
 		return state.validators();
 	}

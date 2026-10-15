@@ -113,6 +113,25 @@ public class BlockLogTest {
 		}
 	}
 
+	@Example
+	public void shouldGiveARangeOfBlocksByPositionAndStopAtTheEnd() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix());
+			BlockLog log = BlockLog.open(logIn(fileSystem))) {
+			assertThat(log.range(0, 3), empty());
+
+			for (int n = 1; n <= 4; n++) {
+				log.append(block(n));
+			}
+
+			assertThat(log.range(0, 2), equalTo(List.of(block(1), block(2))));
+			assertThat(log.range(2, 10), equalTo(List.of(block(3), block(4))));
+			assertThat(log.range(3, 1), equalTo(List.of(block(4))));
+			assertThat(log.range(4, 1), empty());
+			assertThat(log.range(Long.MAX_VALUE, Integer.MAX_VALUE), empty());
+			assertThat(log.range(1, Integer.MAX_VALUE), equalTo(List.of(block(2), block(3), block(4))));
+		}
+	}
+
 	/* A crash during an append can cut the last record anywhere; every cut must recover to the earlier blocks */
 	@Example
 	public void shouldDropATornLastRecordWhereverItIsCut() throws IOException {

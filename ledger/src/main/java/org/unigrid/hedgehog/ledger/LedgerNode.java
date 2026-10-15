@@ -184,6 +184,18 @@ public final class LedgerNode implements Closeable {
 		return engine.outbox();
 	}
 
+	/* Whether the engine stores this very message. A decision is never held for a node that took it: the commit and
+	   the start of the next height belong to the event that decides, so whether a block is known is for the ledger to
+	   say, by its hashAt(). */
+	public synchronized boolean holds(Message message) {
+		return engine.holds(message);
+	}
+
+	/* Whether the node was given a seed, so whether it ever votes */
+	public boolean signs() {
+		return signs;
+	}
+
 	/* The validators the engine has heard say two things in one view of this height. The next height starts with
 	   none: the box that holds them is wiped when it starts, which this node does within the event that decides, so
 	   what was heard in that event is gone by the time it returns. A caller that wants the rest reads them after each
