@@ -1484,6 +1484,48 @@ public class LedgerNodeTest {
 		}
 	}
 
+	@Example
+	public void shouldBeUsableUntilAnEventFailsOrItIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+			final Ballot ballot = ConsensusFixtures.ballot(Ballot.Type.PREVOTE, 2, 0, null);
+
+			assertThat(node.usable(), is(true));
+
+			node.start();
+			node.holds(ballot);
+			node.submit(mint(1, 500));
+
+			assertThat(node.usable(), is(true));
+
+			store.failing = true;
+			assertThrows(IOException.class, node::onWork);
+
+			assertThat(node.usable(), is(false));
+			node.holds(ballot);
+			node.submit(mint(2, 500));
+
+			assertThat(node.usable(), is(false));
+		}
+	}
+
+	@Example
+	public void shouldNotBeUsableOnceItIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
+				new RecordingStore(), clock::get);
+
+			node.start();
+			node.close();
+
+			assertThat(node.usable(), is(false));
+		}
+	}
+
 	/* The commit and the start of the next height belong to the event that decides, so the engine of a node that
 	   took the decision holds nothing of the height any more: the ledger is what tells it from then on */
 	@Example

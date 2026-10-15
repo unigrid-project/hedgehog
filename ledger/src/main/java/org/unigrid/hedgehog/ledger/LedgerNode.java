@@ -191,6 +191,13 @@ public final class LedgerNode implements Closeable {
 		return engine.holds(message);
 	}
 
+	/* Whether the node still takes events: it does not after an exception from start() or an event, or once it is
+	   closed. A driver that gets an exception from submit() or holds(), which do not run the engine, asks it to
+	   tell a node that failed from one that was asked something it could not answer. */
+	public synchronized boolean usable() {
+		return !stopped;
+	}
+
 	/* Whether the node was given a seed, so whether it ever votes */
 	public boolean signs() {
 		return signs;
