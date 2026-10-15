@@ -137,8 +137,10 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	/* The block is logged before the state changes, so a crash between the two replays to the same state and a
-	   failed write leaves the state where it was; a block that is not valid is refused and leaves no trace */
-	public synchronized void commit(Block block) throws IOException {
+	   failed write leaves the state where it was; a block that is not valid is refused and leaves no trace. Only
+	   the node commits, as a ledger that moved without the engine would leave the engine at a height that is decided:
+	   a node that is behind is given the Decisions, in order. */
+	synchronized void commit(Block block) throws IOException {
 		final Optional<String> rejection = validateCertified(block);
 
 		if (rejection.isPresent()) {

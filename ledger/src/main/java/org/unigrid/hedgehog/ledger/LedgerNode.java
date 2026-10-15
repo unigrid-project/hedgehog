@@ -40,16 +40,20 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    IllegalStateException, as saving the state of such an engine could hide what it lost: the driver replaces it by a
    new node over the same files, which restores the state last saved, and the decisions of its peers bring the block
    in. What the failed event signed was neither saved nor sent, so the restored node is free to sign differently for
-   it. submit(), ledger() and height() keep working, as they do not run the engine. outbox() does not: the engine
+   it. submit() and height() keep working, as they do not run the engine. outbox() does not: the engine
    behind it holds what the failed event signed and did not save, and a driver that polls it must not send that. The
    pool of transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to
    send them again.
 
-   The driver serves the blocks it has committed to nodes that are behind. A node that dies before it has sent the
-   Decision of the event that decided loses that Decision, and its peers are told of the block only by what the
-   driver serves. A sign state of a height above the next one means that the block log lost its tail, and the start
-   is refused with a BlockLogBehindException: the operator restores the tail of the block log from a peer and never
-   deletes the sign state, as a node without it could sign again at a height it has signed at.
+   The Decide actions in the lists that come back are information: the node has committed the block and started the
+   next height already, and committing it again fails. Only the node commits; a node that is behind is given the
+   Decision messages of the blocks it lacks, in order, through onMessage(). The driver serves the blocks it has
+   committed to such nodes. A node that dies before it has sent the Decision of the event that decided loses that
+   Decision, and its peers are told of the block only by what the driver serves.
+
+   A sign state of a height above the next one means that the block log lost its tail, and the start is refused with
+   a BlockLogBehindException: the operator restores the tail of the block log from a peer and never deletes the sign
+   state, as a node without it could sign again at a height it has signed at.
 
    Events come one at a time, as the engine takes them, and the driver calls tick() about once a second, which is the
    rate the engine's rules for a node at rest are written for. */
@@ -147,13 +151,18 @@ public final class LedgerNode {
 		return ledger.submit(transaction);
 	}
 
+	/* A heartbeat is no work for the engine, so there is no onWork() to follow it */
+	public Optional<String> submit(Heartbeat heartbeat) {
+		return ledger.submit(heartbeat);
+	}
+
 	public synchronized List<Action> onWork() throws IOException {
 		return run(engine::onWork);
 	}
 
-	/* For questions to the ledger and for submit(Heartbeat), which are not events of the engine. A block committed
-	   through it goes past the node: the engine is not told, and the sign state is not saved. */
-	public Ledger ledger() {
+	/* For the tests of this package, which ask the ledger questions. The ledger is not handed out beyond it, so that
+	   nothing can move it past the engine: only the node commits blocks. */
+	Ledger ledger() {
 		return ledger;
 	}
 

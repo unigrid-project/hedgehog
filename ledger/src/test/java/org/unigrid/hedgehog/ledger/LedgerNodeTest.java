@@ -900,6 +900,29 @@ public class LedgerNodeTest {
 		}
 	}
 
+	@Example
+	public void shouldTakeAHeartbeatIntoTheLedgerWithoutRunningTheEngine() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+
+			store.failing = true;
+			assertThrows(IOException.class, node::start);
+
+			for (int validator = 2; validator <= FOUR_VALIDATORS; validator++) {
+				final Heartbeat beat = Heartbeat.signed(seed(validator), ledger.chainId(), ledger.height(),
+					ledger.tipHash(), START);
+
+				assertThat(node.submit(beat), equalTo(Optional.empty()));
+				assertThat(node.submit(beat).isPresent(), is(true));
+			}
+
+			assertThat(ledger.isProgressing(START, 1000), is(true));
+		}
+	}
+
 	/* The engine of a node that failed holds what the failed event signed and did not save, and a driver that polls
 	   the outbox to say it again would send exactly that */
 	@Example
