@@ -25,6 +25,8 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -38,6 +40,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -282,6 +285,75 @@ public class NettyLedgerNetworkTest {
 		final CompletionException failure = assertThrows(CompletionException.class, () -> reply.getNow(null));
 
 		assertThat(failure.getCause(), instanceOf(ClosedChannelException.class));
+	}
+
+	@Example
+	public void failsARequestAtOnceWhenTheWriteFailsOnAnOpenChannel() {
+		final EmbeddedChannel channel = new EmbeddedChannel(new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+				promise.setFailure(new IOException("The write is broken"));
+			}
+		});
+		final CompletableFuture<BlockBatch> reply = networkOf().peerOf(channel, remote(FIRST))
+			.request(LedgerWireFixtures.request(1));
+		final CompletionException failure = assertThrows(CompletionException.class, () -> reply.getNow(null));
+
+		assertThat(failure.getCause(), instanceOf(IOException.class));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	/* The channel counts the listeners that are on its close future now */
+	private static final class WatchedChannel extends EmbeddedChannel {
+		private final AtomicInteger listeners = new AtomicInteger();
+
+		@Override
+		public ChannelFuture closeFuture() {
+			final ChannelFuture real = super.closeFuture();
+
+			return (ChannelFuture) Proxy.newProxyInstance(ChannelFuture.class.getClassLoader(),
+				new Class<?>[] { ChannelFuture.class }, (proxy, method, arguments) -> {
+					listeners.addAndGet(switch (method.getName()) {
+						case "addListener" -> 1;
+						case "removeListener" -> -1;
+						default -> 0;
+					});
+
+					try {
+						final Object result = method.invoke(real, arguments);
+
+						return result == real ? proxy : result;
+					} catch (InvocationTargetException ex) {
+						throw ex.getCause();
+					}
+				});
+		}
+	}
+
+	@Property(tries = 10)
+	public void leavesNoListenerOnTheChannelOnceARequestIsDone(@ForAll @IntRange(min = 1, max = 10) int requests,
+		@ForAll boolean answered) {
+
+		final WatchedChannel channel = new WatchedChannel();
+		final PendingRequests pending = new PendingRequests();
+		final LedgerPeer peer = networkOf(pending).peerOf(channel, remote(FIRST));
+
+		for (int i = 0; i < requests; i++) {
+			final CompletableFuture<BlockBatch> reply = peer.request(LedgerWireFixtures.request(i));
+			final LedgerBlockRequest sent = channel.readOutbound();
+
+			assertThat(channel.listeners.get(), equalTo(1));
+
+			if (answered) {
+				pending.complete(channel, LedgerBlockBatch.builder().requestId(sent.getRequestId())
+					.batch(LedgerWireFixtures.emptyBatch()).build());
+			} else {
+				pending.fail(sent.getRequestId(), new IOException("The request is given up"));
+			}
+
+			assertThat(reply.isDone(), is(true));
+			assertThat(channel.listeners.get(), equalTo(0));
+		}
 	}
 
 	@Example
