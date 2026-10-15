@@ -396,6 +396,36 @@ public class ConsensusRestoreTest {
 		assertThat(proposalsSent(again.onWork(51)).isEmpty(), is(true));
 	}
 
+	/* The engine proposes view 3. After the restart it holds only its own prevote for the block it would put forward
+	   again, which does not prove anything, so it offers nothing until the prevotes of the others are back. */
+	@Example
+	public void shouldPutTheValidBlockForwardAgainOnlyOnceThePrevotesThatProveItAreBack() {
+		final Block valid = proposed(0, "a");
+		final SignState state = new SignState(1, true, 0, Consensus.Step.PRECOMMIT, 1, valid, 0, valid, 0, List.of(),
+			List.of(prevoteBy(4, 0, valid), ballot(PRECOMMIT, 4, 0, valid)));
+
+		engine.restore(state, validators, 5);
+		engine.onMessage(prevoteBy(1, 3, null), 6);
+
+		final List<Action> intoItsView = engine.onMessage(prevoteBy(2, 3, null), 7);
+
+		assertThat(engine.view(), equalTo(3));
+		assertThat(proposalsSent(intoItsView).isEmpty(), is(true));
+		assertThat(proposalsSent(engine.onWork(8)).isEmpty(), is(true));
+
+		engine.onMessage(prevoteBy(1, 0, valid), 9);
+		engine.onMessage(prevoteBy(2, 0, valid), 10);
+
+		final List<Proposal> proposals = proposalsSent(engine.onWork(11));
+
+		assertThat(proposals.size(), equalTo(1));
+		assertThat(proposals.get(0).view(), equalTo(3));
+		assertThat(proposals.get(0).validRound(), equalTo(0));
+		assertThat(proposals.get(0).block(), equalTo(valid));
+		assertThat(proposals.get(0).polka().size(), equalTo(3));
+		assertThat(engine.step(), equalTo(Consensus.Step.PREVOTE));
+	}
+
 	/* A state a step behind its own proposal is not one that the engine writes, but when it is offered another
 	   block it must still not sign a second proposal for the view */
 	@Example

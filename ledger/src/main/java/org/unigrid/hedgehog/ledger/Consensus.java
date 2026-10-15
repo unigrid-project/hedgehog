@@ -555,9 +555,15 @@ public final class Consensus {
 	}
 
 	/* A block that already got more than 2/3 of the prevotes is put forward again, as validators may be locked
-	   on it and would refuse any other */
+	   on it and would refuse any other. The prevotes that prove it are the ones this node holds, and after a restart
+	   that is its own alone, so it offers nothing in this view rather than a proposal it could not vote for itself;
+	   the proposer of the next view carries the proof. */
 	private Optional<Block> blockToPropose() {
-		return validBlock != null ? Optional.of(validBlock) : app.propose(height, view, now);
+		if (validBlock == null) {
+			return app.propose(height, view, now);
+		}
+
+		return Optional.of(validBlock).filter(block -> box.quorumFor(Ballot.Type.PREVOTE, validView, block.hash()));
 	}
 
 	/* A new block has no valid view, so there are no prevotes to carry along with it */
