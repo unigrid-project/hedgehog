@@ -66,7 +66,7 @@ public class LedgerDriverTest {
 		final Map<Kind, Rate> rates = new EnumMap<>(Policy.DEFAULT.rates());
 
 		rates.put(Kind.TRANSACTION, new Rate(transactions, 1));
-		return new Policy(rates, 100, 60_000, 100);
+		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
 	}
 
 	private static Heartbeat heartbeatAtTheTip(DriverRig rig, long time) {

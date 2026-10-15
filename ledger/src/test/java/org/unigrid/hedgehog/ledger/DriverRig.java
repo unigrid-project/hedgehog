@@ -45,7 +45,7 @@ final class DriverRig implements AutoCloseable {
 		Optional.empty());
 
 	/* A score of 2 makes a penalty: a message that costs 2 is punished at once, one that costs 1 the second time */
-	static final Policy STRICT = new Policy(Policy.DEFAULT.rates(), 2, 60_000, 100);
+	static final Policy STRICT = new Policy(Policy.DEFAULT.rates(), Policy.DEFAULT.global(), 2, 10, 60_000, 100);
 	static final List<byte[]> SOLO = seeds(1, 1);
 	static final List<byte[]> FOUR = seeds(1, 4);
 

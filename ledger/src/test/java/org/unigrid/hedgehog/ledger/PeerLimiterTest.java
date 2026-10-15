@@ -44,12 +44,23 @@ import org.unigrid.hedgehog.ledger.PeerLimiter.Rate;
 public class PeerLimiterTest {
 	private static final long START = 1_000_000L;
 	private static final int NEVER = Integer.MAX_VALUE;
+	private static final Rate UNLIMITED = new Rate(Integer.MAX_VALUE, Integer.MAX_VALUE);
 
+	private static Map<Kind, Rate> same(Rate rate) {
+		return Arrays.stream(Kind.values()).collect(Collectors.toMap(Function.identity(), kind -> rate));
+	}
+
+	/* No decay and no limit shared by all peers: what a test does not look at stays out of its way */
 	private static Policy uniform(int capacity, int refill, int scoreLimit, long penaltyMillis, int maxPeers) {
-		final Map<Kind, Rate> rates = Arrays.stream(Kind.values())
-			.collect(Collectors.toMap(Function.identity(), kind -> new Rate(capacity, refill)));
+		return new Policy(same(new Rate(capacity, refill)), same(UNLIMITED), scoreLimit, 0, penaltyMillis, maxPeers);
+	}
 
-		return new Policy(rates, scoreLimit, penaltyMillis, maxPeers);
+	private static Policy shared(int capacity, int refill) {
+		return new Policy(same(UNLIMITED), same(new Rate(capacity, refill)), 100, 0, 60_000, 100);
+	}
+
+	private static Policy decaying(int perMinute) {
+		return new Policy(same(UNLIMITED), same(UNLIMITED), 100, perMinute, 60_000, 100);
 	}
 
 	/* Tokens only, no penalties: the score limit is out of reach of every test that does not look at it */
@@ -257,40 +268,54 @@ public class PeerLimiterTest {
 			assertThat(limiter.isPenalised("bad"), is(true));
 		}
 
-		assertThat(limiter.tracked(), equalTo(50));
+		assertThat(limiter.tracked(), equalTo(50 + 1));
+	}
+
+	/* Fresh addresses must cost the limiter a step each, however many penalised peers it holds, and each must be
+	   served: filling the table with penalties is not a way to lock the node's other peers out */
+	@Example
+	public void shouldServeEveryNewPeerAndDoWorkInProportionToTheCallsAfterTenThousandPenalties() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 20_000));
+
+		IntStream.range(0, 10_000).forEach(peer -> penalise(limiter, "bad" + peer));
+		IntStream.range(0, 100_000)
+			.forEach(peer -> assertThat(limiter.allow("fresh" + peer, Kind.TRANSACTION), is(true)));
+
+		assertThat(limiter.isPenalised("bad0"), is(true));
+		assertThat(limiter.isPenalised("bad9999"), is(true));
+		clock.addAndGet(60_000);
+		assertThat(limiter.allow("fresh", Kind.TRANSACTION), is(true));
+		assertThat(limiter.isPenalised("bad0"), is(false));
+		assertThat(limiter.inspected(), lessThanOrEqualTo(3L * (10_000 + 100_000 + 4)));
 	}
 
 	@Example
-	public void shouldRefuseANewPeerWhenEveryTrackedPeerIsPenalised() {
-		final AtomicLong clock = new AtomicLong(START);
-		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 3));
+	public void shouldDropTheOldestPenaltyWhenThereIsNoRoomForAnother() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 4));
 
 		List.of("a", "b", "c").forEach(peer -> penalise(limiter, peer));
 
-		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
-		limiter.misbehaved("d", 100);
-		assertThat(limiter.tracked(), equalTo(3));
-		assertThat(limiter.isPenalised("a"), is(true));
-
-		clock.addAndGet(60_000);
+		assertThat(limiter.isPenalised("a"), is(false));
+		assertThat(limiter.isPenalised("b"), is(true));
+		assertThat(limiter.isPenalised("c"), is(true));
+		assertThat(limiter.tracked(), equalTo(2));
 		assertThat(limiter.allow("d", Kind.TRANSACTION), is(true));
-		assertThat(limiter.tracked(), equalTo(3));
 	}
 
 	@Example
-	public void shouldDropAPeerWhosePenaltyHasEndedToMakeRoom() {
+	public void shouldForgetAPeerWhosePenaltyHasEnded() {
 		final AtomicLong clock = new AtomicLong(START);
-		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(1, 1, 100, 60_000, 2));
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 4));
 
 		penalise(limiter, "a");
 		clock.addAndGet(30_000);
 		penalise(limiter, "b");
 		clock.addAndGet(30_000);
 
-		assertThat(limiter.allow("c", Kind.TRANSACTION), is(true));
 		assertThat(limiter.isPenalised("a"), is(false));
 		assertThat(limiter.isPenalised("b"), is(true));
-		assertThat(limiter.tracked(), equalTo(2));
+		assertThat(limiter.tracked(), equalTo(1));
 	}
 
 	@Example
@@ -393,7 +418,8 @@ public class PeerLimiterTest {
 	private static List<Object> replay(long seed) {
 		final Random random = new Random(seed);
 		final AtomicLong clock = new AtomicLong(START);
-		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(3, 2, 50, 5000, 5));
+		final PeerLimiter limiter = new PeerLimiter(clock::get,
+			new Policy(same(new Rate(3, 2)), same(new Rate(8, 3)), 50, 30, 5000, 5));
 		final List<Object> outcomes = new ArrayList<>();
 
 		for (int step = 0; step < 300; step++) {
@@ -413,34 +439,179 @@ public class PeerLimiterTest {
 	}
 
 	@Example
+	public void shouldLowerTheScoreWithTime() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, decaying(60));
+
+		limiter.misbehaved("a", 90);
+		clock.addAndGet(30_000);
+		limiter.misbehaved("a", 30);
+
+		assertThat(limiter.isPenalised("a"), is(false));
+		limiter.misbehaved("a", 10);
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	@Example
+	public void shouldNeverLowerTheScoreBelowZero() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, decaying(60));
+
+		limiter.misbehaved("a", 50);
+		clock.addAndGet(Long.MAX_VALUE / 2);
+		limiter.misbehaved("a", 99);
+
+		assertThat(limiter.isPenalised("a"), is(false));
+		limiter.misbehaved("a", 1);
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	/* A point every 100 ms is what a decay of 600 a minute takes away: it must not wait for whole minutes to count */
+	@Example
+	public void shouldLowerTheScoreInSmallStepsAndNotInWholeMinutes() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, decaying(600));
+
+		for (int step = 0; step < 1000; step++) {
+			limiter.misbehaved("a", 1);
+			clock.addAndGet(100);
+			assertThat(limiter.isPenalised("a"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldNotLowerTheScoreWhenTheClockStepsBack() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, decaying(60));
+
+		limiter.misbehaved("a", 90);
+		clock.addAndGet(-3_600_000);
+		limiter.misbehaved("a", 10);
+
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	@Example
+	public void shouldKeepTheScoreWhenThereIsNoDecay() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, decaying(0));
+
+		limiter.misbehaved("a", 90);
+		clock.addAndGet(Long.MAX_VALUE / 2);
+		limiter.misbehaved("a", 10);
+
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	@Example
+	public void shouldLimitWhatAllPeersTakeTogether() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, shared(5, 1));
+
+		IntStream.range(0, 5).forEach(peer -> assertThat(limiter.allow("peer" + peer, Kind.TRANSACTION), is(true)));
+		assertThat(limiter.allow("peer5", Kind.TRANSACTION), is(false));
+		assertThat(limiter.allow("peer0", Kind.TRANSACTION), is(false));
+		clock.addAndGet(1000);
+		assertThat(limiter.allow("peer6", Kind.TRANSACTION), is(true));
+		assertThat(limiter.allow("peer7", Kind.TRANSACTION), is(false));
+	}
+
+	@Example
+	public void shouldKeepTheLimitOfEachKindForAllPeersApart() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(2, 1));
+
+		assertThat(granted(limiter, "a", Kind.TRANSACTION, 5), equalTo(2));
+		assertThat(granted(limiter, "b", Kind.HEARTBEAT, 5), equalTo(2));
+	}
+
+	@Example
+	public void shouldNotScoreAPeerForWhatTheLimitForAllPeersRefuses() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(1, 1));
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(granted(limiter, "b", Kind.TRANSACTION, 1000), equalTo(0));
+		IntStream.range(0, 1000).forEach(peer -> limiter.allow("peer" + peer, Kind.TRANSACTION));
+
+		assertThat(limiter.isPenalised("b"), is(false));
+		assertThat(IntStream.range(0, 1000).filter(peer -> limiter.isPenalised("peer" + peer)).count(), equalTo(0L));
+	}
+
+	/* A peer that is over its own limit is a cost to no one but itself, or one peer could empty the bucket of all */
+	@Example
+	public void shouldTakeNothingFromTheLimitForAllPeersForARefusalOfThePeerItself() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(1, 1)), same(new Rate(3, 1)), 100, 0, 60_000, 100));
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(granted(limiter, "a", Kind.TRANSACTION, 50), equalTo(0));
+		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+		assertThat(limiter.allow("c", Kind.TRANSACTION), is(true));
+		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
+	}
+
+	@Example
+	public void shouldKeepTheTokenOfAPeerThatTheLimitForAllPeersRefused() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get,
+			new Policy(same(new Rate(1, 1)), same(new Rate(1, 1000)), 100, 0, 60_000, 100));
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(limiter.allow("b", Kind.TRANSACTION), is(false));
+		clock.addAndGet(1);
+		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+	}
+
+	@Example
+	public void shouldNotWrapTheTimeItHasSeenWhateverTheClockDoes() {
+		final AtomicLong clock = new AtomicLong(0);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, buckets(5, 1));
+
+		assertThat(granted(limiter, "a", Kind.TRANSACTION, 5), equalTo(5));
+		clock.set(Long.MAX_VALUE);
+		limiter.isPenalised("a");
+		clock.set(0);
+		limiter.isPenalised("a");
+		clock.set(Long.MAX_VALUE);
+
+		assertThat(granted(limiter, "a", Kind.TRANSACTION, 8), equalTo(5));
+	}
+
+	@Example
 	public void shouldRefuseAPolicyThatCannotWork() {
-		final Map<Kind, Rate> rates = new EnumMap<>(Kind.class);
-		Arrays.stream(Kind.values()).forEach(kind -> rates.put(kind, new Rate(1, 1)));
+		final Map<Kind, Rate> rates = same(new Rate(1, 1));
+		final Map<Kind, Rate> lacking = new EnumMap<>(rates);
+		lacking.remove(Kind.STATUS);
 
 		assertThrows(IllegalArgumentException.class, () -> new Rate(0, 1));
 		assertThrows(IllegalArgumentException.class, () -> new Rate(1, 0));
-		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, 0, 1, 1));
-		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, 1, 0, 1));
-		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, 1, 1, 0));
-		rates.remove(Kind.STATUS);
-		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, 1, 1, 1));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, rates, 0, 0, 1, 2));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, rates, 1, -1, 1, 2));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, rates, 1, 0, 0, 2));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, rates, 1, 0, 1, 1));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(lacking, rates, 1, 0, 1, 2));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(rates, lacking, 1, 0, 1, 2));
+		assertThat(new Policy(rates, rates, 1, 0, 1, 2).maxPeers(), equalTo(2));
 	}
 
 	@Example
-	public void shouldNotFollowAChangeToTheMapThePolicyWasBuiltFrom() {
-		final Map<Kind, Rate> rates = new EnumMap<>(Kind.class);
-		Arrays.stream(Kind.values()).forEach(kind -> rates.put(kind, new Rate(1, 1)));
+	public void shouldNotFollowAChangeToTheMapsThePolicyWasBuiltFrom() {
+		final Map<Kind, Rate> rates = new EnumMap<>(same(new Rate(1, 1)));
+		final Map<Kind, Rate> global = new EnumMap<>(same(new Rate(2, 2)));
 
-		final Policy policy = new Policy(rates, 1, 1, 1);
+		final Policy policy = new Policy(rates, global, 1, 0, 1, 2);
 		rates.put(Kind.STATUS, new Rate(9, 9));
+		global.put(Kind.STATUS, new Rate(9, 9));
 
 		assertThat(policy.rates().get(Kind.STATUS), equalTo(new Rate(1, 1)));
+		assertThat(policy.global().get(Kind.STATUS), equalTo(new Rate(2, 2)));
 		assertThrows(UnsupportedOperationException.class, () -> policy.rates().put(Kind.STATUS, new Rate(9, 9)));
+		assertThrows(UnsupportedOperationException.class, () -> policy.global().put(Kind.STATUS, new Rate(9, 9)));
 	}
 
 	@Example
-	public void shouldDefaultToTheAgreedLimits() {
+	public void shouldDefaultToTheDocumentedLimits() {
 		final Map<Kind, Rate> rates = Policy.DEFAULT.rates();
+		final Map<Kind, Rate> global = Policy.DEFAULT.global();
 
 		assertThat(rates.get(Kind.TRANSACTION), equalTo(new Rate(200, 50)));
 		assertThat(rates.get(Kind.HEARTBEAT), equalTo(new Rate(20, 2)));
@@ -448,7 +619,14 @@ public class PeerLimiterTest {
 		assertThat(rates.get(Kind.STATUS), equalTo(new Rate(10, 1)));
 		assertThat(rates.get(Kind.BLOCK_REQUEST), equalTo(new Rate(20, 5)));
 		assertThat(rates.get(Kind.BLOCK_BATCH), equalTo(new Rate(4, 2)));
+		assertThat(global.get(Kind.TRANSACTION), equalTo(new Rate(2000, 500)));
+		assertThat(global.get(Kind.HEARTBEAT), equalTo(new Rate(500, 20)));
+		assertThat(global.get(Kind.CONSENSUS), equalTo(new Rate(20_000, 5000)));
+		assertThat(global.get(Kind.STATUS), equalTo(new Rate(200, 20)));
+		assertThat(global.get(Kind.BLOCK_REQUEST), equalTo(new Rate(100, 50)));
+		assertThat(global.get(Kind.BLOCK_BATCH), equalTo(new Rate(50, 20)));
 		assertThat(Policy.DEFAULT.scoreLimit(), equalTo(100));
+		assertThat(Policy.DEFAULT.scoreDecayPerMinute(), equalTo(10));
 		assertThat(Policy.DEFAULT.penaltyMillis(), equalTo(60_000L));
 		assertThat(Policy.DEFAULT.maxPeers(), equalTo(10_000));
 	}

@@ -28,16 +28,24 @@ import java.util.Objects;
 import java.util.function.LongSupplier;
 
 /* What one peer may ask of this node. A peer has a bucket of tokens for each kind of message and a score that
-   its misbehaviour raises. One that runs dry too often, or reaches the score limit, is ignored for a while: the
-   caller does no work for it. This protects the node and authenticates no one.
+   its misbehaviour raises and time lowers. One that runs dry too often, or reaches the score limit, is ignored
+   for a while: the caller does no work for it. A bucket for each kind is also shared by all peers, so that
+   changing address does not multiply the work. This protects the node and authenticates no one.
 
-   Tokens are counted in thousandths, so that a refill by milliseconds is exact in whole numbers. The peers are
-   kept in the order of their last activity and at most `maxPeers` of them are tracked, so a flood of new peers
-   cannot grow memory. The clock is a reading in milliseconds that may jump either way; a jump back creates no
-   tokens and never makes a penalty longer than `penaltyMillis`. Not thread-safe: the serial executor of the
-   driver is the only caller. */
+   Peers are tracked in two maps. The active ones are in the order of their last activity, and a newcomer takes
+   the room of the least recently active, so a flood of new peers costs a step each and never locks anyone out.
+   The penalised ones are in the order of their penalty, which is also the order it ends in, so what has ended
+   is dropped from the head. At the cap, a new penalty frees the oldest one. Both are limited, and nothing is
+   scanned.
+
+   Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
+   back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,
+   up to the end of the range of a long. Tokens are counted in thousandths and the score in sixty-thousandths of
+   a point, so that refills and decay by milliseconds are exact in whole numbers. Not thread-safe: the serial
+   executor of the driver is the only caller. */
 public final class PeerLimiter {
 	private static final long TOKEN = 1000;
+	private static final long POINT = 60_000;
 
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST, BLOCK_BATCH
@@ -52,18 +60,39 @@ public final class PeerLimiter {
 		}
 	}
 
-	public record Policy(Map<Kind, Rate> rates, int scoreLimit, long penaltyMillis, int maxPeers) {
-		public static final Policy DEFAULT = new Policy(Map.of(Kind.TRANSACTION, new Rate(200, 50),
-			Kind.HEARTBEAT, new Rate(20, 2), Kind.CONSENSUS, new Rate(2000, 500), Kind.STATUS, new Rate(10, 1),
-			Kind.BLOCK_REQUEST, new Rate(20, 5), Kind.BLOCK_BATCH, new Rate(4, 2)), 100, 60_000, 10_000);
+	/* `rates` is what each peer gets and `global` what all peers share. Active peers number at most `maxPeers` and
+	   penalised ones at most half of that. */
+	public record Policy(Map<Kind, Rate> rates, Map<Kind, Rate> global, int scoreLimit, int scoreDecayPerMinute,
+		long penaltyMillis, int maxPeers) {
+		public static final Policy DEFAULT = new Policy(
+			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
+				Kind.CONSENSUS, new Rate(2000, 500), Kind.STATUS, new Rate(10, 1),
+				Kind.BLOCK_REQUEST, new Rate(20, 5), Kind.BLOCK_BATCH, new Rate(4, 2)),
+			Map.of(Kind.TRANSACTION, new Rate(2000, 500), Kind.HEARTBEAT, new Rate(500, 20),
+				Kind.CONSENSUS, new Rate(20_000, 5000), Kind.STATUS, new Rate(200, 20),
+				Kind.BLOCK_REQUEST, new Rate(100, 50), Kind.BLOCK_BATCH, new Rate(50, 20)),
+			100, 10, 60_000, 10_000);
 
 		public Policy {
-			if (!rates.keySet().containsAll(EnumSet.allOf(Kind.class)) || scoreLimit < 1 || penaltyMillis < 1
-				|| maxPeers < 1) {
-				throw new IllegalArgumentException("A policy has a rate for every kind and limits above 0");
+			if (!covers(rates) || !covers(global)) {
+				throw new IllegalArgumentException("A policy has a rate for each kind, per peer and shared");
+			}
+
+			if (!sensible(scoreLimit, scoreDecayPerMinute, penaltyMillis, maxPeers)) {
+				throw new IllegalArgumentException("A policy has a score limit and a penalty above 0, no"
+					+ " negative decay, and room for two peers");
 			}
 
 			rates = Collections.unmodifiableMap(new EnumMap<>(rates));
+			global = Collections.unmodifiableMap(new EnumMap<>(global));
+		}
+
+		private static boolean covers(Map<Kind, Rate> rates) {
+			return rates.keySet().containsAll(EnumSet.allOf(Kind.class));
+		}
+
+		private static boolean sensible(int scoreLimit, int decay, long penaltyMillis, int maxPeers) {
+			return scoreLimit >= 1 && decay >= 0 && penaltyMillis >= 1 && maxPeers >= 2;
 		}
 	}
 
@@ -79,33 +108,54 @@ public final class PeerLimiter {
 
 	private static final class Peer {
 		private final Map<Kind, Bucket> buckets = new EnumMap<>(Kind.class);
-		private int score;
-		private long penalisedUntil = Long.MIN_VALUE;
+		private long score;
+		private long scoredAt;
+
+		private Peer(long scoredAt) {
+			this.scoredAt = scoredAt;
+		}
 	}
 
 	private final LongSupplier clock;
 	private final Policy policy;
-	private final Map<String, Peer> peers = new LinkedHashMap<>();
+	private final Map<String, Peer> active = new LinkedHashMap<>();
+	private final Map<String, Long> penalised = new LinkedHashMap<>();
+	private final Map<Kind, Bucket> shared = new EnumMap<>(Kind.class);
+	private long lastReading;
+	private long time;
+	private long inspected;
 
 	public PeerLimiter(LongSupplier clock, Policy policy) {
 		this.clock = clock;
 		this.policy = policy;
+		this.lastReading = clock.getAsLong();
 	}
 
+	/* A refusal because the peer has used up its own bucket costs it score and takes nothing from the shared one.
+	   A refusal because the shared bucket is empty costs it neither: it took no more than it may. */
 	public boolean allow(String id, Kind kind) {
-		final long now = clock.getAsLong();
-		final Peer peer = track(id, now);
+		final long now = advance();
 
-		if (peer == null || penalised(peer, now)) {
+		if (penalised(id, now)) {
 			return false;
 		}
 
-		if (take(peer, kind, now)) {
-			return true;
+		final Peer peer = track(id, now);
+		final Bucket own = refilled(peer.buckets, kind, policy.rates().get(kind), now);
+		final Bucket everyone = refilled(shared, kind, policy.global().get(kind), now);
+
+		if (own.millitokens < TOKEN) {
+			raise(id, peer, 1, now);
+			return false;
 		}
 
-		raise(peer, 1, now);
-		return false;
+		if (everyone.millitokens < TOKEN) {
+			return false;
+		}
+
+		own.millitokens -= TOKEN;
+		everyone.millitokens -= TOKEN;
+		return true;
 	}
 
 	public void misbehaved(String id, int weight) {
@@ -113,106 +163,124 @@ public final class PeerLimiter {
 			throw new IllegalArgumentException("A weight is at least 1, found " + weight);
 		}
 
-		final long now = clock.getAsLong();
-		final Peer peer = track(id, now);
+		final long now = advance();
 
-		if (peer != null && !penalised(peer, now)) {
-			raise(peer, weight, now);
+		if (!penalised(id, now)) {
+			raise(id, track(id, now), weight, now);
 		}
 	}
 
+	/* False for a peer that is not tracked: one whose penalty ended, one that was dropped to make room for a newer
+	   penalty, and one never seen. Nothing is held against a peer once it is forgotten. */
 	public boolean isPenalised(String id) {
-		final Peer peer = peers.get(id);
-		return peer != null && penalised(peer, clock.getAsLong());
+		return penalised(id, advance());
 	}
 
 	int tracked() {
-		return peers.size();
+		return active.size() + penalised.size();
 	}
 
-	/* The peer moves to the end of the order, and a new one takes the room of the least recently active peer that is
-	   not penalised. If every tracked peer is penalised there is no room and the newcomer is not tracked, which
-	   leaves it refused: a node under that flood does no work for strangers. */
-	private Peer track(String id, long now) {
-		final Peer known = peers.remove(id);
+	long inspected() {
+		return inspected;
+	}
 
-		if (known == null && !makeRoom(now)) {
-			return null;
+	private long advance() {
+		final long reading = clock.getAsLong();
+
+		if (reading > lastReading) {
+			final long gap = reading - lastReading;
+			time = saturatedSum(time, gap < 0 ? Long.MAX_VALUE : gap);
 		}
 
-		final Peer peer = Objects.requireNonNullElseGet(known, Peer::new);
-		peers.put(id, peer);
+		lastReading = reading;
+		return time;
+	}
+
+	private boolean penalised(String id, long now) {
+		expire(now);
+		return penalised.containsKey(id);
+	}
+
+	/* Penalties last the same time and time never runs back, so the first one is the first to end */
+	private void expire(long now) {
+		final Iterator<Long> ends = penalised.values().iterator();
+
+		while (ends.hasNext()) {
+			inspected++;
+
+			if (ends.next() > now) {
+				return;
+			}
+
+			ends.remove();
+		}
+	}
+
+	private Peer track(String id, long now) {
+		final Peer known = active.remove(id);
+
+		if (known == null && active.size() >= policy.maxPeers()) {
+			dropEldest(active);
+		}
+
+		final Peer peer = Objects.requireNonNullElseGet(known, () -> new Peer(now));
+		active.put(id, peer);
 		return peer;
 	}
 
-	private boolean makeRoom(long now) {
-		if (peers.size() < policy.maxPeers()) {
-			return true;
-		}
+	private void dropEldest(Map<String, ?> entries) {
+		final Iterator<String> eldest = entries.keySet().iterator();
 
-		for (final Iterator<Peer> oldest = peers.values().iterator(); oldest.hasNext();) {
-			if (!penalised(oldest.next(), now)) {
-				oldest.remove();
-				return true;
-			}
-		}
-
-		return false;
+		inspected++;
+		eldest.next();
+		eldest.remove();
 	}
 
-	/* A penalty never has more than `penaltyMillis` to run, so a clock set back cannot stretch it; one that has
-	   ended is forgotten, so a clock set back later cannot bring it back. */
-	private boolean penalised(Peer peer, long now) {
-		final long until = Math.min(peer.penalisedUntil, saturatedSum(now, policy.penaltyMillis()));
-		peer.penalisedUntil = now < until ? until : Long.MIN_VALUE;
+	private void raise(String id, Peer peer, int weight, long now) {
+		final long total = decayed(peer, now) + weight * POINT;
 
-		return now < until;
-	}
-
-	/* A peer starts again with full buckets and no score when its penalty ends, so both are cleared as it starts:
-	   nothing changes while it lasts. */
-	private void raise(Peer peer, int weight, long now) {
-		final long total = (long) peer.score + weight;
-
-		if (total >= policy.scoreLimit()) {
-			peer.score = 0;
-			peer.buckets.clear();
-			peer.penalisedUntil = saturatedSum(now, policy.penaltyMillis());
+		if (total >= policy.scoreLimit() * POINT) {
+			penalise(id, now);
 		} else {
-			peer.score = (int) total;
+			peer.score = total;
+			peer.scoredAt = now;
 		}
 	}
 
-	private boolean take(Peer peer, Kind kind, long now) {
-		final Rate rate = policy.rates().get(kind);
-		final Bucket bucket = peer.buckets.computeIfAbsent(kind, key -> new Bucket(rate.capacity() * TOKEN, now));
+	/* A peer starts again with full buckets and no score when its penalty ends, and a peer that is not tracked
+	   does, so nothing of it is kept: nothing changes while the penalty lasts. */
+	private void penalise(String id, long now) {
+		active.remove(id);
 
-		refill(bucket, rate, now);
-
-		if (bucket.millitokens < TOKEN) {
-			return false;
+		if (penalised.size() >= policy.maxPeers() / 2) {
+			dropEldest(penalised);
 		}
 
-		bucket.millitokens -= TOKEN;
-		return true;
+		penalised.put(id, saturatedSum(now, policy.penaltyMillis()));
 	}
 
-	/* A reading at or before the last one adds nothing and becomes the new last one, so a clock that was set back
-	   for good does not hold a bucket empty until it passes the old reading again. The elapsed time is compared as
-	   unsigned: it may not fit a signed long when the clock runs from one end of its range to the other. Past the
-	   time a bucket needs to fill, the product is never taken. */
-	private static void refill(Bucket bucket, Rate rate, long now) {
+	/* The score never goes below 0. Past the time it takes to reach 0 the product is never taken. */
+	private long decayed(Peer peer, long now) {
+		final long decay = policy.scoreDecayPerMinute();
+		final long elapsed = now - peer.scoredAt;
+
+		if (decay == 0) {
+			return peer.score;
+		}
+
+		return elapsed > peer.score / decay ? 0 : peer.score - elapsed * decay;
+	}
+
+	/* Past the time a bucket needs to fill, the product is never taken */
+	private static Bucket refilled(Map<Kind, Bucket> buckets, Kind kind, Rate rate, long now) {
 		final long ceiling = rate.capacity() * TOKEN;
+		final Bucket bucket = buckets.computeIfAbsent(kind, key -> new Bucket(ceiling, now));
+		final long elapsed = now - bucket.stamp;
 
-		if (now > bucket.stamp) {
-			final long elapsed = now - bucket.stamp;
-			final boolean filled = Long.compareUnsigned(elapsed, ceiling / rate.refillPerSecond() + 1) >= 0;
-
-			bucket.millitokens = filled ? ceiling
-				: Math.min(ceiling, bucket.millitokens + elapsed * rate.refillPerSecond());
-		}
-
+		bucket.millitokens = elapsed > ceiling / rate.refillPerSecond() ? ceiling
+			: Math.min(ceiling, bucket.millitokens + elapsed * rate.refillPerSecond());
 		bucket.stamp = now;
+		return bucket;
 	}
 
 	private static long saturatedSum(long reading, long span) {
