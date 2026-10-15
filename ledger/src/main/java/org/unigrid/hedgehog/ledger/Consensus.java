@@ -163,7 +163,9 @@ public final class Consensus {
 	/* The timers are gone, say after a restart of the driver, but the state of the height is not: the timers that
 	   were armed are set again and what this node said is said again, without voting anew. A node that rests says it
 	   again for a few precommit timeouts and then no more, so that a peer that lost a message can still be given
-	   it while the chain goes silent in the end. */
+	   it while the chain goes silent in the end. The timers come back every time it is called, so a driver that
+	   replaces a timer by its Timeout when it is armed again starves it if it calls resume() more often than the
+	   timer runs; LedgerNode keeps only the messages for that reason. */
 	public List<Action> resume(long at) {
 		return run(at, this::rearm);
 	}

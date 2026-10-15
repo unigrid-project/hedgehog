@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
+import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.Action.Decide;
 
 /* One validator's ledger, consensus engine and sign state tied together, or an observer's when there is no seed. Every
@@ -122,14 +123,21 @@ public final class LedgerNode {
 
 	/* What the driver calls about once a second: whatever the engine needs the time for, such as a mint that has
 	   become due, and the messages of a node at rest that its peers may have lost. What was signed already is said
-	   first, so that the proposal this tick makes is not said twice. */
+	   first, so that the proposal this tick makes is not said twice. Only the messages of resume() are kept, not its
+	   timers: the timers are armed by start, restore and the event that arms them, and a driver that replaces a timer
+	   by its Timeout when it is armed again would push it out every second and never see it fire. What onWork()
+	   arms is new and stays. */
 	public synchronized List<Action> tick() throws IOException {
 		return run(at -> {
-			final List<Action> actions = new ArrayList<>(engine.resume(at));
+			final List<Action> actions = new ArrayList<>(broadcastsOf(engine.resume(at)));
 
 			actions.addAll(engine.onWork(at));
 			return actions;
 		});
+	}
+
+	private static List<Action> broadcastsOf(List<Action> actions) {
+		return actions.stream().filter(Broadcast.class::isInstance).toList();
 	}
 
 	/* Only a question to the ledger, which has its own lock, so it takes no turn of the node. That is a call of its

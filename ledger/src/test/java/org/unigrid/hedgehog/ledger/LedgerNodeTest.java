@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -698,6 +699,68 @@ public class LedgerNodeTest {
 			assertThat(proposalsIn(ticked), hasSize(1));
 			assertThat(proposalsIn(ticked).get(0).block().getTransactions(), equalTo(List.of(DUE)));
 			assertThat(ballotsIn(ticked), hasSize(1));
+			assertThat(schedulesIn(ticked).stream().map(Schedule::timeout).toList(),
+				equalTo(List.of(new Timeout(Timeout.Kind.PROPOSE, 1, 0))));
+		}
+	}
+
+	private static List<Schedule> schedulesIn(List<Action> actions) {
+		return actions.stream().filter(Schedule.class::isInstance).map(Schedule.class::cast).toList();
+	}
+
+	/* Timers kept by the Timeout they are for, and replaced when the same one is armed again: what a driver is free
+	   to do, and what starves a timer that is armed again every second */
+	private static final class KeyedTimers {
+		private final Map<Timeout, Long> due = new HashMap<>();
+		private final List<Action> seen = new ArrayList<>();
+		private final AtomicLong clock;
+		private final LedgerNode node;
+
+		KeyedTimers(AtomicLong clock, LedgerNode node) {
+			this.clock = clock;
+			this.node = node;
+		}
+
+		void take(List<Action> actions) {
+			seen.addAll(actions);
+			schedulesIn(actions).forEach(schedule -> due.put(schedule.timeout(), clock.get() + schedule.delayMillis()));
+		}
+
+		void passOneSecond() throws IOException {
+			clock.addAndGet(1000);
+
+			for (final Timeout timeout : due.entrySet().stream().filter(entry -> entry.getValue() <= clock.get())
+				.map(Map.Entry::getKey).toList()) {
+				due.remove(timeout);
+				take(node.onTimeout(timeout));
+			}
+
+			take(node.tick());
+		}
+	}
+
+	@Example
+	public void shouldLetATimerFireThatTheDriverIsTickedPastEverySecond() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 2, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final KeyedTimers driver = new KeyedTimers(clock, node);
+
+			ledger.submit(mint(1, 500));
+			driver.take(node.start());
+			assertThat(schedulesIn(driver.seen).stream().map(Schedule::timeout).toList(),
+				equalTo(List.of(new Timeout(Timeout.Kind.PROPOSE, 1, 0))));
+			driver.passOneSecond();
+			driver.passOneSecond();
+			assertThat(ballotsIn(driver.seen), is(empty()));
+			assertThat(schedulesIn(node.tick()), is(empty()));
+
+			driver.passOneSecond();
+			driver.passOneSecond();
+
+			assertThat(ballotsIn(driver.seen).stream().filter(Ballot::isNil).distinct().map(Ballot::type).toList(),
+				equalTo(List.of(Ballot.Type.PREVOTE)));
 		}
 	}
 
