@@ -97,6 +97,13 @@ final class SyncState {
 			.isPresent();
 	}
 
+	/* Nothing is waited for and nobody is believed or doubted any more: for a driver that has stopped */
+	void clear() {
+		running = false;
+		claims.clear();
+		discredited.clear();
+	}
+
 	boolean running() {
 		return running;
 	}

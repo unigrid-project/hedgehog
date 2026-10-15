@@ -107,6 +107,7 @@ final class DriverRig implements AutoCloseable {
 	private Ledger leader;
 	private Block proposed;
 	private IOException createFailure;
+	private Boolean votes;
 	private boolean newNodesBroken;
 
 	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial) {
@@ -170,9 +171,15 @@ final class DriverRig implements AutoCloseable {
 		log = BlockLog.open(fileSystem.getPath("/node/blocks.log"));
 		ledger = new Ledger(state(1000, authority, validators), log, clock::get);
 		stores.add(new FlakyStore(StrictLocks.signStateOf(fileSystem.getPath("/node/sign.state"))));
-		nodes.add(new LedgerNode(ledger, signing ? seed : null, Timeouts.DEFAULT, stores.get(stores.size() - 1),
-			clock::get));
+		nodes.add(new LedgerNode(ledger, (votes != null ? votes : signing) ? seed : null, Timeouts.DEFAULT,
+			stores.get(stores.size() - 1), clock::get));
 		return nodes.get(nodes.size() - 1);
+	}
+
+	/* From now on every node is built to vote, or not to, whatever the driver asks for: a factory that does not do
+	   what it is asked */
+	void buildAlways(boolean vote) {
+		votes = vote;
 	}
 
 	Ledger ledger() {

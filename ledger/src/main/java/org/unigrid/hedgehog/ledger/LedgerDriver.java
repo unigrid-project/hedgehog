@@ -79,6 +79,9 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    believed for ten minutes. A node that votes follows instead when the blocks it was given show that it was more
    than one behind.
 
+   The driver fails closed. The flag that says its node votes is set when a node built to vote is there, and never
+   otherwise; a driver that halts or is closed has the flag down, its node closed and no request out.
+
    For the application: a node with a key waits for a peer at its tip, or for the grace period, before it votes
    after every restart. The node factory is asked for an observer first and, later in the same process, for a node
    that signs: it closes the block log between the two itself, and opens the sign state only for a node that signs.
@@ -254,6 +257,21 @@ public final class LedgerDriver implements Closeable {
 	/* How many peers have an item in the queue: none when it is empty, whatever passed through it */
 	int queuedPeers() {
 		return queuedPerPeer.size();
+	}
+
+	/* For the tests of this package: whether the driver builds its node to vote */
+	boolean signing() {
+		return signing;
+	}
+
+	/* For the tests of this package: whether a request for blocks is out */
+	boolean syncing() {
+		return sync.running();
+	}
+
+	/* For the tests of this package: whether the peer claims a chain above the ledger, and the claim stands */
+	boolean claimedAbove(String peer) {
+		return ledger != null && sync.claimsAbove(peer, ledger.height(), clock.getAsLong());
 	}
 
 	/* True once the driver has halted, and it stays true after it is closed */
@@ -616,10 +634,11 @@ public final class LedgerDriver implements Closeable {
 		return highest.isPresent() ? ledger.height() >= highest.getAsLong() : graceElapsed;
 	}
 
+	/* The driver votes only through a node that was built to vote and has started, and the flag is set when the node is
+	   there, so a build that fails halts it with the flag down and no node open */
 	private void become(boolean validator) {
-		signing = validator;
 		closeQuietly(node);
-		restart();
+		restart(validator);
 	}
 
 	private void endGrace() {
@@ -644,7 +663,7 @@ public final class LedgerDriver implements Closeable {
 
 	private static CompletableFuture<BlockBatch> asked(LedgerPeer peer, BlockRequest request) {
 		try {
-			return peer.request(request);
+			return Objects.requireNonNull(peer.request(request), "The peer gave no future");
 		} catch (RuntimeException e) {
 			return CompletableFuture.failedFuture(e);
 		}
@@ -744,6 +763,15 @@ public final class LedgerDriver implements Closeable {
 			abandon(peer);
 		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
 			demoteIfProvenBehind(height - before);
+			continueOrConclude(peer);
+		} else {
+			conclude();
+		}
+	}
+
+	/* A demotion that could not build the observer has halted the driver, and then there is no one to ask */
+	private void continueOrConclude(LedgerPeer peer) {
+		if (ready()) {
 			ask(peer);
 		} else {
 			conclude();
@@ -834,7 +862,7 @@ public final class LedgerDriver implements Closeable {
 			lastStatus = lastHeartbeat;
 			scheduleTick();
 			scheduleGrace();
-			restart();
+			restart(false);
 			checkHeldAgainstCheckpoint();
 		}
 	}
@@ -867,7 +895,9 @@ public final class LedgerDriver implements Closeable {
 		try {
 			if (state != State.CLOSED) {
 				state = State.CLOSED;
+				signing = false;
 				stopTimers();
+				sync.clear();
 				closeQuietly(node);
 			}
 		} finally {
@@ -899,7 +929,7 @@ public final class LedgerDriver implements Closeable {
 	private void signHeartbeat() {
 		final long now = clock.getAsLong();
 
-		if (ready() && signing && due(lastHeartbeat, now, options.heartbeatMillis())) {
+		if (ready() && signing && node.signs() && due(lastHeartbeat, now, options.heartbeatMillis())) {
 			final Status tip = node.ledger().status();
 			final Heartbeat beat = Heartbeat.signed(seed, tip.chainId(), tip.height(), tip.tipHash(), now);
 
@@ -939,7 +969,7 @@ public final class LedgerDriver implements Closeable {
 			halt("The ledger node failed twice within " + options.restartWindowMillis() + " ms: "
 				+ describe(cause));
 		} else {
-			restart();
+			restart(signing);
 		}
 	}
 
@@ -967,7 +997,7 @@ public final class LedgerDriver implements Closeable {
 		closeQuietly(node);
 
 		if (backoff == 0) {
-			restart();
+			restart(signing);
 			backoff = options.tickMillis();
 		} else {
 			node = null;
@@ -982,30 +1012,46 @@ public final class LedgerDriver implements Closeable {
 
 	private void rebuild() {
 		if (running() && node == null) {
-			restart();
+			restart(signing);
 		}
 	}
 
 	/* The timers stay: a Timeout names a step of the engine, not of a node, and the new node asks for the ones it
 	   still wants, which a timer that is pending already covers. One that no longer applies does nothing when it
 	   fires. */
-	private void restart() {
+	private void restart(boolean validator) {
+		final LedgerNode built;
+
 		try {
-			node = factory.create(signing);
+			built = factory.create(validator);
 		} catch (IOException | RuntimeException e) {
 			halt("The ledger node could not be built: " + describe(e));
 			return;
 		}
 
-		ledger = node.ledger();
+		if (built.signs() != validator) {
+			closeQuietly(built);
+			halt("The node factory built a node that " + (validator ? "does not vote" : "votes")
+				+ " when asked for one that " + (validator ? "does" : "does not"));
+			return;
+		}
+
+		node = built;
+		signing = validator;
+		ledger = built.ledger();
 		run(LedgerNode::start);
 	}
 
+	/* A halted driver votes no more: the flag is down, the node is closed and so is the lock on the sign state, and
+	   nothing is fetched. What it holds is the ledger, to serve blocks from. */
 	private void halt(String reason) {
 		log.atError().log("The ledger driver halted: {}", reason);
 		haltReason = reason;
 		state = State.HALTED;
+		signing = false;
 		stopTimers();
+		sync.clear();
+		closeQuietly(node);
 	}
 
 	private void stopTimers() {

@@ -27,10 +27,16 @@ import java.util.Deque;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.Size;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
@@ -102,6 +108,9 @@ public class LedgerDriverSyncTest {
 		private final Deque<Held> held = new ArrayDeque<>();
 		private Function<BlockRequest, List<Block>> serving;
 		private boolean holding;
+		private boolean emptying;
+		private boolean tampering;
+		private long delivered;
 		private Throwable failure;
 
 		private Server(String id, Chain chain) {
@@ -118,6 +127,41 @@ public class LedgerDriverSyncTest {
 		private Server holding() {
 			holding = true;
 			return this;
+		}
+
+		private List<Block> answer(BlockRequest request) {
+			if (emptying) {
+				return List.of();
+			}
+
+			final List<Block> blocks = serving.apply(request);
+
+			delivered += blocks.size();
+			return tampering ? spoiling(blocks, request.from() + 1) : blocks;
+		}
+
+		private Server emptying() {
+			emptying = true;
+			return this;
+		}
+
+		private boolean hasHeld() {
+			return !held.isEmpty();
+		}
+
+		/* One answer is given and the next request is held again, if the server was holding */
+		private void releaseIfHeld() {
+			if (hasHeld()) {
+				final Held next = held.remove();
+
+				next.reply().complete(new BlockBatch(answer(next.request())));
+			}
+		}
+
+		private void failIfHeld() {
+			if (hasHeld()) {
+				failHeld(new IllegalStateException("The request timed out"));
+			}
 		}
 
 		private Server failing(Throwable cause) {
@@ -138,7 +182,7 @@ public class LedgerDriverSyncTest {
 			final Held next = held.remove();
 
 			holding = false;
-			next.reply().complete(new BlockBatch(serving.apply(next.request())));
+			next.reply().complete(new BlockBatch(answer(next.request())));
 		}
 
 		private void failHeld(Throwable cause) {
@@ -166,7 +210,7 @@ public class LedgerDriverSyncTest {
 			} else if (holding) {
 				held.add(new Held(request, reply));
 			} else {
-				reply.complete(new BlockBatch(serving.apply(request)));
+				reply.complete(new BlockBatch(answer(request)));
 			}
 
 			return reply;
@@ -1180,6 +1224,370 @@ public class LedgerDriverSyncTest {
 			rig.driver.onPeerConnected(newcomer);
 
 			assertThat(newcomer.sent(Status.class), equalTo(List.of(rig.ledger().status())));
+		}
+	}
+
+	private static List<LedgerNode> live(DriverRig rig) {
+		return rig.nodes.stream().filter(LedgerNode::usable).toList();
+	}
+
+	/* What holds after any event: at most one node is alive, the driver builds its node to vote exactly when the node
+	   alive does, a halted driver holds no node, no sync and no vote, and a sync that runs has a request out */
+	private static void assertFailsClosed(DriverRig rig, List<Server> servers) {
+		final List<LedgerNode> alive = live(rig);
+
+		assertThat(alive.size() <= 1, is(true));
+
+		if (rig.driver.halted()) {
+			assertThat(alive, is(empty()));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+		} else {
+			alive.forEach(node -> assertThat(rig.driver.signing(), equalTo(node.signs())));
+			assertThat(!rig.driver.syncing() || servers.stream().anyMatch(Server::hasHeld), is(true));
+		}
+	}
+
+	@Example
+	public void shouldHaltWithNoNodeAndNoVoteWhenThePromotionCannotBuildTheNode() throws IOException {
+		try (DriverRig rig = fresh()) {
+			final RecordingPeer watcher = rig.network.connect("W");
+
+			rig.failCreation(new IOException("The sign state is locked"));
+			rig.passGrace();
+			rig.tick(DriverRig.HEARTBEAT);
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), is(empty()));
+			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(watcher.sent(Heartbeat.class), is(empty()));
+			assertFailsClosed(rig, List.of());
+		}
+	}
+
+	@Example
+	public void shouldHaltWithNoNodeAndNoVoteWhenThePromotedNodeCannotStart() throws IOException {
+		try (DriverRig rig = fresh()) {
+			rig.breakNewNodes();
+			rig.passGrace();
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), is(empty()));
+			assertThat(rig.built, equalTo(List.of(false, true, true)));
+			assertFailsClosed(rig, List.of());
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenTheFactoryBuildsANodeThatVotesAndWasNotAskedToVote() throws IOException {
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, new DirectSerial())) {
+			rig.buildAlways(true);
+			rig.driver.start();
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenTheFactoryBuildsAnObserverForAPromotion() throws IOException {
+		try (DriverRig rig = fresh()) {
+			rig.buildAlways(false);
+			rig.passGrace();
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), is(empty()));
+			assertThat(rig.built, equalTo(List.of(false, true)));
+		}
+	}
+
+	@Example
+	public void shouldFinishASyncOnTheNodeThatReplacedTheOneItStartedOn() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.passGrace();
+			rig.driver.onStatus(server, server.status());
+			rig.failSaves(new IllegalStateException("The store is broken"));
+			rig.driver.onMessage(a, rig.proposal());
+
+			assertThat(rig.built, equalTo(List.of(false, true, true)));
+			assertThat(rig.driver.syncing(), is(true));
+			assertFailsClosed(rig, List.of(server));
+
+			server.release();
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.driver.claimedAbove("S"), is(false));
+			assertFailsClosed(rig, List.of(server));
+			assertThat(live(rig), hasSize(1));
+			assertThat(live(rig).get(0).height(), equalTo(TIP + 1));
+		}
+	}
+
+	@Example
+	public void shouldPromoteTheReplacementWhenTheNodeWasReplacedBetweenTheStatusAndThePromotion()
+		throws IOException {
+		try (Chain chain = new Chain(5, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.driver.onStatus(server, server.status());
+			rig.breakNode();
+			rig.tick(DriverRig.TICK);
+
+			assertThat(rig.built, equalTo(List.of(false, false)));
+			assertThat(rig.driver.signing(), is(false));
+
+			server.failHeld(new IllegalStateException("The request timed out"));
+			rig.passGrace();
+
+			assertThat(rig.built, equalTo(List.of(false, false, true)));
+			assertThat(rig.driver.signing(), is(true));
+			assertThat(live(rig), hasSize(1));
+			assertThat(live(rig).get(0), is(rig.nodes.get(2)));
+			assertThat(rig.nodes.get(2).signs(), is(true));
+			assertFailsClosed(rig, List.of(server));
+		}
+	}
+
+	@Example
+	public void shouldEndTheSyncAndKeepOneNodeWhenABlockMakesTheNodeThrowInTheApplyLoop() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server culprit = new Server("A", chain);
+			final Server other = new Server("B", chain);
+
+			rig.breakSchedule();
+			rig.driver.onStatus(culprit, culprit.status());
+
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.driver.claimedAbove("A"), is(false));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), hasSize(1));
+			assertFailsClosed(rig, List.of(culprit, other));
+
+			rig.driver.onStatus(other, other.status());
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(rig.driver.syncing(), is(false));
+			assertFailsClosed(rig, List.of(culprit, other));
+		}
+	}
+
+	@Example
+	public void shouldHaltWithNoSyncAndNoVoteWhenSomethingBeyondTheNodeThrowsAfterTheApplyLoop() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain);
+
+			rig.network.refuse(new IllegalStateException("The network failed"));
+			rig.driver.onStatus(server, server.status());
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.ledger().height(), equalTo(3L));
+			assertFailsClosed(rig, List.of(server));
+		}
+	}
+
+	@Example
+	public void shouldDropTheSyncAndHoldNoNodeWhenTheDriverHaltsWithARequestOut() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.passGrace();
+			rig.driver.onStatus(server, server.status());
+
+			assertThat(rig.driver.syncing(), is(true));
+
+			rig.network.refuse(new IllegalStateException("The network failed"));
+			rig.driver.onTransaction(a, mint(1, 500));
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.driver.claimedAbove("S"), is(false));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), is(empty()));
+
+			server.release();
+
+			assertThat(server.requests, hasSize(1));
+			assertThat(rig.driver.syncing(), is(false));
+		}
+	}
+
+	@Example
+	public void shouldAskNoMoreAndHaltWithNoNodeWhenTheDemotionCannotBuildTheObserver() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.passGrace();
+			rig.driver.onStatus(server, server.status());
+			rig.failCreation(new IOException("The files are gone"));
+			server.release();
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.built, equalTo(List.of(false, true, false)));
+			assertThat(server.requests, hasSize(1));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(live(rig), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldEndTheSyncAndNotHaltWhenAPeerGivesNoFutureForARequest() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = fresh()) {
+			final LedgerPeer mute = new LedgerPeer() {
+				@Override
+				public String id() {
+					return "M";
+				}
+
+				@Override
+				public void send(Object wire) {
+					/* Nothing to say */
+				}
+
+				@Override
+				public CompletableFuture<BlockBatch> request(BlockRequest request) {
+					return null;
+				}
+			};
+			final Server other = new Server("B", chain);
+
+			rig.driver.onStatus(mute, new Server("M", chain).status());
+
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+
+			rig.driver.onStatus(other, other.status());
+
+			assertThat(rig.ledger().height(), equalTo(3L));
+		}
+	}
+
+	private static int kindOf(int code) {
+		return code % 65 == 64 ? 13 : code % 13;
+	}
+
+	private static Server serverOf(int code, List<Server> servers) {
+		return servers.get(code / 48 % servers.size());
+	}
+
+	private static Status claim(Chain chain, long height) {
+		final byte[] chainId = chain.ledger.chainId();
+
+		return new Status(chainId, height, chain.ledger.hashAt(height).orElse(height == 0 ? chainId
+			: new byte[Digests.HASH_SIZE]));
+	}
+
+	private static void act(int code, DriverRig rig, Chain chain, List<Server> servers, RecordingPeer peer) {
+		final Server server = serverOf(code, servers);
+		final long amount = code / 144;
+
+		switch (kindOf(code)) {
+			case 0 -> rig.driver.onStatus(server, server.status());
+			case 1 -> rig.driver.onStatus(server, claim(chain, amount % 32));
+			case 2 -> server.releaseIfHeld();
+			case 3 -> server.failIfHeld();
+			case 4 -> rig.tick(1 + amount % 5_000);
+			case 5 -> fireATimer(rig, amount);
+			case 6 -> rig.passGrace();
+			case 7 -> deliverTheNextBlock(rig, chain, peer);
+			case 8 -> {
+				rig.breakNode();
+				rig.tick(DriverRig.TICK);
+			}
+			case 9 -> rig.clock.addAndGet(1 + amount * 1_009 % 700_000);
+			case 10 -> {
+				server.holding = true;
+				rig.driver.onStatus(server, server.status());
+			}
+			case 11 -> server.tampering = amount % 2 == 0;
+			case 12 -> server.holding = false;
+			default -> rig.failCreation(new IOException("The files are gone"));
+		}
+	}
+
+	private static void fireATimer(DriverRig rig, long which) {
+		final List<ManualScheduler.Timer> timers = rig.timers();
+
+		if (!timers.isEmpty()) {
+			timers.get((int) (which % timers.size())).fire();
+		}
+	}
+
+	private static void deliverTheNextBlock(DriverRig rig, Chain chain, RecordingPeer peer) {
+		final long next = rig.ledger().height() + 1;
+
+		if (next <= chain.ledger.height()) {
+			rig.driver.onMessage(peer, new Decision(chain.block(next)));
+		}
+	}
+
+	private static Policy lenient() {
+		final Map<Kind, Rate> rates = new EnumMap<>(Kind.class);
+
+		for (final Kind kind : Kind.values()) {
+			rates.put(kind, new Rate(1_000_000, 1_000_000));
+		}
+
+		return new Policy(rates, rates, 1_000_000, 10, 60_000, 100);
+	}
+
+	/* The restart window is 1 ms and every step takes one, so that nothing waits for a window while the claims and
+	   the marks run their own time */
+	@Property(tries = 30)
+	public void shouldFailClosedWhateverStatusesBatchesFailuresAndTimersComeInWhateverOrder(
+		@ForAll @Size(min = 5, max = 60) List<@IntRange(min = 0, max = 1_000_000) Integer> script)
+		throws IOException {
+		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
+			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.empty());
+
+		try (Chain chain = new Chain(24, 10);
+			DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
+			final List<Server> servers = List.of(new Server("A", chain), new Server("B", chain),
+				new Server("C", chain).emptying());
+			final RecordingPeer peer = rig.network.connect("P");
+			final Set<String> proofs = new HashSet<>();
+
+			if (script.get(0) % 3 > 0) {
+				rig.passGrace();
+			}
+
+			if (script.get(0) % 3 == 2) {
+				servers.get(0).holding = true;
+				rig.driver.onStatus(servers.get(0), servers.get(0).status());
+			}
+
+			for (final int code : script) {
+				final boolean voting = rig.driver.signing();
+				final long height = rig.ledger().height();
+				final long[] delivered = servers.stream().mapToLong(server -> server.delivered).toArray();
+
+				rig.clock.addAndGet(1);
+				act(code, rig, chain, servers, peer);
+
+				if (voting && rig.ledger().height() - height >= 2) {
+					for (int n = 0; n < servers.size(); n++) {
+						if (servers.get(n).delivered > delivered[n]) {
+							proofs.add(servers.get(n).id());
+						}
+					}
+				}
+
+				assertFailsClosed(rig, servers);
+
+				if (rig.driver.signing() && !rig.driver.halted()) {
+					proofs.forEach(id -> assertThat(rig.driver.claimedAbove(id), is(false)));
+					proofs.clear();
+				}
+			}
 		}
 	}
 
