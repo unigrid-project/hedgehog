@@ -193,8 +193,12 @@ public class LedgerDriverSyncTest {
 
 	/* A driver that starts over a log that holds the first blocks of the chain already, as after a restart */
 	private static DriverRig startedOver(Chain chain, long blocks, Checkpoint trusted) throws IOException {
-		final DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, new DirectSerial(),
-			trusting(trusted));
+		return startedOver(chain, blocks, trusted, DriverRig.STRICT);
+	}
+
+	private static DriverRig startedOver(Chain chain, long blocks, Checkpoint trusted, Policy policy)
+		throws IOException {
+		final DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), policy, new DirectSerial(), trusting(trusted));
 		final BlockLog log = BlockLog.open(rig.fileSystem.getPath("/node/blocks.log"));
 
 		for (long height = 1; height <= blocks; height++) {
@@ -210,6 +214,10 @@ public class LedgerDriverSyncTest {
 
 		rates.put(kind, new Rate(capacity, 1));
 		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
+	}
+
+	private static Policy scoringSixIsAPenalty() {
+		return new Policy(Policy.DEFAULT.rates(), Policy.DEFAULT.global(), 6, 10, 60_000, 100);
 	}
 
 	/* The same block with one signature of its certificate spoiled, which the hash does not cover */
@@ -374,24 +382,26 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldEndASyncWhoseRequestFailsWithoutChargingThePeerAndTryAnotherOnTheNextStatus()
-		throws IOException {
+	public void shouldEndASyncWhoseRequestFailsWithoutChargingThePeerAndClearItsClaim() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(TOUCHY)) {
 			final Server failing = new Server("A", chain).failing(new IllegalStateException("The request timed out"));
 			final Server other = new Server("B", chain);
 
 			rig.driver.onStatus(failing, failing.status());
-			rig.passGrace();
 
 			assertThat(failing.requests, hasSize(1));
 			assertThat(rig.limiter.isPenalised("A"), is(false));
 			assertThat(rig.ledger().height(), equalTo(0L));
 			assertThat(rig.built, equalTo(List.of(false)));
 
+			rig.passGrace();
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
+
 			rig.driver.onStatus(other, other.status());
 
 			assertThat(rig.ledger().height(), equalTo(TIP));
-			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(failing.requests, hasSize(1));
 		}
 	}
 
@@ -441,20 +451,17 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldChargeAnEmptyBatchLessThanAFalseBlock() throws IOException {
-		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+	public void shouldChargeAnEmptyBatchFiveAndNotMore() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(scoringSixIsAPenalty())) {
 			final Server empty = new Server("E", chain).serving(request -> List.of());
-
-			for (int again = 0; again < 19; again++) {
-				rig.driver.onStatus(empty, empty.status());
-			}
-
-			assertThat(rig.limiter.isPenalised("E"), is(false));
 
 			rig.driver.onStatus(empty, empty.status());
 
+			assertThat(rig.limiter.isPenalised("E"), is(false));
+
+			rig.limiter.misbehaved("E", 1);
+
 			assertThat(rig.limiter.isPenalised("E"), is(true));
-			assertThat(empty.requests, hasSize(20));
 		}
 	}
 
@@ -828,60 +835,81 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldFollowAgainWhenAPromotedNodeFallsMoreThanOneBlockBehindAndSignOnceItIsBack()
+	public void shouldDemoteAPromotedNodeOnlyAfterABatchHasProvedItIsBehindAndSignAgainOnceItIsBack()
 		throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.passGrace();
+			rig.driver.onStatus(server, server.status());
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(server.requests, hasSize(1));
+
+			server.release();
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(server.requests, hasSize(3));
+			assertThat(rig.built, equalTo(List.of(false, true, false, true)));
+		}
+	}
+
+	@Example
+	public void shouldKeepSigningThroughASyncThatBringsItToTheTipInOneBatch() throws IOException {
 		try (Chain chain = new Chain(9, 10); DriverRig rig = fresh()) {
 			final Server server = new Server("S", chain).holding();
 
 			rig.passGrace();
-
-			assertThat(rig.built, equalTo(List.of(false, true)));
-
-			rig.driver.onStatus(server, server.statusAt(3));
-
-			assertThat(rig.built, equalTo(List.of(false, true, false)));
-
+			rig.driver.onStatus(server, server.status());
 			server.release();
 
 			assertThat(rig.ledger().height(), equalTo(9L));
-			assertThat(rig.built, equalTo(List.of(false, true, false, true)));
-		}
-	}
-
-	@Example
-	public void shouldKeepSigningWhenAPeerIsOnlyOneBlockAhead() throws IOException {
-		try (Chain chain = new Chain(9, 10); DriverRig rig = fresh()) {
-			final Server server = new Server("S", chain).holding();
-
-			rig.passGrace();
-			rig.driver.onStatus(server, server.statusAt(1));
-
-			assertThat(rig.built, equalTo(List.of(false, true)));
-
-			server.release();
-
 			assertThat(rig.built, equalTo(List.of(false, true)));
 		}
 	}
 
 	@Example
-	public void shouldFollowAgainNoMoreThanOnceInTheRestartWindow() throws IOException {
+	public void shouldKeepSigningThroughABatchOfOneBlock() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
-			final Server server = new Server("S", chain);
+			final Server server = new Server("S", chain).serving(request -> chain.ledger.blocksFrom(request.from(), 1));
 
 			rig.passGrace();
 			rig.driver.onStatus(server, server.statusAt(3));
 
-			assertThat(rig.built, equalTo(List.of(false, true, false, true)));
-			assertThat(rig.ledger().height(), equalTo(16L));
+			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(rig.ledger().height(), equalTo(3L));
+		}
+	}
 
+	@Example
+	public void shouldDemoteNoMoreThanOnceInTheRestartWindow() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).serving(
+				request -> chain.ledger.blocksFrom(request.from(), 8));
+
+			rig.passGrace();
 			rig.driver.onStatus(server, server.statusAt(20));
 
-			assertThat(rig.built, hasSize(4));
-			assertThat(rig.ledger().height(), equalTo(32L));
+			assertThat(rig.built, equalTo(List.of(false, true, false, true)));
+			assertThat(rig.ledger().height(), equalTo(24L));
 
+			rig.driver.onStatus(server, server.statusAt(40));
+
+			assertThat(rig.built, hasSize(4));
+			assertThat(rig.ledger().height(), equalTo(TIP));
+		}
+	}
+
+	@Example
+	public void shouldDemoteAgainOnceTheRestartWindowHasPassed() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).serving(
+				request -> chain.ledger.blocksFrom(request.from(), 8));
+
+			rig.passGrace();
+			rig.driver.onStatus(server, server.statusAt(20));
 			rig.clock.addAndGet(DriverRig.RESTART_WINDOW);
-			rig.driver.onStatus(server, server.statusAt(36));
+			rig.driver.onStatus(server, server.statusAt(40));
 
 			assertThat(rig.built, equalTo(List.of(false, true, false, true, false, true)));
 			assertThat(rig.ledger().height(), equalTo(TIP));
@@ -889,36 +917,161 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldStayAnObserverOnceAPeerHasSpokenEvenWhenItsClaimLapsesUntilAPeerIsAtTheTip()
-		throws IOException {
-		try (Chain ahead = new Chain(5, 10); Chain bare = new Chain(0, 10); DriverRig rig = fresh()) {
-			final Server gone = new Server("G", ahead).holding();
-			final Server level = new Server("L", bare);
+	public void shouldNotLetALiarWhoClaimsAheadForEverDemoteAnyOfFourSigningNodes() throws IOException {
+		try (Chain chain = new Chain(2, 10); DriverRig one = DriverRig.four(1, DriverRig.STRICT);
+			DriverRig two = DriverRig.four(2, DriverRig.STRICT); DriverRig three = DriverRig.four(3, DriverRig.STRICT);
+			DriverRig four = DriverRig.four(4, DriverRig.STRICT)) {
+			final List<DriverRig> rigs = List.of(one, two, three, four);
+			final List<Server> liars = rigs.stream().map(rig -> new Server("L", chain).holding()).toList();
 
-			rig.driver.onStatus(gone, gone.status());
+			for (int interval = 0; interval < 10; interval++) {
+				for (int n = 0; n < 4; n++) {
+					rigs.get(n).clock.addAndGet(DriverRig.STATUS);
+					rigs.get(n).driver.onStatus(liars.get(n), liars.get(n).statusAt(2));
+				}
+			}
+
+			for (int n = 0; n < 4; n++) {
+				assertThat(rigs.get(n).built, equalTo(List.of(true)));
+				assertThat(rigs.get(n).driver.halted(), is(false));
+				assertThat(liars.get(n).requests, hasSize(1));
+			}
+		}
+	}
+
+	@Example
+	public void shouldNotLetALiarWhoAnswersNothingKeepAFreshNodeFromSigning() throws IOException {
+		try (Chain chain = new Chain(2, 10); DriverRig rig = fresh()) {
+			final Server liar = new Server("L", chain).holding();
+
+			rig.driver.onStatus(liar, liar.statusAt(2));
 			rig.passGrace();
-			rig.clock.addAndGet(3 * DriverRig.STATUS);
-			rig.tick(DriverRig.TICK);
 
 			assertThat(rig.built, equalTo(List.of(false)));
 
-			rig.driver.onStatus(level, level.status());
+			liar.failHeld(new IllegalStateException("The request timed out"));
 
 			assertThat(rig.built, equalTo(List.of(false, true)));
 		}
 	}
 
 	@Example
-	public void shouldWaitForAClaimThatHasNotLapsedYet() throws IOException {
-		try (Chain ahead = new Chain(5, 10); Chain bare = new Chain(0, 10); DriverRig rig = fresh()) {
-			final Server gone = new Server("G", ahead).holding();
-			final Server level = new Server("L", bare);
+	public void shouldNotLetALiarWhoAnswersEmptyKeepAFreshNodeFromSigning() throws IOException {
+		try (Chain chain = new Chain(2, 10); DriverRig rig = fresh()) {
+			final Server liar = new Server("L", chain).serving(request -> List.of());
 
-			rig.driver.onStatus(gone, gone.status());
-			rig.clock.addAndGet(3 * DriverRig.STATUS - 1);
-			rig.driver.onStatus(level, level.status());
+			rig.driver.onStatus(liar, liar.statusAt(2));
 
 			assertThat(rig.built, equalTo(List.of(false)));
+
+			rig.passGrace();
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(liar.requests, hasSize(1));
+		}
+	}
+
+	@Example
+	public void shouldNotCountAClaimThatIsNotRepeatedForTwoStatusIntervalsAndNotBefore() throws IOException {
+		try (Chain ahead = new Chain(5, 10); DriverRig rig = fresh()) {
+			final Server silent = new Server("S", ahead).holding();
+
+			rig.driver.onStatus(silent, silent.status());
+			rig.passGrace();
+			rig.tick(2 * DriverRig.STATUS - 1);
+
+			assertThat(rig.built, equalTo(List.of(false)));
+
+			rig.tick(1);
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
+		}
+	}
+
+	@Example
+	public void shouldCountAClaimForAnotherTwoIntervalsWhenItIsRepeated() throws IOException {
+		try (Chain ahead = new Chain(5, 10); DriverRig rig = fresh()) {
+			final Server repeating = new Server("S", ahead).holding();
+
+			rig.driver.onStatus(repeating, repeating.status());
+			rig.passGrace();
+			rig.clock.addAndGet(2 * DriverRig.STATUS - 1);
+			rig.driver.onStatus(repeating, repeating.status());
+			rig.tick(2 * DriverRig.STATUS - 1);
+
+			assertThat(rig.built, equalTo(List.of(false)));
+
+			rig.tick(1);
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
+		}
+	}
+
+	@Example
+	public void shouldIgnoreAPeerThatCouldNotBackItsClaimForTenMinutesAndNotLonger() throws IOException {
+		try (Chain chain = new Chain(2, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server liar = new Server("L", chain).serving(request -> List.of());
+
+			rig.driver.onStatus(liar, liar.statusAt(2));
+			rig.clock.addAndGet(SyncState.MEMORY_MILLIS - 1);
+			rig.driver.onStatus(liar, liar.statusAt(2));
+
+			assertThat(liar.requests, hasSize(1));
+
+			rig.clock.addAndGet(1);
+			rig.driver.onStatus(liar, liar.statusAt(2));
+
+			assertThat(liar.requests, hasSize(2));
+		}
+	}
+
+	@Example
+	public void shouldIgnoreAPeerWhoseRequestTimedOutForTenMinutes() throws IOException {
+		try (Chain chain = new Chain(2, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server silent = new Server("S", chain).holding();
+
+			rig.driver.onStatus(silent, silent.statusAt(2));
+			silent.failHeld(new IllegalStateException("The request timed out"));
+			rig.clock.addAndGet(DriverRig.STATUS);
+			rig.driver.onStatus(silent, silent.statusAt(2));
+
+			assertThat(silent.requests, hasSize(1));
+			assertThat(rig.limiter.isPenalised("S"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldIgnoreAPeerWhoseBlockWasRefusedForTenMinutes() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server liar = new Server("L", chain).serving(
+				request -> spoiling(chain.ledger.blocksFrom(request.from(), request.max()), 3));
+
+			rig.driver.onStatus(liar, liar.status());
+			rig.clock.addAndGet(DriverRig.TICK);
+			rig.driver.onStatus(liar, liar.status());
+
+			assertThat(liar.requests, hasSize(1));
+			assertThat(rig.ledger().height(), equalTo(2L));
+		}
+	}
+
+	@Example
+	public void shouldNotCountAStatusWhoseTipIsNotTheBlockItHoldsAtThatHeightAndCostThePeerNothing()
+		throws IOException {
+		try (Chain chain = new Chain(3, 10); Chain fork = new Chain(3, 11);
+			DriverRig rig = startedOver(chain, 3, null, TOUCHY)) {
+			final Server other = new Server("F", fork);
+			final Server honest = new Server("H", chain);
+
+			rig.driver.onStatus(other, other.status());
+
+			assertThat(rig.built, equalTo(List.of(false)));
+			assertThat(rig.limiter.isPenalised("F"), is(false));
+			assertThat(other.requests, is(empty()));
+
+			rig.driver.onStatus(honest, honest.status());
+
+			assertThat(rig.built, equalTo(List.of(false, true)));
 		}
 	}
 
@@ -1056,7 +1209,6 @@ public class LedgerDriverSyncTest {
 		assertThat(state.highest(1).getAsLong(), equalTo(10L));
 		assertThat(state.furthestAbove(5, 5_000).isPresent(), is(true));
 		assertThat(state.furthestAbove(10, 5_000).isPresent(), is(false));
-		assertThat(state.heardAny(), is(true));
 
 		state.heard(peer, 12, 5_900);
 
@@ -1065,6 +1217,31 @@ public class LedgerDriverSyncTest {
 		state.drop("P");
 
 		assertThat(state.highest(5_900).isPresent(), is(false));
-		assertThat(state.heardAny(), is(true));
+	}
+
+	@Example
+	public void shouldRememberAPeerThatCouldNotBackItsClaimForTenMinutesAndThenForgetIt() {
+		final SyncState state = new SyncState(1_000);
+
+		state.discredit("P", 5_000);
+
+		assertThat(state.discredited("P", 5_000), is(true));
+		assertThat(state.discredited("P", 5_000 + SyncState.MEMORY_MILLIS - 1), is(true));
+		assertThat(state.discredited("P", 5_000 + SyncState.MEMORY_MILLIS), is(false));
+		assertThat(state.discredited("P", 1), is(true));
+		assertThat(state.discredited("Q", 5_000), is(false));
+	}
+
+	@Example
+	public void shouldKeepAtMostSoManyMarksAndLetTheOldestGo() {
+		final SyncState state = new SyncState(1_000);
+
+		for (int n = 0; n < SyncState.MAX_CLAIMS + 50; n++) {
+			state.discredit("P" + n, 0);
+		}
+
+		assertThat(state.discredited("P0", 0), is(false));
+		assertThat(state.discredited("P49", 0), is(false));
+		assertThat(state.discredited("P50", 0), is(true));
 	}
 }

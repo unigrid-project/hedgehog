@@ -73,6 +73,12 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    starts as an observer and votes only once it has caught up with the peers it has heard from, so that one whose sign
    state was lost cannot sign at a height the network has left.
 
+   What a peer says of its chain is a claim, and only certified blocks are proof. A claim decides whom to ask, and a
+   node that has not voted yet waits for the claims that stand; it moves no node out of voting. A claim lapses when
+   it is not repeated, and a peer that is asked for the blocks it claims and cannot give them is cleared and not
+   believed for ten minutes. A node that votes follows instead when the blocks it was given show that it was more
+   than one behind.
+
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it, except that the answer to a
    request of the driver's own takes no token: there is one such request out at a time. */
@@ -87,7 +93,7 @@ public final class LedgerDriver implements Closeable {
 	private static final int OTHER_CHAIN_COST = 10;
 	private static final int REFUSED_BLOCK_COST = 50;
 	private static final int EMPTY_BATCH_COST = 5;
-	private static final int LAPSE_STATUSES = 3;
+	private static final int LAPSE_STATUSES = 2;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
 	   before it asks for the next. Closing a node lets go of its sign state and no more, so the factory closes the
@@ -571,31 +577,25 @@ public final class LedgerDriver implements Closeable {
 		timers.keySet().stream().filter(which).toList().forEach(timeout -> timers.remove(timeout).cancel());
 	}
 
-	/* A status says where the chain of a peer stands and proves nothing: it tells this node whom to ask for blocks, when
-	   it has caught up, and, for a node that votes, that it has fallen so far behind that it should only follow. A peer
-	   of another chain is no part of this network. */
+	/* A status is a claim of where the chain of a peer stands, and proves nothing: it tells this node whom to ask for
+	   blocks, and gates the vote of a node that has not caught up, but moves no node out of voting. A peer of another
+	   chain is no part of this network. A peer that could not back its claim is not heard for a while, and one whose
+	   tip is not the block this node holds at that height is on another fork, which only certified blocks can
+	   settle, so it counts for nothing and costs nothing. */
 	private void heard(LedgerPeer from, Status status) {
-		if (!Arrays.equals(status.chainId(), ledger.chainId())) {
-			limiter.misbehaved(from.id(), OTHER_CHAIN_COST);
-			return;
-		}
-
-		sync.heard(from, status.height(), clock.getAsLong());
-		demoteIfBehind(status.height());
-		promoteIfCaughtUp();
-		startSync();
-	}
-
-	/* One block behind is how the peers that decide first look to the rest; more is a node that has missed some.
-	   Building a node replays the whole log, so a claim that nobody backs up must not be able to make this happen over
-	   and over: it is done once in a restart window. */
-	private void demoteIfBehind(long peerHeight) {
 		final long now = clock.getAsLong();
 
-		if (signing && peerHeight > ledger.height() + 1 && !within(lastDemoted, now)) {
-			lastDemoted = OptionalLong.of(now);
-			become(false);
+		if (!Arrays.equals(status.chainId(), ledger.chainId())) {
+			limiter.misbehaved(from.id(), OTHER_CHAIN_COST);
+		} else if (!sync.discredited(from.id(), now) && !contradictsHeld(status)) {
+			sync.heard(from, status.height(), now);
+			promoteIfCaughtUp();
+			startSync();
 		}
+	}
+
+	private boolean contradictsHeld(Status status) {
+		return ledger.hashAt(status.height()).filter(held -> !Arrays.equals(held, status.tipHash())).isPresent();
 	}
 
 	private void promoteIfCaughtUp() {
@@ -604,12 +604,12 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
-	/* At the height of the highest peer heard lately, or, when no peer has spoken at all, once the grace period is over.
-	   A node that has heard one and lost it again waits for the next: it cannot know it is at the tip. */
+	/* At the height of the highest claim that stands, or, when none does, once the grace period is over. A claim stands
+	   until it lapses or its peer cannot back it up, so one peer cannot keep a node from voting for longer than that. */
 	private boolean caughtUp() {
 		final OptionalLong highest = sync.highest(clock.getAsLong());
 
-		return highest.isPresent() ? ledger.height() >= highest.getAsLong() : graceElapsed && !sync.heardAny();
+		return highest.isPresent() ? ledger.height() >= highest.getAsLong() : graceElapsed;
 	}
 
 	private void become(boolean validator) {
@@ -652,7 +652,9 @@ public final class LedgerDriver implements Closeable {
 	   it is asked no more until it speaks again, and another peer is tried. */
 	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
 		control(() -> {
-			if (failure == null && batch != null && ready()) {
+			if (failure != null || batch == null) {
+				discredit(peer);
+			} else if (ready()) {
 				take(peer, request, batch);
 			} else {
 				abandon(peer);
@@ -664,7 +666,7 @@ public final class LedgerDriver implements Closeable {
 		final long before = ledger.height();
 
 		if (!answers(request, batch)) {
-			limiter.misbehaved(peer.id(), REFUSED_BLOCK_COST);
+			blame(peer);
 			abandon(peer);
 		} else if (applyAll(new Item(peer, Kind.BLOCK_BATCH, batch), batch)) {
 			carryOn(peer, batch, before);
@@ -708,10 +710,16 @@ public final class LedgerDriver implements Closeable {
 		final boolean moved = ledger.height() == before + 1;
 
 		if (!moved) {
-			limiter.misbehaved(item.from().id(), REFUSED_BLOCK_COST);
+			blame(item.from());
 		}
 
 		return moved;
+	}
+
+	/* A peer that serves what is not right owes for it, and is not believed for a while */
+	private void blame(LedgerPeer peer) {
+		limiter.misbehaved(peer.id(), REFUSED_BLOCK_COST);
+		sync.discredit(peer.id(), clock.getAsLong());
 	}
 
 	/* The decision of each block fetched would go to every peer, which has the block already or fetches it itself: what
@@ -727,20 +735,39 @@ public final class LedgerDriver implements Closeable {
 
 		if (batch.blocks().isEmpty()) {
 			limiter.misbehaved(peer.id(), EMPTY_BATCH_COST);
-		}
-
-		if (height == before) {
+			discredit(peer);
+		} else if (height == before) {
 			abandon(peer);
 		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
+			demoteIfProvenBehind(height - before);
 			ask(peer);
 		} else {
 			conclude();
 		}
 	}
 
+	/* The peer is asked no more, and what it says is not counted until it has been forgotten */
+	private void discredit(LedgerPeer peer) {
+		sync.discredit(peer.id(), clock.getAsLong());
+		abandon(peer);
+	}
+
 	private void abandon(LedgerPeer peer) {
 		sync.drop(peer.id());
 		conclude();
+	}
+
+	/* A status is a claim, and only certified blocks are proof. A node that votes has fallen behind when it was given
+	   more than one block that the others had decided already, and then it follows until it has caught up. Building a
+	   node replays the whole log, so it is done once in a restart window, even if a peer serves a few blocks and claims
+	   a great many. */
+	private void demoteIfProvenBehind(long applied) {
+		final long now = clock.getAsLong();
+
+		if (signing && applied > 1 && !within(lastDemoted, now)) {
+			lastDemoted = OptionalLong.of(now);
+			become(false);
+		}
 	}
 
 	/* The peers are told once where the ledger stands, not for every batch, as they limit the statuses they take */

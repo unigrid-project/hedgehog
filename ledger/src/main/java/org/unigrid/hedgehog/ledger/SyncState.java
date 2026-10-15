@@ -26,20 +26,23 @@ import java.util.OptionalLong;
 import java.util.stream.Stream;
 
 /* How high the peers say their chains are, and whether this node is fetching blocks from one of them. What a peer
-   says proves nothing, as a status is not signed: it only tells whom to ask, and is dropped for a peer that is asked
-   and cannot back it up, so that a peer which claims a chain it has not got holds nothing up for longer than one
-   request. A claim that is not repeated lapses, so that a peer which left is not waited for. The most claims kept is
-   limited, and a peer that speaks again takes the place of its last claim and goes to the back. Used by the driver
-   on its serial executor only. */
+   says is a claim and proves nothing, as a status is not signed: only certified blocks are proof. A claim tells
+   whom to ask. It is dropped for a peer that is asked and cannot back it up, and that peer is not believed for a
+   while after, so that a peer which claims a chain it has not got holds nothing up for longer than one request, and
+   cannot do it again at no cost. A claim that is not repeated lapses, which is also how a peer that has left stops
+   being waited for: the driver is told of no disconnect. The most claims and marks kept are limited, and a peer that
+   speaks again takes the place of its last claim and goes to the back. Used by the driver on its serial executor
+   only. */
 final class SyncState {
 	static final int MAX_CLAIMS = 256;
+	static final long MEMORY_MILLIS = 600_000;
 
 	record Claim(LedgerPeer peer, long height, long heardAt) {
 	}
 
 	private final long lapseMillis;
 	private final Map<String, Claim> claims = new LinkedHashMap<>();
-	private boolean heardAny;
+	private final Map<String, Long> discredited = new LinkedHashMap<>();
 	private boolean running;
 	private long startHeight;
 
@@ -50,7 +53,6 @@ final class SyncState {
 	void heard(LedgerPeer peer, long height, long now) {
 		final String id = peer.id();
 
-		heardAny = true;
 		claims.values().removeIf(claim -> lapsed(claim, now));
 		claims.remove(id);
 		claims.put(id, new Claim(peer, height, now));
@@ -64,9 +66,22 @@ final class SyncState {
 		claims.remove(id);
 	}
 
-	/* Whether any peer has said anything since this node started: a node that has heard nobody waits for nobody */
-	boolean heardAny() {
-		return heardAny;
+	/* The peer could not back its claim: what it says is not counted until the memory of it has passed */
+	void discredit(String id, long now) {
+		discredited.values().removeIf(marked -> now - marked >= MEMORY_MILLIS);
+		discredited.remove(id);
+		discredited.put(id, now);
+
+		if (discredited.size() > MAX_CLAIMS) {
+			discredited.remove(discredited.keySet().iterator().next());
+		}
+	}
+
+	/* A clock that was set back makes nothing pass */
+	boolean discredited(String id, long now) {
+		final Long marked = discredited.get(id);
+
+		return marked != null && now - marked < MEMORY_MILLIS;
 	}
 
 	OptionalLong highest(long now) {
