@@ -64,7 +64,7 @@ final class Gossip {
 	}
 
 	/* A peer that cannot be written to has lost the object, which the protocol makes good by sending again */
-	private static void send(LedgerPeer peer, Object wire) {
+	static void send(LedgerPeer peer, Object wire) {
 		try {
 			peer.send(wire);
 		} catch (RuntimeException e) {

@@ -66,6 +66,13 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    node throw is the peer's doing: it is banned, and the replacements it causes are paced instead of counted, so
    that no peer can halt the driver.
 
+   A node that is behind fetches the blocks of a peer that says it is ahead, one request at a time, and gives them to
+   the node as decisions, in order, so a block it is given is checked exactly as one that was decided. What the
+   chain should be is not left to the peer: a block that is not the trusted checkpoint, or a second certified block at
+   a height the ledger holds, halts the driver, which then only serves the blocks it has. A node that holds a key
+   starts as an observer and votes only once it has caught up with the peers it has heard from, so that one whose sign
+   state was lost cannot sign at a height the network has left.
+
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it. */
 @Slf4j
@@ -76,6 +83,10 @@ public final class LedgerDriver implements Closeable {
 	private static final long MAX_BACKOFF_MILLIS = 60_000;
 	private static final int MAX_REASON_LENGTH = 200;
 	private static final int INBOUND_PER_RUN = 64;
+	private static final int OTHER_CHAIN_COST = 10;
+	private static final int REFUSED_BLOCK_COST = 50;
+	private static final int EMPTY_BATCH_COST = 5;
+	private static final int LAPSE_STATUSES = 3;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
 	   before it asks for the next. Closing a node lets go of its sign state and no more, so the factory closes the
@@ -155,6 +166,7 @@ public final class LedgerDriver implements Closeable {
 	private final DriverOptions options;
 	private final byte[] seed;
 	private final Gossip gossip;
+	private final SyncState sync;
 	private final CompletableFuture<Void> closed = new CompletableFuture<>();
 	private final Queue<Runnable> controlLane = new ConcurrentLinkedQueue<>();
 	private final Queue<Runnable> inboundLane = new ConcurrentLinkedQueue<>();
@@ -166,16 +178,22 @@ public final class LedgerDriver implements Closeable {
 	private volatile State state = State.NEW;
 	private volatile String haltReason;
 	private LedgerNode node;
+	/* The ledger of the newest node, which is what the blocks are served from, so it outlives a node that is gone */
+	private Ledger ledger;
 	private boolean signing;
+	private boolean graceElapsed;
 	private Cancellable ticker = () -> { };
 	private Cancellable rebuilder = () -> { };
+	private Cancellable graceTimer = () -> { };
 	private OptionalLong lastFailure = OptionalLong.empty();
 	private OptionalLong lastReplaced = OptionalLong.empty();
+	private OptionalLong lastDemoted = OptionalLong.empty();
 	private long backoff;
 	private long lastHeartbeat;
 	private long lastStatus;
 
-	/* A null seed is an observer: its node never signs and the driver never signs a heartbeat */
+	/* A null seed is an observer: its node never signs and the driver never signs a heartbeat. With a seed the driver
+	   starts as an observer too, and takes the key into use when it has caught up. */
 	@SuppressWarnings("checkstyle:ParameterNumber")
 	public LedgerDriver(NodeFactory factory, Serial serial, Scheduler scheduler, LedgerNetwork network,
 		PeerLimiter limiter, LongSupplier clock, DriverOptions options, byte[] seed) {
@@ -187,7 +205,7 @@ public final class LedgerDriver implements Closeable {
 		this.options = options;
 		this.seed = seed == null ? null : seed.clone();
 		this.gossip = new Gossip(network);
-		this.signing = seed != null;
+		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis());
 	}
 
 	public void start() {
@@ -251,29 +269,35 @@ public final class LedgerDriver implements Closeable {
 	public void onMessage(LedgerPeer from, Message message) {
 		final Item item = new Item(from, Kind.CONSENSUS, message);
 
-		inbound(item, () -> receive(item, node -> gossip.message(node, message)));
+		inbound(item, () -> deliver(item, message));
 	}
 
-	/* Placeholder until the full implementation lands: a status says where the chain of a peer stands. It takes its
-	   token already, so that what is made of it later is never done for a peer that is over its limit. */
+	/* A decision that contradicts the chain or the checkpoint is not given to the node: it halts the driver */
+	private void deliver(Item item, Message message) {
+		if (!(message instanceof Decision decision) || vet(decision.block())) {
+			receive(item, node -> gossip.message(node, message));
+		}
+	}
+
+	/* A status says where the chain of a peer stands. It takes its token before anything is made of it. */
 	public void onStatus(LedgerPeer from, Status status) {
-		inbound(new Item(from, Kind.STATUS, status), () -> { });
+		inbound(new Item(from, Kind.STATUS, status), () -> heard(from, status));
 	}
 
-	/* Placeholder until the full implementation lands: the blocks a peer asks for are served from the ledger. A
-	   request that is refused is not answered, so that a flood of them costs the answers too. */
+	/* The blocks a peer asks for are served from the ledger, also by a driver that has halted. A request that is
+	   refused is not answered, so that a flood of them costs the answers too. */
 	public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
 		final CompletableFuture<BlockBatch> reply = new CompletableFuture<>();
 
-		inbound(new Item(from, Kind.BLOCK_REQUEST, request), () -> reply.complete(new BlockBatch(List.of())),
+		inbound(new Item(from, Kind.BLOCK_REQUEST, request),
+			() -> reply.complete(new BlockBatch(ledger.blocksFrom(request.from(), request.max()))),
 			() -> reply.completeExceptionally(new RejectedExecutionException("The request is refused")));
 		return reply;
 	}
 
-	/* Placeholder until the full implementation lands: a peer that connects is told where this chain stands, and
-	   that is a status, which has its limit */
+	/* A peer that connects is told where this chain stands, and that is a status, which has its limit */
 	public void onPeerConnected(LedgerPeer from) {
-		inbound(new Item(from, Kind.STATUS, null), () -> { });
+		inbound(new Item(from, Kind.STATUS, null), () -> Gossip.send(from, ledger.status()));
 	}
 
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
@@ -362,7 +386,7 @@ public final class LedgerDriver implements Closeable {
 
 	private void serve(String peer, Item item, Runnable handler, Runnable refused) {
 		try {
-			if (ready() && limiter.allow(peer, item.kind())) {
+			if (accepting(item.kind()) && limiter.allow(peer, item.kind())) {
 				handler.run();
 			} else {
 				refused.run();
@@ -370,6 +394,12 @@ public final class LedgerDriver implements Closeable {
 		} finally {
 			release(peer);
 		}
+	}
+
+	/* The blocks are read from the ledger, which a driver that has halted still has, so a halt does not stop the
+	   serving of them; everything else needs a node that runs */
+	private boolean accepting(Kind kind) {
+		return kind == Kind.BLOCK_REQUEST ? ledger != null && (running() || state == State.HALTED) : ready();
 	}
 
 	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer
@@ -540,13 +570,244 @@ public final class LedgerDriver implements Closeable {
 		timers.keySet().stream().filter(which).toList().forEach(timeout -> timers.remove(timeout).cancel());
 	}
 
+	/* A status says where the chain of a peer stands and proves nothing: it tells this node whom to ask for blocks, when
+	   it has caught up, and, for a node that votes, that it has fallen so far behind that it should only follow. A peer
+	   of another chain is no part of this network. */
+	private void heard(LedgerPeer from, Status status) {
+		if (!Arrays.equals(status.chainId(), ledger.chainId())) {
+			limiter.misbehaved(from.id(), OTHER_CHAIN_COST);
+			return;
+		}
+
+		sync.heard(from, status.height(), clock.getAsLong());
+		demoteIfBehind(status.height());
+		promoteIfCaughtUp();
+		startSync();
+	}
+
+	/* One block behind is how the peers that decide first look to the rest; more is a node that has missed some.
+	   Building a node replays the whole log, so a claim that nobody backs up must not be able to make this happen over
+	   and over: it is done once in a restart window. */
+	private void demoteIfBehind(long peerHeight) {
+		final long now = clock.getAsLong();
+
+		if (signing && peerHeight > ledger.height() + 1 && !within(lastDemoted, now)) {
+			lastDemoted = OptionalLong.of(now);
+			become(false);
+		}
+	}
+
+	private void promoteIfCaughtUp() {
+		if (seed != null && !signing && ready() && caughtUp()) {
+			become(true);
+		}
+	}
+
+	/* At the height of the highest peer heard lately, or, when no peer has spoken at all, once the grace period is over.
+	   A node that has heard one and lost it again waits for the next: it cannot know it is at the tip. */
+	private boolean caughtUp() {
+		final OptionalLong highest = sync.highest(clock.getAsLong());
+
+		return highest.isPresent() ? ledger.height() >= highest.getAsLong() : graceElapsed && !sync.heardAny();
+	}
+
+	private void become(boolean validator) {
+		signing = validator;
+		closeQuietly(node);
+		restart();
+	}
+
+	private void endGrace() {
+		graceElapsed = true;
+		promoteIfCaughtUp();
+	}
+
+	private void startSync() {
+		if (ready() && !sync.running()) {
+			sync.furthestAbove(ledger.height(), clock.getAsLong()).ifPresent(claim -> {
+				sync.begin(ledger.height());
+				ask(claim.peer());
+			});
+		}
+	}
+
+	private void ask(LedgerPeer peer) {
+		final BlockRequest request = new BlockRequest(ledger.height() + 1, BlockBatch.MAX_BLOCKS);
+
+		asked(peer, request).whenComplete((batch, failure) -> arrived(peer, request, batch, failure));
+	}
+
+	private static CompletableFuture<BlockBatch> asked(LedgerPeer peer, BlockRequest request) {
+		try {
+			return peer.request(request);
+		} catch (RuntimeException e) {
+			return CompletableFuture.failedFuture(e);
+		}
+	}
+
+	/* The answer comes from any thread. A request that fails or times out is the network's trouble and costs the peer
+	   nothing, but its claim is dropped: it is asked no more until it speaks again, and another peer is tried. */
+	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
+		final Runnable abandon = () -> control(() -> abandon(peer));
+
+		if (failure != null || batch == null) {
+			abandon.run();
+		} else {
+			inbound(new Item(peer, Kind.BLOCK_BATCH, batch), () -> take(peer, request, batch), abandon);
+		}
+	}
+
+	private void take(LedgerPeer peer, BlockRequest request, BlockBatch batch) {
+		final long before = ledger.height();
+
+		if (!answers(request, batch)) {
+			limiter.misbehaved(peer.id(), REFUSED_BLOCK_COST);
+			abandon(peer);
+		} else if (applyAll(new Item(peer, Kind.BLOCK_BATCH, batch), batch)) {
+			carryOn(peer, batch, before);
+		} else {
+			abandon(peer);
+		}
+	}
+
+	/* An honest peer starts its answer where the request did and sends no more than it was asked for */
+	private static boolean answers(BlockRequest request, BlockBatch batch) {
+		final List<Block> blocks = batch.blocks();
+
+		return blocks.isEmpty() || blocks.get(0).getHeight() == request.from();
+	}
+
+	private boolean applyAll(Item item, BlockBatch batch) {
+		return batch.blocks().stream().allMatch(block -> apply(item, block));
+	}
+
+	/* A block the ledger took in while the request was out is an echo, unless it is another block. Any other goes to the
+	   node as a decision, which checks it as it does a decided one, and one that does not move the ledger up by exactly
+	   one is not right: the peer owes for it, and the rest of the batch is not looked at. */
+	private boolean apply(Item item, Block block) {
+		if (!ready() || !vet(block)) {
+			return false;
+		}
+
+		final long before = ledger.height();
+
+		if (block.getHeight() <= before) {
+			return true;
+		}
+
+		final Optional<List<Action>> actions = itemCall(item, node -> node.onMessage(new Decision(block)));
+
+		actions.ifPresent(this::carryOutSynced);
+		return actions.isPresent() && movedUpByOne(before, item);
+	}
+
+	private boolean movedUpByOne(long before, Item item) {
+		final boolean moved = ledger.height() == before + 1;
+
+		if (!moved) {
+			limiter.misbehaved(item.from().id(), REFUSED_BLOCK_COST);
+		}
+
+		return moved;
+	}
+
+	/* The decision of each block fetched would go to every peer, which has the block already or fetches it itself: what
+	   is said of the next height is said, and the decision is not */
+	private void carryOutSynced(List<Action> actions) {
+		actions.stream().filter(action -> !(action instanceof Broadcast broadcast
+			&& broadcast.message() instanceof Decision)).forEach(action -> carryOut(action, OWN));
+	}
+
+	/* Nothing from a peer that said it was ahead is a claim it cannot back up; a batch of echoes only is not a fault */
+	private void carryOn(LedgerPeer peer, BlockBatch batch, long before) {
+		final long height = ledger.height();
+
+		if (batch.blocks().isEmpty()) {
+			limiter.misbehaved(peer.id(), EMPTY_BATCH_COST);
+		}
+
+		if (height == before) {
+			abandon(peer);
+		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
+			ask(peer);
+		} else {
+			conclude();
+		}
+	}
+
+	private void abandon(LedgerPeer peer) {
+		sync.drop(peer.id());
+		conclude();
+	}
+
+	/* The peers are told once where the ledger stands, not for every batch, as they limit the statuses they take */
+	private void conclude() {
+		final long began = sync.end();
+
+		if (ready() && ledger.height() > began) {
+			sendStatus();
+		}
+
+		promoteIfCaughtUp();
+		startSync();
+	}
+
+	/* A block that contradicts the checkpoint, or a second certified block at a height the ledger holds, halts the
+	   driver before it is applied. A peer that sends one that is not certified is wrong and no more. */
+	private boolean vet(Block block) {
+		final Optional<String> reason = contradiction(block);
+
+		reason.ifPresent(this::halt);
+		return reason.isEmpty();
+	}
+
+	private Optional<String> contradiction(Block block) {
+		if (clashesWithCheckpoint(block)) {
+			return Optional.of("Block " + block.getHeight() + " differs from the trusted checkpoint");
+		}
+
+		return forks(block) ? Optional.of("Two certified blocks at height " + block.getHeight()) : Optional.empty();
+	}
+
+	/* Only the block that comes next can be certified here, and one that is not valid is left to be refused */
+	private boolean clashesWithCheckpoint(Block block) {
+		return options.trusted().filter(checkpoint -> checkpoint.height() == block.getHeight()
+			&& !Arrays.equals(checkpoint.hash(), block.hash())).isPresent()
+			&& ledger.validateCertified(block).isEmpty();
+	}
+
+	private boolean forks(Block block) {
+		return block.getHeight() <= ledger.height() && ledger.hashAt(block.getHeight())
+			.filter(held -> !Arrays.equals(held, block.hash())).isPresent() && certified(block);
+	}
+
+	/* By more than 2/3 of the validators there are now, each counted once, and every signature a precommit for the
+	   block. It is the only set the ledger can show, so a fork among an earlier set goes unseen. */
+	private boolean certified(Block block) {
+		final ValidatorSet validators = ledger.validators();
+		final byte[] chainId = ledger.chainId();
+		final List<Endorsement> endorsements = block.getEndorsements();
+
+		return endorsements.stream().map(Endorsement::signer).distinct().count() >= validators.quorum()
+			&& endorsements.stream().allMatch(endorsement -> validators.contains(endorsement.signer())
+				&& block.isSigned(endorsement, chainId));
+	}
+
 	private void begin() {
 		if (state == State.NEW) {
 			state = State.RUNNING;
 			lastHeartbeat = clock.getAsLong();
 			lastStatus = lastHeartbeat;
 			scheduleTick();
+			scheduleGrace();
 			restart();
+		}
+	}
+
+	/* Only a node with a key has anything to wait for */
+	private void scheduleGrace() {
+		if (seed != null) {
+			graceTimer = scheduler.schedule(() -> control(this::endGrace), options.graceMillis());
 		}
 	}
 
@@ -566,10 +827,12 @@ public final class LedgerDriver implements Closeable {
 		ticker = scheduler.schedule(() -> control(this::tick), options.tickMillis());
 	}
 
-	/* The tick comes again whether or not there is a node to give it to */
+	/* The tick comes again whether or not there is a node to give it to. It also looks again at whether the node is at
+	   the tip, which the decisions it was given may have brought about with no status to say so. */
 	private void tick() {
 		if (running()) {
 			scheduleTick();
+			promoteIfCaughtUp();
 
 			if (ready()) {
 				run(LedgerNode::tick);
@@ -682,6 +945,7 @@ public final class LedgerDriver implements Closeable {
 			return;
 		}
 
+		ledger = node.ledger();
 		run(LedgerNode::start);
 	}
 
@@ -695,6 +959,7 @@ public final class LedgerDriver implements Closeable {
 	private void stopTimers() {
 		ticker.cancel();
 		rebuilder.cancel();
+		graceTimer.cancel();
 		disarm(timeout -> true);
 	}
 

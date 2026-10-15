@@ -43,7 +43,8 @@ final class DriverRig implements AutoCloseable {
 	static final long RESTART_WINDOW = 10_000;
 	static final int QUEUE = 1_000;
 	static final int PER_PEER = 100;
-	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, 30_000, RESTART_WINDOW, QUEUE,
+	static final long GRACE = 7_777;
+	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, GRACE, RESTART_WINDOW, QUEUE,
 		PER_PEER, Optional.empty());
 
 	/* A score of 2 makes a penalty: a message that costs 2 is punished at once, one that costs 1 the second time */
@@ -99,6 +100,7 @@ final class DriverRig implements AutoCloseable {
 	private final List<FlakyStore> stores = new ArrayList<>();
 	private final List<byte[]> validators;
 	private final byte[] seed;
+	private final DriverOptions options;
 	private ManualScheduler.Timer ticker;
 	private BlockLog log;
 	private Ledger ledger;
@@ -114,6 +116,7 @@ final class DriverRig implements AutoCloseable {
 	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial, DriverOptions options) {
 		this.validators = validators;
 		this.seed = seed;
+		this.options = options;
 		this.limiter = new PeerLimiter(clock::get, policy);
 		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, options, seed);
 	}
@@ -123,7 +126,7 @@ final class DriverRig implements AutoCloseable {
 	}
 
 	static DriverRig solo(Policy policy) {
-		return new DriverRig(SOLO, seed(1), policy, new DirectSerial()).started();
+		return new DriverRig(SOLO, seed(1), policy, new DirectSerial()).started().promoted();
 	}
 
 	/* A validator of four, which is not the proposer of the first height, so it has nothing to say before it hears */
@@ -136,7 +139,7 @@ final class DriverRig implements AutoCloseable {
 	}
 
 	static DriverRig four(int validator, Policy policy) {
-		return new DriverRig(FOUR, seed(validator), policy, new DirectSerial()).started();
+		return new DriverRig(FOUR, seed(validator), policy, new DirectSerial()).started().promoted();
 	}
 
 	static DriverRig observer() {
@@ -215,6 +218,24 @@ final class DriverRig implements AutoCloseable {
 		if (scheduler.scheduled().size() > before) {
 			ticker = scheduler.scheduled().get(before);
 		}
+	}
+
+	/* The grace period of a driver that has heard no peer ends: the timer that was set for it fires */
+	void passGrace() {
+		scheduler.pending().stream().filter(timer -> timer.delayMillis() == options.graceMillis())
+			.forEach(ManualScheduler.Timer::fire);
+	}
+
+	/* A driver with a key starts as an observer and, with no peer to wait for, takes the key into use when its grace
+	   period ends. The observer is then forgotten, so that the nodes the rig lists are those of the validator and of
+	   what replaces it, as before the driver started as an observer. For a serial executor that runs a task at once. */
+	DriverRig promoted() {
+		passGrace();
+		built.remove(0);
+		nodes.remove(0);
+		authorities.remove(0);
+		stores.remove(0);
+		return this;
 	}
 
 	/* The tick that waits: the first timer the driver asked for, and after it the first that each tick asks for */

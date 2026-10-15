@@ -582,7 +582,8 @@ public class LedgerDriverTest {
 			rig.tick(DriverRig.TICK);
 			rig.tick(DriverRig.TICK);
 
-			assertThat(rig.scheduler.scheduled(), hasSize(3));
+			assertThat(rig.scheduler.scheduled().stream().filter(timer -> timer.delayMillis() == DriverRig.TICK)
+				.count(), equalTo(3L));
 			assertThat(rig.scheduler.pending().stream().map(ManualScheduler.Timer::delayMillis).toList(),
 				contains(DriverRig.TICK));
 		}
@@ -746,7 +747,7 @@ public class LedgerDriverTest {
 			rig.breakNewNodes();
 			rig.driver.start();
 
-			assertThat(rig.built, equalTo(List.of(true, true)));
+			assertThat(rig.built, equalTo(List.of(false, false)));
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.scheduler.pending(), is(empty()));
 		}
@@ -1173,6 +1174,8 @@ public class LedgerDriverTest {
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
 			serial.drain();
+			rig.passGrace();
+			serial.drain();
 			rig.driver.submit(mint(1, 500));
 			serial.drain();
 
@@ -1183,7 +1186,7 @@ public class LedgerDriverTest {
 			rig.ticker().fire();
 			serial.drain();
 
-			assertThat(rig.built, hasSize(1));
+			assertThat(rig.built, equalTo(List.of(false, true)));
 			assertThat(rig.driver.halted(), is(false));
 		}
 	}
@@ -1217,7 +1220,8 @@ public class LedgerDriverTest {
 			inner.execute(task);
 		};
 
-		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, rejecting).started()) {
+		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, rejecting).started()
+			.promoted()) {
 			shutDown.set(true);
 			rig.driver.close();
 
@@ -1281,14 +1285,16 @@ public class LedgerDriverTest {
 	@Example
 	public void shouldRunATimerAndATickAheadOfTheQueueWithinTheFirstRunAfterAtMostAFewItems() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();
-		final DriverOptions roomy = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS, 30_000,
-			DriverRig.RESTART_WINDOW, 10_000, DriverRig.PER_PEER, Optional.empty());
+		final DriverOptions roomy = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
+			DriverRig.GRACE, DriverRig.RESTART_WINDOW, 10_000, DriverRig.PER_PEER, Optional.empty());
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial, roomy).started()) {
 			final RecordingPeer b = rig.network.connect("B");
 			final List<RecordingPeer> peers = peers(rig, 60);
 			final Mint mint = mint(2, 10);
 
+			serial.drain();
+			rig.passGrace();
 			serial.drain();
 			rig.driver.submit(mint(1, 500));
 			serial.drain();
@@ -1354,6 +1360,8 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 
 			serial.drain();
+			rig.passGrace();
+			serial.drain();
 
 			for (int n = 1; n <= 20; n++) {
 				rig.driver.onTransaction(a, mint(n, 10));
@@ -1408,6 +1416,10 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 			final CountDownLatch go = new CountDownLatch(1);
+
+			serial.submit(() -> { }).get(10, TimeUnit.SECONDS);
+			rig.passGrace();
+			serial.submit(() -> { }).get(10, TimeUnit.SECONDS);
 			final List<Future<CompletableFuture<Optional<String>>>> calls = IntStream.rangeClosed(1, 8)
 				.mapToObj(n -> callers.submit(() -> {
 					go.await();
