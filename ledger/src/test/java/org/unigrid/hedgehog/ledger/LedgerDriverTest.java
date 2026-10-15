@@ -896,6 +896,69 @@ public class LedgerDriverTest {
 	}
 
 	@Example
+	public void shouldHaltWhenTheNetworkFailsWhileItSendsAndSayWhyInFewWords() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+
+			rig.network.refuse(new IllegalStateException("x".repeat(5000)));
+			rig.driver.onTransaction(a, mint(1, 500));
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.haltReason().orElseThrow(), startsWith("Driver infrastructure failed"));
+			assertThat(rig.driver.haltReason().orElseThrow().length() < 300, is(true));
+			assertThat(rig.scheduler.pending(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenTheSchedulerRefusesATimerOfTheEngine() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			rig.scheduler.refuse(new IllegalStateException("The scheduler is shut down"));
+
+			assertThat(rig.driver.submit(mint(1, 500)).join().isPresent(), is(true));
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.haltReason().orElseThrow(), containsString("The scheduler is shut down"));
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenTheSchedulerRefusesTheNextTick() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			rig.scheduler.refuse(new IllegalStateException("The scheduler is shut down"));
+			rig.tick(DriverRig.TICK);
+
+			assertThat(rig.driver.halted(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldHaltWhenAPeerCannotSayWhoItIs() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final LedgerPeer nameless = new LedgerPeer() {
+				@Override
+				public String id() {
+					throw new IllegalStateException("The channel is closed");
+				}
+
+				@Override
+				public void send(Object wire) {
+					throw new IllegalStateException("The channel is closed");
+				}
+
+				@Override
+				public CompletableFuture<BlockBatch> request(BlockRequest request) {
+					return new CompletableFuture<>();
+				}
+			};
+
+			rig.driver.onTransaction(nameless, mint(1, 500));
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.ledger().height(), equalTo(0L));
+		}
+	}
+
+	@Example
 	public void shouldSendAStatusAtOnceWhenTheClockWasSetBack() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
 			final RecordingPeer a = rig.network.connect("A");

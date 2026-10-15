@@ -61,9 +61,19 @@ final class ManualScheduler implements Scheduler {
 	}
 
 	private final List<Timer> scheduled = new ArrayList<>();
+	private RuntimeException refusal;
+
+	/* From now on it refuses what it is asked to schedule, as a scheduler that has been shut down does */
+	void refuse(RuntimeException reason) {
+		refusal = reason;
+	}
 
 	@Override
 	public Timer schedule(Runnable task, long delayMillis) {
+		if (refusal != null) {
+			throw refusal;
+		}
+
 		final Timer timer = new Timer(task, delayMillis);
 
 		scheduled.add(timer);

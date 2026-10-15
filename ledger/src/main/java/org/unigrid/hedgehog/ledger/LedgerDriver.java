@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
@@ -167,7 +168,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	public void start() {
-		serial.execute(this::begin);
+		post(this::begin);
 	}
 
 	/* The node is closed once the serial executor gets to it, so a caller that needs its files free waits for that */
@@ -220,7 +221,8 @@ public final class LedgerDriver implements Closeable {
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
 	   The answer is made on the serial thread, which is also where a callback of the future runs. */
 	public CompletableFuture<Optional<String>> submit(Transaction transaction) {
-		return CompletableFuture.supplyAsync(() -> admit(transaction), serial::execute);
+		return CompletableFuture.supplyAsync(() -> guarded(() -> admit(transaction), Optional.of(NOT_RUNNING)),
+			serial::execute);
 	}
 
 	private Optional<String> admit(Transaction transaction) {
@@ -249,11 +251,31 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void inbound(Item item, Runnable handler) {
-		serial.execute(() -> {
+		post(() -> {
 			if (ready() && limiter.allow(item.from().id(), item.kind())) {
 				handler.run();
 			}
 		});
+	}
+
+	/* Everything the driver does is given to the serial executor here, and an exception that gets out of it is the
+	   failure of what the driver stands on: the network, the scheduler or a peer. It says nothing of the node, and a
+	   run that stops half way has lost actions, such as a Schedule that leaves the engine without a timer, or the
+	   tick that would have come again. The driver stops, and says why. */
+	private void post(Runnable task) {
+		serial.execute(() -> guarded(() -> {
+			task.run();
+			return null;
+		}, null));
+	}
+
+	private <T> T guarded(Supplier<T> work, T whenItFailed) {
+		try {
+			return work.get();
+		} catch (RuntimeException e) {
+			halt("Driver infrastructure failed: " + describe(e));
+			return whenItFailed;
+		}
 	}
 
 	/* The transaction goes to the ledger and, if it was taken in, on to the others, and then the node is told that
@@ -346,7 +368,7 @@ public final class LedgerDriver implements Closeable {
 	/* A timer that is pending is left as it is: asking again must not push it out */
 	private void arm(Timeout timeout, long delayMillis) {
 		if (!timers.containsKey(timeout)) {
-			timers.put(timeout, scheduler.schedule(() -> serial.execute(() -> fire(timeout)), delayMillis));
+			timers.put(timeout, scheduler.schedule(() -> post(() -> fire(timeout)), delayMillis));
 		}
 	}
 
@@ -383,7 +405,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void scheduleTick() {
-		ticker = scheduler.schedule(() -> serial.execute(this::tick), options.tickMillis());
+		ticker = scheduler.schedule(() -> post(this::tick), options.tickMillis());
 	}
 
 	/* The tick comes again whether or not there is a node to give it to */
@@ -476,7 +498,7 @@ public final class LedgerDriver implements Closeable {
 			backoff = options.tickMillis();
 		} else {
 			node = null;
-			rebuilder = scheduler.schedule(() -> serial.execute(this::rebuild), backoff);
+			rebuilder = scheduler.schedule(() -> post(this::rebuild), backoff);
 			backoff = Math.min(2 * backoff, MAX_BACKOFF_MILLIS);
 		}
 	}

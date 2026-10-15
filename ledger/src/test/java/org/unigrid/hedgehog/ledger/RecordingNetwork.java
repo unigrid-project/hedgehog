@@ -76,6 +76,12 @@ final class RecordingNetwork implements LedgerNetwork {
 
 	private final List<LedgerPeer> peers = new CopyOnWriteArrayList<>();
 	private final Set<String> threads = ConcurrentHashMap.newKeySet();
+	private volatile RuntimeException refusal;
+
+	/* From now on the list of peers cannot be had, as when the network under it has failed */
+	void refuse(RuntimeException reason) {
+		refusal = reason;
+	}
 
 	RecordingPeer connect(String id) {
 		final RecordingPeer peer = new RecordingPeer(id);
@@ -96,6 +102,11 @@ final class RecordingNetwork implements LedgerNetwork {
 	@Override
 	public List<LedgerPeer> peers() {
 		threads.add(Thread.currentThread().getName());
+
+		if (refusal != null) {
+			throw refusal;
+		}
+
 		return List.copyOf(peers);
 	}
 }
