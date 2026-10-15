@@ -41,7 +41,8 @@ final class DriverRig implements AutoCloseable {
 	static final long HEARTBEAT = 4_000;
 	static final long STATUS = 6_000;
 	static final long RESTART_WINDOW = 10_000;
-	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, 30_000, RESTART_WINDOW,
+	static final int QUEUE = 1_000;
+	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, 30_000, RESTART_WINDOW, QUEUE,
 		Optional.empty());
 
 	/* A score of 2 makes a penalty: a message that costs 2 is punished at once, one that costs 1 the second time */

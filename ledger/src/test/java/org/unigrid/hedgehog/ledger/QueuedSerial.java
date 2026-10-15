@@ -31,6 +31,10 @@ final class QueuedSerial implements Serial {
 		queue.add(task);
 	}
 
+	int size() {
+		return queue.size();
+	}
+
 	void drain() {
 		while (!queue.isEmpty()) {
 			queue.remove().run();

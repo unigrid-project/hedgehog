@@ -29,6 +29,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -103,17 +105,20 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
+	/* `maxQueuedInbound` is how many items of peers may wait for the serial executor at once: one more is dropped at
+	   the door. Each holds an object that is already decoded, so what the queue can hold is this many of the largest
+	   thing a peer can send. */
 	public record DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
-		long restartWindowMillis, Optional<Checkpoint> trusted) {
-		public static final DriverOptions DEFAULT = new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000,
+		long restartWindowMillis, int maxQueuedInbound, Optional<Checkpoint> trusted) {
+		public static final DriverOptions DEFAULT = new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000,
 			Optional.empty());
 
 		public DriverOptions {
 			Objects.requireNonNull(trusted);
 
-			if (LongStream.of(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis)
-				.anyMatch(millis -> millis <= 0)) {
-				throw new IllegalArgumentException("Every interval of the driver is above 0");
+			if (LongStream.of(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis,
+				maxQueuedInbound).anyMatch(value -> value <= 0)) {
+				throw new IllegalArgumentException("Every interval and limit of the driver is above 0");
 			}
 		}
 	}
@@ -143,6 +148,8 @@ public final class LedgerDriver implements Closeable {
 	private final byte[] seed;
 	private final Gossip gossip;
 	private final CompletableFuture<Void> closed = new CompletableFuture<>();
+	private final AtomicInteger pendingInbound = new AtomicInteger();
+	private final AtomicLong droppedInbound = new AtomicLong();
 	private final Map<Timeout, Cancellable> timers = new HashMap<>();
 	private volatile State state = State.NEW;
 	private volatile String haltReason;
@@ -190,6 +197,11 @@ public final class LedgerDriver implements Closeable {
 	/* Completes when the node has been closed and the files are free for another */
 	public CompletableFuture<Void> closed() {
 		return closed;
+	}
+
+	/* How many items of peers were dropped at the door because the queue was full, for the application to log */
+	public long droppedInbound() {
+		return droppedInbound.get();
 	}
 
 	/* True once the driver has halted, and it stays true after it is closed */
@@ -278,17 +290,47 @@ public final class LedgerDriver implements Closeable {
 		inbound(item, handler, () -> { });
 	}
 
-	/* Every item of a peer takes a token of its kind before anything is done for it, and `refused` is what is done
-	   when it gets none, or when there is no node to give it to. The token is the first thing asked: the work of
-	   an item, such as the check of a signature, is bounded by the buckets. */
+	/* Every item of a peer takes a place in the queue and then a token of its kind before anything is done for it,
+	   and `refused` is what is done when it gets none, or when there is no node to give it to. The token is the first
+	   thing asked: the work of an item, such as the check of a signature, is bounded by the buckets. */
 	private void inbound(Item item, Runnable handler, Runnable refused) {
-		post(() -> {
+		if (!enqueue()) {
+			refused.run();
+			return;
+		}
+
+		try {
+			post(() -> serve(item, handler, refused));
+		} catch (RejectedExecutionException e) {
+			pendingInbound.decrementAndGet();
+			throw e;
+		}
+	}
+
+	/* A flood must not fill the queue of the serial executor before a limit applies, with the ticks and timers
+	   waiting behind it. An item that finds the queue full is dropped and charged to no one: with the queue full
+	   there is no telling whose doing it is, and the buckets judge once the queue has room. Ticks, timers, local
+	   submits and the close are not held to this. */
+	private boolean enqueue() {
+		if (pendingInbound.incrementAndGet() <= options.maxQueuedInbound()) {
+			return true;
+		}
+
+		pendingInbound.decrementAndGet();
+		droppedInbound.incrementAndGet();
+		return false;
+	}
+
+	private void serve(Item item, Runnable handler, Runnable refused) {
+		try {
 			if (ready() && limiter.allow(item.from().id(), item.kind())) {
 				handler.run();
 			} else {
 				refused.run();
 			}
-		});
+		} finally {
+			pendingInbound.decrementAndGet();
+		}
 	}
 
 	/* Everything the driver does is given to the serial executor here, and an exception that gets out of it is the

@@ -112,6 +112,30 @@ public class LedgerDriverTest {
 		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
 	}
 
+	/* A peer whose channel is closed: it cannot say who it is, or be written to */
+	private static LedgerPeer namelessPeer() {
+		return new LedgerPeer() {
+			@Override
+			public String id() {
+				throw new IllegalStateException("The channel is closed");
+			}
+
+			@Override
+			public void send(Object wire) {
+				throw new IllegalStateException("The channel is closed");
+			}
+
+			@Override
+			public CompletableFuture<BlockBatch> request(BlockRequest request) {
+				return new CompletableFuture<>();
+			}
+		};
+	}
+
+	private static Heartbeat anyHeartbeat() {
+		return Heartbeat.signed(seed(1), new byte[Digests.HASH_SIZE], 0, new byte[Digests.HASH_SIZE], 0);
+	}
+
 	private static Heartbeat heartbeatAtTheTip(DriverRig rig, long time) {
 		final Status tip = rig.ledger().status();
 
@@ -937,24 +961,7 @@ public class LedgerDriverTest {
 	@Example
 	public void shouldHaltWhenAPeerCannotSayWhoItIs() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
-			final LedgerPeer nameless = new LedgerPeer() {
-				@Override
-				public String id() {
-					throw new IllegalStateException("The channel is closed");
-				}
-
-				@Override
-				public void send(Object wire) {
-					throw new IllegalStateException("The channel is closed");
-				}
-
-				@Override
-				public CompletableFuture<BlockBatch> request(BlockRequest request) {
-					return new CompletableFuture<>();
-				}
-			};
-
-			rig.driver.onTransaction(nameless, mint(1, 500));
+			rig.driver.onTransaction(namelessPeer(), mint(1, 500));
 
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.ledger().height(), equalTo(0L));
@@ -1202,6 +1209,90 @@ public class LedgerDriverTest {
 	}
 
 	@Example
+	public void shouldHoldNoMoreInboundItemsThanTheQueueAllowsWhateverSendsThem() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final Heartbeat beat = anyHeartbeat();
+
+			for (int sent = 0; sent < 100_000; sent++) {
+				rig.driver.onHeartbeat(a, beat);
+			}
+
+			assertThat(serial.size(), equalTo(1 + DriverRig.QUEUE));
+			assertThat(rig.driver.droppedInbound(), equalTo(100_000L - DriverRig.QUEUE));
+			assertThat(rig.limiter.tracked(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldStillRunATickATimerAndALocalSubmitBehindAFloodAndTakeNewItemsAfterIt() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+
+			serial.drain();
+			rig.driver.submit(mint(1, 500));
+			serial.drain();
+
+			final int ticks = rig.scheduler.scheduled().size();
+			final Heartbeat beat = anyHeartbeat();
+
+			for (int sent = 0; sent < 100_000; sent++) {
+				rig.driver.onHeartbeat(a, beat);
+			}
+
+			rig.timers().get(0).fire();
+			rig.ticker().fire();
+
+			final CompletableFuture<Optional<String>> local = rig.driver.submit(mint(2, 500));
+
+			assertThat(serial.size(), equalTo(DriverRig.QUEUE + 3));
+
+			serial.drain();
+
+			assertThat(b.sent(Ballot.class).get(0).type(), equalTo(Ballot.Type.PREVOTE));
+			assertThat(rig.scheduler.scheduled().size() > ticks, is(true));
+			assertThat(local.join(), equalTo(Optional.empty()));
+
+			rig.driver.onTransaction(b, mint(3, 500));
+			serial.drain();
+
+			assertThat(a.sent(Transaction.class), hasItem(mint(3, 500)));
+		}
+	}
+
+	@Example
+	public void shouldTakeAnItemOutOfTheQueueWhetherItsTaskThrowsOrIsNotRun() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+		final LedgerPeer nameless = namelessPeer();
+
+		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, serial).started()) {
+			final RecordingPeer a = rig.network.connect("A");
+
+			serial.drain();
+
+			for (int sent = 0; sent < DriverRig.QUEUE; sent++) {
+				rig.driver.onTransaction(nameless, mint(1, 500));
+			}
+
+			serial.drain();
+
+			assertThat(rig.driver.halted(), is(true));
+
+			for (int sent = 0; sent < DriverRig.QUEUE; sent++) {
+				rig.driver.onTransaction(a, mint(1, 500));
+			}
+
+			assertThat(serial.size(), equalTo(DriverRig.QUEUE));
+			assertThat(rig.driver.droppedInbound(), equalTo(0L));
+		}
+	}
+
+	@Example
 	public void shouldRunEveryEntryPointOnTheSerialThreadWhateverThreadCallsIt() throws Exception {
 		final ExecutorService serial = Executors.newSingleThreadExecutor(task -> new Thread(task, "ledger-serial"));
 		final ExecutorService callers = Executors.newFixedThreadPool(8);
@@ -1242,14 +1333,16 @@ public class LedgerDriverTest {
 		final byte[] hash = new byte[Digests.HASH_SIZE];
 		final Optional<Checkpoint> none = Optional.empty();
 
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(0, 1, 1, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 0, 1, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 0, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 0, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(0, 1, 1, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 0, 1, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 0, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 0, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, none));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(0, hash));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(1, new byte[Digests.HASH_SIZE - 1]));
-		assertThat(DriverOptions.DEFAULT, equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, none)));
+		assertThat(DriverOptions.DEFAULT,
+			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, none)));
 	}
 
 	@Example
