@@ -432,9 +432,26 @@ public class ConsensusViewTest {
 		assertThat(sent.view(), equalTo(0));
 		assertThat(sent.validRound(), equalTo(-1));
 		assertThat(sent.hasValidSignature(CHAIN), is(true));
-		assertThat(sent.block().hash(), equalTo(mine.propose(1, 0, 0).orElseThrow().hash()));
+		assertThat(sent.block().hash(), equalTo(mine.propose(1, 0, key(1), 0).orElseThrow().hash()));
 		assertThat(out.size(), equalTo(1));
 		assertThat(out.get(0).blockHash(), equalTo(sent.block().hash()));
+	}
+
+	@Example
+	public void shouldBuildTheBlockWithTheProposerItIsGiven() {
+		assertThat(app.propose(1, 0, key(3), 0).orElseThrow().getProposer(), equalTo(key(3)));
+		assertThat(app.propose(1, 0, key(4), 0).orElseThrow().getProposer(), equalTo(key(4)));
+	}
+
+	@Example
+	public void shouldHandTheApplicationItsOwnKeyAsTheProposer() {
+		final FakeApp other = new FakeApp(validators, key(2), 3);
+		final Consensus proposer = new Consensus(other, CHAIN, seed(1), Timeouts.DEFAULT);
+
+		final Proposal sent = proposalsSent(proposer.start(1, validators, 0)).get(0);
+
+		assertThat(sent.block().getProposer(), equalTo(key(1)));
+		assertThat(sent.sender(), equalTo(key(1)));
 	}
 
 	@Example

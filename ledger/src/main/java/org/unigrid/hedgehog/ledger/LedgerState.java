@@ -496,17 +496,17 @@ public final class LedgerState {
 		return sealed;
 	}
 
-	/* Whether a block is right apart from the signatures of its certificate, which is what a validator checks
-	   before it signs: its place in the chain, the view of its certificate, its last commit (a quorum of the
-	   set that signed the tip, with valid precommits for the tip), its transactions and the root they lead to */
+	/* Whether a block is right apart from its certificate, which is what a validator checks before it signs: its
+	   place in the chain, its last commit (a quorum of the set that signed the tip, with valid precommits for the
+	   tip), its transactions and the root they lead to. A proposal has no certificate yet, so the view of the
+	   certificate is checked when the block is certified. */
 	public Optional<String> proposalRejection(Block block) {
 		final LedgerState next = copy();
 
 		next.askAuthorityAt(block.getTime());
 
-		final Optional<String> rejection = headerRejection(block).or(() -> viewRejection(block))
-			.or(() -> lastCommitRejection(block)).or(() -> lastCommitSignaturesRejection(block))
-			.or(() -> next.applyTransactions(block));
+		final Optional<String> rejection = headerRejection(block).or(() -> lastCommitRejection(block))
+			.or(() -> lastCommitSignaturesRejection(block)).or(() -> next.applyTransactions(block));
 
 		if (rejection.isPresent()) {
 			return rejection;

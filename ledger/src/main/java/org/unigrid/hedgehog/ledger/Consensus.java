@@ -565,7 +565,7 @@ public final class Consensus {
 	   the proposer of the next view carries the proof. */
 	private Optional<Block> blockToPropose() {
 		if (validBlock == null) {
-			return app.propose(height, view, now);
+			return app.propose(height, view, self, now);
 		}
 
 		return Optional.of(validBlock).filter(block -> box.quorumFor(Ballot.Type.PREVOTE, validView, block.hash()));

@@ -106,8 +106,8 @@ final class ConsensusFixtures {
 		}
 
 		@Override
-		public Optional<Block> propose(long height, int view, long time) {
-			return chain.size() < goal ? Optional.of(block(height, view, self, time, "block of " + self))
+		public Optional<Block> propose(long height, int view, AccountKey proposer, long time) {
+			return chain.size() < goal ? Optional.of(block(height, view, proposer, time, "block of " + proposer))
 				: Optional.empty();
 		}
 

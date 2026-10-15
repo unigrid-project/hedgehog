@@ -27,6 +27,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
@@ -145,13 +146,31 @@ public class LedgerCertificateTest {
 		assertThrows(InvalidBlockException.class, () -> state.apply(earlier));
 	}
 
-	@Example
-	public void shouldRefuseToSignABlockWhoseCertificateIsFromAnEarlierViewThanTheBlock() {
-		final LedgerState state = state(1000, ANY_MINT, FOUR);
+	/* A proposal has no signatures yet, so its certificate is empty and in view 0 whatever view it is made in */
+	private static Block proposalOfView(LedgerState state, int view, AccountKey proposer) {
+		return certified(state, FOUR, 1).toBuilder().view(view).proposer(proposer).endorsements(List.of())
+			.certificate(Certificate.EMPTY).build();
+	}
 
-		assertThat(reasonOf(state.proposalRejection(proposedInViewAndCertifiedInView(state, 2, 1))),
-			containsString("earlier view"));
-		assertThat(state.proposalRejection(proposedInViewAndCertifiedInView(state, 2, 2)).isPresent(), is(false));
+	@Example
+	public void shouldAcceptAProposalOfALaterViewBeforeItHasAnySignatures() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		final Block proposal = proposalOfView(state, 2, state.validators().proposerAt(1, 2));
+
+		assertThat(proposal.getCertificate().view(), equalTo(0));
+		assertThat(state.proposalRejection(proposal).isPresent(), is(false));
+		assertThat(reasonOf(state.rejectionOf(proposal)), containsString("earlier view"));
+	}
+
+	@Example
+	public void shouldRefuseAProposalFromTheWrongProposerOfItsView() {
+		final LedgerState state = state(1000, ANY_MINT, FOUR);
+		final AccountKey ofViewZero = state.validators().proposerAt(1, 0);
+		final Block proposal = proposalOfView(state, 2, ofViewZero);
+
+		assertThat(state.validators().proposerAt(1, 2), not(equalTo(ofViewZero)));
+		assertThat(reasonOf(state.proposalRejection(proposal)), containsString("proposer"));
+		assertThat(reasonOf(state.rejectionOf(proposal)), containsString("proposer"));
 	}
 
 	@Example
