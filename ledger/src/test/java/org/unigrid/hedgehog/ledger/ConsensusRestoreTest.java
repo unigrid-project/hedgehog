@@ -369,6 +369,33 @@ public class ConsensusRestoreTest {
 		assertThat(again.outbox(), equalTo(proposer.outbox()));
 	}
 
+	/* The view began while there was nothing to put forward, and now there is: a running proposer that has not proposed
+	   does so as soon as it is restored, as it would on being told of the work */
+	@Example
+	public void shouldProposeAtOnceWhenRestoredAsTheProposerWithoutAProposalAndWorkIsWaiting() {
+		final FakeApp proposerApp = new FakeApp(validators, key(1), 3);
+		final Consensus proposer = new Consensus(proposerApp, CHAIN, seed(1), TIMEOUTS);
+
+		proposerApp.goal = 0;
+		proposer.start(1, validators, 0);
+		proposer.onMessage(prevoteBy(2, 0, null), 5);
+
+		final SignState waiting = proposer.snapshot();
+
+		proposerApp.goal = 3;
+
+		final Consensus again = new Consensus(proposerApp, CHAIN, seed(1), TIMEOUTS);
+		final List<Action> restored = again.restore(waiting, validators, 50);
+
+		assertThat(waiting.running(), is(true));
+		assertThat(waiting.proposals().isEmpty(), is(true));
+		assertThat(proposalsSent(restored).size(), equalTo(1));
+		assertThat(proposalsSent(restored).get(0).view(), equalTo(0));
+		assertThat(again.view(), equalTo(0));
+		assertThat(again.snapshot().proposals().size(), equalTo(1));
+		assertThat(proposalsSent(again.onWork(51)).isEmpty(), is(true));
+	}
+
 	/* A state a step behind its own proposal is not one that the engine writes, but when it is offered another
 	   block it must still not sign a second proposal for the view */
 	@Example

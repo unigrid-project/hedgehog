@@ -191,7 +191,8 @@ public final class Consensus {
 	/* Takes a height up again from a snapshot, like start() followed by resume(), but with the view, the step, the lock
 	   and what the node signed as they were. A node at rest stays at rest and says what it signed again for a fresh
 	   window, as one that has just come back is where a peer will look for it; if there is work it begins the next view,
-	   as start() does. A state that this node could not have written is refused, and then nothing is changed. */
+	   or, when it runs and is the proposer of its view without a proposal, proposes, as onWork() does. A state that
+	   this node could not have written is refused, and then nothing is changed. */
 	public List<Action> restore(SignState state, ValidatorSet newValidators, long at) {
 		requireRestorable(state, newValidators);
 
@@ -200,8 +201,8 @@ public final class Consensus {
 			install(state);
 			rearm();
 
-			if (!running && app.hasWork(at)) {
-				begin();
+			if (app.hasWork(at)) {
+				beginOrPropose();
 			}
 		});
 	}
