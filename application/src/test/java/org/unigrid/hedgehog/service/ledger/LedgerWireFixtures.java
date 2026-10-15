@@ -18,6 +18,11 @@
 
 package org.unigrid.hedgehog.service.ledger;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Arrays;
 import java.util.List;
 import org.unigrid.hedgehog.ledger.AccountKey;
@@ -31,11 +36,36 @@ import org.unigrid.hedgehog.ledger.Message;
 import org.unigrid.hedgehog.ledger.Status;
 import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.ledger.Vote;
+import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 
 /* Ledger objects that are well formed and unsigned: the network layer carries them and never judges them */
 public final class LedgerWireFixtures {
+	public static final int FRAME_HEADER_SIZE = 8;
+
 	private LedgerWireFixtures() {
 		/* Static helpers only */
+	}
+
+	/* The frame that the encoders of the ledger pipeline write for the packet */
+	public static ByteBuf encoded(final Packet packet) {
+		final EmbeddedChannel channel = new EmbeddedChannel(LedgerPipeline.handlers().toArray(new ChannelHandler[0]));
+
+		channel.writeOutbound(packet);
+		return channel.readOutbound();
+	}
+
+	public static byte[] bodyOf(final ByteBuf frame) {
+		return ByteBufUtil.getBytes(frame, FRAME_HEADER_SIZE, frame.readableBytes() - FRAME_HEADER_SIZE);
+	}
+
+	/* The same frame with a body that is `change` bytes longer, or shorter when negative, and a header that says so */
+	public static ByteBuf resized(final ByteBuf frame, final int change) {
+		final byte[] body = bodyOf(frame);
+		final int length = Math.max(0, body.length + change);
+		final ByteBuf resized = Unpooled.buffer().writeBytes(frame, 0, Integer.BYTES).writeInt(length);
+
+		return resized.writeBytes(Arrays.copyOf(body, length));
 	}
 
 	private static byte[] filled(final int size, final int seed) {

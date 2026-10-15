@@ -284,11 +284,9 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 	private static List<Object> decode(final Packet.Type type, final ByteBuf body,
 		final ChannelHandlerContext context) throws Exception {
 
-		final ByteBuf frame = Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(type.getValue())
-			.writeInt(body.readableBytes()).writeBytes(body);
 		final List<Object> out = new ArrayList<>();
 
-		decoder(type).decode(context, (ByteBuf) new FrameDecoder().decode(context, frame), out);
+		decoder(type).decode(context, body, out);
 		return out;
 	}
 

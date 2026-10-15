@@ -363,6 +363,23 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(((LedgerBlockBatch) sentBy(channel)).getRequestId(), equalTo(7L));
 	}
 
+	@Property(tries = 10)
+	public void closesTheStreamOfAFrameThatEndsEarlyOrLate(@ForAll boolean longer,
+		@ForAll @IntRange(min = 1, max = 4) int change, @ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final EmbeddedChannel other = streamFrom(OTHER);
+		final ByteBuf frame = encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build());
+
+		channel.writeInbound(LedgerWireFixtures.resized(frame, longer ? change : -change));
+		assertThat(channel.isOpen(), is(false));
+		assertThat(calls.isEmpty(), is(true));
+
+		other.writeInbound(frame);
+		assertThat(calls.stream().map(Call::argument).toList(), contains(LedgerWireFixtures.status(seed)));
+		assertThat(other.isOpen(), is(true));
+	}
+
 	@Example
 	public void closesTheStreamWhenTheDriverThrows() {
 		final EmbeddedChannel channel = streamFrom(PEER);

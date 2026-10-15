@@ -27,6 +27,8 @@ import java.util.Optional;
 import org.unigrid.hedgehog.jqwik.*;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 
@@ -52,6 +54,8 @@ public class BaseCodecTest<T> extends BaseMockedWeldTest {
 
 		final List<Object> out = new ArrayList<>();
 		decoder.decode(context, encodedData, out);
+
+		assertThat("The decoder leaves bytes of the frame", encodedData.isReadable(), is(false));
 
 		if (sizes.isPresent()) {
 			sizes.get().getLeft().setValue(encodedData.writerIndex());

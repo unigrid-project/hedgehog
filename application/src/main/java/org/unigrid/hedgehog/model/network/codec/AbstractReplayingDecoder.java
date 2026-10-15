@@ -20,8 +20,8 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.ReplayingDecoder;
-import io.netty.util.Attribute;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +41,7 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 			final TypedCodec<Packet.Type> object = (TypedCodec<Packet.Type>) this;
 
 			if (object.getCodecType() == type) {
-				super.callDecode(ctx, in, out);
+				decodeWholeFrame(ctx, in, out);
 				forward = false;
 			}
 		}
@@ -54,16 +54,39 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 		}
 	}
 
+	/* A frame holds one packet, no more and no less, and the decoder is given the frame alone. One that is not taken
+	   whole cannot be told from the start of the next, so what is left is thrown away and the stream is closed by the
+	   exception, as the bytes after it would be read as the rest of this one. */
+	private void decodeWholeFrame(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+		try {
+			super.callDecode(ctx, in, out);
+
+			if (in.isReadable()) {
+				throw new CorruptedFrameException("A frame ends " + in.readableBytes()
+					+ " bytes before its packet does");
+			}
+		} catch (RuntimeException ex) {
+			in.skipBytes(in.readableBytes());
+			throw ex;
+		}
+	}
+
 	@Override
 	public void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-		final Attribute<Integer> size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY);
 		final Optional<T> entity = typedDecode(ctx, in);
+		final ByteBuf frame = internalBuffer();
 
-		if (entity.isPresent()) {
-			out.add(entity.get());
+		if (entity.isEmpty()) {
+			/* A packet that the decoder leaves alone is left whole, not read on from the middle */
+			frame.skipBytes(frame.readableBytes());
+			return;
 		}
 
-		// TODO: Verify size with PACKET_SIZE_KEY
+		if (frame.isReadable()) {
+			throw new CorruptedFrameException(frame.readableBytes() + " bytes follow the packet in its frame");
+		}
+
+		out.add(entity.get());
 	}
 
 	public abstract Optional<T> typedDecode(ChannelHandlerContext ctx, ByteBuf in) throws Exception;

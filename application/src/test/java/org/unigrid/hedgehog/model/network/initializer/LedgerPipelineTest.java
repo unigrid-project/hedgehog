@@ -281,7 +281,7 @@ public class LedgerPipelineTest extends BaseServerTest {
 	}
 
 	/* Frames whose body is whole, as far as the header says, and is not what the type holds: a length above what the
-	   type allows or below 0, and an object that is not one */
+	   type allows or below 0, an object that is not one, and a length that runs past the end of the frame */
 	@Provide
 	Arbitrary<Frame> malformedFrames() {
 		return Arbitraries.of(
@@ -291,7 +291,10 @@ public class LedgerPipelineTest extends BaseServerTest {
 			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 127, -1, -1, -1 }),
 			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 0, 0, 0, 3, 99, 0, 0 }),
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 127, -1, -1, -1 }),
-			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, -1, -1 }));
+			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, -1, -1 }),
+			new Frame(Packet.Type.LEDGER_TRANSACTION, new byte[] { 0, 0, 0, 100, 2, 0, 0 }),
+			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 0, 0, 0, 100, 1, 0, 0 }),
+			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 100, 1, 2 }));
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
@@ -321,12 +324,12 @@ public class LedgerPipelineTest extends BaseServerTest {
 		}
 	}
 
-	/* A frame shorter than its type needs is waited on by the decoder, as a ReplayingDecoder waits for the rest of what
-	   it reads, and so it neither reaches the driver nor ends the stream. What it must not do is touch anyone else. */
+	/* A frame shorter than its type needs cannot be told from the start of the next, so the stream is closed, and
+	   nothing of it reaches the driver. Another stream is served as before. */
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
-	public void holdsBackATruncatedFrameAndKeepsServingOthers(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll @IntRange(min = 0, max = 4) int length, @ForAll @IntRange(min = 0, max = 100) int seed)
-		throws Exception {
+	public void closesTheStreamOfATruncatedFrameAndKeepsServingOthers(
+		@ForAll("provideTestServers") List<TestServer> servers, @ForAll @IntRange(min = 0, max = 4) int length,
+		@ForAll @IntRange(min = 0, max = 100) int seed) throws Exception {
 
 		for (final TestServer server : servers) {
 			final P2PClient truncating = clientOf(server);
@@ -336,7 +339,8 @@ public class LedgerPipelineTest extends BaseServerTest {
 
 			try {
 				truncating.getChannel().writeAndFlush(frameOf(Packet.Type.LEDGER_STATUS, new byte[length]));
-				await().during(Duration.ofMillis(500)).until(() -> heard().isEmpty());
+				await().until(() -> !isOpen(truncating));
+				assertThat(heard().isEmpty(), is(true));
 
 				other.send(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build());
 				await().until(() -> heard().size() == 1);
