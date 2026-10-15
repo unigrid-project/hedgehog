@@ -141,11 +141,21 @@ final class LedgerProcess implements SimProcess {
 		return log.blocks();
 	}
 
+	/* What the file holds now, which is the state of the height the node is agreeing on */
+	SignState kept() {
+		return io(signs::load).orElseThrow();
+	}
+
 	/* What the node signed for a height it has passed is not kept, so it is not looked for in the file */
 	@Override
 	public boolean saved(Message signed) {
-		return heightOf(signed) <= ledger.height() || io(signs::load)
-			.filter(kept -> kept.ballots().contains(signed) || kept.proposals().contains(signed)).isPresent();
+		if (heightOf(signed) <= ledger.height()) {
+			return true;
+		}
+
+		final SignState state = kept();
+
+		return state.ballots().contains(signed) || state.proposals().contains(signed);
 	}
 
 	@Override

@@ -43,6 +43,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
@@ -351,9 +352,14 @@ public class LedgerNetworkTest {
 		cluster.runUntil(() -> remaining.stream().anyMatch(saidIt), cluster.net.now() + FINISHED_BY_MILLIS);
 
 		final int index = remaining.stream().filter(saidIt).findFirst().orElseThrow();
-		final List<Message> signed = cluster.node(index).outbox();
 
 		remaining.remove(index);
+		restartKeepingWhatItSigned(cluster, index);
+	}
+
+	private static void restartKeepingWhatItSigned(Cluster cluster, int index) {
+		final List<Message> signed = cluster.node(index).outbox();
+
 		cluster.restartFromDisk(index);
 		assertThat(cluster.node(index).outbox().containsAll(signed), is(true));
 	}
@@ -642,8 +648,9 @@ public class LedgerNetworkTest {
 	}
 
 	/* The proposer of the first view lies, with a block that holds a claim of a listed address, and the others do not
-	   vote for it. The validators then certify the same block, made when the claim was allowed, and every node takes
-	   it in, the proposer too once it is up again: what they signed stands, whatever a node's own list says. */
+	   vote for it; one of them comes back from its files in the second view, which has to be kept. The validators
+	   then certify the same block, made when the claim was allowed, and every node takes it in, the proposer too once
+	   it is up again: what they signed stands, whatever a node's own list says. */
 	@Example
 	public void shouldVoteNilForABlacklistedClaimAndStillApplyTheBlockOnceItIsCertified() throws IOException {
 		try (Cluster cluster = new Cluster(6, blacklistingChain());
@@ -669,6 +676,8 @@ public class LedgerNetworkTest {
 			honest.forEach(index -> assertThat(votedNilIn(cluster.node(index).outbox()), is(true)));
 			assertThat(honest.stream().allMatch(index -> cluster.ledger(index).height() == 0), is(true));
 
+			assertThat(cluster.process(honest.get(0)).kept().view(), greaterThan(0));
+			restartKeepingWhatItSigned(cluster, honest.get(0));
 			cluster.runChecking(cluster.net.now() + TEN_SECONDS, () -> false);
 			cluster.assertQuietFor(QUIET_MILLIS);
 
