@@ -781,6 +781,24 @@ public class LedgerNodeTest {
 		}
 	}
 
+	@Example
+	public void shouldHandBackTheValidatorsTheEngineHeardSayTwoThingsInOneView() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final Block block = proposedBy(node);
+			final Ballot first = vote(ledger, Ballot.Type.PREVOTE, 2, 1, block);
+			final Ballot second = Ballot.signed(Ballot.Type.PREVOTE, seed(2), ledger.chainId(), 1, 0, null);
+
+			node.onMessage(first);
+			assertThat(node.evidence(), is(empty()));
+
+			node.onMessage(second);
+			assertThat(node.evidence(), equalTo(List.of(new BallotBox.Equivocation(first, second))));
+		}
+	}
+
 	/* The engine has moved on from what the store holds, so a node that carried on could save a state in which that
 	   is not to be seen: it refuses everything that runs the engine, and the store is not asked again */
 	@Example

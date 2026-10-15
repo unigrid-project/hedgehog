@@ -157,6 +157,12 @@ public final class LedgerNode {
 		return engine.outbox();
 	}
 
+	/* The validators the engine has heard say two things in one view of this height. The next height starts with
+	   none, so a caller that wants them reads them after each event. */
+	public synchronized List<BallotBox.Equivocation> evidence() {
+		return engine.evidence();
+	}
+
 	private List<Action> run(LongFunction<List<Action>> event) throws IOException {
 		return guarded(() -> finish(event));
 	}
