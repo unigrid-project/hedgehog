@@ -18,9 +18,12 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -67,6 +70,11 @@ final class LedgerFixtures {
 			.withSchedule(time -> dueTimes.entrySet().stream().filter(entry -> entry.getValue() <= time)
 				.sorted(Map.Entry.comparingByValue()).map(Map.Entry::getKey).toList())
 			.withMints((mint, time) -> dueTimes.containsKey(mint) && dueTimes.get(mint) <= time);
+	}
+
+	/* An in-memory file system, as tests never touch the real one */
+	static FileSystem newFileSystem() {
+		return Jimfs.newFileSystem(Configuration.unix());
 	}
 
 	static byte[] seed(int n) {

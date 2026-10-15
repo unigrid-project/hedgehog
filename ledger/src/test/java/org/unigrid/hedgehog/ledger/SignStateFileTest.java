@@ -18,8 +18,6 @@
 
 package org.unigrid.hedgehog.ledger;
 
-import com.google.common.jimfs.Configuration;
-import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -50,6 +48,7 @@ import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Ballot.Type.PRECOMMIT;
 import static org.unigrid.hedgehog.ledger.Ballot.Type.PREVOTE;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
+import static org.unigrid.hedgehog.ledger.LedgerFixtures.newFileSystem;
 
 public class SignStateFileTest {
 	private static final int LARGEST_PROOF = 4;
@@ -75,10 +74,6 @@ public class SignStateFileTest {
 
 	private static Path temporaryOf(Path file) {
 		return file.resolveSibling("state.tmp");
-	}
-
-	private static FileSystem newFileSystem() {
-		return Jimfs.newFileSystem(Configuration.unix());
 	}
 
 	private static SignState small() {

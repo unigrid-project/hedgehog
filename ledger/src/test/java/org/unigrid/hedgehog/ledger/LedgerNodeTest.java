@@ -18,8 +18,6 @@
 
 package org.unigrid.hedgehog.ledger;
 
-import com.google.common.jimfs.Configuration;
-import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
@@ -149,10 +147,6 @@ public class LedgerNodeTest {
 			throw new AssertionError("An observer has no sign state to close");
 		}
 	};
-
-	private static FileSystem newFileSystem() {
-		return Jimfs.newFileSystem(Configuration.unix());
-	}
 
 	private static Path blocksOf(FileSystem fileSystem, String name) {
 		return fileSystem.getPath("/" + name + "/blocks.log");

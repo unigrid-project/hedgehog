@@ -52,14 +52,6 @@ public class ConsensusRestoreTest {
 		return app.block(1, view, validators.proposerAt(1, view), 100, note);
 	}
 
-	private static Timeout timeout(Timeout.Kind kind, int view) {
-		return new Timeout(kind, 1, view);
-	}
-
-	private static Schedule schedule(Timeout.Kind kind, int view, long delay) {
-		return new Schedule(timeout(kind, view), delay);
-	}
-
 	private static Ballot prevoteBy(int validator, int view, Block block) {
 		return ballot(PREVOTE, validator, view, block);
 	}

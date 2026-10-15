@@ -63,6 +63,15 @@ final class ConsensusFixtures {
 			.map(a -> (Proposal) ((Action.Broadcast) a).message()).toList();
 	}
 
+	/* A timeout of the first height */
+	static Timeout timeout(Timeout.Kind kind, int view) {
+		return new Timeout(kind, 1, view);
+	}
+
+	static Action.Schedule schedule(Timeout.Kind kind, int view, long delay) {
+		return new Action.Schedule(timeout(kind, view), delay);
+	}
+
 	static Block decidedBlock(List<Action> actions) {
 		return actions.stream().filter(a -> a instanceof Action.Decide).map(a -> ((Action.Decide) a).block())
 			.findFirst().orElseThrow();
