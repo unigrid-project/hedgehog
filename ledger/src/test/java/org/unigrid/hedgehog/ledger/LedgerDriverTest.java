@@ -104,10 +104,11 @@ public class LedgerDriverTest {
 			new byte[Ed25519.SIGNATURE_SIZE]);
 	}
 
-	private static Policy burstOf(int transactions) {
+	/* The default limits, but a bucket of the kind that holds only so many; a score of 100 makes a penalty */
+	private static Policy burstOf(Kind kind, int capacity) {
 		final Map<Kind, Rate> rates = new EnumMap<>(Policy.DEFAULT.rates());
 
-		rates.put(Kind.TRANSACTION, new Rate(transactions, 1));
+		rates.put(kind, new Rate(capacity, 1));
 		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
 	}
 
@@ -973,7 +974,7 @@ public class LedgerDriverTest {
 
 	@Example
 	public void shouldDropAPeerOverItsBurstWithoutCallingTheNode() throws IOException {
-		try (DriverRig rig = DriverRig.solo(burstOf(2))) {
+		try (DriverRig rig = DriverRig.solo(burstOf(Kind.TRANSACTION, 2))) {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
@@ -984,6 +985,100 @@ public class LedgerDriverTest {
 			assertThat(rig.ledger().height(), equalTo(2L));
 			assertThat(rig.ledger().pending(), equalTo(0));
 			assertThat(b.sent(Transaction.class), hasSize(2));
+		}
+	}
+
+	@Example
+	public void shouldCutOffAPeerThatFloodsWhatNoNodeTakesInByItsBucketAndThenPenaliseIt() throws IOException {
+		try (DriverRig rig = DriverRig.solo(burstOf(Kind.TRANSACTION, 5))) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Transfer unfunded = paying(rig.ledger(), 100, 0, 0);
+
+			for (int sent = 0; sent < 104; sent++) {
+				rig.driver.onTransaction(a, unfunded);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+
+			rig.driver.onTransaction(a, unfunded);
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(b.sent(), is(empty()));
+			assertThat(rig.ledger().pending(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldCutOffAPeerThatFloodsBallotsFarAheadByItsBucketAndThenPenaliseIt() throws IOException {
+		try (DriverRig rig = DriverRig.four(burstOf(Kind.CONSENSUS, 5))) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final int view = Consensus.MAX_VIEW_AHEAD + 8;
+			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, view, null);
+
+			for (int sent = 0; sent < 104; sent++) {
+				rig.driver.onMessage(a, ahead);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+
+			rig.driver.onMessage(a, ahead);
+			rig.driver.onTransaction(a, mint(1, 500));
+			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START));
+			rig.driver.onStatus(a, rig.ledger().status());
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(rig.ledger().pending(), equalTo(0));
+			assertThat(b.sent(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldTakeATokenForEveryStatusAndPeerConnectionBeforeAnyWork() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+
+			for (int sent = 0; sent < 10; sent++) {
+				rig.driver.onStatus(a, rig.ledger().status());
+				rig.driver.onPeerConnected(b);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+			assertThat(rig.limiter.isPenalised("B"), is(false));
+
+			for (int excess = 0; excess < 2; excess++) {
+				rig.driver.onStatus(a, rig.ledger().status());
+				rig.driver.onPeerConnected(b);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+			assertThat(rig.limiter.isPenalised("B"), is(true));
+		}
+	}
+
+	@Example
+	public void shouldTakeATokenForEveryBlockRequestAndLeaveARefusedOneUnanswered() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final List<CompletableFuture<BlockBatch>> answers = IntStream.range(0, 22)
+				.mapToObj(n -> rig.driver.onBlockRequest(a, new BlockRequest(1, 1))).toList();
+
+			assertThat(answers.subList(0, 20).stream().allMatch(
+				answer -> answer.isDone() && !answer.isCompletedExceptionally()), is(true));
+			assertThat(answers.subList(20, 22).stream().allMatch(CompletableFuture::isCompletedExceptionally),
+				is(true));
+			assertThat(rig.limiter.isPenalised("A"), is(true));
+		}
+	}
+
+	@Example
+	public void shouldNeverShowALocalSubmitToTheLimiter() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			assertThat(rig.driver.submit(mint(1, 500)).join(), equalTo(Optional.empty()));
+			assertThat(rig.driver.submit(paying(rig.ledger(), 10_000, 0, 0)).join().isPresent(), is(true));
+			assertThat(rig.limiter.tracked(), equalTo(0));
 		}
 	}
 

@@ -31,7 +31,13 @@ import lombok.extern.slf4j.Slf4j;
    Everything else depends on the state or the policy of the node that receives it, and honest nodes differ in both:
    a validator that signs two ballots for one slot gives some honest nodes the one and some the other, and each
    relays what it holds to the others, who hold the second word and refuse the first. Were that charged, honest
-   nodes would ban each other. Used by the driver on its serial executor only. */
+   nodes would ban each other.
+
+   So the cost schedule is thin on purpose, and it is the buckets of the limiter that brake everything else: a
+   peer that keeps sending what no node takes in, such as transfers without funds or ballots far ahead, is cut
+   off by the bucket of its kind, and then penalised by the limiter for each refusal that follows. The check of a
+   signature that a cost depends on is made only for an item that a bucket let through and the node refused. Used
+   by the driver on its serial executor only. */
 @Slf4j
 final class Gossip {
 	static final int TRANSACTION_COST = 1;

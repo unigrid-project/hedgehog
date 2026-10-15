@@ -160,7 +160,11 @@ final class DriverRig implements AutoCloseable {
 
 	/* A validator of four, which is not the proposer of the first height, so it has nothing to say before it hears */
 	static DriverRig four() {
-		return new DriverRig(FOUR, seed(2), STRICT, new DirectSerial()).started();
+		return four(STRICT);
+	}
+
+	static DriverRig four(Policy policy) {
+		return new DriverRig(FOUR, seed(2), policy, new DirectSerial()).started();
 	}
 
 	static DriverRig observer() {

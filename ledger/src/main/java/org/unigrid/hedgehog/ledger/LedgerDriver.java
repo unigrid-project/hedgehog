@@ -219,19 +219,26 @@ public final class LedgerDriver implements Closeable {
 		inbound(item, () -> receive(item, node -> gossip.message(node, message)));
 	}
 
-	/* Placeholder until the full implementation lands: a status says where the chain of a peer stands */
+	/* Placeholder until the full implementation lands: a status says where the chain of a peer stands. It takes its
+	   token already, so that what is made of it later is never done for a peer that is over its limit. */
 	public void onStatus(LedgerPeer from, Status status) {
-		/* Nothing is done with it yet */
+		inbound(new Item(from, Kind.STATUS, status), () -> { });
 	}
 
-	/* Placeholder until the full implementation lands: the blocks a peer asks for are served from the ledger */
+	/* Placeholder until the full implementation lands: the blocks a peer asks for are served from the ledger. A
+	   request that is refused is not answered, so that a flood of them costs the answers too. */
 	public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
-		return CompletableFuture.completedFuture(new BlockBatch(List.of()));
+		final CompletableFuture<BlockBatch> reply = new CompletableFuture<>();
+
+		inbound(new Item(from, Kind.BLOCK_REQUEST, request), () -> reply.complete(new BlockBatch(List.of())),
+			() -> reply.completeExceptionally(new RejectedExecutionException("The request is refused")));
+		return reply;
 	}
 
-	/* Placeholder until the full implementation lands: a peer that connects is told where this chain stands */
+	/* Placeholder until the full implementation lands: a peer that connects is told where this chain stands, and
+	   that is a status, which has its limit */
 	public void onPeerConnected(LedgerPeer from) {
-		/* Nothing is done with it yet */
+		inbound(new Item(from, Kind.STATUS, null), () -> { });
 	}
 
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
@@ -268,9 +275,18 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void inbound(Item item, Runnable handler) {
+		inbound(item, handler, () -> { });
+	}
+
+	/* Every item of a peer takes a token of its kind before anything is done for it, and `refused` is what is done
+	   when it gets none, or when there is no node to give it to. The token is the first thing asked: the work of
+	   an item, such as the check of a signature, is bounded by the buckets. */
+	private void inbound(Item item, Runnable handler, Runnable refused) {
 		post(() -> {
 			if (ready() && limiter.allow(item.from().id(), item.kind())) {
 				handler.run();
+			} else {
+				refused.run();
 			}
 		});
 	}
