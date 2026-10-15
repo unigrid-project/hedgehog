@@ -80,10 +80,6 @@ public class LedgerFeeTest {
 		return rejection.orElse("");
 	}
 
-	private static void certifyAndCommit(Ledger ledger, Block proposed) throws IOException {
-		ledger.commit(certify(proposed, 0, ledger.chainId(), FOUR.subList(0, ledger.validators().quorum())));
-	}
-
 	@Example
 	public void shouldPayTheFeesOfABlockToTheSignersOfItInTheNextBlock() {
 		final LedgerState state = chain();
@@ -162,14 +158,14 @@ public class LedgerFeeTest {
 			final Ledger ledger = new Ledger(chain(), BlockLog.open(fileSystem.getPath("/data/blocks.log")));
 
 			ledger.submit(mint(1, 1000));
-			certifyAndCommit(ledger, proposal(ledger, 2000).orElseThrow());
-			ledger.submit(Transfer.signed(accountSeed(1), account(2), 300, 10, 0, ledger.chainId()));
-			certifyAndCommit(ledger, proposal(ledger, 2000).orElseThrow());
+			ledger.commit(nextBlock(ledger, FOUR, 2000));
+			ledger.submit(paying(ledger, 300, 10, 0));
+			ledger.commit(nextBlock(ledger, FOUR, 2000));
 
-			final Block empty = proposal(ledger, 2000).orElseThrow();
+			final Block empty = nextBlock(ledger, FOUR, 2000);
 
 			assertThat(empty.getTransactions().isEmpty(), is(true));
-			certifyAndCommit(ledger, empty);
+			ledger.commit(empty);
 			assertThat(proposal(ledger, 2000), equalTo(Optional.empty()));
 			assertThat(ledger.supply(), equalTo(1000L));
 		}

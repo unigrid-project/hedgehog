@@ -66,10 +66,6 @@ public class LedgerTest {
 		return Transfer.signed(accountSeed(1), account(9), amount, 1, nonce, chainId());
 	}
 
-	private static Transfer send(Ledger ledger, long amount, long fee, long nonce) {
-		return Transfer.signed(accountSeed(1), account(2), amount, fee, nonce, ledger.chainId());
-	}
-
 	private static Vote voteAdd(Ledger ledger, int voter, byte[] candidate, long round) {
 		return Vote.signed(seed(voter), Ed25519.publicKey(candidate), Vote.Action.ADD, round, ledger.chainId());
 	}
@@ -326,7 +322,7 @@ public class LedgerTest {
 			ledger.submit(mint(1, 1000));
 			seal(ledger, FOUNDATION, 2000);
 
-			assertThat(ledger.submit(send(ledger, 300, 9, 0)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(paying(ledger, 300, 9, 0)), equalTo(Optional.empty()));
 			seal(ledger, FOUNDATION, 3000);
 
 			assertThat(ledger.balanceOf(account(2)), equalTo(300L));
@@ -351,9 +347,9 @@ public class LedgerTest {
 			ledger.submit(mint(1, 1000));
 			seal(ledger, FOUNDATION, 2000);
 
-			assertThat(ledger.submit(send(ledger, 20, 1, 1)), equalTo(Optional.empty()));
-			assertThat(ledger.submit(send(ledger, 10, 1, 0)), equalTo(Optional.empty()));
-			assertThat(ledger.submit(send(ledger, 5, 1, Mempool.NONCE_WINDOW)).isPresent(), is(true));
+			assertThat(ledger.submit(paying(ledger, 20, 1, 1)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(paying(ledger, 10, 1, 0)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(paying(ledger, 5, 1, Mempool.NONCE_WINDOW)).isPresent(), is(true));
 
 			final Block block = seal(ledger, FOUNDATION, 3000);
 
@@ -371,7 +367,7 @@ public class LedgerTest {
 			first.submit(mint(1, 1000));
 			seal(first, FOUNDATION, 2000);
 
-			final Transfer paid = send(first, 300, 9, 0);
+			final Transfer paid = paying(first, 300, 9, 0);
 
 			first.submit(paid);
 			seal(first, FOUNDATION, 3000);

@@ -45,29 +45,8 @@ public class LedgerClockTest {
 			BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")), clock::get);
 	}
 
-	private static Block certified(Ledger ledger, Block proposed) {
-		return certify(proposed, proposed.getView(), ledger.chainId(), FOUNDATION);
-	}
-
 	private static List<Mint> mints(int from, int count) {
 		return IntStream.range(from, from + count).mapToObj(n -> mint(n, 1)).toList();
-	}
-
-	private static void fundFirstAndThirdAccount(Ledger funder, Ledger... followers) throws IOException {
-		funder.submit(mint(1, 1000));
-		funder.submit(mint(3, 1000));
-
-		final Block funding = certified(funder, proposal(funder, 10_000).orElseThrow());
-
-		funder.commit(funding);
-
-		for (final Ledger follower : followers) {
-			follower.commit(funding);
-		}
-	}
-
-	private static Transfer paying(long fee, Ledger ledger) {
-		return Transfer.signed(accountSeed(1), account(2), 10, fee, 0, ledger.chainId());
 	}
 
 	@Example
@@ -78,7 +57,7 @@ public class LedgerClockTest {
 
 			assertThat(proposal(ledger, 19_999).isPresent(), is(false));
 
-			final Block block = proposal(ledger, 20_000).orElseThrow();
+			final Block block = proposed(ledger, 20_000);
 
 			assertThat(block.getTransactions(), equalTo(List.of(DUE)));
 		}
@@ -89,7 +68,7 @@ public class LedgerClockTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(30_000);
 			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), clock);
-			ledger.commit(certified(ledger, proposal(ledger, 30_000).orElseThrow()));
+			ledger.commit(nextBlock(ledger, FOUNDATION, 30_000));
 
 			assertThat(ledger.balanceOf(account(1)), equalTo(700L));
 			assertThat(proposal(ledger, 40_000).isPresent(), is(false));
@@ -133,7 +112,7 @@ public class LedgerClockTest {
 
 			ledger.submit(waiting);
 
-			assertThat(proposal(ledger, 30_000).orElseThrow().getTransactions(), equalTo(List.of(DUE, waiting)));
+			assertThat(proposed(ledger, 30_000).getTransactions(), equalTo(List.of(DUE, waiting)));
 		}
 	}
 
@@ -148,7 +127,7 @@ public class LedgerClockTest {
 			ledger.commit(block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, FOUNDATION.size(), 40_000,
 				List.of(mint(3, 5))));
 
-			final Block next = proposal(ledger, 10_000).orElseThrow();
+			final Block next = proposed(ledger, 10_000);
 
 			assertThat(next.getTime(), equalTo(40_000L));
 			assertThat(next.getTransactions(), equalTo(List.of(gated)));
@@ -163,11 +142,11 @@ public class LedgerClockTest {
 
 			ledger.submit(DUE);
 
-			final Block block = proposal(ledger, 30_000).orElseThrow();
+			final Block block = proposed(ledger, 30_000);
 
 			assertThat(block.getTransactions(), equalTo(List.of(DUE)));
 
-			ledger.commit(certified(ledger, block));
+			ledger.commit(certify(block, ledger, FOUNDATION));
 
 			assertThat(ledger.balanceOf(account(1)), equalTo(700L));
 			assertThat(ledger.pending(), equalTo(0));
@@ -184,7 +163,7 @@ public class LedgerClockTest {
 				new AtomicLong(20_000));
 
 			ledger.submit(DUE);
-			ledger.commit(certified(ledger, proposal(ledger, 15_000).orElseThrow()));
+			ledger.commit(nextBlock(ledger, FOUNDATION, 15_000));
 
 			assertThat(ledger.pending(), equalTo(1));
 		}
@@ -203,7 +182,7 @@ public class LedgerClockTest {
 
 			waiting.forEach(ledger::submit);
 
-			final Block block = proposal(ledger, 30_000).orElseThrow();
+			final Block block = proposed(ledger, 30_000);
 
 			assertThat(block.getTransactions(), equalTo(List.<Transaction>copyOf(waiting)));
 		}
@@ -216,14 +195,14 @@ public class LedgerClockTest {
 			final Map<Mint, Long> dueTimes = IntStream.range(0, backlog.size()).boxed()
 				.collect(Collectors.toMap(backlog::get, i -> 10_000L + i));
 			final Ledger ledger = open(fileSystem, "a", dueAt(dueTimes), new AtomicLong(30_000));
-			final Block first = proposal(ledger, 30_000).orElseThrow();
+			final Block first = proposed(ledger, 30_000);
 
 			assertThat(first.getTransactions(),
 				equalTo(List.<Transaction>copyOf(backlog.subList(0, Block.MAX_TRANSACTIONS))));
 
-			ledger.commit(certified(ledger, first));
+			ledger.commit(certify(first, ledger, FOUNDATION));
 
-			assertThat(proposal(ledger, 30_000).orElseThrow().getTransactions(),
+			assertThat(proposed(ledger, 30_000).getTransactions(),
 				equalTo(List.<Transaction>copyOf(backlog.subList(Block.MAX_TRANSACTIONS, backlog.size()))));
 		}
 	}
@@ -236,7 +215,7 @@ public class LedgerClockTest {
 
 			ledger.submit(mint(1, 5));
 
-			final Block atTheLimit = proposal(ledger, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS).orElseThrow();
+			final Block atTheLimit = proposed(ledger, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS);
 
 			assertThat(ledger.validate(atTheLimit), equalTo(Optional.empty()));
 
@@ -244,7 +223,7 @@ public class LedgerClockTest {
 
 			other.submit(mint(1, 5));
 
-			final Block tooLate = proposal(other, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1).orElseThrow();
+			final Block tooLate = proposed(other, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1);
 
 			assertThat(other.validate(tooLate).orElse(""), containsString("ahead"));
 		}
@@ -291,7 +270,7 @@ public class LedgerClockTest {
 
 			far.submit(mint(1, 5));
 
-			final Block block = certified(far, proposal(far, 1_000_000).orElseThrow());
+			final Block block = nextBlock(far, FOUNDATION, 1_000_000);
 			final Ledger behind = open(fileSystem, "b", ANY_MINT, new AtomicLong(1));
 
 			assertThat(behind.validateCertified(block), equalTo(Optional.empty()));
@@ -309,15 +288,15 @@ public class LedgerClockTest {
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
 			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
 
-			fundFirstAndThirdAccount(lenient, picky);
+			fundFirstAndThirdAccount(FOUNDATION, 10_000, lenient, picky);
 
-			final Transfer enough = paying(5, picky);
+			final Transfer enough = paying(picky, 10, 5, 0);
 
-			assertThat(picky.submit(paying(4, picky)).orElse(""), containsString("Fee is below"));
+			assertThat(picky.submit(paying(picky, 10, 4, 0)).orElse(""), containsString("Fee is below"));
 			assertThat(picky.pending(), equalTo(0));
 			assertThat(picky.submit(enough), equalTo(Optional.empty()));
 
-			final Block block = proposal(picky, 11_000).orElseThrow();
+			final Block block = proposed(picky, 11_000);
 
 			assertThat(block.getTransactions(), equalTo(List.of(enough)));
 			assertThat(picky.validate(block), equalTo(Optional.empty()));
@@ -332,15 +311,15 @@ public class LedgerClockTest {
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
 			final Ledger picky = open(fileSystem, "b", minimumFee(5), clock);
 
-			fundFirstAndThirdAccount(lenient, picky);
+			fundFirstAndThirdAccount(FOUNDATION, 10_000, lenient, picky);
 
-			assertThat(lenient.submit(paying(4, lenient)), equalTo(Optional.empty()));
+			assertThat(lenient.submit(paying(lenient, 10, 4, 0)), equalTo(Optional.empty()));
 
-			final Block block = proposal(lenient, 11_000).orElseThrow();
+			final Block block = proposed(lenient, 11_000);
 
 			assertThat(picky.validate(block).orElse(""), containsString("Fee is below"));
 
-			picky.commit(certified(lenient, block));
+			picky.commit(certify(block, lenient, FOUNDATION));
 
 			assertThat(picky.balanceOf(account(2)), equalTo(10L));
 		}
@@ -355,16 +334,16 @@ public class LedgerClockTest {
 				.withTransfers(transfer -> transfer.fee() >= least.get());
 			final Ledger ledger = open(fileSystem, "a", demanding, new AtomicLong(10_000));
 
-			fundFirstAndThirdAccount(ledger);
+			fundFirstAndThirdAccount(FOUNDATION, 10_000, ledger);
 
 			final Transfer enough = Transfer.signed(accountSeed(3), account(2), 10, 5, 0, ledger.chainId());
 
-			assertThat(ledger.submit(paying(1, ledger)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(paying(ledger, 10, 1, 0)), equalTo(Optional.empty()));
 			assertThat(ledger.submit(enough), equalTo(Optional.empty()));
 
 			least.set(5);
 
-			assertThat(proposal(ledger, 11_000).orElseThrow().getTransactions(), equalTo(List.of(enough)));
+			assertThat(proposed(ledger, 11_000).getTransactions(), equalTo(List.of(enough)));
 		}
 	}
 
@@ -375,7 +354,7 @@ public class LedgerClockTest {
 			final LedgerAuthority gated = dueAt(Map.of(DUE, 20_000L));
 			final Ledger first = open(fileSystem, "a", gated, new AtomicLong(30_000));
 
-			first.commit(certified(first, proposal(first, 30_000).orElseThrow()));
+			first.commit(nextBlock(first, FOUNDATION, 30_000));
 
 			for (final long restartedAt : new long[] { 1, 10_000_000 }) {
 				final Ledger restarted = open(fileSystem, "a", gated, new AtomicLong(restartedAt));

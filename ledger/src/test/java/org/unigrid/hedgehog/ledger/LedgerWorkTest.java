@@ -55,22 +55,6 @@ public class LedgerWorkTest {
 		assertThat(proposal(ledger, time).isPresent(), is(expected));
 	}
 
-	private static void fund(Ledger funder, Ledger... followers) throws IOException {
-		funder.submit(mint(1, 1000));
-
-		final Block funding = nextBlock(funder, FOUNDATION, 2000);
-
-		funder.commit(funding);
-
-		for (final Ledger follower : followers) {
-			follower.commit(funding);
-		}
-	}
-
-	private static Transfer paying(Ledger ledger, long amount, long fee, long nonce) {
-		return Transfer.signed(accountSeed(1), account(2), amount, fee, nonce, ledger.chainId());
-	}
-
 	@Example
 	public void shouldHaveNoWorkOnAFreshLedger() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
@@ -83,7 +67,7 @@ public class LedgerWorkTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
 
-			fund(ledger);
+			fundFirstAndThirdAccount(FOUNDATION, 2000, ledger);
 			assertWork(ledger, 3000, false);
 
 			assertThat(ledger.submit(paying(ledger, 10, 1, 0)), equalTo(Optional.empty()));
@@ -97,7 +81,7 @@ public class LedgerWorkTest {
 			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
 			final Ledger rival = open(fileSystem, "b", ANY_MINT);
 
-			fund(ledger, rival);
+			fundFirstAndThirdAccount(FOUNDATION, 2000, ledger, rival);
 			ledger.submit(paying(ledger, 10, 0, 0));
 			rival.submit(paying(rival, 11, 0, 0));
 			assertWork(ledger, 3000, true);
@@ -115,7 +99,7 @@ public class LedgerWorkTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
 
-			fund(ledger);
+			fundFirstAndThirdAccount(FOUNDATION, 2000, ledger);
 
 			assertThat(ledger.submit(paying(ledger, 10, 1, 1)), equalTo(Optional.empty()));
 			assertThat(ledger.pending(), equalTo(1));
@@ -159,7 +143,7 @@ public class LedgerWorkTest {
 				.withTransfers(transfer -> transfer.fee() >= least.get());
 			final Ledger ledger = open(fileSystem, "a", demanding);
 
-			fund(ledger);
+			fundFirstAndThirdAccount(FOUNDATION, 2000, ledger);
 			ledger.submit(paying(ledger, 10, 1, 0));
 			assertWork(ledger, 3000, true);
 
@@ -174,7 +158,7 @@ public class LedgerWorkTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
 
-			fund(ledger);
+			fundFirstAndThirdAccount(FOUNDATION, 2000, ledger);
 			ledger.submit(paying(ledger, 10, 10, 0));
 			ledger.commit(nextBlock(ledger, FOUNDATION, 3000));
 

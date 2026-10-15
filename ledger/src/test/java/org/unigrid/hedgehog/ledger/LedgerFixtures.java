@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -188,6 +189,11 @@ final class LedgerFixtures {
 		return certified;
 	}
 
+	/* The same, in the view the block was proposed in and on the chain of the ledger */
+	static Block certify(Block block, Ledger ledger, List<byte[]> seeds) {
+		return certify(block, block.getView(), ledger.chainId(), seeds);
+	}
+
 	/* What the engine asks the ledger for in the first view of the next height, for the validator whose turn it is */
 	static Optional<Block> proposal(Ledger ledger, long time) {
 		final long height = ledger.height() + 1;
@@ -195,17 +201,41 @@ final class LedgerFixtures {
 		return ledger.propose(height, 0, ledger.validators().proposerAt(height), time);
 	}
 
+	static Block proposed(Ledger ledger, long time) {
+		return proposal(ledger, time).orElseThrow();
+	}
+
 	/* That block, certified in the first view by the first `signers` of the seeds that belong to the validator set */
 	static Block nextBlock(Ledger ledger, List<byte[]> seeds, int signers, long time) {
 		final List<byte[]> endorsing = seeds.stream()
 			.filter(seed -> ledger.validators().contains(Ed25519.publicKey(seed))).limit(signers).toList();
 
-		return certify(proposal(ledger, time).orElseThrow(), 0, ledger.chainId(), endorsing);
+		return certify(proposed(ledger, time), ledger, endorsing);
 	}
 
 	/* The same, certified by as many validators as make a quorum */
 	static Block nextBlock(Ledger ledger, List<byte[]> seeds, long time) {
 		return nextBlock(ledger, seeds, ledger.validators().quorum(), time);
+	}
+
+	/* Accounts 1 and 3 get 1000 each in a block of the funder, which the followers commit as well */
+	static void fundFirstAndThirdAccount(List<byte[]> seeds, long time, Ledger funder, Ledger... followers)
+		throws IOException {
+		funder.submit(mint(1, 1000));
+		funder.submit(mint(3, 1000));
+
+		final Block funding = nextBlock(funder, seeds, time);
+
+		funder.commit(funding);
+
+		for (final Ledger follower : followers) {
+			follower.commit(funding);
+		}
+	}
+
+	/* A transfer from the first account to the second */
+	static Transfer paying(Ledger ledger, long amount, long fee, long nonce) {
+		return Transfer.signed(accountSeed(1), account(2), amount, fee, nonce, ledger.chainId());
 	}
 
 	/* A block with the transactions the state would not take, signed by the solo validator as a certified one */

@@ -224,7 +224,7 @@ public class LedgerLastCommitTest {
 			ledger.commit(nextBlock(ledger, THREE, 2000));
 			ledger.submit(mint(2, 5));
 
-			final Block second = proposal(ledger, 2001).orElseThrow();
+			final Block second = proposed(ledger, 2001);
 
 			assertThat(ledger.validators().size(), equalTo(5));
 			assertThat(second.getLastCommit().endorsements().size(), equalTo(3));

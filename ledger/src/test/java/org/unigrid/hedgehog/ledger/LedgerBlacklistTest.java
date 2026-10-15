@@ -56,10 +56,6 @@ public class LedgerBlacklistTest {
 		return rejection.orElse("");
 	}
 
-	private static Block proposed(Ledger ledger) {
-		return proposal(ledger, BLOCK_TIME).orElseThrow();
-	}
-
 	private static Block certified(Ledger ledger) {
 		return nextBlock(ledger, FOUNDATION, BLOCK_TIME);
 	}
@@ -94,7 +90,7 @@ public class LedgerBlacklistTest {
 
 			lenient.submit(HELD.claim(account(1), lenient.chainId()));
 
-			final Block block = proposed(lenient);
+			final Block block = proposed(lenient, BLOCK_TIME);
 
 			assertThat(reasonOf(strict.validate(block)), containsString("not authorized"));
 			assertThat(lenient.validate(block), equalTo(Optional.empty()));
@@ -174,7 +170,7 @@ public class LedgerBlacklistTest {
 
 			held.set(Set.of(HELD.address()));
 
-			assertThat(proposed(ledger).getTransactions(), equalTo(List.of(clean)));
+			assertThat(proposed(ledger, BLOCK_TIME).getTransactions(), equalTo(List.of(clean)));
 		}
 	}
 
