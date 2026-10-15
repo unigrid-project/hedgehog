@@ -23,11 +23,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /* The application of the consensus engine: it takes in transactions and heartbeats, says what a block of the next
    height would hold and whether one is right, and applies the ones the validators certified. What a validator has
    signed is the engine's to keep, so the ledger remembers no proposal. */
 public final class Ledger implements ConsensusApp {
+	private static final Logger LOGGER = LoggerFactory.getLogger(Ledger.class);
+	private static final int MAX_REASON_LENGTH = 100;
+
 	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
 	   more than this early by dating its block ahead. A validator whose clock runs late may therefore vote
 	   for a mint up to this long before its time. */
@@ -51,8 +57,30 @@ public final class Ledger implements ConsensusApp {
 		log.blocks().forEach(state::apply);
 	}
 
+	/* A check that throws is a check that could not be made, which is a refusal and not a failure of the ledger: the
+	   authority belongs to the application and is asked about what peers send, so a peer must not be able to
+	   take the node down with an item that makes it throw. A refusal of a block is a vote withheld, and nothing
+	   is changed by a throw before the last step of an admission. */
+	private static Optional<String> checked(Supplier<Optional<String>> check) {
+		try {
+			return check.get();
+		} catch (RuntimeException e) {
+			LOGGER.atWarn().setCause(e).log("A check could not be made");
+			return Optional.of("Could not be checked: " + shortened(e.getMessage()));
+		}
+	}
+
+	private static String shortened(String message) {
+		return message == null || message.length() <= MAX_REASON_LENGTH ? String.valueOf(message)
+			: message.substring(0, MAX_REASON_LENGTH);
+	}
+
 	/* Empty when the transaction went into the mempool, otherwise the reason it did not */
 	public synchronized Optional<String> submit(Transaction transaction) {
+		return checked(() -> admit(transaction));
+	}
+
+	private Optional<String> admit(Transaction transaction) {
 		state.askAuthorityAt(clock.getAsLong());
 
 		if (mempool.admit(transaction, state)) {
@@ -68,8 +96,8 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	public synchronized Optional<String> submit(Heartbeat heartbeat) {
-		return mempool.admit(heartbeat, state) ? Optional.empty()
-			: Optional.of("Not a newer heartbeat for this tip from a validator");
+		return checked(() -> mempool.admit(heartbeat, state) ? Optional.empty()
+			: Optional.of("Not a newer heartbeat for this tip from a validator"));
 	}
 
 	/* Empty when it is not the turn of this proposer in this view of the next height, or when nothing needs a block:
@@ -136,13 +164,13 @@ public final class Ledger implements ConsensusApp {
 				+ " ms ahead of this node's clock");
 		}
 
-		return state.proposalRejection(block);
+		return checked(() -> state.proposalRejection(block));
 	}
 
 	/* For certified blocks, which stand whatever the policy of this node says, so no policy is asked */
 	@Override
 	public synchronized Optional<String> validateCertified(Block block) {
-		return state.rejectionOf(block);
+		return checked(() -> state.rejectionOf(block));
 	}
 
 	/* The block is logged before the state changes, so a crash between the two replays to the same state and a

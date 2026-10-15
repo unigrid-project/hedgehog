@@ -47,6 +47,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.account;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.key;
@@ -635,13 +636,13 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldAnswerALocalSubmitThatMetAFailingNodeWithARefusalAndReplaceTheNode() throws IOException {
+	public void shouldAnswerALocalSubmitTheLedgerCouldNotCheckWithARefusalAndKeepTheNode() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
 			rig.breakNode();
 
-			assertThat(rig.driver.submit(mint(1, 500)).join().isPresent(), is(true));
-			assertThat(rig.built, equalTo(List.of(true, true)));
-			assertThat(rig.driver.submit(mint(1, 500)).join(), equalTo(Optional.empty()));
+			assertThat(rig.driver.submit(mint(1, 500)).join().orElseThrow(), startsWith("Could not be checked"));
+			assertThat(rig.built, equalTo(List.of(true)));
+			assertThat(rig.driver.halted(), is(false));
 		}
 	}
 
