@@ -26,23 +26,44 @@ import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 
 public class P2PClientPipelineTest {
+	private static List<Class<?>> classesOf(final List<? extends ChannelHandler> handlers) {
+		return handlers.stream().<Class<?>>map(ChannelHandler::getClass).toList();
+	}
+
 	@Example
-	public void endsWithTheStoragePipelineAndThenTheLedgerPipeline() {
-		final List<Class<?>> handlers = P2PClient.handlers().stream().<Class<?>>map(ChannelHandler::getClass).toList();
-		final List<Class<?>> appended = Stream.concat(StoragePipeline.handlers().stream(),
-			LedgerPipeline.handlers().stream()).<Class<?>>map(ChannelHandler::getClass).toList();
+	public void endsWithTheStoragePipelineAndThenTheLedgerPipelineWithTheLedgerProtocol() {
+		final List<Class<?>> handlers = classesOf(P2PClient.handlers(true));
+		final List<Class<?>> appended = classesOf(Stream.concat(StoragePipeline.handlers().stream(),
+			LedgerPipeline.handlers().stream()).toList());
 
 		assertThat(Collections.indexOfSubList(handlers, appended), equalTo(handlers.size() - appended.size()));
 	}
 
 	@Example
-	public void runsTheLedgerSchedule() {
-		assertThat(P2PClient.schedulers().stream().<Class<?>>map(Object::getClass).toList(),
-			hasItem(LedgerStatusSchedule.class));
+	public void endsWithTheStoragePipelineAndHasNoLedgerStageWithoutTheLedgerProtocol() {
+		final List<Class<?>> handlers = classesOf(P2PClient.handlers(false));
+		final List<Class<?>> storage = classesOf(StoragePipeline.handlers());
+
+		assertThat(Collections.indexOfSubList(handlers, storage), equalTo(handlers.size() - storage.size()));
+		classesOf(LedgerPipeline.handlers()).stream().filter(type -> !storage.contains(type))
+			.forEach(type -> assertThat(handlers, not(hasItem(type))));
+	}
+
+	@Example
+	public void runsTheLedgerScheduleOnlyWithTheLedgerProtocol() {
+		final List<Class<?>> earlier = P2PClient.schedulers(false).stream().<Class<?>>map(Object::getClass).toList();
+		final List<Class<?>> later = P2PClient.schedulers(true).stream().<Class<?>>map(Object::getClass).toList();
+
+		assertThat(earlier, not(hasItem(LedgerStatusSchedule.class)));
+		assertThat(later, hasItems(earlier.toArray(new Class<?>[0])));
+		assertThat(later, hasItem(LedgerStatusSchedule.class));
+		assertThat(later.size(), equalTo(earlier.size() + 1));
 	}
 }

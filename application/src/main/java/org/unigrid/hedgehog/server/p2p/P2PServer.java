@@ -90,9 +90,11 @@ public class P2PServer extends AbstractServer {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		log.atDebug().log("Init P2P server");
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+		final String[] protocols = Network.getProtocols();
+		final boolean ledger = Network.hasLedger(protocols);
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(Network.getProtocols()).build();
+			.applicationProtocols(protocols).build();
 		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
@@ -110,7 +112,7 @@ public class P2PServer extends AbstractServer {
 					quicChannel.pipeline().addLast(new ConnectionHandler());
 				}
 			})
-			.streamHandler(new RegisterQuicChannelInitializer(P2PServer::handlers, P2PServer::schedulers,
+			.streamHandler(new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
 				RegisterQuicChannelInitializer.Type.SERVER)).build();
 
 		channel = new Bootstrap().group(group)
@@ -123,7 +125,9 @@ public class P2PServer extends AbstractServer {
 		topologyThread.start();
 	}
 
-	static List<ChannelHandler> handlers() {
+	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets */
+	static List<ChannelHandler> handlers(final boolean ledger) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new LoggingHandler(LogLevel.DEBUG),
 			new FrameDecoder(),
@@ -138,18 +142,27 @@ public class P2PServer extends AbstractServer {
 		));
 
 		handlers.addAll(StoragePipeline.handlers());
-		handlers.addAll(LedgerPipeline.handlers());
+
+		if (ledger) {
+			handlers.addAll(LedgerPipeline.handlers());
+		}
+
 		return handlers;
 	}
 
-	static List<Schedulable> schedulers() {
-		return Arrays.asList(
+	static List<Schedulable> schedulers(final boolean ledger) {
+		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
 			new PublishAndSaveSporkSchedule(),
-			new PublishGridnodeSchedule(),
-			new LedgerStatusSchedule()
-		);
+			new PublishGridnodeSchedule()
+		));
+
+		if (ledger) {
+			schedulers.add(new LedgerStatusSchedule());
+		}
+
+		return schedulers;
 	}
 
 	@Override

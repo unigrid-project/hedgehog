@@ -18,12 +18,19 @@
 
 package org.unigrid.hedgehog.model;
 
+import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Slf4j
 public class Network {
+	/* The ledger protocol is offered first: a node that knows it settles on it with another that does, and a node that
+	   does not know it settles on the next one, which is what a node of an earlier release offers first. Whether a
+	   connection settled on it is what tells a node that the other end speaks the ledger. */
+	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.1";
+
 	private static final String[] PROTOCOLS = {
+		LEDGER_PROTOCOL,
 		"hedgehog/0.0.4",
 		"gridspork/0.0.4"
 	};
@@ -43,6 +50,12 @@ public class Network {
 
 	public static String[] getProtocols() {
 		return PROTOCOLS;
+	}
+
+	/* A node carries the ledger pipeline exactly when it offers the ledger protocol, so it never sends a ledger packet
+	   over a connection that did not settle on it */
+	public static boolean hasLedger(final String[] protocols) {
+		return Arrays.asList(protocols).contains(LEDGER_PROTOCOL);
 	}
 
 	public static String[] getSeeds() {

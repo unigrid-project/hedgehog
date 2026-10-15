@@ -88,9 +88,11 @@ public class P2PClient extends ConnectionContainer {
 	private static QuicStreamChannel connect(EventLoopGroup group, String hostname, int port)
 		throws ExecutionException, InterruptedException, TimeoutException {
 
+		final String[] protocols = Network.getProtocols();
+		final boolean ledger = Network.hasLedger(protocols);
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
-			.applicationProtocols(Network.getProtocols())
+			.applicationProtocols(protocols)
 			.build();
 
 		final ChannelHandler codec = new QuicClientCodecBuilder()
@@ -118,12 +120,14 @@ public class P2PClient extends ConnectionContainer {
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		// TODO: Add support for ChannelCollector
 		return quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-			new RegisterQuicChannelInitializer(P2PClient::handlers, P2PClient::schedulers,
+			new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
 				RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();
 	}
 
-	static List<ChannelHandler> handlers() {
+	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets */
+	static List<ChannelHandler> handlers(final boolean ledger) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new LoggingHandler(LogLevel.DEBUG),
 			new FrameDecoder(),
@@ -137,17 +141,26 @@ public class P2PClient extends ConnectionContainer {
 		));
 
 		handlers.addAll(StoragePipeline.handlers());
-		handlers.addAll(LedgerPipeline.handlers());
+
+		if (ledger) {
+			handlers.addAll(LedgerPipeline.handlers());
+		}
+
 		return handlers;
 	}
 
-	static List<Schedulable> schedulers() {
-		return Arrays.asList(
+	static List<Schedulable> schedulers(final boolean ledger) {
+		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
 			new PublishAndSaveSporkSchedule(),
-			new PublishGridnodeSchedule(),
-			new LedgerStatusSchedule()
-		);
+			new PublishGridnodeSchedule()
+		));
+
+		if (ledger) {
+			schedulers.add(new LedgerStatusSchedule());
+		}
+
+		return schedulers;
 	}
 }

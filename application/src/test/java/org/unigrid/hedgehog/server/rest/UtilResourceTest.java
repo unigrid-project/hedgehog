@@ -28,12 +28,14 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.common.model.Version;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.NodeStatus;
 import org.unigrid.hedgehog.model.bootstrap.BlockFixture;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
@@ -74,6 +76,15 @@ public class UtilResourceTest extends BaseRestClientTest {
 
 		assertThat(Status.fromStatusCode(response.getStatus()), equalTo(Status.OK));
 		assertThat(response.readEntity(String.class), containsString(Version.getVersionNumber()));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldReportTheProtocolsOfTheNodeAndTheLedgerProtocolAmongThem() {
+		final String body = client.get("/version").readEntity(String.class);
+
+		Stream.of(Network.getProtocols()).forEach(protocol -> assertThat(body, containsString(protocol)));
+		assertThat(body, containsString(Network.LEDGER_PROTOCOL));
 	}
 
 	@Example
