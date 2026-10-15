@@ -22,7 +22,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -56,7 +55,6 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -74,7 +72,6 @@ import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.network.ChannelMap;
-import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -103,11 +100,14 @@ import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.service.ledger.DebugLog;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
 import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.bodyOf;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.encoded;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.sentBy;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.unreadableBatch;
 
 @WeldSetup(value = { LedgerGateway.class, PendingRequests.class, Topology.class, ChannelMap.class,
 	ProtectedInterceptor.class }, scan = false)
 public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
-	private static final int FRAME_HEADER_SIZE = 8;
 	private static final int PORT = 52883;
 	private static final int LOOPBACK_NETWORK = 127;
 	private static final String PEER = "10.1.2.3";
@@ -189,7 +189,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 	@Provide
 	Arbitrary<String> addresses() {
-		return Arbitraries.integers().between(1, 254).list().ofSize(4).filter(parts -> parts.get(0) != LOOPBACK_NETWORK)
+		return Arbitraries.integers().between(1, 254).list().ofSize(4)
+			.filter(parts -> parts.get(0) != LOOPBACK_NETWORK)
 			.map(parts -> String.join(".", parts.stream().map(String::valueOf).toList()));
 	}
 
@@ -214,29 +215,12 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		return streamOf(connectionFrom(address), new Remainder());
 	}
 
-	private static ByteBuf encoded(final Packet packet) {
-		final EmbeddedChannel channel = new EmbeddedChannel(LedgerPipeline.handlers().toArray(new ChannelHandler[0]));
-
-		channel.writeOutbound(packet);
-		return channel.readOutbound();
-	}
-
-	private static Packet sentBy(final EmbeddedChannel sender) {
-		final Object frame = sender.readOutbound();
-		final EmbeddedChannel receiver = new EmbeddedChannel(new FrameDecoder(), new LedgerTransactionDecoder(),
-			new LedgerConsensusDecoder(), new LedgerHeartbeatDecoder(), new LedgerStatusDecoder(),
-			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder((channel, id) -> true));
-
-		assertThat("Nothing was sent", frame, notNullValue());
-		receiver.writeInbound(frame);
-		return receiver.readInbound();
-	}
-
 	private void sendAllKinds(final EmbeddedChannel channel, final int seed) {
 		channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(seed))
 			.build()));
 		channel.writeInbound(encoded(LedgerConsensus.builder().message(LedgerWireFixtures.message(seed)).build()));
-		channel.writeInbound(encoded(LedgerHeartbeat.builder().heartbeat(LedgerWireFixtures.heartbeat(seed)).build()));
+		channel.writeInbound(encoded(LedgerHeartbeat.builder().heartbeat(LedgerWireFixtures.heartbeat(seed))
+			.build()));
 		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
 		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(seed)
 			.request(LedgerWireFixtures.request(seed)).build()));
@@ -253,8 +237,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(calls.stream().map(Call::method).toList(), contains("onTransaction", "onMessage", "onHeartbeat",
 			"onStatus", "onBlockRequest"));
 		assertThat(calls.stream().map(Call::argument).toList(), contains(LedgerWireFixtures.transaction(seed),
-			LedgerWireFixtures.message(seed), LedgerWireFixtures.heartbeat(seed), LedgerWireFixtures.status(seed),
-			LedgerWireFixtures.request(seed)));
+			LedgerWireFixtures.message(seed), LedgerWireFixtures.heartbeat(seed),
+			LedgerWireFixtures.status(seed), LedgerWireFixtures.request(seed)));
 		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(), contains(address));
 		assertThat(calls.stream().map(Call::from).distinct().count(), is(1L));
 		assertThat(calls.get(0).from(), sameInstance(gateway.peerOf(channel, () -> RemoteAddress.of(channel))));
@@ -300,7 +284,7 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		encoder.writeOutbound(Ping.builder().nanoTime(seed).build());
 
 		final ByteBuf frame = encoder.readOutbound();
-		final byte[] body = ByteBufUtil.getBytes(frame, FRAME_HEADER_SIZE, frame.readableBytes() - FRAME_HEADER_SIZE);
+		final byte[] body = bodyOf(frame);
 
 		channel.writeInbound(frame);
 
@@ -467,12 +451,6 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(calls.isEmpty(), is(true));
 	}
 
-	/* A batch whose body no decoder could read, so that it is read only if the decoder takes it up */
-	private static ByteBuf unreadableBatch(final long requestId) {
-		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.LEDGER_BLOCK_BATCH.getValue())
-			.writeInt(Long.BYTES + 6).writeLong(requestId).writeBytes(new byte[] { 127, -1, -1, -1, 1, 2 });
-	}
-
 	@Property(tries = 6)
 	public void readsABatchOnlyForARequestOfThatStream(@ForAll @IntRange(min = 0, max = 2) int awaitedOn) {
 		final EmbeddedChannel channel = streamFrom(PEER);
@@ -514,8 +492,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		failure = new IllegalStateException("The driver is broken");
 
 		try (DebugLog log = new DebugLog(AbstractInboundHandler.class)) {
-			channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(1))
-				.build()));
+			channel.writeInbound(encoded(LedgerTransaction.builder()
+				.transaction(LedgerWireFixtures.transaction(1)).build()));
 
 			assertThat(log.events().stream().map(ILoggingEvent::getLevel).toList(), contains(Level.WARN));
 			assertThat(log.events().get(0).getFormattedMessage().contains("IllegalStateException"), is(true));
@@ -566,8 +544,9 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		}
 
 		assertThat(first.stream().<Object>map(Object::getClass).toList(), containsInAnyOrder(
-			(Object) LedgerTransactionEncoder.class, LedgerTransactionDecoder.class, LedgerConsensusEncoder.class,
-			LedgerConsensusDecoder.class, LedgerHeartbeatEncoder.class, LedgerHeartbeatDecoder.class,
+			(Object) LedgerTransactionEncoder.class, LedgerTransactionDecoder.class,
+			LedgerConsensusEncoder.class, LedgerConsensusDecoder.class,
+			LedgerHeartbeatEncoder.class, LedgerHeartbeatDecoder.class,
 			LedgerStatusEncoder.class, LedgerStatusDecoder.class, LedgerBlockRequestEncoder.class,
 			LedgerBlockRequestDecoder.class, LedgerBlockBatchEncoder.class, LedgerBlockBatchDecoder.class,
 			LedgerTransactionChannelHandler.class, LedgerConsensusChannelHandler.class,

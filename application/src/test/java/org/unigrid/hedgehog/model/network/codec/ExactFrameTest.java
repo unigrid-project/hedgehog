@@ -19,12 +19,10 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
 import java.util.ArrayList;
 import java.util.List;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -37,22 +35,14 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.network.Packet;
-import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
-import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
-import org.unigrid.hedgehog.model.network.packet.LedgerConsensus;
-import org.unigrid.hedgehog.model.network.packet.LedgerHeartbeat;
 import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
-import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 import org.unigrid.hedgehog.model.network.packet.Ping;
+import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.bodyOf;
-import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.emptyBatch;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.encoded;
-import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.heartbeat;
-import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.message;
-import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.request;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.resized;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.status;
-import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.transaction;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.unreadableBatch;
 
 /* A frame is the body of one packet, no more and no less: a frame that is not taken whole cannot be told from the
    start of the next, so it is refused, and what follows it on the stream is not decoded as if nothing happened */
@@ -72,13 +62,7 @@ public class ExactFrameTest {
 
 	@Provide
 	Arbitrary<Packet> packets() {
-		return Arbitraries.integers().between(0, 100).flatMap(seed -> Arbitraries.of(
-			LedgerTransaction.builder().transaction(transaction(seed)).build(),
-			LedgerConsensus.builder().message(message(seed)).build(),
-			LedgerHeartbeat.builder().heartbeat(heartbeat(seed)).build(),
-			LedgerStatus.builder().status(status(seed)).build(),
-			LedgerBlockRequest.builder().requestId(seed).request(request(seed)).build(),
-			LedgerBlockBatch.builder().requestId(seed).batch(emptyBatch()).build()));
+		return LedgerWireFixtures.packets();
 	}
 
 	@Property(tries = 50)
@@ -152,12 +136,6 @@ public class ExactFrameTest {
 
 		channel.writeInbound(frame.readRetainedSlice(frame.readableBytes()));
 		assertThat(channel.<Object>readInbound(), equalTo(packet));
-	}
-
-	/* A batch whose body no decoder could read: a length of a couple of gigabytes, and a few bytes after it */
-	private static ByteBuf unreadableBatch(final long requestId) {
-		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.LEDGER_BLOCK_BATCH.getValue())
-			.writeInt(Long.BYTES + 6).writeLong(requestId).writeBytes(new byte[] { 127, -1, -1, -1, 1, 2 });
 	}
 
 	@Property(tries = 20)

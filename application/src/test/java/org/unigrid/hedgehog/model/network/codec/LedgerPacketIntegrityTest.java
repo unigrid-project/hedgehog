@@ -26,7 +26,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,30 +52,13 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
-import org.unigrid.hedgehog.ledger.AccountKey;
-import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ballot;
 import org.unigrid.hedgehog.ledger.Block;
 import org.unigrid.hedgehog.ledger.BlockBatch;
-import org.unigrid.hedgehog.ledger.BlockRequest;
-import org.unigrid.hedgehog.ledger.Certificate;
 import org.unigrid.hedgehog.ledger.Claim;
-import org.unigrid.hedgehog.ledger.Decision;
-import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.Ed25519;
-import org.unigrid.hedgehog.ledger.Endorsement;
-import org.unigrid.hedgehog.ledger.Heartbeat;
-import org.unigrid.hedgehog.ledger.LegacyAddress;
-import org.unigrid.hedgehog.ledger.LegacySignature;
-import org.unigrid.hedgehog.ledger.Message;
-import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Proposal;
-import org.unigrid.hedgehog.ledger.Reference;
-import org.unigrid.hedgehog.ledger.Status;
-import org.unigrid.hedgehog.ledger.Transaction;
-import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.ledger.ValidatorSet;
-import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.network.Correlated;
 import org.unigrid.hedgehog.model.network.Packet;
@@ -89,9 +71,16 @@ import org.unigrid.hedgehog.model.network.packet.LedgerHeartbeat;
 import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
 import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.account;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.ballot;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.bodyOf;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.claim;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.encoded;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.largestBlock;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.random;
 
 public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
-	private static final int FRAME_HEADER_SIZE = 8;
 	private static final int BATCH_SLACK = 64 * 1024;
 
 	private static final Map<Class<?>, Packet.Type> TYPES = Map.of(
@@ -121,127 +110,9 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 		Packet.Type.LEDGER_CONSENSUS, WireCodec.MAX_MESSAGE_SIZE,
 		Packet.Type.LEDGER_BLOCK_BATCH, BlockBatch.MAX_BYTES + BATCH_SLACK);
 
-	private static byte[] random(final Random random, final int size) {
-		final byte[] bytes = new byte[size];
-
-		random.nextBytes(bytes);
-		return bytes;
-	}
-
-	private static AccountKey account(final Random random) {
-		return new AccountKey(random(random, AccountKey.SIZE));
-	}
-
-	private static Address address(final Random random) {
-		return random.nextBoolean() ? account(random) : new LegacyAddress(random(random, LegacyAddress.SIZE));
-	}
-
-	private static Claim claim(final Random random, final boolean compressed) {
-		final byte[] key = random(random, compressed ? 33 : 65);
-
-		key[0] = (byte) (compressed ? 2 + random.nextInt(2) : 4);
-		return new Claim(key, account(random), random(random, LegacySignature.SIZE));
-	}
-
-	private static Transaction transaction(final Random random) {
-		return switch (random.nextInt(4)) {
-			case 0 -> new Mint(address(random), 1 + random.nextInt(1_000_000),
-				new Reference(random(random, Reference.SIZE)));
-			case 1 -> new Vote(account(random), account(random), Vote.Action.values()[random.nextInt(2)],
-				random.nextInt(1000), random(random, Ed25519.SIGNATURE_SIZE));
-			case 2 -> claim(random, random.nextBoolean());
-			default -> new Transfer(account(random), address(random), 1 + random.nextInt(1_000_000),
-				random.nextInt(1000), random.nextInt(100), random(random, Ed25519.SIGNATURE_SIZE));
-		};
-	}
-
-	private static Certificate certificate(final Random random, final int endorsements) {
-		return new Certificate(random.nextInt(5), IntStream.range(0, endorsements)
-			.mapToObj(i -> new Endorsement(account(random), random(random, Ed25519.SIGNATURE_SIZE))).toList());
-	}
-
-	private static Block block(final Random random, final long height, final List<Transaction> transactions,
-		final int endorsements) {
-
-		return Block.builder().height(height).view(random.nextInt(5)).previousHash(random(random, Digests.HASH_SIZE))
-			.time(random.nextInt(100_000)).stateRoot(random(random, Digests.HASH_SIZE))
-			.transactionRoot(random(random, Digests.HASH_SIZE)).transactions(transactions).proposer(account(random))
-			.certificate(certificate(random, endorsements)).lastCommit(certificate(random, endorsements)).build();
-	}
-
-	private static Block block(final Random random, final long height) {
-		return block(random, height, IntStream.range(0, random.nextInt(4)).mapToObj(i -> transaction(random)).toList(),
-			random.nextInt(4));
-	}
-
-	private static Block largestBlock(final Random random) {
-		return block(random, 1, Collections.nCopies(Block.MAX_TRANSACTIONS, claim(random, false)),
-			ValidatorSet.MAX_SIZE);
-	}
-
-	private static Ballot ballot(final Random random, final Ballot.Type type, final long height, final int view,
-		final byte[] blockHash) {
-
-		return new Ballot(type, height, view, blockHash, account(random), random(random, Ed25519.SIGNATURE_SIZE));
-	}
-
-	private static Proposal proposal(final Random random, final Block block, final int proof) {
-		final int validRound = proof == 0 ? random.nextInt(4) - 1 : random.nextInt(4);
-		final List<Ballot> polka = IntStream.range(0, proof).mapToObj(i -> ballot(random, Ballot.Type.PREVOTE,
-			block.getHeight(), validRound, block.hash())).toList();
-
-		return new Proposal(block.getHeight(), validRound + 1 + random.nextInt(3), validRound, block, polka,
-			account(random), random(random, Ed25519.SIGNATURE_SIZE));
-	}
-
-	private static Message message(final Random random) {
-		final Block block = block(random, 1 + random.nextInt(1000));
-
-		return switch (random.nextInt(4)) {
-			case 0 -> ballot(random, Ballot.Type.values()[random.nextInt(2)], 1 + random.nextInt(1000),
-				random.nextInt(5), random(random, Digests.HASH_SIZE));
-			case 1 -> proposal(random, block, 0);
-			case 2 -> proposal(random, block, 1 + random.nextInt(3));
-			default -> new Decision(block);
-		};
-	}
-
-	private static Heartbeat heartbeat(final Random random) {
-		return new Heartbeat(account(random), random.nextLong(Long.MAX_VALUE), random(random, Digests.HASH_SIZE),
-			random.nextLong(Long.MAX_VALUE), random(random, Ed25519.SIGNATURE_SIZE));
-	}
-
-	private static Status status(final Random random) {
-		return new Status(random(random, Digests.HASH_SIZE), random.nextLong(Long.MAX_VALUE),
-			random(random, Digests.HASH_SIZE));
-	}
-
-	private static BlockRequest request(final Random random) {
-		return new BlockRequest(1 + random.nextLong(Long.MAX_VALUE - 1), 1 + random.nextInt(BlockBatch.MAX_BLOCKS));
-	}
-
-	private static BlockBatch batch(final Random random) {
-		final long first = 1 + random.nextInt(1000);
-
-		return new BlockBatch(IntStream.range(0, random.nextInt(4)).mapToObj(i -> block(random, first + i)).toList());
-	}
-
-	private static Packet packet(final Random random) {
-		final long requestId = random.nextLong();
-
-		return switch (random.nextInt(6)) {
-			case 0 -> LedgerTransaction.builder().transaction(transaction(random)).build();
-			case 1 -> LedgerConsensus.builder().message(message(random)).build();
-			case 2 -> LedgerHeartbeat.builder().heartbeat(heartbeat(random)).build();
-			case 3 -> LedgerStatus.builder().status(status(random)).build();
-			case 4 -> LedgerBlockRequest.builder().requestId(requestId).request(request(random)).build();
-			default -> LedgerBlockBatch.builder().requestId(requestId).batch(batch(random)).build();
-		};
-	}
-
 	@Provide
 	public Arbitrary<Packet> packets() {
-		return Arbitraries.longs().map(seed -> packet(new Random(seed)));
+		return LedgerWireFixtures.packets();
 	}
 
 	@Provide
@@ -265,20 +136,6 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 
 	private static PacketDecoder<?> decoder(final Packet.Type type) {
 		return (PacketDecoder<?>) DECODERS.get(type).get();
-	}
-
-	private static ByteBuf encoded(final Packet packet) {
-		final EmbeddedChannel channel = new EmbeddedChannel(ENCODERS.values().stream().map(Supplier::get)
-			.toArray(ChannelHandler[]::new));
-
-		channel.writeOutbound(packet);
-		return channel.readOutbound();
-	}
-
-	private static byte[] bodyOf(final Packet packet) {
-		final ByteBuf frame = encoded(packet);
-
-		return ByteBufUtil.getBytes(frame, FRAME_HEADER_SIZE, frame.readableBytes() - FRAME_HEADER_SIZE);
 	}
 
 	private static List<Object> decode(final Packet.Type type, final ByteBuf body,
@@ -359,7 +216,7 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 	@Property(tries = 30)
 	public void aDecoderOwnsItsTypeAndForwardsTheOthers(@ForAll("packets") Packet packet) {
 		final ByteBuf frame = encoded(packet);
-		final byte[] body = ByteBufUtil.getBytes(frame, FRAME_HEADER_SIZE, frame.readableBytes() - FRAME_HEADER_SIZE);
+		final byte[] body = bodyOf(frame);
 
 		DECODERS.forEach((type, decoder) -> {
 			final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), decoder.get());
@@ -392,7 +249,7 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 	public void decodersRefuseEveryTruncation(@ForAll("packets") Packet packet,
 		@Mocked ChannelHandlerContext context) {
 
-		final byte[] body = bodyOf(packet);
+		final byte[] body = bodyOf(encoded(packet));
 
 		IntStream.range(0, body.length).forEach(cut -> assertThrows(IndexOutOfBoundsException.class,
 			() -> decode(packet.getType(), Unpooled.wrappedBuffer(Arrays.copyOf(body, cut)), context)));
@@ -445,7 +302,7 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 	public void decodersRefuseBytesAfterTheObjectInsideTheirLength(@ForAll("lengthPrefixedPackets") Packet packet,
 		@Mocked ChannelHandlerContext context) {
 
-		final ByteBuf body = Unpooled.wrappedBuffer(bodyOf(packet));
+		final ByteBuf body = Unpooled.wrappedBuffer(bodyOf(encoded(packet)));
 		final int at = packet.getType() == Packet.Type.LEDGER_BLOCK_BATCH ? Long.BYTES : 0;
 		final ByteBuf forged = Unpooled.buffer().writeBytes(body, 0, at).writeInt(body.getInt(at) + 1)
 			.writeBytes(body, at + Integer.BYTES, body.readableBytes() - at - Integer.BYTES).writeByte(0);
@@ -465,7 +322,7 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 		@Mocked ChannelHandlerContext context) {
 
 		final Random random = new Random(seed);
-		final byte[] body = bodyOf(packet);
+		final byte[] body = bodyOf(encoded(packet));
 
 		IntStream.rangeClosed(0, random.nextInt(4))
 			.forEach(i -> body[random.nextInt(body.length)] = (byte) random.nextInt());

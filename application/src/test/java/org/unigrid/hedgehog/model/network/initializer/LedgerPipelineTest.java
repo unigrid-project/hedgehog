@@ -18,8 +18,6 @@
 
 package org.unigrid.hedgehog.model.network.initializer;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import jakarta.enterprise.inject.spi.CDI;
 import java.time.Duration;
 import java.util.HexFormat;
@@ -47,6 +45,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.frameOf;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.ledger.Block;
 import org.unigrid.hedgehog.ledger.BlockBatch;
@@ -58,7 +57,6 @@ import org.unigrid.hedgehog.ledger.Message;
 import org.unigrid.hedgehog.ledger.Status;
 import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.network.PendingRequests;
-import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
 import org.unigrid.hedgehog.model.network.packet.LedgerConsensus;
@@ -164,8 +162,9 @@ public class LedgerPipelineTest extends BaseServerTest {
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
-	public void deliversWhatAClientSendsToTheDriverAsTheSameObjects(@ForAll("provideTestServers") List<TestServer> servers,
-		@ForAll @IntRange(min = 0, max = 100) int seed) throws Exception {
+	public void deliversWhatAClientSendsToTheDriverAsTheSameObjects(
+		@ForAll("provideTestServers") List<TestServer> servers, @ForAll @IntRange(min = 0, max = 100) int seed)
+		throws Exception {
 
 		for (final TestServer server : servers) {
 			final P2PClient client = clientOf(server);
@@ -178,9 +177,9 @@ public class LedgerPipelineTest extends BaseServerTest {
 
 				assertThat(heard().stream().map(Call::method).toList(),
 					contains("onStatus", "onTransaction", "onHeartbeat", "onMessage"));
-				assertThat(heard().stream().map(Call::argument).toList(), contains(LedgerWireFixtures.status(seed),
-					LedgerWireFixtures.transaction(seed), LedgerWireFixtures.heartbeat(seed),
-					LedgerWireFixtures.message(seed)));
+				assertThat(heard().stream().map(Call::argument).toList(),
+					contains(LedgerWireFixtures.status(seed), LedgerWireFixtures.transaction(seed),
+						LedgerWireFixtures.heartbeat(seed), LedgerWireFixtures.message(seed)));
 				assertThat(heard().stream().map(call -> call.from().id()).distinct().count(), is(1L));
 				assertThat(heard().get(0).from().id(), startsWith(LOCAL));
 			} finally {
@@ -225,8 +224,10 @@ public class LedgerPipelineTest extends BaseServerTest {
 				final CompletableFuture<LedgerBlockBatch> reply = pending.register(id, client.getChannel(),
 					LedgerBlockBatch.class);
 
-				client.send(LedgerBlockRequest.builder().requestId(id).request(LedgerWireFixtures.request(1)).build());
-				await().until(() -> heard().stream().anyMatch(call -> "onBlockRequest".equals(call.method())));
+				client.send(LedgerBlockRequest.builder().requestId(id).request(LedgerWireFixtures.request(1))
+					.build());
+				await().until(() -> heard().stream()
+					.anyMatch(call -> "onBlockRequest".equals(call.method())));
 				await().during(Duration.ofMillis(500)).until(() -> !reply.isDone());
 
 				assertThat(isOpen(client), is(true));
@@ -255,8 +256,8 @@ public class LedgerPipelineTest extends BaseServerTest {
 					LedgerBlockBatch.class);
 
 				sendAllKinds(client, seed);
-				client.send(LedgerBlockRequest.builder().requestId(id).request(LedgerWireFixtures.request(seed))
-					.build());
+				client.send(LedgerBlockRequest.builder().requestId(id)
+					.request(LedgerWireFixtures.request(seed)).build());
 				await().during(Duration.ofMillis(500)).until(() -> heard().isEmpty() && !reply.isDone());
 				assertThat(isOpen(client), is(true));
 				pending.fail(id, new RejectedExecutionException("done with the request"));
@@ -270,11 +271,6 @@ public class LedgerPipelineTest extends BaseServerTest {
 				client.closeDirty();
 			}
 		}
-	}
-
-	private static ByteBuf frameOf(final Packet.Type type, final byte[] body) {
-		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(type.getValue()).writeInt(body.length)
-			.writeBytes(body);
 	}
 
 	private record Frame(Packet.Type type, byte[] body) {
@@ -301,7 +297,8 @@ public class LedgerPipelineTest extends BaseServerTest {
 		return Arbitraries.of(
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 127, -1, -1, -1 }),
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, -1, -1 }),
-			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 100, 1, 2 }));
+			new Frame(Packet.Type.LEDGER_BLOCK_BATCH,
+				new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 100, 1, 2 }));
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)

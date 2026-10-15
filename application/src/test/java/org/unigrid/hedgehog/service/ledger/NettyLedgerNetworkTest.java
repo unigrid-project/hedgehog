@@ -63,6 +63,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.remoteAt;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.BlockRequest;
 import org.unigrid.hedgehog.ledger.Heartbeat;
@@ -86,14 +87,8 @@ public class NettyLedgerNetworkTest {
 	private static final String SECOND = "10.0.0.2";
 	private static final int PORT = 52883;
 
-	private static Supplier<Optional<InetSocketAddress>> remote(final String address, final int port) {
-		final Optional<InetSocketAddress> resolved = Optional.of(new InetSocketAddress(address, port));
-
-		return () -> resolved;
-	}
-
 	private static Supplier<Optional<InetSocketAddress>> remote(final String address) {
-		return remote(address, PORT);
+		return remoteAt(address, PORT);
 	}
 
 	private static Node nodeWith(final Channel channel, final String address) {
@@ -175,7 +170,8 @@ public class NettyLedgerNetworkTest {
 		peer.send(status);
 
 		assertThat(channel.outboundMessages(), contains(LedgerTransaction.builder().transaction(transaction).build(),
-			LedgerConsensus.builder().message(message).build(), LedgerHeartbeat.builder().heartbeat(heartbeat).build(),
+			LedgerConsensus.builder().message(message).build(),
+			LedgerHeartbeat.builder().heartbeat(heartbeat).build(),
 			LedgerStatus.builder().status(status).build()));
 	}
 
@@ -212,8 +208,8 @@ public class NettyLedgerNetworkTest {
 		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
 			peer.send(LedgerWireFixtures.status(1));
 
-			assertThat(log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage())
-				.toList(), contains(startsWith("DEBUG Could not send to " + FIRST + ": java.io.IOException")));
+			assertThat(told(log),
+				contains(startsWith("DEBUG Could not send to " + FIRST + ": java.io.IOException")));
 		}
 
 		channel.checkException();
@@ -230,8 +226,8 @@ public class NettyLedgerNetworkTest {
 		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
 			peer.send(LedgerWireFixtures.status(seed));
 
-			assertThat(log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage())
-				.toList(), contains("DEBUG Dropped what was sent to " + FIRST + ": its stream is backed up"));
+			assertThat(told(log),
+				contains("DEBUG Dropped what was sent to " + FIRST + ": its stream is backed up"));
 		}
 
 		assertThat(channel.outboundMessages().isEmpty(), is(true));
@@ -240,6 +236,10 @@ public class NettyLedgerNetworkTest {
 		peer.send(LedgerWireFixtures.status(seed));
 		assertThat(channel.outboundMessages(), contains(LedgerStatus.builder()
 			.status(LedgerWireFixtures.status(seed)).build()));
+	}
+
+	private static List<String> told(final DebugLog log) {
+		return log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage()).toList();
 	}
 
 	@Property(tries = 20)
@@ -397,26 +397,15 @@ public class NettyLedgerNetworkTest {
 		final String id = network.peerOf(new EmbeddedChannel(), address(prefix, suffix)).id();
 
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix, otherSuffix)).id(), equalTo(id));
-		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(), not(equalTo(id)));
+		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(),
+			not(equalTo(id)));
 	}
 
-	@SneakyThrows
 	private static Supplier<Optional<InetSocketAddress>> mapped(final int a, final int b, final int c, final int d,
 		final int port) {
 
-		final byte[] bytes = new byte[16];
+		final Optional<InetSocketAddress> resolved = Optional.of(LedgerWireFixtures.ipv4Mapped(a, b, c, d, port));
 
-		bytes[10] = -1;
-		bytes[11] = -1;
-		bytes[12] = (byte) a;
-		bytes[13] = (byte) b;
-		bytes[14] = (byte) c;
-		bytes[15] = (byte) d;
-
-		final InetAddress address = Inet6Address.getByAddress(null, bytes, 0);
-		final Optional<InetSocketAddress> resolved = Optional.of(new InetSocketAddress(address, port));
-
-		assertThat(address, instanceOf(Inet6Address.class));
 		return () -> resolved;
 	}
 
@@ -429,7 +418,7 @@ public class NettyLedgerNetworkTest {
 		final String id = network.peerOf(new EmbeddedChannel(), mapped(a, b, c, d, PORT)).id();
 
 		assertThat(id, equalTo(a + "." + b + "." + c + "." + d));
-		assertThat(network.peerOf(new EmbeddedChannel(), remote(id, PORT)).id(), equalTo(id));
+		assertThat(network.peerOf(new EmbeddedChannel(), remoteAt(id, PORT)).id(), equalTo(id));
 	}
 
 	@Property(tries = 10)
@@ -444,8 +433,8 @@ public class NettyLedgerNetworkTest {
 
 		final NettyLedgerNetwork network = networkOf();
 
-		assertThat(network.peerOf(new EmbeddedChannel(), remote(FIRST, port)).id(), equalTo(FIRST));
-		assertThat(network.peerOf(new EmbeddedChannel(), remote(FIRST, otherPort)).id(), equalTo(FIRST));
+		assertThat(network.peerOf(new EmbeddedChannel(), remoteAt(FIRST, port)).id(), equalTo(FIRST));
+		assertThat(network.peerOf(new EmbeddedChannel(), remoteAt(FIRST, otherPort)).id(), equalTo(FIRST));
 	}
 
 	@Property(tries = 20)
@@ -453,13 +442,14 @@ public class NettyLedgerNetworkTest {
 		@ForAll @IntRange(min = 1, max = 65535) int port, @ForAll @IntRange(min = 1, max = 65535) int otherPort) {
 
 		final NettyLedgerNetwork network = networkOf();
-		final String id = network.peerOf(new EmbeddedChannel(), remote(address, port)).id();
+		final String id = network.peerOf(new EmbeddedChannel(), remoteAt(address, port)).id();
 
-		assertThat(network.peerOf(new EmbeddedChannel(), remote(address, port)).id(), equalTo(id));
+		assertThat(network.peerOf(new EmbeddedChannel(), remoteAt(address, port)).id(), equalTo(id));
 		assertThat(id.endsWith(":" + port), is(true));
 
 		if (otherPort != port) {
-			assertThat(network.peerOf(new EmbeddedChannel(), remote(address, otherPort)).id(), not(equalTo(id)));
+			assertThat(network.peerOf(new EmbeddedChannel(), remoteAt(address, otherPort)).id(),
+				not(equalTo(id)));
 		}
 	}
 
@@ -474,8 +464,8 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel first = new EmbeddedChannel();
 		final EmbeddedChannel second = new EmbeddedChannel();
 
-		network.speakerOf(first, remote("127.0.0.1", PORT));
-		network.speakerOf(second, remote("127.0.0.1", PORT + 1));
+		network.speakerOf(first, remoteAt("127.0.0.1", PORT));
+		network.speakerOf(second, remoteAt("127.0.0.1", PORT + 1));
 
 		assertThat(network.peers(), hasSize(2));
 	}
@@ -540,7 +530,8 @@ public class NettyLedgerNetworkTest {
 		final List<LedgerPeer> peers = networkOf(nodeWith(first, FIRST), nodeWith(second, SECOND)).peers();
 
 		assertThat(peers.stream().map(LedgerPeer::id).sorted().toList(), contains(FIRST, SECOND));
-		assertThat(writesTo(peers.stream().filter(peer -> peer.id().equals(FIRST)).findFirst().get(), first), is(true));
+		assertThat(writesTo(peers.stream().filter(peer -> peer.id().equals(FIRST)).findFirst().get(), first),
+			is(true));
 	}
 
 	@SneakyThrows
@@ -641,7 +632,8 @@ public class NettyLedgerNetworkTest {
 	public void choosesTheSameStreamWhateverTheOrderOfTheTopology(@ForAll long seed) {
 		final EmbeddedChannel low = new EmbeddedChannel();
 		final EmbeddedChannel high = new EmbeddedChannel();
-		final List<Node> nodes = new ArrayList<>(List.of(nodeWith(low, FIRST, PORT), nodeWith(high, FIRST, PORT + 1)));
+		final List<Node> nodes = new ArrayList<>(List.of(nodeWith(low, FIRST, PORT),
+			nodeWith(high, FIRST, PORT + 1)));
 
 		Collections.shuffle(nodes, new Random(seed));
 
