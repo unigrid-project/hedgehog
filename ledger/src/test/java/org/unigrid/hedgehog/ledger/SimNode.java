@@ -20,12 +20,17 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.*;
 
+/* A process of the network and what the simulator keeps of it: the events it has had, whether it is down and the
+   blocks it has taken in. The process is what answers the events; the app, engine and persisted state below are those
+   of a bare engine and are null when the node is any other process. */
 final class SimNode {
 	final int index;
 	final byte[] seed;
+	final SimProcess process;
 	final FakeApp app;
 	final Timeouts timeouts;
 	final List<Block> decided = new ArrayList<>();
@@ -43,11 +48,20 @@ final class SimNode {
 	/* The actions of the last event that was lost after its sign state was written */
 	List<Action> lost = List.of();
 
-	SimNode(int index, ValidatorSet validators, int goal, Timeouts timeouts) {
+	SimNode(int index, ValidatorSet validators, int goal, Timeouts timeouts, LongSupplier clock) {
 		this.index = index;
 		this.seed = LedgerFixtures.seed(index + 1);
 		this.app = new FakeApp(validators, Ed25519.publicKey(seed), goal);
 		this.timeouts = timeouts;
 		this.engine = new Consensus(app, CHAIN, seed, timeouts);
+		this.process = new EngineProcess(this, validators, clock);
+	}
+
+	SimNode(int index, SimProcess process) {
+		this.index = index;
+		this.seed = LedgerFixtures.seed(index + 1);
+		this.process = process;
+		this.app = null;
+		this.timeouts = null;
 	}
 }
