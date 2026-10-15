@@ -356,7 +356,9 @@ public final class Consensus {
 	}
 
 	private long resendWindow() {
-		return Math.clamp(RESEND_PRECOMMIT_TIMEOUTS * timeouts.precommit(view), MIN_RESEND_MILLIS, MAX_RESEND_MILLIS);
+		final long wanted = RESEND_PRECOMMIT_TIMEOUTS * timeouts.precommit(view);
+
+		return Math.clamp(wanted, MIN_RESEND_MILLIS, MAX_RESEND_MILLIS);
 	}
 
 	/* Nothing is left to wait for or to put forward: no work, no block the node is bound to or would offer again, and
