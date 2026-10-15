@@ -29,8 +29,8 @@ import java.util.function.LongSupplier;
    signed is the engine's to keep, so the ledger remembers no proposal. */
 public final class Ledger implements ConsensusApp {
 	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
-	   more than this early by dating its block ahead. A validator whose clock runs late may therefore sign a
-	   mint up to this long before its time. */
+	   more than this early by dating its block ahead. A validator whose clock runs late may therefore vote
+	   for a mint up to this long before its time. */
 	public static final long MAX_CLOCK_SKEW_MILLIS = 30_000;
 
 	private final LedgerState state;
@@ -139,7 +139,7 @@ public final class Ledger implements ConsensusApp {
 	/* The block is logged before the state changes, so a crash between the two replays to the same state and a
 	   failed write leaves the state where it was; a block that is not valid is refused and leaves no trace */
 	public synchronized void commit(Block block) throws IOException {
-		final Optional<String> rejection = state.rejectionOf(block);
+		final Optional<String> rejection = validateCertified(block);
 
 		if (rejection.isPresent()) {
 			throw new InvalidBlockException(rejection.get());
