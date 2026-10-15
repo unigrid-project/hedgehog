@@ -34,9 +34,11 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
 
    Whatever fails reaches the caller as it is, and nothing is returned, so nothing leaves the node. A commit that
    fails leaves an engine that has decided a block the ledger has not taken in, and a save that fails leaves an engine
-   ahead of its store. In both the node is not to carry on: the driver stops it and starts a new one over the same
-   files, which restores the state last saved, and the decisions of its peers bring the block in. What the failed
-   event signed was neither saved nor sent, so the restored node is free to sign differently for it.
+   ahead of its store. After any exception from these methods the node is not to carry on: the driver stops it and
+   starts a new one over the same files, which restores the state last saved, and the decisions of its peers bring
+   the block in. What the failed event signed was neither saved nor sent, so the restored node is free to sign
+   differently for it. The pool of transactions that wait for a block is not kept on disk, so a restart loses them and
+   their senders have to send them again.
 
    Events come one at a time, as the engine takes them, and the driver calls tick() about once a second, which is the
    rate the engine's rules for a node at rest are written for. */
