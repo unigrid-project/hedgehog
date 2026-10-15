@@ -29,7 +29,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
@@ -1062,6 +1064,45 @@ public class LedgerDriverTest {
 
 			assertThat(rig.built, hasSize(1));
 			assertThat(rig.driver.halted(), is(false));
+		}
+	}
+
+	@Example
+	public void shouldTellWhenTheNodeIsClosedAndKeepSayingThatItHalted() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			assertThat(rig.driver.closed().isDone(), is(false));
+
+			rig.breakNode();
+			rig.tick(DriverRig.TICK);
+			rig.breakNode();
+			rig.tick(DriverRig.TICK);
+			rig.driver.close();
+
+			assertThat(rig.driver.closed().isDone(), is(true));
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.haltReason().isPresent(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldLetGoOfTheNodeFromTheCallerWhenTheExecutorTakesNoMoreTasks() throws IOException {
+		final DirectSerial inner = new DirectSerial();
+		final AtomicBoolean shutDown = new AtomicBoolean();
+		final Serial rejecting = task -> {
+			if (shutDown.get()) {
+				throw new RejectedExecutionException("The executor is shut down");
+			}
+
+			inner.execute(task);
+		};
+
+		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, rejecting).started()) {
+			shutDown.set(true);
+			rig.driver.close();
+
+			assertThat(rig.driver.closed().isDone(), is(true));
+			assertThrows(IllegalStateException.class, rig.nodes.get(0)::tick);
+			assertThrows(RejectedExecutionException.class, () -> rig.driver.submit(mint(1, 500)));
 		}
 	}
 

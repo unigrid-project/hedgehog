@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -67,7 +68,9 @@ public final class LedgerDriver implements Closeable {
 	private static final int MAX_REASON_LENGTH = 200;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
-	   before it asks for the next. A signing node votes; one that does not only follows. */
+	   before it asks for the next. Closing a node lets go of its sign state and no more, so the factory closes the
+	   block log of the node before it is, and opens it again for the next. A signing node votes; one that does not
+	   only follows. */
 	@FunctionalInterface
 	public interface NodeFactory {
 		LedgerNode create(boolean signing) throws IOException;
@@ -139,6 +142,7 @@ public final class LedgerDriver implements Closeable {
 	private final DriverOptions options;
 	private final byte[] seed;
 	private final Gossip gossip;
+	private final CompletableFuture<Void> closed = new CompletableFuture<>();
 	private final Map<Timeout, Cancellable> timers = new HashMap<>();
 	private volatile State state = State.NEW;
 	private volatile String haltReason;
@@ -171,14 +175,26 @@ public final class LedgerDriver implements Closeable {
 		post(this::begin);
 	}
 
-	/* The node is closed once the serial executor gets to it, so a caller that needs its files free waits for that */
+	/* The node is closed once the serial executor gets to it, so a caller that needs its files free waits for
+	   closed(). An executor that has been shut down takes nothing more, and then the node is let go of here, as a
+	   lock on the sign state that nothing will release is worse than a call from another thread. */
 	@Override
 	public void close() {
-		serial.execute(this::end);
+		try {
+			serial.execute(this::end);
+		} catch (RejectedExecutionException e) {
+			end();
+		}
 	}
 
+	/* Completes when the node has been closed and the files are free for another */
+	public CompletableFuture<Void> closed() {
+		return closed;
+	}
+
+	/* True once the driver has halted, and it stays true after it is closed */
 	public boolean halted() {
-		return state == State.HALTED;
+		return haltReason != null;
 	}
 
 	public Optional<String> haltReason() {
@@ -219,7 +235,8 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
-	   The answer is made on the serial thread, which is also where a callback of the future runs. */
+	   The answer is made on the serial thread, which is also where a callback of the future runs, so a callback
+	   must not wait for the driver. An executor that takes no more tasks makes this throw, not answer. */
 	public CompletableFuture<Optional<String>> submit(Transaction transaction) {
 		return CompletableFuture.supplyAsync(() -> guarded(() -> admit(transaction), Optional.of(NOT_RUNNING)),
 			serial::execute);
@@ -397,10 +414,14 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void end() {
-		if (state != State.CLOSED) {
-			state = State.CLOSED;
-			stopTimers();
-			closeQuietly(node);
+		try {
+			if (state != State.CLOSED) {
+				state = State.CLOSED;
+				stopTimers();
+				closeQuietly(node);
+			}
+		} finally {
+			closed.complete(null);
 		}
 	}
 
