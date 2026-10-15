@@ -169,9 +169,9 @@ public final class LedgerDriver implements Closeable {
 			actions -> perform(actions, OWN), this::stopped);
 		this.promotion = new Promotion(supervisor, sync, limiter, clock, seed != null, options.restartWindowMillis(),
 			this::startSync);
-		this.syncer = new Syncer(supervisor, sync, limiter, clock, options, new Syncer.Hooks(this::control,
-			action -> carryOut(action, OWN), this::sendStatus, promotion::promoteIfCaughtUp,
-			promotion::demoteIfProvenBehind));
+		this.syncer = new Syncer(supervisor, sync, limiter, clock, options, scheduler,
+			new Syncer.Hooks(this::control, action -> carryOut(action, OWN), this::sendStatus,
+				promotion::promoteIfCaughtUp, promotion::demoteIfProvenBehind));
 	}
 
 	public void start() {
@@ -225,6 +225,11 @@ public final class LedgerDriver implements Closeable {
 	boolean claimedAbove(String peer) {
 		return supervisor.ledger() != null
 			&& sync.claimsAbove(peer, supervisor.ledger().height(), clock.getAsLong());
+	}
+
+	/* For the tests of this package: whether what the peer says is left unheard for now */
+	boolean doubts(String peer) {
+		return sync.discredited(peer, clock.getAsLong());
 	}
 
 	/* True once the driver has halted, and it stays true after it is closed */
@@ -366,7 +371,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private <T> Optional<T> itemCall(Item item, NodeCall<T> call) {
-		return supervisor.itemCall(item.from(), item.kind(), call);
+		return supervisor.itemCall(item.from(), String.valueOf(item.kind()), call);
 	}
 
 	private void settle(Item item, Receipt receipt) {
@@ -468,6 +473,7 @@ public final class LedgerDriver implements Closeable {
 		ticker.cancel();
 		graceTimer.cancel();
 		disarm(timeout -> true);
+		syncer.stop();
 		sync.clear();
 	}
 

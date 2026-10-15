@@ -36,13 +36,16 @@ import java.util.stream.Stream;
 final class SyncState {
 	static final int MAX_CLAIMS = 256;
 	static final long MEMORY_MILLIS = 600_000;
+	private static final int MAX_DOUBLINGS = 20;
 
 	record Claim(LedgerPeer peer, long height, long heardAt) {
 	}
 
 	private final long lapseMillis;
 	private final Map<String, Claim> claims = new LinkedHashMap<>();
-	private final Map<String, Long> discredited = new LinkedHashMap<>();
+	private final Map<String, Long> marks = new LinkedHashMap<>();
+	private final Map<String, Integer> strikes = new LinkedHashMap<>();
+	private boolean retried;
 	private boolean running;
 	private long startHeight;
 
@@ -66,22 +69,53 @@ final class SyncState {
 		claims.remove(id);
 	}
 
-	/* The peer could not back its claim: what it says is not counted until the memory of it has passed */
+	/* The peer could not back its claim or served what is not right: what it says is not counted for ten minutes */
 	void discredit(String id, long now) {
-		discredited.values().removeIf(marked -> now - marked >= MEMORY_MILLIS);
-		discredited.remove(id);
-		discredited.put(id, now);
+		mark(id, now, MEMORY_MILLIS);
+	}
 
-		if (discredited.size() > MAX_CLAIMS) {
-			discredited.remove(discredited.keySet().iterator().next());
+	/* A request got no answer, which is the network's trouble as likely as the peer's: the peer is doubted for
+	   `unitMillis`, doubling with each failure in a row up to ten minutes, and a batch that it delivers ends the row */
+	void failed(String id, long now, long unitMillis) {
+		final int row = strikes.merge(id, 1, Integer::sum);
+
+		bound(strikes);
+		mark(id, now, Math.min(MEMORY_MILLIS, unitMillis << Math.min(row - 1, MAX_DOUBLINGS)));
+	}
+
+	void delivered(String id) {
+		strikes.remove(id);
+		retried = false;
+	}
+
+	/* True the first time since a batch was delivered, which is when a request that failed is asked again */
+	boolean retryOnce() {
+		final boolean first = !retried;
+
+		retried = true;
+		return first;
+	}
+
+	private void mark(String id, long now, long millis) {
+		final long until = Math.max(now + millis, marks.getOrDefault(id, 0L));
+
+		marks.values().removeIf(end -> now >= end);
+		marks.remove(id);
+		marks.put(id, until);
+		bound(marks);
+	}
+
+	private static void bound(Map<String, ?> table) {
+		if (table.size() > MAX_CLAIMS) {
+			table.remove(table.keySet().iterator().next());
 		}
 	}
 
 	/* A clock that was set back makes nothing pass */
 	boolean discredited(String id, long now) {
-		final Long marked = discredited.get(id);
+		final Long until = marks.get(id);
 
-		return marked != null && now - marked < MEMORY_MILLIS;
+		return until != null && now < until;
 	}
 
 	OptionalLong highest(long now) {
@@ -100,8 +134,10 @@ final class SyncState {
 	/* Nothing is waited for and nobody is believed or doubted any more: for a driver that has stopped */
 	void clear() {
 		running = false;
+		retried = false;
 		claims.clear();
-		discredited.clear();
+		marks.clear();
+		strikes.clear();
 	}
 
 	boolean running() {
@@ -110,6 +146,7 @@ final class SyncState {
 
 	void begin(long height) {
 		running = true;
+		retried = false;
 		startHeight = height;
 	}
 

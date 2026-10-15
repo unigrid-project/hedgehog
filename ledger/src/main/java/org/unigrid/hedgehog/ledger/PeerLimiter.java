@@ -50,10 +50,8 @@ public final class PeerLimiter {
 	private static final long TOKEN = 1000;
 	private static final long POINT = 60_000;
 
-	/* BLOCK_BATCH is for batches that nobody asked for, should the application ever have to take one: the driver asks
-	   for no token for the answer to a request of its own */
 	public enum Kind {
-		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST, BLOCK_BATCH
+		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
 	}
 
 	public record Rate(int capacity, int refillPerSecond) {
@@ -72,10 +70,10 @@ public final class PeerLimiter {
 		public static final Policy DEFAULT = new Policy(
 			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
 				Kind.CONSENSUS, new Rate(2000, 500), Kind.STATUS, new Rate(10, 1),
-				Kind.BLOCK_REQUEST, new Rate(20, 5), Kind.BLOCK_BATCH, new Rate(4, 2)),
+				Kind.BLOCK_REQUEST, new Rate(40, 10)),
 			Map.of(Kind.TRANSACTION, new Rate(2000, 500), Kind.HEARTBEAT, new Rate(500, 20),
 				Kind.CONSENSUS, new Rate(20_000, 5000), Kind.STATUS, new Rate(200, 20),
-				Kind.BLOCK_REQUEST, new Rate(100, 50), Kind.BLOCK_BATCH, new Rate(50, 20)),
+				Kind.BLOCK_REQUEST, new Rate(200, 100)),
 			100, 10, 60_000, 10_000);
 
 		public Policy {

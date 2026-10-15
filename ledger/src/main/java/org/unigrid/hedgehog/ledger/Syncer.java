@@ -27,16 +27,23 @@ import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
-import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
+import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 
 /* A node that is behind fetches the blocks of a peer that says it is ahead, one request at a time, and gives them to
    the node as decisions, in order, so a block it is given is checked exactly as one that was decided. The answer is
    the answer to the one request this sync has out, so it takes no token of the peer: a batch nobody asked for does
-   not reach the driver, and the work of one is bounded by its blocks. What the chain should be is not left to the
-   peer: a block that contradicts the checkpoint, or a second certified block at a height the ledger holds, halts the
-   driver. A peer that cannot give the blocks it claims is cleared and not believed for a while, and a block the
-   ledger refuses costs the peer for it. Used on the serial executor only. */
+   not reach the driver. What the chain should be is not left to the peer: a block that contradicts the checkpoint, or
+   a second certified block at a height the ledger holds, halts the driver.
+
+   A sync is paced, as the peer limits what it answers: the first request is made at once and the ones that follow
+   are a pace apart. A batch is applied one block to a task of the control lane, so that the ticks and the timers of
+   the driver come between the blocks and not after all of them. A request that gets no answer is the network's
+   trouble as likely as the peer's: it is made once more after a while, and only when that fails too is the peer
+   doubted, for a time that doubles with each failure in a row. What a peer serves that is not right, or does not
+   give after it claimed, costs it, and it is doubted for long. Used on the serial executor only. */
 final class Syncer {
+	static final long PACE_MILLIS = 250;
+	static final long RETRY_MILLIS = 1_000;
 	private static final int REFUSED_BLOCK_COST = 50;
 	private static final int EMPTY_BATCH_COST = 5;
 
@@ -51,16 +58,24 @@ final class Syncer {
 	private final PeerLimiter limiter;
 	private final LongSupplier clock;
 	private final DriverOptions options;
+	private final Scheduler scheduler;
 	private final Hooks hooks;
+	private Cancellable waiting = () -> { };
 
 	Syncer(NodeSupervisor supervisor, SyncState sync, PeerLimiter limiter, LongSupplier clock, DriverOptions options,
-		Hooks hooks) {
+		Scheduler scheduler, Hooks hooks) {
 		this.supervisor = supervisor;
 		this.sync = sync;
 		this.limiter = limiter;
 		this.clock = clock;
 		this.options = options;
+		this.scheduler = scheduler;
 		this.hooks = hooks;
+	}
+
+	/* The driver stops: nothing is waited for */
+	void stop() {
+		waiting.cancel();
 	}
 
 	void startSync() {
@@ -86,12 +101,24 @@ final class Syncer {
 		}
 	}
 
-	/* The answer comes from any thread. A request that fails or times out is the network's trouble and costs the peer
-	   nothing, but its claim is dropped: it is asked no more until it speaks again, and another peer is tried. */
+	/* Asks again after a wait, if the sync still runs by then and has a node to give the blocks to */
+	private void askAfter(long millis, LedgerPeer peer) {
+		waiting = scheduler.schedule(() -> hooks.control().accept(() -> resume(peer)), millis);
+	}
+
+	private void resume(LedgerPeer peer) {
+		if (sync.running() && supervisor.ready()) {
+			ask(peer);
+		} else if (sync.running()) {
+			conclude();
+		}
+	}
+
+	/* The answer comes from any thread */
 	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
 		hooks.control().accept(() -> {
 			if (failure != null || batch == null) {
-				discredit(peer);
+				lost(peer);
 			} else if (supervisor.ready()) {
 				take(peer, request, batch);
 			} else {
@@ -100,15 +127,26 @@ final class Syncer {
 		});
 	}
 
-	private void take(LedgerPeer peer, BlockRequest request, BlockBatch batch) {
-		final long before = supervisor.ledger().height();
-
-		if (!answers(request, batch)) {
-			blame(peer);
+	/* A request that fails or times out costs the peer nothing. The first time it is asked again after a wait, and
+	   when it fails again the claim is dropped and the peer is doubted for a short time, so that another is tried. */
+	private void lost(LedgerPeer peer) {
+		if (!supervisor.ready()) {
 			abandon(peer);
-		} else if (applyAll(peer, batch)) {
-			carryOn(peer, batch, before);
+		} else if (sync.retryOnce()) {
+			askAfter(RETRY_MILLIS, peer);
 		} else {
+			sync.failed(peer.id(), clock.getAsLong(), options.statusMillis());
+			abandon(peer);
+		}
+	}
+
+	private void take(LedgerPeer peer, BlockRequest request, BlockBatch batch) {
+		sync.delivered(peer.id());
+
+		if (answers(request, batch)) {
+			step(peer, batch.blocks(), 0, supervisor.ledger().height());
+		} else {
+			blame(peer);
 			abandon(peer);
 		}
 	}
@@ -120,8 +158,15 @@ final class Syncer {
 		return blocks.isEmpty() || blocks.get(0).getHeight() == request.from();
 	}
 
-	private boolean applyAll(LedgerPeer peer, BlockBatch batch) {
-		return batch.blocks().stream().allMatch(block -> apply(peer, block));
+	/* One block, and then the next one in a task of its own */
+	private void step(LedgerPeer peer, List<Block> blocks, int index, long before) {
+		if (index == blocks.size()) {
+			carryOn(peer, blocks.isEmpty(), before);
+		} else if (apply(peer, blocks.get(index))) {
+			hooks.control().accept(() -> step(peer, blocks, index + 1, before));
+		} else {
+			abandon(peer);
+		}
 	}
 
 	/* A block the ledger took in while the request was out is an echo, unless it is another block. Any other goes to the
@@ -138,7 +183,7 @@ final class Syncer {
 			return true;
 		}
 
-		final Optional<List<Action>> actions = supervisor.itemCall(peer, Kind.BLOCK_BATCH,
+		final Optional<List<Action>> actions = supervisor.itemCall(peer, "block batch",
 			node -> node.onMessage(new Decision(block)));
 
 		actions.ifPresent(this::carryOutSynced);
@@ -169,26 +214,26 @@ final class Syncer {
 	}
 
 	/* Nothing from a peer that said it was ahead is a claim it cannot back up; a batch of echoes only is not a fault */
-	private void carryOn(LedgerPeer peer, BlockBatch batch, long before) {
+	private void carryOn(LedgerPeer peer, boolean empty, long before) {
 		final long height = supervisor.ledger().height();
 
-		if (batch.blocks().isEmpty()) {
+		if (empty) {
 			limiter.misbehaved(peer.id(), EMPTY_BATCH_COST);
 			discredit(peer);
 		} else if (height == before) {
 			abandon(peer);
 		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
 			hooks.demote().accept(height - before);
-			continueOrConclude(peer);
+			paceOrConclude(peer);
 		} else {
 			conclude();
 		}
 	}
 
 	/* A demotion that could not build the observer has halted the driver, and then there is no one to ask */
-	private void continueOrConclude(LedgerPeer peer) {
+	private void paceOrConclude(LedgerPeer peer) {
 		if (supervisor.ready()) {
-			ask(peer);
+			askAfter(PACE_MILLIS, peer);
 		} else {
 			conclude();
 		}

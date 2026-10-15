@@ -211,12 +211,12 @@ public class PeerLimiterTest {
 		final AtomicLong clock = new AtomicLong(START);
 		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(4, 1, 100, 1000, 100));
 
-		assertThat(granted(limiter, "a", Kind.BLOCK_BATCH, 4), equalTo(4));
+		assertThat(granted(limiter, "a", Kind.BLOCK_REQUEST, 4), equalTo(4));
 		limiter.misbehaved("a", 99);
 		penalise(limiter, "a");
 		clock.addAndGet(1000);
 
-		assertThat(granted(limiter, "a", Kind.BLOCK_BATCH, 4), equalTo(4));
+		assertThat(granted(limiter, "a", Kind.BLOCK_REQUEST, 4), equalTo(4));
 		limiter.misbehaved("a", 99);
 		assertThat(limiter.isPenalised("a"), is(false));
 	}
@@ -685,14 +685,12 @@ public class PeerLimiterTest {
 		assertThat(rates.get(Kind.HEARTBEAT), equalTo(new Rate(20, 2)));
 		assertThat(rates.get(Kind.CONSENSUS), equalTo(new Rate(2000, 500)));
 		assertThat(rates.get(Kind.STATUS), equalTo(new Rate(10, 1)));
-		assertThat(rates.get(Kind.BLOCK_REQUEST), equalTo(new Rate(20, 5)));
-		assertThat(rates.get(Kind.BLOCK_BATCH), equalTo(new Rate(4, 2)));
+		assertThat(rates.get(Kind.BLOCK_REQUEST), equalTo(new Rate(40, 10)));
 		assertThat(global.get(Kind.TRANSACTION), equalTo(new Rate(2000, 500)));
 		assertThat(global.get(Kind.HEARTBEAT), equalTo(new Rate(500, 20)));
 		assertThat(global.get(Kind.CONSENSUS), equalTo(new Rate(20_000, 5000)));
 		assertThat(global.get(Kind.STATUS), equalTo(new Rate(200, 20)));
-		assertThat(global.get(Kind.BLOCK_REQUEST), equalTo(new Rate(100, 50)));
-		assertThat(global.get(Kind.BLOCK_BATCH), equalTo(new Rate(50, 20)));
+		assertThat(global.get(Kind.BLOCK_REQUEST), equalTo(new Rate(200, 100)));
 		assertThat(Policy.DEFAULT.scoreLimit(), equalTo(100));
 		assertThat(Policy.DEFAULT.scoreDecayPerMinute(), equalTo(10));
 		assertThat(Policy.DEFAULT.penaltyMillis(), equalTo(60_000L));

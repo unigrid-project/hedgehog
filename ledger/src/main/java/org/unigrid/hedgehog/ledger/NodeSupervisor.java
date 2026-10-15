@@ -26,7 +26,6 @@ import java.util.function.LongSupplier;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.LedgerDriver.NodeFactory;
-import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 
 /* Holds the one node of the driver and what becomes of it. The node is given every call here, and a call that throws
@@ -187,8 +186,8 @@ final class NodeSupervisor {
 
 	/* A call for an item of a peer, or of this node's caller. What it throws is the item's doing, not the node's:
 	   whoever sent it is banned, and the node is replaced only if it cannot go on. */
-	<T> Optional<T> itemCall(LedgerPeer culprit, Kind kind, NodeCall<T> call) {
-		return attempt(call, cause -> itemFailed(cause, culprit, kind));
+	<T> Optional<T> itemCall(LedgerPeer culprit, String what, NodeCall<T> call) {
+		return attempt(call, cause -> itemFailed(cause, culprit, what));
 	}
 
 	/* A call for the tick, a timeout, the start or a heartbeat of this node's own */
@@ -234,8 +233,8 @@ final class NodeSupervisor {
 
 	/* The first replacement is made at once, and the ones that follow within the window wait twice as long each time,
 	   with the events that come meanwhile dropped. */
-	private void itemFailed(Exception cause, LedgerPeer culprit, Kind kind) {
-		log.atWarn().setCause(cause).log("A {} made the ledger node throw", kind);
+	private void itemFailed(Exception cause, LedgerPeer culprit, String what) {
+		log.atWarn().setCause(cause).log("A {} made the ledger node throw", what);
 
 		if (culprit != null) {
 			limiter.ban(culprit.id());

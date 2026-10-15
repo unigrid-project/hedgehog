@@ -1089,12 +1089,12 @@ public class LedgerDriverTest {
 	public void shouldTakeATokenForEveryBlockRequestAndLeaveARefusedOneUnanswered() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
 			final RecordingPeer a = rig.network.connect("A");
-			final List<CompletableFuture<BlockBatch>> answers = IntStream.range(0, 22)
+			final List<CompletableFuture<BlockBatch>> answers = IntStream.range(0, 42)
 				.mapToObj(n -> rig.driver.onBlockRequest(a, new BlockRequest(1, 1))).toList();
 
-			assertThat(answers.subList(0, 20).stream().allMatch(
+			assertThat(answers.subList(0, 40).stream().allMatch(
 				answer -> answer.isDone() && !answer.isCompletedExceptionally()), is(true));
-			assertThat(answers.subList(20, 22).stream().allMatch(CompletableFuture::isCompletedExceptionally),
+			assertThat(answers.subList(40, 42).stream().allMatch(CompletableFuture::isCompletedExceptionally),
 				is(true));
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 		}

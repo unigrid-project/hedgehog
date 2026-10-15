@@ -88,8 +88,8 @@ final class DriverRig implements AutoCloseable {
 	}
 
 	final FileSystem fileSystem = newFileSystem();
-	final AtomicLong clock = new AtomicLong(START);
-	final ManualScheduler scheduler = new ManualScheduler();
+	final AtomicLong clock;
+	final ManualScheduler scheduler;
 	final RecordingNetwork network = new RecordingNetwork();
 	final PeerLimiter limiter;
 	final LedgerDriver driver;
@@ -114,10 +114,22 @@ final class DriverRig implements AutoCloseable {
 		this(validators, seed, policy, serial, OPTIONS);
 	}
 
+	/* The waits of a sync that a test is not about run at once, so that a sync is over when the call that started it
+	   returns */
 	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial, DriverOptions options) {
+		this(validators, seed, policy, serial, options, new AtomicLong(START), new ManualScheduler());
+		scheduler.runAtOnce(Syncer.PACE_MILLIS, Syncer.RETRY_MILLIS);
+	}
+
+	/* A rig that shares its time with others, whose scheduler keeps every wait until the time passes */
+	@SuppressWarnings("checkstyle:ParameterNumber")
+	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial, DriverOptions options,
+		AtomicLong clock, ManualScheduler scheduler) {
 		this.validators = validators;
 		this.seed = seed;
 		this.options = options;
+		this.clock = clock;
+		this.scheduler = scheduler;
 		this.limiter = new PeerLimiter(clock::get, policy);
 		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, options, seed);
 	}
