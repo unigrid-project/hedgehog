@@ -48,7 +48,11 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    back. The caller keeps the snapshot of an event on stable storage before it lets any action of that event out, so
    that a node which comes back from it, whatever it lost of its last event, never signs anything different for a view
    it has signed in. The rules back this up: they never sign a second ballot of one type, or a second proposal, for
-   a view, but say again what they hold.
+   a view, but say again what they hold. restore() is an event like any other: its actions can hold new signatures,
+   such as the prevote for a proposal of its own that it took back or the proposal that begin() makes, so the driver
+   snapshots and keeps the state after restore() too, before it performs the actions that came back. The driver also
+   compares the height of the state with the tip of its ledger: a snapshot of an engine that has decided restores as
+   running and not decided, and its peers tell it the decision again.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
    no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and no ballot
@@ -179,7 +183,8 @@ public final class Consensus {
 
 	/* What this node has signed at this height and where it stands, as a value that the caller keeps. A message of a
 	   view above the node's own is left out: it is not this engine's signature but one that someone relayed, say from a
-	   second place where the key is in use. */
+	   second place where the key is in use. A relayed precommit for a block with this key that no lock of this engine
+	   covers makes a state that restore() refuses, which is what stops a validator whose key runs in two places. */
 	public SignState snapshot() {
 		final List<Proposal> proposed = ownProposals().stream().filter(proposal -> proposal.view() <= view).toList();
 		final List<Ballot> voted = ownBallots().stream().filter(ballot -> ballot.view() <= view).toList();
@@ -190,9 +195,9 @@ public final class Consensus {
 
 	/* Takes a height up again from a snapshot, like start() followed by resume(), but with the view, the step, the lock
 	   and what the node signed as they were. A node at rest stays at rest and says what it signed again for a fresh
-	   window, as one that has just come back is where a peer will look for it; if there is work it begins the next view,
-	   or, when it runs and is the proposer of its view without a proposal, proposes, as onWork() does. A state that
-	   this node could not have written is refused, and then nothing is changed. */
+	   window, as its peers may have lost the messages it sent before it went down; if there is work it begins the next
+	   view, or, when it runs and is the proposer of its view without a proposal, proposes, as onWork() does. A state
+	   that this node could not have written is refused, and then nothing is changed. */
 	public List<Action> restore(SignState state, ValidatorSet newValidators, long at) {
 		requireRestorable(state, newValidators);
 
