@@ -34,7 +34,7 @@ public abstract class AbstractLedgerHandler<T extends Packet> extends AbstractIn
 	@Override
 	public void typedChannelRead(final ChannelHandlerContext ctx, final T packet) {
 		CDIUtil.resolveAndRun(LedgerGateway.class, gateway -> deliver(gateway,
-			gateway.peerOf(ctx.channel(), () -> RemoteAddress.of(ctx.channel())), ctx, packet));
+			gateway.speakerOf(ctx.channel(), () -> RemoteAddress.of(ctx.channel())), ctx, packet));
 	}
 
 	protected abstract void deliver(LedgerGateway gateway, LedgerPeer from, ChannelHandlerContext ctx, T packet);

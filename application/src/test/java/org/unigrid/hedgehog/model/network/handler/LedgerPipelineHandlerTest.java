@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -55,6 +56,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -96,6 +98,7 @@ import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
 import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
+import org.unigrid.hedgehog.service.ledger.DebugLog;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
 import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 
@@ -359,7 +362,13 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 			.request(LedgerWireFixtures.request(7)).build();
 
 		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, false);
-		channel.writeInbound(encoded(request));
+
+		try (DebugLog log = new DebugLog(LedgerBlockRequestChannelHandler.class)) {
+			channel.writeInbound(encoded(request));
+			assertThat(log.events().stream().map(ILoggingEvent::getFormattedMessage).toList(),
+				contains(startsWith("Left a block request of " + PEER)));
+		}
+
 		assertThat(channel.outboundMessages().isEmpty(), is(true));
 
 		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, true);
@@ -537,6 +546,18 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		gateway.attach(aDriver());
 		announce.accept(channel);
 		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected", "onPeerConnected"));
+	}
+
+	@Example
+	public void makesAStreamSomeoneToSendToOnlyOnceItHasSpoken() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final LedgerPeer peer = gateway.peerOf(channel, () -> RemoteAddress.of(channel));
+
+		new LedgerStatusSchedule().getConsumer().accept(channel);
+		assertThat(gateway.network().peers().contains(peer), is(false));
+
+		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(1)).build()));
+		assertThat(gateway.network().peers().contains(peer), is(true));
 	}
 
 	@Example

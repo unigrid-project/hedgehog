@@ -76,6 +76,10 @@ public class LedgerGateway {
 		return network.peerOf(channel, remote);
 	}
 
+	public NettyLedgerPeer speakerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
+		return network.speakerOf(channel, remote);
+	}
+
 	public void onTransaction(final LedgerPeer from, final Transaction transaction) {
 		ifAttached(attached -> attached.onTransaction(from, transaction));
 	}

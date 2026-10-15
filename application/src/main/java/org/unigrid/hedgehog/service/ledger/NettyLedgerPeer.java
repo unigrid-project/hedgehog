@@ -26,9 +26,11 @@ import java.nio.channels.ClosedChannelException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.BlockRequest;
 import org.unigrid.hedgehog.ledger.Heartbeat;
@@ -52,6 +54,7 @@ import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
    The address is read when it is asked for, as it can be learned only after the stream exists: a stream that a peer
    opened is first named by the port it came from, and by the port it listens on once its Hello has been read, which
    is the first thing it sends. The limit protects this node and authenticates no one. */
+@Slf4j
 @RequiredArgsConstructor
 public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV6_LENGTH = 16;
@@ -62,6 +65,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final PendingRequests pending;
 	private final long order;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
+	private final AtomicBoolean spoken = new AtomicBoolean();
 
 	static String idOf(final InetSocketAddress socket) {
 		final InetAddress address = socket.getAddress();
@@ -97,9 +101,29 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		return announcedTo.getAndSet(driver) != driver;
 	}
 
+	/* True once, the first time that the stream says anything of the ledger protocol */
+	boolean firstWord() {
+		return !spoken.getAndSet(true);
+	}
+
+	/* What cannot be sent now is lost, as the protocol is made to cope with, and the stream is left alone: it carries
+	   every protocol, and a write that fails because it is closing is a race, not news. A stream that is backed up
+	   gets nothing more, so that a peer that does not read cannot make this node queue what it says without end. */
 	@Override
 	public void send(final Object wire) {
-		channel.writeAndFlush(packetOf(wire)).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+		final Packet packet = packetOf(wire);
+
+		if (!channel.isWritable()) {
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream is backed up");
+			return;
+		}
+
+		channel.writeAndFlush(packet).addListener(written -> {
+			if (!written.isSuccess()) {
+				log.atDebug().addArgument(this::id).addArgument(() -> String.valueOf(written.cause()))
+					.log("Could not send to {}: {}");
+			}
+		});
 	}
 
 	private static Packet packetOf(final Object wire) {

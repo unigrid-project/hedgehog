@@ -21,11 +21,13 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
 
+@Slf4j
 @Sharable
 public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<LedgerBlockRequest> {
 	public LedgerBlockRequestChannelHandler() {
@@ -40,10 +42,14 @@ public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<Ledg
 		final LedgerBlockRequest packet) {
 
 		gateway.onBlockRequest(from, packet.getRequest()).thenAccept(batch -> {
-			if (ctx.channel().isWritable()) {
-				ctx.writeAndFlush(LedgerBlockBatch.builder().requestId(packet.getRequestId()).batch(batch)
-					.build()).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+			if (!ctx.channel().isWritable()) {
+				log.atDebug().addArgument(from::id)
+					.log("Left a block request of {} unanswered: its stream is backed up");
+				return;
 			}
+
+			ctx.writeAndFlush(LedgerBlockBatch.builder().requestId(packet.getRequestId()).batch(batch).build())
+				.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 		});
 	}
 }

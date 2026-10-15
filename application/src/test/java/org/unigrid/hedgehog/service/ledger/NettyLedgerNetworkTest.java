@@ -20,7 +20,11 @@ package org.unigrid.hedgehog.service.ledger;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
@@ -53,6 +57,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.BlockRequest;
@@ -180,14 +185,57 @@ public class NettyLedgerNetworkTest {
 	}
 
 	@Example
-	public void raisesAFailedWriteOnTheChannel() {
+	public void dropsWhatItSendsToAStreamThatIsClosedWithoutRaisingIt() throws Exception {
 		final EmbeddedChannel channel = new EmbeddedChannel();
 		final LedgerPeer peer = networkOf().peerOf(channel, remote(FIRST));
 
 		channel.close();
 		peer.send(LedgerWireFixtures.status(1));
 
-		assertThrows(ClosedChannelException.class, channel::checkException);
+		channel.checkException();
+	}
+
+	@Example
+	public void leavesAnOpenStreamAloneWhenAWriteFails() throws Exception {
+		final EmbeddedChannel channel = new EmbeddedChannel(new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void write(ChannelHandlerContext ctx, Object message, ChannelPromise promise) {
+				promise.setFailure(new IOException("The write is broken"));
+			}
+		});
+		final LedgerPeer peer = networkOf().peerOf(channel, remote(FIRST));
+
+		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
+			peer.send(LedgerWireFixtures.status(1));
+
+			assertThat(log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage())
+				.toList(), contains(startsWith("DEBUG Could not send to " + FIRST + ": java.io.IOException")));
+		}
+
+		channel.checkException();
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Property(tries = 10)
+	public void sendsNothingToAStreamThatIsBackedUp(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final LedgerPeer peer = networkOf().peerOf(channel, remote(FIRST));
+
+		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, false);
+
+		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
+			peer.send(LedgerWireFixtures.status(seed));
+
+			assertThat(log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage())
+				.toList(), contains("DEBUG Dropped what was sent to " + FIRST + ": its stream is backed up"));
+		}
+
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, true);
+		peer.send(LedgerWireFixtures.status(seed));
+		assertThat(channel.outboundMessages(), contains(LedgerStatus.builder()
+			.status(LedgerWireFixtures.status(seed)).build()));
 	}
 
 	@Property(tries = 20)
@@ -315,8 +363,8 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel first = new EmbeddedChannel();
 		final EmbeddedChannel second = new EmbeddedChannel();
 
-		network.peerOf(first, remote("127.0.0.1", PORT));
-		network.peerOf(second, remote("127.0.0.1", PORT + 1));
+		network.speakerOf(first, remote("127.0.0.1", PORT));
+		network.speakerOf(second, remote("127.0.0.1", PORT + 1));
 
 		assertThat(network.peers(), hasSize(2));
 	}
@@ -399,7 +447,7 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel inbound = new EmbeddedChannel();
 		final NettyLedgerNetwork network = networkOf();
 
-		network.peerOf(inbound, remote(FIRST));
+		network.speakerOf(inbound, remote(FIRST));
 
 		final LedgerPeer peer = onlyPeerOf(network);
 
@@ -417,7 +465,7 @@ public class NettyLedgerNetworkTest {
 			network.peers();
 		}
 
-		network.peerOf(inbound, remote(FIRST));
+		network.speakerOf(inbound, remote(FIRST));
 
 		final LedgerPeer peer = onlyPeerOf(network);
 
@@ -431,8 +479,8 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel newer = new EmbeddedChannel();
 		final NettyLedgerNetwork network = networkOf();
 
-		network.peerOf(older, remote(FIRST));
-		network.peerOf(newer, remote(FIRST));
+		network.speakerOf(older, remote(FIRST));
+		network.speakerOf(newer, remote(FIRST));
 
 		assertThat(writesTo(onlyPeerOf(network), newer), is(true));
 		assertThat(older.outboundMessages().isEmpty(), is(true));
@@ -444,8 +492,8 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel accepted = new EmbeddedChannel();
 		final NettyLedgerNetwork network = networkOf(new PendingRequests(), opened::equals, Set.of());
 
-		network.peerOf(openedFirst ? opened : accepted, remote(FIRST));
-		network.peerOf(openedFirst ? accepted : opened, remote(FIRST));
+		network.speakerOf(openedFirst ? opened : accepted, remote(FIRST));
+		network.speakerOf(openedFirst ? accepted : opened, remote(FIRST));
 
 		assertThat(writesTo(onlyPeerOf(network), opened), is(true));
 		assertThat(accepted.outboundMessages().isEmpty(), is(true));
@@ -458,7 +506,7 @@ public class NettyLedgerNetworkTest {
 		final Node announced = nodeWith(accepted, FIRST);
 		final NettyLedgerNetwork network = networkOf(new PendingRequests(), opened::equals, Set.of(announced));
 
-		network.peerOf(opened, remote(FIRST));
+		network.speakerOf(opened, remote(FIRST));
 
 		assertThat(writesTo(onlyPeerOf(network), opened), is(true));
 		assertThat(accepted.outboundMessages().isEmpty(), is(true));
@@ -470,7 +518,7 @@ public class NettyLedgerNetworkTest {
 		final NettyLedgerNetwork network = networkOf();
 
 		Collections.shuffle(hosts, new Random(seed));
-		hosts.forEach(host -> network.peerOf(new EmbeddedChannel(), remote("10.0.0." + host)));
+		hosts.forEach(host -> network.speakerOf(new EmbeddedChannel(), remote("10.0.0." + host)));
 
 		final List<String> ids = network.peers().stream().map(LedgerPeer::id).toList();
 
@@ -497,9 +545,45 @@ public class NettyLedgerNetworkTest {
 	public void keepsAnInboundChannelOfAnotherAddressApart() {
 		final NettyLedgerNetwork network = networkOf(nodeWith(new EmbeddedChannel(), FIRST));
 
-		network.peerOf(new EmbeddedChannel(), remote(SECOND));
+		network.speakerOf(new EmbeddedChannel(), remote(SECOND));
 
 		assertThat(network.peers().stream().map(LedgerPeer::id).sorted().toList(), contains(FIRST, SECOND));
+	}
+
+	@Example
+	public void sendsToNoStreamBeforeItHasSpoken() {
+		final NettyLedgerNetwork network = networkOf();
+		final EmbeddedChannel stream = new EmbeddedChannel();
+
+		network.peerOf(stream, remote(FIRST));
+		assertThat(network.peers().isEmpty(), is(true));
+		assertThat(network.tracked(), equalTo(0));
+
+		network.speakerOf(stream, remote(FIRST));
+		network.speakerOf(stream, remote(FIRST));
+		assertThat(network.peers(), hasSize(1));
+		assertThat(network.tracked(), equalTo(1));
+	}
+
+	@Property(tries = 5)
+	public void keepsTheNewestSpeakersAndEveryNodeOfTheTopology(
+		@ForAll @IntRange(min = 1, max = 100) int surplus) {
+
+		final EmbeddedChannel dialled = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf(nodeWith(dialled, FIRST));
+		final int speakers = NettyLedgerNetwork.MAX_SPEAKERS + surplus;
+
+		IntStream.range(0, speakers).forEach(i -> network.speakerOf(new EmbeddedChannel(),
+			remote("10.1." + i + ".1")));
+
+		final List<String> ids = network.peers().stream().map(LedgerPeer::id).toList();
+
+		assertThat(ids, hasSize(NettyLedgerNetwork.MAX_SPEAKERS + 1));
+		assertThat(ids.contains(FIRST), is(true));
+		assertThat(ids.contains("10.1." + (speakers - 1) + ".1"), is(true));
+		assertThat(ids.contains("10.1." + (surplus - 1) + ".1"), is(false));
+		assertThat(ids.contains("10.1." + surplus + ".1"), is(true));
+		assertThat(network.tracked(), equalTo(NettyLedgerNetwork.MAX_SPEAKERS));
 	}
 
 	@Property(tries = 10)
@@ -509,7 +593,7 @@ public class NettyLedgerNetworkTest {
 
 		for (int i = 0; i < count; i++) {
 			channels.add(new EmbeddedChannel());
-			network.peerOf(channels.get(i), remote(FIRST));
+			network.speakerOf(channels.get(i), remote(FIRST));
 		}
 
 		assertThat(network.tracked(), equalTo(count));
@@ -522,7 +606,7 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel inbound = new EmbeddedChannel();
 		final NettyLedgerNetwork network = networkOf();
 
-		network.peerOf(inbound, remote(FIRST));
+		network.speakerOf(inbound, remote(FIRST));
 		assertThat(network.peers(), hasSize(1));
 
 		inbound.close();
