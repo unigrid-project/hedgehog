@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -209,12 +210,12 @@ public final class LedgerState {
 	}
 
 	public Optional<String> rejectionOf(Block block) {
-		return rejectionOf(block, copy());
+		return rejectionOf(block, this::copy);
 	}
 
 	public void apply(Block block) {
 		final LedgerState next = copy();
-		final Optional<String> rejection = rejectionOf(block, next);
+		final Optional<String> rejection = rejectionOf(block, () -> next);
 
 		if (rejection.isPresent()) {
 			throw new InvalidBlockException(rejection.get());
@@ -470,27 +471,37 @@ public final class LedgerState {
 		return vouched || authority.authorizes(claim) ? Optional.empty() : Optional.of("Claim is not authorized");
 	}
 
-	/* Applies the block to next, which the caller owns, so the state it was called on is never touched. The
-	   cheap checks come first and the signature checks after them. */
-	private Optional<String> rejectionOf(Block block, LedgerState next) {
-		next.vouched = true;
-
-		final Optional<String> rejection = headerRejection(block).or(() -> certificateRejection(block))
+	/* The block is applied to the state that `scratch` gives, which the caller owns, so the state this was called on
+	   is never touched. What needs only the shape of the block and this state comes first, the signature checks
+	   after it, and the state is copied only when the block has passed them: a block that is plainly wrong, as
+	   a peer can send one for the price of the bytes, costs no copy. */
+	private Optional<String> rejectionOf(Block block, Supplier<LedgerState> scratch) {
+		final Optional<String> plain = headerRejection(block).or(() -> certificateRejection(block))
 			.or(() -> lastCommitRejection(block)).or(() -> signaturesRejection(block))
-			.or(() -> lastCommitSignaturesRejection(block)).or(() -> next.applyTransactions(block));
+			.or(() -> lastCommitSignaturesRejection(block));
+
+		return plain.isPresent() ? plain : scratch.get().applied(block);
+	}
+
+	/* On a state that is a copy and the caller's own: the block is applied to it, and when it is right the state
+	   is left at the block */
+	private Optional<String> applied(Block block) {
+		vouched = true;
+
+		final Optional<String> rejection = applyTransactions(block);
 
 		if (rejection.isPresent()) {
 			return rejection;
 		}
 
-		next.finishBlock(block.getHeight());
+		finishBlock(block.getHeight());
 
-		final Optional<String> sealed = next.rootRejection(block);
+		final Optional<String> sealed = rootRejection(block);
 
 		if (sealed.isEmpty()) {
-			next.tipHash = block.hash();
-			next.tipTime = block.getTime();
-			next.tipCertificate = block.getCertificate();
+			tipHash = block.hash();
+			tipTime = block.getTime();
+			tipCertificate = block.getCertificate();
 		}
 
 		return sealed;
