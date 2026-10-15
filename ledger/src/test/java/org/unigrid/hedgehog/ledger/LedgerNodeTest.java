@@ -26,9 +26,14 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
@@ -47,6 +52,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
@@ -864,5 +870,304 @@ public class LedgerNodeTest {
 			assertThat(restarted.start(), is(empty()));
 			assertThat(restarted.height(), equalTo(1L));
 		}
+	}
+
+	private static final long WAIT_SECONDS = 5;
+
+	/* A store on a real file that stops working when told to, as the disk does when the node dies in an event */
+	private static final class CrashingStore implements SignStore {
+		private final SignStore real;
+		private boolean crashing;
+
+		CrashingStore(SignStore real) {
+			this.real = real;
+		}
+
+		@Override
+		public Optional<SignState> load() throws IOException {
+			return real.load();
+		}
+
+		@Override
+		public void save(SignState state, int largestProof) throws IOException {
+			if (crashing) {
+				throw new IOException("The node died before the state was saved");
+			}
+
+			real.save(state, largestProof);
+		}
+	}
+
+	/* A save that does not return until the test lets it, and gives up after a while so that nothing hangs */
+	private static final class BlockingStore implements SignStore {
+		private final CountDownLatch entered = new CountDownLatch(1);
+		private final CountDownLatch release = new CountDownLatch(1);
+
+		@Override
+		public Optional<SignState> load() {
+			return Optional.empty();
+		}
+
+		@Override
+		public void save(SignState state, int largestProof) throws IOException {
+			entered.countDown();
+
+			try {
+				if (!release.await(WAIT_SECONDS, TimeUnit.SECONDS)) {
+					throw new IOException("The save was never let go");
+				}
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new IOException("The save was interrupted", e);
+			}
+		}
+	}
+
+	/* The node proposes and prevotes at height 1 on real files and is left waiting for the votes of the others */
+	private static Block proposedBy(LedgerNode node) throws IOException {
+		node.start();
+		node.submit(mint(1, 500));
+		return proposalsIn(node.onWork()).get(0).block();
+	}
+
+	private static List<Ballot> precommitsOf(Collection<? extends Message> messages) {
+		return messages.stream().filter(Ballot.class::isInstance).map(Ballot.class::cast)
+			.filter(ballot -> ballot.type() == Ballot.Type.PRECOMMIT).toList();
+	}
+
+	/* The block is committed and the node dies on the save that follows: nothing of that event left it, and the
+	   files, read by a new node, say that the height is decided */
+	@Example
+	public void shouldComeBackAtTheNextHeightWhenTheNodeDiesOnTheSaveAfterADecision() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final CrashingStore store = new CrashingStore(file);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+			final Block block = proposedBy(node);
+
+			node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 2, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 3, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 2, 1, block));
+
+			final SignState beforeDeciding = file.load().orElseThrow();
+
+			store.crashing = true;
+			assertThrows(IOException.class, () -> node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 3, 1, block)));
+			assertThat(ledger.height(), equalTo(1L));
+			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
+			assertThat(beforeDeciding.height(), equalTo(1L));
+			assertRefusesEveryEvent(node);
+
+			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode back = node(reopened, 1, file, clock::get);
+			final List<Action> actions = back.start();
+
+			assertThat(reopened.height(), equalTo(1L));
+			assertThat(back.height(), equalTo(2L));
+			assertThat(actions, is(empty()));
+			assertThat(file.load(), equalTo(Optional.of(SignState.empty(2))));
+		}
+	}
+
+	/* The node signs its precommit in the very event that decides, and dies on the commit before it saved or sent
+	   it: the files hold only the prevote. A node that comes back from them signs that precommit again, the same
+	   one, as it is a signature over the same vote, and decides the same block. */
+	@Example
+	public void shouldSignTheSamePrecommitAgainWhenTheNodeDiesOnTheCommitOfWhatItDecided() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
+			final Ledger ledger = new Ledger(state(1000, ANY_MINT, FOUR), log, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final LedgerNode node = node(ledger, 1, file, clock::get);
+			final Block block = proposedBy(node);
+
+			node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 2, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 3, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 2, 1, block));
+
+			final SignState beforeDeciding = file.load().orElseThrow();
+
+			assertThat(beforeDeciding.lockedBlock(), is(nullValue()));
+			assertThat(beforeDeciding.ballots(), hasSize(1));
+			log.close();
+			assertThrows(IOException.class, () -> node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 3, 1, block)));
+			assertThat(ledger.height(), equalTo(0L));
+			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
+
+			final List<Ballot> unsaved = List.of(vote(ledger, Ballot.Type.PRECOMMIT, 1, 1, block));
+			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode back = node(reopened, 1, file, clock::get);
+			final List<Action> signed = new ArrayList<>(back.start());
+
+			signed.addAll(back.onMessage(vote(reopened, Ballot.Type.PRECOMMIT, 2, 1, block)));
+			signed.addAll(back.onMessage(vote(reopened, Ballot.Type.PRECOMMIT, 3, 1, block)));
+			signed.addAll(back.onMessage(vote(reopened, Ballot.Type.PREVOTE, 2, 1, block)));
+
+			final List<Action> deciding = back.onMessage(vote(reopened, Ballot.Type.PREVOTE, 3, 1, block));
+
+			signed.addAll(deciding);
+			assertThat(precommitsOf(ballotsIn(signed)), equalTo(unsaved));
+			assertThat(decidedIn(deciding).get(0).hash(), equalTo(block.hash()));
+			assertThat(reopened.height(), equalTo(1L));
+		}
+	}
+
+	/* Here the lock and the precommit were saved by an earlier event: the node comes back locked, says them again
+	   at once, and needs the precommits of the others only */
+	@Example
+	public void shouldDecideTheSameBlockAgainWhenTheNodeDiesOnTheCommitAfterItLocked() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
+			final Ledger ledger = new Ledger(state(1000, ANY_MINT, FOUR), log, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final LedgerNode node = node(ledger, 1, file, clock::get);
+			final Block block = proposedBy(node);
+
+			node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 2, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PREVOTE, 3, 1, block));
+			node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 2, 1, block));
+
+			final SignState beforeDeciding = file.load().orElseThrow();
+
+			assertThat(beforeDeciding.lockedBlock(), equalTo(block));
+			log.close();
+			assertThrows(IOException.class, () -> node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 3, 1, block)));
+			assertThat(ledger.height(), equalTo(0L));
+			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
+
+			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode back = node(reopened, 1, file, clock::get);
+			final List<Action> started = back.start();
+
+			assertThat(precommitsOf(ballotsIn(started)), hasSize(1));
+			assertThat(precommitsOf(ballotsIn(started)), equalTo(precommitsOf(beforeDeciding.ballots())));
+			back.onMessage(vote(reopened, Ballot.Type.PRECOMMIT, 2, 1, block));
+
+			final List<Action> deciding = back.onMessage(vote(reopened, Ballot.Type.PRECOMMIT, 3, 1, block));
+
+			assertThat(ballotsIn(deciding), is(empty()));
+			assertThat(decidedIn(deciding).get(0).hash(), equalTo(block.hash()));
+			assertThat(reopened.height(), equalTo(1L));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToStartAfterARealRunWhenTheTailOfTheBlockLogWasLost() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
+			final Ledger ledger = new Ledger(state(1000, ANY_MINT, SOLO), log, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final LedgerNode node = node(ledger, 1, file, clock::get);
+
+			node.start();
+			node.submit(mint(1, 500));
+			node.onWork();
+			assertThat(ledger.height(), equalTo(1L));
+			assertThat(file.load(), equalTo(Optional.of(SignState.empty(2))));
+
+			log.close();
+			Files.write(blocksOf(fileSystem, "a"), new byte[0]);
+
+			final Ledger shortened = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
+			final LedgerNode back = node(shortened, 1, file, clock::get);
+			final BlockLogBehindException refused = assertThrows(BlockLogBehindException.class, back::start);
+
+			assertThat(shortened.height(), equalTo(0L));
+			assertThat(refused.getMessage(), containsString("height 0"));
+			assertThat(refused.getMessage(), containsString("height 2"));
+			assertThat(file.load(), equalTo(Optional.of(SignState.empty(2))));
+		}
+	}
+
+	@FunctionalInterface
+	private interface Turn {
+		List<Action> on(LedgerNode node) throws IOException;
+	}
+
+	/* A save that does not return until it is let go, on a thread of its own, and then a second event on another
+	   thread: it has to wait for its turn, as two events at once would corrupt the engine. A thread that waits for the
+	   monitor of the node is blocked, which is what the second thread is looked for in; every wait has a limit, so a
+	   node that lets both through fails the test and does not hang it. */
+	private static void assertWaitsForItsTurn(Turn second) throws Exception {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicInteger reads = new AtomicInteger();
+			final BlockingStore store = new BlockingStore();
+			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, () -> START), 1, store,
+				() -> {
+					reads.incrementAndGet();
+					return START;
+				});
+			final List<Throwable> failures = Collections.synchronizedList(new ArrayList<>());
+			final Thread holder = thread(node::start, failures);
+			final Thread waiter = thread(() -> second.on(node), failures);
+
+			try {
+				holder.start();
+				assertThat(store.entered.await(WAIT_SECONDS, TimeUnit.SECONDS), is(true));
+				waiter.start();
+				assertThat(isBlocked(waiter), is(true));
+				assertThat(reads.get(), equalTo(1));
+			} finally {
+				store.release.countDown();
+			}
+
+			holder.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS));
+			waiter.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS));
+			assertThat(holder.isAlive() || waiter.isAlive(), is(false));
+			assertThat(failures, is(empty()));
+			assertThat(reads.get(), equalTo(2));
+		}
+	}
+
+	private static Thread thread(Event event, List<Throwable> failures) {
+		final Thread thread = new Thread(() -> {
+			try {
+				event.run();
+			} catch (IOException | RuntimeException e) {
+				failures.add(e);
+			}
+		});
+
+		thread.setDaemon(true);
+		return thread;
+	}
+
+	private static boolean isBlocked(Thread thread) throws InterruptedException {
+		final long giveUp = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+
+		while (System.nanoTime() < giveUp && isStillGoing(thread)) {
+			Thread.sleep(1);
+		}
+
+		return thread.getState() == Thread.State.BLOCKED;
+	}
+
+	private static boolean isStillGoing(Thread thread) {
+		return thread.getState() == Thread.State.NEW || thread.getState() == Thread.State.RUNNABLE;
+	}
+
+	@Example
+	public void shouldLetATickWaitForTheEventThatIsBeingSaved() throws Exception {
+		assertWaitsForItsTurn(LedgerNode::tick);
+	}
+
+	@Example
+	public void shouldLetAWorkEventWaitForTheEventThatIsBeingSaved() throws Exception {
+		assertWaitsForItsTurn(LedgerNode::onWork);
+	}
+
+	@Example
+	public void shouldLetAMessageWaitForTheEventThatIsBeingSaved() throws Exception {
+		assertWaitsForItsTurn(node -> node.onMessage(ConsensusFixtures.ballot(Ballot.Type.PREVOTE, 2, 0, null)));
+	}
+
+	@Example
+	public void shouldLetATimeoutWaitForTheEventThatIsBeingSaved() throws Exception {
+		assertWaitsForItsTurn(node -> node.onTimeout(new Timeout(Timeout.Kind.PROPOSE, 1, 0)));
 	}
 }
