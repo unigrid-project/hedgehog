@@ -133,7 +133,7 @@ public final class Mempool {
 
 	/* Oldest first and left in place: they leave when a block that holds them is committed. The transfers of
 	   one sender are handed out in nonce order, in the places its transfers hold, so a block can take them all. */
-	public synchronized List<Transaction> take(int max) {
+	public synchronized List<Transaction> peek(int max) {
 		final Map<AccountKey, ArrayDeque<Transfer>> byNonce = pending.values().stream()
 			.filter(Transfer.class::isInstance).map(Transfer.class::cast)
 			.sorted(Comparator.comparingLong(Transfer::nonce))
@@ -149,11 +149,6 @@ public final class Mempool {
 		}
 
 		return ordered;
-	}
-
-	/* Take leaves what it hands out in place too; this name is for the callers that only look */
-	public synchronized List<Transaction> peek(int max) {
-		return take(max);
 	}
 
 	public synchronized int size() {

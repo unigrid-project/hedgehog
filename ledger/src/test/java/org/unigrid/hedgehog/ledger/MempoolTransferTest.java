@@ -94,7 +94,7 @@ public class MempoolTransferTest {
 		assertThat(mempool.admit(send(state, 1, 200, 4, 0), state), is(false));
 		assertThat(mempool.admit(send(state, 1, 200, 6, 0), state), is(true));
 		assertThat(mempool.size(), equalTo(1));
-		assertThat(((Transfer) mempool.take(10).get(0)).fee(), equalTo(6L));
+		assertThat(((Transfer) mempool.peek(10).get(0)).fee(), equalTo(6L));
 	}
 
 	@Example
@@ -120,11 +120,11 @@ public class MempoolTransferTest {
 		mempool.admit(zero, state);
 		mempool.admit(one, state);
 
-		final List<Transaction> taken = mempool.take(10);
+		final List<Transaction> taken = mempool.peek(10);
 
 		assertThat(taken, equalTo(List.of(zero, mint, one, two)));
 		assertThat(state.applicable(taken).size(), equalTo(4));
-		assertThat(mempool.take(2), equalTo(List.of(zero, mint)));
+		assertThat(mempool.peek(2), equalTo(List.of(zero, mint)));
 	}
 
 	@Example
@@ -141,7 +141,7 @@ public class MempoolTransferTest {
 		mempool.admit(secondEarlier, state);
 		mempool.admit(firstEarlier, state);
 
-		final List<Transaction> taken = mempool.take(10);
+		final List<Transaction> taken = mempool.peek(10);
 
 		assertThat(taken, equalTo(List.of(firstEarlier, secondEarlier, secondLater, firstLater)));
 		assertThat(state.applicable(taken).size(), equalTo(4));
@@ -154,7 +154,7 @@ public class MempoolTransferTest {
 
 		mempool.admit(send(state, 1, 1, 1, 0), state);
 
-		assertThat(mempool.take(-1), equalTo(List.of()));
+		assertThat(mempool.peek(-1), equalTo(List.of()));
 	}
 
 	@Example
@@ -166,7 +166,7 @@ public class MempoolTransferTest {
 		assertThat(mempool.admit(send(state, 1, 1, 6, 0), state), is(true));
 		assertThat(mempool.admit(send(state, 1, 1, 5, 1), state), is(false));
 		assertThat(mempool.size(), equalTo(1));
-		assertThat(((Transfer) mempool.take(10).get(0)).fee(), equalTo(6L));
+		assertThat(((Transfer) mempool.peek(10).get(0)).fee(), equalTo(6L));
 	}
 
 	@Example

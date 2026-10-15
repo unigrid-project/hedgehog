@@ -116,7 +116,7 @@ public class MempoolTest {
 	}
 
 	@Example
-	public void shouldTakeOldestFirstWithoutRemoving() {
+	public void shouldPeekOldestFirstWithoutRemoving() {
 		final LedgerState state = chain();
 		final Mempool mempool = new Mempool();
 		final Transaction first = mint(1, 5);
@@ -127,23 +127,8 @@ public class MempoolTest {
 		mempool.admit(second, state);
 		mempool.admit(third, state);
 
-		assertThat(mempool.take(2), equalTo(List.of(first, second)));
-		assertThat(mempool.take(10), equalTo(List.of(first, second, third)));
-		assertThat(mempool.size(), equalTo(3));
-	}
-
-	@Example
-	public void shouldPeekAtWhatTakeReturnsAndLeaveTheSizeAlone() {
-		final LedgerState state = chain();
-		final Mempool mempool = new Mempool();
-
-		mempool.admit(mint(1, 5), state);
-		mempool.admit(vote(state, 1, 200, Vote.Action.ADD), state);
-		mempool.admit(mint(2, 5), state);
-
-		assertThat(mempool.peek(2), equalTo(mempool.take(2)));
-		assertThat(mempool.peek(10), equalTo(mempool.take(10)));
-		assertThat(mempool.peek(0), equalTo(List.of()));
+		assertThat(mempool.peek(2), equalTo(List.of(first, second)));
+		assertThat(mempool.peek(10), equalTo(List.of(first, second, third)));
 		assertThat(mempool.size(), equalTo(3));
 	}
 
@@ -160,7 +145,7 @@ public class MempoolTest {
 
 		state.apply(block);
 		mempool.removeCommitted(block, state);
-		assertThat(mempool.take(10), equalTo(List.of(mint(2, 5))));
+		assertThat(mempool.peek(10), equalTo(List.of(mint(2, 5))));
 	}
 
 	@Example
@@ -177,7 +162,7 @@ public class MempoolTest {
 		state.apply(block);
 		mempool.removeCommitted(block, state);
 
-		assertThat(mempool.take(10).stream().anyMatch(Mint.class::isInstance), is(false));
+		assertThat(mempool.peek(10).stream().anyMatch(Mint.class::isInstance), is(false));
 		assertThat(mempool.size(), equalTo(1));
 	}
 
@@ -325,6 +310,6 @@ public class MempoolTest {
 		mempool.removeCommitted(block, state);
 
 		assertThat(mempool.size(), equalTo(1));
-		assertThat(mempool.take(10).get(0), equalTo(kept.claim(account(2), state.chainId())));
+		assertThat(mempool.peek(10).get(0), equalTo(kept.claim(account(2), state.chainId())));
 	}
 }
