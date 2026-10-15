@@ -183,10 +183,10 @@ public class ConsensusSimulationTest {
 		}
 	}
 
-	private static void scheduleRestart(SimulatedNetwork net, int index, long at, boolean loseUnsentEvent) {
+	private static void scheduleRestart(SimulatedNetwork net, int index, long at, boolean loseNextEvent) {
 		net.after(at, () -> {
-			if (loseUnsentEvent) {
-				net.restartAfterUnsentEvent(index);
+			if (loseNextEvent) {
+				net.loseNextActionsOf(index);
 			} else {
 				net.restartFromDisk(index);
 			}
@@ -988,24 +988,34 @@ public class ConsensusSimulationTest {
 	}
 
 	/* A node that restarts is found in the state it wrote down */
-	private static void restartAndExpectTheSameState(SimulatedNetwork net, SimNode node, boolean losingTheLastEvent) {
+	private static void restartAndExpectTheSameState(SimulatedNetwork net, SimNode node) {
 		final SignState before = node.engine.snapshot();
 
 		assertThat(node.decided.size(), lessThan(RESTART_GOAL));
-
-		if (losingTheLastEvent) {
-			net.restartAfterUnsentEvent(node.index);
-		} else {
-			net.restartFromDisk(node.index);
-		}
-
+		net.restartFromDisk(node.index);
 		assertThat(node.engine.snapshot(), equalTo(before));
+	}
+
+	private static List<Message> signedIn(List<Action> actions) {
+		return actions.stream().filter(action -> action instanceof Action.Broadcast)
+			.map(action -> ((Action.Broadcast) action).message())
+			.filter(message -> message instanceof Ballot || message instanceof Proposal).toList();
+	}
+
+	/* The node dies at the end of its next event, once the sign state of it is written: what the event signed is in
+	   the state that comes back, though nothing of it was done */
+	private static void loseTheNextEventOf(SimulatedNetwork net, SimNode node) {
+		net.loseNextActionsOf(node.index);
+		runUntil(net, () -> node.loses == null);
+
+		assertThat(node.lost.isEmpty(), is(false));
+		assertThat(node.decided.size(), lessThan(RESTART_GOAL));
+		assertThat(node.engine.outbox().containsAll(signedIn(node.lost)), is(true));
 	}
 
 	/* The links take between a fifth and six tenths of a second, so a height lasts several seconds and every restart
 	   finds the node in a height that is not over. Each restart is made at the first moment from its time on at which
-	   the node is in the step it is meant to hit; the one that loses its last event waits for a moment at which that
-	   event has something on its way, or there would be nothing to lose. */
+	   the node is in the step it is meant to hit; the one that loses an event follows the next event of the node. */
 	@Example
 	public void shouldAgreeWhenNodesRestartFromDiskAtEveryStep() {
 		final SimulatedNetwork net = network(4, RESTART_GOAL, 5);
@@ -1019,9 +1029,14 @@ public class ConsensusSimulationTest {
 			final Consensus.Step step = RESTART_STEPS[i];
 
 			runWithoutEquivocation(net, RESTART_TIMES[i] - net.now(), () -> false);
-			runUntil(net, () -> step == null ? net.unsent(node.index) > 0 : node.engine.step() == step);
-			stepsHit.add(node.engine.step());
-			restartAndExpectTheSameState(net, node, step == null);
+
+			if (step == null) {
+				loseTheNextEventOf(net, node);
+			} else {
+				runUntil(net, () -> node.engine.step() == step);
+				stepsHit.add(node.engine.step());
+				restartAndExpectTheSameState(net, node);
+			}
 		}
 
 		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(RESTART_GOAL, Set.of()));
@@ -1045,22 +1060,50 @@ public class ConsensusSimulationTest {
 		assertThat(net.contradictions(), equalTo(0));
 	}
 
-	/* The prevote of a node is on its way when it dies, after the sign state with that prevote was written. What the
-	   node says after it came back is the same prevote, and the network still agrees. */
+	/* The node dies at the end of the first event that asks for anything, which is its prevote for the proposal, once
+	   the sign state with the prevote was written. Nothing of the event happens, so the peers never get the prevote
+	   from it: the only copies on their way are those of the node that came back, which says again what it signed. */
 	@Example
-	public void shouldSayAgainWhatItSignedWhenTheMessagesOfItsLastEventNeverLeft() {
+	public void shouldTellAgainWhatTheLostEventSignedWhenTheNodeComesBackFromTheDisk() {
 		final SimulatedNetwork net = network(4, 3, 3);
 		final SimNode node = nonProposerOfViewZero(net, 1);
+		final int peers = net.nodes.size() - 1;
 
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
-		runUntil(net, () -> net.unsent(node.index) > 0 && !node.engine.outbox().isEmpty());
+		net.loseNextActionsOf(node.index);
+		runUntil(net, () -> node.loses == null);
 
-		final List<Message> signed = node.engine.outbox();
+		final List<Message> signed = signedIn(node.lost);
 
-		net.restartAfterUnsentEvent(node.index);
+		assertThat(signed.size(), equalTo(1));
+		assertThat(node.persisted.ballots().containsAll(signed), is(true));
+		assertThat(node.engine.outbox().containsAll(signed), is(true));
+		assertThat(net.inFlight(signed.get(0)), equalTo(peers));
 
-		assertThat(node.engine.outbox(), equalTo(signed));
+		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of()));
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertNoEquivocation(net);
+	}
+
+	/* The block was decided and the node died before it committed it, so its ledger is a block short while the sign
+	   state is that of the engine that decided. It restores as running and undecided, and its peers tell it the
+	   decision again. */
+	@Example
+	public void shouldDecideAgainWhenTheEventThatDecidedIsLost() {
+		final SimulatedNetwork net = network(4, 3, 7);
+		final SimNode node = net.nodes.get(2);
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		net.loseNextActionsOf(node.index,
+			actions -> actions.stream().anyMatch(action -> action instanceof Action.Decide));
+		runUntil(net, () -> node.loses == null);
+
+		assertThat(node.lost.stream().anyMatch(action -> action instanceof Action.Decide), is(true));
+		assertThat(node.decided.isEmpty(), is(true));
+		assertThat(node.engine.height(), equalTo(1L));
 
 		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of()));
 

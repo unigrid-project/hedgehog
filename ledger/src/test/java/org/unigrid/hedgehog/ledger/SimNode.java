@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import static org.unigrid.hedgehog.ledger.ConsensusFixtures.*;
 
 final class SimNode {
@@ -37,6 +38,10 @@ final class SimNode {
 	int incarnation;
 	int sentUnsaved;
 	boolean crashed;
+	/* The next event whose actions this accepts is lost, once; null when none is awaited */
+	Predicate<List<Action>> loses;
+	/* The actions of the last event that was lost after its sign state was written */
+	List<Action> lost = List.of();
 
 	SimNode(int index, ValidatorSet validators, int goal, Timeouts timeouts) {
 		this.index = index;

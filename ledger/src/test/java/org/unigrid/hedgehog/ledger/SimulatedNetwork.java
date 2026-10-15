@@ -24,10 +24,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import static org.unigrid.hedgehog.ledger.Action.*;
@@ -40,7 +40,8 @@ final class SimulatedNetwork {
 	static final long RESEND_MILLIS = 1000;
 	private static final int PROPOSAL_KIND = Ballot.Type.values().length;
 
-	private record Event(long time, long order, Runnable task) implements Comparable<Event> {
+	/* A delivery carries its message, so that a test can ask what is on its way */
+	private record Event(long time, long order, Runnable task, Message carries) implements Comparable<Event> {
 		@Override
 		public int compareTo(Event other) {
 			final int byTime = Long.compare(time, other.time);
@@ -60,7 +61,6 @@ final class SimulatedNetwork {
 	final ValidatorSet validators;
 	private final PriorityQueue<Event> queue = new PriorityQueue<>();
 	private final Set<Link> cutLinks = new HashSet<>();
-	private final Map<Integer, List<Event>> lastSends = new HashMap<>();
 	private final Map<Slot, Message> said = new HashMap<>();
 	private final Random random;
 	private long now;
@@ -150,18 +150,22 @@ final class SimulatedNetwork {
 		handle(node, () -> node.engine.restore(node.persisted, validators, now));
 	}
 
-	/* The sign state of the last event that sent something was on the disk and the node died before it sent that: the
-	   messages of that event that are not yet delivered never leave, which is more than a crash does at an arbitrary
-	   moment, and the peers have to be told again by the restored node */
-	void restartAfterUnsentEvent(int index) {
-		lastSends.getOrDefault(index, List.of()).forEach(queue::remove);
-		lastSends.remove(index);
-		restartFromDisk(index);
+	/* The node dies at the end of its next event that asks for anything, after the sign state of that event reached the
+	   disk and before any of the actions happened: no message leaves, no timer is armed, no block is committed. It
+	   then comes back from the disk, so the peers are told again by the restored node, if at all. Only the next such
+	   event is lost. */
+	void loseNextActionsOf(int index) {
+		loseNextActionsOf(index, actions -> true);
 	}
 
-	/* How many messages of the last event of the node that sent something are still on their way */
-	int unsent(int index) {
-		return (int) lastSends.getOrDefault(index, List.of()).stream().filter(queue::contains).count();
+	/* The same for the next event whose actions the test accepts, say the one that decides */
+	void loseNextActionsOf(int index, Predicate<List<Action>> accepted) {
+		nodes.get(index).loses = actions -> !actions.isEmpty() && accepted.test(actions);
+	}
+
+	/* How many copies of the message are on their way to someone */
+	int inFlight(Message message) {
+		return (int) queue.stream().filter(event -> message.equals(event.carries())).count();
 	}
 
 	/* Messages that left a node before the sign state holding them was written */
@@ -218,11 +222,13 @@ final class SimulatedNetwork {
 
 		node.persisted = SignState.decode(node.engine.snapshot().encode(), validators.size());
 
-		if (actions.stream().anyMatch(action -> action instanceof Broadcast)) {
-			lastSends.put(node.index, new ArrayList<>());
+		if (node.loses != null && node.loses.test(actions)) {
+			node.loses = null;
+			node.lost = actions;
+			restartFromDisk(node.index);
+		} else {
+			perform(node, actions);
 		}
-
-		perform(node, actions);
 	}
 
 	private boolean agreeAt(int index) {
@@ -231,30 +237,19 @@ final class SimulatedNetwork {
 	}
 
 	void after(long delay, Runnable task) {
-		schedule(delay, task);
-	}
-
-	private Event schedule(long delay, Runnable task) {
-		final Event event = new Event(now + delay, counter++, task);
-
-		queue.add(event);
-		return event;
+		queue.add(new Event(now + delay, counter++, task, null));
 	}
 
 	/* The links are checked as for any message, but the sender is not: a crashed node can be made to speak, so that
 	   a test can play a validator that lies without an engine of its own getting in the way */
 	void send(int from, int to, Message message) {
-		post(from, to, message);
-	}
-
-	private Optional<Event> post(int from, int to, Message message) {
 		sent++;
 
 		if (cut(from, to) || random.nextDouble() < dropRate) {
-			return Optional.empty();
+			return;
 		}
 
-		return Optional.of(schedule(travelTime(), () -> deliver(to, message)));
+		queue.add(new Event(now + travelTime(), counter++, () -> deliver(to, message), message));
 	}
 
 	private long travelTime() {
@@ -270,11 +265,8 @@ final class SimulatedNetwork {
 	}
 
 	private void tellOthers(SimNode from, Message message) {
-		final List<Event> leaving = lastSends.computeIfAbsent(from.index, index -> new ArrayList<>());
-
 		audit(from, message);
-		nodes.stream().filter(other -> other != from)
-			.forEach(other -> post(from.index, other.index, message).ifPresent(leaving::add));
+		nodes.stream().filter(other -> other != from).forEach(other -> send(from.index, other.index, message));
 	}
 
 	/* What a node signs has to be on its disk when it leaves, and what it says again has to be the very same message */
