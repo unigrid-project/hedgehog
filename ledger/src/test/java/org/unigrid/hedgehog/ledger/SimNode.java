@@ -26,18 +26,23 @@ final class SimNode {
 	final int index;
 	final byte[] seed;
 	final FakeApp app;
-	final Consensus engine;
+	final Timeouts timeouts;
 	final List<Block> decided = new ArrayList<>();
+	Consensus engine;
+	/* What the node has on disk: the sign state of its engine after the last event, in the bytes the file would hold */
+	SignState persisted = SignState.empty(1);
 	int received;
 	int armed;
 	int fired;
 	int incarnation;
+	int sentUnsaved;
 	boolean crashed;
 
 	SimNode(int index, ValidatorSet validators, int goal, Timeouts timeouts) {
 		this.index = index;
 		this.seed = LedgerFixtures.seed(index + 1);
 		this.app = new FakeApp(validators, Ed25519.publicKey(seed), goal);
+		this.timeouts = timeouts;
 		this.engine = new Consensus(app, CHAIN, seed, timeouts);
 	}
 }

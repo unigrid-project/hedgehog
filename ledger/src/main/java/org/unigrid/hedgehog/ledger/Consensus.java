@@ -30,6 +30,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
+import java.util.stream.IntStream;
 import static org.unigrid.hedgehog.ledger.Action.*;
 
 /* One validator's side of the agreement on a block at one height, written after Algorithm 1 of the Tendermint
@@ -41,8 +42,13 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    that has precommitted nil waits for more precommits with no timer running, so the driver calls resume() or
    outbox() now and then, which does no harm when repeated, and serves the decided blocks to a node that is behind.
    It is not thread-safe, so events come one at a time. evidence() is lost at the next start(), so it is read before
-   that. The ballot box is wiped by start() as well, so a restart is safe only if the caller has kept what this node
-   signed and does not let it sign anything different for the same view.
+   that. The ballot box is wiped by start() as well, so a node that starts a height afresh has signed nothing in it.
+
+   What a node signed must outlive it: snapshot() hands out that and where the node stands, and restore() takes it
+   back. The caller keeps the snapshot of an event on stable storage before it lets any action of that event out, so
+   that a node which comes back from it, whatever it lost of its last event, never signs anything different for a view
+   it has signed in. The rules back this up: they never sign a second ballot of one type, or a second proposal, for
+   a view, but say again what they hold.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
    no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and no ballot
@@ -155,18 +161,49 @@ public final class Consensus {
 	   again for a few precommit timeouts and then no more, so that a peer that lost a message can still be given
 	   it while the chain goes silent in the end. */
 	public List<Action> resume(long at) {
-		return run(at, () -> {
-			if (running && !decided) {
-				out.addAll(armedTimers());
-				sayAgain();
-			} else if (!decided && at <= resendUntil) {
-				sayAgain();
-			}
-		});
+		return run(at, this::rearm);
+	}
+
+	private void rearm() {
+		if (running && !decided) {
+			out.addAll(armedTimers());
+			sayAgain();
+		} else if (!decided && now <= resendUntil) {
+			sayAgain();
+		}
 	}
 
 	private void sayAgain() {
 		outbox().forEach(message -> out.add(new Broadcast(message)));
+	}
+
+	/* What this node has signed at this height and where it stands, as a value that the caller keeps. A message of a
+	   view above the node's own is left out: it is not this engine's signature but one that someone relayed, say from a
+	   second place where the key is in use. */
+	public SignState snapshot() {
+		final List<Proposal> proposed = ownProposals().stream().filter(proposal -> proposal.view() <= view).toList();
+		final List<Ballot> voted = ownBallots().stream().filter(ballot -> ballot.view() <= view).toList();
+
+		return new SignState(height, running, view, step, nextView, lockedBlock, lockedView, validBlock, validView,
+			proposed, voted);
+	}
+
+	/* Takes a height up again from a snapshot, like start() followed by resume(), but with the view, the step, the lock
+	   and what the node signed as they were. A node at rest stays at rest and says what it signed again for a fresh
+	   window, as one that has just come back is where a peer will look for it; if there is work it begins the next view,
+	   as start() does. A state that this node could not have written is refused, and then nothing is changed. */
+	public List<Action> restore(SignState state, ValidatorSet newValidators, long at) {
+		requireRestorable(state, newValidators);
+
+		return run(at, () -> {
+			reset(state.height(), newValidators);
+			install(state);
+			rearm();
+
+			if (!running && app.hasWork(at)) {
+				begin();
+			}
+		});
 	}
 
 	/* What this node has said at this height, for a resend: the decision once there is one */
@@ -175,15 +212,18 @@ public final class Consensus {
 			return List.of(decision);
 		}
 
-		final List<Message> own = new ArrayList<>();
+		final List<Message> own = new ArrayList<>(ownProposals());
 
-		proposals.values().stream().filter(proposal -> proposal.sender().equals(self)).forEach(own::add);
-
-		if (box != null && self != null) {
-			own.addAll(box.ballotsBy(self));
-		}
-
+		own.addAll(ownBallots());
 		return own;
+	}
+
+	private List<Proposal> ownProposals() {
+		return proposals.values().stream().filter(proposal -> proposal.sender().equals(self)).toList();
+	}
+
+	private List<Ballot> ownBallots() {
+		return box == null || self == null ? List.of() : box.ballotsBy(self);
 	}
 
 	public long height() {
@@ -258,6 +298,114 @@ public final class Consensus {
 		polkas.clear();
 		prevoteTimers.clear();
 		precommitTimers.clear();
+	}
+
+	private void requireRestorable(SignState state, ValidatorSet newValidators) {
+		if (state.height() == 0) {
+			throw new IllegalArgumentException("A state of height 0 holds nothing to restore");
+		}
+
+		requireOwnMessages(state, newValidators);
+		requireViewsKept(state);
+		requireLocksKept(state);
+	}
+
+	/* What the state holds as signed is taken for this node's word when it is said again, so it has to be its own */
+	private void requireOwnMessages(SignState state, ValidatorSet newValidators) {
+		final boolean holdsNothing = state.proposals().isEmpty() && state.ballots().isEmpty();
+
+		if (!holdsNothing && !canSignIn(newValidators)) {
+			throw new IllegalArgumentException("This node cannot sign at height " + state.height()
+				+ ", yet the state holds messages it signed");
+		}
+
+		requireOwnProposals(state, newValidators);
+		requireOwnBallots(state);
+	}
+
+	private boolean canSignIn(ValidatorSet set) {
+		return seed != null && set.contains(self);
+	}
+
+	private void requireOwnProposals(SignState state, ValidatorSet newValidators) {
+		if (!state.proposals().stream().allMatch(proposal -> signedAsProposer(proposal, newValidators))) {
+			throw new IllegalArgumentException(
+				"A proposal of the state is not signed by this node as the proposer of its view");
+		}
+	}
+
+	private boolean signedAsProposer(Proposal proposal, ValidatorSet newValidators) {
+		return proposal.sender().equals(self) && proposal.hasValidSignature(chainId)
+			&& proposal.sender().equals(newValidators.proposerAt(proposal.height(), proposal.view()));
+	}
+
+	private void requireOwnBallots(SignState state) {
+		if (!state.ballots().stream().allMatch(this::signedAsVoter)) {
+			throw new IllegalArgumentException("A ballot of the state is not signed by this node");
+		}
+	}
+
+	private boolean signedAsVoter(Ballot ballot) {
+		return ballot.validator().equals(self) && ballot.hasValidSignature(chainId);
+	}
+
+	/* The next view is where a node at rest begins again, so a state in which it is not above every view the node signed
+	   in, or is below the view of the state, would take the node back to a view it has been in. Only the last view has
+	   none above it. */
+	private static void requireViewsKept(SignState state) {
+		final int signedIn = IntStream.concat(state.proposals().stream().mapToInt(Proposal::view),
+			state.ballots().stream().mapToInt(Ballot::view)).max().orElse(-1);
+		final boolean aboveSigned = state.nextView() > signedIn || state.view() == Integer.MAX_VALUE;
+
+		if (!aboveSigned || state.nextView() < state.view()) {
+			throw new IllegalArgumentException("The next view " + state.nextView() + " is not above the views "
+				+ "signed in (" + signedIn + ") and the view " + state.view());
+		}
+	}
+
+	/* A precommit for a block binds the node to it from that view on, so the lock is on that block in that view or on
+	   some block in a later one; a state without it would let the node vote for another block after this one was
+	   decided */
+	private static void requireLocksKept(SignState state) {
+		final boolean kept = state.ballots().stream().filter(Consensus::isPrecommitForBlock)
+			.allMatch(precommit -> locksOn(state, precommit));
+
+		if (!kept) {
+			throw new IllegalArgumentException("The state holds a precommit for a block it does not lock on");
+		}
+	}
+
+	private static boolean isPrecommitForBlock(Ballot ballot) {
+		return ballot.type() == Ballot.Type.PRECOMMIT && !ballot.isNil();
+	}
+
+	private static boolean locksOn(SignState state, Ballot precommit) {
+		final Block locked = state.lockedBlock();
+
+		return locked != null && (state.lockedView() > precommit.view()
+			|| state.lockedView() == precommit.view() && Arrays.equals(locked.hash(), precommit.blockHash()));
+	}
+
+	private void install(SignState state) {
+		running = state.running();
+		view = state.view();
+		step = state.step();
+		nextView = state.nextView();
+		lockedBlock = state.lockedBlock();
+		lockedView = state.lockedView();
+		validBlock = state.validBlock();
+		validView = state.validView();
+		state.proposals().forEach(this::keepOwn);
+		state.ballots().forEach(box::add);
+
+		if (!running) {
+			resendUntil = now + resendWindow();
+		}
+	}
+
+	private void keepOwn(Proposal proposal) {
+		proposals.put(proposal.view(), proposal);
+		box.seen(self, proposal.view());
 	}
 
 	private void begin() {
@@ -514,15 +662,24 @@ public final class Consensus {
 		return valid;
 	}
 
+	/* A ballot of this type that the node signed in this view is said again, never replaced: a node that was restored
+	   from a state a step behind its ballots would otherwise sign a second one, which is what makes a validator
+	   equivocate */
 	private void vote(Ballot.Type type, Block block) {
-		if (!isValidator()) {
-			return;
+		if (isValidator()) {
+			out.add(new Broadcast(heldBallot(type).orElseGet(() -> sign(type, block))));
 		}
+	}
 
+	private Optional<Ballot> heldBallot(Ballot.Type type) {
+		return ownBallots().stream().filter(ballot -> ballot.type() == type && ballot.view() == view).findFirst();
+	}
+
+	private Ballot sign(Ballot.Type type, Block block) {
 		final Ballot ballot = Ballot.signed(type, seed, chainId, height, view, block == null ? null : block.hash());
 
 		box.add(ballot);
-		out.add(new Broadcast(ballot));
+		return ballot;
 	}
 
 	/* Rule: more than 2/3 of the precommits for the block of a proposal, in the view of that proposal, decide, as long

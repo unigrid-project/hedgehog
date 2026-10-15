@@ -22,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -91,6 +92,12 @@ public class ConsensusSimulationTest {
 	private static final long BAD_NETWORK_MIN_MILLIS = 20_000;
 	private static final long BAD_NETWORK_SPREAD_MILLIS = 20_000;
 
+	private static final long RESTART_WINDOW_MILLIS = 500;
+	private static final int RESTART_ODDS = 10;
+	private static final long[] RESTART_TIMES = {700, 1500, 2300, 3100, 4200};
+	private static final int RESTART_WITHOUT_LAST_EVENT = 2;
+	private static final int RESTART_GOAL = 3;
+
 	/* Over 1500 random runs the slowest needed 5.5 seconds to finish once the network worked again, so ten minutes are
 	   more than a hundred times that and still end a run that is stuck */
 	private static final long RECOVERY_MILLIS = 600_000;
@@ -123,10 +130,14 @@ public class ConsensusSimulationTest {
 		}
 	}
 
+	private static Run faultyRun(long seed) {
+		return faultyRun(seed, false);
+	}
+
 	/* Delays up to nearly half a second, up to two messages in five lost, as many validators down from the start as the
 	   engines are meant to stand and, half of the time, the network cut in two: first a stretch of that weather, then
-	   a network that works. Agreement is checked all along. */
-	private static Run faultyRun(long seed) {
+	   a network that works. Agreement is checked all along, and with restarts nobody must say two things either. */
+	private static Run faultyRun(long seed, boolean restarting) {
 		final Random random = new Random(seed);
 		final int count = 4 + random.nextInt(4);
 		final SimulatedNetwork net = network(count, FAULTY_GOAL, seed ^ NETWORK_SEED_MASK);
@@ -140,14 +151,45 @@ public class ConsensusSimulationTest {
 			net.partition(randomNodes(random, count, 1 + random.nextInt(count - 1)));
 		}
 
+		final long badMillis = BAD_NETWORK_MIN_MILLIS + random.nextInt((int) BAD_NETWORK_SPREAD_MILLIS);
+		final Runnable check = restarting ? () -> assertNoEquivocation(net) : () -> assertAgreement(net);
+
+		if (restarting) {
+			scheduleRestarts(net, random, crashed, badMillis);
+		}
+
 		net.begin();
-		runAgreeing(net, BAD_NETWORK_MIN_MILLIS + random.nextInt((int) BAD_NETWORK_SPREAD_MILLIS));
+		runChecking(net, badMillis, () -> false, check);
 
 		net.latency(5, 50);
 		net.dropRate(0);
 		net.heal();
-		runAgreeingUntil(net, RECOVERY_MILLIS, () -> net.everyoneReached(FAULTY_GOAL, crashed));
+		runChecking(net, RECOVERY_MILLIS, () -> net.everyoneReached(FAULTY_GOAL, crashed), check);
 		return new Run(net, crashed);
+	}
+
+	/* In each window of half a second a node that is up restarts with a chance of one in RESTART_ODDS, at a moment of
+	   the window and in one of the two ways. The moments come from the seed of the run, like the rest of the weather. */
+	private static void scheduleRestarts(SimulatedNetwork net, Random random, Set<Integer> down, long untilMillis) {
+		for (long window = 0; window < untilMillis; window += RESTART_WINDOW_MILLIS) {
+			for (int index = 0; index < net.nodes.size(); index++) {
+				if (!down.contains(index) && random.nextInt(RESTART_ODDS) == 0) {
+					final long at = window + random.nextInt((int) RESTART_WINDOW_MILLIS);
+
+					scheduleRestart(net, index, at, random.nextBoolean());
+				}
+			}
+		}
+	}
+
+	private static void scheduleRestart(SimulatedNetwork net, int index, long at, boolean loseUnsentEvent) {
+		net.after(at, () -> {
+			if (loseUnsentEvent) {
+				net.restartAfterUnsentEvent(index);
+			} else {
+				net.restartFromDisk(index);
+			}
+		});
 	}
 
 	private static Set<Integer> randomNodes(Random random, int count, int wanted) {
@@ -192,10 +234,31 @@ public class ConsensusSimulationTest {
 	}
 
 	private static void runAgreeingUntil(SimulatedNetwork net, long millis, BooleanSupplier done) {
+		runChecking(net, millis, done, () -> assertAgreement(net));
+	}
+
+	private static void runWithoutEquivocation(SimulatedNetwork net, long millis, BooleanSupplier done) {
+		runChecking(net, millis, done, () -> assertNoEquivocation(net));
+	}
+
+	private static void runChecking(SimulatedNetwork net, long millis, BooleanSupplier done, Runnable check) {
 		for (long left = millis; left > 0 && !done.getAsBoolean(); left -= CHECK_MILLIS) {
 			runFor(net, Math.min(left, CHECK_MILLIS));
-			assertThat(net.agreement(), is(true));
+			check.run();
 		}
+	}
+
+	private static void assertAgreement(SimulatedNetwork net) {
+		assertThat(net.agreement(), is(true));
+	}
+
+	/* No node signed two things for one view, none sent what it had not written down first, and no node has seen a
+	   validator say two things. Evidence is wiped when a height ends, so it is looked at all along, not at the end. */
+	private static void assertNoEquivocation(SimulatedNetwork net) {
+		assertAgreement(net);
+		assertThat(net.contradictions(), equalTo(0));
+		assertThat(net.unsavedSends(), equalTo(0));
+		assertThat(net.nodes.stream().allMatch(node -> node.engine.evidence().isEmpty()), is(true));
 	}
 
 	private static boolean nobodyDecided(SimulatedNetwork net) {
@@ -901,6 +964,160 @@ public class ConsensusSimulationTest {
 
 		assertThat(run.net().agreement(), is(true));
 		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
+	}
+
+	@Property(tries = 40)
+	public void shouldNeverEquivocateUnderRandomRestartsFromDisk(@ForAll long seed) {
+		final Run run = faultyRun(seed, true);
+
+		assertThat(run.net().agreement(), is(true));
+		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
+		assertNoEquivocation(run.net());
+	}
+
+	@Example
+	public void shouldGiveTheSameRunWithRestartsForTheSameSeed() {
+		final Run first = faultyRun(31, true);
+		final Run second = faultyRun(31, true);
+
+		assertThat(first.net().everyoneReached(FAULTY_GOAL, first.crashed()), is(true));
+		assertThat(decidedHashes(first.net()), equalTo(decidedHashes(second.net())));
+		assertThat(first.net().sent(), equalTo(second.net().sent()));
+		assertThat(first.net().now(), equalTo(second.net().now()));
+	}
+
+	/* A node that restarts is found in the state it wrote down. The restart that loses its last event is made at the
+	   first moment on which the node has something on its way, or there would be nothing to lose. */
+	private static void restartAndExpectTheSameState(SimulatedNetwork net, SimNode node, boolean losingTheLastEvent) {
+		if (losingTheLastEvent) {
+			runUntil(net, () -> net.unsent(node.index) > 0);
+		}
+
+		final SignState before = node.engine.snapshot();
+
+		assertThat(node.decided.size(), lessThan(RESTART_GOAL));
+
+		if (losingTheLastEvent) {
+			net.restartAfterUnsentEvent(node.index);
+		} else {
+			net.restartFromDisk(node.index);
+		}
+
+		assertThat(node.engine.snapshot(), equalTo(before));
+	}
+
+	/* The links take between a fifth and six tenths of a second, so a height lasts several seconds and every
+	   restart finds the node in a height that is not over, in each of the steps of it */
+	@Example
+	public void shouldAgreeWhenNodesRestartFromDiskAtEveryStep() {
+		final SimulatedNetwork net = network(4, RESTART_GOAL, 5);
+		final Set<Consensus.Step> stepsHit = EnumSet.noneOf(Consensus.Step.class);
+
+		net.latency(200, 600);
+		net.begin();
+
+		for (int i = 0; i < RESTART_TIMES.length; i++) {
+			final SimNode node = net.nodes.get(i % 4);
+
+			runWithoutEquivocation(net, RESTART_TIMES[i] - net.now(), () -> false);
+			stepsHit.add(node.engine.step());
+			restartAndExpectTheSameState(net, node, i == RESTART_WITHOUT_LAST_EVENT);
+		}
+
+		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(RESTART_GOAL, Set.of()));
+
+		assertThat(stepsHit, equalTo(EnumSet.allOf(Consensus.Step.class)));
+		assertThat(net.everyoneReached(RESTART_GOAL, Set.of()), is(true));
+		assertThat(decidedHashes(net).stream().distinct().count(), equalTo(1L));
+		assertNoEquivocation(net);
+	}
+
+	@Example
+	public void shouldHaveWrittenTheSignStateBeforeAnythingItSignedLeavesTheNode() {
+		final SimulatedNetwork net = network(4, 3, 1);
+
+		net.begin();
+		net.run(SETTLE_MILLIS);
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertThat(net.sent(), greaterThan(0L));
+		assertThat(net.unsavedSends(), equalTo(0));
+		assertThat(net.contradictions(), equalTo(0));
+	}
+
+	/* The prevote of a node is on its way when it dies, after the sign state with that prevote was written. What the
+	   node says after it came back is the same prevote, and the network still agrees. */
+	@Example
+	public void shouldSayAgainWhatItSignedWhenTheMessagesOfItsLastEventNeverLeft() {
+		final SimulatedNetwork net = network(4, 3, 3);
+		final SimNode node = nonProposerOfViewZero(net, 1);
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		runUntil(net, () -> net.unsent(node.index) > 0 && !node.engine.outbox().isEmpty());
+
+		final List<Message> signed = node.engine.outbox();
+
+		net.restartAfterUnsentEvent(node.index);
+
+		assertThat(node.engine.outbox(), equalTo(signed));
+
+		runWithoutEquivocation(net, SETTLE_MILLIS, () -> net.everyoneReached(3, Set.of()));
+
+		assertThat(net.everyoneReached(3, Set.of()), is(true));
+		assertNoEquivocation(net);
+	}
+
+	@Example
+	public void shouldLetARestartFromDiskTakeTheTimersOfTheOldProcessWithIt() {
+		final SimulatedNetwork net = network(4, 3, 1);
+		final SimNode waiting = nonProposerOfViewZero(net, 1);
+
+		net.dropRate(1.0);
+		net.begin();
+		net.run(100);
+		net.restartFromDisk(waiting.index);
+		net.run(100 + PROPOSE_MILLIS - 1);
+
+		assertThat(waiting.engine.step(), equalTo(Consensus.Step.PROPOSE));
+
+		net.run(100 + PROPOSE_MILLIS);
+
+		assertThat(waiting.engine.step(), equalTo(Consensus.Step.PREVOTE));
+	}
+
+	/* The nodes rest after a view with nothing in it and say again what they signed for a while. A restart from disk
+	   opens that window anew, which is all the noise it may make before the network is silent again. */
+	@Example
+	public void shouldGoQuietAgainAfterRestartsFromDisk() {
+		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
+		final Liar liar = liar(net, 1);
+		final Ballot nudge = liar.vote(PREVOTE, 0, null);
+		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		live.forEach(node -> liar.tell(node.index, nudge));
+		net.run(QUIET_AFTER_MILLIS);
+
+		final long sentWhileQuiet = net.sent();
+
+		live.forEach(node -> net.restartFromDisk(node.index));
+
+		assertThat(net.sent(), greaterThan(sentWhileQuiet));
+
+		net.run(2 * QUIET_AFTER_MILLIS);
+
+		final long sent = net.sent();
+		final int armed = live.stream().mapToInt(node -> node.armed).sum();
+
+		net.run(2 * QUIET_AFTER_MILLIS + QUIET_WINDOW_MILLIS);
+
+		assertThat(net.sent(), equalTo(sent));
+		assertThat(live.stream().mapToInt(node -> node.armed).sum(), equalTo(armed));
+		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
+		assertThat(nobodyDecided(net), is(true));
+		assertNoEquivocation(net);
 	}
 
 	@Example
