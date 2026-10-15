@@ -185,7 +185,9 @@ public final class LedgerNode implements Closeable {
 	}
 
 	/* The validators the engine has heard say two things in one view of this height. The next height starts with
-	   none, so a caller that wants them reads them after each event. */
+	   none: the box that holds them is wiped when it starts, which this node does within the event that decides, so
+	   what was heard in that event is gone by the time it returns. A caller that wants the rest reads them after each
+	   event; nothing is kept across heights. */
 	public synchronized List<BallotBox.Equivocation> evidence() {
 		return engine.evidence();
 	}

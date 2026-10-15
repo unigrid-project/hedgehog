@@ -38,9 +38,12 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    happened and answers with what to do, so it has no clock, no network and no thread of its own, and the same
    inputs always give the same answers. After every event the rules are tried until none applies any more.
 
-   What the driver has to do for it, as the engine does none of it itself: it never sends anything twice, and a node
-   that has precommitted nil waits for more precommits with no timer running, so the driver calls resume() or
-   outbox() now and then, which does no harm when repeated, and serves the decided blocks to a node that is behind.
+   What the driver has to do for it, as the engine does none of it itself: of its own accord it says nothing twice,
+   and a node that has precommitted nil waits for more precommits with no timer running, so the driver calls resume()
+   or outbox() now and then, which does no harm when repeated, and serves the decided blocks to a node that is
+   behind. A Decide action means that the height is over: the driver commits the block and then calls start() for
+   the next height, as LedgerNode does, and the engine does nothing at the old height any more. A node that is
+   quiet looks for work only when told, so onWork() follows every submit to the application that was accepted.
    It is not thread-safe, so events come one at a time. evidence() is lost at the next start(), so it is read before
    that. The ballot box is wiped by start() as well, so a node that starts a height afresh has signed nothing in it.
 
@@ -60,8 +63,8 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    wakes it in the first view it has signed nothing in. A peer that is still running may have lost a message of the
    node that rests, so while it rests resume() says again what the node signed for a window of three precommit
    timeouts of its view, but at least 5 and at most 60 seconds, and after that it is silent. The driver therefore
-   ticks about once a second, which puts at least a few ticks in every window; that is the contract of the
-   simulator's tick of one second. What the node signed stays in outbox(). */
+   ticks about once a second, which puts at least a few ticks in every window; that is the contract of the driver.
+   What the node signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;

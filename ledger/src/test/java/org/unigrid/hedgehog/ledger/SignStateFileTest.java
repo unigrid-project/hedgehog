@@ -710,6 +710,20 @@ public class SignStateFileTest {
 		}
 	}
 
+	/* The bound for the default highest view stays under what an array holds, but a file sized for a higher view does
+	   not, and one that large would fail in the conversion to an array and not as a damaged file */
+	@Example
+	public void shouldNeverReadMoreThanAnArrayCanHold() {
+		final int highView = SignStateFile.MAX_VIEW << 8;
+
+		assertThat(SignStateFile.largestFile(1, SignStateFile.MAX_VIEW) < Integer.MAX_VALUE, equalTo(true));
+		assertThat(SignStateFile.readLimit(1, SignStateFile.MAX_VIEW),
+			equalTo(SignStateFile.largestFile(1, SignStateFile.MAX_VIEW)));
+		assertThat(SignStateFile.largestFile(1, highView) > Integer.MAX_VALUE, equalTo(true));
+		assertThat(SignStateFile.readLimit(1, highView), equalTo((long) Integer.MAX_VALUE));
+		assertThat(SignStateFile.readLimit(PROOF, LAST_VIEW), equalTo(SignStateFile.largestFile(PROOF, LAST_VIEW)));
+	}
+
 	private static Path lockOf(Path file) {
 		return file.resolveSibling(file.getFileName() + ".lock");
 	}

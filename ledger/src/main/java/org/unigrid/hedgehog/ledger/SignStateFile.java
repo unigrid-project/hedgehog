@@ -259,11 +259,18 @@ public final class SignStateFile implements SignStore {
 			throw corrupt("records a set of " + validators + " validators, not 1 to " + ValidatorSet.MAX_SIZE);
 		}
 
-		if (size > largestFile(validators, maxView)) {
+		if (size > readLimit(validators, maxView)) {
 			throw corrupt("is " + size + " bytes, more than a sign state can be");
 		}
 
 		return validators;
+	}
+
+	/* The largest file that is read: what a state can be, but never more than an array holds, as a small set sized for
+	   a high view is sized for more than that and a file of such a size is damaged all the same. It keeps the
+	   conversion below from failing with an ArithmeticException instead of a damaged file. */
+	static long readLimit(int largestProof, int maxView) {
+		return Math.min(largestFile(largestProof, maxView), Integer.MAX_VALUE);
 	}
 
 	private byte[] readAll(FileChannel channel, long size) throws IOException {
