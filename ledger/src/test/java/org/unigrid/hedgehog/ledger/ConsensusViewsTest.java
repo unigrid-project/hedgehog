@@ -996,6 +996,39 @@ public class ConsensusViewsTest {
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
 		assertThat(engine.view(), equalTo(0));
+		assertThat(engine.nextView(), equalTo(1));
+	}
+
+	@Example
+	public void shouldKeepTheNextViewAboveTheViewItSignsInFromTheFirstViewOn() {
+		app.goal = 0;
+		engine.start(1, validators, 0);
+
+		assertThat(engine.nextView(), equalTo(0));
+
+		engine.onMessage(prevoteBy(1, 0, null), 5);
+
+		assertThat(engine.nextView(), equalTo(1));
+	}
+
+	@Example
+	public void shouldKeepTheNextViewAboveTheViewItSkippedTo() {
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, 5, null), 5);
+		engine.onMessage(prevoteBy(2, 5, null), 6);
+
+		assertThat(engine.view(), equalTo(5));
+		assertThat(engine.nextView(), equalTo(6));
+	}
+
+	@Example
+	public void shouldKeepTheNextViewAtTheLastViewWhenItSkipsToIt() {
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, Integer.MAX_VALUE, null), 5);
+		engine.onMessage(prevoteBy(2, Integer.MAX_VALUE, null), 6);
+
+		assertThat(engine.view(), equalTo(Integer.MAX_VALUE));
+		assertThat(engine.nextView(), equalTo(Integer.MAX_VALUE));
 	}
 
 	@Example

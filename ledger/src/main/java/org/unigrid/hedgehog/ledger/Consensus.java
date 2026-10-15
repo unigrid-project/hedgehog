@@ -73,8 +73,9 @@ public final class Consensus {
 	private boolean decided;
 	private Decision decision;
 	private int view;
-	/* The first view the node has signed nothing in, which is where a node that rested begins again. Leaving a view
-	   moves it past that view, so that no view is ever started twice. */
+	/* The first view the node has signed nothing in, which is where a node that rested begins again. It moves past a
+	   view as that view starts, before anything is signed in it, so it is above every view signed in; only the last
+	   view has none after it, and a node never rests there. */
 	private int nextView;
 	private Step step = Step.PROPOSE;
 	private Block lockedBlock;
@@ -185,6 +186,10 @@ public final class Consensus {
 		return running;
 	}
 
+	int nextView() {
+		return nextView;
+	}
+
 	int storedBallots() {
 		return box == null ? 0 : box.size();
 	}
@@ -250,6 +255,7 @@ public final class Consensus {
 	/* Every node waits for the proposal of a view, a proposer too, as it may have had nothing to put forward */
 	private void startRound(int newView) {
 		view = newView;
+		nextView = newView == Integer.MAX_VALUE ? newView : newView + 1;
 		step = Step.PROPOSE;
 		refusedBlocks.clear();
 		refusedDecisions.clear();
@@ -322,9 +328,8 @@ public final class Consensus {
 
 		if (goesQuiet()) {
 			running = false;
-			nextView = view + 1;
 		} else {
-			moveTo(view + 1);
+			startRound(view + 1);
 		}
 	}
 
@@ -334,11 +339,6 @@ public final class Consensus {
 	private boolean goesQuiet() {
 		return !app.hasWork(now) && lockedBlock == null && validBlock == null && !proposals.containsKey(view)
 			&& refusedDecisions.isEmpty();
-	}
-
-	private void moveTo(int newView) {
-		nextView = view + 1;
-		startRound(newView);
 	}
 
 	private boolean isValidator() {
@@ -629,7 +629,7 @@ public final class Consensus {
 	private boolean skip() {
 		final OptionalInt target = box.skipTo(view);
 
-		target.ifPresent(this::moveTo);
+		target.ifPresent(this::startRound);
 		return target.isPresent();
 	}
 

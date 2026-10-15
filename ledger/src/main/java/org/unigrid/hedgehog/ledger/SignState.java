@@ -25,9 +25,10 @@ import java.util.Objects;
 
 /* What a validator has signed at one height, and where it stands, so that a restart can carry on without ever
    signing something else for a view it has already signed in. It holds the node's own proposals and ballots as
-   they were sent, the step and view, whether the engine runs, `nextView`, the view an idle engine begins with (it
-   equals `view` while a view runs), and the locked and valid blocks with their views, which are -1 when there is
-   no such block. What was only received is not held, as peers send it again.
+   they were sent, the step and view, whether the engine runs, `nextView`, the first view this engine has not
+   signed in, or the last view, which is where an idle engine begins again, and the locked and valid blocks with
+   their views, which are -1 when there is no such block. What was only received is not held, as peers send it
+   again.
 
    A node signs at most one proposal and two ballots (a prevote and a precommit) in a view, and none in a view above
    its current one. The constructor refuses a proposal or ballot of a later view and two of the same view (the same
