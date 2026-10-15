@@ -1132,10 +1132,46 @@ public class ConsensusViewsTest {
 		assertThat(prevoteOf(actions).view(), equalTo(1));
 	}
 
+	/* One validator that is not the proposer of the next view is already in it, so there is no proposal to answer, but
+	   the node will be in that view in a moment and would never be woken for what it holds already */
+	@Example
+	public void shouldNotRestWhenAPrevoteOfTheNextViewIsAlreadyHeld() {
+		startQuietNodeInViewZero();
+		engine.onMessage(prevoteBy(2, 1, null), 10);
+		quorumOfNoBlock(0, 3005);
+
+		final List<Action> actions = engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
+
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+		assertThat(schedules(actions, Timeout.Kind.PROPOSE), is(true));
+	}
+
+	@Example
+	public void shouldNotRestWhenAPrecommitOfTheNextViewIsAlreadyHeld() {
+		startQuietNodeInViewZero();
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 1, null), 10);
+		quorumOfNoBlock(0, 3005);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
+
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+	}
+
 	@Example
 	public void shouldRestWhenOnlyABallotOfALaterViewInTheWindowIsHeld() {
 		startQuietNodeInViewZero();
 		engine.onMessage(prevoteBy(2, 20, null), 10);
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldRestWhenTheNearestBallotHeldIsOfTheViewAfterTheNext() {
+		startQuietNodeInViewZero();
+		engine.onMessage(prevoteBy(2, 2, null), 10);
 		quorumOfNoBlock(0, 3005);
 
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));

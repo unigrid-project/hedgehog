@@ -131,6 +131,10 @@ final class BallotBox {
 			? OptionalInt.of(views.get(needed - 1)) : OptionalInt.empty();
 	}
 
+	boolean holdsAnyIn(int view) {
+		return countAny(Ballot.Type.PREVOTE, view) + countAny(Ballot.Type.PRECOMMIT, view) > 0;
+	}
+
 	List<Ballot> ballotsBy(AccountKey validator) {
 		return List.copyOf(ballotsByValidator.getOrDefault(validator, List.of()));
 	}

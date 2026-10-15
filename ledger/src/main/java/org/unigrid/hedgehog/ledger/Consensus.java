@@ -45,13 +45,13 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    signed and does not let it sign anything different for the same view.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
-   no lock, no valid block, no decision it refused and holds no proposal of the view or of a later one, it starts
-   no further view: it rests, with no timer, until work or a message of the height wakes it in the first view it
-   has signed nothing in. A peer that is still running may have lost a message of the node that rests, so while it
-   rests resume() says again what the node signed for a window of three precommit timeouts of its view, and after
-   that it is silent; the driver therefore ticks at least about once a second (the default timeouts) and at least
-   three times per window, which is the contract of the simulator's tick of one second. What the node signed stays
-   in outbox(). */
+   no lock, no valid block, no decision it refused, holds no proposal of the view or of a later one and no ballot
+   of the next view, it starts no further view: it rests, with no timer, until work or a message of the height
+   wakes it in the first view it has signed nothing in. A peer that is still running may have lost a message of the
+   node that rests, so while it rests resume() says again what the node signed for a window of three precommit
+   timeouts of its view, and after that it is silent; the driver therefore ticks at least about once a second (the
+   default timeouts) and at least three times per window, which is the contract of the simulator's tick of one
+   second. What the node signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;
@@ -355,14 +355,15 @@ public final class Consensus {
 	   asked for again by the rules that follow. */
 	private boolean goesQuiet() {
 		return !app.hasWork(now) && lockedBlock == null && validBlock == null && refusedDecisions.isEmpty()
-			&& holdsNoProposalFromThisViewOn();
+			&& holdsNothingOfThisViewOrAhead();
 	}
 
-	/* A proposal of this view may still be wanted decided. One of a later view comes from that view's proposer, who has
-	   work and has got ahead, and a node that rested would never be woken to answer it, as it is held already. Only a
-	   proposal counts, not a ballot: a proposal is signed by the one validator who may make it for its view. */
-	private boolean holdsNoProposalFromThisViewOn() {
-		return proposals.ceilingKey(view) == null;
+	/* A proposal of this view may still be wanted decided. A peer that is in the next view, with a proposal of it or
+	   a ballot, has got ahead and has work, and a node that rested would never be woken to answer what it holds
+	   already. Only the next view counts for ballots: a ballot of a view further on proves nothing about the nodes
+	   that matter, and any validator can sign one, so it must not be able to keep the chain awake for many views. */
+	private boolean holdsNothingOfThisViewOrAhead() {
+		return proposals.ceilingKey(view) == null && !box.holdsAnyIn(view + 1);
 	}
 
 	private boolean isValidator() {

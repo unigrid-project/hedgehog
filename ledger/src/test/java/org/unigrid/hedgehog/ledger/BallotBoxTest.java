@@ -359,6 +359,21 @@ public class BallotBoxTest {
 	}
 
 	@Example
+	public void shouldHoldAnythingInAViewWhenAnyBallotOfAnyTypeIsStoredInIt() {
+		final BallotBox box = box();
+
+		box.add(ballot(PREVOTE, 1, 1, A));
+		box.add(ballot(PRECOMMIT, 2, 2, null));
+		box.add(forged(PREVOTE, 3, 3, A));
+
+		assertThat(box.holdsAnyIn(0), is(false));
+		assertThat(box.holdsAnyIn(1), is(true));
+		assertThat(box.holdsAnyIn(2), is(true));
+		assertThat(box.holdsAnyIn(3), is(false));
+		assertThat(box.holdsAnyIn(1_000_000), is(false));
+	}
+
+	@Example
 	public void shouldAnswerNothingForAViewNobodyBalloted() {
 		final BallotBox box = box();
 
