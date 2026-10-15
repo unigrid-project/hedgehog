@@ -277,12 +277,12 @@ public class ConsensusCodecTest {
 
 	@Example
 	public void shouldRefuseABlockLengthOfZero() {
-		assertRefused(withLength(DECISION_KIND, 0));
+		assertThat(refusalOf(withLength(DECISION_KIND, 0)), not(containsString("Truncated")));
 
 		final byte[] encoded = ConsensusCodec.encode(firstProposal());
 
 		ByteBuffer.wrap(encoded).putInt(BLOCK_LENGTH_OFFSET, 0);
-		assertRefused(encoded);
+		assertThat(refusalOf(encoded), not(containsString("Truncated")));
 	}
 
 	@Example
@@ -350,6 +350,15 @@ public class ConsensusCodecTest {
 			assertThat(ConsensusCodec.maxEncodedSize(proof + 1) - ConsensusCodec.maxEncodedSize(proof),
 				equalTo(growth));
 		}
+	}
+
+	@Example
+	public void shouldKnowTheSizeOfABallotWithItsKindByte() {
+		assertThat(ConsensusCodec.BALLOT_SIZE, equalTo(174));
+		assertThat(ConsensusCodec.encode(ConsensusFixtures.ballot(PREVOTE, 1, 1, block())).length,
+			equalTo(ConsensusCodec.BALLOT_SIZE));
+		assertThat(ConsensusCodec.encode(ConsensusFixtures.ballot(PRECOMMIT, 1, 1, null)).length,
+			equalTo(ConsensusCodec.BALLOT_SIZE));
 	}
 
 	@Example

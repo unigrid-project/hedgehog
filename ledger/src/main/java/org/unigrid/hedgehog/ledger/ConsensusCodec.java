@@ -36,6 +36,7 @@ public final class ConsensusCodec {
 	private static final byte PRECOMMIT_CODE = 1;
 	private static final int BALLOT_BODY_SIZE = Byte.BYTES + Long.BYTES + Integer.BYTES + Digests.HASH_SIZE
 		+ AccountKey.SIZE + Ed25519.SIGNATURE_SIZE;
+	static final int BALLOT_SIZE = Byte.BYTES + BALLOT_BODY_SIZE;
 	private static final int PROPOSAL_HEAD_SIZE = Byte.BYTES + Long.BYTES + 2 * Integer.BYTES + AccountKey.SIZE
 		+ Ed25519.SIGNATURE_SIZE;
 
@@ -94,7 +95,7 @@ public final class ConsensusCodec {
 		return type == Ballot.Type.PREVOTE ? PREVOTE_CODE : PRECOMMIT_CODE;
 	}
 
-	private static byte[] encodeBlock(Block block) {
+	static byte[] encodeBlock(Block block) {
 		final byte[] encoded = BlockCodec.encode(block);
 
 		return Bytes.concat(Bytes.intBytes(encoded.length), encoded);
@@ -157,7 +158,7 @@ public final class ConsensusCodec {
 		return polka;
 	}
 
-	private static Block decodeBlock(ByteBuffer in) {
+	static Block decodeBlock(ByteBuffer in) {
 		final int length = Bytes.takeInt(in);
 
 		if (length < 1 || length > BlockCodec.MAX_ENCODED_SIZE) {
