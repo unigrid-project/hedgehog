@@ -195,15 +195,6 @@ public class LedgerDriverSyncTest {
 		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
 	}
 
-	/* So many statuses and batches from one peer that only its score can stop it, at 100 */
-	private static Policy generousWithScoreOf100() {
-		final Map<Kind, Rate> rates = new EnumMap<>(Policy.DEFAULT.rates());
-
-		rates.put(Kind.STATUS, new Rate(100, 1));
-		rates.put(Kind.BLOCK_BATCH, new Rate(100, 1));
-		return new Policy(rates, Policy.DEFAULT.global(), 100, 10, 60_000, 100);
-	}
-
 	/* The same block with one signature of its certificate spoiled, which the hash does not cover */
 	private static Block spoiled(Block block) {
 		final List<Endorsement> endorsements = new ArrayList<>(block.getEndorsements());
@@ -434,7 +425,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldChargeAnEmptyBatchLessThanAFalseBlock() throws IOException {
-		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(generousWithScoreOf100())) {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
 			final Server empty = new Server("E", chain).serving(request -> List.of());
 
 			for (int again = 0; again < 19; again++) {
@@ -935,21 +926,31 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldTakeABatchOnlyWhileThePeerHasATokenForIt() throws IOException {
+	public void shouldTakeNoTokenForTheBatchItAskedFor() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10);
 			DriverRig rig = fresh(burstOf(Kind.BLOCK_BATCH, 1))) {
 			final Server server = new Server("S", chain);
 
 			rig.driver.onStatus(server, server.status());
 
-			assertThat(rig.ledger().height(), equalTo(16L));
-			assertThat(server.requests, hasSize(2));
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(server.requests, hasSize(3));
 			assertThat(rig.driver.halted(), is(false));
+		}
+	}
 
-			rig.clock.addAndGet(1_000);
+	@Example
+	public void shouldSyncALongChainFromOnePeerInOneRunWithoutAnyScoreOnIt() throws IOException {
+		try (Chain chain = new Chain(200, 10); DriverRig rig = fresh(TOUCHY)) {
+			final Server server = new Server("S", chain);
+
 			rig.driver.onStatus(server, server.status());
 
-			assertThat(rig.ledger().height(), equalTo(32L));
+			assertThat(rig.ledger().height(), equalTo(200L));
+			assertThat(rig.ledger().tipHash(), equalTo(chain.ledger.tipHash()));
+			assertThat(server.requests, hasSize(13));
+			assertThat(rig.limiter.isPenalised("S"), is(false));
+			assertThat(rig.built, equalTo(List.of(false, true)));
 		}
 	}
 

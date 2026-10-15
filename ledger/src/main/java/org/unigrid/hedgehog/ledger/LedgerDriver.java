@@ -74,7 +74,8 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    state was lost cannot sign at a height the network has left.
 
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
-   back to the peer it came from. Every peer is limited before any work is done for it. */
+   back to the peer it came from. Every peer is limited before any work is done for it, except that the answer to a
+   request of the driver's own takes no token: there is one such request out at a time. */
 @Slf4j
 public final class LedgerDriver implements Closeable {
 	private static final String NOT_RUNNING = "The ledger is not running";
@@ -645,16 +646,18 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
-	/* The answer comes from any thread. A request that fails or times out is the network's trouble and costs the peer
-	   nothing, but its claim is dropped: it is asked no more until it speaks again, and another peer is tried. */
+	/* The answer comes from any thread. It is the answer to the one request this sync has out, so it takes no token of
+	   the peer: a batch nobody asked for does not reach the driver, and the work of one is bounded by its 16 blocks. A
+	   request that fails or times out is the network's trouble and costs the peer nothing, but its claim is dropped:
+	   it is asked no more until it speaks again, and another peer is tried. */
 	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
-		final Runnable abandon = () -> control(() -> abandon(peer));
-
-		if (failure != null || batch == null) {
-			abandon.run();
-		} else {
-			inbound(new Item(peer, Kind.BLOCK_BATCH, batch), () -> take(peer, request, batch), abandon);
-		}
+		control(() -> {
+			if (failure == null && batch != null && ready()) {
+				take(peer, request, batch);
+			} else {
+				abandon(peer);
+			}
+		});
 	}
 
 	private void take(LedgerPeer peer, BlockRequest request, BlockBatch batch) {

@@ -50,6 +50,8 @@ public final class PeerLimiter {
 	private static final long TOKEN = 1000;
 	private static final long POINT = 60_000;
 
+	/* BLOCK_BATCH is for batches that nobody asked for, should the application ever have to take one: the driver asks
+	   for no token for the answer to a request of its own */
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST, BLOCK_BATCH
 	}
