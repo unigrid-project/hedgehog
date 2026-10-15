@@ -23,13 +23,16 @@ import io.netty.channel.ChannelFutureListener;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.BlockBatch;
 import org.unigrid.hedgehog.ledger.BlockRequest;
@@ -59,6 +62,8 @@ import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV6_LENGTH = 16;
 	private static final int IPV6_PREFIX_LENGTH = 8;
+	private static final int IPV4_LENGTH = 4;
+	private static final int IPV4_MAPPED_ZEROS = 10;
 
 	private final Channel channel;
 	private final Supplier<Optional<InetSocketAddress>> remote;
@@ -67,8 +72,23 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
 
+	/* An IPv4 address that comes as an IPv6 one, ::ffff:a.b.c.d, is the IPv4 address: read as IPv6 every such peer would
+	   have the zeros of the same /64 prefix, and share one limit */
+	@SneakyThrows
+	public static InetAddress plain(final InetAddress address) {
+		final byte[] bytes = address.getAddress();
+
+		if (bytes.length == IPV6_LENGTH && IntStream.range(0, IPV4_MAPPED_ZEROS).allMatch(i -> bytes[i] == 0)
+			&& bytes[IPV4_MAPPED_ZEROS] == -1 && bytes[IPV4_MAPPED_ZEROS + 1] == -1) {
+
+			return InetAddress.getByAddress(Arrays.copyOfRange(bytes, IPV6_LENGTH - IPV4_LENGTH, IPV6_LENGTH));
+		}
+
+		return address;
+	}
+
 	static String idOf(final InetSocketAddress socket) {
-		final InetAddress address = socket.getAddress();
+		final InetAddress address = plain(socket.getAddress());
 		final byte[] bytes = address.getAddress();
 
 		if (address.isLoopbackAddress()) {

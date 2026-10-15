@@ -25,6 +25,7 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
@@ -325,6 +326,44 @@ public class NettyLedgerNetworkTest {
 
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix, otherSuffix)).id(), equalTo(id));
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(), not(equalTo(id)));
+	}
+
+	@SneakyThrows
+	private static Supplier<Optional<InetSocketAddress>> mapped(final int a, final int b, final int c, final int d,
+		final int port) {
+
+		final byte[] bytes = new byte[16];
+
+		bytes[10] = -1;
+		bytes[11] = -1;
+		bytes[12] = (byte) a;
+		bytes[13] = (byte) b;
+		bytes[14] = (byte) c;
+		bytes[15] = (byte) d;
+
+		final InetAddress address = Inet6Address.getByAddress(null, bytes, 0);
+		final Optional<InetSocketAddress> resolved = Optional.of(new InetSocketAddress(address, port));
+
+		assertThat(address, instanceOf(Inet6Address.class));
+		return () -> resolved;
+	}
+
+	@Property(tries = 30)
+	public void namesAnIPv4AddressThatComesAsAnIPv6OneByItsIPv4Address(@ForAll @IntRange(min = 1, max = 126) int a,
+		@ForAll @IntRange(min = 0, max = 255) int b, @ForAll @IntRange(min = 0, max = 255) int c,
+		@ForAll @IntRange(min = 0, max = 255) int d) {
+
+		final NettyLedgerNetwork network = networkOf();
+		final String id = network.peerOf(new EmbeddedChannel(), mapped(a, b, c, d, PORT)).id();
+
+		assertThat(id, equalTo(a + "." + b + "." + c + "." + d));
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(id, PORT)).id(), equalTo(id));
+	}
+
+	@Property(tries = 10)
+	public void namesALocalPeerThatComesAsAnIPv6AddressByItsPort(@ForAll @IntRange(min = 1, max = 65535) int port) {
+		assertThat(networkOf().peerOf(new EmbeddedChannel(), mapped(127, 0, 0, 1, port)).id(),
+			equalTo("127.0.0.1:" + port));
 	}
 
 	@Property(tries = 20)

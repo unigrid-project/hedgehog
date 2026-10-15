@@ -21,8 +21,12 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.Channel;
 import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Optional;
+import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -32,6 +36,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
 
 public class RemoteAddressTest {
 	private static final int PORT = 52883;
@@ -51,6 +56,54 @@ public class RemoteAddressTest {
 
 		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
 		assertThat(RemoteAddress.of(streamOf(connection)), equalTo(address("10.0.0.1")));
+	}
+
+	/* The address as an IPv6 one, ::ffff:a.b.c.d, which is how a socket that takes both families may report a peer */
+	@SneakyThrows
+	private static InetSocketAddress mapped(final int a, final int b, final int c, final int d, final int port) {
+		final byte[] bytes = new byte[16];
+
+		bytes[10] = -1;
+		bytes[11] = -1;
+		bytes[12] = (byte) a;
+		bytes[13] = (byte) b;
+		bytes[14] = (byte) c;
+		bytes[15] = (byte) d;
+
+		final InetAddress address = Inet6Address.getByAddress(null, bytes, 0);
+
+		assertThat(address, instanceOf(Inet6Address.class));
+		return new InetSocketAddress(address, port);
+	}
+
+	@Property(tries = 20)
+	public void readsAnIPv4AddressThatComesAsAnIPv6OneAsIPv4(@ForAll @IntRange(min = 1, max = 126) int a,
+		@ForAll @IntRange(min = 0, max = 255) int b, @ForAll @IntRange(min = 0, max = 255) int c,
+		@ForAll @IntRange(min = 0, max = 255) int d) {
+
+		final EmbeddedChannel connection = new EmbeddedChannel();
+
+		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(mapped(a, b, c, d, PORT));
+
+		final InetSocketAddress read = RemoteAddress.of(streamOf(connection)).get();
+
+		assertThat(read.getAddress(), instanceOf(Inet4Address.class));
+		assertThat(read.getAddress().getHostAddress(), equalTo(a + "." + b + "." + c + "." + d));
+		assertThat(read.getPort(), equalTo(PORT));
+	}
+
+	@Property(tries = 10)
+	public void takesALocalPeerThatComesAsAnIPv6AddressForALocalPeer(
+		@ForAll @IntRange(min = 1, max = 65535) int listenPort) {
+
+		final EmbeddedChannel connection = new EmbeddedChannel();
+		final Channel stream = streamOf(connection);
+
+		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(mapped(127, 0, 0, 1, PORT));
+		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(mapped(127, 0, 0, 1, CONNECTION_PORT));
+		RemoteAddress.listensOn(stream, listenPort);
+
+		assertThat(RemoteAddress.of(stream), equalTo(Optional.of(new InetSocketAddress("127.0.0.1", listenPort))));
 	}
 
 	@Example

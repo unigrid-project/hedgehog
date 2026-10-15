@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.Optional;
+import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 
 public final class RemoteAddress {
 	private static final AttributeKey<Integer> LISTEN_PORT_KEY = AttributeKey.valueOf("LISTEN_PORT");
@@ -65,6 +66,7 @@ public final class RemoteAddress {
 
 	private static Optional<InetSocketAddress> resolved(final SocketAddress address) {
 		return Optional.ofNullable(address).filter(InetSocketAddress.class::isInstance)
-			.map(InetSocketAddress.class::cast).filter(socket -> Objects.nonNull(socket.getAddress()));
+			.map(InetSocketAddress.class::cast).filter(socket -> Objects.nonNull(socket.getAddress()))
+			.map(socket -> new InetSocketAddress(NettyLedgerPeer.plain(socket.getAddress()), socket.getPort()));
 	}
 }

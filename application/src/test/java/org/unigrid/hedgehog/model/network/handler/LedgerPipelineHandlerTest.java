@@ -607,6 +607,26 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected", "onPeerConnected"));
 	}
 
+	/* The id of a stream is read at each use. A remote one is the same before and after its Hello is read, so nothing
+	   that the driver keeps under it is left behind; a local one is renamed once, by the port it says it listens on. */
+	@Example
+	public void keepsTheIdOfARemoteStreamWhenItsHelloIsReadAndRenamesALocalOneOnce() {
+		final EmbeddedChannel remote = streamFrom(PEER);
+		final EmbeddedChannel local = streamFrom("127.0.0.1");
+		final LedgerPeer remotePeer = gateway.peerOf(remote, () -> RemoteAddress.of(remote));
+		final LedgerPeer localPeer = gateway.peerOf(local, () -> RemoteAddress.of(local));
+
+		assertThat(remotePeer.id(), equalTo(PEER));
+		assertThat(localPeer.id(), equalTo("127.0.0.1:" + PORT));
+
+		RemoteAddress.listensOn(remote, 4444);
+		RemoteAddress.listensOn(local, 4444);
+		RemoteAddress.listensOn(local, 5555);
+
+		assertThat(remotePeer.id(), equalTo(PEER));
+		assertThat(localPeer.id(), equalTo("127.0.0.1:4444"));
+	}
+
 	@Example
 	public void makesAStreamSomeoneToSendToOnlyOnceItHasSpoken() {
 		final EmbeddedChannel channel = streamFrom(PEER);
