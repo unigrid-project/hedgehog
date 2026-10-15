@@ -1154,6 +1154,38 @@ public class ConsensusViewsTest {
 		assertThat(engine.view(), equalTo(last));
 	}
 
+	/* The quorum is of a proposal of an earlier view, so the view it ends in has no proposal of its own, and no work,
+	   lock or valid block either: only the refusal still binds the node to the block */
+	@Example
+	public void shouldKeepRunningWhileAQuorumItRefusedToDecideOnIsPending() {
+		final Block block = proposed(0, "a");
+
+		app.goal = 0;
+		app.refuseCertified = true;
+		engine.start(1, validators, 0);
+		engine.onMessage(proposal(0, -1, block), 10);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, block), 11);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, block), 12);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, block), 13);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 20);
+
+		assertThat(engine.view(), equalTo(1));
+
+		for (int validator = 1; validator <= 3; validator++) {
+			engine.onMessage(ballot(Ballot.Type.PRECOMMIT, validator, 1, null), 21);
+		}
+
+		assertThat(schedules(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 1), 30), Timeout.Kind.PROPOSE),
+			is(true));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(2));
+
+		app.refuseCertified = false;
+
+		assertThat(decidedBlock(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 2), 40)).hash(),
+			equalTo(block.hash()));
+	}
+
 	@Example
 	public void shouldWakeInTheLastViewWhenItWentIdleInTheOneBeforeIt() {
 		final int before = Integer.MAX_VALUE - 1;

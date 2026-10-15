@@ -328,10 +328,12 @@ public final class Consensus {
 		}
 	}
 
-	/* Nothing is left to wait for or to put forward: no work, no block the node is bound to or would offer again, and
-	   no proposal in the view that somebody may still want decided */
+	/* Nothing is left to wait for or to put forward: no work, no block the node is bound to or would offer again, no
+	   proposal in the view that somebody may still want decided, and no decision it refused for now. The refusals are
+	   those of this view, as they are forgotten when a view starts and asked for again by the rules that follow. */
 	private boolean goesQuiet() {
-		return !app.hasWork(now) && lockedBlock == null && validBlock == null && !proposals.containsKey(view);
+		return !app.hasWork(now) && lockedBlock == null && validBlock == null && !proposals.containsKey(view)
+			&& refusedDecisions.isEmpty();
 	}
 
 	private void moveTo(int newView) {
