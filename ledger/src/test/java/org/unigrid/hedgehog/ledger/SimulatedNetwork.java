@@ -65,16 +65,21 @@ final class SimulatedNetwork {
 	private record Slot(int node, int kind, long height, int view) {
 	}
 
+	private record Place(int node, long height) {
+	}
+
 	final List<SimNode> nodes = new ArrayList<>();
 	final ValidatorSet validators;
 	private final PriorityQueue<Event> queue = new PriorityQueue<>();
 	private final Set<Link> cutLinks = new HashSet<>();
 	private final Map<Slot, Message> said = new HashMap<>();
+	private final Map<Place, Integer> highestViews = new HashMap<>();
 	private final Random random;
 	private long now;
 	private long counter;
 	private long sent;
 	private int contradictions;
+	private int regressions;
 	private boolean begun;
 	private long minLatency = 5;
 	private long maxLatency = 50;
@@ -193,6 +198,11 @@ final class SimulatedNetwork {
 		return contradictions;
 	}
 
+	/* New messages a node signed for a view below one it had signed in at the same height */
+	int viewRegressions() {
+		return regressions;
+	}
+
 	void begin() {
 		if (begun) {
 			throw new IllegalStateException("The network has begun already");
@@ -298,9 +308,25 @@ final class SimulatedNetwork {
 			from.sentUnsaved++;
 		}
 
-		if (!said.computeIfAbsent(slot, key -> message).equals(message)) {
+		final Message first = said.putIfAbsent(slot, message);
+
+		if (first == null) {
+			trackViews(slot);
+		} else if (!first.equals(message)) {
 			contradictions++;
 		}
+	}
+
+	/* A node signs in the view it is in and goes on to later ones, so a message that is new in a view below one the node
+	   has signed in comes from a node that went back */
+	private void trackViews(Slot slot) {
+		final Place place = new Place(slot.node(), slot.height());
+
+		if (slot.view() < highestViews.getOrDefault(place, 0)) {
+			regressions++;
+		}
+
+		highestViews.merge(place, slot.view(), Math::max);
 	}
 
 	private void deliver(int to, Message message) {

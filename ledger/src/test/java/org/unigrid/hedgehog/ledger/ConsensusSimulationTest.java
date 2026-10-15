@@ -317,11 +317,13 @@ public class ConsensusSimulationTest {
 		assertThat(net.agreement(), is(true));
 	}
 
-	/* No node signed two things for one view, none sent what it had not written down first, and no node has seen a
-	   validator say two things. Evidence is wiped when a height ends, so it is looked at all along, not at the end. */
+	/* No node signed two things for one view or went back to an earlier one, none sent what it had not written down
+	   first, and no node has seen a validator say two things. Evidence is wiped when a height ends, so it is looked at
+	   all along, not at the end. */
 	private static void assertNoEquivocation(SimulatedNetwork net) {
 		assertAgreement(net);
 		assertThat(net.contradictions(), equalTo(0));
+		assertThat(net.viewRegressions(), equalTo(0));
 		assertThat(net.unsavedSends(), equalTo(0));
 		assertThat(net.nodes.stream().allMatch(node -> node.engine.evidence().isEmpty()), is(true));
 	}
