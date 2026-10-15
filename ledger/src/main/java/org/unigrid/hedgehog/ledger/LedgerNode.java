@@ -46,6 +46,8 @@ public final class LedgerNode {
 	private final SignStore store;
 	private final LongSupplier clock;
 	private final boolean signs;
+	/* The state the store holds, as far as this node knows: what it loaded or last saved, null when there is none */
+	private SignState onDisk;
 
 	/* A null seed is an observer: it follows and commits the decisions, never votes, and neither reads nor writes
 	   the store */
@@ -72,6 +74,8 @@ public final class LedgerNode {
 
 	private Optional<SignState> keptFor(long next) throws IOException {
 		final Optional<SignState> stored = signs ? store.load() : Optional.empty();
+
+		onDisk = stored.orElse(null);
 
 		if (stored.isPresent()) {
 			requireNotAhead(stored.get(), next);
@@ -156,10 +160,19 @@ public final class LedgerNode {
 			.findFirst();
 	}
 
-	/* An engine that has not started holds nothing, and saving that would wipe the state a start is yet to restore */
+	/* An engine that has not started holds nothing, and saving that would wipe the state a start is yet to restore. A
+	   state that is on disk already is not written again, which spares a quiet node a write and a flush every tick. It
+	   is counted as on disk only once the store has returned, so a save that fails is tried again by the next call. */
 	private void persist() throws IOException {
-		if (signs && engine.height() != 0) {
-			store.save(engine.snapshot(), ledger.validators().size());
+		if (!signs || engine.height() == 0) {
+			return;
+		}
+
+		final SignState snapshot = engine.snapshot();
+
+		if (!snapshot.equals(onDisk)) {
+			store.save(snapshot, ledger.validators().size());
+			onDisk = snapshot;
 		}
 	}
 }

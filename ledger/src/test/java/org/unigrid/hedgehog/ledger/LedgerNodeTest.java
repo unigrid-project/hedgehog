@@ -45,6 +45,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
@@ -63,18 +64,33 @@ public class LedgerNodeTest {
 		List<Action> run() throws IOException;
 	}
 
-	/* Keeps every state it is given, in memory, so that a test can see what was saved by the time a call returned */
+	/* Keeps every state it is given, in memory, so that a test can see what was saved by the time a call returned.
+	   It starts out holding `loaded`, if there is one, and refuses to save while `failing` is set. */
 	private static final class RecordingStore implements SignStore {
 		private final List<SignState> saved = new ArrayList<>();
 		private final List<Integer> bounds = new ArrayList<>();
+		private final SignState loaded;
+		private boolean failing;
 
-		@Override
-		public Optional<SignState> load() {
-			return saved.isEmpty() ? Optional.empty() : Optional.of(last());
+		RecordingStore() {
+			this(null);
+		}
+
+		RecordingStore(SignState loaded) {
+			this.loaded = loaded;
 		}
 
 		@Override
-		public void save(SignState state, int largestProof) {
+		public Optional<SignState> load() {
+			return saved.isEmpty() ? Optional.ofNullable(loaded) : Optional.of(last());
+		}
+
+		@Override
+		public void save(SignState state, int largestProof) throws IOException {
+			if (failing) {
+				throw new IOException("The disk is full");
+			}
+
 			saved.add(state);
 			bounds.add(largestProof);
 		}
@@ -168,15 +184,16 @@ public class LedgerNodeTest {
 		return Ballot.signed(type, seed(validator), ledger.chainId(), height, 0, block.hash());
 	}
 
-	/* The state is saved once per call, before the call returns, and holds everything that the call signed and
-	   sends out for a height that is still open: a block that is decided and committed needs no signatures kept */
+	/* The state is saved at most once per call, before the call returns, and what the store holds then is everything
+	   that the call signed and sends out for a height that is still open: a block that is decided and committed needs
+	   no signatures kept. Whether a call saves at all depends on whether the state changed. */
 	private static List<Action> saving(RecordingStore store, Ledger ledger, AccountKey self, Event event)
 		throws IOException {
 		final int before = store.saved.size();
 		final List<Action> actions = event.run();
 
-		assertThat(store.saved.size(), equalTo(before + 1));
-		assertThat(store.bounds.get(before), equalTo(ledger.validators().size()));
+		assertThat(store.saved.size(), lessThanOrEqualTo(before + 1));
+		store.bounds.forEach(bound -> assertThat(bound, equalTo(ledger.validators().size())));
 		assertKept(store.last(), ledger, self, actions);
 		return actions;
 	}
@@ -298,7 +315,7 @@ public class LedgerNodeTest {
 			assertThat(decidedIn(decided), hasSize(1));
 			assertThat(ledger.height(), equalTo(1L));
 			assertThat(store.last().height(), equalTo(2L));
-			assertThat(store.saved, hasSize(8));
+			assertThat(store.saved.stream().map(SignState::height).toList(), equalTo(List.of(1L, 1L, 1L, 2L)));
 		}
 	}
 
@@ -639,6 +656,87 @@ public class LedgerNodeTest {
 
 			assertThat(proposalsIn(ticked), equalTo(proposalsIn(proposed)));
 			assertThat(ballotsIn(ticked), equalTo(ballotsIn(proposed)));
+		}
+	}
+
+	@Example
+	public void shouldNotSaveAgainOnATickOfAQuietNode() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, store, clock::get);
+
+			node.start();
+			assertThat(store.saved, hasSize(1));
+
+			for (int second = 0; second < 5; second++) {
+				clock.addAndGet(1000);
+				assertThat(node.tick(), is(empty()));
+			}
+
+			assertThat(store.saved, hasSize(1));
+		}
+	}
+
+	@Example
+	public void shouldSaveOnATickThatChangesTheStateAndOnlyThen() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), FOUR, clock::get);
+			final RecordingStore store = new RecordingStore();
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+
+			node.start();
+			node.tick();
+			assertThat(store.saved, hasSize(1));
+
+			clock.set(20_000);
+			assertThat(proposalsIn(node.tick()), hasSize(1));
+			assertThat(store.saved, hasSize(2));
+			assertThat(store.last().proposals(), hasSize(1));
+
+			clock.addAndGet(1000);
+			assertThat(proposalsIn(node.tick()), hasSize(1));
+			assertThat(store.saved, hasSize(2));
+		}
+	}
+
+	@Example
+	public void shouldNotSaveAfterLoadingAStateThatTheEngineLeavesAsItIs() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore first = new RecordingStore();
+			final LedgerNode before = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, first, clock::get);
+
+			before.start();
+			before.submit(mint(1, 500));
+			before.onWork();
+
+			final RecordingStore second = new RecordingStore(first.last());
+			final LedgerNode after = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, second, clock::get);
+
+			assertThat(proposalsIn(after.start()), hasSize(1));
+			assertThat(proposalsIn(after.tick()), hasSize(1));
+			assertThat(second.saved, is(empty()));
+		}
+	}
+
+	/* The state is only counted as saved once the store says so, or a failed save would keep the next call from
+	   trying again */
+	@Example
+	public void shouldSaveAgainAfterASaveThatFailed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, store, clock::get);
+
+			store.failing = true;
+			assertThrows(IOException.class, node::start);
+			assertThat(store.saved, is(empty()));
+
+			store.failing = false;
+			assertThat(node.tick(), is(empty()));
+			assertThat(store.saved, hasSize(1));
 		}
 	}
 
