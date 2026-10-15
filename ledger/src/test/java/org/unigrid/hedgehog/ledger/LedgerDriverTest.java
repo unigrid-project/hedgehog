@@ -47,6 +47,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
@@ -126,6 +127,10 @@ public class LedgerDriverTest {
 				return new CompletableFuture<>();
 			}
 		};
+	}
+
+	private static List<RecordingPeer> peers(DriverRig rig, int count) {
+		return IntStream.range(0, count).mapToObj(n -> rig.network.connect("P" + n)).toList();
 	}
 
 	private static Heartbeat anyHeartbeat() {
@@ -407,7 +412,7 @@ public class LedgerDriverTest {
 	@Example
 	public void shouldKeepTwoHonestNodesFromBanningEachOtherWhenAValidatorEquivocates() throws IOException {
 		try (DriverRig left = DriverRig.four(Policy.DEFAULT);
-			DriverRig right = new DriverRig(DriverRig.FOUR, seed(3), Policy.DEFAULT, new DirectSerial()).started()) {
+			DriverRig right = DriverRig.four(3, Policy.DEFAULT)) {
 			final Link towardsRight = new Link("right");
 			final Link towardsLeft = new Link("left");
 			final RecordingPeer byzantineToLeft = left.network.connect("byzantine");
@@ -956,11 +961,12 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldHaltWhenAPeerCannotSayWhoItIs() throws IOException {
+	public void shouldDropAtTheDoorAnItemOfAPeerThatCannotSayWhoItIs() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
 			rig.driver.onTransaction(namelessPeer(), mint(1, 500));
 
-			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.driver.droppedInbound(), equalTo(1L));
 			assertThat(rig.ledger().height(), equalTo(0L));
 		}
 	}
@@ -1210,49 +1216,111 @@ public class LedgerDriverTest {
 		final QueuedSerial serial = new QueuedSerial();
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
-			final RecordingPeer a = rig.network.connect("A");
+			final List<RecordingPeer> peers = peers(rig, 20);
 			final Heartbeat beat = anyHeartbeat();
 
-			for (int sent = 0; sent < 100_000; sent++) {
-				rig.driver.onHeartbeat(a, beat);
+			for (int sent = 0; sent < 5_000; sent++) {
+				peers.forEach(peer -> rig.driver.onHeartbeat(peer, beat));
 			}
 
-			assertThat(serial.size(), equalTo(1 + DriverRig.QUEUE));
+			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.QUEUE));
 			assertThat(rig.driver.droppedInbound(), equalTo(100_000L - DriverRig.QUEUE));
+			assertThat(serial.size(), equalTo(1));
 			assertThat(rig.limiter.tracked(), equalTo(0));
+
+			serial.drain();
+
+			assertThat(rig.driver.queuedInbound(), equalTo(0));
+			assertThat(rig.driver.queuedPeers(), equalTo(0));
 		}
 	}
 
 	@Example
-	public void shouldStillRunATickATimerAndALocalSubmitBehindAFloodAndTakeNewItemsAfterIt() throws IOException {
+	public void shouldLetOnePeerHoldNoMoreThanItsShareOfTheQueueAndStillTakeTheOthers() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
-			final RecordingPeer a = rig.network.connect("A");
+			final List<RecordingPeer> peers = peers(rig, 2);
+			final Heartbeat beat = anyHeartbeat();
+
+			for (int sent = 0; sent < 10_000; sent++) {
+				rig.driver.onHeartbeat(peers.get(0), beat);
+			}
+
+			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.PER_PEER));
+			assertThat(rig.driver.droppedInbound(), equalTo(10_000L - DriverRig.PER_PEER));
+			assertThat(rig.driver.queuedPeers(), equalTo(1));
+
+			rig.driver.onHeartbeat(peers.get(1), beat);
+
+			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.PER_PEER + 1));
+			assertThat(rig.driver.droppedInbound(), equalTo(10_000L - DriverRig.PER_PEER));
+
+			serial.drain();
+
+			assertThat(rig.driver.queuedPeers(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldRunATimerAndATickAheadOfTheQueueWithinTheFirstRunAfterAtMostAFewItems() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+		final DriverOptions roomy = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS, 30_000,
+			DriverRig.RESTART_WINDOW, 10_000, DriverRig.PER_PEER, Optional.empty());
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial, roomy).started()) {
 			final RecordingPeer b = rig.network.connect("B");
+			final List<RecordingPeer> peers = peers(rig, 60);
+			final Mint mint = mint(2, 10);
 
 			serial.drain();
 			rig.driver.submit(mint(1, 500));
 			serial.drain();
 
 			final int ticks = rig.scheduler.scheduled().size();
-			final Heartbeat beat = anyHeartbeat();
+			final int before = b.sent().size();
 
-			for (int sent = 0; sent < 100_000; sent++) {
-				rig.driver.onHeartbeat(a, beat);
-			}
-
+			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
+				.forEach(n -> rig.driver.onTransaction(peer, mint)));
 			rig.timers().get(0).fire();
 			rig.ticker().fire();
 
-			final CompletableFuture<Optional<String>> local = rig.driver.submit(mint(2, 500));
+			assertThat(rig.driver.queuedInbound(), equalTo(6_000));
+			assertThat(serial.size(), equalTo(1));
 
-			assertThat(serial.size(), equalTo(DriverRig.QUEUE + 3));
+			serial.runOne();
+
+			assertThat(b.sent().get(before), instanceOf(Ballot.class));
+			assertThat(b.sent(Transaction.class), hasItem(mint));
+			assertThat(rig.scheduler.scheduled().size() > ticks, is(true));
+			assertThat(rig.driver.queuedInbound(), equalTo(6_000 - 64));
+			assertThat(serial.size(), equalTo(1));
+
+			serial.runOne();
+
+			assertThat(rig.driver.queuedInbound(), equalTo(6_000 - 2 * 64));
+		}
+	}
+
+	@Example
+	public void shouldTakeNewItemsAndAnswerALocalSubmitAfterAFloodWasDrained() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), DriverRig.STRICT, serial).started()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final RecordingPeer b = rig.network.connect("B");
+			final Heartbeat beat = anyHeartbeat();
 
 			serial.drain();
 
-			assertThat(b.sent(Ballot.class).get(0).type(), equalTo(Ballot.Type.PREVOTE));
-			assertThat(rig.scheduler.scheduled().size() > ticks, is(true));
+			for (int sent = 0; sent < 5_000; sent++) {
+				rig.driver.onHeartbeat(a, beat);
+			}
+
+			final CompletableFuture<Optional<String>> local = rig.driver.submit(mint(2, 500));
+
+			serial.drain();
+
 			assertThat(local.join(), equalTo(Optional.empty()));
 
 			rig.driver.onTransaction(b, mint(3, 500));
@@ -1263,29 +1331,55 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldTakeAnItemOutOfTheQueueWhetherItsTaskThrowsOrIsNotRun() throws IOException {
+	public void shouldServeTheItemsOfPeersInTheOrderTheyCameAndLeaveNothingBehind() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();
-		final LedgerPeer nameless = namelessPeer();
 
 		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, serial).started()) {
 			final RecordingPeer a = rig.network.connect("A");
 
 			serial.drain();
 
-			for (int sent = 0; sent < DriverRig.QUEUE; sent++) {
-				rig.driver.onTransaction(nameless, mint(1, 500));
+			for (int n = 1; n <= 20; n++) {
+				rig.driver.onTransaction(a, mint(n, 10));
 			}
 
 			serial.drain();
 
-			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.ledger().height(), equalTo(20L));
 
-			for (int sent = 0; sent < DriverRig.QUEUE; sent++) {
-				rig.driver.onTransaction(a, mint(1, 500));
+			final List<Block> blocks = rig.ledger().blocksFrom(1, 16);
+
+			for (int n = 1; n <= 16; n++) {
+				assertThat(blocks.get(n - 1).getTransactions(), equalTo(List.of(mint(n, 10))));
 			}
 
-			assertThat(serial.size(), equalTo(DriverRig.QUEUE));
+			assertThat(rig.driver.queuedInbound(), equalTo(0));
+			assertThat(rig.driver.queuedPeers(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldTakeAnItemOutOfTheQueueWhetherItsTaskThrowsOrIsNotRun() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, serial).started()) {
+			final List<RecordingPeer> peers = peers(rig, 10);
+
+			serial.drain();
+			rig.network.refuse(new IllegalStateException("The network failed"));
+			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
+				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500))));
+			serial.drain();
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.queuedInbound(), equalTo(0));
+			assertThat(rig.driver.queuedPeers(), equalTo(0));
+
+			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
+				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500))));
+
 			assertThat(rig.driver.droppedInbound(), equalTo(0L));
+			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.QUEUE));
 		}
 	}
 
@@ -1332,16 +1426,17 @@ public class LedgerDriverTest {
 		final byte[] hash = new byte[Digests.HASH_SIZE];
 		final Optional<Checkpoint> none = Optional.empty();
 
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(0, 1, 1, 1, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 0, 1, 1, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 0, 1, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 0, 1, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(0, 1, 1, 1, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 0, 1, 1, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 0, 1, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 0, 1, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, 1, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 0, none));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(0, hash));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(1, new byte[Digests.HASH_SIZE - 1]));
 		assertThat(DriverOptions.DEFAULT,
-			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, none)));
+			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 100, none)));
 	}
 
 	@Example

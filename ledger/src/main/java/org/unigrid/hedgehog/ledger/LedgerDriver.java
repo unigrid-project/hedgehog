@@ -27,8 +27,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -44,9 +49,11 @@ import org.unigrid.hedgehog.ledger.Gossip.Receipt;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 
-/* The only caller of a ledger node. Every entry point only hands its event to the serial executor, so the node is
-   given one event at a time, in order, and what it returns is acted on only after the call has returned: by then it
-   has saved what it signed. The clock, the timers, the executor and the network are given, so the driver is as
+/* The only caller of a ledger node. Every entry point only hands its event to one of two lanes that the serial
+   executor drains, so the node is given one event at a time, and what it returns is acted on only after the call
+   has returned: by then it has saved what it signed. What the driver does itself and what its caller asks of it
+   is in the control lane and runs ahead of the items of peers, which wait in a lane of their own, bounded in all
+   and for each peer. The clock, the timers, the executor and the network are given, so the driver is as
    deterministic as they are.
 
    The driver keeps the engine's side of the contract: it ticks the node about once a second, calls onWork() after
@@ -68,6 +75,7 @@ public final class LedgerDriver implements Closeable {
 	private static final String NOT_CHECKED = "Rejected: it could not be checked";
 	private static final long MAX_BACKOFF_MILLIS = 60_000;
 	private static final int MAX_REASON_LENGTH = 200;
+	private static final int INBOUND_PER_RUN = 64;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
 	   before it asks for the next. Closing a node lets go of its sign state and no more, so the factory closes the
@@ -105,19 +113,19 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
-	/* `maxQueuedInbound` is how many items of peers may wait for the serial executor at once: one more is dropped at
-	   the door. Each holds an object that is already decoded, so what the queue can hold is this many of the largest
-	   thing a peer can send. */
+	/* `maxQueuedInbound` is how many items of peers may wait for the serial executor at once, and
+	   `maxQueuedPerPeer` how many of them one peer may have: one more is dropped at the door. Each holds an object
+	   that is already decoded, so what the queue can hold is this many of the largest thing a peer can send. */
 	public record DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
-		long restartWindowMillis, int maxQueuedInbound, Optional<Checkpoint> trusted) {
+		long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted) {
 		public static final DriverOptions DEFAULT = new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000,
-			Optional.empty());
+			100, Optional.empty());
 
 		public DriverOptions {
 			Objects.requireNonNull(trusted);
 
 			if (LongStream.of(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis,
-				maxQueuedInbound).anyMatch(value -> value <= 0)) {
+				maxQueuedInbound, maxQueuedPerPeer).anyMatch(value -> value <= 0)) {
 				throw new IllegalArgumentException("Every interval and limit of the driver is above 0");
 			}
 		}
@@ -148,7 +156,11 @@ public final class LedgerDriver implements Closeable {
 	private final byte[] seed;
 	private final Gossip gossip;
 	private final CompletableFuture<Void> closed = new CompletableFuture<>();
+	private final Queue<Runnable> controlLane = new ConcurrentLinkedQueue<>();
+	private final Queue<Runnable> inboundLane = new ConcurrentLinkedQueue<>();
+	private final AtomicBoolean drainPosted = new AtomicBoolean();
 	private final AtomicInteger pendingInbound = new AtomicInteger();
+	private final ConcurrentMap<String, Integer> queuedPerPeer = new ConcurrentHashMap<>();
 	private final AtomicLong droppedInbound = new AtomicLong();
 	private final Map<Timeout, Cancellable> timers = new HashMap<>();
 	private volatile State state = State.NEW;
@@ -179,7 +191,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	public void start() {
-		post(this::begin);
+		control(this::begin);
 	}
 
 	/* The node is closed once the serial executor gets to it, so a caller that needs its files free waits for
@@ -188,7 +200,7 @@ public final class LedgerDriver implements Closeable {
 	@Override
 	public void close() {
 		try {
-			serial.execute(this::end);
+			control(this::end);
 		} catch (RejectedExecutionException e) {
 			end();
 		}
@@ -199,9 +211,20 @@ public final class LedgerDriver implements Closeable {
 		return closed;
 	}
 
-	/* How many items of peers were dropped at the door because the queue was full, for the application to log */
+	/* How many items of peers were dropped at the door because the queue was full, or the share of the peer in it,
+	   for the application to log */
 	public long droppedInbound() {
 		return droppedInbound.get();
+	}
+
+	/* How many items of peers wait for the serial executor now */
+	public int queuedInbound() {
+		return pendingInbound.get();
+	}
+
+	/* How many peers have an item in the queue: none when it is empty, whatever passed through it */
+	int queuedPeers() {
+		return queuedPerPeer.size();
 	}
 
 	/* True once the driver has halted, and it stays true after it is closed */
@@ -258,7 +281,7 @@ public final class LedgerDriver implements Closeable {
 	   must not wait for the driver. An executor that takes no more tasks makes this throw, not answer. */
 	public CompletableFuture<Optional<String>> submit(Transaction transaction) {
 		return CompletableFuture.supplyAsync(() -> guarded(() -> admit(transaction), Optional.of(NOT_RUNNING)),
-			serial::execute);
+			this::control);
 	}
 
 	private Optional<String> admit(Transaction transaction) {
@@ -292,56 +315,112 @@ public final class LedgerDriver implements Closeable {
 
 	/* Every item of a peer takes a place in the queue and then a token of its kind before anything is done for it,
 	   and `refused` is what is done when it gets none, or when there is no node to give it to. The token is the first
-	   thing asked: the work of an item, such as the check of a signature, is bounded by the buckets. */
+	   thing asked: the work of an item, such as the check of a signature, is bounded by the buckets. A peer that
+	   cannot say who it is gets no place. This runs on the thread of the caller and holds nothing up. */
 	private void inbound(Item item, Runnable handler, Runnable refused) {
-		if (!enqueue()) {
+		final String peer = idOf(item.from());
+
+		if (peer == null || !enqueue(peer)) {
+			droppedInbound.incrementAndGet();
 			refused.run();
 			return;
 		}
 
+		inboundLane.add(() -> serve(peer, item, handler, refused));
+		wake();
+	}
+
+	private static String idOf(LedgerPeer peer) {
 		try {
-			post(() -> serve(item, handler, refused));
-		} catch (RejectedExecutionException e) {
+			return peer.id();
+		} catch (RuntimeException e) {
+			return null;
+		}
+	}
+
+	/* A flood must not fill the queue before a limit applies, nor one peer take the places of the others. An item
+	   that finds the queue full, or its peer's share of it, is dropped and charged to no one: with the queue full
+	   there is no telling whose doing it is, and the buckets judge once there is room. */
+	private boolean enqueue(String peer) {
+		if (pendingInbound.incrementAndGet() > options.maxQueuedInbound()) {
 			pendingInbound.decrementAndGet();
-			throw e;
+			return false;
 		}
+
+		if (queuedPerPeer.merge(peer, 1, Integer::sum) > options.maxQueuedPerPeer()) {
+			release(peer);
+			return false;
+		}
+
+		return true;
 	}
 
-	/* A flood must not fill the queue of the serial executor before a limit applies, with the ticks and timers
-	   waiting behind it. An item that finds the queue full is dropped and charged to no one: with the queue full
-	   there is no telling whose doing it is, and the buckets judge once the queue has room. Ticks, timers, local
-	   submits and the close are not held to this. */
-	private boolean enqueue() {
-		if (pendingInbound.incrementAndGet() <= options.maxQueuedInbound()) {
-			return true;
-		}
-
+	private void release(String peer) {
 		pendingInbound.decrementAndGet();
-		droppedInbound.incrementAndGet();
-		return false;
+		queuedPerPeer.computeIfPresent(peer, (id, count) -> count == 1 ? null : count - 1);
 	}
 
-	private void serve(Item item, Runnable handler, Runnable refused) {
+	private void serve(String peer, Item item, Runnable handler, Runnable refused) {
 		try {
-			if (ready() && limiter.allow(item.from().id(), item.kind())) {
+			if (ready() && limiter.allow(peer, item.kind())) {
 				handler.run();
 			} else {
 				refused.run();
 			}
 		} finally {
-			pendingInbound.decrementAndGet();
+			release(peer);
 		}
 	}
 
-	/* Everything the driver does is given to the serial executor here, and an exception that gets out of it is the
-	   failure of what the driver stands on: the network, the scheduler or a peer. It says nothing of the node, and a
-	   run that stops half way has lost actions, such as a Schedule that leaves the engine without a timer, or the
-	   tick that would have come again. The driver stops, and says why. */
-	private void post(Runnable task) {
-		serial.execute(() -> guarded(() -> {
+	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer
+	   or a rebuild that waited behind a queue of them would be late by all of them. Never dropped. */
+	private void control(Runnable task) {
+		controlLane.add(task);
+		wake();
+	}
+
+	/* One run of the serial executor drains both lanes, and is posted when a lane gets a task and none is posted:
+	   the executor holds one task of the driver, not as many as were sent to it. */
+	private void wake() {
+		if (drainPosted.compareAndSet(false, true)) {
+			try {
+				serial.execute(this::drain);
+			} catch (RejectedExecutionException e) {
+				drainPosted.set(false);
+				throw e;
+			}
+		}
+	}
+
+	/* All of the control lane first, then so many items of peers that the control work that comes meanwhile waits
+	   for no more than that. What is left makes the run post itself again. */
+	private void drain() {
+		try {
+			for (Runnable task = controlLane.poll(); task != null; task = controlLane.poll()) {
+				guard(task);
+			}
+
+			for (int served = 0; served < INBOUND_PER_RUN && !inboundLane.isEmpty(); served++) {
+				guard(inboundLane.poll());
+			}
+		} finally {
+			drainPosted.set(false);
+
+			if (!controlLane.isEmpty() || !inboundLane.isEmpty()) {
+				wake();
+			}
+		}
+	}
+
+	/* An exception that gets out of a task is the failure of what the driver stands on: the network, the scheduler
+	   or a peer. It says nothing of the node, and a run that stops half way has lost actions, such as a Schedule
+	   that leaves the engine without a timer, or the tick that would have come again. The driver stops, and says
+	   why. */
+	private void guard(Runnable task) {
+		guarded(() -> {
 			task.run();
 			return null;
-		}, null));
+		}, null);
 	}
 
 	private <T> T guarded(Supplier<T> work, T whenItFailed) {
@@ -443,7 +522,7 @@ public final class LedgerDriver implements Closeable {
 	/* A timer that is pending is left as it is: asking again must not push it out */
 	private void arm(Timeout timeout, long delayMillis) {
 		if (!timers.containsKey(timeout)) {
-			timers.put(timeout, scheduler.schedule(() -> post(() -> fire(timeout)), delayMillis));
+			timers.put(timeout, scheduler.schedule(() -> control(() -> fire(timeout)), delayMillis));
 		}
 	}
 
@@ -484,7 +563,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void scheduleTick() {
-		ticker = scheduler.schedule(() -> post(this::tick), options.tickMillis());
+		ticker = scheduler.schedule(() -> control(this::tick), options.tickMillis());
 	}
 
 	/* The tick comes again whether or not there is a node to give it to */
@@ -577,7 +656,7 @@ public final class LedgerDriver implements Closeable {
 			backoff = options.tickMillis();
 		} else {
 			node = null;
-			rebuilder = scheduler.schedule(() -> post(this::rebuild), backoff);
+			rebuilder = scheduler.schedule(() -> control(this::rebuild), backoff);
 			backoff = Math.min(2 * backoff, MAX_BACKOFF_MILLIS);
 		}
 	}

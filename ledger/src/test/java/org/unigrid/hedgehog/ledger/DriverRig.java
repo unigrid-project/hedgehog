@@ -42,8 +42,9 @@ final class DriverRig implements AutoCloseable {
 	static final long STATUS = 6_000;
 	static final long RESTART_WINDOW = 10_000;
 	static final int QUEUE = 1_000;
+	static final int PER_PEER = 100;
 	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, 30_000, RESTART_WINDOW, QUEUE,
-		Optional.empty());
+		PER_PEER, Optional.empty());
 
 	/* A score of 2 makes a penalty: a message that costs 2 is punished at once, one that costs 1 the second time */
 	static final Policy STRICT = new Policy(Policy.DEFAULT.rates(), Policy.DEFAULT.global(), 2, 10, 60_000, 100);
@@ -107,10 +108,14 @@ final class DriverRig implements AutoCloseable {
 	private boolean newNodesBroken;
 
 	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial) {
+		this(validators, seed, policy, serial, OPTIONS);
+	}
+
+	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial, DriverOptions options) {
 		this.validators = validators;
 		this.seed = seed;
 		this.limiter = new PeerLimiter(clock::get, policy);
-		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, OPTIONS, seed);
+		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, options, seed);
 	}
 
 	static DriverRig solo() {
@@ -127,7 +132,11 @@ final class DriverRig implements AutoCloseable {
 	}
 
 	static DriverRig four(Policy policy) {
-		return new DriverRig(FOUR, seed(2), policy, new DirectSerial()).started();
+		return four(2, policy);
+	}
+
+	static DriverRig four(int validator, Policy policy) {
+		return new DriverRig(FOUR, seed(validator), policy, new DirectSerial()).started();
 	}
 
 	static DriverRig observer() {

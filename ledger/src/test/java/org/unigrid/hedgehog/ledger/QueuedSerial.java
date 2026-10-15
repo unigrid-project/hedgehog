@@ -35,6 +35,11 @@ final class QueuedSerial implements Serial {
 		return queue.size();
 	}
 
+	/* Only the next task, so that a test can look between one run of the driver and the next */
+	void runOne() {
+		queue.remove().run();
+	}
+
 	void drain() {
 		while (!queue.isEmpty()) {
 			queue.remove().run();
