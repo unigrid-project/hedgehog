@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
@@ -44,6 +45,8 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.lifecycle.AfterContainer;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
@@ -71,6 +74,9 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.ANY_MINT;
 public class LedgerDriverSyncTest {
 	private static final int BLOCKS = 40;
 	private static final long TIP = BLOCKS;
+
+	/* The two chains of one genesis that the property draws on, built once for all of its tries */
+	private static final List<Chain> PROPERTY_CHAINS = new ArrayList<>();
 
 	/* Every peer is connected */
 	private static final Supplier<Set<String>> EVERYONE = () -> new AbstractSet<>() {
@@ -121,6 +127,16 @@ public class LedgerDriverSyncTest {
 		}
 	}
 
+	/* What a test knows of the driver that a server answers */
+	private interface Watch {
+		boolean ready();
+
+		long height();
+
+		/* Which chain the ledger holds: 'A', 'F' or '-' when it holds nothing */
+		char chain();
+	}
+
 	/* The other end of a sync, which answers from a chain unless it is told to serve something else, to hold its
 	   answers until they are released, or to fail */
 	private static final class Server implements LedgerPeer {
@@ -136,7 +152,11 @@ public class LedgerDriverSyncTest {
 		private boolean emptying;
 		private boolean tampering;
 		private long delivered;
+		private long crossServed;
+		private long badNewServed;
 		private int failuresLeft;
+		private char tag = 'A';
+		private Watch watch;
 		private Throwable failure;
 
 		private Server(String id, Chain chain) {
@@ -163,7 +183,33 @@ public class LedgerDriverSyncTest {
 			final List<Block> blocks = serving.apply(request);
 
 			delivered += blocks.size();
+			note(request, blocks);
 			return tampering ? spoiling(blocks, request.from() + 1) : blocks;
+		}
+
+		/* What the driver must make of this answer, as far as the test can tell: a batch of another chain than the
+		   ledger holds, given to a driver that can take it, halts it, and a block that is new and false, in a batch
+		   that it takes, makes the peer doubted */
+		private void note(BlockRequest request, List<Block> blocks) {
+			if (watch != null && watch.ready() && !blocks.isEmpty()) {
+				if (watch.chain() != '-' && watch.chain() != tag) {
+					crossServed++;
+				}
+
+				if (tampering && blocks.size() >= 2 && request.from() + 1 > watch.height()) {
+					badNewServed++;
+				}
+			}
+		}
+
+		private Server of(char chainTag) {
+			tag = chainTag;
+			return this;
+		}
+
+		private Server watched(Watch what) {
+			watch = what;
+			return this;
 		}
 
 		private Server emptying() {
@@ -1738,8 +1784,14 @@ public class LedgerDriverSyncTest {
 			assertThat(rig.driver.syncing(), is(false));
 		} else {
 			alive.forEach(node -> assertThat(rig.driver.signing(), equalTo(node.signs())));
-			assertThat(!rig.driver.syncing() || servers.stream().anyMatch(Server::hasHeld), is(true));
+			assertThat(!rig.driver.syncing() || servers.stream().anyMatch(Server::hasHeld) || waiting(rig), is(true));
 		}
+	}
+
+	/* Whether a sync waits for a pace or a retry to pass */
+	private static boolean waiting(DriverRig rig) {
+		return rig.timers().stream().anyMatch(timer -> timer.delayMillis() == Syncer.PACE_MILLIS
+			|| timer.delayMillis() == Syncer.RETRY_MILLIS);
 	}
 
 	@Example
@@ -2008,6 +2060,84 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
+	public void shouldApplyNothingAndBlameNoOneForABatchThatComesAfterTheClose() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(TOUCHY)) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.hears(server, server.status());
+			rig.driver.close();
+			server.release();
+
+			assertThat(rig.ledger().height(), equalTo(0L));
+			assertThat(rig.driver.doubts("S"), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.scheduler.pending(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldStartNoWaitAndMarkNoOneForARequestThatFailsAfterTheDriverHalted() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(TOUCHY)) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.scheduler.runAtOnce();
+			rig.hears(server, server.status());
+			rig.driver.halt("stopped");
+			server.failHeld(new IllegalStateException("The request timed out"));
+
+			assertThat(server.requests, hasSize(1));
+			assertThat(rig.driver.doubts("S"), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.scheduler.pending(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaveNothingWaitingWhenTheVoteThatAnUnansweredRequestAsksForHaltsTheDriver()
+		throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.scheduler.runAtOnce();
+			rig.hears(server, server.status());
+			rig.passGrace();
+			rig.failCreation(new IOException("The files are gone"));
+			server.failHeld(new IllegalStateException("The request timed out"));
+
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.scheduler.pending(), is(empty()));
+			assertThat(server.requests, hasSize(1));
+			assertFailsClosed(rig, List.of(server));
+		}
+	}
+
+	@Example
+	public void shouldApplyNoMoreBlocksOnceTheDriverHasStoppedBetweenTwoOfThem() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (Chain chain = new Chain(BLOCKS, 10);
+			DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), TOUCHY, serial).started()) {
+			final Server server = new Server("S", chain).holding();
+
+			serial.drain();
+			rig.hears(server, server.status());
+			serial.drain();
+			rig.network.refuse(new IllegalStateException("The network failed"));
+			server.release();
+			rig.ticker().fire();
+			serial.drain();
+
+			assertThat(rig.ledger().height(), equalTo(1L));
+			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.doubts("S"), is(false));
+			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.scheduler.pending(), is(empty()));
+			assertThat(live(rig), is(empty()));
+		}
+	}
+
+	@Example
 	public void shouldEndTheSyncAndNotHaltWhenAPeerGivesNoFutureForARequest() throws IOException {
 		try (Chain chain = new Chain(3, 10); DriverRig rig = fresh()) {
 			final LedgerPeer mute = new LedgerPeer() {
@@ -2040,7 +2170,7 @@ public class LedgerDriverSyncTest {
 	}
 
 	private static int kindOf(int code) {
-		return code % 65 == 64 ? 13 : code % 13;
+		return code % 75 == 74 ? 15 : code % 15;
 	}
 
 	private static Server serverOf(int code, List<Server> servers) {
@@ -2054,19 +2184,20 @@ public class LedgerDriverSyncTest {
 			: new byte[Digests.HASH_SIZE]));
 	}
 
-	private static void act(int code, DriverRig rig, Chain chain, List<Server> servers, RecordingPeer peer) {
+	private static void act(int code, DriverRig rig, List<Chain> chains, List<Server> servers, RecordingPeer peer) {
 		final Server server = serverOf(code, servers);
 		final long amount = code / 144;
+		final Chain chain = chains.get(server.tag == 'A' ? 0 : 1);
 
 		switch (kindOf(code)) {
 			case 0 -> rig.hears(server, server.status());
 			case 1 -> rig.hears(server, claim(chain, amount % 32));
-			case 2 -> server.releaseIfHeld();
-			case 3 -> server.failIfHeld();
+			case 2 -> servers.stream().filter(Server::hasHeld).findFirst().ifPresent(Server::releaseIfHeld);
+			case 3 -> servers.stream().filter(Server::hasHeld).findFirst().ifPresent(Server::failIfHeld);
 			case 4 -> rig.tick(1 + amount % 5_000);
 			case 5 -> fireATimer(rig, amount);
 			case 6 -> rig.passGrace();
-			case 7 -> deliverTheNextBlock(rig, chain, peer);
+			case 7 -> deliverTheNextBlock(rig, chains.get((int) (amount % 2)), peer);
 			case 8 -> {
 				rig.breakNode();
 				rig.tick(DriverRig.TICK);
@@ -2078,6 +2209,9 @@ public class LedgerDriverSyncTest {
 			}
 			case 11 -> server.tampering = amount % 2 == 0;
 			case 12 -> server.holding = false;
+			case 13 -> rig.timers().stream().filter(timer -> timer.delayMillis() == Syncer.PACE_MILLIS
+				|| timer.delayMillis() == Syncer.RETRY_MILLIS).forEach(ManualScheduler.Timer::fire);
+			case 14 -> rig.clock.addAndGet(-Math.min(amount % 3_000, rig.clock.get() - DriverRig.START));
 			default -> rig.failCreation(new IOException("The files are gone"));
 		}
 	}
@@ -2108,34 +2242,151 @@ public class LedgerDriverSyncTest {
 		return new Policy(rates, rates, 1_000_000, 10, 60_000, 100);
 	}
 
+	@BeforeContainer
+	static void buildTheChainsOfTheProperty() throws IOException {
+		PROPERTY_CHAINS.add(new Chain(24, 10));
+		PROPERTY_CHAINS.add(new Chain(24, 11));
+	}
+
+	@AfterContainer
+	static void dropTheChainsOfTheProperty() throws IOException {
+		for (final Chain chain : PROPERTY_CHAINS) {
+			chain.close();
+		}
+
+		PROPERTY_CHAINS.clear();
+	}
+
+	/* A checkpoint on one of the two chains, or none: what the driver must not hold another block than at its height */
+	private static Optional<Checkpoint> checkpointOf(List<Integer> script, List<Chain> chains) {
+		final int which = script.get(1) % 5;
+		final long height = 3 + script.get(2) % 20;
+
+		return which == 2 || which == 3
+			? Optional.of(new Checkpoint(height, chains.get(which - 2).block(height).hash())) : Optional.empty();
+	}
+
+	/* Which of the two chains the ledger holds the start of */
+	private static boolean startsLike(Ledger ledger, Chain chain) {
+		return IntStream.rangeClosed(1, (int) ledger.height())
+			.allMatch(height -> chain.ledger.hashAt(height).isPresent()
+				&& Arrays.equals(ledger.hashAt(height).orElseThrow(), chain.ledger.hashAt(height).orElseThrow()));
+	}
+
+	/* What must hold after any step of the property, whatever the step was: the ledger never loses a block and is the
+	   start of one of the chains, never a checkpoint is contradicted, one request is out at most and the driver says
+	   it syncs exactly when one is out or a sync waits to ask again, what is served that must halt the driver has
+	   halted it, and a peer that served a false block is doubted for as long as the memory of it lasts */
+	private static void assertSound(DriverRig rig, List<Server> servers, List<Chain> chains, Optional<Checkpoint> cp,
+		long[] before, long[] doubtedUntil, long lowest) {
+		final Ledger ledger = rig.ledger();
+
+		assertThat(ledger.height() >= lowest, is(true));
+		assertThat(startsLike(ledger, chains.get(0)) || startsLike(ledger, chains.get(1)), is(true));
+		cp.ifPresent(checkpoint -> assertThat(ledger.hashAt(checkpoint.height()).map(held -> Arrays.equals(held,
+			checkpoint.hash())).orElse(true), is(true)));
+
+		final int outstanding = servers.stream().mapToInt(server -> server.held.size()).sum();
+
+		assertThat(outstanding <= 1, is(true));
+
+		if (!rig.driver.halted()) {
+			assertThat(rig.driver.syncing(), equalTo(outstanding == 1 || waiting(rig)));
+		}
+
+		for (int n = 0; n < servers.size(); n++) {
+			final Server server = servers.get(n);
+
+			if (server.crossServed > before[2 * n]) {
+				assertThat(rig.driver.halted(), is(true));
+			}
+
+			if (server.badNewServed > before[2 * n + 1] && !rig.driver.halted() && !rig.limiter.isPenalised(server.id)) {
+				assertThat(rig.driver.doubts(server.id), is(true));
+				doubtedUntil[n] = rig.clock.get() + SyncState.MEMORY_MILLIS;
+			}
+
+			if (rig.clock.get() < doubtedUntil[n] && !rig.driver.halted()) {
+				assertThat(rig.driver.doubts(server.id), is(true));
+			}
+		}
+	}
+
 	/* The restart window is 1 ms and every step takes one, so that nothing waits for a window while the claims and
-	   the marks run their own time */
+	   the marks run their own time. The waits of a sync are kept, and fired as any other timer is. */
 	@Property(tries = 30)
 	public void shouldFailClosedWhateverStatusesBatchesFailuresAndTimersComeInWhateverOrder(
-		@ForAll @Size(min = 5, max = 60) List<@IntRange(min = 0, max = 1_000_000) Integer> script)
+		@ForAll @Size(min = 8, max = 80) List<@IntRange(min = 0, max = 1_000_000) Integer> script)
 		throws IOException {
+		final List<Chain> chains = List.copyOf(PROPERTY_CHAINS);
+		final Optional<Checkpoint> checkpoint = checkpointOf(script, chains);
 		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
-			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.empty());
+			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint);
 
-		try (Chain chain = new Chain(24, 10);
-			DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
-			final List<Server> servers = List.of(new Server("A", chain), new Server("B", chain),
-				new Server("C", chain).emptying());
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
+			final Watch watch = new Watch() {
+				@Override
+				public boolean ready() {
+					return live(rig).size() == 1 && !rig.driver.halted();
+				}
+
+				@Override
+				public long height() {
+					return rig.ledger().height();
+				}
+
+				@Override
+				public char chain() {
+					return rig.ledger().height() == 0 ? '-' : startsLike(rig.ledger(), chains.get(0)) ? 'A' : 'F';
+				}
+			};
+			final List<Server> servers = List.of(new Server("A", chains.get(0)).watched(watch),
+				new Server("B", chains.get(0)).watched(watch), new Server("C", chains.get(0)).emptying().watched(watch),
+				new Server("D", chains.get(1)).of('F').watched(watch),
+				new Server("E", chains.get(1)).of('F').watched(watch));
 			final RecordingPeer peer = rig.network.connect("P");
+			final long[] doubtedUntil = new long[servers.size()];
+			long lowest = 0;
 
-			if (script.get(0) % 3 > 0) {
+			rig.scheduler.runAtOnce();
+
+			if (script.get(0) % 6 > 0) {
 				rig.passGrace();
 			}
 
-			if (script.get(0) % 3 == 2) {
+			if (script.get(0) % 6 == 2 || script.get(0) % 6 == 3) {
 				servers.get(0).holding = true;
+				servers.get(0).tampering = script.get(0) % 6 == 3;
 				rig.hears(servers.get(0), servers.get(0).status());
 			}
 
+			if (script.get(0) % 6 == 4) {
+				servers.get(3).holding = true;
+				rig.hears(servers.get(1), servers.get(1).statusAt(10));
+				rig.hears(servers.get(3), servers.get(3).status());
+			}
+
+			if (script.get(0) % 6 == 5) {
+				servers.get(3).holding = true;
+				rig.hears(servers.get(3), servers.get(3).status());
+				deliverTheNextBlock(rig, chains.get(0), peer);
+			}
+
+			if (checkpoint.isPresent() && script.get(3) % 2 == 0) {
+				final Server other = servers.get(script.get(1) % 5 == 2 ? 3 : 0);
+
+				rig.hears(other, other.status());
+			}
+
 			for (final int code : script) {
+				final long[] before = servers.stream().flatMapToLong(server -> LongStream.of(server.crossServed,
+					server.badNewServed)).toArray();
+
 				rig.clock.addAndGet(1);
-				act(code, rig, chain, servers, peer);
+				act(code, rig, chains, servers, peer);
 				assertFailsClosed(rig, servers);
+				assertSound(rig, servers, chains, checkpoint, before, doubtedUntil, lowest);
+				lowest = rig.ledger().height();
 			}
 		}
 	}

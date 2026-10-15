@@ -122,12 +122,12 @@ final class Syncer {
 	/* The answer comes from any thread */
 	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
 		hooks.control().accept(() -> {
-			if (failure != null || batch == null) {
+			if (!supervisor.ready()) {
+				conclude();
+			} else if (failure != null || batch == null) {
 				lost(peer);
-			} else if (supervisor.ready()) {
-				take(peer, request, batch);
 			} else {
-				abandon(peer);
+				take(peer, request, batch);
 			}
 		});
 	}
@@ -136,12 +136,10 @@ final class Syncer {
 	   when it fails again the claim is dropped and the peer is doubted for a short time, so that another is tried.
 	   The vote is no longer held back by a request that got no answer. */
 	private void lost(LedgerPeer peer) {
-		if (!supervisor.ready()) {
-			abandon(peer);
-		} else if (sync.retryOnce()) {
+		if (sync.retryOnce()) {
 			sync.stopHolding();
 			hooks.promote().run();
-			askAfter(RETRY_MILLIS, peer);
+			waitOrConclude(RETRY_MILLIS, peer);
 		} else {
 			sync.failed(peer.id(), clock.getAsLong(), options.statusMillis());
 			abandon(peer);
@@ -166,9 +164,13 @@ final class Syncer {
 		return blocks.isEmpty() || blocks.get(0).getHeight() == request.from();
 	}
 
-	/* One block, and then the next one in a task of its own */
+	/* One block, and then the next one in a task of its own. The driver and its node are looked at again for each, as
+	   the tasks that come between may have stopped the driver or replaced the node: with no node, or none that runs,
+	   nothing is applied and no one is held to account for it, and the sync ends with the claim as it was. */
 	private void step(LedgerPeer peer, List<Block> blocks, int index, long before) {
-		if (index == blocks.size()) {
+		if (!supervisor.ready()) {
+			conclude();
+		} else if (index == blocks.size()) {
 			carryOn(peer, blocks.isEmpty(), before);
 		} else if (apply(peer, blocks.get(index))) {
 			hooks.control().accept(() -> step(peer, blocks, index + 1, before));
@@ -181,7 +183,7 @@ final class Syncer {
 	   node as a decision, which checks it as it does a decided one, and one that does not move the ledger up by exactly
 	   one is not right: the peer owes for it, and the rest of the batch is not looked at. */
 	private boolean apply(LedgerPeer peer, Block block) {
-		if (!supervisor.ready() || !vet(block)) {
+		if (!vet(block)) {
 			return false;
 		}
 
@@ -244,16 +246,17 @@ final class Syncer {
 			abandon(peer);
 		} else if (sync.claimsAbove(peer.id(), height, clock.getAsLong())) {
 			sync.progressed();
-			paceOrConclude(peer);
+			waitOrConclude(PACE_MILLIS, peer);
 		} else {
 			conclude();
 		}
 	}
 
-	/* The sync goes on a pace later, if there is a node to give the blocks to by then */
-	private void paceOrConclude(LedgerPeer peer) {
+	/* The sync goes on after a wait, if there is a node to give the blocks to: the vote that was asked for may have
+	   failed to be had, and the driver have halted, and then nothing waits */
+	private void waitOrConclude(long millis, LedgerPeer peer) {
 		if (supervisor.ready()) {
-			askAfter(PACE_MILLIS, peer);
+			askAfter(millis, peer);
 		} else {
 			conclude();
 		}
