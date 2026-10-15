@@ -81,6 +81,14 @@ public class PendingRequests {
 		}
 	}
 
+	/* Whether a reply of that type to that request is awaited on that channel, which a reader asks before it spends
+	   anything on decoding one */
+	public boolean awaits(final Channel channel, final long requestId, final Class<? extends Correlated> type) {
+		final Pending waiting = pending.get(requestId);
+
+		return waiting != null && waiting.channel().equals(channel) && waiting.type().isAssignableFrom(type);
+	}
+
 	public void complete(final Channel channel, final Correlated response) {
 		final long requestId = response.getRequestId();
 		final Pending waiting = pending.get(requestId);

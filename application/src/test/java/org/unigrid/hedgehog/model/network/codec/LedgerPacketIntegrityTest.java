@@ -114,7 +114,7 @@ public class LedgerPacketIntegrityTest extends BaseCodecTest<Packet> {
 		Packet.Type.LEDGER_HEARTBEAT, LedgerHeartbeatDecoder::new,
 		Packet.Type.LEDGER_STATUS, LedgerStatusDecoder::new,
 		Packet.Type.LEDGER_BLOCK_REQUEST, LedgerBlockRequestDecoder::new,
-		Packet.Type.LEDGER_BLOCK_BATCH, LedgerBlockBatchDecoder::new);
+		Packet.Type.LEDGER_BLOCK_BATCH, () -> new LedgerBlockBatchDecoder((channel, id) -> true));
 
 	private static final Map<Packet.Type, Integer> LENGTH_CAPS = Map.of(
 		Packet.Type.LEDGER_TRANSACTION, Claim.MAX_ENCODED_SIZE,

@@ -19,8 +19,11 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.DecoderException;
+import java.util.ArrayList;
+import java.util.List;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -57,7 +60,7 @@ public class ExactFrameTest {
 	private static EmbeddedChannel pipeline() {
 		return new EmbeddedChannel(new FrameDecoder(), new PingDecoder(), new LedgerTransactionDecoder(),
 			new LedgerConsensusDecoder(), new LedgerHeartbeatDecoder(), new LedgerStatusDecoder(),
-			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder());
+			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder((channel, id) -> true));
 	}
 
 	private static ByteBuf pingFrame(final long nanoTime) {
@@ -149,6 +152,36 @@ public class ExactFrameTest {
 
 		channel.writeInbound(frame.readRetainedSlice(frame.readableBytes()));
 		assertThat(channel.<Object>readInbound(), equalTo(packet));
+	}
+
+	/* A batch whose body no decoder could read: a length of a couple of gigabytes, and a few bytes after it */
+	private static ByteBuf unreadableBatch(final long requestId) {
+		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.LEDGER_BLOCK_BATCH.getValue())
+			.writeInt(Long.BYTES + 6).writeLong(requestId).writeBytes(new byte[] { 127, -1, -1, -1, 1, 2 });
+	}
+
+	@Property(tries = 20)
+	public void leavesABatchThatNobodyAwaitsWholeAndUnread(@ForAll long requestId,
+		@ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final List<Long> asked = new ArrayList<>();
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), new LedgerBlockBatchDecoder(
+			(stream, id) -> asked.add(id) && false), new LedgerStatusDecoder());
+		final Packet next = LedgerStatus.builder().status(status(seed)).build();
+
+		channel.writeInbound(unreadableBatch(requestId));
+		channel.writeInbound(encoded(next));
+
+		assertThat(channel.<Object>readInbound(), equalTo(next));
+		assertThat(asked, equalTo(List.of(requestId)));
+	}
+
+	@Property(tries = 20)
+	public void readsABatchThatIsAwaitedAndRefusesWhatIsNotOne(@ForAll long requestId) {
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(),
+			new LedgerBlockBatchDecoder((stream, id) -> id == requestId), new LedgerStatusDecoder());
+
+		assertThrows(DecoderException.class, () -> channel.writeInbound(unreadableBatch(requestId)));
 	}
 
 	@Example

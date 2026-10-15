@@ -18,9 +18,11 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -223,7 +225,7 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		final Object frame = sender.readOutbound();
 		final EmbeddedChannel receiver = new EmbeddedChannel(new FrameDecoder(), new LedgerTransactionDecoder(),
 			new LedgerConsensusDecoder(), new LedgerHeartbeatDecoder(), new LedgerStatusDecoder(),
-			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder());
+			new LedgerBlockRequestDecoder(), new LedgerBlockBatchDecoder((channel, id) -> true));
 
 		assertThat("Nothing was sent", frame, notNullValue());
 		receiver.writeInbound(frame);
@@ -463,6 +465,63 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(waiting.isDone(), is(true));
 		assertThat(waiting.getNow(null).getBatch(), equalTo(LedgerWireFixtures.emptyBatch()));
 		assertThat(calls.isEmpty(), is(true));
+	}
+
+	/* A batch whose body no decoder could read, so that it is read only if the decoder takes it up */
+	private static ByteBuf unreadableBatch(final long requestId) {
+		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.LEDGER_BLOCK_BATCH.getValue())
+			.writeInt(Long.BYTES + 6).writeLong(requestId).writeBytes(new byte[] { 127, -1, -1, -1, 1, 2 });
+	}
+
+	@Property(tries = 6)
+	public void readsABatchOnlyForARequestOfThatStream(@ForAll @IntRange(min = 0, max = 2) int awaitedOn) {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final EmbeddedChannel other = streamFrom(OTHER);
+		final long requestId = pending.nextRequestId();
+
+		if (awaitedOn > 0) {
+			pending.register(requestId, awaitedOn == 1 ? channel : other, LedgerBlockBatch.class);
+		}
+
+		channel.writeInbound(unreadableBatch(requestId));
+
+		assertThat(channel.isOpen(), is(awaitedOn != 1));
+		assertThat(calls.isEmpty(), is(true));
+		pending.fail(requestId, new RejectedExecutionException("done with the request"));
+	}
+
+	@Property(tries = 5)
+	public void tellsWhatItCannotDecodeInOneLineAtDebugLevel(@ForAll @IntRange(min = 0, max = 100) int seed) {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final ByteBuf frame = LedgerWireFixtures.resized(encoded(LedgerStatus.builder()
+			.status(LedgerWireFixtures.status(seed)).build()), 1);
+
+		try (DebugLog log = new DebugLog(AbstractInboundHandler.class)) {
+			channel.writeInbound(frame);
+
+			assertThat(log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage())
+				.toList(), contains(startsWith("DEBUG Closed a stream: ")));
+			assertThat(log.events().get(0).getFormattedMessage().contains("\n"), is(false));
+		}
+
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	@Example
+	public void tellsAFailureOfTheNodeInFullAtWarningLevel() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		failure = new IllegalStateException("The driver is broken");
+
+		try (DebugLog log = new DebugLog(AbstractInboundHandler.class)) {
+			channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(1))
+				.build()));
+
+			assertThat(log.events().stream().map(ILoggingEvent::getLevel).toList(), contains(Level.WARN));
+			assertThat(log.events().get(0).getFormattedMessage().contains("IllegalStateException"), is(true));
+		}
+
+		assertThat(channel.isOpen(), is(false));
 	}
 
 	@Example

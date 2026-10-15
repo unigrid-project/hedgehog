@@ -290,11 +290,41 @@ public class LedgerPipelineTest extends BaseServerTest {
 			new Frame(Packet.Type.LEDGER_TRANSACTION, new byte[] { 0, 0, 0, 3, 99, 0, 0 }),
 			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 127, -1, -1, -1 }),
 			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 0, 0, 0, 3, 99, 0, 0 }),
+			new Frame(Packet.Type.LEDGER_TRANSACTION, new byte[] { 0, 0, 0, 100, 2, 0, 0 }),
+			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 0, 0, 0, 100, 1, 0, 0 }));
+	}
+
+	/* Batches that could not be read, from a peer that was not asked for one: they are left unread, and the stream,
+	   which carries every protocol, is as it was */
+	@Provide
+	Arbitrary<Frame> unaskedBatches() {
+		return Arbitraries.of(
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 127, -1, -1, -1 }),
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, -1, -1 }),
-			new Frame(Packet.Type.LEDGER_TRANSACTION, new byte[] { 0, 0, 0, 100, 2, 0, 0 }),
-			new Frame(Packet.Type.LEDGER_CONSENSUS, new byte[] { 0, 0, 0, 100, 1, 0, 0 }),
 			new Frame(Packet.Type.LEDGER_BLOCK_BATCH, new byte[] { 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 100, 1, 2 }));
+	}
+
+	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
+	public void leavesAnUnaskedBatchUnreadAndKeepsTheStreamOpen(
+		@ForAll("provideTestServers") List<TestServer> servers, @ForAll("unaskedBatches") Frame frame,
+		@ForAll @IntRange(min = 0, max = 100) int seed) throws Exception {
+
+		for (final TestServer server : servers) {
+			final P2PClient sender = clientOf(server);
+
+			calls.clear();
+
+			try {
+				sender.getChannel().writeAndFlush(frameOf(frame.type(), frame.body()));
+				sender.send(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build());
+				await().until(() -> heard().size() == 1);
+
+				assertThat(heard().get(0).argument(), equalTo(LedgerWireFixtures.status(seed)));
+				assertThat(isOpen(sender), is(true));
+			} finally {
+				sender.closeDirty();
+			}
+		}
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
