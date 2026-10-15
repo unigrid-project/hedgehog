@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.ledger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.LongFunction;
 import java.util.function.LongSupplier;
@@ -42,6 +43,12 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to send
    them again.
 
+   The driver serves the blocks it has committed to nodes that are behind. A node that dies before it has sent the
+   Decision of the event that decided loses that Decision, and its peers are told of the block only by what the
+   driver serves. A sign state of a height above the next one means that the block log lost its tail, and the start
+   is refused with a BlockLogBehindException: the operator restores the tail of the block log from a peer and never
+   deletes the sign state, as a node without it could sign again at a height it has signed at.
+
    Events come one at a time, as the engine takes them, and the driver calls tick() about once a second, which is the
    rate the engine's rules for a node at rest are written for. */
 public final class LedgerNode {
@@ -60,11 +67,11 @@ public final class LedgerNode {
 	}
 
 	/* A null seed is an observer: it follows and commits the decisions, never votes, and neither reads nor writes
-	   the store */
+	   the store, so it needs none. A validator without a store could not keep what it signed. */
 	public LedgerNode(Ledger ledger, byte[] seed, Timeouts timeouts, SignStore store, LongSupplier clock) {
 		this.ledger = ledger;
 		this.engine = new Consensus(ledger, ledger.chainId(), seed, timeouts);
-		this.store = store;
+		this.store = seed == null ? store : Objects.requireNonNull(store, "A validator needs a sign store");
 		this.clock = clock;
 		this.signs = seed != null;
 	}
@@ -99,7 +106,8 @@ public final class LedgerNode {
 	private static void requireNotAhead(SignState state, long next) throws BlockLogBehindException {
 		if (state.height() > next) {
 			throw new BlockLogBehindException("The block log is behind the sign state: the ledger is at height "
-				+ (next - 1) + ", and the sign state is of height " + state.height());
+				+ (next - 1) + ", and the sign state is of height " + state.height()
+				+ ". Restore the tail of the block log from a peer; never delete the sign state");
 		}
 	}
 
@@ -134,6 +142,8 @@ public final class LedgerNode {
 		return run(engine::onWork);
 	}
 
+	/* For questions to the ledger and for submit(Heartbeat), which are not events of the engine. A block committed
+	   through it goes past the node: the engine is not told, and the sign state is not saved. */
 	public Ledger ledger() {
 		return ledger;
 	}

@@ -477,6 +477,43 @@ public class LedgerNodeTest {
 	}
 
 	@Example
+	public void shouldTellWhatToDoWhenTheBlockLogIsBehindTheSignState() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+
+			file.save(midView(5), 1);
+
+			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get), 1, file, clock::get);
+			final BlockLogBehindException refused = assertThrows(BlockLogBehindException.class, node::start);
+
+			assertThat(refused.getMessage(), containsString("Restore the tail of the block log from a peer"));
+			assertThat(refused.getMessage(), containsString("never delete the sign state"));
+		}
+	}
+
+	@Example
+	public void shouldRefuseAValidatorWithoutASignStore() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
+
+			assertThrows(NullPointerException.class, () -> node(ledger, 1, null, clock::get));
+		}
+	}
+
+	@Example
+	public void shouldTakeAnObserverWithoutASignStore() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final LedgerNode node = observer(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), null, clock::get);
+
+			assertThat(node.start(), is(empty()));
+			assertThat(node.tick(), is(empty()));
+		}
+	}
+
+	@Example
 	public void shouldStartAnObserverWhoseBlockLogIsBehindTheSignState() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
