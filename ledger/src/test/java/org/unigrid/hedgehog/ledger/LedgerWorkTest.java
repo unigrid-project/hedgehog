@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
@@ -40,8 +41,13 @@ public class LedgerWorkTest {
 	private static final long CLOCK = 30_000;
 
 	private static Ledger open(FileSystem fileSystem, String name, LedgerAuthority authority) throws IOException {
+		return open(fileSystem, name, authority, CLOCK);
+	}
+
+	private static Ledger open(FileSystem fileSystem, String name, LedgerAuthority authority, long clock)
+		throws IOException {
 		return new Ledger(state(1000, authority, FOUNDATION),
-			BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")), () -> CLOCK);
+			BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")), () -> clock);
 	}
 
 	private static void assertWork(Ledger ledger, long time, boolean expected) {
@@ -178,6 +184,40 @@ public class LedgerWorkTest {
 			ledger.commit(nextBlock(ledger, FOUNDATION, 3000));
 
 			assertWork(ledger, 3000, false);
+		}
+	}
+
+	/* The time work is asked about is for the block that would be made: what the node takes in is still judged at
+	   its own clock, so a mint that is due at that later time but not yet by the clock is refused */
+	@Example
+	public void shouldTakeInOnlyWhatTheClockAllowsWhateverTimeWorkWasAskedAt() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), 10_000);
+
+			assertWork(ledger, 30_000, true);
+
+			assertThat(ledger.submit(DUE).orElse(""), containsString("not authorized"));
+			assertThat(ledger.pending(), equalTo(0));
+		}
+	}
+
+	/* What waits in the mempool is checked again at the clock after a commit, not at the time work was last asked
+	   about, which would drop a mint that the authority only allows until a time the clock has not reached */
+	@Example
+	public void shouldCheckTheWaitingAtTheClockAfterACommitWhateverTimeWorkWasAskedAt() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final LedgerAuthority untilThen = mintsWhen((mint, time) -> time <= 25_000);
+			final Ledger ledger = open(fileSystem, "a", untilThen, 10_000);
+			final Block other = block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, FOUNDATION.size(), 10_000,
+				List.of(mint(1, 5)));
+
+			ledger.submit(mint(2, 5));
+			ledger.submit(mint(3, 5));
+			assertThat(ledger.hasWork(30_000), is(false));
+
+			ledger.commit(other);
+
+			assertThat(ledger.pending(), equalTo(2));
 		}
 	}
 
