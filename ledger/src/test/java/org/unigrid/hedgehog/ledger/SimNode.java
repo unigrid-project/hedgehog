@@ -29,6 +29,7 @@ final class SimNode {
 	final Consensus engine;
 	final List<Block> decided = new ArrayList<>();
 	int received;
+	int armed;
 	int fired;
 	int incarnation;
 	boolean crashed;

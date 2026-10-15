@@ -69,6 +69,11 @@ public class ConsensusSimulationTest {
 
 	private static final int FAULTY_GOAL = 3;
 
+	/* A view with nothing in it takes well under a second on links of 40 ms, so 40 seconds are more than enough for
+	   it to be over, and the 20 that follow are the quiet that is looked for */
+	private static final long QUIET_AFTER_MILLIS = 40_000;
+	private static final long QUIET_WINDOW_MILLIS = 20_000;
+
 	/* The network and the schedule of faults must not draw from the same stream, or the delays and losses would be
 	   tied to the choice of node count, crashes and split */
 	private static final long NETWORK_SEED_MASK = 0x5DEECE66DL;
@@ -281,6 +286,38 @@ public class ConsensusSimulationTest {
 		assertThat(nobodyDecided(net), is(true));
 		assertThat(net.nodes.stream().allMatch(node -> node.engine.view() == 0), is(true));
 		assertThat(net.sent(), equalTo(0L));
+	}
+
+	/* One ballot is enough to wake the nodes, and the one view they run ends with nothing proposed and nothing to
+	   wait for. After that nobody talks, nobody sets a timer and no engine runs, though the nodes still hold what
+	   they signed. */
+	@Example
+	public void shouldGoQuietAgainWhenNobodyHasWork() {
+		final SimulatedNetwork net = network(4, 0, 1);
+		final Liar liar = liar(net, 1);
+		final Ballot nudge = liar.vote(PREVOTE, 0, null);
+		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		live.forEach(node -> liar.tell(node.index, nudge));
+		net.run(QUIET_AFTER_MILLIS);
+
+		final long sent = net.sent();
+		final int armed = live.stream().mapToInt(node -> node.armed).sum();
+		final int received = receivedByAll(net);
+
+		assertThat(armed, greaterThan(0));
+		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
+		assertThat(live.stream().noneMatch(node -> node.engine.outbox().isEmpty()), is(true));
+
+		net.run(QUIET_AFTER_MILLIS + QUIET_WINDOW_MILLIS);
+
+		assertThat(net.sent(), equalTo(sent));
+		assertThat(live.stream().mapToInt(node -> node.armed).sum(), equalTo(armed));
+		assertThat(receivedByAll(net), equalTo(received));
+		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
+		assertThat(nobodyDecided(net), is(true));
 	}
 
 	@Example

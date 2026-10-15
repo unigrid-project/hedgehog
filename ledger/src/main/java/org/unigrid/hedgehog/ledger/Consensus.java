@@ -42,7 +42,12 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    outbox() now and then, which does no harm when repeated, and serves the decided blocks to a node that is behind.
    It is not thread-safe, so events come one at a time. evidence() is lost at the next start(), so it is read before
    that. The ballot box is wiped by start() as well, so a restart is safe only if the caller has kept what this node
-   signed and does not let it sign anything different for the same view. */
+   signed and does not let it sign anything different for the same view.
+
+   A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
+   no lock, no valid block and saw no proposal in the view, it starts no further view: it rests, with no timer and
+   nothing to resume(), until work or a message of the height wakes it in the first view it has signed nothing in.
+   The ballots it signed stay in outbox(), which a driver that wants a peer to catch up can send again. */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 
@@ -65,6 +70,9 @@ public final class Consensus {
 	private boolean decided;
 	private Decision decision;
 	private int view;
+	/* The first view the node has signed nothing in, which is where a node that rested begins again. Leaving a view
+	   moves it past that view, so that no view is ever started twice. */
+	private int nextView;
 	private Step step = Step.PROPOSE;
 	private Block lockedBlock;
 	private int lockedView = -1;
@@ -105,7 +113,8 @@ public final class Consensus {
 		return run(at, () -> receive(message));
 	}
 
-	/* There is work now: a quiet node starts its first view, and a proposer that had nothing to propose does it */
+	/* There is work now: a quiet node starts the first view it has not signed in, and a proposer that had nothing to
+	   propose does it */
 	public List<Action> onWork(long at) {
 		return run(at, () -> {
 			if (height != 0 && !decided && app.hasWork(at)) {
@@ -166,6 +175,10 @@ public final class Consensus {
 		return lockedView;
 	}
 
+	boolean running() {
+		return running;
+	}
+
 	int storedBallots() {
 		return box == null ? 0 : box.size();
 	}
@@ -199,6 +212,7 @@ public final class Consensus {
 		decided = false;
 		decision = null;
 		view = 0;
+		nextView = 0;
 		step = Step.PROPOSE;
 		lockedBlock = null;
 		lockedView = -1;
@@ -214,7 +228,7 @@ public final class Consensus {
 
 	private void begin() {
 		running = true;
-		startRound(0);
+		startRound(nextView);
 	}
 
 	private void beginOrPropose() {
@@ -289,11 +303,30 @@ public final class Consensus {
 		}
 	}
 
-	/* The last view has no successor: adding one would wrap around to a negative view */
+	/* The last view has no successor: adding one would wrap around to a negative view, and a node that rested in it
+	   would begin it again and sign in it a second time */
 	private void startNextView() {
-		if (view < Integer.MAX_VALUE) {
-			startRound(view + 1);
+		if (view == Integer.MAX_VALUE) {
+			return;
 		}
+
+		if (goesQuiet()) {
+			running = false;
+			nextView = view + 1;
+		} else {
+			moveTo(view + 1);
+		}
+	}
+
+	/* Nothing is left to wait for or to put forward: no work, no block the node is bound to or would offer again, and
+	   no proposal in the view that somebody may still want decided */
+	private boolean goesQuiet() {
+		return !app.hasWork(now) && lockedBlock == null && validBlock == null && !proposals.containsKey(view);
+	}
+
+	private void moveTo(int newView) {
+		nextView = view + 1;
+		startRound(newView);
 	}
 
 	private boolean isValidator() {
@@ -561,7 +594,7 @@ public final class Consensus {
 	private boolean skip() {
 		final OptionalInt target = box.skipTo(view);
 
-		target.ifPresent(this::startRound);
+		target.ifPresent(this::moveTo);
 		return target.isPresent();
 	}
 

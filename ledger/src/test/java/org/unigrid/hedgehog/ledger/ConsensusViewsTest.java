@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import net.jqwik.api.Example;
@@ -957,5 +958,218 @@ public class ConsensusViewsTest {
 
 		assertThat(decidedBlock(actions).hash(), equalTo(block.hash()));
 		assertThat(observer.resume(6).isEmpty(), is(true));
+	}
+
+	/* The proposal never came, and more than 2/3 of the precommits are in, none for a block: only the timeout is
+	   left, which is the moment the node decides whether to go on */
+	private List<Action> quorumOfNoBlock(int view, long at) {
+		final List<Action> actions = new ArrayList<>(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, view), at));
+
+		for (int validator = 1; validator <= 3; validator++) {
+			actions.addAll(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, validator, view, null), at + 1));
+		}
+
+		return actions;
+	}
+
+	/* A node without work that a message of the height has started, in the view that ends with nothing */
+	private void startQuietNodeInViewZero() {
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, 0, null), 5);
+	}
+
+	private void goIdleAfterViewZero() {
+		startQuietNodeInViewZero();
+		quorumOfNoBlock(0, 3005);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
+	}
+
+	@Example
+	public void shouldGoIdleWhenTheViewEndsWithNoWorkNoBlockAndNoProposal() {
+		startQuietNodeInViewZero();
+
+		assertThat(engine.running(), is(true));
+
+		quorumOfNoBlock(0, 3005);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+		assertThat(engine.view(), equalTo(0));
+	}
+
+	@Example
+	public void shouldStartTheViewAfterTheOnesItSignedInWhenAMessageWakesAnIdleNode() {
+		goIdleAfterViewZero();
+
+		final List<Action> woken = engine.onMessage(prevoteBy(1, 1, null), 6000);
+
+		assertThat(woken.get(0), equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+
+		final List<Ballot> signed = ballots(engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 1), 9500));
+
+		assertThat(signed.size(), equalTo(1));
+		assertThat(signed.get(0).view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldStartTheViewAfterTheOnesItSignedInWhenALateBallotOfAnEarlierViewWakesAnIdleNode() {
+		goIdleAfterViewZero();
+
+		assertThat(engine.onMessage(prevoteBy(2, 0, null), 6000).get(0),
+			equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
+		assertThat(engine.view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldNotWakeAnIdleNodeWithAMessageItAlreadyHas() {
+		goIdleAfterViewZero();
+
+		assertThat(engine.onMessage(prevoteBy(1, 0, null), 6000).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldStartTheViewAfterTheOnesItSignedInWhenWorkTurnsUpForAnIdleNode() {
+		goIdleAfterViewZero();
+		app.goal = 3;
+
+		assertThat(engine.onWork(6000), equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 1, 3500))));
+		assertThat(engine.view(), equalTo(1));
+		assertThat(engine.onWork(6001).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldIgnoreTheTimersOfTheViewAnIdleNodeLeftBehind() {
+		goIdleAfterViewZero();
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PREVOTE, 0), 4000).isEmpty(), is(true));
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 4001).isEmpty(), is(true));
+		assertThat(engine.resume(4002).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldKeepRunningIntoTheNextViewWhenThereIsWork() {
+		engine.start(1, validators, 0);
+		quorumOfNoBlock(0, 3000);
+
+		assertThat(schedules(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3002), Timeout.Kind.PROPOSE),
+			is(true));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldKeepRunningIntoTheNextViewWhenItSawTheProposalOfTheView() {
+		startQuietNodeInViewZero();
+		engine.onMessage(proposal(0, -1, proposed(0, "a")), 10);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 11);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, null), 12);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, 0, null), 13);
+
+		assertThat(schedules(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 400), Timeout.Kind.PROPOSE),
+			is(true));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(1));
+	}
+
+	@Example
+	public void shouldKeepRunningIntoTheNextViewWhenItHoldsALock() {
+		final Block a = proposed(0, "a");
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		lockOn(0, -1, a);
+		endView(0);
+		endView(1);
+
+		assertThat(engine.lockedView(), equalTo(0));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(2));
+	}
+
+	/* The block got more than 2/3 of the prevotes in the view, but only after the node had given up on the view, so
+	   it is the one to put forward again and not the one the node is locked on */
+	@Example
+	public void shouldKeepRunningIntoTheNextViewWhenItHoldsAValidBlockAndNoLock() {
+		final Block a = proposed(0, "a");
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, 0, a), 10);
+		engine.onMessage(prevoteBy(2, 0, a), 11);
+		engine.onMessage(prevoteBy(3, 0, a), 12);
+		engine.onTimeout(timeout(Timeout.Kind.PROPOSE, 0), 3000);
+		engine.onTimeout(timeout(Timeout.Kind.PREVOTE, 0), 4000);
+		engine.onMessage(proposal(0, -1, a), 4001);
+
+		assertThat(engine.lockedView(), equalTo(-1));
+
+		endView(0);
+		endView(1);
+
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(2));
+	}
+
+	@Example
+	public void shouldNeverSignTwoBallotsOfOneTypeAndViewWhenItGoesIdleAndWakesAgain() {
+		final List<Action> run = new ArrayList<>();
+
+		app.goal = 0;
+		run.addAll(engine.start(1, validators, 0));
+		run.addAll(engine.onMessage(prevoteBy(1, 0, null), 5));
+		run.addAll(quorumOfNoBlock(0, 3005));
+		run.addAll(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007));
+		run.addAll(engine.onMessage(prevoteBy(1, 1, null), 6000));
+		run.addAll(quorumOfNoBlock(engine.view(), 9500));
+		run.addAll(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502));
+
+		final List<Ballot> signed = ballots(run);
+
+		assertThat(signed.size(), equalTo(2));
+		assertThat(signed.stream().map(vote -> vote.type() + " " + vote.view()).distinct().count(),
+			equalTo((long) signed.size()));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldNotGoIdleInTheLastViewAsThereIsNoViewAfterIt() {
+		final int last = Integer.MAX_VALUE;
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, last, null), 5);
+		engine.onMessage(prevoteBy(2, last, null), 6);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, last, null), 7);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, last, null), 8);
+		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 3, last, null), 9);
+
+		assertThat(engine.view(), equalTo(last));
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, last), 10).isEmpty(), is(true));
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(last));
+	}
+
+	@Example
+	public void shouldWakeInTheLastViewWhenItWentIdleInTheOneBeforeIt() {
+		final int before = Integer.MAX_VALUE - 1;
+
+		app.goal = 0;
+		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(1, before, null), 5);
+		engine.onMessage(prevoteBy(2, before, null), 6);
+		quorumOfNoBlock(before, 7);
+
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, before), 10).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+
+		engine.onMessage(prevoteBy(3, before, null), 11);
+
+		assertThat(engine.view(), equalTo(Integer.MAX_VALUE));
+		assertThat(engine.running(), is(true));
 	}
 }
