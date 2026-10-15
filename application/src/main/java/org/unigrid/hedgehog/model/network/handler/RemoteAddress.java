@@ -19,20 +19,31 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
+import io.netty.util.AttributeKey;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Objects;
 import java.util.Optional;
 
 public final class RemoteAddress {
+	private static final AttributeKey<Integer> LISTEN_PORT_KEY = AttributeKey.valueOf("LISTEN_PORT");
+
 	private RemoteAddress() {
 		/* Static helpers only */
+	}
+
+	/* The first port that a peer says it listens on stands for the connection: a peer that said another one later
+	   would only rename itself */
+	public static void listensOn(final Channel stream, final int port) {
+		if (port > 0 && Objects.nonNull(stream.parent())) {
+			stream.parent().attr(LISTEN_PORT_KEY).setIfAbsent(port);
+		}
 	}
 
 	/* The address is kept on the QUIC connection that the stream belongs to. A server learns it from the connection
 	   event, which follows the peer when it moves; a client knows it from where it connected. The port a server
 	   learns is its own, assumed for every peer, so a peer on this host cannot be told from another by it: such a
-	   peer is read from the socket of its connection, where the port is its own. */
+	   peer is read from the socket of its connection, and from the port it listens on once it has said which. */
 	public static Optional<InetSocketAddress> of(final Channel stream) {
 		return Optional.ofNullable(stream.parent()).flatMap(connection -> {
 			final Optional<InetSocketAddress> learned = resolved(
@@ -40,9 +51,16 @@ public final class RemoteAddress {
 			final Optional<InetSocketAddress> connected = resolved(
 				connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get());
 
-			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress()).or(() -> connected)
-				.or(() -> learned);
+			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress())
+				.or(() -> connected.or(() -> learned).map(socket -> listening(connection, socket)));
 		});
+	}
+
+	private static InetSocketAddress listening(final Channel connection, final InetSocketAddress socket) {
+		final Integer port = connection.attr(LISTEN_PORT_KEY).get();
+
+		return port == null || !socket.getAddress().isLoopbackAddress() ? socket
+			: new InetSocketAddress(socket.getAddress(), port);
 	}
 
 	private static Optional<InetSocketAddress> resolved(final SocketAddress address) {

@@ -40,6 +40,8 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, Hello hello) throws Exception {
+		RemoteAddress.listensOn(ctx.channel(), hello.getPort());
+
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
 			log.atTrace().log("HELLO with port {} from source {}", hello.getPort(), address.getAddress());

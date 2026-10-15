@@ -25,12 +25,18 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -110,8 +116,20 @@ public class NettyLedgerNetworkTest {
 		return node;
 	}
 
+	private static boolean connectionOf(final Node node, final Channel channel) {
+		return node.getConnection().map(Connection::getChannel).filter(held -> held == channel).isPresent();
+	}
+
+	private static NettyLedgerNetwork networkOf(final PendingRequests pending, final Predicate<Channel> outbound,
+		final Set<Node> nodes) {
+
+		return new NettyLedgerNetwork(() -> nodes, pending, outbound);
+	}
+
+	/* The channels of the topology are those this node opened, as they are for the dialled nodes of a real one */
 	private static NettyLedgerNetwork networkOf(final PendingRequests pending, final Node... nodes) {
-		return new NettyLedgerNetwork(() -> Set.of(nodes), pending);
+		return networkOf(pending, channel -> Stream.of(nodes).anyMatch(node -> connectionOf(node, channel)),
+			Set.of(nodes));
 	}
 
 	private static NettyLedgerNetwork networkOf(final Node... nodes) {
@@ -418,6 +436,61 @@ public class NettyLedgerNetworkTest {
 
 		assertThat(writesTo(onlyPeerOf(network), newer), is(true));
 		assertThat(older.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Property(tries = 4)
+	public void prefersAStreamThisNodeOpenedWhicheverWasSeenFirst(@ForAll boolean openedFirst) {
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final EmbeddedChannel accepted = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), opened::equals, Set.of());
+
+		network.peerOf(openedFirst ? opened : accepted, remote(FIRST));
+		network.peerOf(openedFirst ? accepted : opened, remote(FIRST));
+
+		assertThat(writesTo(onlyPeerOf(network), opened), is(true));
+		assertThat(accepted.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void takesAStreamThisNodeOpenedEvenWhenTheTopologyHoldsAnotherOfTheNode() {
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final EmbeddedChannel accepted = new EmbeddedChannel();
+		final Node announced = nodeWith(accepted, FIRST);
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), opened::equals, Set.of(announced));
+
+		network.peerOf(opened, remote(FIRST));
+
+		assertThat(writesTo(onlyPeerOf(network), opened), is(true));
+		assertThat(accepted.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Property(tries = 20)
+	public void listsThePeersInTheOrderOfTheirIds(@ForAll @IntRange(min = 2, max = 8) int count, @ForAll long seed) {
+		final List<Integer> hosts = new ArrayList<>(IntStream.rangeClosed(1, count).boxed().toList());
+		final NettyLedgerNetwork network = networkOf();
+
+		Collections.shuffle(hosts, new Random(seed));
+		hosts.forEach(host -> network.peerOf(new EmbeddedChannel(), remote("10.0.0." + host)));
+
+		final List<String> ids = network.peers().stream().map(LedgerPeer::id).toList();
+
+		assertThat(ids, equalTo(ids.stream().sorted().toList()));
+		assertThat(ids, hasSize(count));
+	}
+
+	@Property(tries = 10)
+	public void choosesTheSameStreamWhateverTheOrderOfTheTopology(@ForAll long seed) {
+		final EmbeddedChannel low = new EmbeddedChannel();
+		final EmbeddedChannel high = new EmbeddedChannel();
+		final List<Node> nodes = new ArrayList<>(List.of(nodeWith(low, FIRST, PORT), nodeWith(high, FIRST, PORT + 1)));
+
+		Collections.shuffle(nodes, new Random(seed));
+
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), channel -> true,
+			new LinkedHashSet<>(nodes));
+
+		assertThat(writesTo(onlyPeerOf(network), high), is(true));
+		assertThat(low.outboundMessages().isEmpty(), is(true));
 	}
 
 	@Example

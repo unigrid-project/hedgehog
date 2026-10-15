@@ -47,10 +47,11 @@ import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
 import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 
 /* The other end of one stream. It is named by the remote address, and by the /64 prefix for IPv6, as an attacker
-   with a /64 holds 2^64 addresses and must still share one limit. A node on this host is named by its port as well,
-   as the nodes of one host share an address and none of them is an attacker that changes it. The address is read
-   when it is asked for, as it can be learned only after the stream exists. The limit protects this node and
-   authenticates no one. */
+   with a /64 holds 2^64 addresses and must still share one limit. A node on this host is named by the port it
+   listens on as well, as the nodes of one host share an address and none of them is an attacker that changes it.
+   The address is read when it is asked for, as it can be learned only after the stream exists: a stream that a peer
+   opened is first named by the port it came from, and by the port it listens on once its Hello has been read, which
+   is the first thing it sends. The limit protects this node and authenticates no one. */
 @RequiredArgsConstructor
 public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV6_LENGTH = 16;
@@ -59,6 +60,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final Channel channel;
 	private final Supplier<Optional<InetSocketAddress>> remote;
 	private final PendingRequests pending;
+	private final long order;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 
 	static String idOf(final InetSocketAddress socket) {
@@ -83,6 +85,11 @@ public final class NettyLedgerPeer implements LedgerPeer {
 
 	Channel channel() {
 		return channel;
+	}
+
+	/* Which of the streams of one node was made last, for the network to choose between them */
+	long order() {
+		return order;
 	}
 
 	/* True the first time for each driver, so a driver is told of a connection once */

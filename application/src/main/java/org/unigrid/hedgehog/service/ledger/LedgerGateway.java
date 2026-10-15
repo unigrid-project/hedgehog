@@ -51,7 +51,7 @@ public class LedgerGateway {
 
 	@PostConstruct
 	private void init() {
-		network = new NettyLedgerNetwork(topology::cloneNodes, pending);
+		network = new NettyLedgerNetwork(topology::cloneNodes, pending, NettyLedgerNetwork::openedHere);
 	}
 
 	public LedgerNetwork network() {

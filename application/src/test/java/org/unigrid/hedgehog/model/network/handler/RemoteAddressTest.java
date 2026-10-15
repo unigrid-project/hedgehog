@@ -29,6 +29,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
@@ -87,6 +88,54 @@ public class RemoteAddressTest {
 	public void readsTheSocketOfTheConnectionForALocalPeer(@ForAll("loopbacks") String address) {
 		assertThat(RemoteAddress.of(streamOf(connectionOf(address, address))),
 			equalTo(Optional.of(new InetSocketAddress(address, CONNECTION_PORT))));
+	}
+
+	@Property(tries = 10)
+	public void readsThePortALocalPeerSaysItListensOn(@ForAll("loopbacks") String address,
+		@ForAll @IntRange(min = 1, max = 65535) int listenPort) {
+
+		final EmbeddedChannel connection = connectionOf(address, address);
+		final Channel stream = streamOf(connection);
+
+		RemoteAddress.listensOn(stream, listenPort);
+		assertThat(RemoteAddress.of(stream), equalTo(Optional.of(new InetSocketAddress(address, listenPort))));
+		assertThat(RemoteAddress.of(streamOf(connection)),
+			equalTo(Optional.of(new InetSocketAddress(address, listenPort))));
+	}
+
+	@Example
+	public void keepsTheFirstPortASideAnnouncesOnAConnection() {
+		final EmbeddedChannel connection = connectionOf("127.0.0.1", "127.0.0.1");
+
+		RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 1);
+		RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 2);
+
+		assertThat(RemoteAddress.of(streamOf(connection)),
+			equalTo(Optional.of(new InetSocketAddress("127.0.0.1", CONNECTION_PORT + 1))));
+	}
+
+	@Property(tries = 5)
+	public void ignoresAPortThatIsNoPort(@ForAll @IntRange(min = -5, max = 0) int port) {
+		final Channel stream = streamOf(connectionOf("127.0.0.1", "127.0.0.1"));
+
+		RemoteAddress.listensOn(stream, port);
+		assertThat(RemoteAddress.of(stream), equalTo(Optional.of(new InetSocketAddress("127.0.0.1", CONNECTION_PORT))));
+	}
+
+	@Example
+	public void leavesARemotePeerNamedByItsAddressWhateverPortItSays() {
+		final Channel stream = streamOf(connectionOf("10.0.0.1", "10.0.0.1"));
+
+		RemoteAddress.listensOn(stream, CONNECTION_PORT + 1);
+		assertThat(RemoteAddress.of(stream), equalTo(address("10.0.0.1")));
+	}
+
+	@Example
+	public void saysNothingOfAPortWhenThereIsNoConnection() {
+		final EmbeddedChannel stream = new EmbeddedChannel();
+
+		RemoteAddress.listensOn(stream, CONNECTION_PORT);
+		assertThat(RemoteAddress.of(stream), equalTo(Optional.empty()));
 	}
 
 	@Example
