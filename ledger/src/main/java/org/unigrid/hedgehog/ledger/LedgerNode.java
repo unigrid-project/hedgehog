@@ -34,11 +34,13 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
 
    Whatever fails reaches the caller as it is, and nothing is returned, so nothing leaves the node. A commit that
    fails leaves an engine that has decided a block the ledger has not taken in, and a save that fails leaves an engine
-   ahead of its store. After any exception from these methods the node is not to carry on: the driver stops it and
-   starts a new one over the same files, which restores the state last saved, and the decisions of its peers bring
-   the block in. What the failed event signed was neither saved nor sent, so the restored node is free to sign
-   differently for it. The pool of transactions that wait for a block is not kept on disk, so a restart loses them and
-   their senders have to send them again.
+   ahead of its store. After any exception from start() or an event the node refuses every further event with an
+   IllegalStateException, as saving the state of such an engine could hide what it lost: the driver replaces it by a
+   new node over the same files, which restores the state last saved, and the decisions of its peers bring the block
+   in. What the failed event signed was neither saved nor sent, so the restored node is free to sign differently for
+   it. submit(), ledger(), height() and outbox() keep working, as they do not run the engine. The pool of
+   transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to send
+   them again.
 
    Events come one at a time, as the engine takes them, and the driver calls tick() about once a second, which is the
    rate the engine's rules for a node at rest are written for. */
@@ -50,6 +52,12 @@ public final class LedgerNode {
 	private final boolean signs;
 	/* The state the store holds, as far as this node knows: what it loaded or last saved, null when there is none */
 	private SignState onDisk;
+	private boolean failed;
+
+	@FunctionalInterface
+	private interface Work {
+		List<Action> run() throws IOException;
+	}
 
 	/* A null seed is an observer: it follows and commits the decisions, never votes, and neither reads nor writes
 	   the store */
@@ -67,11 +75,13 @@ public final class LedgerNode {
 	   show and starting afresh could sign again at them: that ends the start. So does a state that is damaged, or that
 	   this node cannot have written, as it may hide a signature. */
 	public synchronized List<Action> start() throws IOException {
-		final long next = ledger.height() + 1;
-		final Optional<SignState> kept = keptFor(next);
+		return guarded(() -> {
+			final long next = ledger.height() + 1;
+			final Optional<SignState> kept = keptFor(next);
 
-		return run(at -> kept.isPresent() ? engine.restore(kept.get(), ledger.validators(), at)
-			: engine.start(next, ledger.validators(), at));
+			return finish(at -> kept.isPresent() ? engine.restore(kept.get(), ledger.validators(), at)
+				: engine.start(next, ledger.validators(), at));
+		});
 	}
 
 	private Optional<SignState> keptFor(long next) throws IOException {
@@ -137,9 +147,29 @@ public final class LedgerNode {
 		return engine.outbox();
 	}
 
+	private List<Action> run(LongFunction<List<Action>> event) throws IOException {
+		return guarded(() -> finish(event));
+	}
+
+	/* A node that failed, in whatever way, has an engine that may have moved past what the store and the ledger hold,
+	   so it takes no further event: not even one that looks harmless would be safe to save. */
+	private List<Action> guarded(Work work) throws IOException {
+		if (failed) {
+			throw new IllegalStateException(
+				"This node failed earlier and takes no further event: start a new one over the same files");
+		}
+
+		try {
+			return work.run();
+		} catch (IOException | RuntimeException e) {
+			failed = true;
+			throw e;
+		}
+	}
+
 	/* The clock is read once, so that one call has one time. A quorum of one can decide again as soon as the next
 	   height starts, so the commit goes on for as long as the engine returns a block. */
-	private List<Action> run(LongFunction<List<Action>> event) throws IOException {
+	private List<Action> finish(LongFunction<List<Action>> event) throws IOException {
 		final long at = clock.getAsLong();
 		final List<Action> actions = new ArrayList<>(event.apply(at));
 		Optional<Block> decided = decidedIn(actions);
@@ -164,7 +194,7 @@ public final class LedgerNode {
 
 	/* An engine that has not started holds nothing, and saving that would wipe the state a start is yet to restore. A
 	   state that is on disk already is not written again, which spares a quiet node a write and a flush every tick. It
-	   is counted as on disk only once the store has returned, so a save that fails is tried again by the next call. */
+	   is counted as on disk only once the store has returned. */
 	private void persist() throws IOException {
 		if (!signs || engine.height() == 0) {
 			return;

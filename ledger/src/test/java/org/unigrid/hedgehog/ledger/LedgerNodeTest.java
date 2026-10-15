@@ -71,6 +71,7 @@ public class LedgerNodeTest {
 		private final List<Integer> bounds = new ArrayList<>();
 		private final SignState loaded;
 		private boolean failing;
+		private int loads;
 
 		RecordingStore() {
 			this(null);
@@ -82,6 +83,7 @@ public class LedgerNodeTest {
 
 		@Override
 		public Optional<SignState> load() {
+			loads++;
 			return saved.isEmpty() ? Optional.ofNullable(loaded) : Optional.of(last());
 		}
 
@@ -196,6 +198,16 @@ public class LedgerNodeTest {
 		store.bounds.forEach(bound -> assertThat(bound, equalTo(ledger.validators().size())));
 		assertKept(store.last(), ledger, self, actions);
 		return actions;
+	}
+
+	private static void assertRefusesEveryEvent(LedgerNode node) {
+		final Ballot ballot = ConsensusFixtures.ballot(Ballot.Type.PREVOTE, 2, 0, null);
+
+		assertThrows(IllegalStateException.class, node::start);
+		assertThrows(IllegalStateException.class, node::tick);
+		assertThrows(IllegalStateException.class, node::onWork);
+		assertThrows(IllegalStateException.class, () -> node.onMessage(ballot));
+		assertThrows(IllegalStateException.class, () -> node.onTimeout(new Timeout(Timeout.Kind.PROPOSE, 1, 0)));
 	}
 
 	private static void assertKept(SignState kept, Ledger ledger, AccountKey self, List<Action> actions) {
@@ -452,6 +464,7 @@ public class LedgerNodeTest {
 				assertThat(refused.getMessage(), containsString("height 1"));
 				assertThat(refused.getMessage(), containsString("height " + height));
 				assertThat(node.height(), equalTo(0L));
+				assertRefusesEveryEvent(node);
 				assertThat(file.load(), equalTo(Optional.of(midView(height))));
 			}
 		}
@@ -485,6 +498,7 @@ public class LedgerNodeTest {
 
 			assertThrows(CorruptSignStateException.class, node::start);
 			assertThat(node.height(), equalTo(0L));
+			assertRefusesEveryEvent(node);
 		}
 	}
 
@@ -500,7 +514,10 @@ public class LedgerNodeTest {
 			file.save(new SignState(1, true, 0, Consensus.Step.PREVOTE, 1, null, -1, null, -1, List.of(),
 				List.of(foreign)), FOUR_VALIDATORS);
 
-			assertThrows(IllegalArgumentException.class, () -> node(ledger, 1, file, clock::get).start());
+			final LedgerNode node = node(ledger, 1, file, clock::get);
+
+			assertThrows(IllegalArgumentException.class, node::start);
+			assertRefusesEveryEvent(node);
 			assertThat(file.load().orElseThrow().ballots(), equalTo(List.of(foreign)));
 		}
 	}
@@ -721,22 +738,42 @@ public class LedgerNodeTest {
 		}
 	}
 
-	/* The state is only counted as saved once the store says so, or a failed save would keep the next call from
-	   trying again */
+	/* The engine has moved on from what the store holds, so a node that carried on could save a state in which that
+	   is not to be seen: it refuses everything that runs the engine, and the store is not asked again */
 	@Example
-	public void shouldSaveAgainAfterASaveThatFailed() throws IOException {
+	public void shouldRefuseEveryEventAfterASaveFailed() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final RecordingStore store = new RecordingStore();
-			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1, store, clock::get);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
 
 			store.failing = true;
 			assertThrows(IOException.class, node::start);
-			assertThat(store.saved, is(empty()));
 
 			store.failing = false;
-			assertThat(node.tick(), is(empty()));
-			assertThat(store.saved, hasSize(1));
+			assertRefusesEveryEvent(node);
+			assertThat(store.saved, is(empty()));
+			assertThat(store.loads, equalTo(1));
+		}
+	}
+
+	@Example
+	public void shouldKeepTheQuestionsOfAFailedNodeWorking() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+
+			store.failing = true;
+			assertThrows(IOException.class, node::start);
+
+			assertThat(node.height(), equalTo(1L));
+			assertThat(node.outbox(), is(empty()));
+			assertThat(node.ledger(), equalTo(ledger));
+			assertThat(node.submit(mint(1, 500)), equalTo(Optional.empty()));
+			assertThat(ledger.pending(), equalTo(1));
 		}
 	}
 
@@ -799,8 +836,9 @@ public class LedgerNodeTest {
 		}
 	}
 
-	/* The engine has decided, but the ledger could not take the block in: nothing was saved or let out, so the node
-	   is behind its engine, and a start from the files finds the state that was last saved */
+	/* The engine has decided, but the ledger could not take the block in: nothing was saved or let out, and the node
+	   refuses everything after it, as a save of the decided engine would hide the block the ledger lacks. A start from
+	   the files finds the state that was last saved. */
 	@Example
 	public void shouldLetACommitThatFailsReachTheCallerAndKeepTheLastSavedState() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
@@ -816,6 +854,8 @@ public class LedgerNodeTest {
 
 			assertThrows(IOException.class, node::onWork);
 			assertThat(ledger.height(), equalTo(0L));
+			assertThat(store.load(), equalTo(Optional.of(SignState.empty(1))));
+			assertRefusesEveryEvent(node);
 			assertThat(store.load(), equalTo(Optional.of(SignState.empty(1))));
 
 			final LedgerNode restarted = node(ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get), 1, store,
