@@ -213,26 +213,22 @@ public class LedgerLastCommitTest {
 	}
 
 	@Example
-	public void shouldSignWithTheLastCommitOfTheSetBeforeTheChange() throws IOException {
+	public void shouldValidateWithTheLastCommitOfTheSetBeforeTheChange() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = ledgerOf(fileSystem, 1, FOUR);
-			final List<byte[]> everyone = new ArrayList<>(FOUR);
-
-			everyone.add(seed(200));
 
 			for (int voter = 1; voter <= 3; voter++) {
 				ledger.submit(Vote.signed(seed(voter), key(200), Vote.Action.ADD, 0, ledger.chainId()));
 			}
 
-			ledger.commit(ledger.sign(ledger.sign(ledger.propose(seed(1), 2000).get(), seed(2)), seed(3)));
+			ledger.commit(nextBlock(ledger, THREE, 2000));
 			ledger.submit(mint(2, 5));
 
-			final Block second = everyone.stream().map(seed -> ledger.propose(seed, 2001))
-				.flatMap(Optional::stream).findFirst().orElseThrow();
+			final Block second = proposal(ledger, 2001).orElseThrow();
 
 			assertThat(ledger.validators().size(), equalTo(5));
 			assertThat(second.getLastCommit().endorsements().size(), equalTo(3));
-			assertThat(ledger.sign(second, seed(3)).getEndorsements().size(), equalTo(2));
+			assertThat(ledger.validate(second), equalTo(Optional.empty()));
 		}
 	}
 

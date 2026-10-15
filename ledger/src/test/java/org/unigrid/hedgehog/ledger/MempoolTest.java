@@ -133,6 +133,21 @@ public class MempoolTest {
 	}
 
 	@Example
+	public void shouldPeekAtWhatTakeReturnsAndLeaveTheSizeAlone() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+
+		mempool.admit(mint(1, 5), state);
+		mempool.admit(vote(state, 1, 200, Vote.Action.ADD), state);
+		mempool.admit(mint(2, 5), state);
+
+		assertThat(mempool.peek(2), equalTo(mempool.take(2)));
+		assertThat(mempool.peek(10), equalTo(mempool.take(10)));
+		assertThat(mempool.peek(0), equalTo(List.of()));
+		assertThat(mempool.size(), equalTo(3));
+	}
+
+	@Example
 	public void shouldDropWhatABlockCommitted() {
 		final LedgerState state = chain();
 		final Mempool mempool = new Mempool();

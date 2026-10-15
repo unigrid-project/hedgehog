@@ -32,8 +32,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
-/* Validating is for blocks that the validators signed: it asks no policy, so a node that would not have signed
-   the block still agrees that it is right, and what it answers is what commit does */
+/* Validating a certified block is for blocks that the validators signed: it asks no policy, so a node that would
+   not have voted for the block still agrees that it is right, and what it answers is what commit does */
 public class LedgerValidateTest {
 	private static final List<byte[]> FOUNDATION = seeds(1, 3);
 	private static final LegacyWallet HELD = new LegacyWallet(1, true);
@@ -53,7 +53,7 @@ public class LedgerValidateTest {
 			final Ledger strict = open(fileSystem,
 				stateWithSnapshot(blacklisting(Set.of(HELD.address())), FOUNDATION, 500, SNAPSHOT));
 
-			assertThat(strict.validate(block), equalTo(Optional.empty()));
+			assertThat(strict.validateCertified(block), equalTo(Optional.empty()));
 
 			strict.commit(block);
 
@@ -73,7 +73,7 @@ public class LedgerValidateTest {
 
 			final Block block = block(lenient, FOUNDATION, List.of(transfer(lenient, 1, account(2), 10, 1, 0)));
 
-			assertThat(strict.validate(block), equalTo(Optional.empty()));
+			assertThat(strict.validateCertified(block), equalTo(Optional.empty()));
 
 			strict.commit(block);
 
@@ -88,7 +88,7 @@ public class LedgerValidateTest {
 			final Block block = block(lenient, FOUNDATION, FOUNDATION.size(), 100_000, List.of(DUE));
 			final Ledger strict = open(fileSystem, state(1000, dueAt(Map.of(DUE, 200_000L)), FOUNDATION));
 
-			assertThat(strict.validate(block), equalTo(Optional.empty()));
+			assertThat(strict.validateCertified(block), equalTo(Optional.empty()));
 
 			strict.commit(block);
 
@@ -105,7 +105,7 @@ public class LedgerValidateTest {
 
 			ledger.commit(block);
 
-			final String reason = ledger.validate(block).orElseThrow();
+			final String reason = ledger.validateCertified(block).orElseThrow();
 
 			assertThat(assertThrows(InvalidBlockException.class, () -> ledger.commit(block)).getMessage(),
 				equalTo(reason));

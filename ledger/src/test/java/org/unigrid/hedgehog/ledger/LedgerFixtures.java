@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
@@ -174,6 +175,37 @@ final class LedgerFixtures {
 
 	static Block soloBlock(LedgerState state, Transaction... transactions) {
 		return block(state, seeds(1, 1), Arrays.asList(transactions));
+	}
+
+	/* The block gets a certificate of the precommits these validators make in this view, kept sorted by signer */
+	static Block certify(Block block, int view, byte[] chainId, List<byte[]> seeds) {
+		Block certified = block.toBuilder().certificate(new Certificate(view, List.of())).build();
+
+		for (final byte[] seed : seeds) {
+			certified = certified.endorsedBy(seed, chainId);
+		}
+
+		return certified;
+	}
+
+	/* What the engine asks the ledger for in the first view of the next height, for the validator whose turn it is */
+	static Optional<Block> proposal(Ledger ledger, long time) {
+		final long height = ledger.height() + 1;
+
+		return ledger.propose(height, 0, ledger.validators().proposerAt(height), time);
+	}
+
+	/* That block, certified in the first view by the first `signers` of the seeds that belong to the validator set */
+	static Block nextBlock(Ledger ledger, List<byte[]> seeds, int signers, long time) {
+		final List<byte[]> endorsing = seeds.stream()
+			.filter(seed -> ledger.validators().contains(Ed25519.publicKey(seed))).limit(signers).toList();
+
+		return certify(proposal(ledger, time).orElseThrow(), 0, ledger.chainId(), endorsing);
+	}
+
+	/* The same, certified by as many validators as make a quorum */
+	static Block nextBlock(Ledger ledger, List<byte[]> seeds, long time) {
+		return nextBlock(ledger, seeds, ledger.validators().quorum(), time);
 	}
 
 	/* A block with the transactions the state would not take, signed by the solo validator as a certified one */

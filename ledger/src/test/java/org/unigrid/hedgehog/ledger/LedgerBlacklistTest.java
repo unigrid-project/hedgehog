@@ -35,7 +35,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerBlacklistTest {
@@ -57,21 +56,12 @@ public class LedgerBlacklistTest {
 		return rejection.orElse("");
 	}
 
-	private static Block proposal(Ledger ledger) {
-		return FOUNDATION.stream().map(seed -> ledger.propose(seed, BLOCK_TIME)).flatMap(Optional::stream)
-			.findFirst().orElseThrow();
+	private static Block proposed(Ledger ledger) {
+		return proposal(ledger, BLOCK_TIME).orElseThrow();
 	}
 
 	private static Block certified(Ledger ledger) {
-		Block block = proposal(ledger);
-
-		for (final byte[] seed : FOUNDATION) {
-			if (block.getEndorsements().stream().noneMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
-				block = ledger.sign(block, seed);
-			}
-		}
-
-		return block;
+		return nextBlock(ledger, FOUNDATION, BLOCK_TIME);
 	}
 
 	@Example
@@ -97,20 +87,17 @@ public class LedgerBlacklistTest {
 	}
 
 	@Example
-	public void shouldNotSignABlockThatCarriesABlacklistedClaim() throws IOException {
+	public void shouldNotValidateABlockThatCarriesABlacklistedClaim() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT);
 			final Ledger strict = open(fileSystem, "b", blacklisting(Set.of(HELD.address())));
 
 			lenient.submit(HELD.claim(account(1), lenient.chainId()));
 
-			final Block block = proposal(lenient);
-			final byte[] other = FOUNDATION.stream().filter(seed -> !Ed25519.publicKey(seed).equals(block
-				.getProposer())).findFirst().orElseThrow();
-			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
-				() -> strict.sign(block, other));
+			final Block block = proposed(lenient);
 
-			assertThat(refused.getMessage(), containsString("not authorized"));
+			assertThat(reasonOf(strict.validate(block)), containsString("not authorized"));
+			assertThat(lenient.validate(block), equalTo(Optional.empty()));
 		}
 	}
 
@@ -187,7 +174,7 @@ public class LedgerBlacklistTest {
 
 			held.set(Set.of(HELD.address()));
 
-			assertThat(proposal(ledger).getTransactions(), equalTo(List.of(clean)));
+			assertThat(proposed(ledger).getTransactions(), equalTo(List.of(clean)));
 		}
 	}
 

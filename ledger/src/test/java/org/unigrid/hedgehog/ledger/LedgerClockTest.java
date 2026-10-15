@@ -33,7 +33,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerClockTest {
@@ -46,20 +45,8 @@ public class LedgerClockTest {
 			BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")), clock::get);
 	}
 
-	private static Optional<Block> proposal(Ledger ledger, long time) {
-		return FOUNDATION.stream().map(seed -> ledger.propose(seed, time)).flatMap(Optional::stream).findFirst();
-	}
-
 	private static Block certified(Ledger ledger, Block proposed) {
-		Block block = proposed;
-
-		for (final byte[] seed : FOUNDATION) {
-			if (!block.getEndorsements().stream().anyMatch(e -> e.signer().equals(Ed25519.publicKey(seed)))) {
-				block = ledger.sign(block, seed);
-			}
-		}
-
-		return block;
+		return certify(proposed, proposed.getView(), ledger.chainId(), FOUNDATION);
 	}
 
 	private static List<Mint> mints(int from, int count) {
@@ -165,7 +152,7 @@ public class LedgerClockTest {
 
 			assertThat(next.getTime(), equalTo(40_000L));
 			assertThat(next.getTransactions(), equalTo(List.of(gated)));
-			assertThat(ledger.sign(next, seedOtherThanTheProposerOf(next)).getEndorsements().size(), equalTo(2));
+			assertThat(ledger.validate(next), equalTo(Optional.empty()));
 		}
 	}
 
@@ -242,7 +229,7 @@ public class LedgerClockTest {
 	}
 
 	@Example
-	public void shouldNotSignABlockDatedMoreThanTheSkewAheadOfTheClock() throws IOException {
+	public void shouldNotValidateABlockDatedMoreThanTheSkewAheadOfTheClock() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(100_000);
 			final Ledger ledger = open(fileSystem, "a", ANY_MINT, clock);
@@ -251,61 +238,37 @@ public class LedgerClockTest {
 
 			final Block atTheLimit = proposal(ledger, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS).orElseThrow();
 
-			assertThat(ledger.sign(atTheLimit, seedOtherThanTheProposerOf(atTheLimit)).getEndorsements().size(),
-				equalTo(2));
+			assertThat(ledger.validate(atTheLimit), equalTo(Optional.empty()));
 
 			final Ledger other = open(fileSystem, "b", ANY_MINT, clock);
 
 			other.submit(mint(1, 5));
 
 			final Block tooLate = proposal(other, 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1).orElseThrow();
-			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
-				() -> other.sign(tooLate, seedOtherThanTheProposerOf(tooLate)));
 
-			assertThat(refused.getMessage(), containsString("ahead"));
+			assertThat(other.validate(tooLate).orElse(""), containsString("ahead"));
 		}
 	}
 
 	/* The block's own time makes the mint due when the block is checked, so only the clock stands between a
-	   proposer that dates its block ahead and a mint that is not due yet: a validator signs it up to the skew
+	   proposer that dates its block ahead and a mint that is not due yet: a validator accepts it up to the skew
 	   before its time by the clock of the validator, and not earlier */
 	@Example
-	public void shouldSignAMintUpToTheSkewBeforeItsTimeAndNotEarlier() throws IOException {
+	public void shouldValidateAMintUpToTheSkewBeforeItsTimeAndNotEarlier() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(100_000);
 			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 200_000L)), clock);
 			final Block early = block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, 1, 200_000, List.of(DUE));
-			final byte[] validator = seedOtherThanTheProposerOf(early);
-			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
-				() -> ledger.sign(early, validator));
 
-			assertThat(refused.getMessage(), containsString("ahead"));
+			assertThat(ledger.validate(early).orElse(""), containsString("ahead"));
 
 			clock.set(169_999);
 
-			assertThrows(InvalidBlockException.class, () -> ledger.sign(early, validator));
+			assertThat(ledger.validate(early).orElse(""), containsString("ahead"));
 
 			clock.set(170_000);
 
-			assertThat(ledger.sign(early, validator).getEndorsements().size(), equalTo(2));
-		}
-	}
-
-	/* A block refused for its time leaves no promise behind: the validator may still sign another block at that
-	   height, which a promise recorded before the check would forbid */
-	@Example
-	public void shouldNotRememberABlockItRefusedForItsTime() throws IOException {
-		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem, "a", ANY_MINT, new AtomicLong(100_000));
-			final LedgerState lenient = state(1000, ANY_MINT, FOUNDATION);
-			final long tooLate = 100_000 + Ledger.MAX_CLOCK_SKEW_MILLIS + 1;
-			final Block ahead = block(lenient, FOUNDATION, 1, tooLate, List.of(mint(1, 5)));
-			final Block onTime = block(lenient, FOUNDATION, 1, 100_000, List.of(mint(1, 5)));
-			final byte[] validator = seedOtherThanTheProposerOf(ahead);
-
-			assertThrows(InvalidBlockException.class, () -> ledger.sign(ahead, validator));
-
-			assertThat(ledger.sign(onTime, validator).getEndorsements().size(), equalTo(2));
+			assertThat(ledger.validate(early), equalTo(Optional.empty()));
 		}
 	}
 
@@ -315,10 +278,8 @@ public class LedgerClockTest {
 			final Ledger ledger = open(fileSystem, "a", NO_MINT, new AtomicLong(100_000));
 			final Block early = block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, 1, 200_000,
 				List.of(mint(1, 5)));
-			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
-				() -> ledger.sign(early, seedOtherThanTheProposerOf(early)));
 
-			assertThat(refused.getMessage(), containsString("ahead"));
+			assertThat(ledger.validate(early).orElse(""), containsString("ahead"));
 		}
 	}
 
@@ -333,6 +294,8 @@ public class LedgerClockTest {
 			final Block block = certified(far, proposal(far, 1_000_000).orElseThrow());
 			final Ledger behind = open(fileSystem, "b", ANY_MINT, new AtomicLong(1));
 
+			assertThat(behind.validateCertified(block), equalTo(Optional.empty()));
+
 			behind.commit(block);
 
 			assertThat(behind.balanceOf(account(1)), equalTo(5L));
@@ -340,7 +303,7 @@ public class LedgerClockTest {
 	}
 
 	@Example
-	public void shouldTakeProposeAndSignATransferAtTheMinimumFeeButNotOneBelowIt() throws IOException {
+	public void shouldTakeProposeAndValidateATransferAtTheMinimumFeeButNotOneBelowIt() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(10_000);
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
@@ -357,14 +320,13 @@ public class LedgerClockTest {
 			final Block block = proposal(picky, 11_000).orElseThrow();
 
 			assertThat(block.getTransactions(), equalTo(List.of(enough)));
-			assertThat(picky.sign(block, seedOtherThanTheProposerOf(block)).getEndorsements().size(),
-				equalTo(2));
+			assertThat(picky.validate(block), equalTo(Optional.empty()));
 		}
 	}
 
 	/* The fee a node demands is its own policy, so a block that the validators signed is applied whatever the fee */
 	@Example
-	public void shouldNotSignATransferBelowTheMinimumFeeButApplyItInACertifiedBlock() throws IOException {
+	public void shouldNotValidateATransferBelowTheMinimumFeeButApplyItInACertifiedBlock() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong clock = new AtomicLong(10_000);
 			final Ledger lenient = open(fileSystem, "a", ANY_MINT, clock);
@@ -375,11 +337,8 @@ public class LedgerClockTest {
 			assertThat(lenient.submit(paying(4, lenient)), equalTo(Optional.empty()));
 
 			final Block block = proposal(lenient, 11_000).orElseThrow();
-			final byte[] validator = seedOtherThanTheProposerOf(block);
-			final InvalidBlockException refused = assertThrows(InvalidBlockException.class,
-				() -> picky.sign(block, validator));
 
-			assertThat(refused.getMessage(), containsString("Fee is below"));
+			assertThat(picky.validate(block).orElse(""), containsString("Fee is below"));
 
 			picky.commit(certified(lenient, block));
 
@@ -426,10 +385,5 @@ public class LedgerClockTest {
 				assertThat(proposal(restarted, restartedAt).isPresent(), is(false));
 			}
 		}
-	}
-
-	private static byte[] seedOtherThanTheProposerOf(Block block) {
-		return FOUNDATION.stream().filter(seed -> !Ed25519.publicKey(seed).equals(block.getProposer())).findFirst()
-			.orElseThrow();
 	}
 }

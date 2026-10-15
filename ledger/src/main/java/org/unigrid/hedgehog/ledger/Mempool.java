@@ -151,6 +151,11 @@ public final class Mempool {
 		return ordered;
 	}
 
+	/* Take leaves what it hands out in place too; this name is for the callers that only look */
+	public synchronized List<Transaction> peek(int max) {
+		return take(max);
+	}
+
 	public synchronized int size() {
 		return pending.size();
 	}

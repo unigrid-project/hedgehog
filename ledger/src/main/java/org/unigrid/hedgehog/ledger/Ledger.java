@@ -20,14 +20,14 @@ package org.unigrid.hedgehog.ledger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 
-public final class Ledger implements LedgerApplication {
+/* The application of the consensus engine: it takes in transactions and heartbeats, says what a block of the next
+   height would hold and whether one is right, and applies the ones the validators certified. What a validator has
+   signed is the engine's to keep, so the ledger remembers no proposal. */
+public final class Ledger implements ConsensusApp {
 	/* How far ahead of its own clock a validator lets the time of a block run: a proposer cannot make a mint due
 	   more than this early by dating its block ahead. A validator whose clock runs late may therefore sign a
 	   mint up to this long before its time. */
@@ -36,7 +36,6 @@ public final class Ledger implements LedgerApplication {
 	private final LedgerState state;
 	private final BlockLog log;
 	private final Mempool mempool = new Mempool();
-	private final Map<AccountKey, Promise> promises = new HashMap<>();
 	private final LongSupplier clock;
 
 	public Ledger(LedgerState state, BlockLog log) {
@@ -52,7 +51,7 @@ public final class Ledger implements LedgerApplication {
 		log.blocks().forEach(state::apply);
 	}
 
-	@Override
+	/* Empty when the transaction went into the mempool, otherwise the reason it did not */
 	public synchronized Optional<String> submit(Transaction transaction) {
 		state.askAuthorityAt(clock.getAsLong());
 
@@ -68,107 +67,77 @@ public final class Ledger implements LedgerApplication {
 			: "Already waiting for a block"));
 	}
 
-	@Override
 	public synchronized Optional<String> submit(Heartbeat heartbeat) {
 		return mempool.admit(heartbeat, state) ? Optional.empty()
 			: Optional.of("Not a newer heartbeat for this tip from a validator");
 	}
 
+	/* Empty when it is not the turn of this proposer in this view of the next height, or when nothing needs a block:
+	   no transaction that can go in one, no mint that is due and no fee to pay out. The block has no endorsements,
+	   the engine collects them. */
 	@Override
-	public synchronized Optional<Block> propose(byte[] proposerSeed, long time) {
-		final long height = state.height() + 1;
-		final AccountKey proposer = Ed25519.publicKey(proposerSeed);
-
-		if (!state.validators().proposerAt(height).equals(proposer)) {
+	public synchronized Optional<Block> propose(long height, int view, AccountKey proposer, long time) {
+		if (height != state.height() + 1 || !proposer.equals(state.validators().proposerAt(height, view))) {
 			return Optional.empty();
 		}
 
-		final Promise earlier = promises.get(proposer);
-
-		if (earlier != null && earlier.height() == height) {
-			return Optional.ofNullable(earlier.proposal());
-		}
-
-		final long blockTime = Math.max(time, state.tipTime());
-
-		state.askAuthorityAt(blockTime);
-
-		final List<Transaction> candidates = new ArrayList<>(state.dueMints(blockTime));
-
-		candidates.addAll(mempool.take(Block.MAX_TRANSACTIONS));
-
-		/* The block is cut after the checks, so a due mint the authority holds back takes no place from the
-		   mempool, and what is cut off is the end of a valid sequence, which stays valid */
-		final List<Transaction> transactions = state.applicable(candidates).stream()
-			.limit(Block.MAX_TRANSACTIONS).toList();
+		final long blockTime = blockTimeFor(time);
+		final List<Transaction> transactions = applicableAt(blockTime);
 
 		if (transactions.isEmpty() && state.pool() == 0) {
 			return Optional.empty();
 		}
 
-		final Block block = Block.builder().height(height).previousHash(state.tipHash())
+		return Optional.of(Block.builder().height(height).view(view).previousHash(state.tipHash())
 			.time(blockTime).stateRoot(state.rootAfter(height, transactions))
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
-			.proposer(Ed25519.publicKey(proposerSeed)).endorsements(List.of())
-			.lastCommit(state.tipCertificate()).build();
-
-		final Block proposal = block.endorsedBy(proposerSeed, state.chainId());
-
-		promises.put(proposer, new Promise(height, block.hash(), proposal));
-		return Optional.of(proposal);
+			.proposer(proposer).lastCommit(state.tipCertificate()).build());
 	}
 
-	/* A signature promises that the block is right and that this validator signed no other block at its
-	   height, so both are checked first. The promise is kept in memory only: a restarted node must be kept
-	   from signing again at a height it signed before, which is for the key handling around the engine. */
+	/* The same test that propose makes, at the same time, so a quiet chain is one where no block could be made */
 	@Override
-	public synchronized Block sign(Block block, byte[] validatorSeed) {
-		final AccountKey signer = Ed25519.publicKey(validatorSeed);
+	public synchronized boolean hasWork(long time) {
+		return state.pool() > 0 || !applicableAt(blockTimeFor(time)).isEmpty();
+	}
 
-		if (!state.validators().contains(signer)) {
-			throw new IllegalArgumentException("Key " + signer + " is not a validator");
-		}
+	/* A block is never dated before the tip */
+	private long blockTimeFor(long time) {
+		return Math.max(time, state.tipTime());
+	}
 
+	/* The due mints come first, then what waits in the mempool. The block is cut after the checks, so a due mint
+	   the authority holds back takes no place from the mempool, and what is cut off is the end of a valid
+	   sequence, which stays valid. */
+	private List<Transaction> applicableAt(long blockTime) {
+		state.askAuthorityAt(blockTime);
+
+		final List<Transaction> candidates = new ArrayList<>(state.dueMints(blockTime));
+
+		candidates.addAll(mempool.peek(Block.MAX_TRANSACTIONS));
+		return state.applicable(candidates).stream().limit(Block.MAX_TRANSACTIONS).toList();
+	}
+
+	/* What a validator checks before it votes for a block, a vote being a promise that the block is right: the
+	   time of the block against the clock of this node, then the block against the next height. This node's own
+	   policy counts. Nothing is changed. */
+	@Override
+	public synchronized Optional<String> validate(Block block) {
 		if (block.getTime() > clock.getAsLong() + MAX_CLOCK_SKEW_MILLIS) {
-			throw new InvalidBlockException("Block time is more than " + MAX_CLOCK_SKEW_MILLIS
+			return Optional.of("Block time is more than " + MAX_CLOCK_SKEW_MILLIS
 				+ " ms ahead of this node's clock");
 		}
 
-		state.proposalRejection(block).ifPresent(reason -> {
-			throw new InvalidBlockException(reason);
-		});
-		promiseNoOtherBlock(signer, block);
-		return block.endorsedBy(validatorSeed, state.chainId());
-	}
-
-	private void promiseNoOtherBlock(AccountKey signer, Block block) {
-		final Promise earlier = promises.get(signer);
-
-		if (earlier != null && earlier.height() == block.getHeight()
-			&& !Arrays.equals(earlier.hash(), block.hash())) {
-			throw new IllegalStateException("Validator " + signer + " has signed another block at height "
-				+ block.getHeight());
-		}
-
-		if (earlier == null || earlier.height() != block.getHeight()) {
-			promises.put(signer, new Promise(block.getHeight(), block.hash(), null));
-		}
-	}
-
-	/* What a validator has put its name to at a height. A proposer keeps the block it proposed, to hand it
-	   back if asked again, since a second, different block at that height would be a double signature. */
-	private record Promise(long height, byte[] hash, Block proposal) {
+		return state.proposalRejection(block);
 	}
 
 	/* For certified blocks, which stand whatever the policy of this node says, so no policy is asked */
 	@Override
-	public synchronized Optional<String> validate(Block block) {
+	public synchronized Optional<String> validateCertified(Block block) {
 		return state.rejectionOf(block);
 	}
 
 	/* The block is logged before the state changes, so a crash between the two replays to the same state and a
-	   failed write leaves the state where it was */
-	@Override
+	   failed write leaves the state where it was; a block that is not valid is refused and leaves no trace */
 	public synchronized void commit(Block block) throws IOException {
 		final Optional<String> rejection = state.rejectionOf(block);
 
@@ -182,22 +151,18 @@ public final class Ledger implements LedgerApplication {
 		mempool.removeCommitted(block, state);
 	}
 
-	@Override
 	public synchronized ValidatorSet validators() {
 		return state.validators();
 	}
 
-	@Override
 	public synchronized long height() {
 		return state.height();
 	}
 
-	@Override
 	public synchronized byte[] tipHash() {
 		return state.tipHash();
 	}
 
-	@Override
 	public synchronized boolean isProgressing(long now, long window) {
 		return mempool.isProgressing(state, now, window);
 	}

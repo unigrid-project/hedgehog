@@ -1,0 +1,214 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.ledger;
+
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import net.jqwik.api.Example;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
+
+/* Whether the ledger has anything that needs a block is what keeps a quiet chain quiet, so it has to say the
+   same as a proposal does: work when the proposer would have something to put in a block, and none otherwise */
+public class LedgerWorkTest {
+	private static final List<byte[]> FOUNDATION = seeds(1, 3);
+	private static final Mint DUE = mint(1, 700);
+	private static final long CLOCK = 30_000;
+
+	private static Ledger open(FileSystem fileSystem, String name, LedgerAuthority authority) throws IOException {
+		return new Ledger(state(1000, authority, FOUNDATION),
+			BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")), () -> CLOCK);
+	}
+
+	private static void assertWork(Ledger ledger, long time, boolean expected) {
+		assertThat(ledger.hasWork(time), is(expected));
+		assertThat(proposal(ledger, time).isPresent(), is(expected));
+	}
+
+	private static void fund(Ledger funder, Ledger... followers) throws IOException {
+		funder.submit(mint(1, 1000));
+
+		final Block funding = nextBlock(funder, FOUNDATION, 2000);
+
+		funder.commit(funding);
+
+		for (final Ledger follower : followers) {
+			follower.commit(funding);
+		}
+	}
+
+	private static Transfer paying(Ledger ledger, long amount, long fee, long nonce) {
+		return Transfer.signed(accountSeed(1), account(2), amount, fee, nonce, ledger.chainId());
+	}
+
+	@Example
+	public void shouldHaveNoWorkOnAFreshLedger() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			assertWork(open(fileSystem, "a", ANY_MINT), 2000, false);
+		}
+	}
+
+	@Example
+	public void shouldHaveWorkOnceAValidTransferIsSubmitted() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
+
+			fund(ledger);
+			assertWork(ledger, 3000, false);
+
+			assertThat(ledger.submit(paying(ledger, 10, 1, 0)), equalTo(Optional.empty()));
+			assertWork(ledger, 3000, true);
+		}
+	}
+
+	@Example
+	public void shouldHaveNoWorkOnceABlockTookTheNonceOfTheOnlyTransfer() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
+			final Ledger rival = open(fileSystem, "b", ANY_MINT);
+
+			fund(ledger, rival);
+			ledger.submit(paying(ledger, 10, 0, 0));
+			rival.submit(paying(rival, 11, 0, 0));
+			assertWork(ledger, 3000, true);
+
+			ledger.commit(nextBlock(rival, FOUNDATION, 3000));
+
+			assertThat(ledger.pending(), equalTo(0));
+			assertWork(ledger, 3000, false);
+		}
+	}
+
+	/* The transfer is queued, since the ones before it may still come, but no block can hold it yet */
+	@Example
+	public void shouldHaveNoWorkForATransferThatWaitsForAnEarlierNonce() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
+
+			fund(ledger);
+
+			assertThat(ledger.submit(paying(ledger, 10, 1, 1)), equalTo(Optional.empty()));
+			assertThat(ledger.pending(), equalTo(1));
+			assertWork(ledger, 3000, false);
+
+			ledger.submit(paying(ledger, 10, 1, 0));
+			assertWork(ledger, 3000, true);
+		}
+	}
+
+	@Example
+	public void shouldHaveWorkWhenAMintIsDueAndNotBefore() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)));
+
+			assertWork(ledger, 19_999, false);
+			assertWork(ledger, 20_000, true);
+
+			ledger.commit(nextBlock(ledger, FOUNDATION, 20_000));
+
+			assertWork(ledger, 20_000, false);
+		}
+	}
+
+	/* The authority lists a mint as due but would not take it: the chain must not make empty blocks for ever */
+	@Example
+	public void shouldHaveNoWorkForADueMintTheAuthorityHoldsBack() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final LedgerAuthority stubborn = TestAuthority.open().withSchedule(time -> List.of(DUE))
+				.withMints((mint, time) -> false);
+
+			assertWork(open(fileSystem, "a", stubborn), 30_000, false);
+		}
+	}
+
+	@Example
+	public void shouldHaveNoWorkForATransferBelowTheFeeTheNodeNowDemands() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong least = new AtomicLong(0);
+			final LedgerAuthority demanding = TestAuthority.open()
+				.withTransfers(transfer -> transfer.fee() >= least.get());
+			final Ledger ledger = open(fileSystem, "a", demanding);
+
+			fund(ledger);
+			ledger.submit(paying(ledger, 10, 1, 0));
+			assertWork(ledger, 3000, true);
+
+			least.set(5);
+
+			assertWork(ledger, 3000, false);
+		}
+	}
+
+	@Example
+	public void shouldHaveWorkWhileFeesWaitAndNoneOnceABlockPaidThem() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
+
+			fund(ledger);
+			ledger.submit(paying(ledger, 10, 10, 0));
+			ledger.commit(nextBlock(ledger, FOUNDATION, 3000));
+
+			assertThat(ledger.pending(), equalTo(0));
+			assertWork(ledger, 3000, true);
+
+			ledger.commit(nextBlock(ledger, FOUNDATION, 3000));
+
+			assertWork(ledger, 3000, false);
+		}
+	}
+
+	/* The block takes the time of the tip when given an earlier one, so work is judged at that time too */
+	@Example
+	public void shouldJudgeTheWorkAtTheTimeOfTheTipWhenGivenAnEarlierOne() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint gated = mint(2, 5);
+			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(gated, 40_000L)));
+
+			ledger.commit(block(state(1000, ANY_MINT, FOUNDATION), FOUNDATION, FOUNDATION.size(), 40_000,
+				List.of(mint(3, 5))));
+
+			assertWork(ledger, 10_000, true);
+		}
+	}
+
+	@Example
+	public void shouldLeaveTheMempoolAsItWasWhenAskingForWork() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem, "a", ANY_MINT);
+
+			ledger.submit(mint(1, 5));
+			ledger.submit(mint(2, 5));
+
+			final Optional<Block> before = proposal(ledger, 2000);
+
+			assertThat(ledger.hasWork(2000), is(true));
+			assertThat(ledger.hasWork(2000), is(true));
+			assertThat(ledger.pending(), equalTo(2));
+			assertThat(proposal(ledger, 2000), equalTo(before));
+		}
+	}
+}

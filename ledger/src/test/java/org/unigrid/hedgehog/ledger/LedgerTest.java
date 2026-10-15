@@ -53,32 +53,10 @@ public class LedgerTest {
 		return state(1000, ANY_MINT, FOUNDATION).chainId();
 	}
 
-	/* What the engine will do over the network, done in one place: whoever is due proposes, then the other
-	   validators of the set add their signatures, and the block is committed */
+	/* What the engine will do over the network, done in one place: whoever is due proposes, every validator of the
+	   set among these signs, and the block is committed */
 	private static Block seal(Ledger ledger, List<byte[]> everyone, long time) throws IOException {
-		Block block = null;
-
-		for (final byte[] seed : everyone) {
-			final Optional<Block> proposed = ledger.propose(seed, time);
-
-			if (proposed.isPresent()) {
-				block = proposed.get();
-				break;
-			}
-		}
-
-		if (block == null) {
-			throw new AssertionError("Nobody had anything to propose");
-		}
-
-		for (final byte[] seed : everyone) {
-			final AccountKey signer = Ed25519.publicKey(seed);
-			final boolean signed = block.getEndorsements().stream().anyMatch(e -> e.signer().equals(signer));
-
-			if (ledger.validators().contains(signer) && !signed) {
-				block = ledger.sign(block, seed);
-			}
-		}
+		final Block block = nextBlock(ledger, everyone, ledger.validators().size(), time);
 
 		ledger.commit(block);
 		return block;
@@ -118,37 +96,75 @@ public class LedgerTest {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
-			for (final byte[] seed : FOUNDATION) {
-				assertThat(ledger.propose(seed, 2000), equalTo(Optional.empty()));
+			for (final AccountKey validator : ledger.validators().keys()) {
+				assertThat(ledger.propose(1, 0, validator, 2000), equalTo(Optional.empty()));
 			}
 		}
 	}
 
 	@Example
-	public void shouldLetOnlyTheProposerOfTheHeightPropose() throws IOException {
+	public void shouldLetOnlyTheProposerOfTheHeightAndViewPropose() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			assertThat(ledger.propose(seed(2), 2000), equalTo(Optional.empty()));
-			assertThat(ledger.propose(seed(3), 2000), equalTo(Optional.empty()));
-			assertThat(ledger.propose(seed(99), 2000), equalTo(Optional.empty()));
-			assertThat(ledger.propose(seed(1), 2000).isPresent(), is(true));
+			assertThat(ledger.propose(1, 0, key(2), 2000), equalTo(Optional.empty()));
+			assertThat(ledger.propose(1, 0, key(3), 2000), equalTo(Optional.empty()));
+			assertThat(ledger.propose(1, 0, key(99), 2000), equalTo(Optional.empty()));
+			assertThat(ledger.propose(1, 0, key(1), 2000).isPresent(), is(true));
 		}
 	}
 
 	@Example
-	public void shouldProposeWithOnlyTheProposersOwnSignature() throws IOException {
+	public void shouldProposeOnlyForTheNextHeight() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			final Block proposed = ledger.propose(seed(1), 2000).get();
+			assertThat(ledger.propose(2, 0, key(2), 2000), equalTo(Optional.empty()));
+			assertThat(ledger.propose(1, 0, key(1), 2000).isPresent(), is(true));
 
-			assertThat(proposed.getEndorsements().size(), equalTo(1));
-			assertThat(proposed.getEndorsements().get(0).signer(), equalTo(key(1)));
+			seal(ledger, FOUNDATION, 2000);
+			ledger.submit(mint(2, 500));
+
+			assertThat(ledger.propose(1, 0, key(1), 2001), equalTo(Optional.empty()));
+			assertThat(ledger.propose(3, 0, key(3), 2001), equalTo(Optional.empty()));
+			assertThat(ledger.propose(2, 0, key(2), 2001).isPresent(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldProposeAnUnendorsedBlockForItsProposer() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+
+			ledger.submit(mint(1, 500));
+
+			final Block proposed = ledger.propose(1, 0, key(1), 2000).get();
+
+			assertThat(proposed.getEndorsements().isEmpty(), is(true));
+			assertThat(proposed.getProposer(), equalTo(key(1)));
+			assertThat(proposed.getView(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldProposeInTheViewItIsAskedFor() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger ledger = open(fileSystem);
+			final AccountKey proposer = ledger.validators().proposerAt(1, 2);
+
+			ledger.submit(mint(1, 500));
+
+			assertThat(ledger.propose(1, 0, proposer, 2000), equalTo(Optional.empty()));
+
+			final Block proposed = ledger.propose(1, 2, proposer, 2000).get();
+
+			assertThat(proposed.getView(), equalTo(2));
+			assertThat(proposed.getProposer(), equalTo(proposer));
+			assertThat(ledger.validate(proposed), equalTo(Optional.empty()));
 		}
 	}
 
@@ -159,7 +175,7 @@ public class LedgerTest {
 
 			ledger.submit(mint(1, 500));
 
-			final Block proposed = ledger.propose(seed(1), 2000).get();
+			final Block proposed = ledger.propose(1, 0, key(1), 2000).get();
 
 			assertThrows(InvalidBlockException.class, () -> ledger.commit(proposed));
 			assertThat(ledger.height(), equalTo(0L));
@@ -167,65 +183,67 @@ public class LedgerTest {
 		}
 	}
 
-	/* A signature is a promise that the block is right, so a validator signs nothing it has not checked */
+	/* A vote is a promise that the block is right, so a validator votes for nothing it has not checked */
 	@Example
-	public void shouldRefuseToSignABlockThatIsNotValid() throws IOException {
+	public void shouldRefuseToVoteForABlockThatIsNotValid() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			final Block proposed = ledger.propose(seed(1), 2000).get();
+			final Block proposed = ledger.propose(1, 0, key(1), 2000).get();
 			final Block wrongRoot = proposed.toBuilder().stateRoot(new byte[Digests.HASH_SIZE]).build();
 			final Block wrongTransactions = proposed.toBuilder().transactions(List.of(mint(1, 999))).build();
 
-			assertThrows(InvalidBlockException.class, () -> ledger.sign(wrongRoot, seed(2)));
-			assertThrows(InvalidBlockException.class, () -> ledger.sign(wrongTransactions, seed(2)));
-			assertThat(ledger.sign(proposed, seed(2)).getEndorsements().size(), equalTo(2));
+			assertThat(ledger.validate(wrongRoot).orElse(""), containsString("State root does not match"));
+			assertThat(ledger.validate(wrongTransactions).orElse(""), containsString("Transaction root"));
+			assertThat(ledger.validate(proposed), equalTo(Optional.empty()));
 		}
 	}
 
+	/* The check before a vote is made on a block with no signatures yet, the check after is made on the
+	   certificate too, which is where the view of the certificate is looked at */
 	@Example
-	public void shouldRefuseToSignWithAKeyThatIsNoValidator() throws IOException {
+	public void shouldValidateAProposalApartFromItsCertificate() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			final Block proposed = ledger.propose(seed(1), 2000).get();
+			final AccountKey proposer = ledger.validators().proposerAt(1, 2);
+			final Block proposed = ledger.propose(1, 2, proposer, 2000).get();
+			final Block earlierView = certify(proposed, 1, ledger.chainId(), FOUNDATION);
+			final Block thin = certify(proposed, 2, ledger.chainId(), FOUNDATION.subList(0, 1));
+			final Block whole = certify(proposed, 2, ledger.chainId(), FOUNDATION);
 
-			assertThrows(IllegalArgumentException.class, () -> ledger.sign(proposed, seed(99)));
+			assertThat(ledger.validate(proposed), equalTo(Optional.empty()));
+			assertThat(ledger.validateCertified(proposed).isPresent(), is(true));
+			assertThat(ledger.validateCertified(earlierView).orElse(""), containsString("earlier view"));
+			assertThat(ledger.validateCertified(thin).orElse(""), containsString("quorum"));
+			assertThat(ledger.validateCertified(whole), equalTo(Optional.empty()));
 		}
 	}
 
-	/* Signing two blocks at one height is how a validator splits the chain, so this one never does it */
+	/* The answer is given for a block that no one has certified, so asking leaves no trace: not in the state and
+	   not in the mempool, and the next proposal is the same */
 	@Example
-	public void shouldNeverSignTwoDifferentBlocksAtOneHeight() throws IOException {
+	public void shouldChangeNothingWhenAskedToValidate() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			final Block first = ledger.propose(seed(1), 2000).get();
-			final Block second = first.toBuilder().time(2001).build();
+			final Block proposed = ledger.propose(1, 0, key(1), 2000).get();
+			final Block wrongRoot = proposed.toBuilder().stateRoot(new byte[Digests.HASH_SIZE]).build();
+			final byte[] root = ledger.stateRoot();
 
-			assertThat(ledger.sign(first, seed(2)).getEndorsements().size(), equalTo(2));
-			assertThat(ledger.sign(first, seed(2)).getEndorsements().size(), equalTo(2));
-			assertThrows(IllegalStateException.class, () -> ledger.sign(second, seed(2)));
-			assertThrows(IllegalStateException.class, () -> ledger.sign(second, seed(1)));
-		}
-	}
+			assertThat(ledger.validate(proposed), equalTo(Optional.empty()));
+			assertThat(ledger.validate(wrongRoot).isPresent(), is(true));
 
-	@Example
-	public void shouldLetAValidatorSignAgainAtTheNextHeight() throws IOException {
-		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem);
-
-			ledger.submit(mint(1, 500));
-			seal(ledger, FOUNDATION, 2000);
-			ledger.submit(mint(2, 500));
-
-			assertThat(seal(ledger, FOUNDATION, 2001).getHeight(), equalTo(2L));
+			assertThat(ledger.height(), equalTo(0L));
+			assertThat(ledger.stateRoot(), equalTo(root));
+			assertThat(ledger.pending(), equalTo(1));
+			assertThat(ledger.propose(1, 0, key(1), 2000), equalTo(Optional.of(proposed)));
 		}
 	}
 
@@ -235,7 +253,7 @@ public class LedgerTest {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
-			assertThat(ledger.propose(seed(1), 5).get().getTime(), equalTo(1000L));
+			assertThat(ledger.propose(1, 0, key(1), 5).get().getTime(), equalTo(1000L));
 		}
 	}
 
@@ -321,10 +339,7 @@ public class LedgerTest {
 			}
 
 			assertThat(ledger.supply(), equalTo(1000L));
-
-			for (final byte[] seed : FOUNDATION) {
-				assertThat(ledger.propose(seed, 5000), equalTo(Optional.empty()));
-			}
+			assertThat(proposal(ledger, 5000), equalTo(Optional.empty()));
 		}
 	}
 
@@ -465,20 +480,24 @@ public class LedgerTest {
 		}
 	}
 
-	/* The proposer has put its name to one block at this height; asked again it hands that block back, and a
-	   transaction that arrived in between goes into the next one */
+	/* The ledger remembers no proposal: the engine keeps the block it put forward and the sign state keeps what it
+	   signed, so asking again builds a new block from what waits now, and the mempool is left as it was */
 	@Example
-	public void shouldHandTheSameBlockBackWhenAskedToProposeAgainAtOneHeight() throws IOException {
+	public void shouldBuildEachProposalFromWhatWaitsWhenAsked() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger ledger = open(fileSystem);
 
 			ledger.submit(mint(1, 500));
 
-			final Optional<Block> first = ledger.propose(seed(1), 2000);
+			final Block first = ledger.propose(1, 0, key(1), 2000).get();
 
 			ledger.submit(mint(2, 500));
 
-			assertThat(ledger.propose(seed(1), 2001), equalTo(first));
+			final Block second = ledger.propose(1, 0, key(1), 2001).get();
+
+			assertThat(first.getTransactions(), equalTo(List.of(mint(1, 500))));
+			assertThat(second.getTransactions(), equalTo(List.of(mint(1, 500), mint(2, 500))));
+			assertThat(ledger.pending(), equalTo(2));
 		}
 	}
 

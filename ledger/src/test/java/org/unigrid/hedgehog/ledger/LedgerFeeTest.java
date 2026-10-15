@@ -80,23 +80,8 @@ public class LedgerFeeTest {
 		return rejection.orElse("");
 	}
 
-	private static Optional<Block> proposeWhenDue(Ledger ledger) {
-		return ledger.propose(seedOf(ledger.validators().proposerAt(ledger.height() + 1)), 2000);
-	}
-
-	private static void signAndCommit(Ledger ledger, Block proposed) throws IOException {
-		Block block = proposed;
-
-		for (final byte[] seed : FOUR) {
-			final AccountKey signer = Ed25519.publicKey(seed);
-
-			if (block.getEndorsements().size() < ledger.validators().quorum()
-				&& block.getEndorsements().stream().noneMatch(endorsement -> endorsement.signer().equals(signer))) {
-				block = ledger.sign(block, seed);
-			}
-		}
-
-		ledger.commit(block);
+	private static void certifyAndCommit(Ledger ledger, Block proposed) throws IOException {
+		ledger.commit(certify(proposed, 0, ledger.chainId(), FOUR.subList(0, ledger.validators().quorum())));
 	}
 
 	@Example
@@ -177,15 +162,15 @@ public class LedgerFeeTest {
 			final Ledger ledger = new Ledger(chain(), BlockLog.open(fileSystem.getPath("/data/blocks.log")));
 
 			ledger.submit(mint(1, 1000));
-			signAndCommit(ledger, proposeWhenDue(ledger).orElseThrow());
+			certifyAndCommit(ledger, proposal(ledger, 2000).orElseThrow());
 			ledger.submit(Transfer.signed(accountSeed(1), account(2), 300, 10, 0, ledger.chainId()));
-			signAndCommit(ledger, proposeWhenDue(ledger).orElseThrow());
+			certifyAndCommit(ledger, proposal(ledger, 2000).orElseThrow());
 
-			final Block empty = proposeWhenDue(ledger).orElseThrow();
+			final Block empty = proposal(ledger, 2000).orElseThrow();
 
 			assertThat(empty.getTransactions().isEmpty(), is(true));
-			signAndCommit(ledger, empty);
-			assertThat(proposeWhenDue(ledger), equalTo(Optional.empty()));
+			certifyAndCommit(ledger, empty);
+			assertThat(proposal(ledger, 2000), equalTo(Optional.empty()));
 			assertThat(ledger.supply(), equalTo(1000L));
 		}
 	}
