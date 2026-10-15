@@ -1647,25 +1647,25 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldHaltWithNoNodeAndNoVoteWhenThePromotionCannotBuildTheNode() throws IOException {
+	public void shouldHaltWithNoNodeAndNoVoteWhenNeitherTheNodeToVoteNorTheObserverCanBeBuilt() throws IOException {
 		try (DriverRig rig = fresh()) {
 			final RecordingPeer watcher = rig.network.connect("W");
 
-			rig.failCreation(new IOException("The sign state is locked"));
+			rig.failCreation(new IOException("The files are gone"));
 			rig.passGrace();
 			rig.tick(DriverRig.HEARTBEAT);
 
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.driver.signing(), is(false));
 			assertThat(live(rig), is(empty()));
-			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(rig.built, equalTo(List.of(false, true, false)));
 			assertThat(watcher.sent(Heartbeat.class), is(empty()));
 			assertFailsClosed(rig, List.of());
 		}
 	}
 
 	@Example
-	public void shouldHaltWithNoNodeAndNoVoteWhenThePromotedNodeCannotStart() throws IOException {
+	public void shouldHaltWithNoNodeWhenEvenTheObserverThatTakesTheNodeToVotePlaceCannotStart() throws IOException {
 		try (DriverRig rig = fresh()) {
 			rig.breakNewNodes();
 			rig.passGrace();
@@ -1673,8 +1673,99 @@ public class LedgerDriverSyncTest {
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.driver.signing(), is(false));
 			assertThat(live(rig), is(empty()));
-			assertThat(rig.built, equalTo(List.of(false, true, true)));
+			assertThat(rig.built, equalTo(List.of(false, true, false, false)));
 			assertFailsClosed(rig, List.of());
+		}
+	}
+
+	@Example
+	public void shouldGoOnFollowingAndTryAgainWithALongerWaitEachTimeWhenTheNodeToVoteCannotBeBuilt()
+		throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain);
+
+			rig.failCreationOfVoters(new IOException("The sign state is locked"));
+			rig.passGrace();
+
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), hasSize(1));
+			assertThat(rig.built, equalTo(List.of(false, true, false)));
+
+			rig.hears(server, server.status());
+
+			assertThat(rig.ledger().height(), equalTo(3L));
+
+			for (int tick = 0; tick < 10; tick++) {
+				rig.tick(DriverRig.TICK);
+			}
+
+			assertThat(rig.built.stream().filter(votes -> votes).count(), equalTo(4L));
+			assertThat(rig.driver.halted(), is(false));
+
+			rig.mendVoters();
+
+			for (int tick = 0; tick < 30 && !rig.driver.signing(); tick++) {
+				rig.tick(DriverRig.TICK);
+			}
+
+			assertThat(rig.driver.signing(), is(true));
+			assertThat(live(rig), hasSize(1));
+			assertFailsClosed(rig, List.of(server));
+		}
+	}
+
+	@Example
+	public void shouldGoOnFollowingWhenTheNodeToVoteBuildsAndCannotStart() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = fresh()) {
+			final Server server = new Server("S", chain);
+
+			rig.breakVoters();
+			rig.passGrace();
+
+			assertThat(rig.driver.halted(), is(false));
+			assertThat(rig.driver.signing(), is(false));
+			assertThat(live(rig), hasSize(1));
+			assertThat(rig.built, equalTo(List.of(false, true, false)));
+
+			rig.hears(server, server.status());
+
+			assertThat(rig.ledger().height(), equalTo(3L));
+			assertFailsClosed(rig, List.of(server));
+		}
+	}
+
+	@Example
+	public void shouldKeepTheFirstReasonOfAHaltAndStayClosedWhenAHaltComesAfterTheClose() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = startedOver(chain, 3, null)) {
+			final RecordingPeer asker = rig.network.connect("Q");
+
+			rig.driver.halt("first");
+			rig.driver.halt("second");
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("first")));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).join().blocks(), hasSize(3));
+
+			rig.driver.close();
+			rig.driver.halt("late");
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("first")));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).isCompletedExceptionally(),
+				is(true));
+		}
+	}
+
+	@Example
+	public void shouldStayClosedWhenAHaltComesAfterTheCloseOfADriverThatNeverHalted() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = startedOver(chain, 3, null)) {
+			final RecordingPeer asker = rig.network.connect("Q");
+
+			rig.driver.close();
+			rig.driver.halt("late");
+
+			assertThat(rig.driver.haltReason(), equalTo(Optional.of("late")));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).isCompletedExceptionally(),
+				is(true));
 		}
 	}
 
@@ -1691,15 +1782,15 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldHaltWhenTheFactoryBuildsAnObserverForAPromotion() throws IOException {
+	public void shouldGoOnFollowingWhenTheFactoryBuildsAnObserverForAPromotion() throws IOException {
 		try (DriverRig rig = fresh()) {
 			rig.buildAlways(false);
 			rig.passGrace();
 
-			assertThat(rig.driver.halted(), is(true));
+			assertThat(rig.driver.halted(), is(false));
 			assertThat(rig.driver.signing(), is(false));
-			assertThat(live(rig), is(empty()));
-			assertThat(rig.built, equalTo(List.of(false, true)));
+			assertThat(live(rig), hasSize(1));
+			assertThat(rig.built, equalTo(List.of(false, true, false)));
 		}
 	}
 

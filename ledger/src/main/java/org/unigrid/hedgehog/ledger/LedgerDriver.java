@@ -241,6 +241,11 @@ public final class LedgerDriver implements Closeable {
 			&& sync.claimsAbove(peer, supervisor.ledger().height(), clock.getAsLong());
 	}
 
+	/* For the tests of this package: the driver stops as it does when what it stands on fails */
+	void halt(String reason) {
+		supervisor.halt(reason);
+	}
+
 	/* For the tests of this package: whether what the peer says is left unheard for now */
 	boolean doubts(String peer) {
 		return sync.discredited(peer, clock.getAsLong());

@@ -64,6 +64,8 @@ final class NodeSupervisor {
 	private boolean rebuildToVote;
 	private Cancellable rebuilder = () -> { };
 	private long backoff;
+	private long promotionBackoff;
+	private long nextPromotion;
 
 	/* `control` posts a task to the driver's control lane, `perform` carries out the actions of an event of the node's
 	   own, and `stopped` is told when the driver halts, to stop what it runs */
@@ -138,11 +140,62 @@ final class NodeSupervisor {
 		return ledger;
 	}
 
-	/* The driver votes only through a node that was built to vote and has started, so a build that fails halts it with
-	   no node open */
-	void become(boolean validator) {
+	/* Whether a promotion that failed has waited long enough to be tried again */
+	boolean promotionDue() {
+		return clock.getAsLong() >= nextPromotion;
+	}
+
+	/* The observer is replaced by a node that votes. A driver votes only through a node that was built to vote and has
+	   started; if that cannot be had the observer is built again, so that the driver goes on following the chain, and
+	   the promotion waits to be tried again, longer after each failure up to a minute. Only an observer that cannot be
+	   built halts the driver. */
+	void promote() {
 		closeQuietly(node);
-		restart(validator);
+
+		if (votingNodeStarted()) {
+			promotionBackoff = 0;
+		} else {
+			promotionBackoff = promotionBackoff == 0 ? options.tickMillis()
+				: Math.min(2 * promotionBackoff, MAX_BACKOFF_MILLIS);
+			nextPromotion = clock.getAsLong() + promotionBackoff;
+			restart(false);
+		}
+	}
+
+	private boolean votingNodeStarted() {
+		final LedgerNode built;
+
+		try {
+			built = factory.create(true);
+		} catch (IOException | RuntimeException e) {
+			log.atWarn().setCause(e).log("A node to vote could not be built");
+			return false;
+		}
+
+		try {
+			return started(built);
+		} catch (IOException | RuntimeException e) {
+			log.atWarn().setCause(e).log("A node to vote could not be started");
+			closeQuietly(built);
+			return false;
+		} catch (Error e) {
+			closeQuietly(built);
+			halt("The ledger node hit " + describe(e));
+			throw e;
+		}
+	}
+
+	private boolean started(LedgerNode built) throws IOException {
+		if (!built.signs()) {
+			throw new IllegalStateException("The node factory built a node that does not vote");
+		}
+
+		final List<Action> actions = built.start();
+
+		node = built;
+		ledger = built.ledger();
+		perform.accept(actions);
+		return true;
 	}
 
 	/* The timers stay: a Timeout names a step of the engine, not of a node, and the new node asks for the ones it
@@ -171,10 +224,15 @@ final class NodeSupervisor {
 	}
 
 	/* A halted driver votes no more: the node is closed and so is the lock on the sign state, and nothing is waited
-	   for. What it holds is the ledger, to serve blocks from. */
+	   for. What it holds is the ledger, to serve blocks from, until it is closed. The first reason is the one that is
+	   kept, as what comes after it is likely to follow from it. */
 	void halt(String reason) {
 		log.atError().log("The ledger driver halted: {}", reason);
-		haltReason = reason;
+
+		if (haltReason == null) {
+			haltReason = reason;
+		}
+
 		rebuilder.cancel();
 		stopped.run();
 		closeQuietly(node);

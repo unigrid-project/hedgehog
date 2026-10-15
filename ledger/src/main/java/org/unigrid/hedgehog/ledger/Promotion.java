@@ -72,9 +72,14 @@ final class Promotion {
 	}
 
 	void promoteIfCaughtUp() {
-		if (hasKey && supervisor.ready() && !supervisor.node().signs() && caughtUp()) {
-			supervisor.become(true);
+		if (mayPromote() && caughtUp()) {
+			supervisor.promote();
 		}
+	}
+
+	/* An observer with a key, whose last promotion that failed is not too recent */
+	private boolean mayPromote() {
+		return hasKey && supervisor.ready() && !supervisor.node().signs() && supervisor.promotionDue();
 	}
 
 	/* The grace period is over, and no claim above the ledger stands, or none that a request waits on or a batch

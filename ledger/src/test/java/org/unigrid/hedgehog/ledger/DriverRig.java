@@ -107,8 +107,10 @@ final class DriverRig implements AutoCloseable {
 	private Ledger leader;
 	private Block proposed;
 	private IOException createFailure;
+	private IOException votersFailure;
 	private Boolean votes;
 	private boolean newNodesBroken;
+	private boolean votersBroken;
 
 	DriverRig(List<byte[]> validators, byte[] seed, Policy policy, Serial serial) {
 		this(validators, seed, policy, serial, OPTIONS);
@@ -168,8 +170,8 @@ final class DriverRig implements AutoCloseable {
 		builders.add(Thread.currentThread().getName());
 		built.add(signing);
 
-		if (createFailure != null) {
-			throw createFailure;
+		if (createFailure != null || signing && votersFailure != null) {
+			throw createFailure != null ? createFailure : votersFailure;
 		}
 
 		if (log != null) {
@@ -178,7 +180,7 @@ final class DriverRig implements AutoCloseable {
 
 		final Authority authority = new Authority();
 
-		authority.broken = newNodesBroken;
+		authority.broken = newNodesBroken || signing && votersBroken;
 		authorities.add(authority);
 		log = BlockLog.open(fileSystem.getPath("/node/blocks.log"));
 		ledger = new Ledger(state(1000, authority, validators), log, clock::get);
@@ -225,6 +227,21 @@ final class DriverRig implements AutoCloseable {
 
 	void failCreation(IOException failure) {
 		createFailure = failure;
+	}
+
+	/* A node to follow can be built, and a node to vote cannot, as when the key is in use elsewhere */
+	void failCreationOfVoters(IOException failure) {
+		votersFailure = failure;
+	}
+
+	/* A node to vote can be built, and cannot start */
+	void breakVoters() {
+		votersBroken = true;
+	}
+
+	void mendVoters() {
+		votersFailure = null;
+		votersBroken = false;
 	}
 
 	/* Moves the clock and lets the tick that waits come */
