@@ -79,6 +79,10 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    believed for ten minutes. A node that votes follows instead when the blocks it was given show that it was more
    than one behind.
 
+   For the application: a node with a key waits for a peer at its tip, or for the grace period, before it votes
+   after every restart. The node factory is asked for an observer first and, later in the same process, for a node
+   that signs: it closes the block log between the two itself, and opens the sign state only for a node that signs.
+
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it, except that the answer to a
    request of the driver's own takes no token: there is one such request out at a time. */
