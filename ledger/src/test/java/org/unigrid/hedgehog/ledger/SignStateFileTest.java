@@ -22,11 +22,15 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -35,8 +39,13 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.Ballot.Type.PRECOMMIT;
 import static org.unigrid.hedgehog.ledger.Ballot.Type.PREVOTE;
@@ -511,7 +520,7 @@ public class SignStateFileTest {
 			store.save(signed(), LARGEST_PROOF);
 
 			try (Stream<Path> entries = Files.list(file.getParent())) {
-				assertThat(entries.toList(), equalTo(List.of(file)));
+				assertThat(entries.toList(), containsInAnyOrder(file, lockOf(file)));
 			}
 		}
 	}
@@ -698,6 +707,169 @@ public class SignStateFileTest {
 
 			assertThrows(IllegalArgumentException.class, () -> store.save(fullest, LARGEST_PROOF));
 			assertThat(Files.exists(file), equalTo(false));
+		}
+	}
+
+	private static Path lockOf(Path file) {
+		return file.resolveSibling(file.getFileName() + ".lock");
+	}
+
+	/* The in-memory file system hands everyone a lock, so what the file does with a lock is seen through a seam that
+	   keeps what it was given: the lock that the file system offers, or the answer of a process that holds it */
+	private static final class SeenLocks {
+		private final List<FileLock> taken = new ArrayList<>();
+		private final List<FileChannel> channels = new ArrayList<>();
+		private final boolean offered;
+
+		SeenLocks(boolean offered) {
+			this.offered = offered;
+		}
+
+		FileLock tryLock(Path lockFile, FileChannel channel) throws IOException {
+			channels.add(channel);
+
+			if (!offered) {
+				return null;
+			}
+
+			final FileLock lock = channel.tryLock();
+
+			taken.add(lock);
+			return lock;
+		}
+	}
+
+	private static SignStateFile lockedBy(Path file, SeenLocks locks) {
+		return new SignStateFile(file, SignStateFile.MAX_VIEW, locks::tryLock);
+	}
+
+	@Example
+	public void shouldTakeTheLockAtTheFirstLoadAndKeepItUntilItIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final SeenLocks locks = new SeenLocks(true);
+			final SignStateFile store = lockedBy(file, locks);
+
+			assertThat(locks.taken, is(empty()));
+			assertThat(Files.exists(lockOf(file)), equalTo(false));
+			assertThat(store.load(), equalTo(Optional.empty()));
+			assertThat(locks.taken, hasSize(1));
+			assertThat(locks.taken.get(0).isValid(), equalTo(true));
+			assertThat(Files.exists(lockOf(file)), equalTo(true));
+
+			store.save(small(), LARGEST_PROOF);
+			assertThat(store.load(), equalTo(Optional.of(small())));
+			assertThat(locks.taken, hasSize(1));
+			assertThat(locks.taken.get(0).isValid(), equalTo(true));
+
+			store.close();
+			assertThat(locks.taken.get(0).isValid(), equalTo(false));
+			assertThat(locks.channels.get(0).isOpen(), equalTo(false));
+		}
+	}
+
+	@Example
+	public void shouldTakeTheLockAtTheFirstSave() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final SeenLocks locks = new SeenLocks(true);
+			final SignStateFile store = lockedBy(fileIn(fileSystem), locks);
+
+			store.save(small(), LARGEST_PROOF);
+			assertThat(locks.taken, hasSize(1));
+			assertThat(locks.taken.get(0).isValid(), equalTo(true));
+		}
+	}
+
+	@Example
+	public void shouldTakeTheLockAgainWhenItIsUsedAfterItWasClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final SeenLocks locks = new SeenLocks(true);
+			final SignStateFile store = lockedBy(fileIn(fileSystem), locks);
+
+			store.save(small(), LARGEST_PROOF);
+			store.close();
+			store.close();
+			assertThat(store.load(), equalTo(Optional.of(small())));
+			assertThat(locks.taken, hasSize(2));
+			assertThat(locks.taken.get(0).isValid(), equalTo(false));
+			assertThat(locks.taken.get(1).isValid(), equalTo(true));
+		}
+	}
+
+	@Example
+	public void shouldCloseAFileThatWasNeverUsed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final SeenLocks locks = new SeenLocks(true);
+
+			lockedBy(fileIn(fileSystem), locks).close();
+			assertThat(locks.taken, is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToLoadOrSaveWhenAnotherProcessHoldsTheLock() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final SeenLocks locks = new SeenLocks(false);
+			final SignStateFile store = lockedBy(file, locks);
+			final FileLockedException refused = assertThrows(FileLockedException.class, store::load);
+
+			assertThat(refused.getMessage(), containsString(file.toAbsolutePath().toString()));
+			assertThat(refused.getMessage(), containsString("another process or node holds the data directory"));
+			assertThrows(FileLockedException.class, () -> store.save(small(), LARGEST_PROOF));
+			assertThat(Files.exists(file), equalTo(false));
+			assertThat(locks.channels, hasSize(2));
+			assertThat(locks.channels.stream().noneMatch(FileChannel::isOpen), equalTo(true));
+		}
+	}
+
+	@Example
+	public void shouldRefuseToLoadOrSaveWhenThisProcessHoldsTheLock() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final List<FileChannel> opened = new ArrayList<>();
+			final SignStateFile store = new SignStateFile(file, SignStateFile.MAX_VIEW, (lockFile, channel) -> {
+				opened.add(channel);
+				throw new OverlappingFileLockException();
+			});
+			final FileLockedException refused = assertThrows(FileLockedException.class, store::load);
+
+			assertThat(refused.getCause(), instanceOf(OverlappingFileLockException.class));
+			assertThat(refused.getMessage(), containsString("another process or node holds the data directory"));
+			assertThrows(FileLockedException.class, () -> store.save(small(), LARGEST_PROOF));
+			assertThat(Files.exists(file), equalTo(false));
+			assertThat(opened.stream().noneMatch(FileChannel::isOpen), equalTo(true));
+		}
+	}
+
+	@Example
+	public void shouldLetASecondFileOverThePathInOnlyWhenTheFirstIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Path file = fileIn(fileSystem);
+			final SignStateFile first = StrictLocks.signStateOf(file);
+			final SignStateFile second = StrictLocks.signStateOf(file);
+
+			first.save(small(), LARGEST_PROOF);
+			assertThrows(FileLockedException.class, second::load);
+			assertThrows(FileLockedException.class, () -> second.save(signed(), LARGEST_PROOF));
+			assertThat(first.load(), equalTo(Optional.of(small())));
+
+			first.close();
+			assertThat(second.load(), equalTo(Optional.of(small())));
+			second.close();
+		}
+	}
+
+	@Example
+	public void shouldKeepTheLockOfOneFileApartFromTheLockOfAnother() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final SignStateFile first = StrictLocks.signStateOf(fileSystem.getPath("/one/state"));
+			final SignStateFile second = StrictLocks.signStateOf(fileSystem.getPath("/two/state"));
+
+			first.save(small(), LARGEST_PROOF);
+			second.save(small(), LARGEST_PROOF);
+			first.close();
+			second.close();
 		}
 	}
 }

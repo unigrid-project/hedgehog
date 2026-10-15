@@ -21,6 +21,8 @@ package org.unigrid.hedgehog.ledger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -41,8 +43,20 @@ import java.util.Optional;
    The checksum is what notices damage that the move cannot prevent, such as a disk that returns other bytes than it
    was given. The set size is in the file, as the set may have changed by the time the file is read, and it sizes
    both what a proof can hold and the largest file that is read: that size is exact for a set of a given size and
-   loose for a tiny set, which could hold many large proposals in theory and never does. */
+   loose for a tiny set, which could hold many large proposals in theory and never does.
+
+   Two nodes over one sign state could each sign something different for a view, as when a process is started twice, or
+   a restored backup runs beside the original. The file therefore takes an exclusive lock on a file of its own beside
+   it, at the first load or save, and holds it until close(); another file over the same path, in this process or in
+   another, is refused with a FileLockedException. The lock covers this file alone, not the block log. */
 public final class SignStateFile implements SignStore {
+	/* How the lock is taken, which a test can replace, as the in-memory file system gives everyone a lock. Null means
+	   that another process holds it; a lock held in this process is an OverlappingFileLockException. */
+	@FunctionalInterface
+	interface Locker {
+		FileLock tryLock(Path lockFile, FileChannel channel) throws IOException;
+	}
+
 	/* The highest view that a file is sized for, which fends off a file that is garbage. The timeouts grow with
 	   the view, so a validator that reaches it has been stalled for more than a month on one height. A state of a
 	   later view is still read if its entries fit the size. */
@@ -55,16 +69,26 @@ public final class SignStateFile implements SignStore {
 
 	private final Path file;
 	private final Path temporary;
+	private final Path lockFile;
 	private final int maxView;
+	private final Locker locker;
+	private FileChannel lockChannel;
+	private FileLock held;
 
 	public SignStateFile(Path file) {
 		this(file, MAX_VIEW);
 	}
 
 	SignStateFile(Path file, int maxView) {
+		this(file, maxView, (path, channel) -> channel.tryLock());
+	}
+
+	SignStateFile(Path file, int maxView, Locker locker) {
 		this.file = file.toAbsolutePath();
 		this.temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
+		this.lockFile = this.file.resolveSibling(this.file.getFileName() + ".lock");
 		this.maxView = maxView;
+		this.locker = locker;
 	}
 
 	static long largestFile(int largestProof, int maxView) {
@@ -77,7 +101,9 @@ public final class SignStateFile implements SignStore {
 	}
 
 	@Override
-	public Optional<SignState> load() throws IOException {
+	public synchronized Optional<SignState> load() throws IOException {
+		lock();
+
 		final FileChannel channel;
 
 		try {
@@ -97,7 +123,9 @@ public final class SignStateFile implements SignStore {
 	/* Refuses a state that load would refuse for its size, so that the validator stops here and not at its next
 	   start, where it could neither sign nor read its own file */
 	@Override
-	public void save(SignState state, int largestProof) throws IOException {
+	public synchronized void save(SignState state, int largestProof) throws IOException {
+		lock();
+
 		if (!isSetSize(largestProof)) {
 			throw new IllegalArgumentException("A set has 1 to " + ValidatorSet.MAX_SIZE
 				+ " validators, found " + largestProof);
@@ -114,6 +142,63 @@ public final class SignStateFile implements SignStore {
 		write(framed);
 		Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		forceDirectory();
+	}
+
+	/* Lets go of the lock, so that a node over the same files can take it. A file that is used after it was closed
+	   takes the lock again. */
+	@Override
+	public synchronized void close() throws IOException {
+		if (lockChannel == null) {
+			return;
+		}
+
+		final FileChannel channel = lockChannel;
+		final FileLock lock = held;
+
+		lockChannel = null;
+		held = null;
+
+		try (channel) {
+			lock.release();
+		}
+	}
+
+	private void lock() throws IOException {
+		if (lockChannel != null) {
+			return;
+		}
+
+		Files.createDirectories(file.getParent());
+
+		final FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
+			StandardOpenOption.WRITE);
+
+		try {
+			held = acquire(channel);
+			lockChannel = channel;
+		} catch (IOException | RuntimeException e) {
+			channel.close();
+			throw e;
+		}
+	}
+
+	private FileLock acquire(FileChannel channel) throws IOException {
+		try {
+			final FileLock acquired = locker.tryLock(lockFile, channel);
+
+			if (acquired != null) {
+				return acquired;
+			}
+		} catch (OverlappingFileLockException e) {
+			throw locked(e);
+		}
+
+		throw locked(null);
+	}
+
+	private FileLockedException locked(Throwable cause) {
+		return new FileLockedException("The sign state file " + file + " is locked: another process or node holds "
+			+ "the data directory", cause);
 	}
 
 	private static boolean isSetSize(int validators) {

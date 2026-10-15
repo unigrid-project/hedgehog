@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,13 +52,18 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    committed to such nodes. A node that dies before it has sent the Decision of the event that decided loses that
    Decision, and its peers are told of the block only by what the driver serves.
 
+   One process per key and per set of files is enforced, not assumed: the sign state file holds an exclusive lock from
+   its first load or save until the node is closed, and a node over files that another holds does not start, but
+   fails with a FileLockedException. The lock covers the sign state file only, so the driver opens exactly one node
+   per data directory, and closes it before it starts another over the same files, the block log included.
+
    A sign state of a height above the next one means that the block log lost its tail, and the start is refused with
    a BlockLogBehindException: the operator restores the tail of the block log from a peer and never deletes the sign
    state, as a node without it could sign again at a height it has signed at.
 
    Events come one at a time, as the engine takes them, and the driver calls tick() about once a second, which is the
    rate the engine's rules for a node at rest are written for. */
-public final class LedgerNode {
+public final class LedgerNode implements Closeable {
 	private final Ledger ledger;
 	private final Consensus engine;
 	private final SignStore store;
@@ -65,7 +71,7 @@ public final class LedgerNode {
 	private final boolean signs;
 	/* The state the store holds, as far as this node knows: what it loaded or last saved, null when there is none */
 	private SignState onDisk;
-	private boolean failed;
+	private boolean stopped;
 
 	@FunctionalInterface
 	private interface Work {
@@ -174,7 +180,7 @@ public final class LedgerNode {
 	/* What the node has said at this height, for a driver that says it again. A node that failed is refused it, as its
 	   engine holds what the failed event signed and did not save. */
 	public synchronized List<Message> outbox() {
-		requireNotFailed();
+		requireRunning();
 		return engine.outbox();
 	}
 
@@ -191,20 +197,31 @@ public final class LedgerNode {
 	/* A node that failed, in whatever way, has an engine that may have moved past what the store and the ledger hold,
 	   so it takes no further event: not even one that looks harmless would be safe to save. */
 	private List<Action> guarded(Work work) throws IOException {
-		requireNotFailed();
+		requireRunning();
 
 		try {
 			return work.run();
 		} catch (IOException | RuntimeException e) {
-			failed = true;
+			stopped = true;
 			throw e;
 		}
 	}
 
-	private void requireNotFailed() {
-		if (failed) {
-			throw new IllegalStateException(
-				"This node failed earlier and takes no further event: start a new one over the same files");
+	private void requireRunning() {
+		if (stopped) {
+			throw new IllegalStateException("This node has failed or been closed and takes no further event: "
+				+ "start a new one over the same files");
+		}
+	}
+
+	/* Lets go of the sign state, so that a new node can be started over the files, and stops this one: it takes no
+	   further event. The block log is not the node's to close; whoever opened it does. */
+	@Override
+	public synchronized void close() throws IOException {
+		stopped = true;
+
+		if (signs) {
+			store.close();
 		}
 	}
 

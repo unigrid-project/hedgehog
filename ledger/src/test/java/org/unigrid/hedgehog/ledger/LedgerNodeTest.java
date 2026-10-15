@@ -79,6 +79,7 @@ public class LedgerNodeTest {
 		private final SignState loaded;
 		private boolean failing;
 		private int loads;
+		private int closes;
 
 		RecordingStore() {
 			this(null);
@@ -102,6 +103,11 @@ public class LedgerNodeTest {
 
 			saved.add(state);
 			bounds.add(largestProof);
+		}
+
+		@Override
+		public void close() {
+			closes++;
 		}
 
 		SignState last() {
@@ -137,6 +143,11 @@ public class LedgerNodeTest {
 		public void save(SignState state, int largestProof) {
 			throw new AssertionError("An observer writes no sign state");
 		}
+
+		@Override
+		public void close() {
+			throw new AssertionError("An observer has no sign state to close");
+		}
 	};
 
 	private static FileSystem newFileSystem() {
@@ -149,6 +160,12 @@ public class LedgerNodeTest {
 
 	private static Path signsOf(FileSystem fileSystem, String name) {
 		return fileSystem.getPath("/" + name + "/sign.state");
+	}
+
+	/* The sign state of the node of that name, with the rule of a real disk that a file in use is not opened by a
+	   second node: a test that starts a node over the files of another closes the other first */
+	private static SignStateFile signStateOf(FileSystem fileSystem, String name) {
+		return StrictLocks.signStateOf(signsOf(fileSystem, name));
 	}
 
 	private static Ledger ledger(FileSystem fileSystem, String name, LedgerAuthority authority, List<byte[]> seeds,
@@ -237,7 +254,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile store = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile store = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, store, clock::get);
 
 			assertThat(node.start(), is(empty()));
@@ -261,7 +278,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final LedgerNode node = node(ledger, 1, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode node = node(ledger, 1, signStateOf(fileSystem, "a"), clock::get);
 
 			node.start();
 			node.submit(mint(1, 1000));
@@ -285,7 +302,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile store = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile store = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, store, clock::get);
 
 			node.start();
@@ -343,20 +360,24 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final LedgerNode before = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+				signStateOf(fileSystem, "a"), clock::get);
 
 			before.start();
 			before.submit(mint(1, 500));
 
 			final Proposal proposal = proposalsIn(before.onWork()).get(0);
+			final List<Message> said = before.outbox();
+
+			before.close();
+
 			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 
 			reopened.submit(mint(2, 700));
 
-			final LedgerNode after = node(reopened, 1, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode after = node(reopened, 1, signStateOf(fileSystem, "a"), clock::get);
 			final List<Action> resumed = after.start();
 
-			assertThat(after.outbox(), equalTo(before.outbox()));
+			assertThat(after.outbox(), equalTo(said));
 			assertThat(proposalsIn(resumed), equalTo(List.of(proposal)));
 			assertThat(proposalsIn(after.tick()), equalTo(List.of(proposal)));
 		}
@@ -366,7 +387,7 @@ public class LedgerNodeTest {
 	public void shouldKeepWhatRestoringSignedBeforeItReturnsIt() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final Ledger first = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final LedgerNode before = node(first, 1, file, clock::get);
 
@@ -379,6 +400,8 @@ public class LedgerNodeTest {
 			assertThat(full.ballots(), hasSize(1));
 			file.save(new SignState(full.height(), full.running(), full.view(), Consensus.Step.PROPOSE,
 				full.nextView(), null, -1, null, -1, full.proposals(), List.of()), FOUR_VALIDATORS);
+
+			before.close();
 
 			final Ledger second = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final List<Action> resumed = node(second, 1, file, clock::get).start();
@@ -396,7 +419,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
 			final Consensus engine = new Consensus(ledger, ledger.chainId(), seed(1), Timeouts.DEFAULT);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			ledger.submit(mint(1, 500));
 			assertThat(decidedIn(engine.start(1, ledger.validators(), START)), hasSize(1));
@@ -416,7 +439,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			fundFirstAndThirdAccount(SOLO, START, ledger);
 			file.save(midView(1), 1);
@@ -434,7 +457,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			fundFirstAndThirdAccount(SOLO, START, ledger);
 			ledger.submit(mint(5, 1));
@@ -457,7 +480,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			fundFirstAndThirdAccount(SOLO, START, ledger);
 
@@ -481,7 +504,7 @@ public class LedgerNodeTest {
 	public void shouldTellWhatToDoWhenTheBlockLogIsBehindTheSignState() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			file.save(midView(5), 1);
 
@@ -490,6 +513,64 @@ public class LedgerNodeTest {
 
 			assertThat(refused.getMessage(), containsString("Restore the tail of the block log from a peer"));
 			assertThat(refused.getMessage(), containsString("never delete the sign state"));
+		}
+	}
+
+	/* Two nodes over one sign state could each sign something different for a view: the second does not start */
+	@Example
+	public void shouldRefuseToStartOverTheFilesOfAnotherNodeUntilItIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final LedgerNode first = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
+				signStateOf(fileSystem, "a"), clock::get);
+			final LedgerNode second = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
+				signStateOf(fileSystem, "a"), clock::get);
+
+			first.start();
+
+			final FileLockedException refused = assertThrows(FileLockedException.class, second::start);
+
+			assertThat(refused.getMessage(), containsString("another process or node holds the data directory"));
+			assertRefusesEveryEvent(second);
+			assertThat(first.tick(), is(empty()));
+			first.close();
+
+			final LedgerNode third = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
+				signStateOf(fileSystem, "a"), clock::get);
+
+			assertThat(third.start(), is(empty()));
+			third.close();
+		}
+	}
+
+	@Example
+	public void shouldLetGoOfTheStoreAndTakeNoFurtherEventWhenClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final RecordingStore store = new RecordingStore();
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
+			final LedgerNode node = node(ledger, 1, store, clock::get);
+
+			node.start();
+			node.close();
+			assertThat(store.closes, equalTo(1));
+			assertRefusesEveryEvent(node);
+			assertThrows(IllegalStateException.class, node::outbox);
+			assertThat(node.submit(mint(1, 500)), equalTo(Optional.empty()));
+			assertThat(node.height(), equalTo(1L));
+		}
+	}
+
+	@Example
+	public void shouldNotTouchAStoreWhenAnObserverIsClosed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final LedgerNode node = observer(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), UNTOUCHED,
+				clock::get);
+
+			node.start();
+			node.close();
+			assertThrows(IllegalStateException.class, node::tick);
 		}
 	}
 
@@ -519,7 +600,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 
 			file.save(midView(5), 1);
 
@@ -538,7 +619,7 @@ public class LedgerNodeTest {
 			Files.write(path, "not a sign state".getBytes(StandardCharsets.US_ASCII));
 
 			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(path), clock::get);
+				StrictLocks.signStateOf(path), clock::get);
 
 			assertThrows(CorruptSignStateException.class, node::start);
 			assertThat(node.height(), equalTo(0L));
@@ -550,7 +631,7 @@ public class LedgerNodeTest {
 	public void shouldStopWhenTheStateIsOneThatThisNodeCannotHaveWritten() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final Block block = proposed(withMint(fileSystem, clock), START);
 			final Ballot foreign = vote(ledger, Ballot.Type.PREVOTE, 2, 1, block);
@@ -577,7 +658,7 @@ public class LedgerNodeTest {
 
 			final byte[] before = Files.readAllBytes(path);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final LedgerNode node = observer(ledger, new SignStateFile(path), clock::get);
+			final LedgerNode node = observer(ledger, StrictLocks.signStateOf(path), clock::get);
 
 			assertThat(node.start(), is(empty()));
 			assertThat(node.onMessage(new Decision(nextBlock(withMint(fileSystem, clock), FOUR, START))),
@@ -611,7 +692,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final SignStateFile store = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile store = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 2, store, clock::get);
 			final Block block = nextBlock(withMint(fileSystem, clock), FOUR, START);
 
@@ -633,7 +714,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final LedgerNode node = node(ledger, 2, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode node = node(ledger, 2, signStateOf(fileSystem, "a"), clock::get);
 			final Block thin = nextBlock(withMint(fileSystem, clock), FOUR, 2, START);
 
 			node.start();
@@ -649,7 +730,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final SignStateFile store = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile store = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 2, store, clock::get);
 			final Block block = nextBlock(withMint(fileSystem, clock), FOUR, START);
 
@@ -671,7 +752,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+				signStateOf(fileSystem, "a"), clock::get);
 
 			node.start();
 
@@ -687,7 +768,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), FOUR, clock::get);
-			final LedgerNode node = node(ledger, 1, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode node = node(ledger, 1, signStateOf(fileSystem, "a"), clock::get);
 
 			assertThat(node.start(), is(empty()));
 			assertThat(node.tick(), is(empty()));
@@ -744,7 +825,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final LedgerNode node = node(ledger, 2, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode node = node(ledger, 2, signStateOf(fileSystem, "a"), clock::get);
 			final KeyedTimers driver = new KeyedTimers(clock, node);
 
 			ledger.submit(mint(1, 500));
@@ -769,7 +850,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+				signStateOf(fileSystem, "a"), clock::get);
 
 			node.start();
 			node.submit(mint(1, 500));
@@ -849,7 +930,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final LedgerNode node = node(ledger, 1, new SignStateFile(signsOf(fileSystem, "a")), clock::get);
+			final LedgerNode node = node(ledger, 1, signStateOf(fileSystem, "a"), clock::get);
 			final Block block = proposedBy(node);
 			final Ballot first = vote(ledger, Ballot.Type.PREVOTE, 2, 1, block);
 			final Ballot second = Ballot.signed(Ballot.Type.PREVOTE, seed(2), ledger.chainId(), 1, 0, null);
@@ -956,7 +1037,7 @@ public class LedgerNodeTest {
 				return time.getAndAdd(1);
 			};
 			final LedgerNode node = node(ledger(fileSystem, "a", ANY_MINT, SOLO, time::get), 1,
-				new SignStateFile(signsOf(fileSystem, "a")), counting);
+				signStateOf(fileSystem, "a"), counting);
 
 			node.start();
 			assertThat(reads, hasSize(1));
@@ -976,15 +1057,18 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final Path path = signsOf(fileSystem, "a");
 			final LedgerNode before = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(path), clock::get);
+				StrictLocks.signStateOf(path), clock::get);
 
 			before.start();
 			before.submit(mint(1, 500));
 			before.onWork();
 
 			final byte[] kept = Files.readAllBytes(path);
+
+			before.close();
+
 			final LedgerNode after = node(ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get), 1,
-				new SignStateFile(path), clock::get);
+				StrictLocks.signStateOf(path), clock::get);
 
 			assertThat(after.tick(), is(empty()));
 			assertThat(after.onWork(), is(empty()));
@@ -1014,7 +1098,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
 			final Ledger ledger = new Ledger(state(1000, ANY_MINT, SOLO), log, clock::get);
-			final SignStateFile store = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile store = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, store, clock::get);
 
 			node.start();
@@ -1026,6 +1110,7 @@ public class LedgerNodeTest {
 			assertThat(store.load(), equalTo(Optional.of(SignState.empty(1))));
 			assertRefusesEveryEvent(node);
 			assertThat(store.load(), equalTo(Optional.of(SignState.empty(1))));
+			node.close();
 
 			final LedgerNode restarted = node(ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get), 1, store,
 				clock::get);
@@ -1058,6 +1143,11 @@ public class LedgerNodeTest {
 			}
 
 			real.save(state, largestProof);
+		}
+
+		@Override
+		public void close() throws IOException {
+			real.close();
 		}
 	}
 
@@ -1105,7 +1195,7 @@ public class LedgerNodeTest {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final CrashingStore store = new CrashingStore(file);
 			final LedgerNode node = node(ledger, 1, store, clock::get);
 			final Block block = proposedBy(node);
@@ -1122,6 +1212,7 @@ public class LedgerNodeTest {
 			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
 			assertThat(beforeDeciding.height(), equalTo(1L));
 			assertRefusesEveryEvent(node);
+			node.close();
 
 			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final LedgerNode back = node(reopened, 1, file, clock::get);
@@ -1143,7 +1234,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
 			final Ledger ledger = new Ledger(state(1000, ANY_MINT, FOUR), log, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, file, clock::get);
 			final Block block = proposedBy(node);
 
@@ -1161,6 +1252,9 @@ public class LedgerNodeTest {
 			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
 
 			final List<Ballot> unsaved = List.of(vote(ledger, Ballot.Type.PRECOMMIT, 1, 1, block));
+
+			node.close();
+
 			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final LedgerNode back = node(reopened, 1, file, clock::get);
 			final List<Action> signed = new ArrayList<>(back.start());
@@ -1186,7 +1280,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
 			final Ledger ledger = new Ledger(state(1000, ANY_MINT, FOUR), log, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, file, clock::get);
 			final Block block = proposedBy(node);
 
@@ -1201,6 +1295,7 @@ public class LedgerNodeTest {
 			assertThrows(IOException.class, () -> node.onMessage(vote(ledger, Ballot.Type.PRECOMMIT, 3, 1, block)));
 			assertThat(ledger.height(), equalTo(0L));
 			assertThat(file.load(), equalTo(Optional.of(beforeDeciding)));
+			node.close();
 
 			final Ledger reopened = ledger(fileSystem, "a", ANY_MINT, FOUR, clock::get);
 			final LedgerNode back = node(reopened, 1, file, clock::get);
@@ -1224,7 +1319,7 @@ public class LedgerNodeTest {
 			final AtomicLong clock = new AtomicLong(START);
 			final BlockLog log = BlockLog.open(blocksOf(fileSystem, "a"));
 			final Ledger ledger = new Ledger(state(1000, ANY_MINT, SOLO), log, clock::get);
-			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+			final SignStateFile file = signStateOf(fileSystem, "a");
 			final LedgerNode node = node(ledger, 1, file, clock::get);
 
 			node.start();
@@ -1233,6 +1328,7 @@ public class LedgerNodeTest {
 			assertThat(ledger.height(), equalTo(1L));
 			assertThat(file.load(), equalTo(Optional.of(SignState.empty(2))));
 
+			node.close();
 			log.close();
 			Files.write(blocksOf(fileSystem, "a"), new byte[0]);
 

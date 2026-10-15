@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Optional;
 
@@ -26,9 +27,15 @@ import java.util.Optional;
    changed by the time of the next start, and load reads the state under the size it was saved with. save returns only
    once the state is durable, as the caller sends nothing that depends on it before then, and refuses a state that
    load would refuse for its size. load answers empty only when nothing was ever saved: a state that is there but
-   cannot be trusted is an exception, never an empty answer, since starting from nothing could sign twice. */
-public interface SignStore {
+   cannot be trusted is an exception, never an empty answer, since starting from nothing could sign twice. A store
+   that keeps something open, such as the lock that keeps a second node off the same state, lets go of it in close(). */
+public interface SignStore extends Closeable {
 	Optional<SignState> load() throws IOException;
 
 	void save(SignState state, int largestProof) throws IOException;
+
+	@Override
+	default void close() throws IOException {
+		/* A store that keeps nothing open has nothing to let go of */
+	}
 }

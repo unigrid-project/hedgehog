@@ -73,7 +73,7 @@ final class LedgerProcess implements SimProcess {
 
 	private void open() {
 		log = io(() -> BlockLog.open(directory.resolve("blocks.log")));
-		signs = new SignStateFile(directory.resolve("sign.state"));
+		signs = StrictLocks.signStateOf(directory.resolve("sign.state"));
 		ledger = new Ledger(chain.get(), log, clock);
 		node = new LedgerNode(ledger, seed, timeouts, signs, clock);
 	}
@@ -103,6 +103,7 @@ final class LedgerProcess implements SimProcess {
 	@Override
 	public List<Action> startFromDisk() {
 		io(() -> {
+			node.close();
 			log.close();
 			return null;
 		});
