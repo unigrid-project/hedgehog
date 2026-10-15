@@ -12,4 +12,4 @@ pom.xml.releaseBackup
 /dist/
 application/nb-configuration.xml
 application/licenseheader.txt
-/graphify-out/
+/.graphify-out/
