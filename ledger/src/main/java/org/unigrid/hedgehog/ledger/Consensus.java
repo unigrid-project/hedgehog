@@ -45,11 +45,13 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    signed and does not let it sign anything different for the same view.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
-   no lock, no valid block and saw no proposal in the view, it starts no further view: it rests, with no timer and
-   nothing to resume(), until work or a message of the height wakes it in the first view it has signed nothing in.
-   The ballots it signed stay in outbox(), which a driver that wants a peer to catch up can send again. */
+   no lock, no valid block, no decision it refused and saw no proposal in the view, it starts no further view: it
+   rests, with no timer, until work or a message of the height wakes it in the first view it has signed nothing in.
+   A peer that is still running may have lost a message of the node that rests, so for three precommit timeouts
+   resume() still says again what the node signed, and after that it is silent. What it signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
+	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;
 
 	public enum Step {
 		PROPOSE, PREVOTE, PRECOMMIT
@@ -77,6 +79,8 @@ public final class Consensus {
 	   view as that view starts, before anything is signed in it, so it is above every view signed in; only the last
 	   view has none after it, and a node never rests there. */
 	private int nextView;
+	/* Until when a node that rests says again what it signed */
+	private long resendUntil = Long.MIN_VALUE;
 	private Step step = Step.PROPOSE;
 	private Block lockedBlock;
 	private int lockedView = -1;
@@ -139,14 +143,22 @@ public final class Consensus {
 	}
 
 	/* The timers are gone, say after a restart of the driver, but the state of the height is not: the timers that
-	   were armed are set again and what this node said is said again, without voting anew */
+	   were armed are set again and what this node said is said again, without voting anew. A node that rests says it
+	   again for a few precommit timeouts and then no more, so that a peer that lost a message can still be given
+	   it while the chain goes silent in the end. */
 	public List<Action> resume(long at) {
 		return run(at, () -> {
 			if (running && !decided) {
 				out.addAll(armedTimers());
-				outbox().forEach(message -> out.add(new Broadcast(message)));
+				sayAgain();
+			} else if (!decided && at <= resendUntil) {
+				sayAgain();
 			}
 		});
+	}
+
+	private void sayAgain() {
+		outbox().forEach(message -> out.add(new Broadcast(message)));
 	}
 
 	/* What this node has said at this height, for a resend: the decision once there is one */
@@ -224,6 +236,7 @@ public final class Consensus {
 		decision = null;
 		view = 0;
 		nextView = 0;
+		resendUntil = Long.MIN_VALUE;
 		step = Step.PROPOSE;
 		lockedBlock = null;
 		lockedView = -1;
@@ -328,6 +341,7 @@ public final class Consensus {
 
 		if (goesQuiet()) {
 			running = false;
+			resendUntil = now + RESEND_PRECOMMIT_TIMEOUTS * timeouts.precommit(view);
 		} else {
 			startRound(view + 1);
 		}

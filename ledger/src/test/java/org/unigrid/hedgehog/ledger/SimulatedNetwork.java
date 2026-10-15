@@ -234,15 +234,12 @@ final class SimulatedNetwork {
 		perform(node, start(node));
 	}
 
-	/* Messages can be lost, so what a node has said and every block it holds is said again at a steady pace. An engine
-	   that rests has no view in progress and sends nothing until a message or work wakes it, like the driver of a
-	   quiet chain. */
+	/* Messages can be lost, so every node is resumed and every block it holds is said again at a steady pace. A
+	   resting engine says what it signed again for a while only, which is what lets a chain with nothing to do go
+	   silent. */
 	private void resend() {
 		nodes.stream().filter(node -> !node.crashed).forEach(node -> {
-			if (node.engine.running()) {
-				node.engine.outbox().forEach(message -> tellOthers(node, message));
-			}
-
+			perform(node, node.engine.resume(now));
 			node.decided.forEach(block -> tellOthers(node, new Decision(block)));
 		});
 

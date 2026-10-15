@@ -1080,8 +1080,62 @@ public class ConsensusViewsTest {
 
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PREVOTE, 0), 4000).isEmpty(), is(true));
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 4001).isEmpty(), is(true));
-		assertThat(engine.resume(4002).isEmpty(), is(true));
+		assertThat(engine.resume(4002).stream().noneMatch(a -> a instanceof Schedule), is(true));
 		assertThat(engine.running(), is(false));
+	}
+
+	/* The node rested at 3007 in view 0, where a precommit timeout is 1500 ms, so it sends again until 3007 + 4500 */
+	@Example
+	public void shouldSendWhatItSignedAgainWhileItRestsAndThenGoSilent() {
+		goIdleAfterViewZero();
+
+		final List<Message> signed = engine.outbox();
+		final List<Action> again = engine.resume(4002);
+
+		assertThat(signed.size(), equalTo(1));
+		assertThat(again, equalTo(List.of(new Broadcast(signed.get(0)))));
+		assertThat(engine.resume(3007 + 4500), equalTo(again));
+		assertThat(engine.resume(3007 + 4501).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	@Example
+	public void shouldSendAgainFromTheTimeItRestsAndForAsLongAsTheViewItRestedInWaits() {
+		goIdleAfterViewZero();
+		engine.onMessage(prevoteBy(1, 1, null), 6000);
+		quorumOfNoBlock(1, 9500);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 1), 9502);
+
+		assertThat(engine.running(), is(false));
+		assertThat(engine.resume(9600).size(), equalTo(2));
+		assertThat(engine.resume(9502 + 3 * 2200).size(), equalTo(2));
+		assertThat(engine.resume(9502 + 3 * 2200 + 1).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldNotSendAgainAfterADecision() {
+		goIdleAfterViewZero();
+		engine.onMessage(new Decision(certified(proposed(0, "a"))), 5000);
+
+		assertThat(engine.resume(5001).isEmpty(), is(true));
+	}
+
+	@Example
+	public void shouldHaveNothingToSendWhileItRestsWithoutAKey() {
+		final Consensus observer = new Consensus(app, CHAIN, null, TIMEOUTS);
+
+		app.goal = 0;
+		observer.start(1, validators, 0);
+		observer.onMessage(prevoteBy(1, 0, null), 5);
+
+		for (int validator = 1; validator <= 3; validator++) {
+			observer.onMessage(ballot(Ballot.Type.PRECOMMIT, validator, 0, null), 6);
+		}
+
+		observer.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
+
+		assertThat(observer.running(), is(false));
+		assertThat(observer.resume(3008).isEmpty(), is(true));
 	}
 
 	@Example
