@@ -19,13 +19,18 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /* The connection between two real drivers: what one sends is given to the other, who sees the first one by the name
    of its end of the link, and a request for blocks is put to the other driver's own limits and answers */
 final class DriverLink implements LedgerPeer {
 	private final String id;
+	private final AtomicInteger requests = new AtomicInteger();
+	private final AtomicInteger statuses = new AtomicInteger();
 	private LedgerDriver target;
 	private DriverLink back;
+	private ManualScheduler scheduler;
+	private long lagMillis;
 
 	private DriverLink(String id) {
 		this.id = id;
@@ -43,6 +48,24 @@ final class DriverLink implements LedgerPeer {
 		return new DriverLink[] {forLeft, forRight};
 	}
 
+	/* The consensus messages that go through either end take this long, while a status does not: what a peer says of its
+	   chain can then arrive before the decision it is about, as it can on a network */
+	DriverLink lagging(ManualScheduler scheduler, long millis) {
+		this.scheduler = scheduler;
+		this.lagMillis = millis;
+		return this;
+	}
+
+	/* How many requests for blocks were put through this end */
+	int requests() {
+		return requests.get();
+	}
+
+	/* How many statuses were sent through this end */
+	int statuses() {
+		return statuses.get();
+	}
+
 	@Override
 	public String id() {
 		return id;
@@ -53,14 +76,26 @@ final class DriverLink implements LedgerPeer {
 		switch (wire) {
 			case Transaction transaction -> target.onTransaction(back, transaction);
 			case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat);
-			case Message message -> target.onMessage(back, message);
-			case Status status -> target.onStatus(back, status);
+			case Message message -> deliver(message);
+			case Status status -> {
+				statuses.incrementAndGet();
+				target.onStatus(back, status);
+			}
 			default -> throw new IllegalArgumentException("Not a wire object: " + wire);
+		}
+	}
+
+	private void deliver(Message message) {
+		if (scheduler == null) {
+			target.onMessage(back, message);
+		} else {
+			scheduler.schedule(() -> target.onMessage(back, message), lagMillis);
 		}
 	}
 
 	@Override
 	public CompletableFuture<BlockBatch> request(BlockRequest request) {
+		requests.incrementAndGet();
 		return target.onBlockRequest(back, request);
 	}
 }

@@ -1240,6 +1240,113 @@ public class LedgerDriverSyncTest {
 		}
 	}
 
+	/* Every driver is connected to every other, and each end tells the other where its chain stands */
+	private static List<DriverLink> mesh(List<DriverRig> rigs) {
+		return mesh(rigs, null, 0);
+	}
+
+	private static List<DriverLink> mesh(List<DriverRig> rigs, ManualScheduler lagging, long lagMillis) {
+		final List<DriverLink> links = new ArrayList<>();
+
+		for (int i = 0; i < rigs.size(); i++) {
+			for (int j = i + 1; j < rigs.size(); j++) {
+				final DriverLink[] link = DriverLink.connect(rigs.get(i).driver, "N" + i, rigs.get(j).driver, "N" + j);
+
+				if (lagging != null) {
+					link[0].lagging(lagging, lagMillis);
+					link[1].lagging(lagging, lagMillis);
+				}
+
+				rigs.get(i).network.add(link[0]);
+				rigs.get(j).network.add(link[1]);
+				rigs.get(i).driver.onPeerConnected(link[0]);
+				rigs.get(j).driver.onPeerConnected(link[1]);
+				links.addAll(List.of(link));
+			}
+		}
+
+		return links;
+	}
+
+	@Example
+	public void shouldPullNoBlockAndCostNoScoreInASteadyStateOfFiveBlocksASecond() throws IOException {
+		final AtomicLong clock = new AtomicLong(DriverRig.START);
+		final ManualScheduler scheduler = new ManualScheduler(clock);
+		final List<DriverRig> rigs = new ArrayList<>();
+
+		try {
+			for (int n = 1; n <= 4; n++) {
+				rigs.add(new DriverRig(DriverRig.FOUR, seed(n), TOUCHY, new DirectSerial(), DriverRig.OPTIONS, clock,
+					scheduler).started());
+			}
+
+			final List<DriverLink> links = mesh(rigs, scheduler, 20);
+
+			scheduler.advanceBy(DriverRig.GRACE + 1_000);
+
+			final int before = links.stream().mapToInt(DriverLink::statuses).max().orElse(0);
+
+			for (int n = 1; n <= 50; n++) {
+				rigs.get(0).driver.submit(mint(n, 10));
+				scheduler.advanceBy(200);
+			}
+
+			assertThat(rigs.stream().allMatch(rig -> rig.ledger().height() == 50), is(true));
+			assertThat(links.stream().mapToInt(DriverLink::requests).sum(), equalTo(0));
+			assertThat(rigs.stream().anyMatch(rig -> rig.limiter.isPenalised("N0") || rig.limiter.isPenalised("N1")
+				|| rig.limiter.isPenalised("N2") || rig.limiter.isPenalised("N3")), is(false));
+			assertThat(links.stream().mapToInt(DriverLink::statuses).max().orElse(0) - before <= 11, is(true));
+		} finally {
+			for (final DriverRig rig : rigs) {
+				rig.close();
+			}
+		}
+	}
+
+	@Example
+	public void shouldSendAStatusOnADecisionNoMoreOftenThanOncePerSecond() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer watcher = rig.network.connect("W");
+
+			for (int n = 1; n <= 11; n++) {
+				rig.driver.submit(mint(n, 10)).join();
+				rig.clock.addAndGet(200);
+			}
+
+			assertThat(rig.ledger().height(), equalTo(11L));
+			assertThat(watcher.sent(Status.class), hasSize(3));
+		}
+	}
+
+	@Example
+	public void shouldWaitOneTickBeforeFetchingTheOneBlockAPeerIsAhead() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = startedOver(chain, 1, null, TOUCHY)) {
+			final Server one = new Server("O", chain);
+
+			rig.hears(one, one.statusAt(2));
+
+			assertThat(one.requests, is(empty()));
+			assertThat(rig.ledger().height(), equalTo(1L));
+
+			rig.tick(DriverRig.TICK);
+
+			assertThat(one.requests, hasSize(1));
+			assertThat(rig.ledger().height(), equalTo(3L));
+		}
+	}
+
+	@Example
+	public void shouldFetchAtOnceFromAPeerTwoBlocksAhead() throws IOException {
+		try (Chain chain = new Chain(3, 10); DriverRig rig = startedOver(chain, 1, null, TOUCHY)) {
+			final Server two = new Server("T", chain);
+
+			rig.hears(two, two.statusAt(3));
+
+			assertThat(two.requests, hasSize(1));
+			assertThat(rig.ledger().height(), equalTo(3L));
+		}
+	}
+
 	@Example
 	public void shouldPromoteEveryRestartedValidatorAfterTheGraceAndLetTheNetworkMakeABlock() throws IOException {
 		final AtomicLong clock = new AtomicLong(DriverRig.START);
@@ -1252,18 +1359,7 @@ public class LedgerDriverSyncTest {
 					clock, scheduler).started());
 			}
 
-			for (int i = 0; i < 4; i++) {
-				for (int j = i + 1; j < 4; j++) {
-					final DriverLink[] link = DriverLink.connect(rigs.get(i).driver, "N" + i, rigs.get(j).driver,
-						"N" + j);
-
-					rigs.get(i).network.add(link[0]);
-					rigs.get(j).network.add(link[1]);
-					rigs.get(i).driver.onPeerConnected(link[0]);
-					rigs.get(j).driver.onPeerConnected(link[1]);
-				}
-			}
-
+			mesh(rigs);
 			scheduler.advanceBy(DriverRig.GRACE - 1_000);
 
 			assertThat(rigs.stream().map(rig -> rig.built).toList(), equalTo(List.of(List.of(false), List.of(false),

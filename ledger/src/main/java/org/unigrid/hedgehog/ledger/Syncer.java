@@ -43,6 +43,8 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 final class Syncer {
 	static final long PACE_MILLIS = 250;
 	static final long RETRY_MILLIS = 1_000;
+	static final long AHEAD_BY_ONE = 1;
+	static final long AHEAD_BY_TWO = 2;
 	private static final int REFUSED_BLOCK_COST = 50;
 	private static final int EMPTY_BATCH_COST = 5;
 
@@ -76,10 +78,15 @@ final class Syncer {
 		waiting.cancel();
 	}
 
-	void startSync() {
+	/* A sync starts for a claim that is `margin` or more above the ledger. A peer that is one block ahead is how a peer
+	   that decided first looks to the rest, and it is not fetched from at once: the block is almost always decided
+	   here a moment later. A claim that is one block above still, a tick later, is. */
+	void startSync(long margin) {
 		if (supervisor.ready() && !sync.running()) {
-			sync.nearestAbove(supervisor.ledger().height(), clock.getAsLong()).ifPresent(claim -> {
-				sync.begin(supervisor.ledger().height());
+			final long height = supervisor.ledger().height();
+
+			sync.nearestAbove(height + margin - 1, clock.getAsLong()).ifPresent(claim -> {
+				sync.begin(height);
 				ask(claim.peer());
 			});
 		}
@@ -272,7 +279,7 @@ final class Syncer {
 		}
 
 		hooks.promote().run();
-		startSync();
+		startSync(AHEAD_BY_TWO);
 	}
 
 	/* A block that contradicts the checkpoint, or a second certified block at a height the ledger holds, halts the

@@ -73,6 +73,7 @@ public final class LedgerDriver implements Closeable {
 	private static final String REPLACED = "The ledger node failed and was replaced: send it again";
 	private static final String NOT_CHECKED = "Rejected: it could not be checked";
 	private static final int LAPSE_STATUSES = 2;
+	private static final long STATUS_GAP_MILLIS = 1_000;
 
 	/* Builds a node over the files of this node, which are in use by one node at a time: the driver closes a node
 	   before it asks for the next. Closing a node lets go of its sign state and no more, so the factory closes the
@@ -152,6 +153,7 @@ public final class LedgerDriver implements Closeable {
 	private Cancellable graceTimer = () -> { };
 	private long lastHeartbeat;
 	private long lastStatus;
+	private long lastSent;
 
 	/* A null seed is an observer: its node never signs and the driver never signs a heartbeat. With a seed the driver
 	   starts as an observer too, and takes the key into use when it has caught up. */
@@ -473,13 +475,14 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void startSync() {
-		syncer.startSync();
+		syncer.startSync(Syncer.AHEAD_BY_TWO);
 	}
 
 	private void begin() {
 		if (supervisor.open()) {
 			lastHeartbeat = clock.getAsLong();
 			lastStatus = lastHeartbeat;
+			lastSent = lastHeartbeat - STATUS_GAP_MILLIS;
 			scheduleTick();
 			scheduleGrace();
 			supervisor.restart(false);
@@ -529,6 +532,7 @@ public final class LedgerDriver implements Closeable {
 	private void tick() {
 		if (supervisor.running()) {
 			scheduleTick();
+			syncer.startSync(Syncer.AHEAD_BY_ONE);
 			promotion.promoteIfCaughtUp();
 
 			if (supervisor.ready()) {
@@ -560,9 +564,16 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
+	/* The peers take one status a second from a peer and charge it for more, so a chain that decides faster than that is
+	   told of once a second, and the periodic status says the rest */
 	private void sendStatus() {
-		lastStatus = clock.getAsLong();
-		gossip.toAll(supervisor.ledger().status());
+		final long now = clock.getAsLong();
+
+		if (due(lastSent, now, STATUS_GAP_MILLIS)) {
+			lastSent = now;
+			lastStatus = now;
+			gossip.toAll(supervisor.ledger().status());
+		}
 	}
 
 	/* A clock that was set back makes it due at once, so that a long step back does not silence the driver */
