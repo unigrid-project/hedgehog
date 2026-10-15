@@ -57,10 +57,11 @@ public final class LedgerNode {
 		this.signs = seed != null;
 	}
 
-	/* The state of the next height is restored. A state of any other height is not used: below it the height is
-	   decided, and nothing in it can be signed again; above it blocks are missing from the ledger, which the
-	   decisions of the peers supply. A state that is damaged, or that this node cannot have written, is not set
-	   aside, as it may hide a signature: the exception ends the start. */
+	/* The state of the next height is restored. A state of a height at or below the tip is not used: that height is
+	   decided, and nothing in it can be signed again. A state above the next height is a block log that is behind it,
+	   as the state is saved only after the block before it is committed, so the node has signed at heights it cannot
+	   show and starting afresh could sign again at them: that ends the start. So does a state that is damaged, or that
+	   this node cannot have written, as it may hide a signature. */
 	public synchronized List<Action> start() throws IOException {
 		final long next = ledger.height() + 1;
 		final Optional<SignState> kept = keptFor(next);
@@ -69,8 +70,21 @@ public final class LedgerNode {
 			: engine.start(next, ledger.validators(), at));
 	}
 
-	private Optional<SignState> keptFor(long height) throws IOException {
-		return signs ? store.load().filter(state -> state.height() == height) : Optional.empty();
+	private Optional<SignState> keptFor(long next) throws IOException {
+		final Optional<SignState> stored = signs ? store.load() : Optional.empty();
+
+		if (stored.isPresent()) {
+			requireNotAhead(stored.get(), next);
+		}
+
+		return stored.filter(state -> state.height() == next);
+	}
+
+	private static void requireNotAhead(SignState state, long next) throws BlockLogBehindException {
+		if (state.height() > next) {
+			throw new BlockLogBehindException("The block log is behind the sign state: the ledger is at height "
+				+ (next - 1) + ", and the sign state is of height " + state.height());
+		}
 	}
 
 	public synchronized List<Action> onMessage(Message message) throws IOException {

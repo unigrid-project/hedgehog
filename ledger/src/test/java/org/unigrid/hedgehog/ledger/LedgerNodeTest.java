@@ -38,6 +38,7 @@ import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.Action.Decide;
 import org.unigrid.hedgehog.ledger.Action.Schedule;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -393,7 +394,54 @@ public class LedgerNodeTest {
 	}
 
 	@Example
-	public void shouldStartAgainFromNothingWhenTheStateIsOfALaterHeight() throws IOException {
+	public void shouldIgnoreAStateOfAHeightBelowTheTip() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+
+			fundFirstAndThirdAccount(SOLO, START, ledger);
+			ledger.submit(mint(5, 1));
+			ledger.commit(nextBlock(ledger, SOLO, START));
+			file.save(midView(1), 1);
+
+			final LedgerNode node = node(ledger, 1, file, clock::get);
+
+			assertThat(ledger.height(), equalTo(2L));
+			assertThat(node.start(), is(empty()));
+			assertThat(node.height(), equalTo(3L));
+			assertThat(file.load(), equalTo(Optional.of(SignState.empty(3))));
+		}
+	}
+
+	/* The state is saved after the block of the height before it is committed, so a state above the next height can
+	   only be there if the block log lost blocks, and starting afresh would sign again at heights signed at */
+	@Example
+	public void shouldRefuseToStartWhenTheBlockLogIsBehindTheSignState() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
+			final SignStateFile file = new SignStateFile(signsOf(fileSystem, "a"));
+
+			fundFirstAndThirdAccount(SOLO, START, ledger);
+
+			for (final long height : List.of(3L, 11L)) {
+				file.save(midView(height), 1);
+
+				final LedgerNode node = node(ledger, 1, file, clock::get);
+				final BlockLogBehindException refused = assertThrows(BlockLogBehindException.class, node::start);
+
+				assertThat(refused.getMessage(), containsString("block log is behind the sign state"));
+				assertThat(refused.getMessage(), containsString("height 1"));
+				assertThat(refused.getMessage(), containsString("height " + height));
+				assertThat(node.height(), equalTo(0L));
+				assertThat(file.load(), equalTo(Optional.of(midView(height))));
+			}
+		}
+	}
+
+	@Example
+	public void shouldStartAnObserverWhoseBlockLogIsBehindTheSignState() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(START);
 			final Ledger ledger = ledger(fileSystem, "a", ANY_MINT, SOLO, clock::get);
@@ -401,11 +449,8 @@ public class LedgerNodeTest {
 
 			file.save(midView(5), 1);
 
-			final LedgerNode node = node(ledger, 1, file, clock::get);
-
-			assertThat(node.start(), is(empty()));
-			assertThat(node.height(), equalTo(1L));
-			assertThat(file.load(), equalTo(Optional.of(SignState.empty(1))));
+			assertThat(observer(ledger, file, clock::get).start(), is(empty()));
+			assertThat(file.load(), equalTo(Optional.of(midView(5))));
 		}
 	}
 
