@@ -34,9 +34,12 @@ import java.util.function.LongSupplier;
 
    Peers are tracked in two maps. The active ones are in the order of their last activity, and a newcomer takes
    the room of the least recently active, so a flood of new peers costs a step each and never locks anyone out.
-   The penalised ones are in the order of their penalty, which is also the order it ends in, so what has ended
-   is dropped from the head. At the cap, a new penalty frees the oldest one. Both are limited, and nothing is
-   scanned.
+   An active peer that is dropped starts again with no score, but a penalised peer is not in that map: no flood
+   of newcomers can free it. The penalised ones are in the order of their penalty, which is also the order it
+   ends in, so what has ended is dropped from the head. Both maps are limited, and nothing is scanned.
+
+   At the cap of penalised peers, `maxPeers / 2`, a new penalty frees the oldest one before its time. That is the
+   price of a bounded map: to free one penalised address an attacker needs that many penalised ones at once.
 
    Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
    back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,

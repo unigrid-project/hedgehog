@@ -257,9 +257,11 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
 	}
 
+	/* No flood of new peers frees a penalised one: only the end of the penalty does, or a full map of penalties */
 	@Example
-	public void shouldKeepAPenalisedPeerWhileItIsPenalised() {
-		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 50));
+	public void shouldKeepAPenalisedPeerUntilItsPenaltyEndsHoweverManyNewPeersCome() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 50));
 
 		penalise(limiter, "bad");
 
@@ -269,6 +271,22 @@ public class PeerLimiterTest {
 		}
 
 		assertThat(limiter.tracked(), equalTo(50 + 1));
+		clock.addAndGet(59_999);
+		assertThat(limiter.isPenalised("bad"), is(true));
+		clock.addAndGet(1);
+		assertThat(limiter.isPenalised("bad"), is(false));
+	}
+
+	/* What is lost when an active peer is dropped is its score, and it is dropped only for a newer peer */
+	@Example
+	public void shouldLetAnActivePeerStartAgainWithNoScoreWhenItWasDropped() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 2));
+
+		limiter.misbehaved("b", 99);
+		limiter.allow("c", Kind.TRANSACTION);
+		limiter.allow("d", Kind.TRANSACTION);
+		limiter.misbehaved("b", 99);
+		assertThat(limiter.isPenalised("b"), is(false));
 	}
 
 	/* Fresh addresses must cost the limiter a step each, however many penalised peers it holds, and each must be
@@ -290,17 +308,35 @@ public class PeerLimiterTest {
 		assertThat(limiter.inspected(), lessThanOrEqualTo(3L * (10_000 + 100_000 + 4)));
 	}
 
+	/* The price of a bounded map: a penalty that finds half the table already penalised frees the oldest one early */
 	@Example
-	public void shouldDropTheOldestPenaltyWhenThereIsNoRoomForAnother() {
-		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 4));
+	public void shouldFreeTheOldestPenalisedPeerEarlyOnlyWhenAnotherPenaltyFindsTheMapFull() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 6));
 
 		List.of("a", "b", "c").forEach(peer -> penalise(limiter, peer));
+
+		assertThat(limiter.isPenalised("a"), is(true));
+		assertThat(limiter.tracked(), equalTo(3));
+
+		penalise(limiter, "d");
 
 		assertThat(limiter.isPenalised("a"), is(false));
 		assertThat(limiter.isPenalised("b"), is(true));
 		assertThat(limiter.isPenalised("c"), is(true));
-		assertThat(limiter.tracked(), equalTo(2));
-		assertThat(limiter.allow("d", Kind.TRANSACTION), is(true));
+		assertThat(limiter.isPenalised("d"), is(true));
+		assertThat(limiter.tracked(), equalTo(3));
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+	}
+
+	@Example
+	public void shouldTakeNothingFromTheLimitForAllPeersForAPenalisedPeer() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(5, 1));
+
+		penalise(limiter, "bad");
+		assertThat(granted(limiter, "bad", Kind.TRANSACTION, 1000), equalTo(0));
+
+		assertThat(IntStream.range(0, 5).filter(peer -> limiter.allow("peer" + peer, Kind.TRANSACTION)).count(),
+			equalTo(5L));
 	}
 
 	@Example
