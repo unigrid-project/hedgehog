@@ -73,6 +73,7 @@ public class LedgerService {
 	private static final String THREADS = "ledger";
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String LEDGER_DIRECTORY = "ledger";
+	private static final int CHAIN_DIRECTORY_CHARACTERS = 16;
 	private static final HexFormat HEX = HexFormat.of();
 	private static final long POLL_MILLIS = 5_000;
 	private static final long REPORT_MILLIS = 60_000;
@@ -140,6 +141,13 @@ public class LedgerService {
 			driverOptions(LedgerSetup.trusted()), POLL_MILLIS);
 	}
 
+	/* A sign state says what a validator has signed on one chain and a block log holds that chain: the files of
+	   another chain, which a changed genesis makes, must never meet them. Each chain has a directory of its own below
+	   the one of the ledger, named by the start of its chain id; those of chains that are left stay as they were. */
+	static String chainDirectoryOf(final LedgerGenesis genesis) {
+		return GenesisFile.chainIdHex(genesis).substring(0, CHAIN_DIRECTORY_CHARACTERS);
+	}
+
 	private static DriverOptions driverOptions(final Optional<Checkpoint> trusted) {
 		final DriverOptions standard = DriverOptions.DEFAULT;
 
@@ -203,7 +211,10 @@ public class LedgerService {
 			ledgerSnapshot.mintSchedule(), () -> true, this::committedSupply);
 		final Policy policy = Policy.forNetwork(genesis.getValidators().size(), TRANSACTIONS_PER_SECOND);
 
-		nodes = new LedgerNodes(setup.directory(), () -> new LedgerState(genesis, authority, ledgerSnapshot), seed,
+		final Path files = setup.directory().resolve(chainDirectoryOf(genesis));
+
+		log.atInfo().addArgument(files).log("The ledger keeps its block log and its sign state in {}");
+		nodes = new LedgerNodes(files, () -> new LedgerState(genesis, authority, ledgerSnapshot), seed,
 			setup.clock());
 		driver = new LedgerDriver(nodes, runtime, runtime, gateway.network(),
 			new PeerLimiter(setup.clock(), policy), setup.clock(), setup.options(), seed);

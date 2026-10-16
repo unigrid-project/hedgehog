@@ -318,7 +318,7 @@ public final class LedgerFleet implements AutoCloseable {
 
 	/* Where the node keeps its block log and its sign state, on the virtual file system of the fleet */
 	public Path directoryOf(final int node) {
-		return node(node).setup().directory();
+		return node(node).setup().directory().resolve(LedgerService.chainDirectoryOf(chain.genesis()));
 	}
 
 	public LegacyWallet wallet(final int n) {

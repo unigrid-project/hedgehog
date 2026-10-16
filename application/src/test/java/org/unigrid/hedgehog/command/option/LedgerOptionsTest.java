@@ -34,7 +34,9 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import picocli.CommandLine;
 import picocli.CommandLine.ParameterException;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -53,6 +55,14 @@ public class LedgerOptionsTest {
 		assertThat(LedgerOptions.getLedgerKeyFile(), nullValue());
 		assertThat(LedgerOptions.getLedgerGenesisFile(), nullValue());
 		assertThat(LedgerOptions.getLedgerTrusted(), nullValue());
+	}
+
+	@Example
+	public void shouldTellInItsHelpThatAChangedGenesisStartsANewChainAndLeavesTheOldFiles() {
+		final String help = new CommandLine(Hedgehog.class).getSubcommands().get("daemon").getUsageMessage();
+
+		assertThat(help.replaceAll("\\s+", " "), containsString("A changed genesis starts a new chain"));
+		assertThat(help.replaceAll("\\s+", " "), containsString("and those of the chain before stay there"));
 	}
 
 	@Example

@@ -37,7 +37,10 @@ public class LedgerOptions {
 	private static Path ledgerKeyFile;
 
 	@Getter @Option(names = "--ledger-genesis", scope = CommandLine.ScopeType.INHERIT,
-		description = "Use the genesis in this file instead of the one that comes with the node"
+		description = "Use the genesis in this file instead of the one that comes with the node. A changed genesis "
+		+ "starts a new chain: its block log and sign state are kept in a directory of their own below 'ledger' "
+		+ "in the data directory, named by the start of its chain id, and those of the chain before stay there "
+		+ "(delete them if that chain is of no use any more)"
 	)
 	private static Path ledgerGenesisFile;
 
