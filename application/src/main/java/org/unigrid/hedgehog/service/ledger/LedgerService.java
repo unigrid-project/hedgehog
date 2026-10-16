@@ -225,7 +225,7 @@ public class LedgerService {
 		final byte[] seed = setup.keyFile().map(LedgerKeyFile::load).orElse(null);
 		final LedgerSnapshot ledgerSnapshot = new LedgerSnapshot(reader);
 		final LedgerAuthority authority = new SporkLedgerAuthority(() -> sporks, lag,
-			ledgerSnapshot.mintSchedule(), () -> true, this::committedSupply);
+			ledgerSnapshot.mintSchedule(), this::committedSupply);
 		final Policy policy = Policy.forNetwork(genesis.getValidators().size(), TRANSACTIONS_PER_SECOND);
 
 		final Path files = setup.directory().resolve(chainDirectoryOf(genesis));

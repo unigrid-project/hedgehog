@@ -101,10 +101,9 @@ public class SporkLedgerAuthorityTest {
 		private volatile RuntimeException unaskable;
 		private volatile RuntimeException unsupplied;
 		private volatile SporkDatabase database = SporkDatabase.builder().build();
-		private volatile boolean ready = true;
 		private volatile long supply;
 		private final SporkLedgerAuthority real = new SporkLedgerAuthority(this::read, lag(), SCHEDULE,
-			() -> ready, this::supplied);
+			this::supplied);
 		private final Asked authority = new Asked();
 
 		/* The questions of the ledger, a mint being asked on the supply of the rig */
@@ -492,7 +491,7 @@ public class SporkLedgerAuthorityTest {
 	}
 
 	@Example
-	public void shouldHoldTheMintsBackWhileTheMintSporkIsBehindOrTheSnapshotIsNotReady() {
+	public void shouldHoldTheMintsBackWhileTheMintSporkIsBehind() {
 		final Rig rig = Rig.open();
 
 		rig.behind.add(Type.MINT_STORAGE);
@@ -501,10 +500,6 @@ public class SporkLedgerAuthorityTest {
 
 		rig.behind.clear();
 		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(true));
-
-		rig.ready = false;
-		assertThat(rig.authority.due(FAR_FUTURE), is(empty()));
-		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(false));
 	}
 
 	@Example
@@ -567,15 +562,6 @@ public class SporkLedgerAuthorityTest {
 
 		rig.database.setLedgerBlacklist(null);
 		assertThat(rig.authority.authorizes(claim), is(false));
-	}
-
-	@Example
-	public void shouldRefuseAClaimWhileTheSnapshotIsNotReady() {
-		final Rig rig = Rig.open();
-
-		rig.ready = false;
-
-		assertThat(rig.authority.authorizes(claimOfKey(3)), is(false));
 	}
 
 	@Example
@@ -684,15 +670,6 @@ public class SporkLedgerAuthorityTest {
 	@Example
 	public void shouldTakeATransferWhateverItsFeeWhenTheMinimumIsZero() {
 		final Rig rig = Rig.open();
-
-		assertThat(rig.authority.authorizes(transferWithFee(0)), is(true));
-	}
-
-	@Example
-	public void shouldNotWaitForTheSnapshotToTakeATransfer() {
-		final Rig rig = Rig.open();
-
-		rig.ready = false;
 
 		assertThat(rig.authority.authorizes(transferWithFee(0)), is(true));
 	}
@@ -1041,5 +1018,73 @@ public class SporkLedgerAuthorityTest {
 		done.countDown();
 		writer.join();
 		assertThat(failures, is(empty()));
+	}
+
+	@Example
+	public void shouldDecodeTheEntriesOnceForAsLongAsTheSporkIsTheSameObject() {
+		final Rig rig = Rig.open();
+
+		for (int round = 0; round < 200; round++) {
+			assertThat(rig.authority.due(DUE_OF_AN_ENTRY + round), equalTo(List.of(theMintOfAnEntry())));
+			assertThat(rig.authority.authorizes(theMintOfAnEntry(), DUE_OF_AN_ENTRY + round), is(true));
+		}
+
+		assertThat(rig.real.decodings(), is(1));
+	}
+
+	@Example
+	public void shouldDecodeAgainWhenTheSporkIsReplacedByAnotherObjectAndAnswerTheSame() {
+		final Rig rig = Rig.open();
+
+		rig.authority.due(DUE_OF_AN_ENTRY);
+		rig.store(grant(accountEntry(1, SECONDS_OF_AN_ENTRY), "" + COINS_OF_AN_ENTRY));
+
+		assertThat(rig.authority.due(DUE_OF_AN_ENTRY), equalTo(List.of(theMintOfAnEntry())));
+		assertThat(rig.real.decodings(), is(2));
+	}
+
+	@Example
+	public void shouldFollowAReplacedSporkToItsOtherEntriesAndForgetTheOnesItHad() {
+		final Rig rig = Rig.open();
+
+		assertThat(rig.authority.due(FAR_FUTURE), equalTo(List.of(theMintOfAnEntry())));
+
+		rig.store(grant(accountEntry(2, SECONDS_OF_AN_ENTRY), "5"));
+
+		assertThat(rig.authority.due(FAR_FUTURE), equalTo(List.of(accountMint(2, SECONDS_OF_AN_ENTRY,
+			5 * UNITS_PER_COIN))));
+		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(false));
+		assertThat(rig.authority.authorizes(accountMint(2, SECONDS_OF_AN_ENTRY, 5 * UNITS_PER_COIN), FAR_FUTURE),
+			is(true));
+	}
+
+	@Example
+	public void shouldDecodeNothingWhileTheLagHoldsTheSporkBackAndKeepWhatItHadAfterwards() {
+		final Rig rig = Rig.open();
+
+		rig.authority.due(FAR_FUTURE);
+		rig.behind.add(Type.MINT_STORAGE);
+
+		assertThat(rig.authority.due(FAR_FUTURE), is(empty()));
+		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(false));
+
+		rig.behind.clear();
+
+		assertThat(rig.authority.due(FAR_FUTURE), equalTo(List.of(theMintOfAnEntry())));
+		assertThat(rig.real.decodings(), is(1));
+	}
+
+	@Example
+	public void shouldTakeTheDueTimeOfAnEntryFromTheScheduleOfTheCachedDecoding() {
+		final Rig rig = Rig.open();
+
+		rig.store(grant(oldEntry(7, (int) TIP_HEIGHT + 3), "1"));
+
+		final long due = SCHEDULE.dueTime(TIP_HEIGHT + 3);
+
+		assertThat(rig.authority.due(due - 1), is(empty()));
+		assertThat(rig.authority.due(due), hasSize(1));
+		assertThat(rig.authority.due(due - 1), is(empty()));
+		assertThat(rig.real.decodings(), is(1));
 	}
 }
