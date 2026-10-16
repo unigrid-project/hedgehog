@@ -30,22 +30,21 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
-import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.ledger.AccountKey;
-import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.LedgerAuthority;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.MintSchedule;
+import org.unigrid.hedgehog.ledger.Reference;
 import org.unigrid.hedgehog.ledger.Transfer;
-import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -69,8 +68,9 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
    change at any time, so each call reads the database once, and a spork is read only after the lag has been asked
    about its type. No exception leaves, as the ledger would only see a refusal.
 
-   One thing is kept between calls: the entries of the mint spork, decoded (base58, the hash of the reference), as
-   the ledger asks every second and decoding them all each time would cost what the number of entries is. It is one
+   One thing is kept between calls: the entries of the mint spork, decoded (base58, the hash of the reference) and
+   found by reference, as the ledger asks about every due mint at every tick and for every block it checks, and
+   decoding or looking through all the entries each time would make thousands of entries take seconds. It is one
    slot, kept for the spork object it was made from and found again only by that same object. That is safe because a
    spork is replaced whole when a newer one is accepted (SporkDatabase.set) and never changed in place; a spork that
    is changed in place is not a supported case and would be read as it was. The schedule does not change for an
@@ -82,7 +82,6 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 @RequiredArgsConstructor
 public final class SporkLedgerAuthority implements LedgerAuthority {
 	private static final HexFormat HEX = HexFormat.of();
-	private static final Predicate<String> ANYWHERE = address -> true;
 	private static final int MAX_REPORTED = 256;
 	private static final int SHOWN_CHARACTERS = 80;
 	private static final BigInteger LONGEST = BigInteger.valueOf(Long.MAX_VALUE);
@@ -94,14 +93,15 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	@NonNull private final LongSupplier committedSupply;
 	private final Set<String> reported = ConcurrentHashMap.newKeySet();
 	private final AtomicInteger decodings = new AtomicInteger();
-	private volatile Decoded decoded = new Decoded(null, List.of());
+	private volatile Decoded decoded = new Decoded(null, List.of(), Map.of());
 
-	/* An entry of the mint spork that can be made some time: where it is written, when it is due and the mint */
-	private record Prepared(String address, long dueMillis, Mint mint) {
+	/* An entry of the mint spork that can be made some time: when it is due and the mint */
+	private record Prepared(long dueMillis, Mint mint) {
 	}
 
-	/* The entries that can be made, in the order of their references, and the spork object they were made from */
-	private record Decoded(GridSpork spork, List<Prepared> entries) {
+	/* The entries that can be made, in the order of their references and by reference, and the spork object they
+	   were made from. A reference names one entry, so a mint is found by it and not by looking through all. */
+	private record Decoded(GridSpork spork, List<Prepared> entries, Map<Reference, Prepared> byReference) {
 	}
 
 	@Override
@@ -138,8 +138,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 
 		final Optional<Long> room = room(database, committedSupply.getAsLong());
 
-		return room.stream().flatMap(limit -> dueFrom(database, time, ANYWHERE)
-			.filter(mint -> mint.amount() <= limit)).toList();
+		return room.stream().flatMap(limit -> dueFrom(database, time).filter(mint -> mint.amount() <= limit))
+			.toList();
 	}
 
 	private boolean mintAllowed(Mint mint, long time, long supply) {
@@ -147,7 +147,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 
 		return Objects.nonNull(database)
 			&& room(database, supply).filter(limit -> mint.amount() <= limit).isPresent()
-			&& dueFrom(database, time, at(wifOf(mint.recipient()))).anyMatch(mint::equals);
+			&& preparedFor(database, mint.reference()).filter(entry -> entry.dueMillis() <= time
+				&& entry.mint().equals(mint)).isPresent();
 	}
 
 	private boolean claimAllowed(Claim claim) {
@@ -187,23 +188,30 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	/* In the order of the references, which the decoding sorted them in */
-	private Stream<Mint> dueFrom(SporkDatabase database, long time, Predicate<String> wanted) {
-		return known(database, Type.MINT_STORAGE).map(this::decodedFrom).stream().flatMap(List::stream)
-			.filter(entry -> entry.dueMillis() <= time && wanted.test(entry.address())).map(Prepared::mint);
+	private Stream<Mint> dueFrom(SporkDatabase database, long time) {
+		return known(database, Type.MINT_STORAGE).map(this::decodedFrom).map(Decoded::entries).stream()
+			.flatMap(List::stream).filter(entry -> entry.dueMillis() <= time).map(Prepared::mint);
 	}
 
-	private List<Prepared> decodedFrom(GridSpork spork) {
+	private Optional<Prepared> preparedFor(SporkDatabase database, Reference reference) {
+		return known(database, Type.MINT_STORAGE).map(this::decodedFrom)
+			.map(held -> held.byReference().get(reference));
+	}
+
+	private Decoded decodedFrom(GridSpork spork) {
 		final Decoded held = decoded;
 
 		if (held.spork() == spork) {
-			return held.entries();
+			return held;
 		}
 
 		final List<Prepared> fresh = decode(Optional.ofNullable(spork.<MintStorage.SporkData>getData())
 			.map(MintStorage.SporkData::getMints));
+		final Decoded made = new Decoded(spork, fresh, fresh.stream().collect(Collectors.toUnmodifiableMap(
+			prepared -> prepared.mint().reference(), Function.identity(), (first, second) -> first)));
 
-		decoded = new Decoded(spork, fresh);
-		return fresh;
+		decoded = made;
+		return made;
 	}
 
 	private List<Prepared> decode(Optional<Map<Location, BigDecimal>> mints) {
@@ -219,8 +227,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 		final Optional<MintEntry> entry = entryOf(location, amount);
 		final OptionalLong due = entry.map(held -> held.dueMillis(schedule)).orElse(OptionalLong.empty());
 
-		return due.isEmpty() ? Optional.empty() : mintOf(entry.get())
-			.map(mint -> new Prepared(location.getAddress().getWif(), due.getAsLong(), mint));
+		return due.isEmpty() ? Optional.empty()
+			: mintOf(entry.get()).map(mint -> new Prepared(due.getAsLong(), mint));
 	}
 
 	/* For the tests of this package: how many times the entries of the mint spork were decoded */
@@ -251,17 +259,6 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 		}
 
 		return Optional.of(new Mint(entry.recipient(), units.getAsLong(), entry.reference()));
-	}
-
-	/* The address string that an entry for this recipient is written with, so that an entry is looked for by its
-	   string and only the ones that can match are decoded */
-	private static String wifOf(Address recipient) {
-		return recipient instanceof AccountKey ? HEX.formatHex(recipient.bytes())
-			: LegacyAddress.encode(recipient.bytes());
-	}
-
-	private static Predicate<String> at(String wif) {
-		return wif::equals;
 	}
 
 	private static String shown(Location location) {
