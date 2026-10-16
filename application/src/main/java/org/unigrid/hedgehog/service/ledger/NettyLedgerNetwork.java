@@ -42,10 +42,12 @@ import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 
 /* The peers are the open streams of the nodes of the topology and the newest streams that peers opened to this node
-   and that have spoken the ledger protocol. One node can be on both, and is one peer: the driver keeps its limits and
-   its "not back to where it came from" by id, and sending everything twice to one node serves no one. Of the streams
-   of one id the one this node opened wins, and among equals the newest, as the older may be a dead one that has not
-   been noticed yet. The peers come in the order of their ids, whatever the order of the topology. */
+   and that have spoken the ledger protocol, and only those whose connection settled on the ledger protocol (see
+   LedgerProtocol): a node of an earlier release is in the topology and is no peer of the ledger. One node can be on
+   both, and is one peer: the driver keeps its limits and its "not back to where it came from" by id, and sending
+   everything twice to one node serves no one. Of the streams of one id the one this node opened wins, and among
+   equals the newest, as the older may be a dead one that has not been noticed yet. The peers come in the order of
+   their ids, whatever the order of the topology. */
 @RequiredArgsConstructor
 public class NettyLedgerNetwork implements LedgerNetwork {
 	public static final int MAX_SPEAKERS = 64;
@@ -54,6 +56,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	private final Supplier<Set<Node>> nodes;
 	private final PendingRequests pending;
 	private final Predicate<Channel> outbound;
+	private final Predicate<Channel> negotiated;
 	private final BlockingDeque<NettyLedgerPeer> seen = new LinkedBlockingDeque<>(MAX_SPEAKERS);
 	private final AtomicLong registrations = new AtomicLong();
 
@@ -89,7 +92,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 
 	private NettyLedgerPeer create(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer created = new NettyLedgerPeer(channel, remote, pending,
-			registrations.incrementAndGet());
+			registrations.incrementAndGet(), negotiated);
 		final NettyLedgerPeer raced = channel.attr(PEER_KEY).setIfAbsent(created);
 
 		return raced != null ? raced : created;
@@ -104,9 +107,14 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	public List<LedgerPeer> peers() {
 		final Map<String, NettyLedgerPeer> byId = new TreeMap<>();
 
-		Stream.concat(seen.stream(), connected()).filter(peer -> peer.channel().isActive())
+		Stream.concat(seen.stream(), connected()).filter(peer -> peer.channel().isActive() && peer.speaksLedger())
 			.forEach(peer -> byId.merge(peer.id(), peer, this::preferred));
 		return List.copyOf(byId.values());
+	}
+
+	/* Whether the connection of the stream settled on the ledger protocol: the capability gate of the ledger */
+	public boolean speaks(final Channel stream) {
+		return negotiated.test(stream);
 	}
 
 	private NettyLedgerPeer preferred(final NettyLedgerPeer one, final NettyLedgerPeer other) {

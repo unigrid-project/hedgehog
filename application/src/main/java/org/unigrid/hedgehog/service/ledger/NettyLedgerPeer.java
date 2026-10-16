@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final Supplier<Optional<InetSocketAddress>> remote;
 	private final PendingRequests pending;
 	private final long order;
+	private final Predicate<Channel> negotiated;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
 
@@ -116,6 +118,12 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		return order;
 	}
 
+	/* Whether the connection of the stream settled on the ledger protocol, the only kind of stream that is sent anything
+	   of the ledger: any other end may be a node that would take it for something else */
+	boolean speaksLedger() {
+		return negotiated.test(channel);
+	}
+
 	/* True the first time for each driver, so a driver is told of a connection once */
 	boolean firstAnnouncementTo(final LedgerDriver driver) {
 		return announcedTo.getAndSet(driver) != driver;
@@ -132,6 +140,11 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	@Override
 	public void send(final Object wire) {
 		final Packet packet = packetOf(wire);
+
+		if (!speaksLedger()) {
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: it does not speak the ledger");
+			return;
+		}
 
 		if (!channel.isWritable()) {
 			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream is backed up");
@@ -160,6 +173,11 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	   fails and when the stream closes, not only when the timeout of the pending request runs out */
 	@Override
 	public CompletableFuture<BlockBatch> request(final BlockRequest request) {
+		if (!speaksLedger()) {
+			return CompletableFuture.failedFuture(
+				new IllegalStateException("The other end does not speak the ledger"));
+		}
+
 		final long requestId = pending.nextRequestId();
 		final CompletableFuture<LedgerBlockBatch> reply = pending.register(requestId, channel,
 			LedgerBlockBatch.class);

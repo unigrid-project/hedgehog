@@ -36,6 +36,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -99,6 +100,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.service.ledger.DebugLog;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
+import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.bodyOf;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.encoded;
@@ -194,7 +196,15 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 			.map(parts -> String.join(".", parts.stream().map(String::valueOf).toList()));
 	}
 
+	/* A connection that settled on the ledger protocol, as the ones of nodes that speak it do */
 	private static EmbeddedChannel connectionFrom(final String address) {
+		final EmbeddedChannel connection = connectionWithoutTheLedgerFrom(address);
+
+		connection.attr(LedgerProtocol.NEGOTIATED_KEY).set(true);
+		return connection;
+	}
+
+	private static EmbeddedChannel connectionWithoutTheLedgerFrom(final String address) {
 		final EmbeddedChannel connection = new EmbeddedChannel();
 
 		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress(address, PORT));
@@ -215,15 +225,22 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		return streamOf(connectionFrom(address), new Remainder());
 	}
 
+	private static final int KINDS = 5;
+
+	/* The frame of each kind of packet that a peer sends unasked: the five that the driver is handed */
+	private static ByteBuf frameOfKind(final int kind, final int seed) {
+		return encoded(switch (kind) {
+			case 0 -> LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(seed)).build();
+			case 1 -> LedgerConsensus.builder().message(LedgerWireFixtures.message(seed)).build();
+			case 2 -> LedgerHeartbeat.builder().heartbeat(LedgerWireFixtures.heartbeat(seed)).build();
+			case 3 -> LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build();
+			default -> LedgerBlockRequest.builder().requestId(seed).request(LedgerWireFixtures.request(seed))
+				.build();
+		});
+	}
+
 	private void sendAllKinds(final EmbeddedChannel channel, final int seed) {
-		channel.writeInbound(encoded(LedgerTransaction.builder().transaction(LedgerWireFixtures.transaction(seed))
-			.build()));
-		channel.writeInbound(encoded(LedgerConsensus.builder().message(LedgerWireFixtures.message(seed)).build()));
-		channel.writeInbound(encoded(LedgerHeartbeat.builder().heartbeat(LedgerWireFixtures.heartbeat(seed))
-			.build()));
-		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
-		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(seed)
-			.request(LedgerWireFixtures.request(seed)).build()));
+		IntStream.range(0, KINDS).forEach(kind -> channel.writeInbound(frameOfKind(kind, seed)));
 	}
 
 	@Property(tries = 10)
@@ -604,6 +621,63 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 		assertThat(remotePeer.id(), equalTo(PEER));
 		assertThat(localPeer.id(), equalTo("127.0.0.1:4444"));
+	}
+
+	/* The gate: a stream whose connection did not settle on the ledger protocol is not one to speak the ledger over */
+	@Property(tries = 10)
+	public void closesAStreamThatSendsTheLedgerWithoutHavingAgreedToIt(
+		@ForAll @IntRange(min = 0, max = KINDS - 1) int kind, @ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamOf(connectionWithoutTheLedgerFrom(PEER), new Remainder());
+		final EmbeddedChannel other = streamFrom(OTHER);
+
+		channel.writeInbound(frameOfKind(kind, seed));
+		assertThat(channel.isOpen(), is(false));
+		assertThat(calls.isEmpty(), is(true));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		other.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
+		assertThat(calls.stream().map(Call::method).toList(), contains("onStatus"));
+	}
+
+	@Example
+	public void closesAStreamThatSendsTheLedgerWithoutHavingAgreedToItAlsoWithNoDriver() {
+		final EmbeddedChannel channel = streamOf(connectionWithoutTheLedgerFrom(PEER), new Remainder());
+
+		gateway.detach();
+		channel.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(1)).build()));
+
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	@Example
+	public void tellsTheDriverOfNoStreamThatDidNotAgreeToTheLedger() {
+		final EmbeddedChannel agreeing = streamFrom(PEER);
+		final EmbeddedChannel unagreeing = streamOf(connectionWithoutTheLedgerFrom(OTHER), new Remainder());
+		final Consumer<Channel> announce = new LedgerStatusSchedule().getConsumer();
+
+		announce.accept(unagreeing);
+		announce.accept(agreeing);
+		announce.accept(unagreeing);
+
+		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
+		assertThat(calls.get(0).from().id(), equalTo(PEER));
+		assertThat(unagreeing.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void listsOnlyTheStreamsThatAgreedToTheLedgerAsPeers() {
+		final EmbeddedChannel agreeing = streamFrom(PEER);
+		final EmbeddedChannel unagreeing = streamOf(connectionWithoutTheLedgerFrom(OTHER), new Remainder());
+
+		agreeing.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(1)).build()));
+
+		final LedgerPeer unheard = gateway.peerOf(unagreeing, () -> RemoteAddress.of(unagreeing));
+
+		assertThat(gateway.network().peers().contains(unheard), is(false));
+		assertThat(gateway.network().peers().stream().anyMatch(peer -> PEER.equals(peer.id())), is(true));
+		assertThat(gateway.speaks(agreeing), is(true));
+		assertThat(gateway.speaks(unagreeing), is(false));
 	}
 
 	@Example

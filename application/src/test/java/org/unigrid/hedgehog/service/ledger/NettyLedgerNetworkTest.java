@@ -125,9 +125,16 @@ public class NettyLedgerNetworkTest {
 	}
 
 	private static NettyLedgerNetwork networkOf(final PendingRequests pending, final Predicate<Channel> outbound,
+		final Predicate<Channel> negotiated, final Set<Node> nodes) {
+
+		return new NettyLedgerNetwork(() -> nodes, pending, outbound, negotiated);
+	}
+
+	/* Every stream has settled on the ledger protocol unless a test says that it did not */
+	private static NettyLedgerNetwork networkOf(final PendingRequests pending, final Predicate<Channel> outbound,
 		final Set<Node> nodes) {
 
-		return new NettyLedgerNetwork(() -> nodes, pending, outbound);
+		return networkOf(pending, outbound, channel -> true, nodes);
 	}
 
 	/* The channels of the topology are those this node opened, as they are for the dialled nodes of a real one */
@@ -651,6 +658,74 @@ public class NettyLedgerNetworkTest {
 		network.speakerOf(new EmbeddedChannel(), remote(SECOND));
 
 		assertThat(network.peers().stream().map(LedgerPeer::id).sorted().toList(), contains(FIRST, SECOND));
+	}
+
+	/* The gate: only a stream whose connection settled on the ledger protocol is a peer, is sent to, is asked */
+	@Example
+	public void listsNoStreamThatDidNotSettleOnTheLedgerProtocol() {
+		final EmbeddedChannel agreeing = new EmbeddedChannel();
+		final EmbeddedChannel unagreeing = new EmbeddedChannel();
+		final EmbeddedChannel unagreeingSpeaker = new EmbeddedChannel();
+		final Node dialledAgreeing = nodeWith(agreeing, FIRST);
+		final Node dialledUnagreeing = nodeWith(unagreeing, SECOND);
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), channel -> true,
+			channel -> channel == agreeing, Set.of(dialledAgreeing, dialledUnagreeing));
+
+		network.speakerOf(unagreeingSpeaker, remote("10.0.0.3"));
+
+		final List<LedgerPeer> peers = network.peers();
+
+		assertThat(peers.stream().map(LedgerPeer::id).toList(), contains(FIRST));
+		assertThat(network.speaks(agreeing), is(true));
+		assertThat(network.speaks(unagreeing), is(false));
+		assertThat(writesTo(peers.get(0), agreeing), is(true));
+	}
+
+	@Property(tries = 10)
+	public void sendsNothingToAStreamThatDidNotSettleOnTheLedgerProtocol(
+		@ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final LedgerPeer peer = networkOf(new PendingRequests(), c -> false, c -> false, Set.of())
+			.peerOf(channel, remote(FIRST));
+
+		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
+			peer.send(LedgerWireFixtures.status(seed));
+			peer.send(LedgerWireFixtures.transaction(seed));
+
+			final String dropped = "DEBUG Dropped what was sent to " + FIRST + ": it does not speak the ledger";
+
+			assertThat(told(log), contains(dropped, dropped));
+		}
+
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void asksNoStreamForBlocksThatDidNotSettleOnTheLedgerProtocol() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final LedgerPeer peer = networkOf(new PendingRequests(), c -> false, c -> false, Set.of())
+			.peerOf(channel, remote(FIRST));
+		final CompletableFuture<BlockBatch> reply = peer.request(LedgerWireFixtures.request(1));
+		final CompletionException failure = assertThrows(CompletionException.class, () -> reply.getNow(null));
+
+		assertThat(failure.getCause(), instanceOf(IllegalStateException.class));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void sendsToAStreamOnceItsConnectionHasSettledOnTheLedgerProtocol() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final boolean[] settled = new boolean[1];
+		final LedgerPeer peer = networkOf(new PendingRequests(), c -> false, c -> settled[0], Set.of())
+			.peerOf(channel, remote(FIRST));
+
+		peer.send(LedgerWireFixtures.status(1));
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		settled[0] = true;
+		peer.send(LedgerWireFixtures.status(1));
+		assertThat(channel.outboundMessages().size(), is(1));
 	}
 
 	@Example

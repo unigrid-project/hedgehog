@@ -44,6 +44,11 @@ import org.unigrid.hedgehog.model.network.Topology;
 /* Where the handlers of the pipeline hand what peers send to the driver. A node without a ledger carries the pipeline
    all the same, and then what peers send is dropped here, so the rest of the node never has to ask.
 
+   The ledger protocol token of the handshake, Network.LEDGER_PROTOCOL, is the capability gate: a stream is one to
+   speak the ledger over only if its connection settled on it (speaks, LedgerProtocol). The network lists no other
+   stream as a peer, the peers send nothing over one, a stream announced to the driver is one that did, and the handlers
+   close a stream that sends the ledger without having settled on it.
+
    Whoever closes the driver takes it out with detach() first. What a driver that has shut down gets is rejected, and
    that is dropped here too: the stream of a peer carries every protocol, and is not closed for a ledger that is going. */
 @Slf4j
@@ -57,7 +62,14 @@ public class LedgerGateway {
 
 	@PostConstruct
 	private void init() {
-		network = new NettyLedgerNetwork(topology::cloneNodes, pending, NettyLedgerNetwork::openedHere);
+		network = new NettyLedgerNetwork(topology::cloneNodes, pending, NettyLedgerNetwork::openedHere,
+			LedgerProtocol::negotiatedOn);
+	}
+
+	/* Whether the connection of the stream settled on the ledger protocol, which is what makes a stream one to speak
+	   the ledger over */
+	public boolean speaks(final Channel stream) {
+		return network.speaks(stream);
 	}
 
 	public LedgerNetwork network() {
@@ -115,7 +127,7 @@ public class LedgerGateway {
 	/* The driver is told of a stream once, and the stream is told this node's status by the driver */
 	public void peerConnected(final NettyLedgerPeer peer) {
 		ifAttached(attached -> {
-			if (peer.firstAnnouncementTo(attached)) {
+			if (peer.speaksLedger() && peer.firstAnnouncementTo(attached)) {
 				attached.onPeerConnected(peer);
 			}
 		});
