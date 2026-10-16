@@ -609,6 +609,16 @@ public class NettyLedgerNetworkTest {
 	}
 
 	@Example
+	public void tellsTheDriverWhichPeersThisNodeDialled() {
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final EmbeddedChannel accepted = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), opened::equals, Set.of());
+
+		assertThat(network.speakerOf(opened, remote(FIRST)).dialled(), is(true));
+		assertThat(network.speakerOf(accepted, remote(SECOND)).dialled(), is(false));
+	}
+
+	@Example
 	public void takesAStreamThisNodeOpenedEvenWhenTheTopologyHoldsAnotherOfTheNode() {
 		final EmbeddedChannel opened = new EmbeddedChannel();
 		final EmbeddedChannel accepted = new EmbeddedChannel();

@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -173,13 +174,22 @@ public final class LedgerDriver implements Closeable {
 	@SuppressWarnings("checkstyle:ParameterNumber")
 	public LedgerDriver(NodeFactory factory, Serial serial, Scheduler scheduler, LedgerNetwork network,
 		PeerLimiter limiter, LongSupplier clock, DriverOptions options, byte[] seed) {
+		this(factory, serial, scheduler, network, limiter, clock, options, seed, new SecureRandom()::nextLong);
+	}
+
+	/* `salt` is asked for once, and picks the order in which peers that nothing else tells apart are asked for blocks:
+	   a peer cannot know it, and so cannot make up an id to be first. */
+	@SuppressWarnings("checkstyle:ParameterNumber")
+	LedgerDriver(NodeFactory factory, Serial serial, Scheduler scheduler, LedgerNetwork network,
+		PeerLimiter limiter, LongSupplier clock, DriverOptions options, byte[] seed, LongSupplier salt) {
 		this.scheduler = scheduler;
 		this.limiter = limiter;
 		this.clock = clock;
 		this.options = options;
 		this.seed = seed == null ? null : seed.clone();
 		this.gossip = new Gossip(network);
-		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis(), () -> connected(network));
+		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis(), () -> connected(network),
+			salt.getAsLong());
 		this.lanes = new InboundLanes(serial, limiter, options.maxQueuedInbound(), options.maxQueuedPerPeer(),
 			this::accepting, this::guard);
 		this.supervisor = new NodeSupervisor(factory, scheduler, clock, limiter, options, this::control,

@@ -103,7 +103,7 @@ final class Syncer {
 		if (supervisor.ready() && !sync.running()) {
 			final long height = supervisor.ledger().height();
 
-			sync.nearestAbove(height + margin - 1, clock.getAsLong()).ifPresent(claim -> {
+			sync.firstAbove(height + margin - 1, clock.getAsLong()).ifPresent(claim -> {
 				sync.begin(height);
 				ask(claim.peer());
 			});

@@ -92,7 +92,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 
 	private NettyLedgerPeer create(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer created = new NettyLedgerPeer(channel, remote, pending,
-			registrations.incrementAndGet(), negotiated);
+			registrations.incrementAndGet(), negotiated, outbound);
 		final NettyLedgerPeer raced = channel.attr(PEER_KEY).setIfAbsent(created);
 
 		return raced != null ? raced : created;

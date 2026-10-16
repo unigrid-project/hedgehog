@@ -1265,24 +1265,6 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
-	public void shouldAskTheClaimantThatIsTheLeastAboveFirst() throws IOException {
-		try (Chain chain = new Chain(5, 10); DriverRig rig = fresh()) {
-			final Server first = new Server("Q", chain).holding();
-			final Server liar = new Server("L", chain).holding();
-			final Server honest = new Server("H", chain);
-
-			rig.hears(first, first.statusAt(2));
-			rig.hears(liar, claim(chain, 1_000_000));
-			rig.hears(honest, honest.status());
-			first.failHeld(new IllegalStateException("The request timed out"));
-			first.failHeld(new IllegalStateException("The request timed out"));
-
-			assertThat(rig.ledger().height(), equalTo(5L));
-			assertThat(liar.requests, hasSize(1));
-		}
-	}
-
-	@Example
 	public void shouldNotCountTheClaimOfAPeerThatIsNotConnectedAnyMore() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh()) {
 			final Server leaving = new Server("L", chain).holding();
@@ -1649,6 +1631,32 @@ public class LedgerDriverSyncTest {
 	}
 
 	@Example
+	public void shouldStartTheDoubtOverAfterABatchWasDeliveredWhichIsAFailureRowEnded() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server server = new Server("S", chain).holding();
+
+			rig.hears(server, server.statusAt(2));
+			requestTimeout(rig).fire();
+			rig.clock.addAndGet(DriverRig.STATUS);
+			server.holding = false;
+			rig.hears(server, server.statusAt(20));
+
+			assertThat(rig.ledger().height(), equalTo(32L));
+
+			server.holding = true;
+			rig.hears(server, server.status());
+			requestTimeout(rig).fire();
+			rig.clock.addAndGet(DriverRig.STATUS - 1);
+
+			assertThat(rig.driver.doubts("S"), is(true));
+
+			rig.clock.addAndGet(1);
+
+			assertThat(rig.driver.doubts("S"), is(false));
+		}
+	}
+
+	@Example
 	public void shouldIgnoreTheLateAnswerOfARequestThatTimedOut() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
 			final Server silent = new Server("S", chain).holding();
@@ -1705,20 +1713,70 @@ public class LedgerDriverSyncTest {
 			silent.forEach(server -> rig.hears(server, server.statusAt(2)));
 			rig.hears(honest, honest.status());
 
-			scheduler.advanceBy(40 * timeout - 1);
-
-			assertThat(honest.requests, is(empty()));
-			assertThat(rig.ledger().height(), equalTo(0L));
-
-			scheduler.advanceBy(1);
-
-			assertThat(honest.requests, hasSize(1));
-			assertThat(rig.ledger().height(), equalTo(16L));
-
+			scheduler.advanceBy(40 * timeout);
 			scheduler.advanceBy(4 * Syncer.PACE_MILLIS);
 
+			assertThat(honest.requests, is(not(empty())));
 			assertThat(rig.ledger().height(), equalTo(TIP));
-			assertThat(silent.stream().allMatch(server -> server.requests.size() == 1), is(true));
+			assertThat(silent.stream().allMatch(server -> server.requests.size() <= 1), is(true));
+		}
+	}
+
+	/* The peer that is heard first is asked first, so one that holds the sync while the others are heard is how a test
+	   makes the driver choose between them */
+	@Example
+	public void shouldAskAPeerWeDialledBeforeSilentPeersWhateverTheyClaim() throws IOException {
+		final List<String> byHash = askingOrder(List.of("L", "H", "D"), List.of(11L, 11L, 11L), DriverRig.SALT);
+
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server decoy = new Server("X", chain).holding();
+			final Server low = new Server(byHash.get(0), chain).holding();
+			final Server high = new Server(byHash.get(1), chain).holding();
+			final Server dialled = new Server(byHash.get(2), chain).dialledByUs();
+
+			rig.hears(decoy, decoy.statusAt(2));
+			rig.hears(low, low.statusAt(2));
+			rig.hears(high, claim(chain, 1_000_000));
+			rig.hears(dialled, dialled.status());
+			requestTimeout(rig).fire();
+
+			assertThat(dialled.requests, is(not(empty())));
+			assertThat(low.requests, is(empty()));
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(high.requests.stream().allMatch(request -> request.from() == TIP + 1), is(true));
+		}
+	}
+
+	@Example
+	public void shouldAskAPeerThatDeliveredBeforeBeforeAnotherThatTheHashWouldPick() throws IOException {
+		final SyncState probe = new SyncState(1_000, EVERYONE, DriverRig.SALT);
+
+		probe.heard(new Server("P", null), 11, 0);
+		probe.heard(new Server("Q", null), 11, 0);
+
+		final String hashFirst = probe.firstAbove(0, 0).orElseThrow().peer().id();
+
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server decoy = new Server("X", chain).holding();
+			final Server known = new Server("P".equals(hashFirst) ? "Q" : "P", chain).holding();
+			final Server newcomer = new Server(hashFirst, chain);
+
+			rig.hears(known, known.statusAt(20));
+			known.releaseIfHeld();
+			requestTimeout(rig).fire();
+			rig.clock.addAndGet(DriverRig.STATUS);
+			known.holding = false;
+
+			assertThat(rig.ledger().height(), equalTo(16L));
+
+			rig.hears(decoy, decoy.statusAt(24));
+			rig.hears(newcomer, newcomer.status());
+			rig.hears(known, known.status());
+			requestTimeout(rig).fire();
+
+			assertThat(newcomer.requests, is(empty()));
+			assertThat(known.requests.size(), equalTo(4));
+			assertThat(rig.ledger().height(), equalTo(TIP));
 		}
 	}
 
@@ -1728,66 +1786,126 @@ public class LedgerDriverSyncTest {
 			DriverRig.RESTART_WINDOW, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.empty());
 	}
 
+	/* What a peer claims decides whether it is asked at all, and nothing about when */
 	@Property(tries = 50)
-	public void shouldAskAPeerThatWasDialledBeforeThoseThatWereNotAmongClaimsOfOneHeight(
-		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int pick) {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+	public void shouldAskAPeerThatWasDialledBeforeAnyOtherWhateverTheyClaim(
+		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int pick,
+		@ForAll @Size(min = 8, max = 8) List<@IntRange(min = 1, max = 1_000_000) Integer> claims) {
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		for (int n = 0; n < peers; n++) {
 			final Server server = new Server("P" + n, null);
 
-			state.heard(n == pick % peers ? server.dialledByUs() : server, 10, 0);
+			state.heard(n == pick % peers ? server.dialledByUs() : server, claims.get(n), 0);
 		}
 
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + pick % peers));
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + pick % peers));
 	}
 
 	@Property(tries = 50)
-	public void shouldAskAPeerThatHasDeliveredBeforeThoseThatHaveNotAmongClaimsOfOneHeight(
-		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int pick) {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+	public void shouldAskThePeerThatDeliveredLastBeforeThoseThatDeliveredEarlierOrNeverWhateverTheyClaim(
+		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int one,
+		@ForAll @Size(min = 8, max = 8) List<@IntRange(min = 1, max = 1_000_000) Integer> claims) {
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
+		final int earlier = one % peers;
+		final int later = (earlier + 1) % peers;
 
 		for (int n = 0; n < peers; n++) {
-			state.heard(new Server("P" + n, null), 10, 0);
+			state.heard(new Server("P" + n, null), claims.get(n), 0);
 		}
 
-		state.delivered("P" + pick % peers);
+		state.delivered("P" + earlier);
+		state.delivered("P" + later);
 
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + pick % peers));
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + later));
+
+		state.delivered("P" + earlier);
+
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + earlier));
 	}
 
 	@Example
-	public void shouldAskThePeerWithMoreDeliveriesFirstAndTheOneWeDialledBeforeEitherAndTheLowestClaimBeforeAll() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+	public void shouldAskThePeerWeDialledBeforeThoseThatDeliveredBeforeThoseThatNeverDidWhateverTheyClaim() {
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		state.heard(new Server("A", null), 10, 0);
-		state.heard(new Server("B", null), 10, 0);
-		state.heard(new Server("C", null).dialledByUs(), 10, 0);
-		state.heard(new Server("D", null).dialledByUs(), 9, 0);
-		state.delivered("A");
+		state.heard(new Server("B", null), 1_000_000, 0);
+		state.heard(new Server("C", null).dialledByUs(), 1_000_001, 0);
+		state.heard(new Server("D", null), 1, 0);
 		state.delivered("A");
 		state.delivered("B");
-		state.delivered("C");
 
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("D"));
-
-		state.drop("D");
-
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("C"));
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("C"));
 
 		state.drop("C");
 
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
+
+		state.drop("B");
+
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
 
 		state.drop("A");
 
-		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("D"));
 	}
 
 	@Example
-	public void shouldFollowTheDeliveriesWhicheverOfTwoPeersTheHashWouldPick() {
-		final SyncState first = new SyncState(1_000, EVERYONE);
-		final SyncState second = new SyncState(1_000, EVERYONE);
+	public void shouldNotAskAPeerBecauseItClaimsLittleOrBecauseItClaimsAGreatDeal() {
+		final List<String> ids = IntStream.range(0, 12).mapToObj(n -> "10.0.0." + n).toList();
+		final List<Long> small = Collections.nCopies(12, 11L);
+		final List<Long> spread = LongStream.range(0, 12).map(n -> n % 2 == 0 ? 11 + n : 1_000_000 - n).boxed().toList();
+
+		assertThat(askingOrder(ids, small, DriverRig.SALT), equalTo(askingOrder(ids, spread, DriverRig.SALT)));
+		assertThat(askingOrder(ids, small, DriverRig.SALT), equalTo(askingOrder(ids, small.reversed(),
+			DriverRig.SALT)));
+	}
+
+	@Example
+	public void shouldAskPeersWithNothingToTellThemApartInTheOrderOfTheirSaltedHashAndTheSameOrderEachTime() {
+		final List<String> ids = IntStream.range(0, 12).mapToObj(n -> "10.0.0." + n).toList();
+		final List<Long> claims = Collections.nCopies(12, 11L);
+
+		assertThat(askingOrder(ids, claims, DriverRig.SALT), equalTo(askingOrder(ids.reversed(), claims,
+			DriverRig.SALT)));
+		assertThat(askingOrder(ids, claims, DriverRig.SALT), not(equalTo(askingOrder(ids, claims, 4_001L))));
+		assertThat(askingOrder(ids, claims, 4_001L), equalTo(askingOrder(ids, claims, 4_001L)));
+	}
+
+	@Example
+	public void shouldNotLetAnIdGroundToSortFirstWithoutASaltSortFirstWithAnother() {
+		final List<String> ids = IntStream.range(0, 2_000).mapToObj(n -> "10.0." + n / 250 + "." + n % 250).toList();
+		final List<Long> claims = Collections.nCopies(2_000, 11L);
+		final String ground = askingOrder(ids, claims, 0L).get(0);
+
+		assertThat(askingOrder(ids, claims, 1_234_567L).get(0), not(equalTo(ground)));
+		assertThat(askingOrder(ids, claims, -987_654_321L).get(0), not(equalTo(ground)));
+		assertThat(askingOrder(ids, claims, 1_234_567L).get(0), not(equalTo(askingOrder(ids, claims,
+			-987_654_321L).get(0))));
+	}
+
+	/* The ids in the order that a state with that salt would ask them, one after the other */
+	private static List<String> askingOrder(List<String> ids, List<Long> claims, long salt) {
+		final SyncState state = new SyncState(1_000, EVERYONE, salt);
+		final List<String> order = new ArrayList<>();
+
+		for (int n = 0; n < ids.size(); n++) {
+			state.heard(new Server(ids.get(n), null), claims.get(n), 0);
+		}
+
+		for (Optional<SyncState.Claim> next = state.firstAbove(0, 0); next.isPresent();
+			next = state.firstAbove(0, 0)) {
+			order.add(next.get().peer().id());
+			state.drop(next.get().peer().id());
+		}
+
+		return order;
+	}
+
+	@Example
+	public void shouldFollowTheLatestDeliveryWhicheverOfTwoPeersTheHashWouldPick() {
+		final SyncState first = new SyncState(1_000, EVERYONE, DriverRig.SALT);
+		final SyncState second = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		Stream.of(first, second).forEach(state -> {
 			state.heard(new Server("A", null), 10, 0);
@@ -1796,26 +1914,45 @@ public class LedgerDriverSyncTest {
 		first.delivered("A");
 		second.delivered("B");
 
-		assertThat(first.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
-		assertThat(second.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
+		assertThat(first.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
+		assertThat(second.firstAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
 	}
 
 	@Example
-	public void shouldNotCountBatchesDeliveredOnceTheStateIsCleared() {
-		final SyncState untouched = new SyncState(1_000, EVERYONE);
-		final SyncState cleared = new SyncState(1_000, EVERYONE);
+	public void shouldNotRememberDeliveriesOnceTheStateIsCleared() {
+		final SyncState untouched = new SyncState(1_000, EVERYONE, DriverRig.SALT);
+		final SyncState cleared = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		untouched.heard(new Server("A", null), 10, 0);
 		untouched.heard(new Server("B", null), 10, 0);
 
-		final String byHash = untouched.nearestAbove(0, 0).orElseThrow().peer().id();
+		final String byHash = untouched.firstAbove(0, 0).orElseThrow().peer().id();
 
 		cleared.delivered("A".equals(byHash) ? "B" : "A");
 		cleared.clear();
 		cleared.heard(new Server("A", null), 10, 0);
 		cleared.heard(new Server("B", null), 10, 0);
 
-		assertThat(cleared.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo(byHash));
+		assertThat(cleared.firstAbove(0, 0).orElseThrow().peer().id(), equalTo(byHash));
+	}
+
+	@Example
+	public void shouldKeepAtMostSoManyDeliveriesAndForgetTheOldest() {
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
+		final List<String> byHash = askingOrder(List.of("old", "new"), List.of(11L, 11L), DriverRig.SALT);
+		final String oldest = byHash.get(1);
+		final String other = byHash.get(0);
+
+		state.delivered(oldest);
+
+		for (int n = 0; n < SyncState.MAX_CLAIMS; n++) {
+			state.delivered("P" + n);
+		}
+
+		state.heard(new Server(oldest, null), 11, 0);
+		state.heard(new Server(other, null), 11, 0);
+
+		assertThat(state.firstAbove(0, 0).orElseThrow().peer().id(), equalTo(other));
 	}
 
 	@Example
@@ -2668,7 +2805,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldKeepAtMostSoManyClaimsAndLetTheOldestGo() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		for (int n = 0; n < SyncState.MAX_CLAIMS + 50; n++) {
 			state.heard(new Server("P" + n, null), 100 + n, 0);
@@ -2682,7 +2819,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldLetAClaimLapseUnlessItIsRepeatedAndNotWhenTheClockIsSetBack() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 		final Server peer = new Server("P", null);
 
 		state.heard(peer, 10, 5_000);
@@ -2690,8 +2827,8 @@ public class LedgerDriverSyncTest {
 		assertThat(state.highest(5_999).getAsLong(), equalTo(10L));
 		assertThat(state.highest(6_000).isPresent(), is(false));
 		assertThat(state.highest(1).getAsLong(), equalTo(10L));
-		assertThat(state.nearestAbove(5, 5_000).isPresent(), is(true));
-		assertThat(state.nearestAbove(10, 5_000).isPresent(), is(false));
+		assertThat(state.firstAbove(5, 5_000).isPresent(), is(true));
+		assertThat(state.firstAbove(10, 5_000).isPresent(), is(false));
 
 		state.heard(peer, 12, 5_900);
 
@@ -2704,7 +2841,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldRememberAPeerThatCouldNotBackItsClaimForTenMinutesAndThenForgetIt() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		state.discredit("P", 5_000);
 
@@ -2721,7 +2858,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldDoubleTheDoubtWithEachFailureInARowUpToTenMinutesAndStartAgainAfterABatch() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		state.failed("P", 0, 1_000);
 		assertDoubtedFor(state, 0, 1_000);
@@ -2745,7 +2882,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldKeepTheLongerDoubtWhenAShorterOneComesAfterIt() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		state.discredit("P", 0);
 		state.failed("P", 1_000, 1_000);
@@ -2755,7 +2892,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldAskForARetryOnlyOnceUntilABatchIsDeliveredOrASyncBegins() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		assertThat(state.retryOnce(), is(true));
 		assertThat(state.retryOnce(), is(false));
@@ -2772,7 +2909,7 @@ public class LedgerDriverSyncTest {
 
 	@Example
 	public void shouldKeepAtMostSoManyMarksAndLetTheOldestGo() {
-		final SyncState state = new SyncState(1_000, EVERYONE);
+		final SyncState state = new SyncState(1_000, EVERYONE, DriverRig.SALT);
 
 		for (int n = 0; n < SyncState.MAX_CLAIMS + 50; n++) {
 			state.discredit("P" + n, 0);

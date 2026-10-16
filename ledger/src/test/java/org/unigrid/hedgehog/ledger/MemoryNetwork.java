@@ -250,7 +250,7 @@ final class MemoryNetwork implements AutoCloseable {
 			built.clear();
 			limiter = new PeerLimiter(MemoryNetwork.this::now, Policy.DEFAULT);
 			driver = new LedgerDriver(this::create, new DirectSerial(), scheduler(), this::peers, limiter,
-				MemoryNetwork.this::now, options, seed);
+				MemoryNetwork.this::now, options, seed, () -> index);
 			driver.start();
 			connectWanted(this);
 		}

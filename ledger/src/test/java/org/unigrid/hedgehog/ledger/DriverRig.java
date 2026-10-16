@@ -44,6 +44,10 @@ final class DriverRig implements AutoCloseable {
 	static final int QUEUE = 1_000;
 	static final int PER_PEER = 100;
 	static final long GRACE = 7_777;
+
+	/* What the driver is given to order the peers that claim to be ahead, so that a test asks them in the same order each
+	   time */
+	static final long SALT = 17;
 	static final DriverOptions OPTIONS = new DriverOptions(TICK, HEARTBEAT, STATUS, GRACE, RESTART_WINDOW, QUEUE,
 		PER_PEER, Optional.empty());
 
@@ -133,7 +137,8 @@ final class DriverRig implements AutoCloseable {
 		this.clock = clock;
 		this.scheduler = scheduler;
 		this.limiter = new PeerLimiter(clock::get, policy);
-		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, options, seed);
+		this.driver = new LedgerDriver(this::create, serial, scheduler, network, limiter, clock::get, options, seed,
+			() -> SALT);
 	}
 
 	static DriverRig solo() {

@@ -71,6 +71,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final PendingRequests pending;
 	private final long order;
 	private final Predicate<Channel> negotiated;
+	private final Predicate<Channel> outbound;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
 
@@ -107,6 +108,13 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	@Override
 	public String id() {
 		return remote.get().map(NettyLedgerPeer::idOf).orElseGet(() -> channel.id().asLongText());
+	}
+
+	/* A stream this node opened, which is what dialling a node does: the driver asks the nodes it chose before
+	   those that connected to it */
+	@Override
+	public boolean dialled() {
+		return outbound.test(channel);
 	}
 
 	Channel channel() {

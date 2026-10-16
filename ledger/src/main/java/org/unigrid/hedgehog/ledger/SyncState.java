@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.ledger;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -29,17 +28,22 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /* How high the peers say their chains are, and whether this node is fetching blocks from one of them. What a peer
-   says is a claim and proves nothing, as a status is not signed: only certified blocks are proof. A claim tells
-   whom to ask. It is dropped for a peer that is asked and cannot back it up, and that peer is not believed for a
-   while after, so that a peer which claims a chain it has not got holds nothing up for longer than one request, and
-   cannot do it again at no cost. A claim that is not repeated lapses, and a claim of a peer that is not connected any
-   more is not counted, so a peer that has left stops being waited for. The most claims and marks kept are limited,
-   and a peer that speaks again takes the place of its last claim and goes to the back. Used by the driver on its
-   serial executor only. */
+   says is a claim and proves nothing, as a status is not signed: only certified blocks are proof. A claim makes a
+   peer someone to ask, and nothing in it says who is asked first. It is dropped for a peer that is asked and cannot
+   back it up, and that peer is not believed for a while after, so that a peer which claims a chain it has not got
+   holds nothing up for longer than one request, and cannot do it again at no cost. A claim that is not repeated
+   lapses, and a claim of a peer that is not connected any more is not counted, so a peer that has left stops being
+   waited for. The most claims and marks kept are limited, and a peer that speaks again takes the place of its last
+   claim and goes to the back. Used by the driver on its serial executor only. */
 final class SyncState {
 	static final int MAX_CLAIMS = 256;
 	static final long MEMORY_MILLIS = 600_000;
 	private static final int MAX_DOUBLINGS = 20;
+	private static final int FIRST_SHIFT = 30;
+	private static final int SECOND_SHIFT = 27;
+	private static final int THIRD_SHIFT = 31;
+	private static final long FIRST_FACTOR = 0xbf58476d1ce4e5b9L;
+	private static final long SECOND_FACTOR = 0x94d049bb133111ebL;
 
 	record Claim(LedgerPeer peer, long height, long heardAt) {
 	}
@@ -49,16 +53,20 @@ final class SyncState {
 	private final Map<String, Claim> claims = new LinkedHashMap<>();
 	private final Map<String, Long> marks = new LinkedHashMap<>();
 	private final Map<String, Integer> strikes = new LinkedHashMap<>();
-	private final Map<String, Integer> deliveries = new LinkedHashMap<>();
+	private final Map<String, Long> deliveredAt = new LinkedHashMap<>();
+	private final long salt;
+	private long deliveries;
 	private boolean retried;
 	private boolean running;
 	private boolean holding;
 	private long startHeight;
 
-	/* `present` is the ids of the peers that are connected now */
-	SyncState(long lapseMillis, Supplier<Set<String>> present) {
+	/* `present` is the ids of the peers that are connected now, and `salt` is what the order of peers that nothing
+	   else tells apart depends on */
+	SyncState(long lapseMillis, Supplier<Set<String>> present, long salt) {
 		this.lapseMillis = lapseMillis;
 		this.present = present;
+		this.salt = salt;
 	}
 
 	void heard(LedgerPeer peer, long height, long now) {
@@ -94,8 +102,9 @@ final class SyncState {
 	void delivered(String id) {
 		strikes.remove(id);
 		retried = false;
-		deliveries.merge(id, 1, Integer::sum);
-		bound(deliveries);
+		deliveredAt.remove(id);
+		deliveredAt.put(id, ++deliveries);
+		bound(deliveredAt);
 	}
 
 	/* True the first time since a batch was delivered, which is when a request that failed is asked again */
@@ -132,16 +141,35 @@ final class SyncState {
 		return standing(now).mapToLong(Claim::height).max();
 	}
 
-	/* The claim that is the least above the height: a peer that claims little is asked before one that claims a great
-	   deal, and what it says is the likeliest to be true. Of claims at the same height a peer that this node dialled
-	   is asked first, as it was chosen and not self-appointed, and then the one that has delivered the most batches,
-	   which no claim can fake. What is left is told apart by a hash of the peer and the height, so that the same peer
-	   is not first for every node. */
-	Optional<Claim> nearestAbove(long height, long now) {
+	/* The peer to ask next of those that claim a chain above the height. The claim only makes a peer a candidate: how
+	   little or how much it claims is a peer's own choice, and would put it first. What a peer cannot choose decides
+	   the order: first one that this node dialled, then the ones that have delivered a batch, the latest to have done
+	   so first, and then the rest in the order of a hash of the id with the salt, which an id cannot be made up to
+	   win as it does not know the salt. */
+	Optional<Claim> firstAbove(long height, long now) {
 		return standing(now).filter(claim -> claim.height() > height).min(Comparator
-			.comparingLong(Claim::height).thenComparing(claim -> !claim.peer().dialled())
-			.thenComparing(claim -> -deliveries.getOrDefault(claim.peer().id(), 0))
-			.thenComparingInt(claim -> Objects.hash(claim.peer().id(), height)));
+			.comparing((Claim claim) -> !claim.peer().dialled())
+			.thenComparingLong(claim -> -deliveredAt.getOrDefault(claim.peer().id(), 0L))
+			.thenComparingLong(claim -> ranked(claim.peer().id()))
+			.thenComparing(claim -> claim.peer().id()));
+	}
+
+	private long ranked(String id) {
+		long hash = salt;
+
+		for (int n = 0; n < id.length(); n++) {
+			hash = mixed(hash ^ id.charAt(n));
+		}
+
+		return hash;
+	}
+
+	/* The finishing step of splitmix64: a change in any bit of the input changes about half of the bits of the output */
+	private static long mixed(long value) {
+		final long first = (value ^ (value >>> FIRST_SHIFT)) * FIRST_FACTOR;
+		final long second = (first ^ (first >>> SECOND_SHIFT)) * SECOND_FACTOR;
+
+		return second ^ (second >>> THIRD_SHIFT);
 	}
 
 	boolean claimsAbove(String id, long height, long now) {
@@ -170,7 +198,7 @@ final class SyncState {
 		claims.clear();
 		marks.clear();
 		strikes.clear();
-		deliveries.clear();
+		deliveredAt.clear();
 	}
 
 	boolean running() {
