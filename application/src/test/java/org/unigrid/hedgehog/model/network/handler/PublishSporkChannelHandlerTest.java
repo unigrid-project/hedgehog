@@ -43,6 +43,7 @@ import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitial
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.TestServer;
 
@@ -80,7 +81,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		int expectedInvocations = 0;
 
 		new MockUp<SporkLag>() {
-			@Mock public void record(GridSpork spork) {
+			@Mock public void record(GridSpork spork, SporkDatabase db) {
 				recordings.incrementAndGet();
 			}
 		};
