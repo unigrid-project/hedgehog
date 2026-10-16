@@ -42,6 +42,7 @@ import org.objenesis.ObjenesisStd;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
@@ -246,7 +247,7 @@ public class LedgerPipelineTest extends BaseServerTest {
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
-	public void dropsWhatItHearsWhileNoDriverIsAttachedAndKeepsTheStreamOpen(
+	public void dropsWhatItHearsWhileNoDriverIsAttachedAnswersARequestWithNoBlocksAndKeepsTheStreamOpen(
 		@ForAll("provideTestServers") List<TestServer> servers, @ForAll @IntRange(min = 0, max = 100) int seed)
 		throws Exception {
 
@@ -265,9 +266,11 @@ public class LedgerPipelineTest extends BaseServerTest {
 				sendAllKinds(client, seed);
 				client.send(LedgerBlockRequest.builder().requestId(id)
 					.request(LedgerWireFixtures.request(seed)).build());
-				await().during(Duration.ofMillis(500)).until(() -> heard().isEmpty() && !reply.isDone());
+
+				/* The peer is not left to wait for its timeout: it is told at once that there is nothing here */
+				assertThat(reply.get(10, TimeUnit.SECONDS).getBatch().blocks(), empty());
+				await().during(Duration.ofMillis(500)).until(() -> heard().isEmpty());
 				assertThat(isOpen(client), is(true));
-				pending.fail(id, new RejectedExecutionException("done with the request"));
 
 				gateway.attach(driver);
 				client.send(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build());

@@ -23,10 +23,13 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.BlockBatch;
@@ -54,11 +57,15 @@ import org.unigrid.hedgehog.model.network.Topology;
 @Slf4j
 @ApplicationScoped
 public class LedgerGateway {
+	private static final long SAY_EVERY_MILLIS = 60_000;
+
 	@Inject private PendingRequests pending;
 	@Inject private Topology topology;
 
 	private NettyLedgerNetwork network;
 	private volatile LedgerDriver driver;
+	private final AtomicLong saidAt = new AtomicLong();
+	private volatile LongSupplier clock = System::currentTimeMillis;
 
 	@PostConstruct
 	private void init() {
@@ -122,7 +129,8 @@ public class LedgerGateway {
 		final LedgerDriver attached = driver;
 
 		if (attached == null) {
-			return CompletableFuture.failedFuture(new IllegalStateException("No ledger is attached"));
+			saySometimesThatNoLedgerRuns();
+			return CompletableFuture.completedFuture(new BlockBatch(List.of()));
 		}
 
 		try {
@@ -131,6 +139,24 @@ public class LedgerGateway {
 			log.atDebug().log("Dropped a block request: the ledger takes no more");
 			return CompletableFuture.failedFuture(ex);
 		}
+	}
+
+	/* A node that offers the ledger protocol but whose ledger does not run, as it still waits for its snapshot or
+	   refused to start, is asked for blocks by peers that sync. A peer waits for its timeout for a request that is not
+	   answered, so it is answered with nothing at once: an empty batch ends its sync with this node, and it asks
+	   another. */
+	private void saySometimesThatNoLedgerRuns() {
+		final long now = clock.getAsLong();
+		final long before = saidAt.get();
+
+		if (now - before >= SAY_EVERY_MILLIS && saidAt.compareAndSet(before, now)) {
+			log.atInfo().log("Answered a request for blocks with none, as no ledger is running on this node");
+		}
+	}
+
+	/* For the tests of this package */
+	void clockOf(final LongSupplier clock) {
+		this.clock = clock;
 	}
 
 	/* The driver is told of a stream once, and the stream is told this node's status by the driver. Whichever comes

@@ -469,7 +469,9 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	}
 
 	@Property(tries = 5)
-	public void dropsEveryPacketWhileNoDriverIsAttached(@ForAll @IntRange(min = 0, max = 100) int seed) {
+	public void dropsEveryPacketWhileNoDriverIsAttachedAndAnswersARequestForBlocksWithNone(
+		@ForAll @IntRange(min = 0, max = 100) int seed) {
+
 		final EmbeddedChannel channel = streamFrom(PEER);
 
 		gateway.detach();
@@ -478,8 +480,12 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 			.batch(LedgerWireFixtures.emptyBatch()).build()));
 		channel.checkException();
 
+		final LedgerBlockBatch reply = (LedgerBlockBatch) sentBy(channel);
+
 		assertThat(calls.isEmpty(), is(true));
 		assertThat(channel.isOpen(), is(true));
+		assertThat(reply.getRequestId(), equalTo((long) seed));
+		assertThat(reply.getBatch(), equalTo(LedgerWireFixtures.emptyBatch()));
 		assertThat(channel.outboundMessages().isEmpty(), is(true));
 	}
 
