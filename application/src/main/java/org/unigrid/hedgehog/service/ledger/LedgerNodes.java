@@ -51,11 +51,16 @@ final class LedgerNodes implements NodeFactory, AutoCloseable {
 	private final byte[] seed;
 	private final LongSupplier clock;
 	private BlockLog blockLog;
+	private boolean closed;
 	private volatile Ledger ledger;
 	private volatile boolean signs;
 
 	@Override
 	public synchronized LedgerNode create(final boolean signing) throws IOException {
+		if (closed) {
+			throw new IOException("The nodes of the ledger are closed");
+		}
+
 		closeBlockLog();
 
 		final Path file = directory.resolve(BLOCK_LOG);
@@ -81,8 +86,11 @@ final class LedgerNodes implements NodeFactory, AutoCloseable {
 		return signs;
 	}
 
+	/* Waits for a node that is being built, which has the log open, and then no node is built any more */
 	@Override
 	public synchronized void close() {
+		closed = true;
+
 		try {
 			closeBlockLog();
 		} catch (IOException ex) {
