@@ -30,6 +30,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Address;
@@ -41,6 +42,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.SporkAmount;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
@@ -112,6 +114,12 @@ public class MintStorageResource extends CDIBridgeResource {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
 			return located(address, number, location -> {
+				final Optional<String> unmintable = unmintable(location, mintAmount);
+
+				if (unmintable.isPresent()) {
+					return Response.status(Response.Status.BAD_REQUEST).entity(unmintable.get()).build();
+				}
+
 				final MintStorage ms = ResourceHelper.nextVersion(sporkDatabase.getMintStorage(),
 					MintStorage::new, pendingSporks
 				);
@@ -124,5 +132,24 @@ public class MintStorageResource extends CDIBridgeResource {
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();
+	}
+
+	/* Why no node can make this mint, so that it is refused here and not found out by every node when it is due. The
+	   amount is judged first, by the bounds of the wire: an exponent could write out as gigabytes when it is signed. */
+	private static Optional<String> unmintable(Location location, BigDecimal amount) {
+		if (!SporkAmount.isWithinBounds(amount)) {
+			return Optional.of("An amount has at most " + SporkAmount.MAX_DECIMALS + " decimals and "
+				+ SporkAmount.MAX_INTEGER_DIGITS + " digits before the point");
+		}
+
+		final Optional<MintEntry> entry = MintEntry.of(location, amount);
+
+		if (entry.isEmpty()) {
+			return Optional.of("The address is neither an old-style Unigrid address nor a ledger account of "
+				+ "64 lower-case hexadecimal characters");
+		}
+
+		return entry.get().units().isPresent() ? Optional.empty() : Optional.of("The amount is below one unit "
+			+ "(0.00000001) or above what the ledger counts (92233720368.54775807)");
 	}
 }

@@ -36,9 +36,7 @@ import net.jqwik.api.From;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Property;
 import net.jqwik.api.ShrinkingMode;
-import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.BigRange;
-import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.UniqueElements;
@@ -46,17 +44,17 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
 public class MintStorageResourceTest extends BaseRestClientTest {
+	/* An address that a node can read: the amounts of the other kinds are refused when they are proposed */
 	@Provide
-	public Arbitrary<Location> provideLocation(@ForAll @AlphaChars @StringLength(36) String address,
-		@ForAll @Positive int height) {
-
+	public Arbitrary<Location> provideLocation(@ForAll @Size(20) byte[] hash, @ForAll @Positive int height) {
 		return Arbitraries.of(Location.builder().height(height).address(
-			Address.builder().wif(address).build()
+			Address.builder().wif(LegacyAddress.encode(hash)).build()
 		).build());
 	}
 
@@ -64,7 +62,7 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
 		@ForAll @UniqueElements @Size(5) List<@From("provideLocation") Location> locations,
-		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal amount) {
+		@ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
 		final String url = "/gridspork/mint-storage/";
 		final Response response = client.get(url);
@@ -99,7 +97,7 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 50)
 	public void shoulBeAbleToGetMintStorageSpork(@ForAll("provideSignature") Signature signature,
-		@ForAll("provideLocation") Location location, @ForAll @BigRange(min = "0") BigDecimal amount) {
+		@ForAll("provideLocation") Location location, @ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
 		final int height = location.getHeight();
 		final String wif = location.getAddress().getWif();
