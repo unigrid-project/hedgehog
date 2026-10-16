@@ -36,8 +36,9 @@ import lombok.extern.slf4j.Slf4j;
    So the cost schedule is thin on purpose, and it is the buckets of the limiter that brake everything else: a
    peer that keeps sending what no node takes in, such as transfers without funds or ballots far ahead, is cut
    off by the bucket of its kind, and then penalised by the limiter for each refusal that follows. The check of a
-   signature that a cost depends on is made only for an item that a bucket let through and the node refused. Used
-   by the driver on its serial executor only. */
+   signature that a cost depends on is made only for a message that a bucket let through and the node refused; a
+   transaction is charged on the verdict of the ledger and is not checked again. Used by the driver on its serial
+   executor only. */
 @Slf4j
 final class Gossip {
 	static final int TRANSACTION_COST = 1;
@@ -74,27 +75,15 @@ final class Gossip {
 
 	/* A duplicate, a nonce that is used or too far ahead, a balance that is short, a fee below a node's policy and a
 	   full pool all depend on the node and cost nothing. A signature that does not verify is the same for every
-	   node, and no honest one relays it. The driver tells the node that there may be work once this has taken the
-	   transaction in, as a call of its own. */
+	   node, and no honest one relays it. The ledger says that it found one in the reason it gives, after a check
+	   that its cache of verified signatures spares for a transaction it saw before, so nothing is verified here.
+	   The driver tells the node that there may be work once this has taken the transaction in, as a call of its
+	   own. */
 	Receipt transaction(LedgerNode node, Transaction transaction) {
 		final Optional<String> rejection = node.submit(transaction);
+		final boolean forged = rejection.filter(LedgerState::isSignatureRejection).isPresent();
 
-		if (rejection.isPresent()) {
-			final boolean forged = forged(transaction, node.ledger().chainId());
-
-			return new Receipt(List.of(), rejection, false, forged ? TRANSACTION_COST : 0);
-		}
-
-		return new Receipt(List.of(), rejection, true, 0);
-	}
-
-	static boolean forged(Transaction transaction, byte[] chainId) {
-		return switch (transaction) {
-			case Transfer transfer -> !transfer.hasValidSignature(chainId);
-			case Claim claim -> !claim.hasValidSignature(chainId);
-			case Vote vote -> !vote.hasValidSignature(chainId);
-			case Mint mint -> false;
-		};
+		return new Receipt(List.of(), rejection, rejection.isEmpty(), forged ? TRANSACTION_COST : 0);
 	}
 
 	Receipt heartbeat(LedgerNode node, Heartbeat heartbeat) {

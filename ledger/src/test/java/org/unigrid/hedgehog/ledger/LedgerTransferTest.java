@@ -203,6 +203,21 @@ public class LedgerTransferTest {
 
 		assertThat(state.rejectionOf(valid).isPresent(), is(false));
 		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
+	}
+
+	@Example
+	public void shouldNotCallAnyOtherRefusalOfATransferOneOfItsSignature() {
+		final LedgerState state = funded();
+		final Transfer first = transfer(state, 1, account(2), 300, 10, 0);
+		final Transfer unfunded = transfer(state, 1, account(2), FUNDS, 10, 1);
+
+		state.apply(soloBlock(state, first));
+
+		assertThat(reasonOf(state.rejectionOfQueued(first)), containsString("already used"));
+		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOfQueued(first))), is(false));
+		assertThat(reasonOf(state.rejectionOfQueued(unfunded)), containsString("does not cover"));
+		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOfQueued(unfunded))), is(false));
 	}
 
 	@Example

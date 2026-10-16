@@ -202,6 +202,27 @@ public class LedgerDriverTest {
 		}
 	}
 
+	/* The signature is not checked for a cost once more: the ledger has said already what it found, and what it
+	   refused first it did not look at */
+	@Example
+	public void shouldScoreOnlyWhatTheLedgerRefusedForItsSignatureAndLookAtNoSignatureAgain() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final RecordingPeer a = rig.network.connect("A");
+			final Transfer genuine = paying(rig.ledger(), 100, 0, 0);
+			final Transfer unfunded = new Transfer(genuine.sender(), genuine.recipient(), genuine.amount(),
+				genuine.fee(), genuine.nonce(), new byte[Ed25519.SIGNATURE_SIZE]);
+			final Transfer wrongNonce = new Transfer(genuine.sender(), genuine.recipient(), 1, 0, 40,
+				new byte[Ed25519.SIGNATURE_SIZE]);
+
+			for (int again = 0; again < 3; again++) {
+				rig.driver.onTransaction(a, unfunded);
+				rig.driver.onTransaction(a, wrongNonce);
+			}
+
+			assertThat(rig.limiter.isPenalised("A"), is(false));
+		}
+	}
+
 	@Example
 	public void shouldNeitherScoreNorForwardWhatOnlyThisNodesStateOrPolicyRefuses() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
@@ -891,7 +912,7 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
-			rig.driver.onTransaction(a, null);
+			rig.driver.onMessage(a, null);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(rig.built, hasSize(1));
@@ -904,9 +925,9 @@ public class LedgerDriverTest {
 	}
 
 	@Example
-	public void shouldAnswerALocalSubmitTheRulesCouldNotHandleWithARefusalAndBanNoOne() throws IOException {
+	public void shouldAnswerALocalSubmitTheLedgerCouldNotCheckWithItsRefusalAndBanNoOne() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
-			assertThat(rig.driver.submit(null).join().orElseThrow(), startsWith("Rejected"));
+			assertThat(rig.driver.submit(null).join().orElseThrow(), startsWith("Could not be checked"));
 			assertThat(rig.built, hasSize(1));
 			assertThat(rig.driver.submit(mint(1, 500)).join(), equalTo(Optional.empty()));
 		}

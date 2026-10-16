@@ -37,6 +37,12 @@ public final class LedgerState {
 	/* Votes stay in the state, and in its root, until the round ends, so each validator gets a fixed number */
 	public static final int MAX_VOTES_PER_VALIDATOR = 64;
 
+	private static final String VOTE_SIGNATURE_REJECTION = "Vote signature is not valid";
+	private static final String TRANSFER_SIGNATURE_REJECTION = "Transfer signature is not valid";
+	private static final String CLAIM_SIGNATURE_REJECTION = "Claim signature is not valid";
+	private static final Set<String> SIGNATURE_REJECTIONS = Set.of(VOTE_SIGNATURE_REJECTION,
+		TRANSFER_SIGNATURE_REJECTION, CLAIM_SIGNATURE_REJECTION);
+
 	private static final byte[] HEIGHT = { 'H' };
 	private static final byte[] SUPPLY = { 'S' };
 	private static final byte[] ACCOUNT = { 'A' };
@@ -380,7 +386,13 @@ public final class LedgerState {
 	}
 
 	private Optional<String> signatureRejection(Vote vote) {
-		return vote.hasValidSignature(chainId) ? Optional.empty() : Optional.of("Vote signature is not valid");
+		return vote.hasValidSignature(chainId) ? Optional.empty() : Optional.of(VOTE_SIGNATURE_REJECTION);
+	}
+
+	/* A refusal for a signature that does not verify is the same for every node, unlike one for the state or policy of
+	   this one. The ledger has checked the signature to say it, so whoever asks need not check it again. */
+	static boolean isSignatureRejection(String reason) {
+		return SIGNATURE_REJECTIONS.contains(reason);
 	}
 
 	private Optional<String> rejectionOf(Mint mint) {
@@ -427,7 +439,7 @@ public final class LedgerState {
 
 	private Optional<String> signatureRejection(Transfer transfer) {
 		return verified.check(transfer, () -> transfer.hasValidSignature(chainId))
-			? Optional.empty() : Optional.of("Transfer signature is not valid");
+			? Optional.empty() : Optional.of(TRANSFER_SIGNATURE_REJECTION);
 	}
 
 	private Optional<String> authorityRejection(Transfer transfer) {
@@ -464,7 +476,7 @@ public final class LedgerState {
 
 	private Optional<String> signatureRejection(Claim claim) {
 		return verified.check(claim, () -> claim.hasValidSignature(chainId))
-			? Optional.empty() : Optional.of("Claim signature is not valid");
+			? Optional.empty() : Optional.of(CLAIM_SIGNATURE_REJECTION);
 	}
 
 	private Optional<String> authorityRejection(Claim claim) {

@@ -73,7 +73,6 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 public final class LedgerDriver implements Closeable {
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String REPLACED = "The ledger node failed and was replaced: send it again";
-	private static final String NOT_CHECKED = "Rejected: it could not be checked";
 	private static final int LAPSE_STATUSES = 2;
 	private static final long STATUS_GAP_MILLIS = 1_000;
 
@@ -338,15 +337,12 @@ public final class LedgerDriver implements Closeable {
 		final Item item = new Item(null, Kind.TRANSACTION, transaction);
 		final Optional<Receipt> receipt = supervisor.ready() ? takeIn(item, transaction) : Optional.empty();
 
-		return receipt.isPresent() && supervisor.node() == asked ? receipt.get().rejection() : unanswered(asked);
+		return receipt.isPresent() && supervisor.node() == asked ? receipt.get().rejection() : unanswered();
 	}
 
-	private Optional<String> unanswered(LedgerNode asked) {
-		if (!supervisor.running()) {
-			return Optional.of(NOT_RUNNING);
-		}
-
-		return Optional.of(asked != null && supervisor.node() == asked ? NOT_CHECKED : REPLACED);
+	/* The ledger refuses what it cannot check, so a transaction is not answered only when the node was replaced */
+	private Optional<String> unanswered() {
+		return Optional.of(supervisor.running() ? REPLACED : NOT_RUNNING);
 	}
 
 	private void inbound(Item item, Runnable handler) {

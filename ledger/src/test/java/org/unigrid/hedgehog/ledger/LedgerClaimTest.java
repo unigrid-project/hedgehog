@@ -327,6 +327,7 @@ public class LedgerClaimTest {
 
 		for (int i = 0; i < 3; i++) {
 			assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+			assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
 			assertThat(state.rejectionOf(signed).isPresent(), is(false));
 		}
 	}

@@ -183,5 +183,15 @@ public class LedgerVoteTest {
 			own.signature());
 
 		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
+		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
+	}
+
+	@Example
+	public void shouldNotCallTheRefusalOfAVoteFromAKeyThatIsNoValidatorOneOfItsSignature() {
+		final LedgerState state = freshState();
+		final String reason = reasonOf(state.rejectionOf(add(state, 9, GRIDNODE)));
+
+		assertThat(reason, containsString("not a validator"));
+		assertThat(LedgerState.isSignatureRejection(reason), is(false));
 	}
 }
