@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -30,6 +29,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.service.ledger.SporkRecipients;
 
 @Slf4j
 @Sharable
@@ -52,8 +52,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				CDIUtil.resolveAndRun(SporkLag.class, lag -> {
 					if (receive(spork, db, pendingSporks, lag)) {
 						CDIUtil.resolveAndRun(Topology.class, topology -> {
-							// TODO: Handle errors better rather than sending Optional.empty()
-							Topology.sendAll(publishSpork, topology, Optional.empty());
+							SporkRecipients.sendAll(spork, topology);
 						});
 					}
 				});

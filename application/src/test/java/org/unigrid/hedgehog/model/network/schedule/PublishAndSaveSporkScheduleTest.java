@@ -38,6 +38,7 @@ import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class PublishAndSaveSporkScheduleTest {
 	private static Signature proposer;
@@ -75,7 +76,7 @@ public class PublishAndSaveSporkScheduleTest {
 
 	@Example
 	public void shouldPublishTheStoredLedgerBlacklist() {
-		final EmbeddedChannel channel = new EmbeddedChannel();
+		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerBlacklist blacklist = new LedgerBlacklist();
 
 		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
@@ -86,13 +87,24 @@ public class PublishAndSaveSporkScheduleTest {
 
 	@Example
 	public void shouldPublishTheStoredLedgerFee() {
-		final EmbeddedChannel channel = new EmbeddedChannel();
+		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerFee fee = new LedgerFee();
 
 		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
 			new PendingSporks());
 
 		assertThat(published(channel), hasItem(sameInstance(fee)));
+	}
+
+	@Example
+	public void shouldKeepTheStoredLedgerSporksFromAStreamThatDidNotSettleOnTheLedgerProtocol() {
+		final EmbeddedChannel channel = LedgerStreams.stream(false);
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
+			.ledgerBlacklist(new LedgerBlacklist()).mintSupply(new MintSupply()).build(), new PendingSporks());
+
+		assertThat(published(channel).stream().map(GridSpork::getType).toList(),
+			equalTo(List.of(GridSpork.Type.MINT_SUPPLY)));
 	}
 
 	private static List<GridSpork> published(EmbeddedChannel channel) {

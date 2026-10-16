@@ -20,16 +20,15 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.core.Response;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.service.ledger.SporkRecipients;
 
 @Slf4j
 public class ResourceHelper {
@@ -63,7 +62,7 @@ public class ResourceHelper {
 			return Response.status(Response.Status.CONFLICT).build();
 		}
 
-		Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		SporkRecipients.sendAll(spork, topology);
 		return Response.accepted(PendingSporkInfo.of(spork)).build();
 	}
 }

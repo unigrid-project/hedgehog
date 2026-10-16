@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -31,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
@@ -138,9 +140,17 @@ public class Topology {
 
 	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
+		sendAll(packet, topology, channel -> true, consumer);
+	}
+
+	/* Only to the nodes whose stream the predicate takes, for a packet that not every node could read */
+	@Protected @Lock(LockMode.READ)
+	public static void sendAll(Packet packet, Topology topology, Predicate<Channel> recipients,
+		Optional<BiConsumer<Node, Future>> consumer) {
+
 		log.atDebug().log("Send all packet " + packet.toString());
 		topology.forEach(node -> {
-			if (node.getConnection().isPresent()) {
+			if (node.getConnection().map(Connection::getChannel).filter(recipients).isPresent()) {
 				Node.send(packet, node, consumer);
 			}
 		});

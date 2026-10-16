@@ -42,7 +42,6 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -50,6 +49,7 @@ import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.service.ledger.SporkRecipients;
 
 @Slf4j
 @Path("/gridspork")
@@ -117,7 +117,7 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		sporkDatabase.set(spork);
 		pendingSporks.remove(spork.getType());
-		Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		SporkRecipients.sendAll(spork, topology);
 		return Response.ok().build();
 	}
 
@@ -151,9 +151,7 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		for (GridSpork spork : sporks) {
 			if (pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
-				final PublishSpork publishSpork = PublishSpork.builder().gridSpork(spork).build();
-
-				Topology.sendAll(publishSpork, topology, Optional.empty());
+				SporkRecipients.sendAll(spork, topology);
 				proposals.add(PendingSporkInfo.of(spork));
 			}
 		}
