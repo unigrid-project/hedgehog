@@ -35,7 +35,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.mint;
@@ -54,7 +53,7 @@ public class LedgerDriverDoorTest {
 	private static DriverOptions options(int items, int perPeer, long bytes, long bytesPerPeer) {
 		return new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS, DriverRig.GRACE,
 			DriverRig.RESTART_WINDOW, items, perPeer, Optional.empty(),
-			DriverOptions.DEFAULT_REQUEST_TIMEOUT_MILLIS, bytes, bytesPerPeer);
+			DriverOptions.DEFAULT_REQUEST_TIMEOUT_MILLIS, bytes, bytesPerPeer, DriverOptions.DEFAULT_RELAY_FANOUT);
 	}
 
 	/* An observer of four validators, started, whose tasks wait in the queue until a test runs them */
@@ -82,7 +81,6 @@ public class LedgerDriverDoorTest {
 		final QueuedSerial serial = new QueuedSerial();
 
 		try (DriverRig rig = stalled(serial, options(ITEMS, 3_000, 64 * MIB, 8 * MIB), Policy.DEFAULT)) {
-			final RecordingPeer watcher = rig.network.connect("W");
 			final Ballot wrong = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 5, 0, null);
 			final List<Ballot> honest = List.of(rig.ballot(Ballot.Type.PREVOTE, 1),
 				rig.ballot(Ballot.Type.PREVOTE, 3), rig.ballot(Ballot.Type.PREVOTE, 4));
@@ -99,7 +97,8 @@ public class LedgerDriverDoorTest {
 
 			serial.drain();
 
-			assertThat(watcher.sent(Ballot.class), hasItems(honest.toArray(new Ballot[0])));
+			assertThat(honest.stream().allMatch(ballot -> rig.nodes.get(rig.nodes.size() - 1).holds(ballot)),
+				is(true));
 			assertThat(rig.driver.droppedInbound(), greaterThan(0L));
 		}
 	}

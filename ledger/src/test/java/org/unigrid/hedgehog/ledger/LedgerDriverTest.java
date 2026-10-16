@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.ledger;
 
 import java.io.IOException;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,6 +50,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
@@ -158,6 +160,109 @@ public class LedgerDriverTest {
 			assertThat(rig.ledger().balanceOf(account(1)), equalTo(500L));
 			assertThat(a.sent(Status.class), equalTo(List.of(rig.ledger().status())));
 			assertThat(b.sent(Status.class), equalTo(List.of(rig.ledger().status())));
+		}
+	}
+
+	private static long receivers(List<RecordingPeer> peers) {
+		return peers.stream().filter(peer -> !peer.sent(Transaction.class).isEmpty()).count();
+	}
+
+	@Example
+	public void shouldRelayATransactionOfAPeerToNoMoreThanTheFanoutAndNeverBackToItsSender() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final List<RecordingPeer> peers = peers(rig, 20);
+
+			rig.driver.onTransaction(peers.get(0), mint(1, 500), DriverRig.FRAME);
+
+			assertThat(peers.get(0).sent(Transaction.class), is(empty()));
+			assertThat(receivers(peers), equalTo(8L));
+		}
+	}
+
+	@Example
+	public void shouldRelayToTheSamePeersEachTimeAndToOtherPeersForOtherItems() throws IOException {
+		final Set<String> recipients = new HashSet<>();
+
+		for (int n = 1; n <= 10; n++) {
+			try (DriverRig rig = DriverRig.solo()) {
+				final List<RecordingPeer> peers = peers(rig, 20);
+
+				rig.driver.onTransaction(peers.get(0), mint(n, 500), DriverRig.FRAME);
+				recipients.addAll(peers.stream().filter(peer -> !peer.sent(Transaction.class).isEmpty())
+					.map(RecordingPeer::id).toList());
+			}
+		}
+
+		try (DriverRig first = DriverRig.solo(); DriverRig second = DriverRig.solo()) {
+			final List<RecordingPeer> one = peers(first, 20);
+			final List<RecordingPeer> other = peers(second, 20);
+
+			first.driver.onTransaction(one.get(0), mint(3, 500), DriverRig.FRAME);
+			second.driver.onTransaction(other.get(0), mint(3, 500), DriverRig.FRAME);
+
+			assertThat(one.stream().map(peer -> peer.sent(Transaction.class).size()).toList(),
+				equalTo(other.stream().map(peer -> peer.sent(Transaction.class).size()).toList()));
+		}
+
+		assertThat(recipients.size() > 8, is(true));
+	}
+
+	@Example
+	public void shouldRelayToAsManyPeersAsTheOptionSays() throws IOException {
+		final DriverOptions narrow = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
+			DriverRig.GRACE, DriverRig.RESTART_WINDOW, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.empty(),
+			DriverOptions.DEFAULT_REQUEST_TIMEOUT_MILLIS, DriverOptions.DEFAULT_QUEUED_BYTES,
+			DriverOptions.DEFAULT_QUEUED_BYTES_PER_PEER, 3);
+
+		try (DriverRig rig = new DriverRig(DriverRig.SOLO, seed(1), DriverRig.STRICT, new DirectSerial(), narrow)
+			.started().promoted()) {
+			final List<RecordingPeer> peers = peers(rig, 20);
+
+			rig.driver.onTransaction(peers.get(0), mint(1, 500), DriverRig.FRAME);
+
+			assertThat(receivers(peers), equalTo(3L));
+		}
+	}
+
+	@Example
+	public void shouldSendWhatTheNodeMakesItselfToEveryPeer() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final List<RecordingPeer> peers = peers(rig, 20);
+
+			assertThat(rig.driver.submit(mint(1, 500)).join(), equalTo(Optional.empty()));
+			assertThat(receivers(peers), equalTo(20L));
+		}
+	}
+
+	@Example
+	public void shouldRelayToEveryPeerButTheSenderWhenThereAreNoMoreThanTheFanout() throws IOException {
+		try (DriverRig rig = DriverRig.solo()) {
+			final List<RecordingPeer> peers = peers(rig, 9);
+
+			rig.driver.onTransaction(peers.get(0), mint(1, 500), DriverRig.FRAME);
+
+			assertThat(receivers(peers), equalTo(8L));
+			assertThat(peers.get(0).sent(Transaction.class), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldAskForTheListOfPeersOncePerRunOfTheExecutorAndNotOncePerItem() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, null, DriverRig.STRICT, serial).started()) {
+			final List<RecordingPeer> peers = peers(rig, 20);
+
+			serial.drain();
+
+			final int before = rig.network.peersAsked();
+
+			IntStream.range(0, 50).forEach(n -> rig.driver.onTransaction(peers.get(n % 20), mint(n, 10),
+				DriverRig.FRAME));
+			serial.drain();
+
+			assertThat(rig.network.peersAsked() - before, lessThanOrEqualTo(2));
+			assertThat(rig.ledger().pending(), equalTo(50));
 		}
 	}
 
@@ -1338,7 +1443,7 @@ public class LedgerDriverTest {
 			serial.runOne();
 
 			assertThat(b.sent().get(before), instanceOf(Ballot.class));
-			assertThat(b.sent(Transaction.class), hasItem(mint));
+			assertThat(peers.stream().anyMatch(peer -> peer.sent(Transaction.class).contains(mint)), is(true));
 			assertThat(rig.scheduler.scheduled().size() > ticks, is(true));
 			assertThat(rig.driver.queuedInbound(), equalTo(6_000 - 64));
 			assertThat(serial.size(), equalTo(1));
@@ -1492,13 +1597,14 @@ public class LedgerDriverTest {
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 0, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 0, 1, 1));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 0, 1));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 1, 0));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 0, 1, 1, 1));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 0, 1, 1));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 1, 0, 1));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 1, 1, 0));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(0, hash));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(1, new byte[Digests.HASH_SIZE - 1]));
 		assertThat(DriverOptions.DEFAULT, equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 16,
-			none, 3_000, 64L << 20, 8L << 20)));
+			none, 3_000, 64L << 20, 8L << 20, 8)));
 	}
 
 	@Example

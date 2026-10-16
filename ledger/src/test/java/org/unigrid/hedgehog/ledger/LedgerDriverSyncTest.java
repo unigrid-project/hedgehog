@@ -2723,7 +2723,8 @@ public class LedgerDriverSyncTest {
 		final Optional<Checkpoint> checkpoint = checkpointOf(script, chains);
 		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
 			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint, PROPERTY_TIMEOUT,
-			DriverOptions.DEFAULT_QUEUED_BYTES, DriverOptions.DEFAULT_QUEUED_BYTES_PER_PEER);
+			DriverOptions.DEFAULT_QUEUED_BYTES, DriverOptions.DEFAULT_QUEUED_BYTES_PER_PEER,
+			DriverOptions.DEFAULT_RELAY_FANOUT);
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
 			final AtomicLong stamps = new AtomicLong();

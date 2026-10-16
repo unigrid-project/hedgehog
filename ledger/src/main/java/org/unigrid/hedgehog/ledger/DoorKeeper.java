@@ -33,13 +33,13 @@ import org.unigrid.hedgehog.ledger.Door.Snapshot;
 final class DoorKeeper {
 	private final Door door;
 	private final PeerLimiter limiter;
-	private final LedgerNetwork network;
+	private final PeerView network;
 	private final Set<String> cut = new HashSet<>();
 	private ValidatorSet validators;
 	private long epoch = -1;
 	private boolean connectedChanged = true;
 
-	DoorKeeper(Door door, PeerLimiter limiter, LedgerNetwork network) {
+	DoorKeeper(Door door, PeerLimiter limiter, PeerView network) {
 		this.door = door;
 		this.limiter = limiter;
 		this.network = network;
@@ -67,7 +67,7 @@ final class DoorKeeper {
 		final Set<String> penalised = penalties == epoch ? before.penalised() : limiter.penalisedIds();
 
 		door.publish(new Snapshot(ledger.height(), now == validators ? before.validators() : Set.copyOf(now.keys()),
-			penalised, connectedChanged ? LedgerDriver.connected(network) : before.known()));
+			penalised, connectedChanged ? network.ids() : before.known()));
 		validators = now;
 		connectedChanged = false;
 
@@ -83,7 +83,7 @@ final class DoorKeeper {
 		final List<String> fresh = penalised.stream().filter(cut::add).toList();
 
 		if (!fresh.isEmpty()) {
-			final Set<String> present = LedgerDriver.connected(network);
+			final Set<String> present = network.ids();
 
 			fresh.stream().filter(present::contains).forEach(this::disconnect);
 		}

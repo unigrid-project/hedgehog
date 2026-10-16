@@ -19,8 +19,11 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 
 /* What a node passes on and what it holds against whoever sent it. Only what the node took in as new is passed on,
@@ -50,18 +53,55 @@ final class Gossip {
 	}
 
 	private final LedgerNetwork network;
+	private final int relayFanout;
 
-	Gossip(LedgerNetwork network) {
+	Gossip(LedgerNetwork network, int relayFanout) {
 		this.network = network;
+		this.relayFanout = relayFanout;
 	}
 
 	void toAll(Object wire) {
 		toOthers(null, wire);
 	}
 
+	/* What the node makes itself goes to every peer. What it passes on goes to no more than `relayFanout` of the
+	   others, and to the same ones each time for the same item, whom a hash of the item and the id of each peer picks:
+	   a node that passes everything on to everyone makes every one of N nodes send N copies. */
 	void toOthers(LedgerPeer from, Object wire) {
-		network.peers().stream().filter(peer -> from == null || !peer.id().equals(from.id()))
-			.forEach(peer -> send(peer, wire));
+		final List<LedgerPeer> others = network.peers().stream()
+			.filter(peer -> from == null || !peer.id().equals(from.id())).toList();
+
+		(from == null ? others.stream() : closest(others, wire)).forEach(peer -> send(peer, wire));
+	}
+
+	private Stream<LedgerPeer> closest(List<LedgerPeer> others, Object wire) {
+		if (others.size() <= relayFanout) {
+			return others.stream();
+		}
+
+		final long key = keyOf(wire);
+
+		return others.stream().sorted(Comparator.comparingLong(peer -> Hashing.rank(key, peer.id())))
+			.limit(relayFanout);
+	}
+
+	/* A number that is the same for the same item on every node and in every run */
+	private static long keyOf(Object wire) {
+		return switch (wire) {
+			case Transaction transaction -> Arrays.hashCode(transaction.encode());
+			case Message message -> keyOf(message);
+			case Heartbeat heartbeat -> Arrays.hashCode(heartbeat.signature());
+			case Status status -> Arrays.hashCode(status.tipHash());
+			default -> 0;
+		};
+	}
+
+	private static long keyOf(Message message) {
+		return switch (message) {
+			case Ballot ballot -> Arrays.hashCode(ballot.signature());
+			case Proposal proposal -> Arrays.hashCode(proposal.signature());
+			case Decision decision -> Arrays.hashCode(decision.block().hash());
+		};
 	}
 
 	/* A peer that cannot be written to has lost the object, which the protocol makes good by sending again */

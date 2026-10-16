@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /* Peers that remember everything they are sent and the threads it was sent from, and answer no request */
 final class RecordingNetwork implements LedgerNetwork {
@@ -77,6 +78,7 @@ final class RecordingNetwork implements LedgerNetwork {
 	private final List<LedgerPeer> peers = new CopyOnWriteArrayList<>();
 	private final Set<String> threads = ConcurrentHashMap.newKeySet();
 	private final List<String> disconnected = new CopyOnWriteArrayList<>();
+	private final AtomicInteger peersAsked = new AtomicInteger();
 	private volatile RuntimeException refusal;
 
 	/* From now on the list of peers cannot be had, as when the network under it has failed */
@@ -119,8 +121,14 @@ final class RecordingNetwork implements LedgerNetwork {
 		disconnected.add(peerId);
 	}
 
+	/* How many times the list of peers was asked for */
+	int peersAsked() {
+		return peersAsked.get();
+	}
+
 	@Override
 	public List<LedgerPeer> peers() {
+		peersAsked.incrementAndGet();
 		threads.add(Thread.currentThread().getName());
 
 		if (refusal != null) {

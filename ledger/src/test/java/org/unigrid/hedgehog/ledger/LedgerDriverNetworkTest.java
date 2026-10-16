@@ -704,6 +704,41 @@ public class LedgerDriverNetworkTest {
 	/* Three peers send as much as a hundred honest ones would, each of a kind of its own, so that a limit that a peer
 	   runs into is its own. The node does the work that the first tokens pay for and no more, the three are ignored
 	   for the whole penalty and let in again after it, and the chain goes on at its pace throughout. */
+	/* The nodes that got a copy of a transfer sent in at one node, and how many copies went out in all */
+	private static List<Sent> copiesOf(MemoryNetwork network, Transfer transfer, int nodes) {
+		final int from = network.sent().size();
+
+		assertThat(network.station(0).driver().submit(transfer).join(), equalTo(Optional.empty()));
+		network.run(network.now() + 2 * SECOND);
+
+		final List<Sent> copies = network.sent().subList(from, network.sent().size()).stream()
+			.filter(sent -> transfer.equals(sent.wire())).toList();
+
+		assertThat(IntStream.range(1, nodes).allMatch(node -> copies.stream().anyMatch(sent -> sent.to() == node)),
+			is(true));
+		return copies;
+	}
+
+	@Example
+	public void shouldSendATransferToNoMoreCopiesThanTheFanoutAllowsAndStillReachEveryNodeOfTwenty()
+		throws IOException {
+		try (MemoryNetwork network = started(7, 20)) {
+			final int fanout = DriverOptions.DEFAULT_RELAY_FANOUT;
+			final List<Sent> copies = copiesOf(network, new Payer(network).pay(1, 2, 1), 20);
+
+			assertThat(copies.size(), lessThanOrEqualTo(19 + 19 * fanout));
+		}
+	}
+
+	@Example
+	public void shouldRelayATransferToEveryOtherNodeWhenThereAreFewerThanTheFanout() throws IOException {
+		try (MemoryNetwork network = started(8, 4)) {
+			final List<Sent> copies = copiesOf(network, new Payer(network).pay(1, 2, 1), 4);
+
+			assertThat(copies.size(), equalTo(3 + 3 * 2));
+		}
+	}
+
 	@Example
 	public void shouldNotLetAFloodingPeerStarveTheNode() throws IOException {
 		final AtomicInteger worked = new AtomicInteger();

@@ -39,11 +39,6 @@ final class SyncState {
 	static final int MAX_CLAIMS = 256;
 	static final long MEMORY_MILLIS = 600_000;
 	private static final int MAX_DOUBLINGS = 20;
-	private static final int FIRST_SHIFT = 30;
-	private static final int SECOND_SHIFT = 27;
-	private static final int THIRD_SHIFT = 31;
-	private static final long FIRST_FACTOR = 0xbf58476d1ce4e5b9L;
-	private static final long SECOND_FACTOR = 0x94d049bb133111ebL;
 
 	record Claim(LedgerPeer peer, long height, long heardAt) {
 	}
@@ -150,26 +145,8 @@ final class SyncState {
 		return standing(now).filter(claim -> claim.height() > height).min(Comparator
 			.comparing((Claim claim) -> !claim.peer().dialled())
 			.thenComparingLong(claim -> -deliveredAt.getOrDefault(claim.peer().id(), 0L))
-			.thenComparingLong(claim -> ranked(claim.peer().id()))
+			.thenComparingLong(claim -> Hashing.rank(salt, claim.peer().id()))
 			.thenComparing(claim -> claim.peer().id()));
-	}
-
-	private long ranked(String id) {
-		long hash = salt;
-
-		for (int n = 0; n < id.length(); n++) {
-			hash = mixed(hash ^ id.charAt(n));
-		}
-
-		return hash;
-	}
-
-	/* The finishing step of splitmix64: a change in any bit of the input changes about half of the bits of the output */
-	private static long mixed(long value) {
-		final long first = (value ^ (value >>> FIRST_SHIFT)) * FIRST_FACTOR;
-		final long second = (first ^ (first >>> SECOND_SHIFT)) * SECOND_FACTOR;
-
-		return second ^ (second >>> THIRD_SHIFT);
 	}
 
 	boolean claimsAbove(String id, long height, long now) {
