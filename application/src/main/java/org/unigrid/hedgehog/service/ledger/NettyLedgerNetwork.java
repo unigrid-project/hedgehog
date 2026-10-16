@@ -175,11 +175,21 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 		return one.order() > other.order() ? one : other;
 	}
 
-	/* In the order of the addresses, so that the streams of the nodes are first seen in the same order every time */
+	private record Dialled(String address, Node node, Channel channel) {
+	}
+
+	/* In the order of the addresses, so that the streams of the nodes are first seen in the same order every time.
+	   Only the nodes with an open stream are sorted, and the address of each is made a string once, not at every
+	   comparison. */
 	private Stream<NettyLedgerPeer> connected() {
-		return nodes.get().stream().sorted(Comparator.comparing(node -> String.valueOf(node.getAddress())))
-			.flatMap(node -> node.getConnection().map(Connection::getChannel)
-				.map(channel -> peerOf(channel, () -> addressOf(node))).stream());
+		return nodes.get().stream().flatMap(NettyLedgerNetwork::openStreamOf)
+			.sorted(Comparator.comparing(Dialled::address))
+			.map(dialled -> peerOf(dialled.channel(), () -> addressOf(dialled.node())));
+	}
+
+	private static Stream<Dialled> openStreamOf(final Node node) {
+		return node.getConnection().map(Connection::getChannel).filter(Channel::isActive)
+			.map(channel -> new Dialled(String.valueOf(node.getAddress()), node, channel)).stream();
 	}
 
 	private static Optional<InetSocketAddress> addressOf(final Node node) {

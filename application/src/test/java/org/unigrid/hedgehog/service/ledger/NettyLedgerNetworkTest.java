@@ -99,7 +99,12 @@ public class NettyLedgerNetworkTest {
 	private static Node nodeWith(final Channel channel, final String address, final int port) {
 		final Node node = Node.fromAddress(address + ":" + port);
 
-		node.setConnection(Optional.of(new Connection() {
+		node.setConnection(Optional.of(connectionTo(channel)));
+		return node;
+	}
+
+	private static Connection connectionTo(final Channel channel) {
+		return new Connection() {
 			@Override public Channel getChannel() {
 				return channel;
 			}
@@ -115,9 +120,23 @@ public class NettyLedgerNetworkTest {
 			@Override public void closeDirty() {
 				channel.close();
 			}
-		}));
+		};
+	}
 
-		return node;
+	/* A node that counts how often its address is read */
+	private static final class WatchedNode extends Node {
+		private int reads;
+
+		private WatchedNode(final String address, final Optional<Connection> connection) {
+			setAddress(new InetSocketAddress(address, PORT));
+			setConnection(connection);
+		}
+
+		@Override
+		public InetSocketAddress getAddress() {
+			reads++;
+			return super.getAddress();
+		}
 	}
 
 	private static boolean connectionOf(final Node node, final Channel channel) {
@@ -866,6 +885,25 @@ public class NettyLedgerNetworkTest {
 
 		assertThat(named.isOpen(), is(false));
 		assertThat(unnamed.isOpen(), is(true));
+	}
+
+	@Example
+	public void readsTheAddressOfEachNodeOfTheTopologyAFewTimesAndOfNoneThatIsNotConnected() {
+		final int count = 64;
+		final List<WatchedNode> connected = IntStream.range(0, count).mapToObj(i -> new WatchedNode("10.5.0." + i,
+			Optional.of(connectionTo(new EmbeddedChannel())))).toList();
+		final EmbeddedChannel gone = new EmbeddedChannel();
+		final List<WatchedNode> idle = IntStream.range(0, count).mapToObj(i -> new WatchedNode("10.6.0." + i,
+			i % 2 == 0 ? Optional.empty() : Optional.of(connectionTo(gone)))).toList();
+		final Set<Node> nodes = new LinkedHashSet<>(Stream.concat(connected.stream(), idle.stream()).toList());
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), channel -> true, nodes);
+
+		gone.close();
+		Stream.concat(connected.stream(), idle.stream()).forEach(node -> node.reads = 0);
+
+		assertThat(network.peers(), hasSize(count));
+		assertThat(connected.stream().mapToInt(node -> node.reads).max().getAsInt() <= 4, is(true));
+		assertThat(idle.stream().mapToInt(node -> node.reads).sum(), is(0));
 	}
 
 	@Property(tries = 5)
