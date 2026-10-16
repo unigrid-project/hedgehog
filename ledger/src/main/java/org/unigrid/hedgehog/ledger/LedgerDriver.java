@@ -70,8 +70,9 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. What the node makes itself goes to every peer, and what it only passes on to a few
    of them (relayFanout), the same few for the same item, as a full mesh would otherwise send every item N times from
-   every node. The list of peers is taken once in a run of the executor. Every peer is limited before any work is done for it, except that the answer to a
-   request of the driver's own takes no token: there is one such request out at a time.
+   every node. The list of peers is taken once in a run of the executor. Every peer is limited before any work is
+   done for it, except that the answer to a request of the driver's own takes no token: there is one such request
+   out at a time.
 
    What peers send is sorted at the door (Door), on the thread of whoever brings it, by what the driver published
    after its last turn: an item of a peer that is penalised is dropped, and one that is not what an honest peer sends
