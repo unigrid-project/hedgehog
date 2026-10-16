@@ -23,6 +23,7 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.regex.Pattern;
@@ -60,6 +61,12 @@ public class MintStorage implements Runnable {
 		}
 	)
 	private String number;
+
+	@CommandLine.Option(names = "--allow-past", scope = CommandLine.ScopeType.INHERIT,
+		description = "Allow a ledger account to be given a time that has already passed, which mints at once. "
+			+ "Without it such a time is refused, as a mistake in the unit is easily made: 20260601 is seconds."
+	)
+	private boolean allowPast;
 
 	@Override
 	@SneakyThrows
@@ -105,10 +112,23 @@ public class MintStorage implements Runnable {
 	private String numberOfTheMint() {
 		try {
 			final long value = DIGITS.matcher(number).matches() ? Long.parseLong(number) : secondsOfTheInstant();
+			final int stored = MintEntry.heightOf(address, value);
 
-			return Integer.toUnsignedString(MintEntry.heightOf(address, value));
+			requireNotPast(value);
+			return Integer.toUnsignedString(stored);
 		} catch (IllegalArgumentException ex) {
 			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
+		}
+	}
+
+	/* Only a ledger account has a time, and a time that has passed mints at once: mostly a number meant for another
+	   unit, like a date written in digits. A height of the old chain is no time and is not judged. */
+	private void requireNotPast(final long seconds) {
+		if (!allowPast && MintEntry.isAccount(address) && Instant.ofEpochSecond(seconds).isBefore(Instant.now())) {
+			throw new IllegalArgumentException("The time '" + number + "' has already passed, so the mint would "
+				+ "happen at once. Digits are seconds since 1970: " + seconds + " is "
+				+ Instant.ofEpochSecond(seconds) + ". To give a date, write an ISO-8601 instant like "
+				+ "2026-06-01T00:00:00Z; to mint at once, give --allow-past");
 		}
 	}
 

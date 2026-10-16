@@ -102,14 +102,44 @@ public class MintStorageTest {
 		return growWith("--height", amount, key, address, number);
 	}
 
+	/* Most of what is tested here is about the number, and a time that has passed is allowed for it */
 	private static Runnable growWith(String option, String amount, String key, Optional<String> address,
 		Optional<String> number) {
 
+		return growCommand(true, option, amount, key, address, number);
+	}
+
+	private static Runnable growCommand(boolean allowPast, String option, String amount, String key,
+		Optional<String> address, Optional<String> number) {
+
 		final Stream<String> mint = Stream.concat(address.stream().flatMap(value -> Stream.of("--address", value)),
 			number.stream().flatMap(value -> Stream.of(option, value)));
+		final Stream<String> leave = allowPast ? Stream.of("--allow-past") : Stream.empty();
 
-		return subcommand(new GridSporkGrow(), Stream.concat(Stream.of("-D", amount, "-k", key, NAME), mint)
-			.toArray(String[]::new));
+		return subcommand(new GridSporkGrow(), Stream.concat(Stream.of("-D", amount, "-k", key, NAME),
+			Stream.concat(leave, mint)).toArray(String[]::new));
+	}
+
+	private static Result sentWithoutLeave(String address, String number) {
+		return RestCommandFixture.run(growCommand(false, "--time", "5", "key", Optional.of(address),
+			Optional.of(number)), Response.ok("{}").build());
+	}
+
+	private static String refusalWithoutLeave(String address, String number) {
+		final AtomicReference<String> message = new AtomicReference<>();
+		final Runnable command = growCommand(false, "--time", "5", "key", Optional.of(address), Optional.of(number));
+
+		final Result result = RestCommandFixture.run(() -> {
+			try {
+				command.run();
+			} catch (CommandLine.ParameterException ex) {
+				message.set(ex.getMessage());
+			}
+		}, Response.ok("{}").build());
+
+		assertThat(address + " " + number, result.connection(), equalTo(Optional.empty()));
+		assertThat(address + " " + number, message.get(), notNullValue());
+		return message.get();
 	}
 
 	private static Result sent(String option, String address, String number) {
@@ -291,6 +321,48 @@ public class MintStorageTest {
 		}
 	}
 
+	/* A time in digits is seconds since 1970: 20260601 is the 23rd of August 1970, not the 1st of June 2026 */
+	@Example
+	public void refusesATimeThatHasPassedAndSaysWhatTheDigitsMean() {
+		final String message = refusalWithoutLeave(ACCOUNT, "20260601");
+
+		assertThat(message, containsString("20260601"));
+		assertThat(message, containsString("1970-08-23"));
+		assertThat(message, containsString("seconds since 1970"));
+		assertThat(message, containsString("2026-06-01T00:00:00Z"));
+		assertThat(message, containsString("--allow-past"));
+	}
+
+	@Example
+	public void refusesAnInstantThatHasPassed() {
+		final String message = refusalWithoutLeave(ACCOUNT, "2026-06-01T00:00:00Z");
+
+		assertThat(message, containsString("has already passed"));
+		assertThat(message, containsString("--allow-past"));
+	}
+
+	@Example
+	public void takesATimeThatIsToComeWithoutLeave() {
+		assertThat(sentWithoutLeave(ACCOUNT, "2100-01-01T00:00:00Z").request(),
+			equalTo(Optional.of(put(ACCOUNT, "4102444800"))));
+		assertThat(sentWithoutLeave(ACCOUNT, "4102444800").request(), equalTo(Optional.of(put(ACCOUNT, "4102444800"))));
+	}
+
+	@Example
+	public void takesATimeThatHasPassedWhenItIsAllowed() {
+		assertThat(sent("--time", ACCOUNT, "20260601").request(), equalTo(Optional.of(put(ACCOUNT, "20260601"))));
+		assertThat(sent("--time", ACCOUNT, "2026-06-01T00:00:00Z").request(),
+			equalTo(Optional.of(put(ACCOUNT, "1780272000"))));
+	}
+
+	@Property(tries = 20)
+	public void needsNoLeaveForAHeightOfTheOldChain(@ForAll("oldAddresses") String address,
+		@ForAll @IntRange(min = 0) int height) {
+
+		assertThat(sentWithoutLeave(address, Integer.toString(height)).request(),
+			equalTo(Optional.of(put(address, Integer.toString(height)))));
+	}
+
 	@Example
 	public void describesBothFormsOfTheNumberInTheHelp() {
 		final CommandSpec spec = new CommandLine(new MintStorage()).getCommandSpec();
@@ -302,6 +374,7 @@ public class MintStorageTest {
 		assertThat(number, containsString("epoch seconds"));
 		assertThat(number, containsString("ISO-8601"));
 		assertThat(address, containsString("64 lower-case hex"));
+		assertThat(String.join(" ", spec.findOption("--allow-past").description()), containsString("at once"));
 	}
 
 	@Example
