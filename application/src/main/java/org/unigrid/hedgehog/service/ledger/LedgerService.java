@@ -173,7 +173,7 @@ public class LedgerService {
 	private void poll(final Setup setup, final LedgerGenesis genesis) {
 		attempt(() -> {
 			if (!stopped) {
-				snapshot.getReader().ifPresentOrElse(reader -> verified(setup, genesis, reader),
+				snapshot.getReader().ifPresentOrElse(reader -> verified(setup, genesis, reader, true),
 					() -> waiting(setup, genesis));
 			}
 		});
@@ -188,13 +188,30 @@ public class LedgerService {
 		later(pollMillis, () -> poll(setup, genesis));
 	}
 
-	private void verified(final Setup setup, final LedgerGenesis genesis, final SnapshotReader reader) {
+	/* The hash is made of the file at the path and the total of the file the reader maps, which prove one snapshot
+	   only if they are one file: the check counts only if the snapshot still hands out the reader it began with,
+	   else it is made once more on the new one, and a snapshot that has changed again is not trusted */
+	private void verified(final Setup setup, final LedgerGenesis genesis, final SnapshotReader reader,
+		final boolean mayRepeat) {
+
 		final Optional<String> mismatch = SnapshotCheck.verify(snapshot.getPath(), reader, genesis);
 
-		if (mismatch.isPresent()) {
+		if (snapshot.getReader().filter(current -> current == reader).isEmpty()) {
+			repeated(setup, genesis, mayRepeat);
+		} else if (mismatch.isPresent()) {
 			refuse(mismatch.get());
 		} else {
 			attach(setup, genesis, reader);
+		}
+	}
+
+	private void repeated(final Setup setup, final LedgerGenesis genesis, final boolean mayRepeat) {
+		if (mayRepeat) {
+			snapshot.getReader().ifPresentOrElse(reader -> verified(setup, genesis, reader, false),
+				() -> waiting(setup, genesis));
+		} else {
+			refuse("The snapshot " + snapshot.getPath() + " changed while it was checked, and again when it was "
+				+ "checked once more");
 		}
 	}
 
