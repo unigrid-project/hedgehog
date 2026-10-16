@@ -136,6 +136,53 @@ public class LedgerSetupTest {
 		}
 	}
 
+	@Example
+	@SneakyThrows
+	public void shouldSayOnceThatTheOptionsOfTheLedgerAreIgnoredWhileTheLedgerIsOff() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem(); Warnings warnings = new Warnings()) {
+			parse(fs, "--ledger-key=/nowhere.key", "--ledger-genesis", GENESIS_FILE, "--ledger-trusted=garbage");
+
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), contains("--ledger-key, --ledger-genesis, --ledger-trusted given, "
+				+ "ignored because --ledger is off"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNameOnlyTheOptionsThatWereGiven() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem(); Warnings warnings = new Warnings()) {
+			parse(fs, "--ledger-genesis", GENESIS_FILE);
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), contains("--ledger-genesis given, ignored because --ledger is off"));
+		}
+	}
+
+	@Example
+	public void shouldSayNothingWhenNoOptionOfTheLedgerWasGiven() {
+		try (Warnings warnings = new Warnings()) {
+			OptionsCli.parse(DAEMON);
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), empty());
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotSayThatTheOptionsAreIgnoredWhileTheLedgerIsOn() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem(); Warnings warnings = new Warnings()) {
+			LedgerKeyFixtures.writeGenesis(fs, GENESIS_FILE, new byte[32]);
+			parse(fs, "--ledger", "--ledger-genesis", GENESIS_FILE);
+
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), empty());
+		}
+	}
+
 	/* A release that bundles a genesis makes this one obsolete, as then there is always one to run on */
 	@Example
 	public void shouldRefuseALedgerThatHasNoGenesisToRunOn() {
