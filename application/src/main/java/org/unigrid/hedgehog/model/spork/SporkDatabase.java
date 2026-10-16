@@ -47,14 +47,15 @@ public class SporkDatabase implements Serializable {
 
 	public static final String SPORK_DB_FILE = "spork.db";
 
-	private MintStorage mintStorage;
-	private MintSupply mintSupply;
-	private VestingStorage vestingStorage;
-	private StorageSpork storageSpork;
-	private LedgerBlacklist ledgerBlacklist;
-	private LedgerFee ledgerFee;
+	/* The network threads store sporks while other threads read them, so a stored spork must be seen at once */
+	private volatile MintStorage mintStorage;
+	private volatile MintSupply mintSupply;
+	private volatile VestingStorage vestingStorage;
+	private volatile StorageSpork storageSpork;
+	private volatile LedgerBlacklist ledgerBlacklist;
+	private volatile LedgerFee ledgerFee;
 
-	private StatisticsPubKey statisticsPubKey;
+	private volatile StatisticsPubKey statisticsPubKey;
 
 	public static SporkDatabase load(Path path) throws IOException {
 		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
