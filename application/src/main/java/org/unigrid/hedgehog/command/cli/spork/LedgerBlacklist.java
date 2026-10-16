@@ -18,10 +18,6 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -32,26 +28,18 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist.SporkData;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
-import picocli.CommandLine.Spec;
 
 @Command(name = "ledger-blacklist",
 	description = "The legacy addresses held back from claims; to set them, the data is a file with one per line."
 )
-public class LedgerBlacklist implements Runnable {
-	private static final String LOCATION = "/gridspork/ledger-blacklist";
+public class LedgerBlacklist extends SporkCommand<SporkData> {
 	private static final String COMMENT = "#";
 
 	private final FileSystem fileSystem;
-
-	@Spec
-	private CommandSpec spec;
 
 	public LedgerBlacklist() {
 		this(FileSystems.getDefault());
@@ -62,46 +50,14 @@ public class LedgerBlacklist implements Runnable {
 	}
 
 	@Override
-	public void run() {
-		if (spec.parent().userObject() instanceof GridSporkGet) {
-			get();
-		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			set(read(fileSystem.getPath(GridSporkSet.getData())));
-		} else {
-			throw new UnsupportedOperationException();
-		}
-	}
-
-	private void get() {
-		new RestClientCommand(HttpMethod.GET, LOCATION) {
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(Json.parse(response.readEntity(String.class)));
-			}
-		}.run();
-	}
-
-	private void set(final SporkData data) {
-		final RestClientCommand command = new RestClientCommand(HttpMethod.PUT, LOCATION) {
-			@Override
-			protected <T> Entity<T> getEntity() {
-				return (Entity<T>) Entity.json(data);
-			}
-
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(response.getStatusInfo());
-			}
-		};
-
-		final MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
-		headers.add("privateKey", GridSporkSet.getKey());
-		command.setHeaders(headers);
-		command.run();
+	protected String location() {
+		return "/gridspork/ledger-blacklist";
 	}
 
 	/* The addresses are decoded here rather than by the daemon, which only ever sees and checks their hashes */
-	private SporkData read(final Path file) {
+	@Override
+	protected SporkData read(final String name) {
+		final Path file = fileSystem.getPath(name);
 		final List<String> lines = lines(file);
 		final Set<String> hashes = new TreeSet<>();
 
@@ -123,7 +79,7 @@ public class LedgerBlacklist implements Runnable {
 		try {
 			return Files.readAllLines(file);
 		} catch (IOException ex) {
-			throw new ParameterException(spec.commandLine(),
+			throw new ParameterException(spec().commandLine(),
 				"Cannot read the legacy addresses from " + file + ": " + ex, ex);
 		}
 	}
@@ -132,7 +88,7 @@ public class LedgerBlacklist implements Runnable {
 		try {
 			return HexFormat.of().formatHex(LegacyAddress.decode(address));
 		} catch (IllegalArgumentException ex) {
-			throw new ParameterException(spec.commandLine(), "Line %d of %s is not a legacy address: %s"
+			throw new ParameterException(spec().commandLine(), "Line %d of %s is not a legacy address: %s"
 				.formatted(number, file, ex.getMessage()), ex);
 		}
 	}
@@ -142,7 +98,7 @@ public class LedgerBlacklist implements Runnable {
 			data.validate();
 			return data;
 		} catch (IllegalArgumentException ex) {
-			throw new ParameterException(spec.commandLine(), "The addresses in " + file + " are not accepted: "
+			throw new ParameterException(spec().commandLine(), "The addresses in " + file + " are not accepted: "
 				+ ex.getMessage(), ex);
 		}
 	}
