@@ -23,12 +23,14 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "gridspork-set", subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class },
+@Command(name = "gridspork-set",
+	subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class, LedgerFee.class },
 	description = "Set an existing spork. Redefines any existing definitions of the spork."
 )
 public class GridSporkSet {
 	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "JSON describing the spork data; for ledger-blacklist the file of addresses.", required = true
+		description = "JSON describing the spork data; for ledger-blacklist the file of addresses, for ledger-fee "
+			+ "the fee in coins.", required = true
 	)
 	private static String data;
 
