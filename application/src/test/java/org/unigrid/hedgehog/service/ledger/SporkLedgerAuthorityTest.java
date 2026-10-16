@@ -103,8 +103,28 @@ public class SporkLedgerAuthorityTest {
 		private volatile SporkDatabase database = SporkDatabase.builder().build();
 		private volatile boolean ready = true;
 		private volatile long supply;
-		private final SporkLedgerAuthority authority = new SporkLedgerAuthority(this::read, lag(), SCHEDULE,
+		private final SporkLedgerAuthority real = new SporkLedgerAuthority(this::read, lag(), SCHEDULE,
 			() -> ready, this::supplied);
+		private final Asked authority = new Asked();
+
+		/* The questions of the ledger, a mint being asked on the supply of the rig */
+		private final class Asked {
+			List<Mint> due(long time) {
+				return real.due(time);
+			}
+
+			boolean authorizes(Mint mint, long time) {
+				return real.authorizes(mint, time, supply);
+			}
+
+			boolean authorizes(Claim claim) {
+				return real.authorizes(claim);
+			}
+
+			boolean authorizes(Transfer transfer) {
+				return real.authorizes(transfer);
+			}
+		}
 
 		/* Every spork is set, none is behind, and the one entry of the mint spork is due at 100 seconds */
 		static Rig open() {
@@ -918,15 +938,61 @@ public class SporkLedgerAuthorityTest {
 	}
 
 	@Example
-	public void shouldAnswerNoToAMintWhenTheSupplyCannotBeRead() {
+	public void shouldListNoMintsWhenTheCommittedSupplyCannotBeRead() {
 		final Rig rig = Rig.open();
 
 		rig.unsupplied = new IllegalStateException("The ledger is closed");
 
 		assertThat(rig.authority.due(FAR_FUTURE), is(empty()));
-		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(false));
+		assertThat(rig.authority.authorizes(theMintOfAnEntry(), FAR_FUTURE), is(true));
 		assertThat(rig.authority.authorizes(claimOfKey(3)), is(true));
 		assertThat(rig.authority.authorizes(transferWithFee(1)), is(true));
+	}
+
+	@Example
+	public void shouldJudgeAMintBySupplyItIsToldAndNotByTheCommittedOne() {
+		final Rig rig = Rig.open();
+		final long room = 100 * UNITS_PER_COIN - UNITS_OF_AN_ENTRY;
+
+		rig.cap("100");
+		rig.supply = 100 * UNITS_PER_COIN;
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, 0), is(true));
+
+		rig.supply = 0;
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room), is(true));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room + 1), is(false));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, Long.MAX_VALUE), is(false));
+	}
+
+	@Example
+	public void shouldCountTheMintsBeforeItInTheSameBlockAgainstTheMaximumSupply() {
+		final Rig rig = Rig.open();
+		final Mint first = accountMint(2, 5, UNITS_OF_AN_ENTRY);
+		final Mint second = accountMint(3, 5, UNITS_OF_AN_ENTRY);
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(accountEntry(2, 5), BigDecimal.TEN);
+		entries.put(accountEntry(3, 5), BigDecimal.TEN);
+		rig.store(entries);
+		rig.cap("15");
+
+		assertThat(rig.real.authorizes(first, FAR_FUTURE, 0), is(true));
+		assertThat(rig.real.authorizes(second, FAR_FUTURE, 0), is(true));
+		assertThat(rig.real.authorizes(second, FAR_FUTURE, first.amount()), is(false));
+	}
+
+	@Example
+	public void shouldListEachDueMintThatFitsAloneAndLeaveTheSumOfABlockToTheLedger() {
+		final Rig rig = Rig.open();
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(accountEntry(2, 5), BigDecimal.TEN);
+		entries.put(accountEntry(3, 5), BigDecimal.TEN);
+		rig.store(entries);
+		rig.cap("15");
+
+		assertThat(rig.authority.due(FAR_FUTURE), containsInAnyOrder(accountMint(2, 5, UNITS_OF_AN_ENTRY),
+			accountMint(3, 5, UNITS_OF_AN_ENTRY)));
 	}
 
 	@Example

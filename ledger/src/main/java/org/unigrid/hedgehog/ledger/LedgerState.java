@@ -405,7 +405,7 @@ public final class LedgerState {
 			return Optional.of("Supply would overflow");
 		}
 
-		return vouched || authority.authorizes(mint, authorityTime) ? Optional.empty()
+		return vouched || authority.authorizes(mint, authorityTime, supply) ? Optional.empty()
 			: Optional.of("Mint is not authorized");
 	}
 

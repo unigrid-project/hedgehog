@@ -63,7 +63,7 @@ public final class LedgerTestChain {
 		}
 
 		@Override
-		public boolean authorizes(final Mint mint, final long time) {
+		public boolean authorizes(final Mint mint, final long time, final long supply) {
 			return true;
 		}
 

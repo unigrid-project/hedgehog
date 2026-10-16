@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -97,6 +98,74 @@ public class LedgerAuthorityTest {
 		follower.apply(block(maker, seeds(1, 1), 1, 4000, List.of(mint(1, 5))));
 
 		assertThat(follower.balanceOf(account(1)), equalTo(5L));
+	}
+
+	private static LedgerAuthority cappedAt(long cap) {
+		return TestAuthority.open().withMintsOnSupply((mint, time, supply) -> supply + mint.amount() <= cap);
+	}
+
+	@Example
+	public void shouldAskWithTheSupplyThatTheEarlierMintsOfTheBlockHaveMade() {
+		final List<String> asked = new ArrayList<>();
+		final LedgerState state = soloState(TestAuthority.open()
+			.withMintsOnSupply((mint, time, supply) -> asked.add(mint.amount() + " on " + supply)));
+
+		assertThat(state.proposalRejection(soloBlock(soloState(ANY_MINT), mint(1, 5), mint(2, 6))).isPresent(),
+			is(false));
+
+		assertThat(asked, equalTo(List.of("5 on 0", "6 on 5")));
+	}
+
+	@Example
+	public void shouldRefuseTheMintThatPassesTheCapTogetherWithTheOnesBeforeItInTheBlockAndChangeNothing() {
+		final LedgerState state = soloState(cappedAt(10));
+		final LedgerState maker = soloState(ANY_MINT);
+		final byte[] root = state.stateRoot();
+
+		assertThat(state.proposalRejection(soloBlock(maker, mint(1, 5), mint(2, 5))).isPresent(), is(false));
+		assertThat(reasonOf(state.proposalRejection(soloBlock(maker, mint(1, 5), mint(2, 6)))),
+			containsString("not authorized"));
+
+		assertThat(reasonOf(state.proposalRejection(soloBlock(maker, mint(1, 11)))), containsString("not authorized"));
+		assertThat(state.supply(), equalTo(0L));
+		assertThat(state.balanceOf(account(1)), equalTo(0L));
+		assertThat(state.stateRoot(), equalTo(root));
+	}
+
+	@Example
+	public void shouldCountTheMintsOfEarlierBlocksInTheSupplyOfTheNextMint() {
+		final LedgerState state = soloState(cappedAt(10));
+		final LedgerState maker = soloState(ANY_MINT);
+		final Block first = soloBlock(maker, mint(1, 5));
+
+		state.apply(first);
+		maker.apply(first);
+
+		assertThat(reasonOf(state.rejectionOf(mint(2, 6))), containsString("not authorized"));
+		assertThat(state.rejectionOf(mint(2, 5)).isPresent(), is(false));
+		assertThat(reasonOf(state.proposalRejection(soloBlock(maker, mint(2, 6)))), containsString("not authorized"));
+		assertThat(state.proposalRejection(soloBlock(maker, mint(2, 5))).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldKeepOnlyTheMintsThatFitTheCapOneAfterAnotherWhenPickingTheTransactionsOfABlock() {
+		final LedgerState state = soloState(cappedAt(10));
+
+		assertThat(state.applicable(List.of(mint(1, 5), mint(2, 6))), equalTo(List.of(mint(1, 5))));
+		assertThat(state.applicable(List.of(mint(2, 6), mint(1, 5))), equalTo(List.of(mint(2, 6))));
+		assertThat(state.applicable(List.of(mint(1, 5), mint(2, 5))), equalTo(List.of(mint(1, 5), mint(2, 5))));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 5), mint(2, 6))));
+	}
+
+	@Example
+	public void shouldTakeACertifiedBlockWhateverTheSupplyItLeaves() {
+		final LedgerState maker = soloState(ANY_MINT);
+		final LedgerState follower = soloState(cappedAt(10));
+
+		follower.apply(soloBlock(maker, mint(1, 5), mint(2, 6)));
+
+		assertThat(follower.supply(), equalTo(11L));
+		assertThat(follower.balanceOf(account(2)), equalTo(6L));
 	}
 
 	@Example

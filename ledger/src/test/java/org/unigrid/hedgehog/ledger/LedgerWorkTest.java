@@ -136,6 +136,24 @@ public class LedgerWorkTest {
 	}
 
 	@Example
+	public void shouldProposeOnlyTheDueMintsThatFitTheCapTogetherAndWaitForNoMoreAfterThem() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Mint first = mint(1, 5);
+			final Mint second = mint(2, 6);
+			final LedgerAuthority capped = TestAuthority.open().withSchedule(time -> List.of(first, second))
+				.withMintsOnSupply((mint, time, supply) -> supply + mint.amount() <= 10);
+			final Ledger ledger = open(fileSystem, "a", capped);
+
+			assertThat(proposal(ledger, CLOCK).orElseThrow().getTransactions(), equalTo(List.of(first)));
+
+			ledger.commit(nextBlock(ledger, FOUNDATION, CLOCK));
+
+			assertThat(ledger.supply(), equalTo(5L));
+			assertWork(ledger, CLOCK, false);
+		}
+	}
+
+	@Example
 	public void shouldHaveNoWorkForATransferBelowTheFeeTheNodeNowDemands() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final AtomicLong least = new AtomicLong(0);

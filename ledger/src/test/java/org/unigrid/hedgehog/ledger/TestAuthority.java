@@ -25,10 +25,15 @@ import java.util.function.Predicate;
 
 /* An authority for tests with one answer per question; everything is allowed and nothing is due until a test
    says otherwise */
-record TestAuthority(LongFunction<List<Mint>> schedule, BiPredicate<Mint, Long> mints, Predicate<Claim> claims,
+record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicate<Claim> claims,
 	Predicate<Transfer> transfers) implements LedgerAuthority {
+	/* The question a mint is asked, with the supply of the state it would be made on */
+	interface MintRule {
+		boolean allows(Mint mint, long time, long supply);
+	}
+
 	static TestAuthority open() {
-		return new TestAuthority(time -> List.of(), (mint, time) -> true, claim -> true, transfer -> true);
+		return new TestAuthority(time -> List.of(), (mint, time, supply) -> true, claim -> true, transfer -> true);
 	}
 
 	TestAuthority withSchedule(LongFunction<List<Mint>> other) {
@@ -36,6 +41,10 @@ record TestAuthority(LongFunction<List<Mint>> schedule, BiPredicate<Mint, Long> 
 	}
 
 	TestAuthority withMints(BiPredicate<Mint, Long> other) {
+		return withMintsOnSupply((mint, time, supply) -> other.test(mint, time));
+	}
+
+	TestAuthority withMintsOnSupply(MintRule other) {
 		return new TestAuthority(schedule, other, claims, transfers);
 	}
 
@@ -53,8 +62,8 @@ record TestAuthority(LongFunction<List<Mint>> schedule, BiPredicate<Mint, Long> 
 	}
 
 	@Override
-	public boolean authorizes(Mint mint, long time) {
-		return mints.test(mint, time);
+	public boolean authorizes(Mint mint, long time, long supply) {
+		return mints.allows(mint, time, supply);
 	}
 
 	@Override

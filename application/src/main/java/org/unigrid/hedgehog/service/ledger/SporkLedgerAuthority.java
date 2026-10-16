@@ -69,8 +69,8 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
    cached, as a spork can change at any time: each call reads the database once, and a spork is read only after
    the lag has been asked about its type. No exception leaves, as the ledger would only see a refusal.
 
-   The maximum supply is checked mint by mint against the supply of the committed state, so the mints of one block
-   can pass it together by at most their sum. */
+   The maximum supply holds for a block as a whole: a mint is judged on the supply of the state it would be made
+   on, which the ledger passes in and which holds the mints before it in the same block. */
 @Slf4j
 @RequiredArgsConstructor
 public final class SporkLedgerAuthority implements LedgerAuthority {
@@ -84,7 +84,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	@NonNull private final SporkLag lag;
 	@NonNull private final MintSchedule schedule;
 	@NonNull private final BooleanSupplier snapshotReady;
-	@NonNull private final LongSupplier supply;
+	/* Only for listing what is due: a mint asked about is judged on the supply it is told */
+	@NonNull private final LongSupplier committedSupply;
 	private final Set<String> reported = ConcurrentHashMap.newKeySet();
 
 	@Override
@@ -93,8 +94,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	@Override
-	public boolean authorizes(Mint mint, long time) {
-		return guarded("authorizing a mint", false, () -> mintAllowed(mint, time));
+	public boolean authorizes(Mint mint, long time, long supply) {
+		return guarded("authorizing a mint", false, () -> mintAllowed(mint, time, supply));
 	}
 
 	@Override
@@ -108,7 +109,10 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	/* Every due entry is listed, as the ledger leaves out the mints already made and cuts the block itself: cutting
-	   the list here would starve the entries after the first block's worth once those are made */
+	   the list here would starve the entries after the first block's worth once those are made. Each must fit
+	   alone under the maximum supply on top of what is committed; the ledger, which asks again with the supply
+	   after the mints before it in the block, keeps the ones that fit together. A mint that never fits is left out
+	   so that the ledger does not see work in it every second. */
 	private List<Mint> dueMints(long time) {
 		final SporkDatabase database = sporks.get();
 
@@ -116,14 +120,16 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 			return List.of();
 		}
 
-		return room(database).stream().flatMap(limit -> dueFrom(database, time, ANYWHERE)
+		final Optional<Long> room = room(database, committedSupply.getAsLong());
+
+		return room.stream().flatMap(limit -> dueFrom(database, time, ANYWHERE)
 			.filter(mint -> mint.amount() <= limit)).sorted(Comparator.comparing(Mint::reference)).toList();
 	}
 
-	private boolean mintAllowed(Mint mint, long time) {
+	private boolean mintAllowed(Mint mint, long time, long supply) {
 		final SporkDatabase database = sporks.get();
 
-		return isUsable(database) && room(database).filter(limit -> mint.amount() <= limit).isPresent()
+		return isUsable(database) && room(database, supply).filter(limit -> mint.amount() <= limit).isPresent()
 			&& dueFrom(database, time, at(wifOf(mint.recipient()))).anyMatch(mint::equals);
 	}
 
@@ -154,11 +160,12 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 		return lag.isBehind(type, database) ? Optional.empty() : Optional.ofNullable(database.get(type));
 	}
 
-	/* How many units more may be made before the maximum supply is passed, not known while the spork is not */
-	private Optional<Long> room(SporkDatabase database) {
+	/* How many units more may be made on this supply before the maximum supply is passed, not known while the
+	   spork is not */
+	private Optional<Long> room(SporkDatabase database, long supply) {
 		return known(database, Type.MINT_SUPPLY).map(spork -> spork.<MintSupply.SporkData>getData())
 			.map(MintSupply.SporkData::getMaxSupply).map(SporkLedgerAuthority::unitsOf)
-			.map(maximum -> Math.max(0, maximum - supply.getAsLong()));
+			.map(maximum -> Math.max(0, maximum - supply));
 	}
 
 	/* Cut at eight decimals and never rounded up, so the cap is never above what the spork says. A maximum that

@@ -79,8 +79,8 @@ final class DriverRig implements AutoCloseable {
 		}
 
 		@Override
-		public boolean authorizes(Mint mint, long time) {
-			return answering(false).authorizes(mint, time);
+		public boolean authorizes(Mint mint, long time, long supply) {
+			return answering(false).authorizes(mint, time, supply);
 		}
 
 		@Override
