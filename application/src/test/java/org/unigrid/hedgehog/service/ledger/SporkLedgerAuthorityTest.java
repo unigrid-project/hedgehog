@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
@@ -77,6 +78,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 
 public class SporkLedgerAuthorityTest {
@@ -444,6 +446,27 @@ public class SporkLedgerAuthorityTest {
 		rig.store(entriesOf(seeds));
 
 		assertThat(rig.authority.due(FAR_FUTURE), hasSize(1_200));
+	}
+
+	/* The ledger judges every due mint once for each tick of the node and once for each block it checks, so a
+	   judgement that looks through all the entries makes thousands of them take seconds and the node falls behind */
+	@Example
+	public void shouldJudgeThousandsOfDueMintsInTimeThatDoesNotGrowWithTheSquareOfTheirNumber() {
+		final Rig rig = Rig.open();
+
+		rig.store(entriesOf(LongStream.rangeClosed(1, 8_000).boxed().toList()));
+
+		final List<Mint> due = rig.authority.due(FAR_FUTURE);
+		final long nanos = LongStream.range(0, 3).map(round -> {
+			final long start = System.nanoTime();
+			final long judged = due.stream().filter(mint -> rig.authority.authorizes(mint, FAR_FUTURE)).count();
+
+			assertThat(judged, is((long) due.size()));
+			return System.nanoTime() - start;
+		}).min().orElseThrow();
+
+		assertThat(due, hasSize(8_000));
+		assertThat(nanos, lessThan(Duration.ofMillis(400).toNanos()));
 	}
 
 	@Property(tries = 200)
