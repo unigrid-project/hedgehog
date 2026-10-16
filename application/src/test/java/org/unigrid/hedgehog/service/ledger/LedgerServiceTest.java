@@ -39,7 +39,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -154,6 +156,15 @@ public class LedgerServiceTest {
 			}
 		};
 
+		new MockUp<BootstrapSnapshot>() {
+			@Mock
+			public Optional<SnapshotReader> getReader(final Invocation invocation) {
+				final Supplier<Optional<SnapshotReader>> scripted = current.readers;
+
+				return scripted == null ? invocation.proceed() : scripted.get();
+			}
+		};
+
 		new MockUp<BlockLog>() {
 			@Mock
 			public BlockLog open(final Invocation invocation, final Path file) throws IOException {
@@ -186,6 +197,9 @@ public class LedgerServiceTest {
 		private final Path genesisFile;
 		private final Path keyFile;
 		private volatile LedgerDriver attached;
+
+		/* What the snapshot answers when asked for its reader, when a test says so instead of the file */
+		private volatile Supplier<Optional<SnapshotReader>> readers;
 
 		@SneakyThrows
 		Rig(final boolean snapshotThere, final int hashFlip, final long totalOffset) {
@@ -490,6 +504,48 @@ public class LedgerServiceTest {
 			assertThat(rig.events, not(hasItem("attach")));
 			assertThat(service.status(), equalTo(INACTIVE));
 		}
+	}
+
+	/* The hash is of the file that is read and the total of the file that is mapped, so they have to be one file */
+	@Example
+	@SneakyThrows
+	public void shouldCheckTheSnapshotAgainWhenItWasReplacedWhileItWasChecked() {
+		try (Rig rig = Rig.ready()) {
+			final SnapshotReader first = SnapshotReader.open(rig.watched);
+			final SnapshotReader second = SnapshotReader.open(rig.watched);
+			final AtomicInteger asked = new AtomicInteger();
+
+			rig.readers = () -> Optional.of(asked.getAndIncrement() == 0 ? first : second);
+
+			final LedgerService service = rig.started(false);
+
+			eventually(() -> service.status().running());
+
+			assertThat(rig.events, contains("attach"));
+			assertThat(asked.get(), is(4));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldStayInactiveAndNameTheSnapshotThatKeepsChangingWhileItIsChecked() {
+		try (Rig rig = Rig.ready()) {
+			rig.readers = () -> Optional.of(openedAgain(rig));
+
+			final LedgerService service = rig.started(false);
+
+			eventually(() -> !rig.logged(Level.ERROR).isEmpty() && ledgerThreads().isEmpty());
+
+			assertThat(rig.logged(Level.ERROR), contains(allOf(containsString("The ledger is not running"),
+				containsString(rig.watched.toString()), containsString("changed while it was checked"))));
+			assertThat(rig.events, not(hasItem("attach")));
+			assertThat(service.status(), equalTo(INACTIVE));
+		}
+	}
+
+	@SneakyThrows
+	private static SnapshotReader openedAgain(final Rig rig) {
+		return SnapshotReader.open(rig.watched);
 	}
 
 	@Example
