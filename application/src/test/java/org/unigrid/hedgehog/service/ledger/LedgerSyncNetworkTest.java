@@ -90,6 +90,11 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 		return true;
 	}
 
+	@Override
+	protected boolean runsLedger() {
+		return true;
+	}
+
 	/* The servers of a test share one process and so one NetOptions, while each node of a network has its own port
 	   and says it in its hello. Each container is given the port of its own server. */
 	@BeforeTry

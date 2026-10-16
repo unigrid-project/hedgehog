@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.server;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
+import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.Arbitrary;
@@ -28,6 +29,7 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -44,6 +46,9 @@ public class BaseServerTest extends BaseMockedWeldTest {
 
 	@Mocked
 	protected RestOptions restOptions;
+
+	@Mocked
+	protected LedgerOptions ledgerOptions;
 
 	@Inject @Instances(NUM_SERVERS)
 	private List<TestServer> servers;
@@ -68,8 +73,17 @@ public class BaseServerTest extends BaseMockedWeldTest {
 		return false;
 	}
 
+	/* A server offers the ledger protocol and carries its pipeline only when the node runs a ledger */
+	protected boolean runsLedger() {
+		return false;
+	}
+
 	@BeforeTry
 	public void before() {
+		new Expectations() {{
+			LedgerOptions.isLedger(); result = runsLedger(); minTimes = 0;
+		}};
+
 		for (int i = 0; i < servers.size(); i++) {
 			final TestServer server = servers.get(i);
 

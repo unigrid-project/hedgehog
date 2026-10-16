@@ -92,9 +92,9 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
    stream, which is what the tests of it look for. */
 @WeldSetup(TestServer.class)
 public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
-	private static final String[] THIS_RELEASE = Network.getProtocols();
-	private static final AtomicReference<String[]> OFFERED = new AtomicReference<>(THIS_RELEASE);
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
+	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
+	private static final AtomicReference<String[]> OFFERED = new AtomicReference<>(THIS_RELEASE);
 	private static final String EARLIER_PROTOCOL = "hedgehog/0.0.4";
 	private static final int NEW = 0;
 	private static final int OLD = 1;

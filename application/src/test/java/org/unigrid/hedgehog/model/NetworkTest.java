@@ -18,25 +18,56 @@
 
 package org.unigrid.hedgehog.model;
 
+import java.util.List;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayContaining;
 import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 
+@AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class NetworkTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
+	private static final List<String> DAEMON = List.of("daemon");
 
 	/* The ledger protocol comes first, and a node of an earlier release is left to settle on the one it offers first */
 	@Example
-	public void offersTheLedgerProtocolFirstAndTheProtocolsOfTheEarlierReleaseAfterIt() {
+	public void offersTheLedgerProtocolFirstAndTheProtocolsOfTheEarlierReleaseAfterItWhileTheLedgerIsOn() {
+		OptionsCli.parse(DAEMON, "--ledger");
+
 		assertThat(Network.getProtocols(), arrayContaining("hedgehog-ledger/0.0.1", EARLIER_RELEASE[0],
 			EARLIER_RELEASE[1]));
 		assertThat(Network.LEDGER_PROTOCOL, is(Network.getProtocols()[0]));
 	}
 
+	/* A node that did not opt in offers what the earlier release did, so no ledger connection is ever settled on */
+	@Example
+	public void offersNothingButTheProtocolsOfTheEarlierReleaseWhileTheLedgerIsOff() {
+		OptionsCli.parse(DAEMON);
+
+		assertThat(Network.getProtocols(), arrayContaining(EARLIER_RELEASE));
+	}
+
+	@Example
+	public void followsTheLedgerOptionWhenAskedWhetherThereIsALedger() {
+		OptionsCli.parse(DAEMON);
+		assertThat(Network.hasLedger(), is(false));
+
+		OptionsCli.parse(DAEMON, "--ledger");
+		assertThat(Network.hasLedger(), is(true));
+	}
+
 	@Example
 	public void tellsWhetherTheLedgerProtocolIsOffered() {
+		OptionsCli.parse(DAEMON, "--ledger");
 		assertThat(Network.hasLedger(Network.getProtocols()), is(true));
+
+		OptionsCli.parse(DAEMON);
+		assertThat(Network.hasLedger(Network.getProtocols()), is(false));
+
 		assertThat(Network.hasLedger(EARLIER_RELEASE), is(false));
 		assertThat(Network.hasLedger(new String[0]), is(false));
 	}

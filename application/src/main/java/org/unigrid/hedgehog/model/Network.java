@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model;
 
 import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Slf4j
@@ -29,10 +30,15 @@ public class Network {
 	   connection settled on it is what tells a node that the other end speaks the ledger. */
 	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.1";
 
-	private static final String[] PROTOCOLS = {
-		LEDGER_PROTOCOL,
+	private static final String[] EARLIER_PROTOCOLS = {
 		"hedgehog/0.0.4",
 		"gridspork/0.0.4"
+	};
+
+	private static final String[] LEDGER_PROTOCOLS = {
+		LEDGER_PROTOCOL,
+		EARLIER_PROTOCOLS[0],
+		EARLIER_PROTOCOLS[1]
 	};
 
 	private static final String[] SEEDS = {
@@ -48,8 +54,13 @@ public class Network {
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
 
+	/* Only a node that runs a ledger offers its protocol: one that did not opt in behaves as the earlier release */
 	public static String[] getProtocols() {
-		return PROTOCOLS;
+		return hasLedger() ? LEDGER_PROTOCOLS : EARLIER_PROTOCOLS;
+	}
+
+	public static boolean hasLedger() {
+		return LedgerOptions.isLedger();
 	}
 
 	/* A node carries the ledger pipeline exactly when it offers the ledger protocol, so it never sends a ledger packet

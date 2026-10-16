@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.server.rest;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import jakarta.inject.Inject;
@@ -80,11 +81,11 @@ public class UtilResourceTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldReportTheProtocolsOfTheNodeAndTheLedgerProtocolAmongThem() {
+	public void shouldReportTheProtocolsOfTheNodeAndNoLedgerProtocolWhileTheLedgerIsOff() {
 		final String body = client.get("/version").readEntity(String.class);
 
 		Stream.of(Network.getProtocols()).forEach(protocol -> assertThat(body, containsString(protocol)));
-		assertThat(body, containsString(Network.LEDGER_PROTOCOL));
+		assertThat(body, not(containsString(Network.LEDGER_PROTOCOL)));
 	}
 
 	@Example

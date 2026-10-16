@@ -83,6 +83,11 @@ public class LedgerPipelineTest extends BaseServerTest {
 	private LedgerDriver driver;
 	private volatile CompletableFuture<BlockBatch> answer;
 
+	@Override
+	protected boolean runsLedger() {
+		return true;
+	}
+
 	@BeforeTry
 	private void attachAStubDriver() {
 		calls.clear();
