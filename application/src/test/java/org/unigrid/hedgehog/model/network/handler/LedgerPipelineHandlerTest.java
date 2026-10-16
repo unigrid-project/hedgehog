@@ -26,7 +26,9 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.DefaultChannelId;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
@@ -37,6 +39,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -220,14 +223,33 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		return connection;
 	}
 
-	private static EmbeddedChannel streamOf(final Channel connection, final Remainder remainder) {
+	private static ChannelHandler[] pipelineWith(final Remainder remainder) {
 		final List<ChannelHandler> handlers = new ArrayList<>();
 
 		handlers.add(new FrameDecoder());
 		handlers.addAll(LedgerPipeline.handlers());
 		handlers.add(remainder);
-		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false,
-			handlers.toArray(new ChannelHandler[0]));
+		return handlers.toArray(new ChannelHandler[0]);
+	}
+
+	private static EmbeddedChannel streamOf(final Channel connection, final Remainder remainder) {
+		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false, pipelineWith(remainder));
+	}
+
+	/* A stream to a peer that does not read: what is written stays in its outbound buffer */
+	private static final class NonReadingStream extends EmbeddedChannel {
+		private NonReadingStream(final Channel connection) {
+			super(connection, DefaultChannelId.newInstance(), true, false, pipelineWith(new Remainder()));
+		}
+
+		@Override
+		protected void doWrite(final ChannelOutboundBuffer in) {
+			/* Nothing is taken off the buffer */
+		}
+
+		long pendingBytes() {
+			return unsafe().outboundBuffer().totalPendingWriteBytes();
+		}
 	}
 
 	private static EmbeddedChannel streamFrom(final String address) {
@@ -382,7 +404,51 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(channel.outboundMessages().isEmpty(), is(true));
 
 		answer.complete(LedgerWireFixtures.emptyBatch());
+		channel.runPendingTasks();
 		assertThat(((LedgerBlockBatch) sentBy(channel)).getRequestId(), equalTo(7L));
+	}
+
+	@Example
+	public void leavesTheReplyToTheEventLoopOfTheStream() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		answer = new CompletableFuture<>();
+		channel.writeInbound(encoded(LedgerBlockRequest.builder().requestId(7)
+			.request(LedgerWireFixtures.request(7)).build()));
+		answer.complete(LedgerWireFixtures.emptyBatch());
+		assertThat(channel.outboundMessages().isEmpty(), is(true));
+
+		channel.runPendingTasks();
+		assertThat(channel.outboundMessages().size(), is(1));
+	}
+
+	/* Every request is asked before the driver answers any, as when the driver is busy and the peer is not */
+	private NonReadingStream askedBeforeAnyIsAnswered(final int requests) {
+		final NonReadingStream channel = new NonReadingStream(connectionFrom(PEER));
+
+		channel.config().setWriteBufferWaterMark(new WriteBufferWaterMark(1, 2));
+		answer = new CompletableFuture<>();
+		LongStream.rangeClosed(1, requests).forEach(id -> channel.writeInbound(encoded(
+			LedgerBlockRequest.builder().requestId(id).request(LedgerWireFixtures.request((int) id)).build())));
+		answer.complete(LedgerWireFixtures.emptyBatch());
+		channel.runPendingTasks();
+		return channel;
+	}
+
+	@Example
+	public void takesNoMoreRepliesThanOneBatchForAPeerThatDoesNotRead() {
+		final long oneReply = askedBeforeAnyIsAnswered(1).pendingBytes();
+
+		try (DebugLog log = new DebugLog(LedgerBlockRequestChannelHandler.class)) {
+			final NonReadingStream channel = askedBeforeAnyIsAnswered(2);
+
+			assertThat(log.events().stream().map(ILoggingEvent::getFormattedMessage).toList(),
+				contains(startsWith("Left a block request of " + PEER)));
+			assertThat(channel.pendingBytes(), equalTo(oneReply));
+		}
+
+		assertThat(oneReply > 0, is(true));
+		assertThat(oneReply <= 2L * BlockBatch.MAX_BYTES, is(true));
 	}
 
 	@Example

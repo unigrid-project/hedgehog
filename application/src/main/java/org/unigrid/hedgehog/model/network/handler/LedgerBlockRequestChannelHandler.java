@@ -34,14 +34,17 @@ public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<Ledg
 		super(LedgerBlockRequest.class);
 	}
 
-	/* The driver answers on its own thread, so the reply is written from the callback. A request that it refuses
-	   completes exceptionally and is left without a reply, as is one from a peer that does not read what it was
-	   sent: a batch is megabytes, and a few requests in a row must not pile them up in memory. */
+	/* The driver answers on its own thread, and the reply is written on the event loop of the stream: there the
+	   encoded replies that were written before are counted, so a stream is writable only while it holds less than
+	   its water mark, and a stream takes at most that and one batch more. Seen from the thread of the driver, a
+	   reply that is not yet written counts as a few bytes and any number of them would be taken. A request that the
+	   driver refuses completes exceptionally and is left without a reply, as is one from a peer that does not read
+	   what it was sent: a batch is megabytes, and a few requests in a row must not pile them up in memory. */
 	@Override
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerBlockRequest packet) {
 
-		gateway.onBlockRequest(from, packet.getRequest(), sizeOf(ctx)).thenAccept(batch -> {
+		gateway.onBlockRequest(from, packet.getRequest(), sizeOf(ctx)).thenAcceptAsync(batch -> {
 			if (!ctx.channel().isWritable()) {
 				log.atDebug().addArgument(from::id)
 					.log("Left a block request of {} unanswered: its stream is backed up");
@@ -50,6 +53,6 @@ public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<Ledg
 
 			ctx.writeAndFlush(LedgerBlockBatch.builder().requestId(packet.getRequestId()).batch(batch).build())
 				.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-		});
+		}, ctx.executor());
 	}
 }
