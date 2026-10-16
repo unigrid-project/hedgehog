@@ -58,6 +58,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -142,7 +143,13 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	@Inject private LedgerGateway gateway;
 	@Inject private PendingRequests pending;
 
+	private static final String CONNECTED = "onPeerConnected";
+
+	/* What peers sent to the driver, and apart from it the streams that were announced to it; told is both, in the
+	   order the driver was told */
 	private final List<Call> calls = new ArrayList<>();
+	private final List<Call> announced = new ArrayList<>();
+	private final List<String> told = new ArrayList<>();
 	private final List<Integer> sizes = new ArrayList<>();
 	private CompletableFuture<BlockBatch> answer;
 	private RuntimeException failure;
@@ -150,6 +157,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	@BeforeTry
 	public void attachAStubDriver() {
 		calls.clear();
+		announced.clear();
+		told.clear();
 		sizes.clear();
 		failure = null;
 		answer = CompletableFuture.completedFuture(LedgerWireFixtures.emptyBatch());
@@ -166,7 +175,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 			throw failure;
 		}
 
-		calls.add(new Call(method, from, argument));
+		(CONNECTED.equals(method) ? announced : calls).add(new Call(method, from, argument));
+		told.add(method);
 	}
 
 	private void record(final String method, final LedgerPeer from, final Object argument, final int bytes) {
@@ -200,7 +210,7 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 			}
 
 			@Mock public void onPeerConnected(LedgerPeer from) {
-				record("onPeerConnected", from, null);
+				record(CONNECTED, from, null);
 			}
 		};
 	}
@@ -356,6 +366,56 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 		assertThat(HeldGateway.TOLD, contains("onTransaction"));
 		assertThat(calls.isEmpty(), is(true));
+	}
+
+	@Property(tries = 10)
+	public void announcesAStreamToTheDriverBeforeWhatItSaysFirst(
+		@ForAll @IntRange(min = 0, max = KINDS - 1) int kind, @ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		channel.writeInbound(frameOfKind(kind, seed));
+
+		assertThat(told, hasSize(2));
+		assertThat(told.get(0), equalTo(CONNECTED));
+		assertThat(announced.get(0).from().id(), equalTo(PEER));
+		assertThat(announced.get(0).from(), sameInstance(calls.get(0).from()));
+	}
+
+	@Example
+	public void announcesAStreamOnceWhateverItSaysAfter() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		sendAllKinds(channel, 1);
+		sendAllKinds(channel, 2);
+
+		assertThat(announced, hasSize(1));
+		assertThat(told.get(0), equalTo(CONNECTED));
+		assertThat(calls, hasSize(2 * KINDS));
+	}
+
+	@Example
+	public void announcesNoStreamAtItsFirstWordThatTheScheduleAnnounced() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		new LedgerStatusSchedule().getConsumer().accept(channel);
+		sendAllKinds(channel, 1);
+
+		assertThat(announced, hasSize(1));
+		assertThat(told.get(0), equalTo(CONNECTED));
+	}
+
+	@Example
+	public void announcesAStreamThatSpokeToNoDriverWhenItSpeaksToTheNextOne() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		gateway.detach();
+		sendAllKinds(channel, 1);
+		assertThat(told.isEmpty(), is(true));
+
+		gateway.attach(aDriver());
+		channel.writeInbound(frameOfKind(3, 1));
+		assertThat(told, contains(CONNECTED, "onStatus"));
 	}
 
 	@Example
@@ -578,7 +638,7 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 		failure = null;
 		announce.accept(streamFrom(PEER));
-		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
+		assertThat(told, contains(CONNECTED));
 	}
 
 	@Example
@@ -721,8 +781,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		announce.accept(channel);
 		announce.accept(channel);
 
-		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
-		assertThat(calls.get(0).from().id(), equalTo(PEER));
+		assertThat(told, contains(CONNECTED));
+		assertThat(announced.get(0).from().id(), equalTo(PEER));
 	}
 
 	@Example
@@ -732,16 +792,16 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 
 		gateway.detach();
 		announce.accept(channel);
-		assertThat(calls.isEmpty(), is(true));
+		assertThat(told.isEmpty(), is(true));
 
 		gateway.attach(aDriver());
 		announce.accept(channel);
 		announce.accept(channel);
-		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
+		assertThat(told, contains(CONNECTED));
 
 		gateway.attach(aDriver());
 		announce.accept(channel);
-		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected", "onPeerConnected"));
+		assertThat(told, contains(CONNECTED, CONNECTED));
 	}
 
 	/* The id of a stream is read at each use. A remote one is the same before and after its Hello is read, so nothing
@@ -777,8 +837,11 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(calls.isEmpty(), is(true));
 		assertThat(channel.outboundMessages().isEmpty(), is(true));
 
+		assertThat(announced.isEmpty(), is(true));
+
 		other.writeInbound(encoded(LedgerStatus.builder().status(LedgerWireFixtures.status(seed)).build()));
 		assertThat(calls.stream().map(Call::method).toList(), contains("onStatus"));
+		assertThat(announced.stream().map(call -> call.from().id()).toList(), contains(OTHER));
 	}
 
 	@Example
@@ -801,8 +864,8 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		announce.accept(agreeing);
 		announce.accept(unagreeing);
 
-		assertThat(calls.stream().map(Call::method).toList(), contains("onPeerConnected"));
-		assertThat(calls.get(0).from().id(), equalTo(PEER));
+		assertThat(told, contains(CONNECTED));
+		assertThat(announced.get(0).from().id(), equalTo(PEER));
 		assertThat(unagreeing.outboundMessages().isEmpty(), is(true));
 	}
 

@@ -88,8 +88,14 @@ public class LedgerGateway {
 		return network.peerOf(channel, remote);
 	}
 
+	/* A stream is announced to the driver when it first says something at the latest, and before it is heard: the
+	   driver counts the status of a peer it has not been told of as junk, and the schedule that announces the streams
+	   may not have run for it yet, or no driver was attached then */
 	public NettyLedgerPeer speakerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
-		return network.speakerOf(channel, remote);
+		final NettyLedgerPeer speaker = network.speakerOf(channel, remote);
+
+		peerConnected(speaker);
+		return speaker;
 	}
 
 	/* `bytes` in what follows is the size of the frame that the packet came in */
@@ -127,7 +133,8 @@ public class LedgerGateway {
 		}
 	}
 
-	/* The driver is told of a stream once, and the stream is told this node's status by the driver */
+	/* The driver is told of a stream once, and the stream is told this node's status by the driver. Whichever comes
+	   first tells it, the schedule of the streams or the first word of the stream. */
 	public void peerConnected(final NettyLedgerPeer peer) {
 		ifAttached(attached -> {
 			if (peer.speaksLedger() && peer.firstAnnouncementTo(attached)) {
