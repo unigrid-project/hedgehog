@@ -21,10 +21,11 @@ package org.unigrid.hedgehog.command;
 import org.unigrid.hedgehog.command.util.KeyGenerate;
 import org.unigrid.hedgehog.command.util.KeySign;
 import org.unigrid.hedgehog.command.util.KeyValidate;
+import org.unigrid.hedgehog.command.util.LedgerKeyGenerate;
 import picocli.CommandLine.Command;
 
 @Command(name = "util",
-	subcommands = { KeyGenerate.class, KeySign.class, KeyValidate.class },
+	subcommands = { KeyGenerate.class, KeySign.class, KeyValidate.class, LedgerKeyGenerate.class },
 	description = "Helpful utility functionality to facilitate network administrators, node runners and users."
 )
 public class Util {

@@ -43,7 +43,7 @@ public class CommandGroupTest {
 			"gridspork-renew", "gridspork-pending", "gridspork-cosign", "node-add", "node-remove", "node-list",
 			"gridnode-start", "gridnode-stop", "gridnode-list", "storage-put", "storage-get", "storage-delete", "stop"
 		),
-		"util", List.of("key-generate", "key-sign", "key-validate")
+		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate")
 	);
 
 	@Provide
