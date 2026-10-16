@@ -74,6 +74,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final Predicate<Channel> outbound;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
+	private volatile String listedAs;
 
 	/* An IPv4 address that comes as an IPv6 one, ::ffff:a.b.c.d, is the IPv4 address: read as IPv6 every such peer would
 	   have the zeros of the same /64 prefix, and share one limit */
@@ -140,6 +141,20 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	/* True once, the first time that the stream says anything of the ledger protocol */
 	boolean firstWord() {
 		return !spoken.getAndSet(true);
+	}
+
+	/* The id that the network holds the stream under while it is one of the speakers it keeps, and null when it is
+	   not: the id is read once, so that finding the streams of one id costs no more than comparing strings */
+	String listedAs() {
+		return listedAs;
+	}
+
+	void listAs(final String id) {
+		listedAs = id;
+	}
+
+	void unlist() {
+		listedAs = null;
 	}
 
 	/* What cannot be sent now is lost, as the protocol is made to cope with, and the stream is left alone: it carries

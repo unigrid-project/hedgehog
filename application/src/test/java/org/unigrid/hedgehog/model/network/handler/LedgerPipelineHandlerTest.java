@@ -34,10 +34,12 @@ import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import mockit.Mock;
@@ -59,6 +61,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -105,6 +108,7 @@ import org.unigrid.hedgehog.service.ledger.DebugLog;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
 import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
+import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.bodyOf;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.encoded;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.sentBy;
@@ -308,6 +312,50 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		sendAllKinds(channel, seed);
 
 		assertThat(sizes, equalTo(bodies));
+	}
+
+	/* A gateway that is not the one of the container, which only the stream that holds it can reach */
+	private static final class HeldGateway extends LedgerGateway {
+		private static final List<String> TOLD = new ArrayList<>();
+
+		@Override
+		public boolean speaks(final Channel stream) {
+			return true;
+		}
+
+		@Override
+		public NettyLedgerPeer speakerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
+			return null;
+		}
+
+		@Override
+		public void onTransaction(final LedgerPeer from, final Transaction transaction, final int bytes) {
+			TOLD.add("onTransaction");
+		}
+	}
+
+	@Example
+	public void holdsTheGatewayFromTheFirstPacketOfAStream() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+		final EmbeddedChannel other = streamFrom(OTHER);
+
+		assertThat(channel.attr(AbstractLedgerHandler.GATEWAY_KEY).get(), nullValue());
+
+		sendAllKinds(channel, 1);
+		assertThat(channel.attr(AbstractLedgerHandler.GATEWAY_KEY).get(), sameInstance(gateway));
+		assertThat(other.attr(AbstractLedgerHandler.GATEWAY_KEY).get(), nullValue());
+	}
+
+	@Example
+	public void goesToTheGatewayThatTheStreamHoldsWithoutLookingForOne() {
+		final EmbeddedChannel channel = streamFrom(PEER);
+
+		HeldGateway.TOLD.clear();
+		channel.attr(AbstractLedgerHandler.GATEWAY_KEY).set(new ObjenesisStd().newInstance(HeldGateway.class));
+		channel.writeInbound(frameOfKind(0, 1));
+
+		assertThat(HeldGateway.TOLD, contains("onTransaction"));
+		assertThat(calls.isEmpty(), is(true));
 	}
 
 	@Example

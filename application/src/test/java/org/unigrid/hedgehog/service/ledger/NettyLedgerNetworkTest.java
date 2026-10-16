@@ -781,7 +781,7 @@ public class NettyLedgerNetworkTest {
 
 		for (int i = 0; i < count; i++) {
 			channels.add(new EmbeddedChannel());
-			network.speakerOf(channels.get(i), remote(FIRST));
+			network.speakerOf(channels.get(i), remote("10.2.0." + i));
 		}
 
 		assertThat(network.tracked(), equalTo(count));
@@ -851,14 +851,91 @@ public class NettyLedgerNetworkTest {
 		final EmbeddedChannel unnamed = new EmbeddedChannel();
 		final EmbeddedChannel named = new EmbeddedChannel();
 		final NettyLedgerNetwork network = networkOf();
+		final boolean[] forgotten = new boolean[1];
 
 		network.speakerOf(unnamed, () -> {
-			throw new IllegalStateException("No address");
+			if (forgotten[0]) {
+				throw new IllegalStateException("No address");
+			}
+
+			return remote(FIRST).get();
 		});
 		network.speakerOf(named, remote(FIRST));
+		forgotten[0] = true;
 		network.disconnect(FIRST);
 
 		assertThat(named.isOpen(), is(false));
 		assertThat(unnamed.isOpen(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void keepsTheNewestStreamsOfAnIdAndForgetsTheOldest(
+		@ForAll @IntRange(min = 1, max = 20) int surplus) {
+
+		final NettyLedgerNetwork network = networkOf();
+		final List<EmbeddedChannel> channels = IntStream.range(0, NettyLedgerNetwork.MAX_PER_ID + surplus)
+			.mapToObj(i -> new EmbeddedChannel()).toList();
+
+		channels.forEach(channel -> network.speakerOf(channel, remote(FIRST)));
+		assertThat(network.tracked(), equalTo(NettyLedgerNetwork.MAX_PER_ID));
+
+		channels.subList(surplus, channels.size()).forEach(EmbeddedChannel::close);
+		assertThat(network.peers().isEmpty(), is(true));
+	}
+
+	@Property(tries = 5)
+	public void keepsTheSpeakersOfOtherIdsWhenOneIdOpensManyStreams(
+		@ForAll @IntRange(min = 1, max = 100) int flood) {
+
+		final NettyLedgerNetwork network = networkOf();
+		final int others = NettyLedgerNetwork.MAX_SPEAKERS - NettyLedgerNetwork.MAX_PER_ID;
+
+		IntStream.range(0, others).forEach(i -> network.speakerOf(new EmbeddedChannel(), remote("10.1." + i + ".1")));
+		IntStream.range(0, flood).forEach(i -> network.speakerOf(new EmbeddedChannel(), remote(FIRST)));
+
+		final List<String> ids = network.peers().stream().map(LedgerPeer::id).toList();
+
+		assertThat(ids, hasSize(others + 1));
+		assertThat(ids.contains("10.1.0.1"), is(true));
+		assertThat(network.tracked(), equalTo(others + Math.min(flood, NettyLedgerNetwork.MAX_PER_ID)));
+	}
+
+	@Example
+	public void keepsAnEvictedStreamAgainWhenItNextSaysSomething() {
+		final NettyLedgerNetwork network = networkOf();
+		final EmbeddedChannel evicted = new EmbeddedChannel();
+		final EmbeddedChannel middle = new EmbeddedChannel();
+		final EmbeddedChannel newest = new EmbeddedChannel();
+
+		network.speakerOf(evicted, remote(FIRST));
+		network.speakerOf(middle, remote(FIRST));
+		network.speakerOf(newest, remote(FIRST));
+		assertThat(network.tracked(), equalTo(NettyLedgerNetwork.MAX_PER_ID));
+
+		network.speakerOf(evicted, remote(FIRST));
+		assertThat(network.tracked(), equalTo(NettyLedgerNetwork.MAX_PER_ID));
+
+		newest.close();
+		assertThat(writesTo(onlyPeerOf(network), evicted), is(true));
+		assertThat(middle.outboundMessages().isEmpty(), is(true));
+	}
+
+	@Example
+	public void keepsAnEvictedSpeakerAgainWhenTheNetworkWasFull() {
+		final NettyLedgerNetwork network = networkOf();
+		final EmbeddedChannel first = new EmbeddedChannel();
+
+		network.speakerOf(first, remote("10.1.0.1"));
+		IntStream.range(1, NettyLedgerNetwork.MAX_SPEAKERS + 1)
+			.forEach(i -> network.speakerOf(new EmbeddedChannel(), remote("10.1." + i + ".1")));
+		assertThat(network.peers().stream().map(LedgerPeer::id).toList().contains("10.1.0.1"), is(false));
+
+		network.speakerOf(first, remote("10.1.0.1"));
+
+		final List<String> ids = network.peers().stream().map(LedgerPeer::id).toList();
+
+		assertThat(ids.contains("10.1.0.1"), is(true));
+		assertThat(ids.contains("10.1.1.1"), is(false));
+		assertThat(network.tracked(), equalTo(NettyLedgerNetwork.MAX_SPEAKERS));
 	}
 }

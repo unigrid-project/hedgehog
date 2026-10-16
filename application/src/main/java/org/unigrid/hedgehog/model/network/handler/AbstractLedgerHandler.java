@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
@@ -32,21 +33,37 @@ import org.unigrid.hedgehog.service.ledger.LedgerGateway;
    send the ledger at all, as one of an earlier release, sends none, so this is a peer that is not what it said. */
 @Slf4j
 public abstract class AbstractLedgerHandler<T extends Packet> extends AbstractInboundHandler<T> {
+	static final AttributeKey<LedgerGateway> GATEWAY_KEY = AttributeKey.valueOf("LEDGER_GATEWAY");
+
 	protected AbstractLedgerHandler(final Class<T> clazz) {
 		super(clazz);
 	}
 
+	/* The gateway is looked up through CDI for the first packet of a stream only: the lookup is the costliest step
+	   of a packet and is done before any limit is applied, so a peer that sends many cannot be allowed to make this
+	   node repeat it for each one */
 	@Override
 	public void typedChannelRead(final ChannelHandlerContext ctx, final T packet) {
-		CDIUtil.resolveAndRun(LedgerGateway.class, gateway -> {
-			if (gateway.speaks(ctx.channel())) {
-				deliver(gateway, speakerOf(gateway, ctx), ctx, packet);
-			} else {
-				log.atDebug().addArgument(() -> ctx.channel().remoteAddress())
-					.log("Closed a stream that sent the ledger without having agreed to it: {}");
-				ctx.close();
-			}
-		});
+		final LedgerGateway held = ctx.channel().attr(GATEWAY_KEY).get();
+
+		if (held != null) {
+			handle(held, ctx, packet);
+		} else {
+			CDIUtil.resolveAndRun(LedgerGateway.class, gateway -> {
+				ctx.channel().attr(GATEWAY_KEY).set(gateway);
+				handle(gateway, ctx, packet);
+			});
+		}
+	}
+
+	private void handle(final LedgerGateway gateway, final ChannelHandlerContext ctx, final T packet) {
+		if (gateway.speaks(ctx.channel())) {
+			deliver(gateway, speakerOf(gateway, ctx), ctx, packet);
+		} else {
+			log.atDebug().addArgument(() -> ctx.channel().remoteAddress())
+				.log("Closed a stream that sent the ledger without having agreed to it: {}");
+			ctx.close();
+		}
 	}
 
 	private static LedgerPeer speakerOf(final LedgerGateway gateway, final ChannelHandlerContext ctx) {

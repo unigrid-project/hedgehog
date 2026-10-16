@@ -53,6 +53,7 @@ import org.unigrid.hedgehog.model.network.PendingRequests;
 @RequiredArgsConstructor
 public class NettyLedgerNetwork implements LedgerNetwork {
 	public static final int MAX_SPEAKERS = 64;
+	public static final int MAX_PER_ID = 2;
 	private static final AttributeKey<NettyLedgerPeer> PEER_KEY = AttributeKey.valueOf("LEDGER_PEER");
 
 	private final Supplier<Set<Node>> nodes;
@@ -76,20 +77,44 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	}
 
 	/* The peer of a stream that has said something of the ledger protocol, which is when it is someone to send to. Of
-	   such streams that nodes opened to this one the newest are kept, so that what is sent for each message and what
-	   is held cannot be made to grow by opening streams. */
+	   such streams that nodes opened to this one the newest are kept, at most MAX_PER_ID of an id and MAX_SPEAKERS in
+	   all, so that what is sent for each message and what is held cannot be made to grow by opening streams, and one
+	   address that opens many cannot push out the others that only listen. A stream that was pushed out is kept again
+	   when it next says something, as it is still open. */
 	public NettyLedgerPeer speakerOf(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer peer = peerOf(channel, remote);
+		final boolean first = peer.firstWord();
 
-		if (peer.firstWord()) {
-			while (!seen.offerLast(peer)) {
-				seen.pollFirst();
-			}
+		if (peer.listedAs() == null) {
+			keep(peer);
+		}
 
+		if (first) {
 			channel.closeFuture().addListener(closed -> seen.remove(peer));
 		}
 
 		return peer;
+	}
+
+	private void keep(final NettyLedgerPeer peer) {
+		final String id = peer.id();
+
+		synchronized (seen) {
+			final List<NettyLedgerPeer> same = seen.stream().filter(held -> id.equals(held.listedAs())).toList();
+
+			same.stream().limit(Math.max(0, same.size() - MAX_PER_ID + 1)).forEach(this::drop);
+
+			while (!seen.offerLast(peer)) {
+				Optional.ofNullable(seen.pollFirst()).ifPresent(NettyLedgerPeer::unlist);
+			}
+
+			peer.listAs(id);
+		}
+	}
+
+	private void drop(final NettyLedgerPeer peer) {
+		seen.remove(peer);
+		peer.unlist();
 	}
 
 	private NettyLedgerPeer create(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
