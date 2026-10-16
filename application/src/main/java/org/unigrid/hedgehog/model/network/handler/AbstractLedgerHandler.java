@@ -23,6 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.service.ledger.LedgerGateway;
 
 /* A handler of the ledger protocol only says which gateway method a packet goes to. The peer is the one of the
@@ -50,6 +51,14 @@ public abstract class AbstractLedgerHandler<T extends Packet> extends AbstractIn
 
 	private static LedgerPeer speakerOf(final LedgerGateway gateway, final ChannelHandlerContext ctx) {
 		return gateway.speakerOf(ctx.channel(), () -> RemoteAddress.of(ctx.channel()));
+	}
+
+	/* The size of the frame that the packet came in, which is what it takes of the queue of the driver while it
+	   waits: the decoder of the frames has noted it for the packet that is being handled */
+	protected static int sizeOf(final ChannelHandlerContext ctx) {
+		final Integer size = ctx.channel().attr(FrameDecoder.PACKET_SIZE_KEY).get();
+
+		return size == null ? 0 : size;
 	}
 
 	protected abstract void deliver(LedgerGateway gateway, LedgerPeer from, ChannelHandlerContext ctx, T packet);

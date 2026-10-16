@@ -87,10 +87,10 @@ public class LedgerDriverTest {
 		@Override
 		public void send(Object wire) {
 			switch (wire) {
-				case Transaction transaction -> target.onTransaction(back, transaction);
-				case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat);
-				case Message message -> target.onMessage(back, message);
-				case Status status -> target.onStatus(back, status);
+				case Transaction transaction -> target.onTransaction(back, transaction, DriverRig.FRAME);
+				case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat, DriverRig.FRAME);
+				case Message message -> target.onMessage(back, message, DriverRig.FRAME);
+				case Status status -> target.onStatus(back, status, DriverRig.FRAME);
 				default -> throw new IllegalArgumentException("Not a wire object: " + wire);
 			}
 		}
@@ -150,7 +150,7 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Mint mint = mint(1, 500);
 
-			rig.driver.onTransaction(a, mint);
+			rig.driver.onTransaction(a, mint, DriverRig.FRAME);
 
 			assertThat(b.sent(Transaction.class), equalTo(List.of(mint)));
 			assertThat(a.sent(Transaction.class), is(empty()));
@@ -168,10 +168,10 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Mint mint = mint(1, 500);
 
-			rig.driver.onTransaction(a, mint);
+			rig.driver.onTransaction(a, mint, DriverRig.FRAME);
 
 			for (int again = 0; again < 5; again++) {
-				rig.driver.onTransaction(b, mint);
+				rig.driver.onTransaction(b, mint, DriverRig.FRAME);
 			}
 
 			assertThat(b.sent(Transaction.class), equalTo(List.of(mint)));
@@ -190,11 +190,11 @@ public class LedgerDriverTest {
 				genuine.fee(), genuine.nonce(), new byte[Ed25519.SIGNATURE_SIZE]);
 
 			rig.driver.submit(mint(1, 500)).join();
-			rig.driver.onTransaction(a, forged);
+			rig.driver.onTransaction(a, forged, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
 
-			rig.driver.onTransaction(a, forged);
+			rig.driver.onTransaction(a, forged, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(b.sent(Transaction.class), equalTo(List.of(mint(1, 500))));
@@ -215,8 +215,8 @@ public class LedgerDriverTest {
 				new byte[Ed25519.SIGNATURE_SIZE]);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onTransaction(a, unfunded);
-				rig.driver.onTransaction(a, wrongNonce);
+				rig.driver.onTransaction(a, unfunded, DriverRig.FRAME);
+				rig.driver.onTransaction(a, wrongNonce, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -232,8 +232,8 @@ public class LedgerDriverTest {
 			final Transfer wrongNonce = paying(rig.ledger(), 1, 0, 40);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onTransaction(a, unfunded);
-				rig.driver.onTransaction(a, wrongNonce);
+				rig.driver.onTransaction(a, unfunded, DriverRig.FRAME);
+				rig.driver.onTransaction(a, wrongNonce, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -266,9 +266,9 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Heartbeat beat = heartbeatAtTheTip(rig, DriverRig.START);
 
-			rig.driver.onHeartbeat(a, beat);
-			rig.driver.onHeartbeat(b, beat);
-			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START - 1));
+			rig.driver.onHeartbeat(a, beat, DriverRig.FRAME);
+			rig.driver.onHeartbeat(b, beat, DriverRig.FRAME);
+			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START - 1), DriverRig.FRAME);
 
 			assertThat(b.sent(Heartbeat.class), equalTo(List.of(beat)));
 			assertThat(a.sent(Heartbeat.class), is(empty()));
@@ -284,10 +284,10 @@ public class LedgerDriverTest {
 			final Proposal proposal = rig.proposal();
 			final Ballot prevote = rig.ballot(Ballot.Type.PREVOTE, 3);
 
-			rig.driver.onMessage(a, proposal);
-			rig.driver.onMessage(b, proposal);
-			rig.driver.onMessage(c, prevote);
-			rig.driver.onMessage(c, prevote);
+			rig.driver.onMessage(a, proposal, DriverRig.FRAME);
+			rig.driver.onMessage(b, proposal, DriverRig.FRAME);
+			rig.driver.onMessage(c, prevote, DriverRig.FRAME);
+			rig.driver.onMessage(c, prevote, DriverRig.FRAME);
 
 			assertThat(b.sent(Proposal.class), equalTo(List.of(proposal)));
 			assertThat(c.sent(Proposal.class), equalTo(List.of(proposal)));
@@ -305,7 +305,7 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
-			rig.driver.onMessage(a, forged(rig.ballot(Ballot.Type.PREVOTE, 3)));
+			rig.driver.onMessage(a, forged(rig.ballot(Ballot.Type.PREVOTE, 3)), DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(b.sent(), is(empty()));
@@ -319,7 +319,7 @@ public class LedgerDriverTest {
 			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 5, 0, null);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onMessage(a, ahead);
+				rig.driver.onMessage(a, ahead, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -333,12 +333,12 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Decision decision = new Decision(rig.certified());
 
-			rig.driver.onMessage(b, decision);
+			rig.driver.onMessage(b, decision, DriverRig.FRAME);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onMessage(a, decision);
-				rig.driver.onMessage(a, rig.proposal());
-				rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 3));
+				rig.driver.onMessage(a, decision, DriverRig.FRAME);
+				rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
+				rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 3), DriverRig.FRAME);
 			}
 
 			assertThat(rig.ledger().height(), equalTo(1L));
@@ -354,11 +354,11 @@ public class LedgerDriverTest {
 			final Ballot past = forged(rig.ballot(Ballot.Type.PREVOTE, 3));
 			final Ballot future = forged(Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 5, 0, null));
 
-			rig.driver.onMessage(a, new Decision(rig.certified()));
+			rig.driver.onMessage(a, new Decision(rig.certified()), DriverRig.FRAME);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onMessage(a, past);
-				rig.driver.onMessage(a, future);
+				rig.driver.onMessage(a, past, DriverRig.FRAME);
+				rig.driver.onMessage(a, future, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -373,10 +373,10 @@ public class LedgerDriverTest {
 			final Ballot first = rig.ballot(Ballot.Type.PREVOTE, 3);
 			final Ballot second = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, 0, null);
 
-			rig.driver.onMessage(a, first);
+			rig.driver.onMessage(a, first, DriverRig.FRAME);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onMessage(a, second);
+				rig.driver.onMessage(a, second, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -394,7 +394,7 @@ public class LedgerDriverTest {
 			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, view, null);
 
 			for (int again = 0; again < 3; again++) {
-				rig.driver.onMessage(a, ahead);
+				rig.driver.onMessage(a, ahead, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -409,7 +409,7 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Ballot stranger = Ballot.signed(Ballot.Type.PREVOTE, seed(9), rig.chainId(), 1, 0, null);
 
-			rig.driver.onMessage(a, stranger);
+			rig.driver.onMessage(a, stranger, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(b.sent(Ballot.class), not(hasItem(stranger)));
@@ -423,7 +423,7 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Proposal usurper = Proposal.signed(seed(3), rig.chainId(), 1, 0, -1, rig.proposed());
 
-			rig.driver.onMessage(a, usurper);
+			rig.driver.onMessage(a, usurper, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(b.sent(Proposal.class), is(empty()));
@@ -450,8 +450,8 @@ public class LedgerDriverTest {
 					final Ballot one = Ballot.signed(type, seed(4), left.chainId(), 1, view, hash);
 					final Ballot other = Ballot.signed(type, seed(4), left.chainId(), 1, view, null);
 
-					left.driver.onMessage(byzantineToLeft, one);
-					right.driver.onMessage(byzantineToRight, other);
+					left.driver.onMessage(byzantineToLeft, one, DriverRig.FRAME);
+					right.driver.onMessage(byzantineToRight, other, DriverRig.FRAME);
 				}
 			}
 
@@ -470,7 +470,7 @@ public class LedgerDriverTest {
 			final RecordingPeer c = rig.network.connect("C");
 			final Decision decision = new Decision(rig.certified());
 
-			rig.driver.onMessage(a, decision);
+			rig.driver.onMessage(a, decision, DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(1L));
 			assertThat(b.sent(Decision.class), equalTo(List.of(decision)));
@@ -491,7 +491,7 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
-			rig.driver.onMessage(a, new Decision(rig.thinlyCertified()));
+			rig.driver.onMessage(a, new Decision(rig.thinlyCertified()), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(0L));
 			assertThat(rig.limiter.isPenalised("A"), is(true));
@@ -506,11 +506,11 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 			final Ballot lastPrecommit = rig.ballot(Ballot.Type.PRECOMMIT, 4);
 
-			rig.driver.onMessage(a, rig.proposal());
-			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 3));
-			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 4));
-			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PRECOMMIT, 3));
-			rig.driver.onMessage(a, lastPrecommit);
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
+			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 3), DriverRig.FRAME);
+			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PREVOTE, 4), DriverRig.FRAME);
+			rig.driver.onMessage(a, rig.ballot(Ballot.Type.PRECOMMIT, 3), DriverRig.FRAME);
+			rig.driver.onMessage(a, lastPrecommit, DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(1L));
 			assertThat(rig.limiter.isPenalised("A"), is(false));
@@ -587,7 +587,7 @@ public class LedgerDriverTest {
 
 			final ManualScheduler.Timer old = rig.timers().get(0);
 
-			rig.driver.onMessage(a, new Decision(rig.certified()));
+			rig.driver.onMessage(a, new Decision(rig.certified()), DriverRig.FRAME);
 
 			assertThat(old.cancelled(), is(true));
 			assertThat(rig.timers(), is(empty()));
@@ -680,7 +680,7 @@ public class LedgerDriverTest {
 			assertThrows(IllegalStateException.class, rig.nodes.get(0)::tick);
 
 			rig.tick(DriverRig.TICK);
-			rig.driver.onTransaction(a, mint(1, 500));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.built, hasSize(2));
 			assertThat(rig.ledger().height(), equalTo(1L));
@@ -715,9 +715,9 @@ public class LedgerDriverTest {
 			assertThat(rig.built, hasSize(2));
 			assertThat(rig.scheduler.pending(), is(empty()));
 
-			rig.driver.onTransaction(a, mint(1, 500));
-			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START));
-			rig.driver.onMessage(a, new Decision(rig.certified()));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
+			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START), DriverRig.FRAME);
+			rig.driver.onMessage(a, new Decision(rig.certified()), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(0L));
 			assertThat(b.sent(), is(empty()));
@@ -782,7 +782,7 @@ public class LedgerDriverTest {
 			final LedgerNode before = rig.nodes.get(0);
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(a, rig.proposal());
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(rig.built, equalTo(List.of(true, true)));
@@ -799,20 +799,20 @@ public class LedgerDriverTest {
 				.toArray(RecordingPeer[]::new);
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(peers[0], rig.proposal());
+			rig.driver.onMessage(peers[0], rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.built, hasSize(2));
 			assertThat(rig.timers(), is(empty()));
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(peers[1], rig.proposal());
+			rig.driver.onMessage(peers[1], rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.built, hasSize(2));
 			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
 				contains(DriverRig.TICK));
 
-			rig.driver.onMessage(peers[2], rig.proposal());
-			rig.driver.onTransaction(peers[2], mint(1, 500));
+			rig.driver.onMessage(peers[2], rig.proposal(), DriverRig.FRAME);
+			rig.driver.onTransaction(peers[2], mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("P2"), is(false));
 			assertThat(rig.built, hasSize(2));
@@ -823,7 +823,7 @@ public class LedgerDriverTest {
 			assertThat(rig.nodes.get(2).height(), equalTo(1L));
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(peers[3], rig.proposal());
+			rig.driver.onMessage(peers[3], rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.timers().stream().map(ManualScheduler.Timer::delayMillis).toList(),
 				contains(2 * DriverRig.TICK));
@@ -831,7 +831,7 @@ public class LedgerDriverTest {
 			rig.timers().get(0).fire();
 			rig.clock.addAndGet(DriverRig.RESTART_WINDOW);
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(peers[4], rig.proposal());
+			rig.driver.onMessage(peers[4], rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.built, hasSize(5));
 			assertThat(rig.timers(), is(empty()));
@@ -854,9 +854,9 @@ public class LedgerDriverTest {
 			final ManualScheduler.Timer propose = rig.timers().get(0);
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(a, rig.proposal());
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(b, rig.proposal());
+			rig.driver.onMessage(b, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.timers(), hasSize(2));
 
@@ -877,7 +877,7 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 
 			rig.breakNode();
-			rig.driver.onMessage(a, rig.proposal());
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.built, hasSize(1));
 			assertThat(rig.driver.halted(), is(false));
@@ -892,7 +892,7 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(a, rig.proposal());
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
 			rig.breakNode();
 			rig.tick(DriverRig.TICK);
 
@@ -912,13 +912,13 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
-			rig.driver.onMessage(a, null);
+			rig.driver.onMessage(a, null, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(rig.built, hasSize(1));
 			assertThat(rig.driver.halted(), is(false));
 
-			rig.driver.onTransaction(b, mint(1, 500));
+			rig.driver.onTransaction(b, mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(1L));
 		}
@@ -955,7 +955,7 @@ public class LedgerDriverTest {
 
 			rig.failSaves(new StackOverflowError("Too deep"));
 
-			assertThrows(StackOverflowError.class, () -> rig.driver.onMessage(a, rig.proposal()));
+			assertThrows(StackOverflowError.class, () -> rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME));
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.driver.haltReason().orElseThrow(), containsString("StackOverflowError"));
 			assertThat(rig.built, hasSize(1));
@@ -968,7 +968,7 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 
 			rig.network.refuse(new IllegalStateException("x".repeat(5000)));
-			rig.driver.onTransaction(a, mint(1, 500));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.driver.haltReason().orElseThrow(), startsWith("Driver infrastructure failed"));
@@ -1001,7 +1001,7 @@ public class LedgerDriverTest {
 	@Example
 	public void shouldDropAtTheDoorAnItemOfAPeerThatCannotSayWhoItIs() throws IOException {
 		try (DriverRig rig = DriverRig.solo()) {
-			rig.driver.onTransaction(namelessPeer(), mint(1, 500));
+			rig.driver.onTransaction(namelessPeer(), mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.driver.halted(), is(false));
 			assertThat(rig.driver.droppedInbound(), equalTo(1L));
@@ -1026,9 +1026,9 @@ public class LedgerDriverTest {
 			final RecordingPeer a = rig.network.connect("A");
 			final RecordingPeer b = rig.network.connect("B");
 
-			rig.driver.onTransaction(a, mint(1, 10));
-			rig.driver.onTransaction(a, mint(2, 10));
-			rig.driver.onTransaction(a, mint(3, 10));
+			rig.driver.onTransaction(a, mint(1, 10), DriverRig.FRAME);
+			rig.driver.onTransaction(a, mint(2, 10), DriverRig.FRAME);
+			rig.driver.onTransaction(a, mint(3, 10), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(2L));
 			assertThat(rig.ledger().pending(), equalTo(0));
@@ -1044,12 +1044,12 @@ public class LedgerDriverTest {
 			final Transfer unfunded = paying(rig.ledger(), 100, 0, 0);
 
 			for (int sent = 0; sent < 104; sent++) {
-				rig.driver.onTransaction(a, unfunded);
+				rig.driver.onTransaction(a, unfunded, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
 
-			rig.driver.onTransaction(a, unfunded);
+			rig.driver.onTransaction(a, unfunded, DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(b.sent(), is(empty()));
@@ -1066,15 +1066,15 @@ public class LedgerDriverTest {
 			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 1, view, null);
 
 			for (int sent = 0; sent < 104; sent++) {
-				rig.driver.onMessage(a, ahead);
+				rig.driver.onMessage(a, ahead, DriverRig.FRAME);
 			}
 
 			assertThat(rig.limiter.isPenalised("A"), is(false));
 
-			rig.driver.onMessage(a, ahead);
-			rig.driver.onTransaction(a, mint(1, 500));
-			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START));
-			rig.driver.onStatus(a, rig.ledger().status());
+			rig.driver.onMessage(a, ahead, DriverRig.FRAME);
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
+			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START), DriverRig.FRAME);
+			rig.driver.onStatus(a, rig.ledger().status(), DriverRig.FRAME);
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 			assertThat(rig.ledger().pending(), equalTo(0));
@@ -1089,7 +1089,7 @@ public class LedgerDriverTest {
 			final RecordingPeer b = rig.network.connect("B");
 
 			for (int sent = 0; sent < 10; sent++) {
-				rig.driver.onStatus(a, rig.ledger().status());
+				rig.driver.onStatus(a, rig.ledger().status(), DriverRig.FRAME);
 				rig.driver.onPeerConnected(b);
 			}
 
@@ -1097,7 +1097,7 @@ public class LedgerDriverTest {
 			assertThat(rig.limiter.isPenalised("B"), is(false));
 
 			for (int excess = 0; excess < 2; excess++) {
-				rig.driver.onStatus(a, rig.ledger().status());
+				rig.driver.onStatus(a, rig.ledger().status(), DriverRig.FRAME);
 				rig.driver.onPeerConnected(b);
 			}
 
@@ -1111,7 +1111,7 @@ public class LedgerDriverTest {
 		try (DriverRig rig = DriverRig.solo()) {
 			final RecordingPeer a = rig.network.connect("A");
 			final List<CompletableFuture<BlockBatch>> answers = IntStream.range(0, 42)
-				.mapToObj(n -> rig.driver.onBlockRequest(a, new BlockRequest(1, 1))).toList();
+				.mapToObj(n -> rig.driver.onBlockRequest(a, new BlockRequest(1, 1), DriverRig.FRAME)).toList();
 
 			assertThat(answers.subList(0, 40).stream().allMatch(
 				answer -> answer.isDone() && !answer.isCompletedExceptionally()), is(true));
@@ -1140,9 +1140,9 @@ public class LedgerDriverTest {
 
 			assertThat(rig.limiter.isPenalised("A"), is(true));
 
-			rig.driver.onTransaction(a, mint(1, 500));
-			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START));
-			rig.driver.onMessage(a, new Decision(rig.certified()));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
+			rig.driver.onHeartbeat(a, heartbeatAtTheTip(rig, DriverRig.START), DriverRig.FRAME);
+			rig.driver.onMessage(a, new Decision(rig.certified()), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(0L));
 			assertThat(b.sent(), is(empty()));
@@ -1158,7 +1158,7 @@ public class LedgerDriverTest {
 			final Mint mint = mint(1, 500);
 
 			b.fail();
-			rig.driver.onTransaction(a, mint);
+			rig.driver.onTransaction(a, mint, DriverRig.FRAME);
 
 			assertThat(c.sent(Transaction.class), equalTo(List.of(mint)));
 			assertThat(c.sent(Status.class), hasSize(1));
@@ -1178,8 +1178,8 @@ public class LedgerDriverTest {
 			assertThat(rig.built, hasSize(1));
 
 			rig.driver.close();
-			rig.driver.onTransaction(a, mint(1, 500));
-			rig.driver.onMessage(a, new Decision(rig.certified()));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
+			rig.driver.onMessage(a, new Decision(rig.certified()), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(0L));
 			assertThat(b.sent(), is(empty()));
@@ -1260,8 +1260,10 @@ public class LedgerDriverTest {
 			final List<RecordingPeer> peers = peers(rig, 20);
 			final Heartbeat beat = anyHeartbeat();
 
+			serial.drain();
+
 			for (int sent = 0; sent < 5_000; sent++) {
-				peers.forEach(peer -> rig.driver.onHeartbeat(peer, beat));
+				peers.forEach(peer -> rig.driver.onHeartbeat(peer, beat, DriverRig.FRAME));
 			}
 
 			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.QUEUE));
@@ -1284,15 +1286,17 @@ public class LedgerDriverTest {
 			final List<RecordingPeer> peers = peers(rig, 2);
 			final Heartbeat beat = anyHeartbeat();
 
+			serial.drain();
+
 			for (int sent = 0; sent < 10_000; sent++) {
-				rig.driver.onHeartbeat(peers.get(0), beat);
+				rig.driver.onHeartbeat(peers.get(0), beat, DriverRig.FRAME);
 			}
 
 			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.PER_PEER));
 			assertThat(rig.driver.droppedInbound(), equalTo(10_000L - DriverRig.PER_PEER));
 			assertThat(rig.driver.queuedPeers(), equalTo(1));
 
-			rig.driver.onHeartbeat(peers.get(1), beat);
+			rig.driver.onHeartbeat(peers.get(1), beat, DriverRig.FRAME);
 
 			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.PER_PEER + 1));
 			assertThat(rig.driver.droppedInbound(), equalTo(10_000L - DriverRig.PER_PEER));
@@ -1324,7 +1328,7 @@ public class LedgerDriverTest {
 			final int before = b.sent().size();
 
 			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
-				.forEach(n -> rig.driver.onTransaction(peer, mint)));
+				.forEach(n -> rig.driver.onTransaction(peer, mint, DriverRig.FRAME)));
 			rig.timers().get(0).fire();
 			rig.ticker().fire();
 
@@ -1357,7 +1361,7 @@ public class LedgerDriverTest {
 			serial.drain();
 
 			for (int sent = 0; sent < 5_000; sent++) {
-				rig.driver.onHeartbeat(a, beat);
+				rig.driver.onHeartbeat(a, beat, DriverRig.FRAME);
 			}
 
 			final CompletableFuture<Optional<String>> local = rig.driver.submit(mint(2, 500));
@@ -1366,7 +1370,7 @@ public class LedgerDriverTest {
 
 			assertThat(local.join(), equalTo(Optional.empty()));
 
-			rig.driver.onTransaction(b, mint(3, 500));
+			rig.driver.onTransaction(b, mint(3, 500), DriverRig.FRAME);
 			serial.drain();
 
 			assertThat(a.sent(Transaction.class), hasItem(mint(3, 500)));
@@ -1385,7 +1389,7 @@ public class LedgerDriverTest {
 			serial.drain();
 
 			for (int n = 1; n <= 20; n++) {
-				rig.driver.onTransaction(a, mint(n, 10));
+				rig.driver.onTransaction(a, mint(n, 10), DriverRig.FRAME);
 			}
 
 			serial.drain();
@@ -1413,7 +1417,7 @@ public class LedgerDriverTest {
 			serial.drain();
 			rig.network.refuse(new IllegalStateException("The network failed"));
 			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
-				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500))));
+				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500), DriverRig.FRAME)));
 			serial.drain();
 
 			assertThat(rig.driver.halted(), is(true));
@@ -1421,7 +1425,7 @@ public class LedgerDriverTest {
 			assertThat(rig.driver.queuedPeers(), equalTo(0));
 
 			peers.forEach(peer -> IntStream.range(0, DriverRig.PER_PEER)
-				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500))));
+				.forEach(n -> rig.driver.onTransaction(peer, mint(1, 500), DriverRig.FRAME)));
 
 			assertThat(rig.driver.droppedInbound(), equalTo(0L));
 			assertThat(rig.driver.queuedInbound(), equalTo(DriverRig.QUEUE));
@@ -1444,7 +1448,7 @@ public class LedgerDriverTest {
 			final List<Future<CompletableFuture<Optional<String>>>> calls = IntStream.rangeClosed(1, 8)
 				.mapToObj(n -> callers.submit(() -> {
 					go.await();
-					rig.driver.onTransaction(a, mint(n, 10));
+					rig.driver.onTransaction(a, mint(n, 10), DriverRig.FRAME);
 					return rig.driver.submit(mint(100 + n, 10));
 				})).toList();
 
@@ -1488,11 +1492,13 @@ public class LedgerDriverTest {
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 0, none));
-		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 0));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 0, 1, 1));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 0, 1));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 1, 1, 0));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(0, hash));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(1, new byte[Digests.HASH_SIZE - 1]));
-		assertThat(DriverOptions.DEFAULT,
-			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 100, none, 3_000)));
+		assertThat(DriverOptions.DEFAULT, equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 16,
+			none, 3_000, 64L << 20, 8L << 20)));
 	}
 
 	@Example

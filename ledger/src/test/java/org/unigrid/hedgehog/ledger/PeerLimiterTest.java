@@ -24,6 +24,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -747,6 +748,68 @@ public class PeerLimiterTest {
 		assertThrows(IllegalArgumentException.class, () -> Policy.forNetwork(4, 0));
 		assertThrows(IllegalArgumentException.class, () -> new Policy(same(new Rate(1, 1)), same(new Rate(1, 1)), 1, 0,
 			1, 2, 0));
+	}
+
+	/* The shared bucket of junk is a twentieth of the one for the messages of the engine, and never smaller than a
+	   token */
+	@Example
+	public void shouldLetAllJunkShareOneBucketThatIsATwentiethOfTheSharedOneForTheMessagesOfTheEngine() {
+		assertThat(Policy.DEFAULT.junk(), equalTo(new Rate(1000, 250)));
+		assertThat(new Policy(same(new Rate(1, 1)), same(new Rate(10, 10)), 1, 0, 1, 2).junk(),
+			equalTo(new Rate(1, 1)));
+	}
+
+	@Example
+	public void shouldTakeJunkFromTheSharedBucketOfJunkAndLeaveTheBucketOfItsKindToWhatIsPlausible() {
+		final Policy policy = new Policy(same(new Rate(100, 100)), same(new Rate(100, 20)), 100, 0, 60_000, 100);
+		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
+
+		assertThat(IntStream.range(0, 20).filter(n -> limiter.allow("a" + n, Kind.CONSENSUS, false)).count(),
+			equalTo(5L));
+		assertThat(IntStream.range(0, 100).filter(n -> limiter.allow("b" + n, Kind.CONSENSUS, true)).count(),
+			equalTo(100L));
+		assertThat(IntStream.range(0, 100).filter(n -> limiter.allow("c" + n, Kind.CONSENSUS)).count(),
+			equalTo(0L));
+	}
+
+	@Example
+	public void shouldChargeJunkToTheOwnBucketOfItsSenderWhateverTheSharedBucketOfJunkSays() {
+		final Policy policy = new Policy(same(new Rate(10, 1)), same(new Rate(100, 20)), 5, 0, 60_000, 100);
+		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
+
+		IntStream.range(0, 20).forEach(n -> limiter.allow("flooder", Kind.CONSENSUS, false));
+
+		assertThat(limiter.isPenalised("flooder"), is(true));
+	}
+
+	@Example
+	public void shouldLeaveTheOwnBucketOfAPeerAloneWhenOnlyTheSharedBucketOfWhatIsPlausibleRefuses() {
+		final Policy policy = new Policy(same(new Rate(10, 1)), same(new Rate(5, 1)), 5, 0, 60_000, 100);
+		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
+
+		IntStream.range(0, 5).forEach(n -> limiter.allow("other" + n, Kind.CONSENSUS, true));
+
+		assertThat(granted(limiter, "a", Kind.CONSENSUS, 20), equalTo(0));
+		assertThat(limiter.isPenalised("a"), is(false));
+	}
+
+	@Example
+	public void shouldCountEachPenaltyAndEachEndOfOneAndNameThePeersThatArePenalised() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 100));
+		final long before = limiter.penaltyEpoch();
+
+		limiter.ban("a");
+		limiter.ban("b");
+
+		assertThat(limiter.penaltyEpoch(), equalTo(before + 2));
+		assertThat(limiter.penalisedIds(), equalTo(Set.of("a", "b")));
+
+		clock.addAndGet(60_000);
+
+		assertThat(limiter.penalisedIds().isEmpty(), is(true));
+		assertThat(limiter.penaltyEpoch(), equalTo(before + 4));
+		assertThat(limiter.penaltyEpoch(), equalTo(before + 4));
 	}
 
 	/* The rates in the order of the kinds: transaction, heartbeat, consensus, status and block request */

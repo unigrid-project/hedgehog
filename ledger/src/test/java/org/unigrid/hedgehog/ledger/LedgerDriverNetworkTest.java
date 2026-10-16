@@ -562,7 +562,7 @@ public class LedgerDriverNetworkTest {
 			final long height = forked.ledger().height();
 			final Block rival = conflictingTip(network, forked.ledger());
 
-			forked.driver().onMessage(new Visitor("X"), new Decision(rival));
+			forked.driver().onMessage(new Visitor("X"), new Decision(rival), DriverRig.FRAME);
 
 			assertThat(forked.driver().halted(), is(true));
 			assertThat(forked.driver().haltReason().orElse(""),
@@ -582,7 +582,7 @@ public class LedgerDriverNetworkTest {
 
 			network.connect(joiner.index(), forked.index());
 			joiner.start();
-			joiner.driver().onStatus(joiner.peerOf(forked.index()), forked.ledger().status());
+			joiner.driver().onStatus(joiner.peerOf(forked.index()), forked.ledger().status(), DriverRig.FRAME);
 
 			assertThat(network.runUntil(() -> joiner.ledger().height() == height, network.now() + TEN_SECONDS),
 				is(true));
@@ -733,8 +733,8 @@ public class LedgerDriverNetworkTest {
 
 			hostile.forEach(victim::attach);
 			hammer(network, Kind.TRANSACTION, FLOOD_MILLIS,
-				n -> victim.driver().onTransaction(spammer, farAhead.get(n % farAhead.size())));
-			hammer(network, Kind.CONSENSUS, FLOOD_MILLIS, n -> victim.driver().onMessage(chatterer, chatter));
+				n -> victim.driver().onTransaction(spammer, farAhead.get(n % farAhead.size()), DriverRig.FRAME));
+			hammer(network, Kind.CONSENSUS, FLOOD_MILLIS, n -> victim.driver().onMessage(chatterer, chatter, DriverRig.FRAME));
 			hammer(network, Kind.BLOCK_REQUEST, FLOOD_MILLIS, n -> answered(victim, asker, served));
 
 			for (int n = 0; n < 3; n++) {
@@ -763,7 +763,7 @@ public class LedgerDriverNetworkTest {
 
 			network.run(floodStart + 30 * SECOND);
 			hammer(network, Kind.TRANSACTION, SECOND / 5,
-				n -> victim.driver().onTransaction(spammer, farAhead.get(n % farAhead.size())));
+				n -> victim.driver().onTransaction(spammer, farAhead.get(n % farAhead.size()), DriverRig.FRAME));
 			hammer(network, Kind.BLOCK_REQUEST, SECOND / 5, n -> answered(victim, asker, served));
 			network.run(floodStart + 59 * SECOND);
 
@@ -782,7 +782,8 @@ public class LedgerDriverNetworkTest {
 	}
 
 	private static void answered(Station victim, Visitor asker, AtomicInteger served) {
-		final CompletableFuture<BlockBatch> reply = victim.driver().onBlockRequest(asker, new BlockRequest(1, 16));
+		final CompletableFuture<BlockBatch> reply = victim.driver().onBlockRequest(asker, new BlockRequest(1, 16),
+			DriverRig.FRAME);
 
 		if (reply.isDone() && !reply.isCompletedExceptionally()) {
 			served.incrementAndGet();
@@ -808,7 +809,7 @@ public class LedgerDriverNetworkTest {
 
 			final Decision decision = new Decision(nextBlock(rival, network.validators(), network.now()));
 
-			network.station(0).driver().onMessage(new Visitor("X"), decision);
+			network.station(0).driver().onMessage(new Visitor("X"), decision, DriverRig.FRAME);
 
 			assertThat(network.runUntil(() -> everyHeightIs(network, 2), network.now() + TEN_SECONDS), is(true));
 

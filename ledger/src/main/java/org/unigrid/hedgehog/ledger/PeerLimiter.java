@@ -25,6 +25,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /* What one peer may ask of this node. A peer has a bucket of tokens for each kind of message and a score that
@@ -51,6 +52,9 @@ public final class PeerLimiter {
 	private static final long POINT = 60_000;
 	private static final long MILLIPOINT_PER_POINT = 1000;
 
+	/* The one bucket that junk shares is kept under this kind, for it is the same for all */
+	private static final Kind JUNK = Kind.CONSENSUS;
+
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
 	}
@@ -76,6 +80,7 @@ public final class PeerLimiter {
 		private static final int HEARTBEAT_SECONDS = 10;
 		private static final int BLOCKS_PER_SECOND = 5;
 		private static final int COPIES = 9;
+		private static final int JUNK_PERCENT = 5;
 
 		public static final Policy DEFAULT = new Policy(
 			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
@@ -147,6 +152,15 @@ public final class PeerLimiter {
 				DEFAULT.penaltyMillis(), DEFAULT.maxPeers(), REFUSAL_OF_A_NETWORK);
 		}
 
+		/* What all the items that are junk may take together, whatever their kind: a twentieth of what is shared
+		   for the messages of the engine, which is where the junk that costs the most comes from */
+		public Rate junk() {
+			final Rate engine = global.get(Kind.CONSENSUS);
+
+			return new Rate(Math.max(1, engine.capacity() * JUNK_PERCENT / 100),
+				Math.max(1, engine.refillPerSecond() * JUNK_PERCENT / 100));
+		}
+
 		/* The refill asked for, or the one of the floor if that is more, and room for four seconds of it */
 		private static Rate burstable(Rate floor, long refill) {
 			final int rate = Math.toIntExact(Math.max(floor.refillPerSecond(), refill));
@@ -188,6 +202,8 @@ public final class PeerLimiter {
 	private final Map<String, Peer> active = new LinkedHashMap<>();
 	private final Map<String, Long> penalised = new LinkedHashMap<>();
 	private final Map<Kind, Bucket> shared = new EnumMap<>(Kind.class);
+	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
+	private long epoch;
 	private long lastReading;
 	private long time;
 	private long inspected;
@@ -201,6 +217,15 @@ public final class PeerLimiter {
 	/* A refusal because the peer has used up its own bucket costs it score and takes nothing from the shared one.
 	   A refusal because the shared bucket is empty costs it neither: it took no more than it may. */
 	public boolean allow(String id, Kind kind) {
+		return allow(id, kind, true);
+	}
+
+	/* What the door could not take for plausible takes its token from the one bucket that all of it shares, a small
+	   one, and not from the bucket of its kind: it cannot empty what the plausible items of that kind need. It costs
+	   the sender a token of its own bucket whether that small bucket has room or not, so that a sender of junk
+	   that outruns its own rate is refused for it and scored, and the peers that send junk at a rate of their own
+	   are only refused. */
+	public boolean allow(String id, Kind kind, boolean plausible) {
 		final long now = advance();
 
 		if (penalised(id, now)) {
@@ -209,20 +234,29 @@ public final class PeerLimiter {
 
 		final Peer peer = track(id, now);
 		final Bucket own = refilled(peer.buckets, kind, policy.rates().get(kind), now);
-		final Bucket everyone = refilled(shared, kind, policy.global().get(kind), now);
+		final Bucket everyone = plausible ? refilled(shared, kind, policy.global().get(kind), now)
+			: refilled(junk, JUNK, policy.junk(), now);
 
 		if (own.millitokens < TOKEN) {
 			raise(id, peer, policy.refusalCostMillipoints() * (POINT / MILLIPOINT_PER_POINT), now);
 			return false;
 		}
 
-		if (everyone.millitokens < TOKEN) {
-			return false;
+		return spend(own, everyone, plausible);
+	}
+
+	private static boolean spend(Bucket own, Bucket everyone, boolean plausible) {
+		final boolean room = everyone.millitokens >= TOKEN;
+
+		if (room || !plausible) {
+			own.millitokens -= TOKEN;
 		}
 
-		own.millitokens -= TOKEN;
-		everyone.millitokens -= TOKEN;
-		return true;
+		if (room) {
+			everyone.millitokens -= TOKEN;
+		}
+
+		return room;
 	}
 
 	public void misbehaved(String id, int weight) {
@@ -251,6 +285,19 @@ public final class PeerLimiter {
 	   penalty, and one never seen. Nothing is held against a peer once it is forgotten. */
 	public boolean isPenalised(String id) {
 		return penalised(id, advance());
+	}
+
+	/* The ids that are penalised now, at most half of the peers that are kept, as a copy that the caller may keep */
+	public Set<String> penalisedIds() {
+		expire(advance());
+		return Set.copyOf(penalised.keySet());
+	}
+
+	/* A number that changes whenever a peer is penalised or a penalty ends, so that a caller that keeps the ids can
+	   tell when to ask for them again */
+	public long penaltyEpoch() {
+		expire(advance());
+		return epoch;
 	}
 
 	int tracked() {
@@ -290,6 +337,7 @@ public final class PeerLimiter {
 			}
 
 			ends.remove();
+			epoch++;
 		}
 	}
 
@@ -334,6 +382,7 @@ public final class PeerLimiter {
 		}
 
 		penalised.put(id, saturatedSum(now, policy.penaltyMillis()));
+		epoch++;
 	}
 
 	/* The score never goes below 0. Past the time it takes to reach 0 the product is never taken. */

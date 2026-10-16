@@ -34,6 +34,6 @@ public class LedgerHeartbeatChannelHandler extends AbstractLedgerHandler<LedgerH
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerHeartbeat packet) {
 
-		gateway.onHeartbeat(from, packet.getHeartbeat());
+		gateway.onHeartbeat(from, packet.getHeartbeat(), sizeOf(ctx));
 	}
 }

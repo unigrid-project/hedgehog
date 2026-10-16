@@ -74,12 +74,12 @@ final class DriverLink implements LedgerPeer {
 	@Override
 	public void send(Object wire) {
 		switch (wire) {
-			case Transaction transaction -> target.onTransaction(back, transaction);
-			case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat);
+			case Transaction transaction -> target.onTransaction(back, transaction, DriverRig.FRAME);
+			case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat, DriverRig.FRAME);
 			case Message message -> deliver(message);
 			case Status status -> {
 				statuses.incrementAndGet();
-				target.onStatus(back, status);
+				target.onStatus(back, status, DriverRig.FRAME);
 			}
 			default -> throw new IllegalArgumentException("Not a wire object: " + wire);
 		}
@@ -87,15 +87,15 @@ final class DriverLink implements LedgerPeer {
 
 	private void deliver(Message message) {
 		if (scheduler == null) {
-			target.onMessage(back, message);
+			target.onMessage(back, message, DriverRig.FRAME);
 		} else {
-			scheduler.schedule(() -> target.onMessage(back, message), lagMillis);
+			scheduler.schedule(() -> target.onMessage(back, message, DriverRig.FRAME), lagMillis);
 		}
 	}
 
 	@Override
 	public CompletableFuture<BlockBatch> request(BlockRequest request) {
 		requests.incrementAndGet();
-		return target.onBlockRequest(back, request);
+		return target.onBlockRequest(back, request, DriverRig.FRAME);
 	}
 }

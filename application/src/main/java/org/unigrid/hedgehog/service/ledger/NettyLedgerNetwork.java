@@ -112,6 +112,13 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 		return List.copyOf(byId.values());
 	}
 
+	/* The driver asks for the connections of a peer it has penalised to be closed. Nothing is closed yet: the next
+	   round fills this in, closing the streams of that id, those that speak and those that only listen. */
+	@Override
+	public void disconnect(final String peerId) {
+		/* Closes nothing until the next round */
+	}
+
 	/* Whether the connection of the stream settled on the ledger protocol: the capability gate of the ledger */
 	public boolean speaks(final Channel stream) {
 		return negotiated.test(stream);

@@ -34,6 +34,6 @@ public class LedgerStatusChannelHandler extends AbstractLedgerHandler<LedgerStat
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerStatus packet) {
 
-		gateway.onStatus(from, packet.getStatus());
+		gateway.onStatus(from, packet.getStatus(), sizeOf(ctx));
 	}
 }

@@ -41,7 +41,7 @@ public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<Ledg
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerBlockRequest packet) {
 
-		gateway.onBlockRequest(from, packet.getRequest()).thenAccept(batch -> {
+		gateway.onBlockRequest(from, packet.getRequest(), sizeOf(ctx)).thenAccept(batch -> {
 			if (!ctx.channel().isWritable()) {
 				log.atDebug().addArgument(from::id)
 					.log("Left a block request of {} unanswered: its stream is backed up");

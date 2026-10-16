@@ -76,6 +76,7 @@ final class RecordingNetwork implements LedgerNetwork {
 
 	private final List<LedgerPeer> peers = new CopyOnWriteArrayList<>();
 	private final Set<String> threads = ConcurrentHashMap.newKeySet();
+	private final List<String> disconnected = new CopyOnWriteArrayList<>();
 	private volatile RuntimeException refusal;
 
 	/* From now on the list of peers cannot be had, as when the network under it has failed */
@@ -106,6 +107,16 @@ final class RecordingNetwork implements LedgerNetwork {
 
 	Set<String> threads() {
 		return threads;
+	}
+
+	/* The ids that the driver asked to have disconnected, in order */
+	List<String> disconnected() {
+		return List.copyOf(disconnected);
+	}
+
+	@Override
+	public void disconnect(String peerId) {
+		disconnected.add(peerId);
 	}
 
 	@Override

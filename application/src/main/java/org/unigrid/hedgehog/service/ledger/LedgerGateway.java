@@ -92,24 +92,27 @@ public class LedgerGateway {
 		return network.speakerOf(channel, remote);
 	}
 
-	public void onTransaction(final LedgerPeer from, final Transaction transaction) {
-		ifAttached(attached -> attached.onTransaction(from, transaction));
+	/* `bytes` in what follows is the size of the frame that the packet came in */
+	public void onTransaction(final LedgerPeer from, final Transaction transaction, final int bytes) {
+		ifAttached(attached -> attached.onTransaction(from, transaction, bytes));
 	}
 
-	public void onMessage(final LedgerPeer from, final Message message) {
-		ifAttached(attached -> attached.onMessage(from, message));
+	public void onMessage(final LedgerPeer from, final Message message, final int bytes) {
+		ifAttached(attached -> attached.onMessage(from, message, bytes));
 	}
 
-	public void onHeartbeat(final LedgerPeer from, final Heartbeat heartbeat) {
-		ifAttached(attached -> attached.onHeartbeat(from, heartbeat));
+	public void onHeartbeat(final LedgerPeer from, final Heartbeat heartbeat, final int bytes) {
+		ifAttached(attached -> attached.onHeartbeat(from, heartbeat, bytes));
 	}
 
-	public void onStatus(final LedgerPeer from, final Status status) {
-		ifAttached(attached -> attached.onStatus(from, status));
+	public void onStatus(final LedgerPeer from, final Status status, final int bytes) {
+		ifAttached(attached -> attached.onStatus(from, status, bytes));
 	}
 
 	/* A request nobody answers gets no reply, which is what the driver does with one it refuses */
-	public CompletableFuture<BlockBatch> onBlockRequest(final LedgerPeer from, final BlockRequest request) {
+	public CompletableFuture<BlockBatch> onBlockRequest(final LedgerPeer from, final BlockRequest request,
+		final int bytes) {
+
 		final LedgerDriver attached = driver;
 
 		if (attached == null) {
@@ -117,7 +120,7 @@ public class LedgerGateway {
 		}
 
 		try {
-			return attached.onBlockRequest(from, request);
+			return attached.onBlockRequest(from, request, bytes);
 		} catch (RejectedExecutionException ex) {
 			log.atDebug().log("Dropped a block request: the ledger takes no more");
 			return CompletableFuture.failedFuture(ex);

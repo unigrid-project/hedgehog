@@ -34,6 +34,6 @@ public class LedgerConsensusChannelHandler extends AbstractLedgerHandler<LedgerC
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerConsensus packet) {
 
-		gateway.onMessage(from, packet.getMessage());
+		gateway.onMessage(from, packet.getMessage(), sizeOf(ctx));
 	}
 }

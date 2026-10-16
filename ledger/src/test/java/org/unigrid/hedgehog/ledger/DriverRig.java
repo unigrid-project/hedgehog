@@ -45,6 +45,9 @@ final class DriverRig implements AutoCloseable {
 	static final int PER_PEER = 100;
 	static final long GRACE = 7_777;
 
+	/* The size of the frame of any item a test passes to the driver, where the size is not what it is about */
+	static final int FRAME = 200;
+
 	/* What the driver is given to order the peers that claim to be ahead, so that a test asks them in the same order each
 	   time */
 	static final long SALT = 17;
@@ -267,7 +270,7 @@ final class DriverRig implements AutoCloseable {
 			network.add(peer);
 		}
 
-		driver.onStatus(peer, status);
+		driver.onStatus(peer, status, FRAME);
 	}
 
 	/* The grace period of a driver ends: the timer that was set for it fires */

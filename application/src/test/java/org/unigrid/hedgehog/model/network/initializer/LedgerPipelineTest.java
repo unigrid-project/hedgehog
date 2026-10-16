@@ -88,23 +88,25 @@ public class LedgerPipelineTest extends BaseServerTest {
 		calls.clear();
 		answer = CompletableFuture.completedFuture(BATCH);
 		new MockUp<LedgerDriver>() {
-			@Mock public void onTransaction(LedgerPeer from, Transaction transaction) {
+			@Mock public void onTransaction(LedgerPeer from, Transaction transaction, int bytes) {
 				calls.add(new Call("onTransaction", from, transaction));
 			}
 
-			@Mock public void onMessage(LedgerPeer from, Message message) {
+			@Mock public void onMessage(LedgerPeer from, Message message, int bytes) {
 				calls.add(new Call("onMessage", from, message));
 			}
 
-			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
+			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat, int bytes) {
 				calls.add(new Call("onHeartbeat", from, heartbeat));
 			}
 
-			@Mock public void onStatus(LedgerPeer from, Status status) {
+			@Mock public void onStatus(LedgerPeer from, Status status, int bytes) {
 				calls.add(new Call("onStatus", from, status));
 			}
 
-			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
+			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request,
+				int bytes) {
+
 				calls.add(new Call("onBlockRequest", from, request));
 				return answer;
 			}

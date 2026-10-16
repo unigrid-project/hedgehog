@@ -444,12 +444,12 @@ public class LedgerDriverSyncTest {
 			final RecordingPeer watcher = rig.network.connect("W");
 			final RecordingPeer proposer = rig.network.connect("P");
 
-			rig.driver.onMessage(proposer, rig.proposal());
+			rig.driver.onMessage(proposer, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(votesOf(watcher, 2), is(empty()));
 
 			rig.passGrace();
-			rig.driver.onMessage(proposer, rig.proposal());
+			rig.driver.onMessage(proposer, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(votesOf(watcher, 2), hasSize(1));
 		}
@@ -517,7 +517,7 @@ public class LedgerDriverSyncTest {
 			final RecordingPeer live = rig.network.connect("L");
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(live, new Decision(chain.block(1)));
+			rig.driver.onMessage(live, new Decision(chain.block(1)), DriverRig.FRAME);
 
 			assertThat(rig.ledger().height(), equalTo(1L));
 
@@ -668,8 +668,8 @@ public class LedgerDriverSyncTest {
 			final RecordingPeer live = rig.network.connect("L");
 
 			rig.hears(stale, stale.status());
-			rig.driver.onMessage(live, new Decision(chain.block(1)));
-			rig.driver.onMessage(live, new Decision(chain.block(2)));
+			rig.driver.onMessage(live, new Decision(chain.block(1)), DriverRig.FRAME);
+			rig.driver.onMessage(live, new Decision(chain.block(2)), DriverRig.FRAME);
 			stale.release();
 
 			assertThat(rig.limiter.isPenalised("S"), is(false));
@@ -761,8 +761,8 @@ public class LedgerDriverSyncTest {
 			DriverRig rig = freshBelow(new Checkpoint(2, other.block(2).hash()))) {
 			final RecordingPeer live = rig.network.connect("L");
 
-			rig.driver.onMessage(live, new Decision(chain.block(1)));
-			rig.driver.onMessage(live, new Decision(chain.block(2)));
+			rig.driver.onMessage(live, new Decision(chain.block(1)), DriverRig.FRAME);
+			rig.driver.onMessage(live, new Decision(chain.block(2)), DriverRig.FRAME);
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Block 2 differs from the trusted checkpoint")));
 			assertThat(rig.ledger().height(), equalTo(1L));
@@ -795,11 +795,11 @@ public class LedgerDriverSyncTest {
 			final Ballot late = Ballot.signed(Ballot.Type.PREVOTE, seed(4), chain.ledger.chainId(), 4, 0, null);
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(other, early);
+			rig.driver.onMessage(other, early, DriverRig.FRAME);
 
 			assertThat(watcher.sent(Ballot.class), hasItem(early));
 
-			rig.driver.onMessage(other, new Decision(fork.block(2)));
+			rig.driver.onMessage(other, new Decision(fork.block(2)), DriverRig.FRAME);
 
 			final int said = watcher.sent().size();
 
@@ -807,12 +807,12 @@ public class LedgerDriverSyncTest {
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Two certified blocks at height 2")));
 			assertThat(rig.ledger().height(), equalTo(3L));
 
-			rig.driver.onMessage(other, late);
-			rig.driver.onTransaction(other, mint(9, 10));
+			rig.driver.onMessage(other, late, DriverRig.FRAME);
+			rig.driver.onTransaction(other, mint(9, 10), DriverRig.FRAME);
 			rig.hears(other, server.status());
 
 			assertThat(watcher.sent(), hasSize(said));
-			assertThat(rig.driver.onBlockRequest(other, new BlockRequest(1, 16)).join().blocks(),
+			assertThat(rig.driver.onBlockRequest(other, new BlockRequest(1, 16), DriverRig.FRAME).join().blocks(),
 				equalTo(chain.ledger.blocksFrom(1, 16)));
 		}
 	}
@@ -823,7 +823,7 @@ public class LedgerDriverSyncTest {
 			final Server server = new Server("S", chain);
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(rig.network.connect("O"), new Decision(fork.block(3)));
+			rig.driver.onMessage(rig.network.connect("O"), new Decision(fork.block(3)), DriverRig.FRAME);
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Two certified blocks at height 3")));
 		}
@@ -846,14 +846,14 @@ public class LedgerDriverSyncTest {
 			for (int n = 0; n < forged.size(); n++) {
 				final RecordingPeer sender = rig.network.connect("O" + n);
 
-				rig.driver.onMessage(sender, new Decision(forged.get(n)));
+				rig.driver.onMessage(sender, new Decision(forged.get(n)), DriverRig.FRAME);
 
 				assertThat(rig.limiter.isPenalised("O" + n), is(true));
 			}
 
 			assertThat(rig.driver.halted(), is(false));
 
-			rig.driver.onMessage(rig.network.connect("G"), new Decision(certified));
+			rig.driver.onMessage(rig.network.connect("G"), new Decision(certified), DriverRig.FRAME);
 
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.limiter.isPenalised("G"), is(false));
@@ -866,7 +866,7 @@ public class LedgerDriverSyncTest {
 			DriverRig rig = startedOver(chain, 3, null, TOUCHY)) {
 			final RecordingPeer sender = rig.network.connect("O");
 
-			rig.driver.onMessage(sender, new Decision(other.block(4)));
+			rig.driver.onMessage(sender, new Decision(other.block(4)), DriverRig.FRAME);
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Chain diverged at 4")));
 			assertThat(rig.limiter.isPenalised("O"), is(false));
@@ -895,7 +895,7 @@ public class LedgerDriverSyncTest {
 			DriverRig rig = startedOver(chain, 3, null, DriverRig.STRICT)) {
 			final RecordingPeer sender = rig.network.connect("O");
 
-			rig.driver.onMessage(sender, new Decision(spoiled(other.block(4))));
+			rig.driver.onMessage(sender, new Decision(spoiled(other.block(4))), DriverRig.FRAME);
 
 			assertThat(rig.driver.halted(), is(false));
 			assertThat(rig.limiter.isPenalised("O"), is(true));
@@ -910,7 +910,7 @@ public class LedgerDriverSyncTest {
 			final RecordingPeer live = rig.network.connect("L");
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(live, new Decision(chain.block(1)));
+			rig.driver.onMessage(live, new Decision(chain.block(1)), DriverRig.FRAME);
 			server.release();
 
 			assertThat(rig.driver.halted(), is(false));
@@ -965,7 +965,7 @@ public class LedgerDriverSyncTest {
 			final int said = watcher.sent().size();
 
 			for (long height = 1; height <= 3; height++) {
-				rig.driver.onMessage(other, new Decision(chain.block(height)));
+				rig.driver.onMessage(other, new Decision(chain.block(height)), DriverRig.FRAME);
 			}
 
 			assertThat(rig.driver.halted(), is(false));
@@ -982,7 +982,7 @@ public class LedgerDriverSyncTest {
 			final RecordingPeer live = rig.network.connect("L");
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(live, new Decision(chain.block(1)));
+			rig.driver.onMessage(live, new Decision(chain.block(1)), DriverRig.FRAME);
 			server.release();
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("Two certified blocks at height 1")));
@@ -999,7 +999,7 @@ public class LedgerDriverSyncTest {
 			final Server ahead = new Server("A", longer);
 
 			rig.hears(server, server.status());
-			rig.driver.onMessage(rig.network.connect("O"), new Decision(fork.block(2)));
+			rig.driver.onMessage(rig.network.connect("O"), new Decision(fork.block(2)), DriverRig.FRAME);
 			rig.hears(ahead, ahead.status());
 			rig.tick(DriverRig.TICK);
 
@@ -1066,7 +1066,7 @@ public class LedgerDriverSyncTest {
 			assertThat(rig.built, equalTo(List.of(false)));
 
 			for (long height = 1; height <= 3; height++) {
-				rig.driver.onMessage(live, new Decision(chain.block(height)));
+				rig.driver.onMessage(live, new Decision(chain.block(height)), DriverRig.FRAME);
 			}
 
 			assertThat(rig.built, equalTo(List.of(false)));
@@ -2090,13 +2090,13 @@ public class LedgerDriverSyncTest {
 
 			rig.hears(server, server.status());
 
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).join().blocks(),
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16), DriverRig.FRAME).join().blocks(),
 				equalTo(chain.ledger.blocksFrom(1, 16)));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(39, 16)).join().blocks(),
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(39, 16), DriverRig.FRAME).join().blocks(),
 				equalTo(chain.ledger.blocksFrom(39, 16)));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(39, 16)).join().blocks(), hasSize(2));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(41, 16)).join().blocks(), is(empty()));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(Long.MAX_VALUE, 16)).join().blocks(),
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(39, 16), DriverRig.FRAME).join().blocks(), hasSize(2));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(41, 16), DriverRig.FRAME).join().blocks(), is(empty()));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(Long.MAX_VALUE, 16), DriverRig.FRAME).join().blocks(),
 				is(empty()));
 		}
 	}
@@ -2104,7 +2104,7 @@ public class LedgerDriverSyncTest {
 	@Example
 	public void shouldAnswerABlockRequestWithNothingBeforeItHasAnyBlock() throws IOException {
 		try (DriverRig rig = fresh()) {
-			assertThat(rig.driver.onBlockRequest(rig.network.connect("Q"), new BlockRequest(1, 16)).join().blocks(),
+			assertThat(rig.driver.onBlockRequest(rig.network.connect("Q"), new BlockRequest(1, 16), DriverRig.FRAME).join().blocks(),
 				is(empty()));
 		}
 	}
@@ -2121,7 +2121,7 @@ public class LedgerDriverSyncTest {
 			final List<CompletableFuture<BlockBatch>> answers = new ArrayList<>();
 
 			for (int sent = 0; sent < 20; sent++) {
-				answers.add(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)));
+				answers.add(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16), DriverRig.FRAME));
 			}
 
 			assertThat(answers.stream().filter(CompletableFuture::isCompletedExceptionally).count(), equalTo(15L));
@@ -2290,13 +2290,13 @@ public class LedgerDriverSyncTest {
 			rig.driver.halt("second");
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("first")));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).join().blocks(), hasSize(3));
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16), DriverRig.FRAME).join().blocks(), hasSize(3));
 
 			rig.driver.close();
 			rig.driver.halt("late");
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("first")));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).isCompletedExceptionally(),
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16), DriverRig.FRAME).isCompletedExceptionally(),
 				is(true));
 		}
 	}
@@ -2310,7 +2310,7 @@ public class LedgerDriverSyncTest {
 			rig.driver.halt("late");
 
 			assertThat(rig.driver.haltReason(), equalTo(Optional.of("late")));
-			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16)).isCompletedExceptionally(),
+			assertThat(rig.driver.onBlockRequest(asker, new BlockRequest(1, 16), DriverRig.FRAME).isCompletedExceptionally(),
 				is(true));
 		}
 	}
@@ -2349,7 +2349,7 @@ public class LedgerDriverSyncTest {
 			rig.passGrace();
 			rig.hears(server, server.status());
 			rig.failSaves(new IllegalStateException("The store is broken"));
-			rig.driver.onMessage(a, rig.proposal());
+			rig.driver.onMessage(a, rig.proposal(), DriverRig.FRAME);
 
 			assertThat(rig.built, equalTo(List.of(false, true, true)));
 			assertThat(rig.driver.syncing(), is(true));
@@ -2442,7 +2442,7 @@ public class LedgerDriverSyncTest {
 			assertThat(rig.driver.syncing(), is(true));
 
 			rig.network.refuse(new IllegalStateException("The network failed"));
-			rig.driver.onTransaction(a, mint(1, 500));
+			rig.driver.onTransaction(a, mint(1, 500), DriverRig.FRAME);
 
 			assertThat(rig.driver.halted(), is(true));
 			assertThat(rig.driver.syncing(), is(false));
@@ -2626,7 +2626,7 @@ public class LedgerDriverSyncTest {
 		final long next = rig.ledger().height() + 1;
 
 		if (next <= chain.ledger.height()) {
-			rig.driver.onMessage(peer, new Decision(chain.block(next)));
+			rig.driver.onMessage(peer, new Decision(chain.block(next)), DriverRig.FRAME);
 		}
 	}
 
@@ -2722,7 +2722,8 @@ public class LedgerDriverSyncTest {
 		final List<Chain> chains = List.copyOf(PROPERTY_CHAINS);
 		final Optional<Checkpoint> checkpoint = checkpointOf(script, chains);
 		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
-			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint, PROPERTY_TIMEOUT);
+			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint, PROPERTY_TIMEOUT,
+			DriverOptions.DEFAULT_QUEUED_BYTES, DriverOptions.DEFAULT_QUEUED_BYTES_PER_PEER);
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
 			final AtomicLong stamps = new AtomicLong();

@@ -136,12 +136,14 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 	@Inject private PendingRequests pending;
 
 	private final List<Call> calls = new ArrayList<>();
+	private final List<Integer> sizes = new ArrayList<>();
 	private CompletableFuture<BlockBatch> answer;
 	private RuntimeException failure;
 
 	@BeforeTry
 	public void attachAStubDriver() {
 		calls.clear();
+		sizes.clear();
 		failure = null;
 		answer = CompletableFuture.completedFuture(LedgerWireFixtures.emptyBatch());
 		recordTheCallsOfADriver();
@@ -160,26 +162,33 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		calls.add(new Call(method, from, argument));
 	}
 
+	private void record(final String method, final LedgerPeer from, final Object argument, final int bytes) {
+		record(method, from, argument);
+		sizes.add(bytes);
+	}
+
 	private void recordTheCallsOfADriver() {
 		new MockUp<LedgerDriver>() {
-			@Mock public void onTransaction(LedgerPeer from, Transaction transaction) {
-				record("onTransaction", from, transaction);
+			@Mock public void onTransaction(LedgerPeer from, Transaction transaction, int bytes) {
+				record("onTransaction", from, transaction, bytes);
 			}
 
-			@Mock public void onMessage(LedgerPeer from, Message message) {
-				record("onMessage", from, message);
+			@Mock public void onMessage(LedgerPeer from, Message message, int bytes) {
+				record("onMessage", from, message, bytes);
 			}
 
-			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
-				record("onHeartbeat", from, heartbeat);
+			@Mock public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat, int bytes) {
+				record("onHeartbeat", from, heartbeat, bytes);
 			}
 
-			@Mock public void onStatus(LedgerPeer from, Status status) {
-				record("onStatus", from, status);
+			@Mock public void onStatus(LedgerPeer from, Status status, int bytes) {
+				record("onStatus", from, status, bytes);
 			}
 
-			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
-				record("onBlockRequest", from, request);
+			@Mock public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request,
+				int bytes) {
+
+				record("onBlockRequest", from, request, bytes);
 				return answer;
 			}
 
@@ -259,6 +268,24 @@ public class LedgerPipelineHandlerTest extends BaseMockedWeldTest {
 		assertThat(calls.stream().map(call -> call.from().id()).distinct().toList(), contains(address));
 		assertThat(calls.stream().map(Call::from).distinct().count(), is(1L));
 		assertThat(calls.get(0).from(), sameInstance(gateway.peerOf(channel, () -> RemoteAddress.of(channel))));
+	}
+
+	@Property(tries = 10)
+	public void passesTheSizeOfTheFrameOfEachPacketToTheDriver(@ForAll("addresses") String address,
+		@ForAll @IntRange(min = 0, max = 100) int seed) {
+
+		final EmbeddedChannel channel = streamFrom(address);
+		final List<Integer> bodies = IntStream.range(0, KINDS).mapToObj(kind -> {
+			final ByteBuf frame = frameOfKind(kind, seed);
+			final int body = frame.readableBytes() - LedgerWireFixtures.FRAME_HEADER_SIZE;
+
+			frame.release();
+			return body;
+		}).toList();
+
+		sendAllKinds(channel, seed);
+
+		assertThat(sizes, equalTo(bodies));
 	}
 
 	@Example

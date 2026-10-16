@@ -209,24 +209,26 @@ public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 
 	private void recordTheCallsOfTheDrivers() {
 		new MockUp<LedgerDriver>() {
-			@Mock public void onTransaction(Invocation invocation, LedgerPeer from, Transaction transaction) {
+			@Mock public void onTransaction(Invocation invocation, LedgerPeer from, Transaction transaction,
+				int bytes) {
+
 				record(invocation, "onTransaction", from, transaction);
 			}
 
-			@Mock public void onMessage(Invocation invocation, LedgerPeer from, Message message) {
+			@Mock public void onMessage(Invocation invocation, LedgerPeer from, Message message, int bytes) {
 				record(invocation, "onMessage", from, message);
 			}
 
-			@Mock public void onHeartbeat(Invocation invocation, LedgerPeer from, Heartbeat heartbeat) {
+			@Mock public void onHeartbeat(Invocation invocation, LedgerPeer from, Heartbeat heartbeat, int bytes) {
 				record(invocation, "onHeartbeat", from, heartbeat);
 			}
 
-			@Mock public void onStatus(Invocation invocation, LedgerPeer from, Status status) {
+			@Mock public void onStatus(Invocation invocation, LedgerPeer from, Status status, int bytes) {
 				record(invocation, "onStatus", from, status);
 			}
 
 			@Mock public CompletableFuture<BlockBatch> onBlockRequest(Invocation invocation, LedgerPeer from,
-				BlockRequest request) {
+				BlockRequest request, int bytes) {
 
 				record(invocation, "onBlockRequest", from, request);
 				return CompletableFuture.completedFuture(LedgerWireFixtures.emptyBatch());

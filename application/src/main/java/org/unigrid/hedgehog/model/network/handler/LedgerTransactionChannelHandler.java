@@ -34,6 +34,6 @@ public class LedgerTransactionChannelHandler extends AbstractLedgerHandler<Ledge
 	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
 		final LedgerTransaction packet) {
 
-		gateway.onTransaction(from, packet.getTransaction());
+		gateway.onTransaction(from, packet.getTransaction(), sizeOf(ctx));
 	}
 }

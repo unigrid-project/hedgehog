@@ -137,10 +137,10 @@ final class MemoryNetwork implements AutoCloseable {
 				final LedgerDriver target = remote.driver;
 
 				switch (wire) {
-					case Transaction transaction -> target.onTransaction(back, transaction);
-					case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat);
-					case Message message -> target.onMessage(back, message);
-					case Status status -> target.onStatus(back, status);
+					case Transaction transaction -> target.onTransaction(back, transaction, DriverRig.FRAME);
+					case Heartbeat heartbeat -> target.onHeartbeat(back, heartbeat, DriverRig.FRAME);
+					case Message message -> target.onMessage(back, message, DriverRig.FRAME);
+					case Status status -> target.onStatus(back, status, DriverRig.FRAME);
 					default -> throw new IllegalArgumentException("Not a wire object: " + wire);
 				}
 			}
@@ -149,7 +149,7 @@ final class MemoryNetwork implements AutoCloseable {
 		/* A request that the other side refuses is not answered, so the requester waits for its timeout */
 		private void serve(BlockRequest request, CompletableFuture<BlockBatch> reply) {
 			if (connected()) {
-				remote.driver.onBlockRequest(back, request).thenAccept(batch -> answer(batch, reply));
+				remote.driver.onBlockRequest(back, request, DriverRig.FRAME).thenAccept(batch -> answer(batch, reply));
 			}
 		}
 

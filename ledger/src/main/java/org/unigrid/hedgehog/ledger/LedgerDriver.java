@@ -38,6 +38,7 @@ import java.util.stream.LongStream;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.Action.Decide;
 import org.unigrid.hedgehog.ledger.Action.Schedule;
+import org.unigrid.hedgehog.ledger.Door.Admission;
 import org.unigrid.hedgehog.ledger.Gossip.Receipt;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
@@ -70,7 +71,14 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 
    Everything that goes out is sent by the engine's own order or because the node took the item in as new, and never
    back to the peer it came from. Every peer is limited before any work is done for it, except that the answer to a
-   request of the driver's own takes no token: there is one such request out at a time. */
+   request of the driver's own takes no token: there is one such request out at a time.
+
+   What peers send is sorted at the door (Door), on the thread of whoever brings it, by what the driver published
+   after its last turn: an item of a peer that is penalised is dropped, and one that is not what an honest peer sends
+   of this chain now is junk, which waits in a tenth of the room of the queue, in items and bytes, and takes its token
+   from one small bucket of its own. The queue is limited in bytes as well, by the size of the frame of each item
+   that the caller passes. A peer that becomes penalised is cut off, once for each penalty, by asking the network
+   to close its connections (DoorKeeper). */
 public final class LedgerDriver implements Closeable {
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String REPLACED = "The ledger node failed and was replaced: send it again";
@@ -115,29 +123,34 @@ public final class LedgerDriver implements Closeable {
 
 	/* `maxQueuedInbound` is how many items of peers may wait for the serial executor at once, and
 	   `maxQueuedPerPeer` how many of them one peer may have: one more is dropped at the door. Each holds an object
-	   that is already decoded, so what the queue can hold is this many of the largest thing a peer can send.
-	   `requestTimeoutMillis` is how long a request for blocks may wait for its answer before the driver counts it
-	   as failed, whatever the network still does about it. */
+	   that is already decoded, so the queue is limited in bytes as well, by the size of the frames the items came in:
+	   `maxQueuedBytes` in all and `maxQueuedBytesPerPeer` for one peer. `requestTimeoutMillis` is how long a request
+	   for blocks may wait for its answer before the driver counts it as failed, whatever the network still does
+	   about it. */
 	public record DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
 		long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted,
-		long requestTimeoutMillis) {
+		long requestTimeoutMillis, long maxQueuedBytes, long maxQueuedBytesPerPeer) {
 		public static final long DEFAULT_REQUEST_TIMEOUT_MILLIS = 3_000;
+		public static final long DEFAULT_QUEUED_BYTES = 64L << 20;
+		public static final long DEFAULT_QUEUED_BYTES_PER_PEER = 8L << 20;
 		public static final DriverOptions DEFAULT = new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000,
-			100, Optional.empty());
+			16, Optional.empty());
 
 		/* The limits that came later take their defaults */
 		@SuppressWarnings("checkstyle:ParameterNumber")
 		public DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
 			long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted) {
 			this(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis, maxQueuedInbound,
-				maxQueuedPerPeer, trusted, DEFAULT_REQUEST_TIMEOUT_MILLIS);
+				maxQueuedPerPeer, trusted, DEFAULT_REQUEST_TIMEOUT_MILLIS, DEFAULT_QUEUED_BYTES,
+				DEFAULT_QUEUED_BYTES_PER_PEER);
 		}
 
 		public DriverOptions {
 			Objects.requireNonNull(trusted);
 
 			if (LongStream.of(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis,
-				maxQueuedInbound, maxQueuedPerPeer, requestTimeoutMillis).anyMatch(value -> value <= 0)) {
+				maxQueuedInbound, maxQueuedPerPeer, requestTimeoutMillis, maxQueuedBytes,
+				maxQueuedBytesPerPeer).anyMatch(value -> value <= 0)) {
 				throw new IllegalArgumentException("Every interval and limit of the driver is above 0");
 			}
 		}
@@ -158,6 +171,8 @@ public final class LedgerDriver implements Closeable {
 	private final Gossip gossip;
 	private final SyncState sync;
 	private final InboundLanes lanes;
+	private final Door door = new Door();
+	private final DoorKeeper keeper;
 	private final NodeSupervisor supervisor;
 	private final Promotion promotion;
 	private final Syncer syncer;
@@ -190,8 +205,10 @@ public final class LedgerDriver implements Closeable {
 		this.gossip = new Gossip(network);
 		this.sync = new SyncState(LAPSE_STATUSES * options.statusMillis(), () -> connected(network),
 			salt.getAsLong());
-		this.lanes = new InboundLanes(serial, limiter, options.maxQueuedInbound(), options.maxQueuedPerPeer(),
-			this::accepting, this::guard);
+		this.keeper = new DoorKeeper(door, limiter, network);
+		this.lanes = new InboundLanes(serial, limiter, new QueueBudget(options.maxQueuedInbound(),
+			options.maxQueuedPerPeer(), options.maxQueuedBytes(), options.maxQueuedBytesPerPeer()),
+			this::accepting, this::guard, this::publishDoor);
 		this.supervisor = new NodeSupervisor(factory, scheduler, clock, limiter, options, this::control,
 			actions -> perform(actions, OWN), this::stopped);
 		this.promotion = new Promotion(supervisor, sync, limiter, clock, seed != null, this::startSync);
@@ -201,7 +218,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	/* The ids of the peers that are connected now; one that cannot say who it is counts for nothing */
-	private static Set<String> connected(LedgerNetwork network) {
+	static Set<String> connected(LedgerNetwork network) {
 		return network.peers().stream().map(LedgerDriver::idOf).filter(Objects::nonNull).collect(Collectors.toSet());
 	}
 
@@ -245,9 +262,19 @@ public final class LedgerDriver implements Closeable {
 		return lanes.queued();
 	}
 
+	/* How many bytes of frames the items in the queue came in */
+	long queuedBytes() {
+		return lanes.queuedBytes();
+	}
+
 	/* How many peers have an item in the queue: none when it is empty, whatever passed through it */
 	int queuedPeers() {
 		return lanes.queuedPeers();
+	}
+
+	/* For the tests of this package: what the door knows of the driver now */
+	Door.Snapshot doorSnapshot() {
+		return door.snapshot();
 	}
 
 	/* For the tests of this package: whether the driver gives its events to a node that votes */
@@ -291,22 +318,24 @@ public final class LedgerDriver implements Closeable {
 		return supervisor.haltReason();
 	}
 
-	public void onTransaction(LedgerPeer from, Transaction transaction) {
+	/* `bytes` in the entry points that follow is the size of the frame that the item came in: what it takes of the
+	   memory of the queue while it waits. */
+	public void onTransaction(LedgerPeer from, Transaction transaction, int bytes) {
 		final Item item = new Item(from, Kind.TRANSACTION, transaction);
 
-		inbound(item, () -> takeIn(item, transaction));
+		inbound(item, bytes, () -> takeIn(item, transaction));
 	}
 
-	public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat) {
+	public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat, int bytes) {
 		final Item item = new Item(from, Kind.HEARTBEAT, heartbeat);
 
-		inbound(item, () -> receive(item, node -> gossip.heartbeat(node, heartbeat)));
+		inbound(item, bytes, () -> receive(item, node -> gossip.heartbeat(node, heartbeat)));
 	}
 
-	public void onMessage(LedgerPeer from, Message message) {
+	public void onMessage(LedgerPeer from, Message message, int bytes) {
 		final Item item = new Item(from, Kind.CONSENSUS, message);
 
-		inbound(item, () -> deliver(item, message));
+		inbound(item, bytes, () -> deliver(item, message));
 	}
 
 	private void deliver(Item item, Message message) {
@@ -332,16 +361,16 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	/* A status says where the chain of a peer stands. It takes its token before anything is made of it. */
-	public void onStatus(LedgerPeer from, Status status) {
-		inbound(new Item(from, Kind.STATUS, status), () -> promotion.heard(from, status));
+	public void onStatus(LedgerPeer from, Status status, int bytes) {
+		inbound(new Item(from, Kind.STATUS, status), bytes, () -> promotion.heard(from, status));
 	}
 
 	/* The blocks a peer asks for are served from the ledger, also by a driver that has halted. A request that is
 	   refused is not answered, so that a flood of them costs the answers too. */
-	public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request) {
+	public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request, int bytes) {
 		final CompletableFuture<BlockBatch> reply = new CompletableFuture<>();
 
-		inbound(new Item(from, Kind.BLOCK_REQUEST, request),
+		inbound(new Item(from, Kind.BLOCK_REQUEST, request), bytes,
 			() -> reply.complete(new BlockBatch(supervisor.ledger().blocksFrom(request.from(), request.max()))),
 			() -> reply.completeExceptionally(new RejectedExecutionException("The request is refused")));
 		return reply;
@@ -349,7 +378,10 @@ public final class LedgerDriver implements Closeable {
 
 	/* A peer that connects is told where this chain stands, and that is a status, which has its limit */
 	public void onPeerConnected(LedgerPeer from) {
-		inbound(new Item(from, Kind.STATUS, null), () -> Gossip.send(from, supervisor.ledger().status()));
+		inbound(new Item(from, Kind.STATUS, null), 1, door.sortConnection(idOf(from)), () -> {
+			keeper.connectedMayHaveChanged();
+			Gossip.send(from, supervisor.ledger().status());
+		}, () -> { });
 	}
 
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
@@ -373,12 +405,21 @@ public final class LedgerDriver implements Closeable {
 		return Optional.of(supervisor.running() ? REPLACED : NOT_RUNNING);
 	}
 
-	private void inbound(Item item, Runnable handler) {
-		inbound(item, handler, () -> { });
+	/* What the door reads is published at the end of every run of the serial executor, if any of it changed */
+	private void publishDoor() {
+		keeper.afterTurn(supervisor.ledger());
 	}
 
-	private void inbound(Item item, Runnable handler, Runnable refused) {
-		lanes.inbound(item.from(), item.kind(), handler, refused);
+	private void inbound(Item item, int bytes, Runnable handler) {
+		inbound(item, bytes, handler, () -> { });
+	}
+
+	private void inbound(Item item, int bytes, Runnable handler, Runnable refused) {
+		inbound(item, bytes, door.sort(idOf(item.from()), item.kind(), item.wire()), handler, refused);
+	}
+
+	private void inbound(Item item, int bytes, Admission admission, Runnable handler, Runnable refused) {
+		lanes.inbound(item.from(), item.kind(), bytes, admission, handler, refused);
 	}
 
 	/* The blocks are read from the ledger, which a driver that has halted still has, so a halt does not stop the
@@ -558,6 +599,7 @@ public final class LedgerDriver implements Closeable {
 	private void tick() {
 		if (supervisor.running()) {
 			scheduleTick();
+			keeper.connectedMayHaveChanged();
 			syncer.startSync(Syncer.AHEAD_BY_ONE);
 			promotion.promoteIfCaughtUp();
 

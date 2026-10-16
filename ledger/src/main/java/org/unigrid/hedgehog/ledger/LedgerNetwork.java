@@ -24,4 +24,11 @@ import java.util.List;
 @FunctionalInterface
 public interface LedgerNetwork {
 	List<LedgerPeer> peers();
+
+	/* Closes the connections to the peer of that id: the driver asks it of a peer that it has penalised, and it is
+	   asked once for each penalty. A network that cannot close a connection does nothing, and one that can does not
+	   throw. */
+	default void disconnect(String peerId) {
+		/* Nothing is closed unless the network can */
+	}
 }
