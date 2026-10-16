@@ -88,7 +88,8 @@ public class GridSpork implements Serializable, Signable {
 		}),
 		MINT_STORAGE((short) 1000, MintStorage::new), MINT_SUPPLY((short) 1010, MintSupply::new),
 		VESTING_STORAGE((short) 1020, VestingStorage::new), STORAGE((short) 1030, StorageSpork::new),
-		LEDGER_BLACKLIST((short) 1040, LedgerBlacklist::new), STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
+		LEDGER_BLACKLIST((short) 1040, LedgerBlacklist::new), LEDGER_FEE((short) 1050, LedgerFee::new),
+		STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
 
 		@Getter private final short value;
 		private final Supplier<GridSpork> factory;

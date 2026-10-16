@@ -34,6 +34,7 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -81,6 +82,17 @@ public class PublishAndSaveSporkScheduleTest {
 			new PendingSporks());
 
 		assertThat(published(channel), hasItem(sameInstance(blacklist)));
+	}
+
+	@Example
+	public void shouldPublishTheStoredLedgerFee() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final LedgerFee fee = new LedgerFee();
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
+			new PendingSporks());
+
+		assertThat(published(channel), hasItem(sameInstance(fee)));
 	}
 
 	private static List<GridSpork> published(EmbeddedChannel channel) {

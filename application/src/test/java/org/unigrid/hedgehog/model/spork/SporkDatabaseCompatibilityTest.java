@@ -58,6 +58,7 @@ public class SporkDatabaseCompatibilityTest {
 		assertThat(mints.getMints().values(), containsInAnyOrder(new BigDecimal("220000"), new BigDecimal("14115")));
 		assertThat(supply.getMaxSupply(), equalTo(new BigDecimal("1000000000")));
 		assertThat(database.get(GridSpork.Type.LEDGER_BLACKLIST), nullValue());
+		assertThat(database.get(GridSpork.Type.LEDGER_FEE), nullValue());
 	}
 
 	@SneakyThrows

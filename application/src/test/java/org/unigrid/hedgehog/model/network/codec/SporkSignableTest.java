@@ -60,6 +60,8 @@ import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.LedgerFeeSporkTest;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
@@ -238,6 +240,23 @@ public class SporkSignableTest extends BaseCodecTest<PublishSpork> {
 				return signed(spork);
 			}).toList(), context
 		);
+	}
+
+	@Provide
+	public Arbitrary<BigDecimal> provideFees() {
+		return LedgerFeeSporkTest.fees();
+	}
+
+	@Property(tries = 10)
+	public void shouldSignEqualFeesAlikeAtAnyScale(@ForAll("provideFees") BigDecimal fee,
+		@Mocked ChannelHandlerContext context) {
+
+		assertSignedAlike(List.of(fee, fee.stripTrailingZeros(), fee.setScale(12)).stream().map(minimum -> {
+			final LedgerFee spork = new LedgerFee();
+
+			spork.<LedgerFee.SporkData>getData().setMinimumTransferFee(minimum);
+			return signed(spork);
+		}).toList(), context);
 	}
 
 	@Property(tries = 20)

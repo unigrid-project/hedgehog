@@ -52,6 +52,7 @@ public class SporkDatabase implements Serializable {
 	private VestingStorage vestingStorage;
 	private StorageSpork storageSpork;
 	private LedgerBlacklist ledgerBlacklist;
+	private LedgerFee ledgerFee;
 
 	private StatisticsPubKey statisticsPubKey;
 
@@ -96,6 +97,8 @@ public class SporkDatabase implements Serializable {
 			(db, spork) -> db.storageSpork = (StorageSpork) spork),
 		Type.LEDGER_BLACKLIST, new Slot(db -> db.ledgerBlacklist,
 			(db, spork) -> db.ledgerBlacklist = (LedgerBlacklist) spork),
+		Type.LEDGER_FEE, new Slot(db -> db.ledgerFee,
+			(db, spork) -> db.ledgerFee = (LedgerFee) spork),
 		Type.STATISTICS_PUBKEY, new Slot(db -> db.statisticsPubKey,
 			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork)
 	);

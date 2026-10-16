@@ -120,6 +120,11 @@ public class GridSporkProvider {
 
 				data.setLegacyAddresses(addresses);
 				return data;
+			} case LEDGER_FEE: {
+				final LedgerFee.SporkData data = new LedgerFee.SporkData();
+
+				data.setMinimumTransferFee(BigDecimal.valueOf(RandomUtils.nextLong(0, 100_000_001L), 8));
+				return data;
 			}
 		}
 
