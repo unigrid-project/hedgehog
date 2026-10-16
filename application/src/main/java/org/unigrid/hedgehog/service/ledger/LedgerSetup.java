@@ -18,37 +18,54 @@
 
 package org.unigrid.hedgehog.service.ledger;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
+import org.unigrid.hedgehog.ledger.LedgerGenesis;
 
+@Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class LedgerSetup {
 	private static final Pattern CHECKPOINT = Pattern.compile("(\\d+):(\\p{XDigit}{128})");
+	private static final String NO_GENESIS = "--ledger needs a genesis: give --ledger-genesis <file> "
+		+ "(no genesis is bundled with this release)";
 
-	/* Runs before the container starts, so a bad setup stops the daemon with a readable message */
+	/* Runs before the container starts, so a bad setup stops the daemon with a readable message. A node that cannot
+	   know which chain it is on has no business starting with a ledger, so a genesis is needed. A key that the
+	   genesis does not list is only said: the node follows the chain and never signs, which may not be meant. */
 	public static void validate() {
 		if (LedgerOptions.isLedger()) {
-			Optional.ofNullable(LedgerOptions.getLedgerKeyFile()).ifPresent(LedgerKeyFile::load);
-			Optional.ofNullable(LedgerOptions.getLedgerGenesisFile()).ifPresent(LedgerSetup::requireFile);
+			final Optional<byte[]> seed = Optional.ofNullable(LedgerOptions.getLedgerKeyFile())
+				.map(LedgerKeyFile::load);
+
 			trusted();
+
+			final LedgerGenesis genesis = genesis();
+
+			seed.ifPresent(held -> warnUnlessValidator(held, genesis));
 		}
+	}
+
+	private static LedgerGenesis genesis() {
+		return GenesisFile.load(Optional.ofNullable(LedgerOptions.getLedgerGenesisFile()))
+			.orElseThrow(() -> new IllegalArgumentException(NO_GENESIS));
 	}
 
 	public static Optional<Checkpoint> trusted() {
 		return Optional.ofNullable(LedgerOptions.getLedgerTrusted()).map(LedgerSetup::checkpoint);
 	}
 
-	private static void requireFile(Path genesis) {
-		if (!Files.isRegularFile(genesis)) {
-			throw new IllegalArgumentException("The ledger genesis " + genesis + " is not an existing file");
+	private static void warnUnlessValidator(byte[] seed, LedgerGenesis genesis) {
+		if (!genesis.getValidators().contains(Ed25519.publicKey(seed))) {
+			log.atWarn().addArgument(LedgerKeyFile.publicKeyHex(seed))
+				.log("The key {} is not a validator of this genesis, this node will not sign");
 		}
 	}
 

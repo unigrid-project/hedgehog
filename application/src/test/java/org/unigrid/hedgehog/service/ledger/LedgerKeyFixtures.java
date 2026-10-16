@@ -26,9 +26,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HexFormat;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.LedgerGenesis;
+import org.unigrid.hedgehog.ledger.ValidatorSet;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class LedgerKeyFixtures {
@@ -61,5 +65,16 @@ public final class LedgerKeyFixtures {
 
 	public static Path writeSeed(FileSystem fs, byte[] seed) {
 		return write(fs, KEY_FILE, HexFormat.of().formatHex(seed) + "\n", OWNER_ONLY);
+	}
+
+	/* A genesis of the validators of the seeds, with no snapshot behind it */
+	@SneakyThrows
+	public static Path writeGenesis(FileSystem fs, String name, byte[]... validatorSeeds) {
+		final Path file = fs.getPath(name);
+
+		Files.createDirectories(file.getParent());
+		GenesisFile.write(file, new LedgerGenesis(1_000, 100,
+			new ValidatorSet(Stream.of(validatorSeeds).map(Ed25519::publicKey).toList())));
+		return file;
 	}
 }

@@ -19,12 +19,18 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.OWNER_ONLY;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,6 +49,7 @@ import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
@@ -119,19 +126,73 @@ public class LedgerSetupTest {
 	}
 
 	@Example
+	@SneakyThrows
 	public void shouldNotLookAtWhatIsGivenWhileTheLedgerIsOff() {
-		OptionsCli.parse(DAEMON, "--ledger-key=/nowhere.key", "--ledger-genesis=/nowhere.json",
-			"--ledger-trusted=garbage"
-		);
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, GENESIS_FILE, "{ not a genesis", null);
+			parse(fs, "--ledger-key=/nowhere.key", "--ledger-genesis", GENESIS_FILE, "--ledger-trusted=garbage");
 
-		LedgerSetup.validate();
+			LedgerSetup.validate();
+		}
+	}
+
+	/* A release that bundles a genesis makes this one obsolete, as then there is always one to run on */
+	@Example
+	public void shouldRefuseALedgerThatHasNoGenesisToRunOn() {
+		OptionsCli.parse(DAEMON, "--ledger");
+
+		assertThat(messageOfValidating(), equalTo("--ledger needs a genesis: give --ledger-genesis <file> "
+			+ "(no genesis is bundled with this release)"));
 	}
 
 	@Example
-	public void shouldAcceptALedgerWithOnlyTheDefaults() {
-		OptionsCli.parse(DAEMON, "--ledger");
+	@SneakyThrows
+	public void shouldAcceptAGenesisThatIsRight() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeGenesis(fs, GENESIS_FILE, new byte[32]);
+			parse(fs, "--ledger", "--ledger-genesis", GENESIS_FILE);
 
-		LedgerSetup.validate();
+			LedgerSetup.validate();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAGenesisThatIsNotJsonAndNameTheFile() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, GENESIS_FILE, "{ not a genesis", null);
+			parse(fs, "--ledger", "--ledger-genesis", GENESIS_FILE);
+
+			assertThat(messageOfValidating(), containsString(GENESIS_FILE));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAGenesisWithAFieldThatIsNotInTheFormatAndNameFileAndField() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, GENESIS_FILE, "{\"colour\": 1}", null);
+			parse(fs, "--ledger", "--ledger-genesis", GENESIS_FILE);
+
+			final String message = messageOfValidating();
+
+			assertThat(message, containsString(GENESIS_FILE));
+			assertThat(message, containsString("unknown field 'colour'"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAGenesisThatLacksAFieldAndNameFileAndField() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, GENESIS_FILE, "{}", null);
+			parse(fs, "--ledger", "--ledger-genesis", GENESIS_FILE);
+
+			final String message = messageOfValidating();
+
+			assertThat(message, containsString(GENESIS_FILE));
+			assertThat(message, containsString("is missing"));
+		}
 	}
 
 	@Example
@@ -139,12 +200,65 @@ public class LedgerSetupTest {
 	public void shouldAcceptAKeyFileAGenesisAndACheckpointThatAllHold() {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.writeSeed(fs, new byte[32]);
-			LedgerKeyFixtures.write(fs, GENESIS_FILE, "{}", null);
+			LedgerKeyFixtures.writeGenesis(fs, GENESIS_FILE, new byte[32]);
 			parse(fs, "--ledger", "--ledger-key", KEY_FILE, "--ledger-genesis", GENESIS_FILE,
 				"--ledger-trusted=12:" + HASH
 			);
 
 			LedgerSetup.validate();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldSayAndGoOnWhenTheKeyIsNotAValidatorOfTheGenesis() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem(); Warnings warnings = new Warnings()) {
+			final byte[] seed = LedgerTestChain.seed(5);
+
+			LedgerKeyFixtures.writeSeed(fs, seed);
+			LedgerKeyFixtures.writeGenesis(fs, GENESIS_FILE, LedgerTestChain.seed(1), LedgerTestChain.seed(2));
+			parse(fs, "--ledger", "--ledger-key", KEY_FILE, "--ledger-genesis", GENESIS_FILE);
+
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), contains("The key " + LedgerKeyFile.publicKeyHex(seed)
+				+ " is not a validator of this genesis, this node will not sign"));
+			assertThat(warnings.messages().toString(), not(containsString(HexFormat.of().formatHex(seed))));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldSayNothingWhenTheKeyIsAValidatorOfTheGenesis() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem(); Warnings warnings = new Warnings()) {
+			LedgerKeyFixtures.writeSeed(fs, LedgerTestChain.seed(2));
+			LedgerKeyFixtures.writeGenesis(fs, GENESIS_FILE, LedgerTestChain.seed(1), LedgerTestChain.seed(2));
+			parse(fs, "--ledger", "--ledger-key", KEY_FILE, "--ledger-genesis", GENESIS_FILE);
+
+			LedgerSetup.validate();
+
+			assertThat(warnings.messages(), empty());
+		}
+	}
+
+	/* What the setup says about the node at the start, to look at */
+	private static final class Warnings implements AutoCloseable {
+		private final Logger logger = (Logger) LoggerFactory.getLogger(LedgerSetup.class);
+		private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		Warnings() {
+			appender.start();
+			logger.addAppender(appender);
+		}
+
+		List<String> messages() {
+			return appender.list.stream().filter(entry -> entry.getLevel().equals(Level.WARN))
+				.map(ILoggingEvent::getFormattedMessage).toList();
+		}
+
+		@Override
+		public void close() {
+			logger.detachAppender(appender);
 		}
 	}
 

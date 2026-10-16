@@ -62,6 +62,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
+import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -241,10 +242,42 @@ public class DaemonTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldRefuseALedgerThatHasNoGenesisToRunOn() {
+		assertRefusedWithout(HedgehogCli.run("daemon", "--ledger"),
+			"--ledger needs a genesis: give --ledger-genesis <file>"
+		);
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerGenesisThatIsNotJson() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, "/genesis.json", "{ not a genesis", null);
+
+			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+				"/genesis.json"
+			);
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerGenesisWithAFieldThatIsNotInTheFormat() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, "/genesis.json", "{\"colour\": 1}", null);
+
+			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+				"/genesis.json", "unknown field 'colour'"
+			);
+		}
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldStartWhenTheLedgerSetupHolds() {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.writeSeed(fs, new byte[Ed25519.SEED_SIZE]);
-			LedgerKeyFixtures.write(fs, "/genesis.json", "{}", null);
+			LedgerKeyFixtures.writeGenesis(fs, "/genesis.json", new byte[Ed25519.SEED_SIZE]);
 
 			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE,
 				"--ledger-genesis", "/genesis.json", "--ledger-trusted=7:" + "ab".repeat(DIGEST_SIZE)
@@ -257,8 +290,26 @@ public class DaemonTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldStartWithAKeyThatIsNoValidatorOfTheGenesis() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, new byte[Ed25519.SEED_SIZE]);
+			LedgerKeyFixtures.writeGenesis(fs, "/genesis.json", LedgerTestChain.seed(1));
+
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE,
+				"--ledger-genesis", "/genesis.json"
+			);
+
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(CONTAINERS.get(), equalTo(1));
+		}
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldLeaveTheLedgerSetupUnreadWhileTheLedgerIsOff() {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, "/genesis.json", "{ not a genesis", null);
+
 			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger-key", KEY_FILE, "--ledger-genesis",
 				"/genesis.json", "--ledger-trusted=garbage"
 			);
