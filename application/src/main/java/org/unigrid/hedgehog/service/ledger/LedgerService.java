@@ -24,6 +24,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.file.Path;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -32,12 +34,14 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.ledger.Address;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerAuthority;
 import org.unigrid.hedgehog.ledger.LedgerDriver;
@@ -51,6 +55,7 @@ import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 
@@ -74,6 +79,8 @@ public class LedgerService {
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String LEDGER_DIRECTORY = "ledger";
 	private static final int CHAIN_DIRECTORY_CHARACTERS = 16;
+	private static final List<Type> POLICY = List.of(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.LEDGER_BLACKLIST,
+		Type.LEDGER_FEE);
 	private static final HexFormat HEX = HexFormat.of();
 	private static final long POLL_MILLIS = 5_000;
 	private static final long REPORT_MILLIS = 60_000;
@@ -90,9 +97,11 @@ public class LedgerService {
 
 	/* What an operator wants to know of the ledger of the node. Before there is a ledger the height is 0 and the tip
 	   hash empty; the reason is empty unless the driver has halted. A driver that has halted serves the blocks it has,
-	   and the node goes on. */
+	   and the node goes on. While the ledger runs, `unsetSporks` and `laggingSporks` name the sporks that it depends
+	   on and that are not set here, or of which a newer version is known and is not here yet. Nothing that depends on
+	   such a spork is minted, claimed or paid for, which is why a chain on a running node may stand still. */
 	public record Report(boolean running, boolean halted, String haltReason, boolean signing, long height,
-		String tipHash, long droppedInbound) {
+		String tipHash, long droppedInbound, List<Type> unsetSporks, List<Type> laggingSporks) {
 	}
 
 	@Inject private LedgerGateway gateway;
@@ -105,6 +114,7 @@ public class LedgerService {
 	private volatile LedgerNodes nodes;
 	private volatile LedgerDriver driver;
 	private volatile boolean stopped;
+	private volatile boolean validator;
 	private long pollMillis;
 	private long waits;
 
@@ -223,6 +233,9 @@ public class LedgerService {
 		}
 
 		final byte[] seed = setup.keyFile().map(LedgerKeyFile::load).orElse(null);
+
+		validator = Objects.nonNull(seed) && genesis.getValidators().contains(Ed25519.publicKey(seed));
+
 		final LedgerSnapshot ledgerSnapshot = new LedgerSnapshot(reader);
 		final LedgerAuthority authority = new SporkLedgerAuthority(() -> sporks, lag,
 			ledgerSnapshot.mintSchedule(), this::committedSupply);
@@ -271,7 +284,8 @@ public class LedgerService {
 		return cause instanceof IllegalArgumentException ? cause.getMessage() : String.valueOf(cause);
 	}
 
-	private void refuse(final String reason) {
+	/* Also for the tests of this package: the service gives up as it does on a failure of its timer thread */
+	void refuse(final String reason) {
 		if (!stopped) {
 			log.atError().log("The ledger is not running, the node goes on without it: {}", reason);
 			release(false);
@@ -349,8 +363,25 @@ public class LedgerService {
 		final boolean running = started.isPresent() && !stopped && !halted;
 
 		return new Report(running, halted, started.flatMap(LedgerDriver::haltReason).orElse(""),
-			running && nodes.signing(), height().orElse(0), tipHash().map(HEX::formatHex).orElse(""),
-			started.map(LedgerDriver::droppedInbound).orElse(0L));
+			running && signs(), height().orElse(0), tipHash().map(HEX::formatHex).orElse(""),
+			started.map(LedgerDriver::droppedInbound).orElse(0L), sporksThat(running, this::isUnset),
+			sporksThat(running, type -> lag.isBehind(type, sporks)));
+	}
+
+	/* A node signs when it holds a key and the key is one of the validators of the genesis: another key gives a node
+	   that follows the chain and is heard by no one */
+	private boolean signs() {
+		return validator && nodes.signing();
+	}
+
+	private boolean isUnset(final Type type) {
+		return Objects.isNull(sporks.get(type));
+	}
+
+	/* Of the sporks that decide what the node mints, takes and demands: while one is unset, or a newer one is known and
+	   not yet here, the node answers no and nothing is made of what depends on it */
+	private static List<Type> sporksThat(final boolean running, final Predicate<Type> test) {
+		return running ? POLICY.stream().filter(test).toList() : List.of();
 	}
 
 	/* Empty until the driver has built its first ledger, and the newest ledger after, also once the node is

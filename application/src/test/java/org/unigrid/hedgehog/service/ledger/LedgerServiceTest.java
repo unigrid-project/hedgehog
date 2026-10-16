@@ -34,8 +34,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -83,6 +85,9 @@ import org.unigrid.hedgehog.model.bootstrap.AddressSnapshots;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
@@ -99,7 +104,7 @@ public class LedgerServiceTest {
 	private static final String DIRECTORY = "/data/ledger";
 	private static final String EVENTS = "ledger-events";
 	private static final String TIMERS = "ledger-timers";
-	private static final Report INACTIVE = new Report(false, false, "", false, 0, "", 0);
+	private static final Report INACTIVE = new Report(false, false, "", false, 0, "", 0, List.of(), List.of());
 
 	/* A tick every 100 ms and a grace period of 300 ms, so that a node with a key votes within moments */
 	private static final DriverOptions FAST = new DriverOptions(100, 1_000, 1_000, 300, 10_000, 10_000, 100,
@@ -128,6 +133,13 @@ public class LedgerServiceTest {
 			@Mock
 			public void detach() {
 				current.events.add("detach");
+			}
+		};
+
+		new MockUp<SporkLag>() {
+			@Mock
+			public boolean isBehind(final Type type, final SporkDatabase database) {
+				return current.behind.contains(type);
 			}
 		};
 
@@ -174,7 +186,8 @@ public class LedgerServiceTest {
 
 			@Mock
 			public void close(final Invocation invocation) throws IOException {
-				current.events.add("block log closed");
+				current.events.add(Thread.currentThread().isInterrupted() ? "block log closed on an interrupted thread"
+					: "block log closed");
 				invocation.proceed();
 			}
 		};
@@ -187,6 +200,7 @@ public class LedgerServiceTest {
 		private final List<String> events = new CopyOnWriteArrayList<>();
 		private final List<String> builders = new CopyOnWriteArrayList<>();
 		private final List<LedgerService> services = new ArrayList<>();
+		private final Set<Type> behind = ConcurrentHashMap.newKeySet();
 		private final SporkDatabase sporks = SporkDatabase.builder().build();
 		private final SporkLag lag = new SporkLag();
 		private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -289,6 +303,19 @@ public class LedgerServiceTest {
 			final LedgerService service = service();
 
 			service.begin(() -> setup(keyed, trusted));
+			return service;
+		}
+
+		/* A node with a key that is no validator of the genesis */
+		@SneakyThrows
+		LedgerService startedWithAnotherKey() {
+			final Path other = LedgerKeyFixtures.write(files, "/keys/other.key",
+				HexFormat.of().formatHex(LedgerTestChain.seed(9)) + "\n", LedgerKeyFixtures.OWNER_ONLY);
+			final LedgerService service = service();
+			final Setup keyed = setup(true, Optional.empty());
+
+			service.begin(() -> new Setup(keyed.directory(), Optional.of(other), keyed.genesisFile(), keyed.clock(),
+				keyed.options(), keyed.pollMillis()));
 			return service;
 		}
 
@@ -454,6 +481,72 @@ public class LedgerServiceTest {
 			assertThat(report.droppedInbound(), is(0L));
 			assertThat(service.balanceOf(Ed25519.publicKey(SEED)), equalTo(OptionalLong.of(0)));
 			assertThat(rig.builders, contains(EVENTS, EVENTS));
+		}
+	}
+
+	/* A key that no validator of the genesis has gives a node that follows the chain, whatever the driver does with it */
+	@Example
+	public void shouldNotCallANodeSigningWhoseKeyIsNoValidatorOfTheGenesis() {
+		try (Rig rig = Rig.ready()) {
+			final LedgerService service = rig.startedWithAnotherKey();
+
+			eventually(() -> service.height().isPresent());
+			Awaitility.await().during(Duration.ofMillis(1_500)).atMost(PATIENCE)
+				.until(() -> service.status().running() && !service.status().signing());
+
+			assertThat(rig.builders.size() >= 2, is(true));
+		}
+	}
+
+	@Example
+	public void shouldNameTheSporksItWaitsForWhileTheLedgerRuns() {
+		try (Rig rig = Rig.ready()) {
+			final LedgerService service = rig.started(false);
+
+			eventually(() -> service.status().running());
+
+			assertThat(service.status().unsetSporks(), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY,
+				Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
+			assertThat(service.status().laggingSporks(), empty());
+
+			rig.sporks.setMintSupply(new MintSupply());
+			rig.sporks.setLedgerFee(new LedgerFee());
+			rig.behind.add(Type.MINT_STORAGE);
+			rig.behind.add(Type.LEDGER_FEE);
+
+			assertThat(service.status().unsetSporks(), contains(Type.MINT_STORAGE, Type.LEDGER_BLACKLIST));
+			assertThat(service.status().laggingSporks(), contains(Type.MINT_STORAGE, Type.LEDGER_FEE));
+		}
+	}
+
+	@Example
+	public void shouldNameNoSporkWhileTheLedgerDoesNotRun() {
+		try (Rig rig = new Rig(false, 0, 0)) {
+			final LedgerService service = rig.started(false);
+
+			Awaitility.await().during(Duration.ofMillis(300)).atMost(PATIENCE)
+				.until(() -> !service.status().running());
+
+			assertThat(service.status().unsetSporks(), empty());
+			assertThat(service.status().laggingSporks(), empty());
+		}
+	}
+
+	/* Stopping from the timer thread, as the service does when something fails there, must not leave the thread
+	   interrupted while the files are closed: a file channel closes on an interrupted thread as an interrupted one */
+	@Example
+	public void shouldCloseTheBlockLogOnAThreadThatIsNotInterruptedWhenTheTimerThreadGivesUp() {
+		try (Rig rig = Rig.ready()) {
+			final LedgerService service = rig.started(false);
+
+			eventually(() -> service.height().isPresent());
+			rig.events.clear();
+			service.runtime().schedule(() -> service.refuse("a failure of the timer thread"), 0);
+			eventually(() -> rig.events.stream().anyMatch(event -> event.startsWith("block log closed")));
+
+			assertThat(rig.events, contains("detach", "driver.close", "runtime.close, driver closed: true",
+				"block log closed"));
+			assertThat(rig.logged(Level.ERROR), contains(containsString("a failure of the timer thread")));
 		}
 	}
 
