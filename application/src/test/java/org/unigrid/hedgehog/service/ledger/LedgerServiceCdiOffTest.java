@@ -42,7 +42,7 @@ public class LedgerServiceCdiOffTest extends BaseMockedWeldTest {
 	public void shouldBeABeanThatHoldsNothingWhileTheLedgerIsOff() {
 		OptionsCli.parse(List.of("daemon"));
 
-		assertThat(service.status(), equalTo(new Report(false, false, "", false, 0, "", 0)));
+		assertThat(service.status(), equalTo(new Report(false, false, "", false, 0, "", 0, List.of(), List.of())));
 		assertThat(service.height(), equalTo(OptionalLong.empty()));
 		assertThat(Thread.getAllStackTraces().keySet().stream().filter(thread -> thread.getName()
 			.startsWith("ledger-")).toList(), empty());
