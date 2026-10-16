@@ -48,11 +48,14 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
 
 public class LedgerKeyFileTest {
 	private static final int HEX_SIZE = Ed25519.SEED_SIZE * 2;
+	private static final int MAX_BYTES = 128;
+	private static final int MEBIBYTE = 1 << 20;
 	private static final byte[] MESSAGE = "a block".getBytes(StandardCharsets.UTF_8);
 
 	@Provide
@@ -139,6 +142,47 @@ public class LedgerKeyFileTest {
 
 			assertThat(message, containsString(KEY_FILE));
 			assertThat(message, not(containsString(hex.substring(2, HEX_SIZE / 2))));
+		}
+	}
+
+	@Property(tries = 10)
+	@SneakyThrows
+	public void shouldTakeAFileOfAtMostOneHundredAndTwentyEightBytes(@ForAll("provideSeed") byte[] seed,
+		@ForAll @IntRange(min = 0, max = MAX_BYTES - HEX_SIZE - 1) int padding) {
+
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final String hex = HexFormat.of().formatHex(seed);
+			final Path file = LedgerKeyFixtures.write(fs, KEY_FILE, hex + "\n" + " ".repeat(padding), OWNER_ONLY);
+
+			assertThat(LedgerKeyFile.load(file), equalTo(seed));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAFileOfOneByteMoreThanThat() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final String hex = "ab".repeat(Ed25519.SEED_SIZE);
+			final Path file = LedgerKeyFixtures.write(fs, KEY_FILE, hex + "\n" + " ".repeat(MAX_BYTES - HEX_SIZE),
+				OWNER_ONLY
+			);
+
+			assertThat(Files.size(file), equalTo((long) MAX_BYTES + 1));
+			assertThat(messageOfLoading(file), containsString(KEY_FILE));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAFileOfOneMebibyteThatHoldsASeedFirst() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final String hex = "ab".repeat(Ed25519.SEED_SIZE);
+			final Path file = LedgerKeyFixtures.write(fs, KEY_FILE, hex + "\n" + " ".repeat(MEBIBYTE), OWNER_ONLY);
+
+			final String message = messageOfLoading(file);
+
+			assertThat(message, containsString(KEY_FILE));
+			assertThat(message, not(containsString(hex)));
 		}
 	}
 
@@ -269,6 +313,22 @@ public class LedgerKeyFileTest {
 				containsString(KEY_FILE)
 			);
 			assertThat(Files.readString(file), equalTo("keep me"));
+			assertThat(entriesOf(file.getParent()), equalTo(List.of(KEY_FILE)));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNeverOverwriteTheKeyItMadeBefore() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final Path file = fs.getPath(KEY_FILE);
+
+			LedgerKeyFile.create(file);
+
+			final String first = Files.readString(file);
+
+			assertThrows(FileAlreadyExistsException.class, () -> LedgerKeyFile.create(file));
+			assertThat(Files.readString(file), equalTo(first));
 			assertThat(entriesOf(file.getParent()), equalTo(List.of(KEY_FILE)));
 		}
 	}
