@@ -183,6 +183,40 @@ public class LedgerRuntimeTest {
 		assertThat(threadsNamed(name + "-timers"), hasSize(0));
 	}
 
+	/* The service closes the runtime from its timer thread when something fails there, and closes the files after it:
+	   a thread that was interrupted would close them as an interrupted one */
+	@Example
+	@SneakyThrows
+	public void shouldNotInterruptTheTimerThatClosesIt() {
+		final AtomicBoolean interrupted = new AtomicBoolean(true);
+		final CountDownLatch done = new CountDownLatch(1);
+		final LedgerRuntime runtime = new LedgerRuntime(unique());
+
+		runtime.schedule(() -> {
+			runtime.close();
+			interrupted.set(Thread.currentThread().isInterrupted());
+			done.countDown();
+		}, 0);
+
+		assertThat(done.await(STOP_MILLIS, TimeUnit.MILLISECONDS), is(true));
+		assertThat(interrupted.get(), is(false));
+		assertThat(runtime.awaitStopped(STOP_MILLIS), is(true));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldDropTheTimersThatAreWaitingWhenClosed() {
+		final AtomicBoolean ran = new AtomicBoolean();
+		final LedgerRuntime runtime = new LedgerRuntime(unique());
+
+		runtime.schedule(() -> ran.set(true), 300);
+		runtime.close();
+
+		assertThat(runtime.awaitStopped(STOP_MILLIS), is(true));
+		Thread.sleep(400);
+		assertThat(ran.get(), is(false));
+	}
+
 	@Example
 	public void shouldBeClosedAgainWithoutHarm() {
 		final LedgerRuntime runtime = new LedgerRuntime(unique());

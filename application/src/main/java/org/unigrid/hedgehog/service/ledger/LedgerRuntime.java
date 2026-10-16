@@ -38,6 +38,7 @@ final class LedgerRuntime implements Serial, Scheduler, AutoCloseable {
 		events = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
 			named(name + "-events"));
 		timers = new ScheduledThreadPoolExecutor(1, named(name + "-timers"));
+		timers.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
 		events.prestartAllCoreThreads();
 		timers.prestartAllCoreThreads();
 	}
@@ -63,11 +64,12 @@ final class LedgerRuntime implements Serial, Scheduler, AutoCloseable {
 		return () -> scheduled.cancel(false);
 	}
 
-	/* A task that is running is not interrupted on the events thread: the driver closes its node first, and what the
-	   node has begun it finishes. Timers that are waiting are dropped. */
+	/* A task that is running is interrupted on neither thread: the driver closes its node first, and what the node has
+	   begun it finishes. Timers that are waiting are dropped. The service closes the runtime from its timer thread
+	   when something fails there and closes its files after it, which an interrupted thread would do badly. */
 	@Override
 	public void close() {
-		timers.shutdownNow();
+		timers.shutdown();
 		events.shutdown();
 	}
 
