@@ -19,9 +19,11 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,7 +52,24 @@ public final class LedgerSetup {
 			final LedgerGenesis genesis = genesis();
 
 			seed.ifPresent(held -> warnUnlessValidator(held, genesis));
+		} else {
+			warnOfOptionsThatAreIgnored();
 		}
+	}
+
+	/* An operator who gives a key and forgets --ledger would otherwise run a node that does nothing of what was asked */
+	private static void warnOfOptionsThatAreIgnored() {
+		final List<String> given = Stream.of(named("--ledger-key", LedgerOptions.getLedgerKeyFile()),
+			named("--ledger-genesis", LedgerOptions.getLedgerGenesisFile()),
+			named("--ledger-trusted", LedgerOptions.getLedgerTrusted())).flatMap(Optional::stream).toList();
+
+		if (!given.isEmpty()) {
+			log.atWarn().addArgument(String.join(", ", given)).log("{} given, ignored because --ledger is off");
+		}
+	}
+
+	private static Optional<String> named(String option, Object value) {
+		return Optional.ofNullable(value).map(held -> option);
 	}
 
 	private static LedgerGenesis genesis() {
