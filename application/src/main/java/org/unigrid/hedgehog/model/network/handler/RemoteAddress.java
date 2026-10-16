@@ -44,7 +44,10 @@ public final class RemoteAddress {
 	/* The address is kept on the QUIC connection that the stream belongs to. A server learns it from the connection
 	   event, which follows the peer when it moves; a client knows it from where it connected. The port a server
 	   learns is its own, assumed for every peer, so a peer on this host cannot be told from another by it: such a
-	   peer is read from the socket of its connection, and from the port it listens on once it has said which. */
+	   peer is read from the socket of its connection, and from the port it listens on once it has said which.
+	   A forwarder on the loopback address hands every connection to this node as one from this host, so each gets
+	   an id of its own and with it buckets and a score of its own in the driver: the clients behind it are not held
+	   to one limit. */
 	public static Optional<InetSocketAddress> of(final Channel stream) {
 		return Optional.ofNullable(stream.parent()).flatMap(connection -> {
 			final Optional<InetSocketAddress> learned = resolved(
