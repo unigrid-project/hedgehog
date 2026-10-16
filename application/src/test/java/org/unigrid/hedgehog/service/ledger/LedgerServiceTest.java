@@ -59,6 +59,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.Hedgehog;
@@ -223,9 +224,36 @@ public class LedgerServiceTest {
 			Files.move(written, watched);
 		}
 
+		/* Where the files of the chain of the genesis are */
+		Path chainDirectory() {
+			return chainDirectory(genesis);
+		}
+
+		Path chainDirectory(final LedgerGenesis chain) {
+			return files.getPath(DIRECTORY).resolve(LedgerService.chainDirectoryOf(chain));
+		}
+
+		/* Another chain, over the same snapshot: only the time of its start differs */
+		LedgerGenesis otherGenesis() {
+			return new LedgerGenesis(genesis.getTime() + 1, genesis.getRoundLength(), genesis.getValidators(),
+				genesis.getSnapshotHash(), genesis.getSnapshotTotal());
+		}
+
+		@SneakyThrows
+		Path write(final LedgerGenesis chain) {
+			final Path file = files.getPath("/genesis/" + LedgerService.chainDirectoryOf(chain) + ".json");
+
+			GenesisFile.write(file, chain);
+			return file;
+		}
+
 		Setup setup(final boolean keyed, final Optional<Checkpoint> trusted) {
+			return setup(keyed, trusted, genesisFile);
+		}
+
+		Setup setup(final boolean keyed, final Optional<Checkpoint> trusted, final Path genesisToUse) {
 			return new Setup(files.getPath(DIRECTORY), keyed ? Optional.of(keyFile) : Optional.empty(),
-				Optional.of(genesisFile), System::currentTimeMillis,
+				Optional.of(genesisToUse), System::currentTimeMillis,
 				new DriverOptions(FAST.tickMillis(), FAST.heartbeatMillis(), FAST.statusMillis(), FAST.graceMillis(),
 					FAST.restartWindowMillis(), FAST.maxQueuedInbound(), FAST.maxQueuedPerPeer(), trusted),
 				POLL);
@@ -247,6 +275,14 @@ public class LedgerServiceTest {
 			final LedgerService service = service();
 
 			service.begin(() -> setup(keyed, trusted));
+			return service;
+		}
+
+		LedgerService startedOn(final LedgerGenesis chain) {
+			final LedgerService service = service();
+			final Path file = write(chain);
+
+			service.begin(() -> setup(true, Optional.empty(), file));
 			return service;
 		}
 
@@ -693,6 +729,57 @@ public class LedgerServiceTest {
 		}
 	}
 
+	/* A changed genesis is another chain, and its blocks and the votes of the validator must never meet those of the
+	   chain before: each chain has a directory of its own, named by the start of its chain id */
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheFilesOfEveryChainApartAndTakeUpTheFilesOfAChainAgain() {
+		try (Rig rig = Rig.ready()) {
+			final LedgerService first = rig.started(true);
+
+			eventually(() -> first.status().signing());
+			submitted(first, rig.vote(1));
+			eventually(() -> first.height().equals(OptionalLong.of(1)));
+
+			final byte[] tip = first.tipHash().orElseThrow();
+
+			first.stop();
+
+			final Path log = rig.chainDirectory().resolve(LedgerNodes.BLOCK_LOG);
+			final long logBytes = Files.size(log);
+			final LedgerGenesis other = rig.otherGenesis();
+			final LedgerService second = rig.startedOn(other);
+
+			eventually(() -> second.status().signing());
+			assertThat(second.height(), equalTo(OptionalLong.of(0)));
+			assertThat(second.tipHash().orElseThrow(), not(equalTo(tip)));
+			second.stop();
+
+			assertThat(Files.size(log), is(logBytes));
+			assertThat(signStateOf(rig).orElseThrow().height(), is(2L));
+			assertThat(Files.exists(rig.chainDirectory(other).resolve(LedgerNodes.BLOCK_LOG)), is(true));
+			assertThat(Files.exists(rig.files.getPath(DIRECTORY, LedgerNodes.BLOCK_LOG)), is(false));
+			assertThat(Files.exists(rig.files.getPath(DIRECTORY, LedgerNodes.SIGN_STATE)), is(false));
+
+			final LedgerService again = rig.started(true);
+
+			eventually(() -> again.height().isPresent());
+			assertThat(again.height(), equalTo(OptionalLong.of(1)));
+			assertThat(again.tipHash().orElseThrow(), equalTo(tip));
+		}
+	}
+
+	@Example
+	public void shouldNameTheDirectoryOfAChainByTheFirstSixteenCharactersOfItsId() {
+		try (Rig rig = Rig.ready()) {
+			final String name = LedgerService.chainDirectoryOf(rig.genesis);
+
+			assertThat(name, equalTo(GenesisFile.chainIdHex(rig.genesis).substring(0, 16)));
+			assertThat(name, matchesPattern("[0-9a-f]{16}"));
+			assertThat(LedgerService.chainDirectoryOf(rig.otherGenesis()), not(equalTo(name)));
+		}
+	}
+
 	/* The sign state is what keeps a validator from signing twice at a height, so a node whose block log is behind
 	   it follows the chain and does not sign, until an operator has restored the log */
 	@Example
@@ -706,7 +793,7 @@ public class LedgerServiceTest {
 			eventually(() -> first.height().equals(OptionalLong.of(1)));
 			first.stop();
 
-			try (SignStateFile ahead = new SignStateFile(rig.files.getPath(DIRECTORY, LedgerNodes.SIGN_STATE))) {
+			try (SignStateFile ahead = new SignStateFile(rig.chainDirectory().resolve(LedgerNodes.SIGN_STATE))) {
 				ahead.save(SignState.empty(5), 1);
 			}
 
@@ -724,14 +811,14 @@ public class LedgerServiceTest {
 
 	@SneakyThrows
 	private static Optional<SignState> signStateOf(final Rig rig) {
-		try (SignStateFile file = new SignStateFile(rig.files.getPath(DIRECTORY, LedgerNodes.SIGN_STATE))) {
+		try (SignStateFile file = new SignStateFile(rig.chainDirectory().resolve(LedgerNodes.SIGN_STATE))) {
 			return file.load();
 		}
 	}
 
 	@SneakyThrows
 	private static List<Block> blocksOf(final Rig rig) {
-		try (BlockLog log = BlockLog.open(rig.files.getPath(DIRECTORY).resolve(LedgerNodes.BLOCK_LOG))) {
+		try (BlockLog log = BlockLog.open(rig.chainDirectory().resolve(LedgerNodes.BLOCK_LOG))) {
 			return log.blocks();
 		}
 	}

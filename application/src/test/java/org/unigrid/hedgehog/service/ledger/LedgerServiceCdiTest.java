@@ -59,9 +59,10 @@ public class LedgerServiceCdiTest extends BaseMockedWeldTest {
 		final byte[] hash = SnapshotDigest.of(snapshot);
 		final long total = SnapshotReader.open(snapshot).totalBalance();
 		final Path genesisFile = data.resolve("ledger-genesis.json");
+		final LedgerGenesis genesis = new LedgerGenesis(System.currentTimeMillis() - 60_000, 1_000,
+			new ValidatorSet(List.of(Ed25519.publicKey(LedgerTestChain.seed(7)))), hash, total);
 
-		GenesisFile.write(genesisFile, new LedgerGenesis(System.currentTimeMillis() - 60_000, 1_000,
-			new ValidatorSet(List.of(Ed25519.publicKey(LedgerTestChain.seed(7)))), hash, total));
+		GenesisFile.write(genesisFile, genesis);
 		Files.move(snapshot, data.resolve(SnapshotOptions.SNAPSHOT_FILE));
 		OptionsCli.parse(List.of("daemon"), "--ledger", "--ledger-genesis=" + genesisFile);
 
@@ -70,7 +71,8 @@ public class LedgerServiceCdiTest extends BaseMockedWeldTest {
 
 		assertThat(service.height(), equalTo(OptionalLong.of(0)));
 		assertThat(service.supply(), equalTo(OptionalLong.of(total)));
-		assertThat(Files.exists(data.resolve("ledger").resolve(LedgerNodes.BLOCK_LOG)), is(true));
+		assertThat(Files.exists(data.resolve("ledger").resolve(LedgerService.chainDirectoryOf(genesis))
+			.resolve(LedgerNodes.BLOCK_LOG)), is(true));
 		assertThat(service.status().signing(), is(false));
 		assertThat(service.status().tipHash().length(), is(128));
 	}
