@@ -174,6 +174,35 @@ public class LedgerNodesTest {
 		}
 	}
 
+	/* A replay that outlasts the wait for the driver to close is let finish by the close, and a node that is asked for
+	   after it must not open the log again: nobody would close it */
+	@Example
+	@SneakyThrows
+	public void shouldBuildNoMoreNodesOnceClosedAndOpenNoLog() {
+		try (FileSystem files = files(); LedgerNodes nodes = nodes(files, SEED)) {
+			nodes.close();
+
+			assertThat(assertThrows(IOException.class, () -> nodes.create(false)).getMessage(),
+				containsString("closed"));
+			assertThat(assertThrows(IOException.class, () -> nodes.create(true)).getMessage(),
+				containsString("closed"));
+			assertThat(Files.exists(directory(files).resolve(LedgerNodes.BLOCK_LOG)), is(false));
+			assertThat(nodes.ledger().isPresent(), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheLedgerItHadAfterItIsClosed() {
+		try (FileSystem files = files(); LedgerNodes nodes = nodes(files, null)) {
+			store(files, CHAIN);
+			nodes.create(false);
+			nodes.close();
+
+			assertThat(nodes.ledger().orElseThrow().height(), equalTo((long) BLOCKS));
+		}
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldGiveEachNodeAStateOfItsOwn() {
