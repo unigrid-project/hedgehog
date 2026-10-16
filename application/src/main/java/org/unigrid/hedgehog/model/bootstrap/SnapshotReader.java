@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 /*
    Answers balance and history questions straight out of the memory-mapped file. The address table is
@@ -85,7 +86,7 @@ public final class SnapshotReader {
 		header.duplicate().position(SnapshotFormat.TIP_HASH_OFFSET).get(tipHash);
 
 		return SnapshotInfo.builder().tipHash(BlockParser.toDisplayString(tipHash))
-			.tipHeight(header.getInt(SnapshotFormat.TIP_HEIGHT_OFFSET))
+			.tipHeight(tipHeight())
 			.addressCount(header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET))
 			.entryCount(header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET))
 			.transactionCount(header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET))
@@ -93,6 +94,23 @@ public final class SnapshotReader {
 			.zerocoinMinted(Coin.toDecimal(header.getLong(SnapshotFormat.ZEROCOIN_MINTED_OFFSET)))
 			.built(Instant.ofEpochSecond(header.getLong(SnapshotFormat.BUILT_AT_OFFSET)))
 			.signature(signature).build();
+	}
+
+	public int tipHeight() {
+		return header.getInt(SnapshotFormat.TIP_HEIGHT_OFFSET);
+	}
+
+	/* Block times are unsigned seconds, which is why the conversion goes through a long */
+	public long tipTimeMillis() {
+		return TimeUnit.SECONDS.toMillis(Integer.toUnsignedLong(
+			blockTimes.getInt(tipHeight() * SnapshotFormat.BLOCK_TIME_RECORD_SIZE)));
+	}
+
+	/* The balance in units of 1e-8 coins, 0 for a hash that is not in the table */
+	public long balanceUnits(byte[] addressHash) {
+		final int record = find(addressHash);
+
+		return record < 0 ? 0 : balanceAt(record);
 	}
 
 	public long totalBalance() {

@@ -24,10 +24,17 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
@@ -100,6 +107,90 @@ public class SnapshotReaderTest {
 
 		SnapshotSignature.signAndAppend(path, new Signature().getPrivateKey());
 		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "does not verify against any trusted key");
+	}
+
+	@Provide
+	public Arbitrary<Map<String, Long>> provideHoldings() {
+		return AddressSnapshots.holdings(Long.MAX_VALUE);
+	}
+
+	@Provide
+	public Arbitrary<String> provideHash() {
+		return AddressSnapshots.hashes();
+	}
+
+	@Property(tries = 50)
+	@SneakyThrows
+	public void shouldAnswerTheBalanceOfAHashLikeTheDecimalPath(@ForAll("provideHoldings") Map<String, Long> holdings,
+		@ForAll("provideHash") String probe) {
+
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(holdings));
+
+		holdings.forEach((hash, units) -> {
+			assertThat(unitsOf(reader, hash), equalTo(units));
+			assertThat(decimalUnitsOf(reader, hash), equalTo(units));
+		});
+		assertThat(unitsOf(reader, probe), equalTo(holdings.getOrDefault(probe, 0L)));
+		assertThat(decimalUnitsOf(reader, probe), equalTo(holdings.getOrDefault(probe, 0L)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldFindTheFirstAndTheLastHashAndMissThoseBetween() {
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(
+			Map.of(hash("", "00", ""), 1L, hash("80", "00", ""), 2L, hash("", "ff", ""), 3L)));
+
+		assertThat(unitsOf(reader, hash("", "00", "")), equalTo(1L));
+		assertThat(unitsOf(reader, hash("80", "00", "")), equalTo(2L));
+		assertThat(unitsOf(reader, hash("", "ff", "")), equalTo(3L));
+		assertThat(unitsOf(reader, hash("", "00", "01")), equalTo(0L));
+		assertThat(unitsOf(reader, hash("7f", "ff", "")), equalTo(0L));
+		assertThat(unitsOf(reader, hash("80", "00", "01")), equalTo(0L));
+		assertThat(unitsOf(reader, hash("", "ff", "fe")), equalTo(0L));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldAnswerZeroWhenTheSnapshotHoldsNoAddress() {
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(Map.of()));
+
+		assertThat(reader.balanceUnits(new byte[Hashing.ADDRESS_HASH_SIZE]), equalTo(0L));
+		assertThat(reader.totalBalance(), equalTo(0L));
+	}
+
+	@Property(tries = 50)
+	@SneakyThrows
+	public void shouldReadTheTipFromTheBlockTimeTable(@ForAll @IntRange(min = 0, max = 60) int height,
+		@ForAll @LongRange(min = 0, max = 0xFFFFFFFFL) long seconds) {
+
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(Map.of(), height, (int) seconds));
+
+		assertThat(reader.tipHeight(), equalTo(height));
+		assertThat(reader.tipTimeMillis(), equalTo(seconds * 1000));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldAgreeWithTheInfoOnTheTipOfABuiltSnapshot() {
+		final SnapshotReader reader = SnapshotReader.open(validSnapshot());
+		final SnapshotInfo info = reader.getInfo();
+
+		assertThat(reader.tipHeight(), equalTo(info.getTipHeight()));
+		assertThat(reader.tipTimeMillis(), equalTo(info.getBuilt().toEpochMilli()));
+	}
+
+	/* A 20 byte hash in hex: the head, then the fill byte repeated up to the tail */
+	private static String hash(String head, String fill, String tail) {
+		return head + fill.repeat(Hashing.ADDRESS_HASH_SIZE - (head.length() + tail.length()) / 2) + tail;
+	}
+
+	private static long unitsOf(SnapshotReader reader, String hash) {
+		return reader.balanceUnits(AddressSnapshots.bytesOf(hash));
+	}
+
+	private static long decimalUnitsOf(SnapshotReader reader, String hash) {
+		return reader.balanceOf(AddressSnapshots.addressOf(hash)).map(AddressBalance::getBalance)
+			.map(balance -> balance.movePointRight(Coin.DECIMALS).longValueExact()).orElse(0L);
 	}
 
 	@SneakyThrows
