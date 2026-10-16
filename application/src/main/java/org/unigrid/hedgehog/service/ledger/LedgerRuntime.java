@@ -18,24 +18,28 @@
 
 package org.unigrid.hedgehog.service.ledger;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.unigrid.hedgehog.ledger.Scheduler;
 import org.unigrid.hedgehog.ledger.Serial;
 
-/* The threads a driver runs on: one that takes its events one at a time, and one that waits for its timers. They are
-   made by the thread that starts the driver, so they belong to the same node as it. */
+/* The threads a driver runs on: one that takes its events one at a time, and one that waits for its timers. Both are
+   started here, by the thread that builds the runtime, and not by whichever thread first gives them work: a test
+   container names the threads of its node by what they inherit from the thread that made them. */
 final class LedgerRuntime implements Serial, Scheduler, AutoCloseable {
-	private final ExecutorService events;
-	private final ScheduledExecutorService timers;
+	private final ThreadPoolExecutor events;
+	private final ScheduledThreadPoolExecutor timers;
 
 	LedgerRuntime(final String name) {
-		events = Executors.newSingleThreadExecutor(named(name + "-events"));
-		timers = Executors.newSingleThreadScheduledExecutor(named(name + "-timers"));
+		events = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(),
+			named(name + "-events"));
+		timers = new ScheduledThreadPoolExecutor(1, named(name + "-timers"));
+		events.prestartAllCoreThreads();
+		timers.prestartAllCoreThreads();
 	}
 
 	private static ThreadFactory named(final String name) {
@@ -59,9 +63,22 @@ final class LedgerRuntime implements Serial, Scheduler, AutoCloseable {
 		return () -> scheduled.cancel(false);
 	}
 
+	/* A task that is running is not interrupted on the events thread: the driver closes its node first, and what the
+	   node has begun it finishes. Timers that are waiting are dropped. */
 	@Override
 	public void close() {
 		timers.shutdownNow();
 		events.shutdown();
+	}
+
+	/* Whether both threads have ended within the time. It must not be asked of one of them. */
+	boolean awaitStopped(final long timeoutMillis) {
+		try {
+			return events.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)
+				&& timers.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS);
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
 	}
 }
