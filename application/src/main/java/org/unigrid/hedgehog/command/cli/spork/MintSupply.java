@@ -18,58 +18,31 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Model.CommandSpec;
-import picocli.CommandLine.Spec;
 
 @Command(name = "mint-supply")
-public class MintSupply implements Runnable {
-	@Spec
-	private CommandSpec spec;
+public class MintSupply extends SporkCommand<String> {
+	@Override
+	protected String location() {
+		return "/gridspork/mint-supply";
+	}
 
 	@Override
-	@SneakyThrows
-	public void run() {
-		if (spec.parent().userObject() instanceof GridSporkGet) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-supply") {
+	protected String read(final String data) {
+		return data;
+	}
 
-				@Override
-				protected void execute(Response response) {
-					System.out.println(Json.parse(response.readEntity(String.class)));
-				}
-			};
+	@Override
+	protected Entity<?> entityOf(final String data) {
+		return Entity.text(data);
+	}
 
-			cmd.run();
-		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/mint-supply") {
-
-				@Override
-				protected <T> Entity<T> getEntity() {
-					return (Entity<T>) Entity.text(GridSporkSet.getData());
-				}
-
-				@Override
-				protected void execute(Response response) {
-					System.out.println(Json.parse(response.readEntity(String.class)));
-				}
-			};
-
-			final MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
-			headers.add("privateKey", GridSporkSet.getKey());
-
-			cmd.setHeaders(headers);
-			cmd.run();
-		} else {
-			/* Will only happen if we forget to extend this method */
-			throw new UnsupportedOperationException();
-		}
+	/* This daemon answers with the proposal that was made */
+	@Override
+	protected void printProposalAnswer(final Response response) {
+		System.out.println(Json.parse(response.readEntity(String.class)));
 	}
 }

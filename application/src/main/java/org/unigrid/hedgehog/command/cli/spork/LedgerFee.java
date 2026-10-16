@@ -18,69 +18,23 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.spork.LedgerFee.SporkData;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
-import picocli.CommandLine.Spec;
 
 @Command(name = "ledger-fee",
 	description = "The minimum fee of a transfer; to set it, the data is the fee in coins, like 0.001."
 )
-public class LedgerFee implements Runnable {
-	private static final String LOCATION = "/gridspork/ledger-fee";
-
-	@Spec
-	private CommandSpec spec;
-
+public class LedgerFee extends SporkCommand<SporkData> {
 	@Override
-	public void run() {
-		if (spec.parent().userObject() instanceof GridSporkGet) {
-			get();
-		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			set(read(GridSporkSet.getData()));
-		} else {
-			throw new UnsupportedOperationException();
-		}
-	}
-
-	private void get() {
-		new RestClientCommand(HttpMethod.GET, LOCATION) {
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(Json.parse(response.readEntity(String.class)));
-			}
-		}.run();
-	}
-
-	private void set(final SporkData data) {
-		final RestClientCommand command = new RestClientCommand(HttpMethod.PUT, LOCATION) {
-			@Override
-			protected <T> Entity<T> getEntity() {
-				return (Entity<T>) Entity.json(data);
-			}
-
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(response.getStatusInfo());
-			}
-		};
-
-		final MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
-		headers.add("privateKey", GridSporkSet.getKey());
-		command.setHeaders(headers);
-		command.run();
+	protected String location() {
+		return "/gridspork/ledger-fee";
 	}
 
 	/* A BigDecimal keeps the typed digits, so no floating point ever rounds the fee on its way to the daemon */
-	private SporkData read(final String text) {
+	@Override
+	protected SporkData read(final String text) {
 		try {
 			final SporkData data = new SporkData();
 
@@ -88,7 +42,7 @@ public class LedgerFee implements Runnable {
 			data.validate();
 			return data;
 		} catch (IllegalArgumentException ex) {
-			throw new ParameterException(spec.commandLine(), "The fee \"%s\" is not accepted: %s"
+			throw new ParameterException(spec().commandLine(), "The fee \"%s\" is not accepted: %s"
 				.formatted(text, ex.getMessage()), ex);
 		}
 	}

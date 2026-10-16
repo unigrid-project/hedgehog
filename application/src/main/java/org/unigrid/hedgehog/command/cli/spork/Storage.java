@@ -18,62 +18,24 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.Response;
-import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.Json;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Model.CommandSpec;
-import picocli.CommandLine.Spec;
 
 @Command(name = "storage")
-public class Storage implements Runnable {
-	private static final String LOCATION = "/gridspork/storage";
-
-	@Spec
-	private CommandSpec spec;
+public class Storage extends SporkCommand<String> {
+	@Override
+	protected String location() {
+		return "/gridspork/storage";
+	}
 
 	@Override
-	@SneakyThrows
-	public void run() {
-		if (spec.parent().userObject() instanceof GridSporkGet) {
-			get();
-		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			set();
-		} else {
-			throw new UnsupportedOperationException();
-		}
+	protected String read(final String data) {
+		return data;
 	}
 
-	private void get() {
-		new RestClientCommand(HttpMethod.GET, LOCATION) {
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(Json.parse(response.readEntity(String.class)));
-			}
-		}.run();
-	}
-
-	private void set() {
-		final RestClientCommand command = new RestClientCommand(HttpMethod.PUT, LOCATION) {
-			@Override
-			protected <T> Entity<T> getEntity() {
-				return (Entity<T>) Entity.entity(GridSporkSet.getData(), MediaType.APPLICATION_JSON);
-			}
-
-			@Override
-			protected void execute(final Response response) {
-				System.out.println(response.getStatusInfo());
-			}
-		};
-
-		final MultivaluedHashMap<String, Object> headers = new MultivaluedHashMap<>();
-		headers.add("privateKey", GridSporkSet.getKey());
-		command.setHeaders(headers);
-		command.run();
+	@Override
+	protected Entity<?> entityOf(final String data) {
+		return Entity.entity(data, MediaType.APPLICATION_JSON);
 	}
 }
