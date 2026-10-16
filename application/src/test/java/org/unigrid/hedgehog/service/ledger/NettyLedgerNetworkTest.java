@@ -800,4 +800,65 @@ public class NettyLedgerNetworkTest {
 		inbound.close();
 		assertThat(network.peers().isEmpty(), is(true));
 	}
+
+	@Example
+	public void closesEveryStreamOfADisconnectedIdAndNoOther() {
+		final EmbeddedChannel dialled = new EmbeddedChannel();
+		final EmbeddedChannel older = new EmbeddedChannel();
+		final EmbeddedChannel newer = new EmbeddedChannel();
+		final EmbeddedChannel other = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf(nodeWith(dialled, FIRST));
+
+		network.speakerOf(older, remote(FIRST));
+		network.speakerOf(newer, remote(FIRST));
+		network.speakerOf(other, remote(SECOND));
+		network.disconnect(FIRST);
+
+		assertThat(Stream.of(dialled, older, newer, other).map(EmbeddedChannel::isOpen).toList(),
+			contains(false, false, false, true));
+		assertThat(network.peers().stream().map(LedgerPeer::id).toList(), contains(SECOND));
+	}
+
+	@Example
+	public void closesNothingForAnIdItHasNoStreamOf() {
+		final EmbeddedChannel dialled = new EmbeddedChannel();
+		final EmbeddedChannel inbound = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf(nodeWith(dialled, FIRST));
+
+		network.speakerOf(inbound, remote(SECOND));
+		network.disconnect("10.9.9.9");
+
+		assertThat(dialled.isOpen(), is(true));
+		assertThat(inbound.isOpen(), is(true));
+	}
+
+	@Example
+	public void leavesAStreamAloneThatDidNotSettleOnTheLedgerProtocol() {
+		final EmbeddedChannel agreeing = new EmbeddedChannel();
+		final EmbeddedChannel unagreeing = new EmbeddedChannel();
+		final Set<Node> dialled = Set.of(nodeWith(agreeing, FIRST), nodeWith(unagreeing, FIRST, PORT + 1));
+		final NettyLedgerNetwork network = networkOf(new PendingRequests(), channel -> true,
+			channel -> channel == agreeing, dialled);
+
+		network.disconnect(FIRST);
+
+		assertThat(agreeing.isOpen(), is(false));
+		assertThat(unagreeing.isOpen(), is(true));
+	}
+
+	@Example
+	public void closesTheOtherStreamsWhenOneCannotBeNamed() {
+		final EmbeddedChannel unnamed = new EmbeddedChannel();
+		final EmbeddedChannel named = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf();
+
+		network.speakerOf(unnamed, () -> {
+			throw new IllegalStateException("No address");
+		});
+		network.speakerOf(named, remote(FIRST));
+		network.disconnect(FIRST);
+
+		assertThat(named.isOpen(), is(false));
+		assertThat(unnamed.isOpen(), is(true));
+	}
 }

@@ -35,6 +35,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.LedgerNetwork;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.model.network.Connection;
@@ -48,6 +49,7 @@ import org.unigrid.hedgehog.model.network.PendingRequests;
    everything twice to one node serves no one. Of the streams of one id the one this node opened wins, and among
    equals the newest, as the older may be a dead one that has not been noticed yet. The peers come in the order of
    their ids, whatever the order of the topology. */
+@Slf4j
 @RequiredArgsConstructor
 public class NettyLedgerNetwork implements LedgerNetwork {
 	public static final int MAX_SPEAKERS = 64;
@@ -107,16 +109,30 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	public List<LedgerPeer> peers() {
 		final Map<String, NettyLedgerPeer> byId = new TreeMap<>();
 
-		Stream.concat(seen.stream(), connected()).filter(peer -> peer.channel().isActive() && peer.speaksLedger())
+		streams().filter(peer -> peer.channel().isActive())
 			.forEach(peer -> byId.merge(peer.id(), peer, this::preferred));
 		return List.copyOf(byId.values());
 	}
 
-	/* The driver asks for the connections of a peer it has penalised to be closed. Nothing is closed yet: the next
-	   round fills this in, closing the streams of that id, those that speak and those that only listen. */
+	private Stream<NettyLedgerPeer> streams() {
+		return Stream.concat(seen.stream(), connected()).filter(NettyLedgerPeer::speaksLedger);
+	}
+
+	/* The driver asks for the connections of a peer it has penalised to be closed: every stream of that id, those
+	   this node opened and those that only listen, and not only the one that peers() would choose. The streams of
+	   other ids are left alone, and a stream that cannot be named or closed is skipped: the others must still be. */
 	@Override
 	public void disconnect(final String peerId) {
-		/* Closes nothing until the next round */
+		streams().forEach(peer -> {
+			try {
+				if (peer.id().equals(peerId)) {
+					peer.channel().close();
+				}
+			} catch (RuntimeException ex) {
+				log.atDebug().addArgument(peerId).addArgument(() -> String.valueOf(ex))
+					.log("Could not close the streams of {}: {}");
+			}
+		});
 	}
 
 	/* Whether the connection of the stream settled on the ledger protocol: the capability gate of the ledger */
