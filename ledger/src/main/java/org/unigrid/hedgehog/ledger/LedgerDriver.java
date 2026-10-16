@@ -114,17 +114,29 @@ public final class LedgerDriver implements Closeable {
 
 	/* `maxQueuedInbound` is how many items of peers may wait for the serial executor at once, and
 	   `maxQueuedPerPeer` how many of them one peer may have: one more is dropped at the door. Each holds an object
-	   that is already decoded, so what the queue can hold is this many of the largest thing a peer can send. */
+	   that is already decoded, so what the queue can hold is this many of the largest thing a peer can send.
+	   `requestTimeoutMillis` is how long a request for blocks may wait for its answer before the driver counts it
+	   as failed, whatever the network still does about it. */
 	public record DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
-		long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted) {
+		long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted,
+		long requestTimeoutMillis) {
+		public static final long DEFAULT_REQUEST_TIMEOUT_MILLIS = 3_000;
 		public static final DriverOptions DEFAULT = new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000,
 			100, Optional.empty());
+
+		/* The limits that came later take their defaults */
+		@SuppressWarnings("checkstyle:ParameterNumber")
+		public DriverOptions(long tickMillis, long heartbeatMillis, long statusMillis, long graceMillis,
+			long restartWindowMillis, int maxQueuedInbound, int maxQueuedPerPeer, Optional<Checkpoint> trusted) {
+			this(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis, maxQueuedInbound,
+				maxQueuedPerPeer, trusted, DEFAULT_REQUEST_TIMEOUT_MILLIS);
+		}
 
 		public DriverOptions {
 			Objects.requireNonNull(trusted);
 
 			if (LongStream.of(tickMillis, heartbeatMillis, statusMillis, graceMillis, restartWindowMillis,
-				maxQueuedInbound, maxQueuedPerPeer).anyMatch(value -> value <= 0)) {
+				maxQueuedInbound, maxQueuedPerPeer, requestTimeoutMillis).anyMatch(value -> value <= 0)) {
 				throw new IllegalArgumentException("Every interval and limit of the driver is above 0");
 			}
 		}
@@ -233,9 +245,15 @@ public final class LedgerDriver implements Closeable {
 		return supervisor.votes();
 	}
 
-	/* For the tests of this package: whether a request for blocks is out */
+	/* For the tests of this package: whether a sync runs, which is when a request for blocks is out or a wait before the
+	   next one is */
 	boolean syncing() {
 		return sync.running();
+	}
+
+	/* For the tests of this package: whether the driver waits for the answer to a request for blocks */
+	boolean awaiting() {
+		return syncer.awaiting();
 	}
 
 	/* For the tests of this package: whether the peer claims a chain above the ledger, and the claim stands */

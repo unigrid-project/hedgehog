@@ -1488,10 +1488,11 @@ public class LedgerDriverTest {
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 0, 1, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 0, 1, none));
 		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 0, none));
+		assertThrows(IllegalArgumentException.class, () -> new DriverOptions(1, 1, 1, 1, 1, 1, 1, none, 0));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(0, hash));
 		assertThrows(IllegalArgumentException.class, () -> new Checkpoint(1, new byte[Digests.HASH_SIZE - 1]));
 		assertThat(DriverOptions.DEFAULT,
-			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 100, none)));
+			equalTo(new DriverOptions(1_000, 10_000, 10_000, 30_000, 10_000, 10_000, 100, none, 3_000)));
 	}
 
 	@Example

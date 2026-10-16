@@ -30,4 +30,10 @@ public interface LedgerPeer {
 	void send(Object wire);
 
 	CompletableFuture<BlockBatch> request(BlockRequest request);
+
+	/* True for a peer that this node connected to, as against one that connected to it. A node chooses whom it dials
+	   and not who dials it, so when claims are equal the ones it dialled are asked for blocks first. */
+	default boolean dialled() {
+		return false;
+	}
 }

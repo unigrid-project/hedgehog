@@ -27,6 +27,7 @@ import java.util.Iterator;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
@@ -60,6 +61,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.mint;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.newFileSystem;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.nextBlock;
@@ -74,6 +76,10 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.ANY_MINT;
 public class LedgerDriverSyncTest {
 	private static final int BLOCKS = 40;
 	private static final long TIP = BLOCKS;
+
+	/* A request timeout that no other timer of the driver or the node has, so that the property can tell the timer of a
+	   request from the rest */
+	private static final long PROPERTY_TIMEOUT = 4_321;
 
 	/* The two chains of one genesis that the property draws on, built once for all of its tries */
 	private static final List<Chain> PROPERTY_CHAINS = new ArrayList<>();
@@ -135,12 +141,19 @@ public class LedgerDriverSyncTest {
 
 		/* Which chain the ledger holds: 'A', 'F' or '-' when it holds nothing */
 		char chain();
+
+		/* A number for a request that is made, in the order they are made */
+		long stamp();
+
+		/* Whether the driver waits for the answer to the request with that number: the latest one, and no one if the
+		   driver has given up on it or has ended its sync */
+		boolean current(long stamp);
 	}
 
 	/* The other end of a sync, which answers from a chain unless it is told to serve something else, to hold its
 	   answers until they are released, or to fail */
 	private static final class Server implements LedgerPeer {
-		private record Held(BlockRequest request, CompletableFuture<BlockBatch> reply) {
+		private record Held(BlockRequest request, CompletableFuture<BlockBatch> reply, long stamp) {
 		}
 
 		private final String id;
@@ -151,6 +164,7 @@ public class LedgerDriverSyncTest {
 		private boolean holding;
 		private boolean emptying;
 		private boolean tampering;
+		private boolean dialled;
 		private long delivered;
 		private long crossServed;
 		private long badNewServed;
@@ -175,23 +189,37 @@ public class LedgerDriverSyncTest {
 			return this;
 		}
 
-		private List<Block> answer(BlockRequest request) {
+		private Server dialledByUs() {
+			dialled = true;
+			return this;
+		}
+
+		@Override
+		public boolean dialled() {
+			return dialled;
+		}
+
+		private List<Block> answer(Held asked) {
 			if (emptying) {
 				return List.of();
 			}
 
+			final BlockRequest request = asked.request();
 			final List<Block> blocks = serving.apply(request);
 
 			delivered += blocks.size();
-			note(request, blocks);
+			note(asked, blocks);
 			return tampering ? spoiling(blocks, request.from() + 1) : blocks;
 		}
 
 		/* What the driver must make of this answer, as far as the test can tell: a batch of another chain than the
 		   ledger holds, given to a driver that can take it, halts it, and a block that is new and false, in a batch
-		   that it takes, makes the peer doubted */
-		private void note(BlockRequest request, List<Block> blocks) {
-			if (watch != null && watch.ready() && !blocks.isEmpty()) {
+		   that it takes, makes the peer doubted. An answer to a request that the driver has given up is taken by no
+		   one. */
+		private void note(Held asked, List<Block> blocks) {
+			final BlockRequest request = asked.request();
+
+			if (watch != null && watch.ready() && watch.current(asked.stamp()) && !blocks.isEmpty()) {
 				if (watch.chain() != '-' && watch.chain() != tag) {
 					crossServed++;
 				}
@@ -226,7 +254,7 @@ public class LedgerDriverSyncTest {
 			if (hasHeld()) {
 				final Held next = held.remove();
 
-				next.reply().complete(new BlockBatch(answer(next.request())));
+				next.reply().complete(new BlockBatch(answer(next)));
 			}
 		}
 
@@ -260,7 +288,7 @@ public class LedgerDriverSyncTest {
 			final Held next = held.remove();
 
 			holding = false;
-			next.reply().complete(new BlockBatch(answer(next.request())));
+			next.reply().complete(new BlockBatch(answer(next)));
 		}
 
 		private void failHeld(Throwable cause) {
@@ -280,6 +308,7 @@ public class LedgerDriverSyncTest {
 		@Override
 		public CompletableFuture<BlockBatch> request(BlockRequest request) {
 			final CompletableFuture<BlockBatch> reply = new CompletableFuture<>();
+			final Held asked = new Held(request, reply, watch == null ? 0 : watch.stamp());
 
 			requests.add(request);
 
@@ -289,9 +318,9 @@ public class LedgerDriverSyncTest {
 				failuresLeft--;
 				reply.completeExceptionally(new IllegalStateException("The request timed out"));
 			} else if (holding) {
-				held.add(new Held(request, reply));
+				held.add(asked);
 			} else {
-				reply.complete(new BlockBatch(answer(request)));
+				reply.complete(new BlockBatch(answer(asked)));
 			}
 
 			return reply;
@@ -1564,6 +1593,231 @@ public class LedgerDriverSyncTest {
 		}
 	}
 
+	private static ManualScheduler.Timer requestTimeout(DriverRig rig) {
+		return rig.timers().stream().filter(timer -> timer.delayMillis() == DriverRig.OPTIONS.requestTimeoutMillis())
+			.findFirst().orElseThrow();
+	}
+
+	@Example
+	public void shouldCountARequestThatGetsNoAnswerInTheRequestTimeoutAsFailedAndAskTheNextClaimantAtOnce()
+		throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server silent = new Server("S", chain).holding();
+			final Server honest = new Server("H", chain);
+
+			rig.hears(silent, silent.statusAt(2));
+			rig.hears(honest, honest.status());
+
+			assertThat(silent.requests, hasSize(1));
+			assertThat(honest.requests, is(empty()));
+
+			requestTimeout(rig).fire();
+
+			assertThat(silent.requests, hasSize(1));
+			assertThat(rig.driver.doubts("S"), is(true));
+			assertThat(honest.requests, is(not(empty())));
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(rig.limiter.isPenalised("S"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldDoubtThePeerThatTimedOutForOneStatusIntervalAndTwiceThatTheNextTime() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server silent = new Server("S", chain).holding();
+
+			rig.hears(silent, silent.statusAt(2));
+			requestTimeout(rig).fire();
+			rig.clock.addAndGet(DriverRig.STATUS - 1);
+
+			assertThat(rig.driver.doubts("S"), is(true));
+
+			rig.clock.addAndGet(1);
+
+			assertThat(rig.driver.doubts("S"), is(false));
+
+			rig.hears(silent, silent.statusAt(2));
+			requestTimeout(rig).fire();
+			rig.clock.addAndGet(2 * DriverRig.STATUS - 1);
+
+			assertThat(rig.driver.doubts("S"), is(true));
+
+			rig.clock.addAndGet(1);
+
+			assertThat(rig.driver.doubts("S"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldIgnoreTheLateAnswerOfARequestThatTimedOut() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server silent = new Server("S", chain).holding();
+			final Server honest = new Server("H", chain).holding();
+
+			rig.hears(silent, silent.statusAt(2));
+			rig.hears(honest, honest.status());
+			requestTimeout(rig).fire();
+
+			assertThat(honest.requests, hasSize(1));
+
+			silent.release();
+
+			assertThat(rig.ledger().height(), equalTo(0L));
+			assertThat(honest.requests, hasSize(1));
+			assertThat(rig.driver.syncing(), is(true));
+
+			honest.release();
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+		}
+	}
+
+	@Example
+	public void shouldLeaveNoTimerBehindWhenTheAnswerComesInTime() throws IOException {
+		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(burstOf(Kind.STATUS, 100))) {
+			final Server slow = new Server("S", chain).holding();
+
+			rig.hears(slow, slow.status());
+
+			final ManualScheduler.Timer timer = requestTimeout(rig);
+
+			slow.release();
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(timer.cancelled(), is(true));
+			assertThat(rig.driver.doubts("S"), is(false));
+		}
+	}
+
+	@Example
+	public void shouldReachTheHonestPeerThroughFortySilentClaimantsWithinFortyTimeouts() throws IOException {
+		final AtomicLong clock = new AtomicLong(DriverRig.START);
+		final ManualScheduler scheduler = new ManualScheduler(clock);
+		final long timeout = DriverRig.OPTIONS.requestTimeoutMillis();
+
+		try (Chain chain = new Chain(BLOCKS, 10);
+			DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), burstOf(Kind.STATUS, 100), new DirectSerial(),
+				slowStatuses(), clock, scheduler).started()) {
+			final List<Server> silent = IntStream.range(0, 40)
+				.mapToObj(n -> new Server("S" + n, chain).holding()).toList();
+			final Server honest = new Server("H", chain);
+
+			silent.forEach(server -> rig.hears(server, server.statusAt(2)));
+			rig.hears(honest, honest.status());
+
+			scheduler.advanceBy(40 * timeout - 1);
+
+			assertThat(honest.requests, is(empty()));
+			assertThat(rig.ledger().height(), equalTo(0L));
+
+			scheduler.advanceBy(1);
+
+			assertThat(honest.requests, hasSize(1));
+			assertThat(rig.ledger().height(), equalTo(16L));
+
+			scheduler.advanceBy(4 * Syncer.PACE_MILLIS);
+
+			assertThat(rig.ledger().height(), equalTo(TIP));
+			assertThat(silent.stream().allMatch(server -> server.requests.size() == 1), is(true));
+		}
+	}
+
+	/* The claims stand for the whole of the test, which runs for two minutes of virtual time */
+	private static DriverOptions slowStatuses() {
+		return new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, 20 * DriverRig.STATUS, DriverRig.GRACE,
+			DriverRig.RESTART_WINDOW, DriverRig.QUEUE, DriverRig.PER_PEER, Optional.empty());
+	}
+
+	@Property(tries = 50)
+	public void shouldAskAPeerThatWasDialledBeforeThoseThatWereNotAmongClaimsOfOneHeight(
+		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int pick) {
+		final SyncState state = new SyncState(1_000, EVERYONE);
+
+		for (int n = 0; n < peers; n++) {
+			final Server server = new Server("P" + n, null);
+
+			state.heard(n == pick % peers ? server.dialledByUs() : server, 10, 0);
+		}
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + pick % peers));
+	}
+
+	@Property(tries = 50)
+	public void shouldAskAPeerThatHasDeliveredBeforeThoseThatHaveNotAmongClaimsOfOneHeight(
+		@ForAll @IntRange(min = 2, max = 8) int peers, @ForAll @IntRange(min = 0, max = 7) int pick) {
+		final SyncState state = new SyncState(1_000, EVERYONE);
+
+		for (int n = 0; n < peers; n++) {
+			state.heard(new Server("P" + n, null), 10, 0);
+		}
+
+		state.delivered("P" + pick % peers);
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("P" + pick % peers));
+	}
+
+	@Example
+	public void shouldAskThePeerWithMoreDeliveriesFirstAndTheOneWeDialledBeforeEitherAndTheLowestClaimBeforeAll() {
+		final SyncState state = new SyncState(1_000, EVERYONE);
+
+		state.heard(new Server("A", null), 10, 0);
+		state.heard(new Server("B", null), 10, 0);
+		state.heard(new Server("C", null).dialledByUs(), 10, 0);
+		state.heard(new Server("D", null).dialledByUs(), 9, 0);
+		state.delivered("A");
+		state.delivered("A");
+		state.delivered("B");
+		state.delivered("C");
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("D"));
+
+		state.drop("D");
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("C"));
+
+		state.drop("C");
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
+
+		state.drop("A");
+
+		assertThat(state.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
+	}
+
+	@Example
+	public void shouldFollowTheDeliveriesWhicheverOfTwoPeersTheHashWouldPick() {
+		final SyncState first = new SyncState(1_000, EVERYONE);
+		final SyncState second = new SyncState(1_000, EVERYONE);
+
+		Stream.of(first, second).forEach(state -> {
+			state.heard(new Server("A", null), 10, 0);
+			state.heard(new Server("B", null), 10, 0);
+		});
+		first.delivered("A");
+		second.delivered("B");
+
+		assertThat(first.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("A"));
+		assertThat(second.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo("B"));
+	}
+
+	@Example
+	public void shouldNotCountBatchesDeliveredOnceTheStateIsCleared() {
+		final SyncState untouched = new SyncState(1_000, EVERYONE);
+		final SyncState cleared = new SyncState(1_000, EVERYONE);
+
+		untouched.heard(new Server("A", null), 10, 0);
+		untouched.heard(new Server("B", null), 10, 0);
+
+		final String byHash = untouched.nearestAbove(0, 0).orElseThrow().peer().id();
+
+		cleared.delivered("A".equals(byHash) ? "B" : "A");
+		cleared.clear();
+		cleared.heard(new Server("A", null), 10, 0);
+		cleared.heard(new Server("B", null), 10, 0);
+
+		assertThat(cleared.nearestAbove(0, 0).orElseThrow().peer().id(), equalTo(byHash));
+	}
+
 	@Example
 	public void shouldWaitAPaceBetweenTwoRequestsOfASyncButNotBeforeTheFirst() throws IOException {
 		try (Chain chain = new Chain(BLOCKS, 10); DriverRig rig = fresh(TOUCHY)) {
@@ -1788,9 +2042,10 @@ public class LedgerDriverSyncTest {
 			assertThat(alive, is(empty()));
 			assertThat(rig.driver.signing(), is(false));
 			assertThat(rig.driver.syncing(), is(false));
+			assertThat(rig.driver.awaiting(), is(false));
 		} else {
 			alive.forEach(node -> assertThat(rig.driver.signing(), equalTo(node.signs())));
-			assertThat(!rig.driver.syncing() || servers.stream().anyMatch(Server::hasHeld) || waiting(rig), is(true));
+			assertThat(!rig.driver.syncing() || rig.driver.awaiting() || waiting(rig), is(true));
 		}
 	}
 
@@ -2292,12 +2547,15 @@ public class LedgerDriverSyncTest {
 		cp.ifPresent(checkpoint -> assertThat(ledger.hashAt(checkpoint.height()).map(held -> Arrays.equals(held,
 			checkpoint.hash())).orElse(true), is(true)));
 
-		final int outstanding = servers.stream().mapToInt(server -> server.held.size()).sum();
+		final boolean awaiting = rig.driver.awaiting();
+		final long timeouts = rig.timers().stream().filter(timer -> timer.delayMillis() == PROPERTY_TIMEOUT).count();
 
-		assertThat(outstanding <= 1, is(true));
+		assertThat(timeouts, equalTo(awaiting ? 1L : 0L));
+		assertThat(!awaiting || servers.stream().anyMatch(Server::hasHeld), is(true));
+		assertThat(awaiting && waiting(rig), is(false));
 
 		if (!rig.driver.halted()) {
-			assertThat(rig.driver.syncing(), equalTo(outstanding == 1 || waiting(rig)));
+			assertThat(rig.driver.syncing(), equalTo(awaiting || waiting(rig)));
 		}
 
 		for (int n = 0; n < servers.size(); n++) {
@@ -2327,10 +2585,21 @@ public class LedgerDriverSyncTest {
 		final List<Chain> chains = List.copyOf(PROPERTY_CHAINS);
 		final Optional<Checkpoint> checkpoint = checkpointOf(script, chains);
 		final DriverOptions options = new DriverOptions(DriverRig.TICK, DriverRig.HEARTBEAT, DriverRig.STATUS,
-			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint);
+			DriverRig.GRACE, 1, DriverRig.QUEUE, DriverRig.PER_PEER, checkpoint, PROPERTY_TIMEOUT);
 
 		try (DriverRig rig = new DriverRig(DriverRig.FOUR, seed(2), lenient(), new DirectSerial(), options).started()) {
+			final AtomicLong stamps = new AtomicLong();
 			final Watch watch = new Watch() {
+				@Override
+				public long stamp() {
+					return stamps.incrementAndGet();
+				}
+
+				@Override
+				public boolean current(long stamp) {
+					return stamp == stamps.get() && rig.driver.awaiting();
+				}
+
 				@Override
 				public boolean ready() {
 					return live(rig).size() == 1 && !rig.driver.halted();

@@ -36,10 +36,13 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 
    A sync is paced, as the peer limits what it answers: the first request is made at once and the ones that follow
    are a pace apart. A batch is applied one block to a task of the control lane, so that the ticks and the timers of
-   the driver come between the blocks and not after all of them. A request that gets no answer is the network's
-   trouble as likely as the peer's: it is made once more after a while, and only when that fails too is the peer
-   doubted, for a time that doubles with each failure in a row. What a peer serves that is not right, or does not
-   give after it claimed, costs it, and it is doubted for long. Used on the serial executor only. */
+   the driver come between the blocks and not after all of them. A request that fails is the network's trouble as
+   likely as the peer's: it is made once more after a while, and only when that fails too is the peer doubted, for a
+   time that doubles with each failure in a row. A request that gets no answer in the request timeout is not made
+   again of that peer: the next claimant is asked at once and the peer is doubted in the same way, so that peers
+   which claim and say nothing hold a node up for one timeout each and no longer. What a peer serves that is not
+   right, or does not give after it claimed, costs it, and it is doubted for long. Used on the serial executor
+   only. */
 final class Syncer {
 	static final long PACE_MILLIS = 250;
 	static final long RETRY_MILLIS = 1_000;
@@ -61,6 +64,8 @@ final class Syncer {
 	private final Scheduler scheduler;
 	private final Hooks hooks;
 	private Cancellable waiting = () -> { };
+	private Cancellable timeout = () -> { };
+	private Object outstanding;
 
 	Syncer(NodeSupervisor supervisor, SyncState sync, PeerLimiter limiter, LongSupplier clock, DriverOptions options,
 		Scheduler scheduler, Hooks hooks) {
@@ -76,6 +81,19 @@ final class Syncer {
 	/* The driver stops: nothing is waited for */
 	void stop() {
 		waiting.cancel();
+		forgetRequest();
+	}
+
+	/* For the tests of this package: whether the answer to a request for blocks is waited for now */
+	boolean awaiting() {
+		return outstanding != null;
+	}
+
+	/* Whatever the request that was out does later is of no concern any more: its answer, or its timeout, finds nothing
+	   that waits for it */
+	private void forgetRequest() {
+		timeout.cancel();
+		outstanding = null;
 	}
 
 	/* A sync starts for a claim that is `margin` or more above the ledger. A peer that is one block ahead is how a peer
@@ -94,8 +112,12 @@ final class Syncer {
 
 	private void ask(LedgerPeer peer) {
 		final BlockRequest request = new BlockRequest(supervisor.ledger().height() + 1, BlockBatch.MAX_BLOCKS);
+		final Object attempt = new Object();
 
-		asked(peer, request).whenComplete((batch, failure) -> arrived(peer, request, batch, failure));
+		outstanding = attempt;
+		timeout = scheduler.schedule(() -> hooks.control().accept(() -> expired(attempt, peer)),
+			options.requestTimeoutMillis());
+		asked(peer, request).whenComplete((batch, failure) -> arrived(attempt, peer, request, batch, failure));
 	}
 
 	private static CompletableFuture<BlockBatch> asked(LedgerPeer peer, BlockRequest request) {
@@ -119,9 +141,16 @@ final class Syncer {
 		}
 	}
 
-	/* The answer comes from any thread */
-	private void arrived(LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
+	/* The answer comes from any thread. One that comes after the request timed out, or after the sync ended, is not the
+	   answer to anything. */
+	private void arrived(Object attempt, LedgerPeer peer, BlockRequest request, BlockBatch batch, Throwable failure) {
 		hooks.control().accept(() -> {
+			if (attempt != outstanding) {
+				return;
+			}
+
+			forgetRequest();
+
 			if (!supervisor.ready()) {
 				conclude();
 			} else if (failure != null || batch == null) {
@@ -132,18 +161,37 @@ final class Syncer {
 		});
 	}
 
-	/* A request that fails or times out costs the peer nothing. The first time it is asked again after a wait, and
-	   when it fails again the claim is dropped and the peer is doubted for a short time, so that another is tried.
-	   The vote is no longer held back by a request that got no answer. */
+	/* A peer that gives no answer in time is not asked again: the next claimant is, at once, as a node held up by one
+	   silent peer after another would not get to an honest one. The peer is doubted for a time that doubles with each
+	   failure in a row. */
+	private void expired(Object attempt, LedgerPeer peer) {
+		if (attempt == outstanding) {
+			forgetRequest();
+
+			if (supervisor.ready()) {
+				silent(peer);
+			} else {
+				conclude();
+			}
+		}
+	}
+
+	/* A request that fails costs the peer nothing: it is the network's trouble as likely as the peer's. The first time
+	   it is asked again after a wait, and when it fails again the claim is dropped and the peer is doubted for a short
+	   time, so that another is tried. The vote is no longer held back by a request that got no answer. */
 	private void lost(LedgerPeer peer) {
 		if (sync.retryOnce()) {
 			sync.stopHolding();
 			hooks.promote().run();
 			waitOrConclude(RETRY_MILLIS, peer);
 		} else {
-			sync.failed(peer.id(), clock.getAsLong(), options.statusMillis());
-			abandon(peer);
+			silent(peer);
 		}
+	}
+
+	private void silent(LedgerPeer peer) {
+		sync.failed(peer.id(), clock.getAsLong(), options.statusMillis());
+		abandon(peer);
 	}
 
 	private void take(LedgerPeer peer, BlockRequest request, BlockBatch batch) {

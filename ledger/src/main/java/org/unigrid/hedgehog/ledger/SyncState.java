@@ -49,6 +49,7 @@ final class SyncState {
 	private final Map<String, Claim> claims = new LinkedHashMap<>();
 	private final Map<String, Long> marks = new LinkedHashMap<>();
 	private final Map<String, Integer> strikes = new LinkedHashMap<>();
+	private final Map<String, Integer> deliveries = new LinkedHashMap<>();
 	private boolean retried;
 	private boolean running;
 	private boolean holding;
@@ -93,6 +94,8 @@ final class SyncState {
 	void delivered(String id) {
 		strikes.remove(id);
 		retried = false;
+		deliveries.merge(id, 1, Integer::sum);
+		bound(deliveries);
 	}
 
 	/* True the first time since a batch was delivered, which is when a request that failed is asked again */
@@ -130,11 +133,15 @@ final class SyncState {
 	}
 
 	/* The claim that is the least above the height: a peer that claims little is asked before one that claims a great
-	   deal, and what it says is the likeliest to be true. Claims at the same height are told apart by a hash of the
-	   peer and the height, so that the same peer is not first for every node. */
+	   deal, and what it says is the likeliest to be true. Of claims at the same height a peer that this node dialled
+	   is asked first, as it was chosen and not self-appointed, and then the one that has delivered the most batches,
+	   which no claim can fake. What is left is told apart by a hash of the peer and the height, so that the same peer
+	   is not first for every node. */
 	Optional<Claim> nearestAbove(long height, long now) {
 		return standing(now).filter(claim -> claim.height() > height).min(Comparator
-			.comparingLong(Claim::height).thenComparingInt(claim -> Objects.hash(claim.peer().id(), height)));
+			.comparingLong(Claim::height).thenComparing(claim -> !claim.peer().dialled())
+			.thenComparing(claim -> -deliveries.getOrDefault(claim.peer().id(), 0))
+			.thenComparingInt(claim -> Objects.hash(claim.peer().id(), height)));
 	}
 
 	boolean claimsAbove(String id, long height, long now) {
@@ -163,6 +170,7 @@ final class SyncState {
 		claims.clear();
 		marks.clear();
 		strikes.clear();
+		deliveries.clear();
 	}
 
 	boolean running() {
