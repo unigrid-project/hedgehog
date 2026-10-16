@@ -1,0 +1,10 @@
+{
+  "time": 1700000000000,
+  "roundLength": 100,
+  "validators": [
+    "1111111111111111111111111111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222222222222222222222222222"
+  ],
+  "snapshotHash": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+  "snapshotTotal": 12345678900000000
+}
