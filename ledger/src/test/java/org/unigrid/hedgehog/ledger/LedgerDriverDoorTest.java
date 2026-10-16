@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
@@ -37,6 +39,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.mint;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.seed;
 
@@ -287,6 +290,32 @@ public class LedgerDriverDoorTest {
 			assertThat(rig.driver.queuedBytes(), equalTo(MIB));
 
 			serial.drain();
+
+			assertThat(rig.driver.queuedBytes(), equalTo(0L));
+			assertThat(rig.driver.queuedInbound(), equalTo(0));
+			assertThat(rig.driver.queuedPeers(), equalTo(0));
+		}
+	}
+
+	@Example
+	public void shouldGiveBackWhatAnItemTookWhenTheExecutorTakesNoMoreTasks() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+		final AtomicBoolean shutDown = new AtomicBoolean();
+		final Serial gate = task -> {
+			if (shutDown.get()) {
+				throw new RejectedExecutionException("The executor takes no more");
+			}
+
+			serial.execute(task);
+		};
+
+		try (DriverRig rig = new DriverRig(DriverRig.FOUR, null, Policy.DEFAULT, gate,
+			options(1_000, 100, 64 * MIB, 8 * MIB)).started()) {
+			serial.drain();
+			shutDown.set(true);
+
+			assertThrows(RejectedExecutionException.class,
+				() -> rig.driver.onTransaction(rig.network.connect("A"), mint(1, 10), (int) MIB));
 
 			assertThat(rig.driver.queuedBytes(), equalTo(0L));
 			assertThat(rig.driver.queuedInbound(), equalTo(0));

@@ -31,7 +31,9 @@ import java.util.function.LongSupplier;
 /* What one peer may ask of this node. A peer has a bucket of tokens for each kind of message and a score that
    its misbehaviour raises and time lowers. One that runs dry too often, or reaches the score limit, is ignored
    for a while: the caller does no work for it. A bucket for each kind is also shared by all peers, so that
-   changing address does not multiply the work. This protects the node and authenticates no one.
+   changing address does not multiply the work. This protects the node and authenticates no one: a forwarder on
+   the loopback address, which hands every connection to this node under an address of its own, gives each of them an
+   id, buckets and a score of their own, and so multiplies what a client behind it may send.
 
    Peers are tracked in two maps. The active ones are in the order of their last activity, and a newcomer takes
    the room of the least recently active, so a flood of new peers costs a step each and never locks anyone out.
@@ -200,17 +202,22 @@ public final class PeerLimiter {
 	private final LongSupplier clock;
 	private final Policy policy;
 	private final Map<String, Peer> active = new LinkedHashMap<>();
-	private final Map<String, Long> penalised = new LinkedHashMap<>();
+	private final Map<String, Long> penalised;
 	private final Map<Kind, Bucket> shared = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
 	private long epoch;
 	private long lastReading;
 	private long time;
-	private long inspected;
 
 	public PeerLimiter(LongSupplier clock, Policy policy) {
+		this(clock, policy, new LinkedHashMap<>());
+	}
+
+	/* The map of the penalties is given, in the order of their end, so that a test can see how it is walked */
+	PeerLimiter(LongSupplier clock, Policy policy, Map<String, Long> penalised) {
 		this.clock = clock;
 		this.policy = policy;
+		this.penalised = penalised;
 		this.lastReading = clock.getAsLong();
 	}
 
@@ -304,10 +311,6 @@ public final class PeerLimiter {
 		return active.size() + penalised.size();
 	}
 
-	long inspected() {
-		return inspected;
-	}
-
 	private long advance() {
 		final long reading = clock.getAsLong();
 
@@ -330,8 +333,6 @@ public final class PeerLimiter {
 		final Iterator<Long> ends = penalised.values().iterator();
 
 		while (ends.hasNext()) {
-			inspected++;
-
 			if (ends.next() > now) {
 				return;
 			}
@@ -356,7 +357,6 @@ public final class PeerLimiter {
 	private void dropEldest(Map<String, ?> entries) {
 		final Iterator<String> eldest = entries.keySet().iterator();
 
-		inspected++;
 		eldest.next();
 		eldest.remove();
 	}

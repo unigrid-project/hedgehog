@@ -18,9 +18,14 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.AbstractCollection;
+import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.EnumMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -322,12 +327,72 @@ public class PeerLimiterTest {
 		assertThat(limiter.isPenalised("b"), is(false));
 	}
 
+	/* The map of the penalties, which counts the steps taken when it is walked */
+	private static final class WalkCountingMap extends LinkedHashMap<String, Long> {
+		private long steps;
+
+		@Override
+		public Collection<Long> values() {
+			final Collection<Long> real = super.values();
+
+			return new AbstractCollection<>() {
+				@Override
+				public Iterator<Long> iterator() {
+					return counted(real.iterator());
+				}
+
+				@Override
+				public int size() {
+					return real.size();
+				}
+			};
+		}
+
+		@Override
+		public Set<String> keySet() {
+			final Set<String> real = super.keySet();
+
+			return new AbstractSet<>() {
+				@Override
+				public Iterator<String> iterator() {
+					return counted(real.iterator());
+				}
+
+				@Override
+				public int size() {
+					return real.size();
+				}
+			};
+		}
+
+		private <T> Iterator<T> counted(Iterator<T> real) {
+			return new Iterator<>() {
+				@Override
+				public boolean hasNext() {
+					return real.hasNext();
+				}
+
+				@Override
+				public T next() {
+					steps++;
+					return real.next();
+				}
+
+				@Override
+				public void remove() {
+					real.remove();
+				}
+			};
+		}
+	}
+
 	/* Fresh addresses must cost the limiter a step each, however many penalised peers it holds, and each must be
 	   served: filling the table with penalties is not a way to lock the node's other peers out */
 	@Example
 	public void shouldServeEveryNewPeerAndDoWorkInProportionToTheCallsAfterTenThousandPenalties() {
 		final AtomicLong clock = new AtomicLong(START);
-		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 20_000));
+		final WalkCountingMap penalties = new WalkCountingMap();
+		final PeerLimiter limiter = new PeerLimiter(clock::get, uniform(5, 1, 100, 60_000, 20_000), penalties);
 
 		IntStream.range(0, 10_000).forEach(peer -> penalise(limiter, "bad" + peer));
 		IntStream.range(0, 100_000)
@@ -338,7 +403,7 @@ public class PeerLimiterTest {
 		clock.addAndGet(60_000);
 		assertThat(limiter.allow("fresh", Kind.TRANSACTION), is(true));
 		assertThat(limiter.isPenalised("bad0"), is(false));
-		assertThat(limiter.inspected(), lessThanOrEqualTo(3L * (10_000 + 100_000 + 4)));
+		assertThat(penalties.steps, lessThanOrEqualTo(3L * (10_000 + 100_000 + 4)));
 	}
 
 	/* The price of a bounded map: a penalty that finds half the table already penalised frees the oldest one early */
