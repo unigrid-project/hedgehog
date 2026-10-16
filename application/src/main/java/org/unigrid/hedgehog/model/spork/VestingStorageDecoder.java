@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -67,9 +66,7 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 			vesting.setPercent(in.readInt());
 			vesting.setBlock(in.readInt());
 
-			final String amount = ByteBufUtils.readNullTerminatedString(in);
-
-			vesting.setAmount(amount.isEmpty() ? null : new BigDecimal(amount));
+			vesting.setAmount(SporkAmount.readOptional(in).orElse(null));
 
 			vests.put(address, vesting);
 		}
