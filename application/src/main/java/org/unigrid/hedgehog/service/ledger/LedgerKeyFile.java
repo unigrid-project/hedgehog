@@ -24,16 +24,23 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.model.util.OwnerOnlyFile;
 
 /* The seed of a validator is one line of hexadecimal characters, which messages about it never repeat */
+@Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class LedgerKeyFile {
 	private static final int HEX_SIZE = Ed25519.SEED_SIZE * 2;
@@ -41,6 +48,9 @@ public final class LedgerKeyFile {
 	private static final int MAX_BYTES = HEX_SIZE * 2;
 	private static final Pattern SEED = Pattern.compile("\\p{XDigit}{" + HEX_SIZE + "}");
 	private static final String PARTIAL_PREFIX = "ledger-key";
+	/* What Files.createTempFile makes of the prefix and no suffix: the prefix, a number and .tmp */
+	private static final Pattern PARTIAL = Pattern.compile(PARTIAL_PREFIX + "[0-9]+\\.tmp");
+	private static final Duration STALE_AFTER = Duration.ofMinutes(1);
 
 	public static byte[] load(Path file) {
 		final String line = read(file).strip();
@@ -54,6 +64,9 @@ public final class LedgerKeyFile {
 
 	public static void create(Path file) throws IOException {
 		final Path directory = Files.createDirectories(file.toAbsolutePath().getParent());
+
+		removeStalePartialFiles(directory);
+
 		final Path partial = Files.createTempFile(directory, PARTIAL_PREFIX, null,
 			OwnerOnlyFile.attributesIn(directory)
 		);
@@ -66,6 +79,37 @@ public final class LedgerKeyFile {
 			publish(partial, file);
 		} finally {
 			Files.deleteIfExists(partial);
+		}
+	}
+
+	/* A process that dies between writing the partial file, which holds a seed, and linking it leaves the file behind.
+	   Only the files that this class names and that are old enough not to belong to a creation in progress are
+	   removed. A directory that cannot be listed leaves them, which does no harm: only the owner can read them. */
+	private static void removeStalePartialFiles(Path directory) {
+		final FileTime cutoff = FileTime.from(Instant.now().minus(STALE_AFTER));
+
+		try (Stream<Path> entries = Files.list(directory)) {
+			entries.filter(entry -> PARTIAL.matcher(entry.getFileName().toString()).matches())
+				.filter(entry -> isStale(entry, cutoff)).forEach(LedgerKeyFile::deleteQuietly);
+		} catch (IOException ex) {
+			log.atDebug().addArgument(directory).log("Could not look for old partial key files in {}");
+		}
+	}
+
+	private static boolean isStale(Path entry, FileTime cutoff) {
+		try {
+			return Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)
+				&& Files.getLastModifiedTime(entry, LinkOption.NOFOLLOW_LINKS).compareTo(cutoff) < 0;
+		} catch (IOException ex) {
+			return false;
+		}
+	}
+
+	private static void deleteQuietly(Path entry) {
+		try {
+			Files.deleteIfExists(entry);
+		} catch (IOException ex) {
+			log.atDebug().addArgument(entry).log("Could not remove the old partial key file {}");
 		}
 	}
 
@@ -86,8 +130,14 @@ public final class LedgerKeyFile {
 		}
 	}
 
+	/* A file that is there and is no regular file, a pipe or a device, could be read for ever; one that is not there
+	   is left to the read, which says so */
 	private static String read(Path file) {
 		try {
+			if (Files.exists(file) && !Files.isRegularFile(file)) {
+				throw new IllegalArgumentException(file + " must be a regular file that holds the seed");
+			}
+
 			OwnerOnlyFile.require(file);
 			return readBounded(file);
 		} catch (IOException ex) {

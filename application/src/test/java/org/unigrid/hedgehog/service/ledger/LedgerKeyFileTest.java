@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.matchesPattern;
@@ -32,8 +33,11 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
@@ -111,6 +115,57 @@ public class LedgerKeyFileTest {
 	private static boolean reachableByOthers(Set<PosixFilePermission> permissions) {
 		return permissions.stream().anyMatch(permission -> permission.name().startsWith("GROUP_")
 			|| permission.name().startsWith("OTHERS_"));
+	}
+
+	/* A pipe would be read for ever, so what is no regular file is refused before it is opened; a directory stands in
+	   for it here, as no pipe can be made in memory */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAKeyFileThatIsNoRegularFileBeforeOpeningIt() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			Files.createDirectories(fs.getPath(KEY_FILE));
+
+			assertThat(messageOfLoading(fs.getPath(KEY_FILE)), containsString(KEY_FILE));
+			assertThat(messageOfLoading(fs.getPath(KEY_FILE)), containsString("regular file"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALinkToWhatIsNoRegularFile() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			Files.createDirectories(fs.getPath("/elsewhere"));
+			Files.createSymbolicLink(fs.getPath("/key-link"), fs.getPath("/elsewhere"));
+
+			assertThat(messageOfLoading(fs.getPath("/key-link")), containsString("regular file"));
+		}
+	}
+
+	/* A process that dies between writing the temporary file and linking it leaves the file with the seed behind */
+	@Example
+	@SneakyThrows
+	public void shouldRemoveTheTemporaryFilesOfEarlierCreationsOlderThanAMinuteAndNothingElse() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final Path directory = fs.getPath("/keys");
+			final FileTime old = FileTime.from(Instant.now().minus(Duration.ofMinutes(2)));
+			final List<String> stale = List.of("ledger-key1234567890123.tmp", "ledger-key7.tmp");
+			final List<String> kept = List.of("ledger-key55.tmp", "ledger-key-backup.tmp", "ledger-key55.txt",
+				"other.tmp", "ledger.key.old");
+
+			Files.createDirectories(directory);
+
+			for (final String name : Stream.concat(stale.stream(), kept.stream()).toList()) {
+				Files.writeString(directory.resolve(name), "x");
+				Files.setLastModifiedTime(directory.resolve(name), old);
+			}
+
+			Files.setLastModifiedTime(directory.resolve("ledger-key55.tmp"), FileTime.from(Instant.now()));
+			LedgerKeyFile.create(fs.getPath(KEY_FILE));
+
+			final List<String> left = Files.list(directory).map(entry -> entry.getFileName().toString()).toList();
+
+			assertThat(left, containsInAnyOrder(Stream.concat(kept.stream(), Stream.of("ledger.key")).toArray()));
+		}
 	}
 
 	@Property(tries = 30)
