@@ -49,6 +49,7 @@ import java.util.function.LongSupplier;
 public final class PeerLimiter {
 	private static final long TOKEN = 1000;
 	private static final long POINT = 60_000;
+	private static final long MILLIPOINT_PER_POINT = 1000;
 
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
@@ -64,9 +65,18 @@ public final class PeerLimiter {
 	}
 
 	/* `rates` is what each peer gets and `global` what all peers share. Active peers number at most `maxPeers` and
-	   penalised ones at most half of that. */
+	   penalised ones at most half of that. A refusal because a peer used up its own bucket costs it
+	   `refusalCostMillipoints` thousandths of a point of score; a policy made without it costs a whole point. */
 	public record Policy(Map<Kind, Rate> rates, Map<Kind, Rate> global, int scoreLimit, int scoreDecayPerMinute,
-		long penaltyMillis, int maxPeers) {
+		long penaltyMillis, int maxPeers, int refusalCostMillipoints) {
+		private static final int POINT_IN_MILLIPOINTS = 1000;
+		private static final int REFUSAL_OF_A_NETWORK = 250;
+		private static final int MARGIN = 2;
+		private static final int BURST_SECONDS = 4;
+		private static final int HEARTBEAT_SECONDS = 10;
+		private static final int BLOCKS_PER_SECOND = 5;
+		private static final int COPIES = 9;
+
 		public static final Policy DEFAULT = new Policy(
 			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
 				Kind.CONSENSUS, new Rate(2000, 500), Kind.STATUS, new Rate(10, 1),
@@ -76,18 +86,72 @@ public final class PeerLimiter {
 				Kind.BLOCK_REQUEST, new Rate(200, 100)),
 			100, 10, 60_000, 10_000);
 
+		@SuppressWarnings("checkstyle:ParameterNumber")
+		public Policy(Map<Kind, Rate> rates, Map<Kind, Rate> global, int scoreLimit, int scoreDecayPerMinute,
+			long penaltyMillis, int maxPeers) {
+			this(rates, global, scoreLimit, scoreDecayPerMinute, penaltyMillis, maxPeers, POINT_IN_MILLIPOINTS);
+		}
+
 		public Policy {
 			if (!covers(rates) || !covers(global)) {
 				throw new IllegalArgumentException("A policy has a rate for each kind, per peer and shared");
 			}
 
-			if (!sensible(scoreLimit, scoreDecayPerMinute, penaltyMillis, maxPeers)) {
-				throw new IllegalArgumentException("A policy has a score limit and a penalty above 0, no"
-					+ " negative decay, and room for two peers");
+			if (!sensible(scoreLimit, scoreDecayPerMinute, penaltyMillis, maxPeers)
+				|| refusalCostMillipoints < 1) {
+				throw new IllegalArgumentException("A policy has a score limit, a penalty and a refusal"
+					+ " cost above 0, no negative decay, and room for two peers");
 			}
 
 			rates = Collections.unmodifiableMap(new EnumMap<>(rates));
 			global = Collections.unmodifiableMap(new EnumMap<>(global));
+		}
+
+		/* The limits of a network of `validators` validators that pass on `transactionsPerSecond` transactions a
+		   second. An honest neighbour relays each new item once, so what it sends is the rate of the items, and each
+		   rate here is twice that, so that items which arrive together do not make two honest nodes refuse and ban
+		   each other. None is below the one of the defaults, and a burst holds four seconds of it.
+		   - A heartbeat: each validator sends one in ten seconds, so a neighbour relays `validators` of them in
+		     that time. The refill is twice their rate and the burst twice their number, held by no floor.
+		   - A transaction: the refill is twice the rate of the network.
+		   - A message of the engine: each height brings a proposal, a prevote and a precommit of every validator
+		     and a decision, at no more than five heights a second, and the refill is twice that.
+		   - A status is a peer's own and is not relayed, so what a peer sends does not grow with the validators
+		     and its limit is the default, as it is for a block request.
+		   The limits shared by all peers are for what the node hears of an item from every peer that relays it. A
+		   node relays to at most eight others, so an item reaches it in nine copies at most, and the shared rate
+		   is nine times the rate of the items, twice. A status is heard from each of the other validators. */
+		public static Policy forNetwork(int validators, int transactionsPerSecond) {
+			if (validators < 1 || transactionsPerSecond < 1) {
+				throw new IllegalArgumentException("A network has a validator and a transaction a second,"
+					+ " found " + validators + " and " + transactionsPerSecond);
+			}
+
+			final long heartbeats = (long) MARGIN * validators / HEARTBEAT_SECONDS;
+			final long messages = (long) (2 * validators + 2) * BLOCKS_PER_SECOND;
+			final long transactions = transactionsPerSecond;
+			final Map<Kind, Rate> own = new EnumMap<>(DEFAULT.rates());
+			final Map<Kind, Rate> shared = new EnumMap<>(DEFAULT.global());
+			final long heard = (long) MARGIN * COPIES;
+
+			own.put(Kind.HEARTBEAT, new Rate(MARGIN * validators,
+				(int) Math.max(own.get(Kind.HEARTBEAT).refillPerSecond(), heartbeats)));
+			own.put(Kind.TRANSACTION, burstable(own.get(Kind.TRANSACTION), MARGIN * transactions));
+			own.put(Kind.CONSENSUS, burstable(own.get(Kind.CONSENSUS), MARGIN * messages));
+			shared.put(Kind.HEARTBEAT, burstable(shared.get(Kind.HEARTBEAT), COPIES * heartbeats));
+			shared.put(Kind.TRANSACTION, burstable(shared.get(Kind.TRANSACTION), heard * transactions));
+			shared.put(Kind.CONSENSUS, burstable(shared.get(Kind.CONSENSUS), heard * messages));
+			shared.put(Kind.STATUS, burstable(shared.get(Kind.STATUS), (long) MARGIN * (validators - 1)));
+
+			return new Policy(own, shared, DEFAULT.scoreLimit(), DEFAULT.scoreDecayPerMinute(),
+				DEFAULT.penaltyMillis(), DEFAULT.maxPeers(), REFUSAL_OF_A_NETWORK);
+		}
+
+		/* The refill asked for, or the one of the floor if that is more, and room for four seconds of it */
+		private static Rate burstable(Rate floor, long refill) {
+			final int rate = Math.toIntExact(Math.max(floor.refillPerSecond(), refill));
+
+			return new Rate(Math.max(floor.capacity(), Math.multiplyExact(BURST_SECONDS, rate)), rate);
 		}
 
 		private static boolean covers(Map<Kind, Rate> rates) {
@@ -148,7 +212,7 @@ public final class PeerLimiter {
 		final Bucket everyone = refilled(shared, kind, policy.global().get(kind), now);
 
 		if (own.millitokens < TOKEN) {
-			raise(id, peer, 1, now);
+			raise(id, peer, policy.refusalCostMillipoints() * (POINT / MILLIPOINT_PER_POINT), now);
 			return false;
 		}
 
@@ -169,7 +233,7 @@ public final class PeerLimiter {
 		final long now = advance();
 
 		if (!penalised(id, now)) {
-			raise(id, track(id, now), weight, now);
+			raise(id, track(id, now), weight * POINT, now);
 		}
 	}
 
@@ -249,8 +313,8 @@ public final class PeerLimiter {
 		eldest.remove();
 	}
 
-	private void raise(String id, Peer peer, int weight, long now) {
-		final long total = decayed(peer, now) + weight * POINT;
+	private void raise(String id, Peer peer, long units, long now) {
+		final long total = decayed(peer, now) + units;
 
 		if (total >= policy.scoreLimit() * POINT) {
 			penalise(id, now);

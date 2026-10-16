@@ -695,5 +695,172 @@ public class PeerLimiterTest {
 		assertThat(Policy.DEFAULT.scoreDecayPerMinute(), equalTo(10));
 		assertThat(Policy.DEFAULT.penaltyMillis(), equalTo(60_000L));
 		assertThat(Policy.DEFAULT.maxPeers(), equalTo(10_000));
+		assertThat(Policy.DEFAULT.refusalCostMillipoints(), equalTo(1000));
+	}
+
+	/* The rates of a network of 4 validators and 10 transactions a second: nothing above the defaults but a smaller
+	   burst of heartbeats */
+	@Example
+	public void shouldSizeTheLimitsForFourValidators() {
+		final Policy policy = Policy.forNetwork(4, 10);
+
+		assertThat(policy.rates(), equalTo(rates(new Rate(200, 50), new Rate(8, 2), new Rate(2000, 500),
+			new Rate(10, 1), new Rate(40, 10))));
+		assertThat(policy.global(), equalTo(rates(new Rate(2000, 500), new Rate(500, 20), new Rate(20_000, 5000),
+			new Rate(200, 20), new Rate(200, 100))));
+	}
+
+	@Example
+	public void shouldSizeTheLimitsForTwentyValidators() {
+		final Policy policy = Policy.forNetwork(20, 100);
+
+		assertThat(policy.rates(), equalTo(rates(new Rate(800, 200), new Rate(40, 4), new Rate(2000, 500),
+			new Rate(10, 1), new Rate(40, 10))));
+		assertThat(policy.global(), equalTo(rates(new Rate(7200, 1800), new Rate(500, 36), new Rate(20_000, 5000),
+			new Rate(200, 38), new Rate(200, 100))));
+	}
+
+	@Example
+	public void shouldSizeTheLimitsForOneHundredValidators() {
+		final Policy policy = Policy.forNetwork(100, 1000);
+
+		assertThat(policy.rates(), equalTo(rates(new Rate(8000, 2000), new Rate(200, 20), new Rate(8080, 2020),
+			new Rate(10, 1), new Rate(40, 10))));
+		assertThat(policy.global(), equalTo(rates(new Rate(72_000, 18_000), new Rate(720, 180),
+			new Rate(72_720, 18_180), new Rate(792, 198), new Rate(200, 100))));
+	}
+
+	@Example
+	public void shouldKeepTheScoringOfTheDefaultsAndCostAQuarterOfAPointForARefusal() {
+		final Policy policy = Policy.forNetwork(20, 100);
+
+		assertThat(policy.refusalCostMillipoints(), equalTo(250));
+		assertThat(policy.scoreLimit(), equalTo(Policy.DEFAULT.scoreLimit()));
+		assertThat(policy.scoreDecayPerMinute(), equalTo(Policy.DEFAULT.scoreDecayPerMinute()));
+		assertThat(policy.penaltyMillis(), equalTo(Policy.DEFAULT.penaltyMillis()));
+		assertThat(policy.maxPeers(), equalTo(Policy.DEFAULT.maxPeers()));
+	}
+
+	@Example
+	public void shouldRefuseToSizeTheLimitsForNoValidatorsOrNoTransactions() {
+		assertThrows(IllegalArgumentException.class, () -> Policy.forNetwork(0, 10));
+		assertThrows(IllegalArgumentException.class, () -> Policy.forNetwork(4, 0));
+		assertThrows(IllegalArgumentException.class, () -> new Policy(same(new Rate(1, 1)), same(new Rate(1, 1)), 1, 0,
+			1, 2, 0));
+	}
+
+	/* The rates in the order of the kinds: transaction, heartbeat, consensus, status and block request */
+	private static Map<Kind, Rate> rates(Rate transaction, Rate heartbeat, Rate consensus, Rate status,
+		Rate blockRequest) {
+		return Map.of(Kind.TRANSACTION, transaction, Kind.HEARTBEAT, heartbeat, Kind.CONSENSUS, consensus,
+			Kind.STATUS, status, Kind.BLOCK_REQUEST, blockRequest);
+	}
+
+	@Example
+	public void shouldTakeAQuarterOfAPointOffForARefusalWhenThePolicySaysSo() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(1, 1)), same(UNLIMITED), 100, 0, 60_000, 100, 250));
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+
+		for (int refusals = 1; refusals < 400; refusals++) {
+			assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+			assertThat(limiter.isPenalised("a"), is(false));
+		}
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	@Example
+	public void shouldTakeAWholePointOffForARefusalWhenThePolicyIsMadeTheOldWay() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(1, 1)), same(UNLIMITED), 100, 0, 60_000, 100));
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+
+		for (int refusals = 1; refusals < 100; refusals++) {
+			assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+			assertThat(limiter.isPenalised("a"), is(false));
+		}
+
+		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(limiter.isPenalised("a"), is(true));
+	}
+
+	@Example
+	public void shouldNotPenaliseANeighbourThatRelaysEveryHeartbeatOfFortyValidatorsInOneBurstForAnHour() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, Policy.forNetwork(40, 10));
+
+		for (int round = 0; round < 360; round++) {
+			assertThat(granted(limiter, "neighbour", Kind.HEARTBEAT, 40), equalTo(40));
+			clock.addAndGet(10_000);
+		}
+
+		assertThat(limiter.isPenalised("neighbour"), is(false));
+	}
+
+	@Example
+	public void shouldHaveBannedThatNeighbourWithinMinutesUnderTheDefaults() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, Policy.DEFAULT);
+		int rounds = 0;
+
+		while (!limiter.isPenalised("neighbour") && rounds < 360) {
+			granted(limiter, "neighbour", Kind.HEARTBEAT, 40);
+			clock.addAndGet(10_000);
+			rounds++;
+		}
+
+		assertThat(rounds < 30, is(true));
+	}
+
+	/* Each item reaches the node from nine peers, as it does when a node relays to at most eight others, all at once:
+	   the transactions, the messages of the engine at a block a second, and the heartbeats of every validator */
+	@Example
+	public void shouldRefuseNoHonestPeerAndPenaliseNoneWhenFortyValidatorsRelayThroughNineCopiesForAnHour() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, Policy.forNetwork(40, 10));
+		int refused = 0;
+
+		for (int second = 0; second < 3600; second++) {
+			refused += copies(limiter, Kind.TRANSACTION, 10);
+			refused += copies(limiter, Kind.CONSENSUS, 82);
+			refused += second % 10 == 0 ? copies(limiter, Kind.HEARTBEAT, 40) : 0;
+			clock.addAndGet(1000);
+		}
+
+		assertThat(refused, equalTo(0));
+		assertThat(IntStream.range(0, 39).anyMatch(peer -> limiter.isPenalised("peer" + peer)), is(false));
+	}
+
+	/* How many of the items, each relayed by nine of the 39 peers, were refused */
+	private static int copies(PeerLimiter limiter, Kind kind, int items) {
+		int refused = 0;
+
+		for (int item = 0; item < items; item++) {
+			for (int copy = 0; copy < 9; copy++) {
+				refused += limiter.allow("peer" + (item + copy) % 39, kind) ? 0 : 1;
+			}
+		}
+
+		return refused;
+	}
+
+	@Example
+	public void shouldBanAPeerThatFloodsAtAHundredTimesTheHonestRateWithinTwoMinutes() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, Policy.forNetwork(40, 10));
+		int seconds = 0;
+
+		while (!limiter.isPenalised("flooder") && seconds < 120) {
+			granted(limiter, "flooder", Kind.HEARTBEAT, 400);
+			clock.addAndGet(1000);
+			seconds++;
+		}
+
+		assertThat(limiter.isPenalised("flooder"), is(true));
+		assertThat(seconds < 120, is(true));
 	}
 }
