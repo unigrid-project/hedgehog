@@ -26,6 +26,7 @@ import lombok.SneakyThrows;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.common.model.Version;
@@ -34,6 +35,7 @@ import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
+import org.unigrid.hedgehog.service.ledger.LedgerSetup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
@@ -46,6 +48,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
 	@Mixin private GridnodeOptions gridnodeOptions;
+	@Mixin private LedgerOptions ledgerOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
@@ -57,6 +60,7 @@ public class Daemon extends CDIContext implements Runnable {
 	public void run() {
 		try {
 			GridnodeSetup.validate();
+			LedgerSetup.validate();
 		} catch (IllegalArgumentException ex) {
 			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
 		}

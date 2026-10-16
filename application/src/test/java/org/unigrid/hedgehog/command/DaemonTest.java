@@ -21,6 +21,8 @@ package org.unigrid.hedgehog.command;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
+import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.lang.reflect.Field;
@@ -30,6 +32,7 @@ import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Invocation;
 import mockit.Mock;
@@ -54,15 +57,18 @@ import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class DaemonTest {
 	private static final long INSTALL_TIMEOUT_SECONDS = 10;
+	private static final int DIGEST_SIZE = 64;
 	private static final AtomicInteger CONTAINERS = new AtomicInteger();
 
 	private static volatile String refusal;
@@ -110,6 +116,13 @@ public class DaemonTest {
 	}
 
 	@Provide
+	public Arbitrary<String> provideBadCheckpoint() {
+		return Arbitraries.of("12", "12:abc", "-5:" + "ab".repeat(DIGEST_SIZE), "0:" + "ab".repeat(DIGEST_SIZE),
+			"12:" + "xy".repeat(DIGEST_SIZE)
+		);
+	}
+
+	@Provide
 	public Arbitrary<String> provideVersion() {
 		final Arbitrary<Integer> part = Arbitraries.integers().between(0, 999);
 
@@ -151,18 +164,107 @@ public class DaemonTest {
 		assertThat(CONTAINERS.get(), equalTo(0));
 	}
 
+	private static HedgehogCli.Result runOn(FileSystem fs, String... args) {
+		return HedgehogCli.run(() -> new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath), args);
+	}
+
+	private static void assertRefusedWithout(HedgehogCli.Result result, String... reasons) {
+		assertThat(result.exitCode(), equalTo(2));
+		Stream.of(reasons).forEach(reason -> assertThat(result.err(), containsString(reason)));
+		result.assertNoStackTrace();
+		assertThat(CONTAINERS.get(), equalTo(0));
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldRefuseAGridnodeKeyFileItCannotRead() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = HedgehogCli.run(() -> new CommandLine(Hedgehog.class)
-				.registerConverter(Path.class, fs::getPath), "daemon", "-G", "/keys/gridnode.key"
+			assertRefusedWithout(runOn(fs, "daemon", "-G", "/keys/gridnode.key"),
+				"Cannot read the gridnode key file /keys/gridnode.key"
+			);
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerKeyFileItCannotRead() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE),
+				"Cannot read the ledger key file " + KEY_FILE
+			);
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerKeyFileOthersCanRead() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, KEY_FILE, "00".repeat(Ed25519.SEED_SIZE) + "\n", "rw-r--r--");
+
+			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE),
+				KEY_FILE, "chmod 600"
+			);
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerKeyFileThatHoldsNoSeedWithoutShowingIt() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, KEY_FILE, "ab".repeat(Ed25519.SEED_SIZE - 1) + "xx\n",
+				LedgerKeyFixtures.OWNER_ONLY
 			);
 
-			assertThat(result.exitCode(), equalTo(2));
-			assertThat(result.err(), containsString("Cannot read the gridnode key file /keys/gridnode.key"));
-			result.assertNoStackTrace();
-			assertThat(CONTAINERS.get(), equalTo(0));
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE);
+
+			assertRefusedWithout(result, KEY_FILE);
+			assertThat(result.err(), not(containsString("abababab")));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseALedgerGenesisFileThatIsNotThere() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+				"/genesis.json"
+			);
+		}
+	}
+
+	@Property(tries = 5)
+	public void shouldRefuseATrustedCheckpointItCannotRead(@ForAll("provideBadCheckpoint") String checkpoint) {
+		assertRefusedWithout(HedgehogCli.run("daemon", "--ledger", "--ledger-trusted=" + checkpoint),
+			"--ledger-trusted"
+		);
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldStartWhenTheLedgerSetupHolds() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, new byte[Ed25519.SEED_SIZE]);
+			LedgerKeyFixtures.write(fs, "/genesis.json", "{}", null);
+
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE,
+				"--ledger-genesis", "/genesis.json", "--ledger-trusted=7:" + "ab".repeat(DIGEST_SIZE)
+			);
+
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(CONTAINERS.get(), equalTo(1));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldLeaveTheLedgerSetupUnreadWhileTheLedgerIsOff() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger-key", KEY_FILE, "--ledger-genesis",
+				"/genesis.json", "--ledger-trusted=garbage"
+			);
+
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(CONTAINERS.get(), equalTo(1));
 		}
 	}
 

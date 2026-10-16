@@ -22,8 +22,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFilePermission;
 import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
+import org.unigrid.hedgehog.model.util.OwnerOnlyFile;
 
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class GridnodeIdentity {
@@ -81,24 +80,11 @@ public final class GridnodeIdentity {
 	}
 
 	private static void requireOwnerOnly(Path keyFile) {
-		final PosixFileAttributeView view = Files.getFileAttributeView(keyFile, PosixFileAttributeView.class);
-
-		if (view == null) {
-			return;
-		}
-
 		try {
-			if (view.readAttributes().permissions().stream().anyMatch(GridnodeIdentity::isGroupOrOther)) {
-				throw new IllegalArgumentException(keyFile + " must be readable by its owner only, "
-					+ "try chmod 600");
-			}
+			OwnerOnlyFile.require(keyFile);
 		} catch (IOException ex) {
 			throw unreadable(keyFile, ex);
 		}
-	}
-
-	private static boolean isGroupOrOther(PosixFilePermission permission) {
-		return permission.name().startsWith("GROUP_") || permission.name().startsWith("OTHERS_");
 	}
 
 	private static List<String> readLines(Path keyFile) {
