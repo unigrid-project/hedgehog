@@ -19,7 +19,7 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
@@ -44,7 +44,6 @@ import org.unigrid.hedgehog.ledger.LedgerAuthority;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.MintSchedule;
 import org.unigrid.hedgehog.ledger.Transfer;
-import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -78,7 +77,7 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	private static final Predicate<Location> ANYWHERE = location -> true;
 	private static final int MAX_REPORTED = 256;
 	private static final int SHOWN_CHARACTERS = 80;
-	private static final int WHOLE_DIGITS_OF_A_LONG = 11;
+	private static final BigInteger LONGEST = BigInteger.valueOf(Long.MAX_VALUE);
 
 	@NonNull private final Supplier<SporkDatabase> sporks;
 	@NonNull private final SporkLag lag;
@@ -161,31 +160,16 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	/* How many units more may be made on this supply before the maximum supply is passed, not known while the
-	   spork is not */
+	   spork is not. The maximum is cut at eight decimals, so it is never above what the spork says, and a maximum
+	   that a long cannot count is more than there can be. */
 	private Optional<Long> room(SporkDatabase database, long supply) {
 		return known(database, Type.MINT_SUPPLY).map(spork -> spork.<MintSupply.SporkData>getData())
 			.map(MintSupply.SporkData::getMaxSupply).map(SporkLedgerAuthority::unitsOf)
 			.map(maximum -> Math.max(0, maximum - supply));
 	}
 
-	/* Cut at eight decimals and never rounded up, so the cap is never above what the spork says. A maximum that
-	   does not fit a long is more than there can be, and one below a unit is nothing. */
 	private static long unitsOf(BigDecimal coins) {
-		final long wholeDigits = (long) coins.precision() - coins.scale();
-
-		if (coins.signum() <= 0 || wholeDigits < -Coin.DECIMALS) {
-			return 0;
-		}
-
-		if (wholeDigits > WHOLE_DIGITS_OF_A_LONG) {
-			return Long.MAX_VALUE;
-		}
-
-		try {
-			return coins.setScale(Coin.DECIMALS, RoundingMode.DOWN).unscaledValue().longValueExact();
-		} catch (ArithmeticException ex) {
-			return Long.MAX_VALUE;
-		}
+		return MintEntry.unitsOf(coins).min(LONGEST).longValueExact();
 	}
 
 	private Stream<Mint> dueFrom(SporkDatabase database, long time, Predicate<Location> wanted) {

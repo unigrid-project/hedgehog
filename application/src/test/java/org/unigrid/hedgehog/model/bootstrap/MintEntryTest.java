@@ -19,6 +19,8 @@
 package org.unigrid.hedgehog.model.bootstrap;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
@@ -42,6 +44,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
@@ -331,6 +334,40 @@ public class MintEntryTest {
 
 		assertThat(counted, everyItem(equalTo(OptionalLong.empty())));
 		assertThat(counted.size(), equalTo(amounts.size()));
+	}
+
+	@Provide
+	public Arbitrary<BigDecimal> coins() {
+		final BigDecimal limit = new BigDecimal("92233720369");
+
+		return Arbitraries.integers().between(0, 12).flatMap(scale -> Arbitraries.bigDecimals()
+			.between(BigDecimal.valueOf(-5), limit).ofScale(scale));
+	}
+
+	@Property
+	public void countsTheUnitsOfAnAmountCutAtEightDecimalsAndKeepsAWayBeyondALongBeyondIt(
+		@ForAll("coins") BigDecimal coins) {
+
+		final BigInteger cut = coins.movePointRight(8).setScale(0, RoundingMode.DOWN).toBigInteger();
+		final BigInteger counted = MintEntry.unitsOf(coins);
+
+		if (cut.signum() <= 0) {
+			assertThat(counted, equalTo(BigInteger.ZERO));
+		} else if (cut.bitLength() < Long.SIZE) {
+			assertThat(counted, equalTo(cut));
+		} else {
+			assertThat(counted.bitLength(), greaterThan(Long.SIZE - 1));
+		}
+	}
+
+	@Example
+	public void countsTheUnitsAtTheEdgesOfALongWithoutExpandingAnExponent() {
+		assertThat(MintEntry.unitsOf(new BigDecimal("92233720368.54775807")), equalTo(BigInteger.valueOf(Long.MAX_VALUE)));
+		assertThat(MintEntry.unitsOf(new BigDecimal("92233720368.54775808")).bitLength(), equalTo(Long.SIZE));
+		assertThat(MintEntry.unitsOf(new BigDecimal("1E+1000000000")).bitLength(), equalTo(Long.SIZE));
+		assertThat(MintEntry.unitsOf(new BigDecimal("-1E+1000000000")), equalTo(BigInteger.ZERO));
+		assertThat(MintEntry.unitsOf(new BigDecimal("1E-1000000000")), equalTo(BigInteger.ZERO));
+		assertThat(MintEntry.unitsOf(new BigDecimal("0.000000009")), equalTo(BigInteger.ZERO));
 	}
 
 	@Example

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.bootstrap;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.Objects;
 import java.util.Optional;
@@ -57,6 +58,7 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 	private static final long MILLIS_PER_SECOND = 1000;
 	private static final int UNIT_DIGITS = Coin.DECIMALS;
 	private static final int WHOLE_DIGITS_OF_A_LONG = 11;
+	private static final BigInteger BEYOND_A_LONG = BigInteger.ONE.shiftLeft(Long.SIZE - 1);
 
 	public MintEntry {
 		Objects.requireNonNull(recipient);
@@ -132,18 +134,23 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 	}
 
 	public OptionalLong units() {
-		/* The digits before the point are counted first, as an absurd exponent would be expanded in full */
-		final long wholeDigits = (long) amount.precision() - amount.scale();
+		final BigInteger units = unitsOf(amount);
 
-		if (amount.signum() <= 0 || wholeDigits > WHOLE_DIGITS_OF_A_LONG || wholeDigits < -UNIT_DIGITS) {
-			return OptionalLong.empty();
+		return units.signum() > 0 && units.bitLength() < Long.SIZE ? OptionalLong.of(units.longValueExact())
+			: OptionalLong.empty();
+	}
+
+	/* The coins cut at eight decimals as whole units, never rounded up. Nothing, a negative amount and what is
+	   below one unit count as 0; an amount that a long cannot hold is given as 2^63, which is enough for a caller
+	   to tell. The digits before the point are counted first, as an absurd exponent would be expanded in full. */
+	public static BigInteger unitsOf(final BigDecimal coins) {
+		final long wholeDigits = (long) coins.precision() - coins.scale();
+
+		if (coins.signum() <= 0 || wholeDigits < -UNIT_DIGITS) {
+			return BigInteger.ZERO;
 		}
 
-		try {
-			final long units = amount.setScale(UNIT_DIGITS, RoundingMode.DOWN).unscaledValue().longValueExact();
-			return units > 0 ? OptionalLong.of(units) : OptionalLong.empty();
-		} catch (ArithmeticException ex) {
-			return OptionalLong.empty();
-		}
+		return wholeDigits > WHOLE_DIGITS_OF_A_LONG ? BEYOND_A_LONG
+			: coins.setScale(UNIT_DIGITS, RoundingMode.DOWN).unscaledValue();
 	}
 }
