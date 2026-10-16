@@ -68,7 +68,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		final GridSpork stored = db.get(spork.getType());
 
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
-		lag.record(spork);
+		lag.record(spork, db);
 
 		if (spork.isPending()) {
 			return pendingSporks.offer(spork, stored);

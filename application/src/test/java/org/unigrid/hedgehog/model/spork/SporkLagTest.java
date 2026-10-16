@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -47,6 +48,9 @@ public class SporkLagTest {
 	private static Signature proposer;
 	private static Signature cosigner;
 
+	/* How often the current network keys were asked for: once for each signature the lag has to check */
+	private static int keyLookups;
+
 	private Instant now;
 	private SporkLag lag;
 	private SporkDatabase database;
@@ -60,8 +64,11 @@ public class SporkLagTest {
 		lag = new SporkLag(() -> now);
 		database = SporkDatabase.builder().build();
 
+		keyLookups = 0;
+
 		new MockUp<NetworkKey>() {
 			@Mock public static String[] getPublicKeys() {
+				keyLookups++;
 				return new String[] { proposer.getPublicKey(), cosigner.getPublicKey() };
 			}
 
@@ -98,6 +105,12 @@ public class SporkLagTest {
 		return now.minus(age);
 	}
 
+	/* A spork a second after the one before it, as the lag takes one a second for each type at most */
+	private void record(GridSpork spork) {
+		lag.record(spork, database);
+		now = now.plus(SporkLag.VERIFY_GAP);
+	}
+
 	private boolean isBehind() {
 		return lag.isBehind(Type.MINT_SUPPLY, database);
 	}
@@ -113,7 +126,7 @@ public class SporkLagTest {
 	@Example
 	public void isBehindWhenANewerAgreedSporkIsNotStored() {
 		database.set(agreement(ago(Duration.ofHours(2))));
-		lag.record(agreement(ago(Duration.ofHours(1))));
+		record(agreement(ago(Duration.ofHours(1))));
 
 		assertThat(isBehind(), is(true));
 	}
@@ -123,7 +136,7 @@ public class SporkLagTest {
 		final MintSupply newer = agreement(ago(Duration.ofHours(1)));
 
 		database.set(agreement(ago(Duration.ofHours(2))));
-		lag.record(newer);
+		record(newer);
 		database.set(newer);
 
 		assertThat(isBehind(), is(false));
@@ -134,23 +147,23 @@ public class SporkLagTest {
 		final MintSupply stored = agreement(ago(Duration.ofHours(1)));
 
 		database.set(stored);
-		lag.record(agreement(ago(Duration.ofHours(2))));
-		lag.record(stored);
+		record(agreement(ago(Duration.ofHours(2))));
+		record(stored);
 
 		assertThat(isBehind(), is(false));
 	}
 
 	@Example
 	public void isBehindForATypeUnsetInTheDatabase() {
-		lag.record(agreement(ago(Duration.ofHours(1))));
+		record(agreement(ago(Duration.ofHours(1))));
 
 		assertThat(isBehind(), is(true));
 	}
 
 	@Example
 	public void keepsTheTypesApart() {
-		lag.record(agreement(ago(Duration.ofHours(1))));
-		lag.record(proposal(new LedgerFee(), ago(Duration.ofMinutes(5)), proposer));
+		record(agreement(ago(Duration.ofHours(1))));
+		record(proposal(new LedgerFee(), ago(Duration.ofMinutes(5)), proposer));
 
 		assertThat(lag.isBehind(Type.MINT_SUPPLY, database), is(true));
 		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(true));
@@ -161,7 +174,7 @@ public class SporkLagTest {
 	@Example
 	public void isBehindWhileAProposalCanStillBeHeldAndNotAfter() {
 		database.set(agreement(ago(Duration.ofHours(2))));
-		lag.record(proposal(ago(Duration.ofMinutes(5))));
+		record(proposal(ago(Duration.ofMinutes(5))));
 
 		now = NOW.plus(PendingSporks.LIFETIME).minus(Duration.ofMinutes(6));
 		assertThat(isBehind(), is(true));
@@ -172,14 +185,14 @@ public class SporkLagTest {
 
 	@Example
 	public void ignoresAProposalOlderThanItsLifetime() {
-		lag.record(proposal(ago(PendingSporks.LIFETIME.plusMinutes(1))));
+		record(proposal(ago(PendingSporks.LIFETIME.plusMinutes(1))));
 
 		assertThat(isBehind(), is(false));
 	}
 
 	@Example
 	public void ignoresAProposalFromBeyondItsLifetimeAhead() {
-		lag.record(proposal(now.plus(PendingSporks.LIFETIME).plus(Duration.ofMinutes(1))));
+		record(proposal(now.plus(PendingSporks.LIFETIME).plus(Duration.ofMinutes(1))));
 
 		assertThat(isBehind(), is(false));
 	}
@@ -187,8 +200,8 @@ public class SporkLagTest {
 	@Example
 	public void remembersAnAgreedSporkAfterALaterProposalExpires() {
 		database.set(agreement(ago(Duration.ofHours(2))));
-		lag.record(agreement(ago(Duration.ofMinutes(30))));
-		lag.record(proposal(ago(Duration.ofMinutes(5))));
+		record(agreement(ago(Duration.ofMinutes(30))));
+		record(proposal(ago(Duration.ofMinutes(5))));
 
 		now = NOW.plus(PendingSporks.LIFETIME);
 		assertThat(isBehind(), is(true));
@@ -198,7 +211,7 @@ public class SporkLagTest {
 	public void remembersAnAgreedSporkUntilTheDatabaseCatchesUp() {
 		final MintSupply newer = agreement(ago(Duration.ofHours(1)));
 
-		lag.record(newer);
+		record(newer);
 		now = NOW.plus(Duration.ofDays(365));
 		assertThat(isBehind(), is(true));
 
@@ -211,17 +224,17 @@ public class SporkLagTest {
 		final MintSupply spork = new MintSupply();
 
 		spork.setTimeStamp(now);
-		lag.record(spork);
+		record(spork);
 
 		spork.setCosignature(new byte[] { 1, 2, 3 });
-		lag.record(spork);
+		record(spork);
 
 		assertThat(isBehind(), is(false));
 	}
 
 	@Example
 	public void ignoresASporkWithoutTimeStamp() {
-		lag.record(new MintSupply());
+		record(new MintSupply());
 
 		assertThat(isBehind(), is(false));
 	}
@@ -232,12 +245,12 @@ public class SporkLagTest {
 		final Signature outsider = new Signature();
 		final MintSupply spork = proposal(new MintSupply(), ago(Duration.ofMinutes(5)), outsider);
 
-		lag.record(spork);
+		record(spork);
 		assertThat(isBehind(), is(false));
 
 		spork.setCosignature(new Signature(Optional.of(outsider.getPrivateKey()), Optional.empty())
 			.sign(spork.getSignable()));
-		lag.record(spork);
+		record(spork);
 		assertThat(isBehind(), is(false));
 	}
 
@@ -246,7 +259,7 @@ public class SporkLagTest {
 		final MintSupply spork = proposal(ago(Duration.ofHours(1)));
 
 		spork.setCosignature(spork.getSignature().clone());
-		lag.record(spork);
+		record(spork);
 
 		assertThat(isBehind(), is(false));
 	}
@@ -258,7 +271,7 @@ public class SporkLagTest {
 
 		data.setMaxSupply(BigDecimal.TEN);
 		spork.setData(data);
-		lag.record(spork);
+		record(spork);
 
 		assertThat(isBehind(), is(false));
 	}
@@ -266,14 +279,14 @@ public class SporkLagTest {
 	@SneakyThrows
 	@Example
 	public void ignoresAProposalSignedByAnUnknownKey() {
-		lag.record(proposal(new MintSupply(), ago(Duration.ofMinutes(5)), new Signature()));
+		record(proposal(new MintSupply(), ago(Duration.ofMinutes(5)), new Signature()));
 
 		assertThat(isBehind(), is(false));
 	}
 
 	@Example
 	public void recordsAFarFutureTimeStampOnlyTenMinutesAhead() {
-		lag.record(agreement(now.plus(Duration.ofDays(365))));
+		record(agreement(now.plus(Duration.ofDays(365))));
 
 		database.set(agreement(now.plus(Duration.ofMinutes(5))));
 		assertThat(isBehind(), is(true));
@@ -284,13 +297,78 @@ public class SporkLagTest {
 
 	@Example
 	public void recordsATimeStampWithinTheAllowanceAsItIs() {
-		lag.record(agreement(now.plus(Duration.ofMinutes(9))));
+		record(agreement(now.plus(Duration.ofMinutes(9))));
 
 		database.set(agreement(now.plus(Duration.ofMinutes(8))));
 		assertThat(isBehind(), is(true));
 
 		database.set(agreement(now.plus(Duration.ofMinutes(9))));
 		assertThat(isBehind(), is(false));
+	}
+
+	private static MintSupply forged(Instant stamp) {
+		final MintSupply spork = proposal(stamp);
+
+		spork.setSignature(new byte[64]);
+		return spork;
+	}
+
+	@Example
+	public void verifiesNothingForASporkThatCannotMakeTheNodeBehind() {
+		final MintSupply stored = agreement(ago(Duration.ofHours(1)));
+		final MintSupply older = agreement(ago(Duration.ofHours(2)));
+		final MintSupply newer = proposal(ago(Duration.ofMinutes(5)));
+
+		database.set(stored);
+		keyLookups = 0;
+
+		lag.record(older, database);
+		lag.record(stored, database);
+		assertThat(keyLookups, is(0));
+
+		lag.record(newer, database);
+		assertThat(keyLookups, is(1));
+	}
+
+	@Example
+	public void verifiesOneSporkOfATypeAndNoMoreInASecondHoweverManyAreSent() {
+		final List<MintSupply> flood = IntStream.range(0, 1000).mapToObj(n -> forged(ago(Duration.ofSeconds(n))))
+			.toList();
+
+		keyLookups = 0;
+		flood.forEach(spork -> lag.record(spork, database));
+
+		assertThat(keyLookups, is(1));
+	}
+
+	@Example
+	public void verifiesAgainWhenASecondHasPassedAndTheTypesCountApart() {
+		keyLookups = 0;
+		lag.record(forged(ago(Duration.ofMinutes(9))), database);
+		lag.record(forged(ago(Duration.ofMinutes(8))), database);
+		assertThat(keyLookups, is(1));
+
+		lag.record(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer), database);
+		assertThat(keyLookups, is(2));
+
+		now = now.plus(SporkLag.VERIFY_GAP).minusMillis(1);
+		lag.record(forged(ago(Duration.ofMinutes(6))), database);
+		assertThat(keyLookups, is(2));
+
+		now = now.plusMillis(1);
+		lag.record(forged(ago(Duration.ofMinutes(5))), database);
+		assertThat(keyLookups, is(3));
+	}
+
+	@Example
+	public void doesNotRememberASporkThatWasTurnedAwayForComingTooSoonButTheNextOneIsHeard() {
+		lag.record(forged(ago(Duration.ofMinutes(9))), database);
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database);
+		assertThat(isBehind(), is(false));
+
+		now = now.plus(SporkLag.VERIFY_GAP);
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database);
+		assertThat(isBehind(), is(true));
 	}
 
 	@SneakyThrows
@@ -302,9 +380,12 @@ public class SporkLagTest {
 		final MintSupply runnerUp = sporks.get(sporks.size() - 2);
 		final ExecutorService pool = Executors.newFixedThreadPool(8);
 		final List<Future<?>> work = new ArrayList<>();
+		final AtomicLong seconds = new AtomicLong();
 
+		/* Every look at the clock is a second later, so that none of the writers is turned away for coming soon */
+		lag = new SporkLag(() -> NOW.plusSeconds(seconds.incrementAndGet()));
 		Collections.shuffle(sporks);
-		sporks.forEach(spork -> work.add(pool.submit(() -> lag.record(spork))));
+		sporks.forEach(spork -> work.add(pool.submit(() -> lag.record(spork, database))));
 		IntStream.range(0, 100).forEach(i -> work.add(pool.submit(() -> isBehind())));
 
 		for (Future<?> task : work) {
