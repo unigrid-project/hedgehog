@@ -20,13 +20,11 @@ package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import java.math.BigDecimal;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
 import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
 import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
-import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
 public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<MintSupply.SporkData> {
@@ -39,7 +37,7 @@ public class MintSupplyDecoder implements TypedCodec<GridSpork.Type>, ChunkDecod
 	@Override
 	public Optional<MintSupply.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final MintSupply.SporkData data = new MintSupply.SporkData();
-		data.setMaxSupply(new BigDecimal(ByteBufUtils.readNullTerminatedString(in)));
+		data.setMaxSupply(SporkAmount.read(in));
 		return Optional.of(data);
 	}
 

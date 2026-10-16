@@ -51,7 +51,7 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 		while (in.readableBytes() > 0 && mints.size() < entries) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
 			final int height = in.readInt();
-			final BigDecimal amount = new BigDecimal(ByteBufUtils.readNullTerminatedString(in));
+			final BigDecimal amount = SporkAmount.read(in);
 
 			mints.put(new MintStorage.SporkData.Location(address, height), amount);
 		}
