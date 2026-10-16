@@ -43,6 +43,7 @@ import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitial
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
@@ -75,7 +76,14 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
+		final AtomicInteger recordings = new AtomicInteger();
 		int expectedInvocations = 0;
+
+		new MockUp<SporkLag>() {
+			@Mock public void record(GridSpork spork) {
+				recordings.incrementAndGet();
+			}
+		};
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
 			/* Only count triggers on the server-side */
@@ -102,5 +110,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		}
 
 		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+
+		/* Every spork the handler receives has to reach the lag tracker, accepted or not */
+		await().untilAtomic(recordings, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }
