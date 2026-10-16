@@ -33,6 +33,7 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -68,12 +69,27 @@ public class PublishAndSaveSporkScheduleTest {
 
 		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().build(), pendingSporks);
 
+		assertThat(published(channel), hasItem(proposal));
+	}
+
+	@Example
+	public void shouldPublishTheStoredLedgerBlacklist() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final LedgerBlacklist blacklist = new LedgerBlacklist();
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
+			new PendingSporks());
+
+		assertThat(published(channel), hasItem(sameInstance(blacklist)));
+	}
+
+	private static List<GridSpork> published(EmbeddedChannel channel) {
 		final List<GridSpork> published = new ArrayList<>();
 
 		for (PublishSpork packet = channel.readOutbound(); Objects.nonNull(packet); packet = channel.readOutbound()) {
 			published.add(packet.getGridSpork());
 		}
 
-		assertThat(published, hasItem(proposal));
+		return published;
 	}
 }

@@ -23,8 +23,10 @@ import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import org.apache.commons.codec.binary.Hex;
@@ -106,6 +108,17 @@ public class GridSporkProvider {
 				data.setPlacementSlack(RandomUtils.nextInt(0, 1 << 8));
 				data.setRepairThresholdPercent(RandomUtils.nextInt(0, 1 << 8));
 				data.setExtraPoolPercent(RandomUtils.nextInt(0, 1 << 8));
+				return data;
+			} case LEDGER_BLACKLIST: {
+				final LedgerBlacklist.SporkData data = new LedgerBlacklist.SporkData();
+				final Set<String> addresses = new HashSet<>();
+				final int hashBytes = LedgerBlacklist.SporkData.HASH_BYTES;
+
+				for (int i = 0; i < size; i++) {
+					addresses.add(Hex.encodeHexString(RandomUtils.nextBytes(hashBytes)));
+				}
+
+				data.setLegacyAddresses(addresses);
 				return data;
 			}
 		}

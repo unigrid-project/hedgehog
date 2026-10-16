@@ -57,6 +57,7 @@ public class SporkDatabaseCompatibilityTest {
 		assertThat(database.getMintStorage().getTimeStamp(), equalTo(Instant.parse("2024-04-30T15:08:29.272Z")));
 		assertThat(mints.getMints().values(), containsInAnyOrder(new BigDecimal("220000"), new BigDecimal("14115")));
 		assertThat(supply.getMaxSupply(), equalTo(new BigDecimal("1000000000")));
+		assertThat(database.get(GridSpork.Type.LEDGER_BLACKLIST), nullValue());
 	}
 
 	@SneakyThrows
