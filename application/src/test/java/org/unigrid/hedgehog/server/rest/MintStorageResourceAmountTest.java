@@ -89,7 +89,9 @@ public class MintStorageResourceAmountTest extends BaseRestClientTest {
 	public void takesTheSmallestAndTheLargestAmountThatCanBeMinted(
 		@ForAll("provideSignature") final Signature signature) {
 
-		for (final String amount : List.of("0.00000001", "92233720368.54775807", "1", "1E+3", "12.5")) {
+		for (final String amount : List.of("0.00000001", "92233720368.54775807", "1", "1E+3", "12.5", "1.500000000",
+			"1E+9", "0.10000000000")) {
+
 			final Response proposal = put(signature, ACCOUNT, NUMBER, amount);
 
 			assertThat(amount, Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));

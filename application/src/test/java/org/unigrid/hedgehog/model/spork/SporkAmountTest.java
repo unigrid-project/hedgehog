@@ -64,12 +64,45 @@ public class SporkAmountTest {
 		assertThat(in.isReadable(), is(false));
 	}
 
+	@Provide
+	public Arbitrary<BigDecimal> amountsWithTrailingZerosPastTheEighthDecimal() {
+		final Arbitrary<BigInteger> units = Arbitraries.bigIntegers().between(BigInteger.ZERO,
+			BigInteger.TEN.pow(20).subtract(BigInteger.ONE));
+
+		return units.flatMap(unscaled -> Arbitraries.integers().between(1, 20).map(zeros ->
+			new BigDecimal(unscaled.multiply(BigInteger.TEN.pow(zeros)), SporkAmount.MAX_DECIMALS + zeros)));
+	}
+
+	@Property
+	public void shouldTakeAnAmountWithZerosPastTheEighthDecimalAndKeepItAsItWasWritten(
+		@ForAll("amountsWithTrailingZerosPastTheEighthDecimal") final BigDecimal amount) {
+
+		final ByteBuf in = wire(amount.toPlainString());
+		final BigDecimal read = SporkAmount.read(in);
+
+		assertThat(read, equalTo(amount));
+		assertThat(read.toPlainString(), equalTo(amount.toPlainString()));
+		assertThat(in.isReadable(), is(false));
+	}
+
 	@Example
 	public void shouldTakeTheLimitsThemselves() {
 		assertThat(SporkAmount.isWithinBounds(new BigDecimal("999999999999.99999999")), is(true));
 		assertThat(SporkAmount.isWithinBounds(new BigDecimal("0.00000001")), is(true));
 		assertThat(SporkAmount.isWithinBounds(new BigDecimal("1E+8")), is(true));
 		assertThat(SporkAmount.isWithinBounds(BigDecimal.ZERO), is(true));
+	}
+
+	@Example
+	public void shouldTakeAnAmountThatIsInBoundsWhenItsTrailingZerosAreLeftOut() {
+		assertThat(SporkAmount.isWithinBounds(new BigDecimal("1.500000000")), is(true));
+		assertThat(SporkAmount.isWithinBounds(new BigDecimal("1E+9")), is(true));
+		assertThat(SporkAmount.isWithinBounds(new BigDecimal("999999999999.999999990000000000")), is(true));
+		assertThat(SporkAmount.isWithinBounds(new BigDecimal("0.000000000")), is(true));
+		assertThat(SporkAmount.isWithinBounds(new BigDecimal("1E+11")), is(true));
+		assertThat(SporkAmount.read(wire("1.500000000")).scale(), is(9));
+		assertThat(SporkAmount.read(wire("1.500000000")).toPlainString(), equalTo("1.500000000"));
+		assertThat(SporkAmount.read(wire("1E+9")).toPlainString(), equalTo("1000000000"));
 	}
 
 	@Example
@@ -80,12 +113,24 @@ public class SporkAmountTest {
 	}
 
 	@Example
+	public void shouldRefuseAScaleThatOverflowsOrWritesOutAsGigabytesWhateverTheValue() {
+		refusalOf("1E+2147483647");
+		refusalOf("100E+2147483647");
+		refusalOf("0E-999999999");
+		refusalOf("0E-2147483647");
+		refusalOf("0E+999999999");
+		refusalOf("1.5E-49");
+	}
+
+	@Example
 	public void shouldRefuseMoreThanEightDecimalsAndMoreThanTwelveIntegerDigits() {
 		refusalOf("0.123456789");
+		refusalOf("0.000000001");
+		refusalOf("1.000000001");
 		refusalOf("1000000000000");
-		refusalOf("1E+9");
 		refusalOf("1E-9");
 		refusalOf("1E+13");
+		refusalOf("10E+12");
 	}
 
 	@Example
