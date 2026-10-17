@@ -253,4 +253,15 @@ public final class Ledger implements ConsensusApp {
 	public synchronized int pending() {
 		return mempool.size();
 	}
+
+	/* What waits for a block, oldest first, in an order in which it can all be taken in again */
+	synchronized List<Transaction> waiting() {
+		return mempool.peek(Integer.MAX_VALUE);
+	}
+
+	/* The ledger that replaces this one takes in again what waited in the other, and what it now refuses is left out.
+	   The pool is not on disk, so it is handed over, or the transactions that nodes took are lost with the node. */
+	synchronized void takeWaitingFrom(Ledger replaced) {
+		replaced.waiting().forEach(this::submit);
+	}
 }

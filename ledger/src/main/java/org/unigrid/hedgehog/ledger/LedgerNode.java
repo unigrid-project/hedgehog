@@ -43,8 +43,8 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    in. What the failed event signed was neither saved nor sent, so the restored node is free to sign differently for
    it. submit() and height() keep working, as they do not run the engine. outbox() does not: the engine
    behind it holds what the failed event signed and did not save, and a driver that polls it must not send that. The
-   pool of transactions that wait for a block is not kept on disk, so a restart loses them and their senders have to
-   send them again.
+   pool of transactions that wait for a block is not kept on disk, so a restart of the process loses them and their
+   senders have to send them again; a driver that replaces a node hands the pool of the old ledger to the new one.
 
    The Decide actions in the lists that come back are information: the node has committed the block and started the
    next height already, and committing it again fails. Only the node commits; a node that is behind is given the

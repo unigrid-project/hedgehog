@@ -190,12 +190,23 @@ final class NodeSupervisor {
 			throw new IllegalStateException("The node factory built a node that does not vote");
 		}
 
+		takeOver(built);
+
 		final List<Action> actions = built.start();
 
 		node = built;
 		ledger = built.ledger();
 		perform.accept(actions);
 		return true;
+	}
+
+	/* The transactions that wait for a block are in the ledger and not on disk, so the new one takes over those of the
+	   one it replaces, before its node starts and asks for work: a promotion or a replacement would otherwise lose
+	   what the node had taken in */
+	private void takeOver(LedgerNode built) {
+		if (ledger != null) {
+			built.ledger().takeWaitingFrom(ledger);
+		}
 	}
 
 	/* The timers stay: a Timeout names a step of the engine, not of a node, and the new node asks for the ones it
@@ -218,6 +229,7 @@ final class NodeSupervisor {
 			return;
 		}
 
+		takeOver(built);
 		node = built;
 		ledger = built.ledger();
 		run(LedgerNode::start);

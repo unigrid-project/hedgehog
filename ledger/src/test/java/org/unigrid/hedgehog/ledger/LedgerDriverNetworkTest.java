@@ -497,6 +497,29 @@ public class LedgerDriverNetworkTest {
 		}
 	}
 
+	/* A transaction that a node takes while the whole network has just started again, before any of the nodes votes, is
+	   not lost when they take their keys into use */
+	@Example
+	public void shouldMakeABlockOfATransactionTakenBeforeEveryNodeSignsAgain() throws IOException {
+		try (MemoryNetwork network = started(11, VALIDATORS)) {
+			final Payer payer = new Payer(network);
+
+			produce(network, payer, 1, network.stations());
+			network.stations().forEach(Station::stop);
+			network.run(network.now() + 2 * SECOND);
+			network.stations().forEach(Station::start);
+			network.run(network.now() + SECOND);
+
+			final long height = network.station(0).ledger().height();
+
+			assertThat(network.stations().stream().noneMatch(station -> station.driver().signing()), is(true));
+			assertThat(network.station(1).driver().submit(payer.pay(1, 2, 1)).join(), equalTo(Optional.empty()));
+			assertThat(network.runUntil(() -> everyHeightIs(network, height + 1),
+				network.now() + 2 * GRACE_MILLIS + TEN_SECONDS), is(true));
+			assertSameChain(network);
+		}
+	}
+
 	/* The way an operator upgrades four nodes: one at a time, with the other three making blocks meanwhile */
 	@Example
 	public void shouldKeepMakingBlocksWhileEachNodeInTurnRestarts() throws IOException {
