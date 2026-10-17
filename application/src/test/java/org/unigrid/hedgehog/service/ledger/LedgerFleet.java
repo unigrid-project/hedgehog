@@ -125,12 +125,14 @@ public final class LedgerFleet implements AutoCloseable {
 	private final List<Dial> dials = new CopyOnWriteArrayList<>();
 	private final Set<Integer> stopped = ConcurrentHashMap.newKeySet();
 	private final FleetSporks sporks = new FleetSporks(index -> node(index).container(), nodes::size);
+	private final FleetRest rest;
 
 	@SneakyThrows
 	private LedgerFleet(final Settings settings, final List<TestServer> servers, final IntFunction<String> containers) {
 		this.settings = settings;
 		this.servers = servers;
 		this.containers = containers;
+		this.rest = new FleetRest(index -> servers.get(index).getRest());
 
 		final List<byte[]> seeds = IntStream.range(0, settings.getValidators()).mapToObj(this::newSeed).toList();
 
@@ -428,14 +430,16 @@ public final class LedgerFleet implements AutoCloseable {
 		gatewayOf(node).network().peers().forEach(peer -> gatewayOf(node).peerConnected((NettyLedgerPeer) peer));
 	}
 
-	/* A node without a key that starts with no blocks, which is how a node joins; its index */
-	public int addObserver() {
+	/* A node without a key that starts with no blocks, which is how a node joins; its index. The sporks it is given are
+	   stored before its service begins, so the node has them when it first asks its peers for blocks. */
+	public int addObserver(final GridSpork... held) {
 		Validate.isTrue(nodes.size() < servers.size(), "A fleet is at most %d nodes", servers.size());
 
 		final FleetNode observer = node(nodes.size(), null);
 		final List<FleetNode> others = List.copyOf(nodes);
 
 		nodes.add(observer);
+		Stream.of(held).forEach(spork -> deliverSpork(observer.index(), spork));
 		begin(observer);
 		awaitRunning(observer);
 		mesh(List.of(observer), others);
@@ -476,6 +480,17 @@ public final class LedgerFleet implements AutoCloseable {
 	/* To one node alone, whether or not it takes it */
 	public void deliverSpork(final int node, final GridSpork spork) {
 		sporks.deliver(node, spork);
+	}
+
+	/* The command of the foundation, to the real REST server of one node: the data is proposed at the location with
+	   the first network key, and the node spreads the proposal to its peers. Gives the digest to co-sign by. */
+	public String proposeByRest(final int node, final String location, final Object data) {
+		return rest.propose(node, location, data);
+	}
+
+	/* The co-signature with the second key, after which the node stores the spork and spreads it */
+	public void cosignByRest(final int node, final String digest) {
+		rest.cosign(node, digest);
 	}
 
 	/* The services stop, the streams close and the files of the fleet go. The containers stay, as the containers of

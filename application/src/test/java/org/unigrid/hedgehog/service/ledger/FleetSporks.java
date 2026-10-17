@@ -60,6 +60,15 @@ final class FleetSporks {
 		return new Signature();
 	}
 
+	/* The private keys, which the commands of the foundation send to a node with the data of a spork */
+	static String proposerKey() {
+		return PROPOSER.getPrivateKey();
+	}
+
+	static String cosignerKey() {
+		return COSIGNER.getPrivateKey();
+	}
+
 	/* The two keys of the fleet are the network keys, with none retired */
 	static void mockNetworkKeys() {
 		new MockUp<NetworkKey>() {
