@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
@@ -262,28 +263,85 @@ public class NettyLedgerPeerSendTest {
 		assertThat(channel.outboundMessages(), contains(packet(vote(1)), packet(vote(2)), packet(block(3))));
 	}
 
+	private static Channel connect(final DefaultEventLoopGroup group, final String name,
+		final ConcurrentLinkedQueue<Object> received) throws Exception {
+
+		final LocalAddress address = new LocalAddress(name);
+
+		new ServerBootstrap().group(group).channel(LocalServerChannel.class)
+			.childHandler(new ChannelInitializer<LocalChannel>() {
+				@Override
+				protected void initChannel(final LocalChannel channel) {
+					channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+						@Override
+						public void channelRead(final ChannelHandlerContext ctx, final Object message) {
+							received.add(message);
+						}
+					});
+				}
+			}).bind(address).sync();
+
+		return new Bootstrap().group(group).channel(LocalChannel.class)
+			.handler(new ChannelInboundHandlerAdapter()).connect(address).sync().channel();
+	}
+
+	private static void block(final Channel stream, final CountDownLatch release) {
+		stream.eventLoop().execute(() -> {
+			try {
+				release.await();
+			} catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+			}
+		});
+	}
+
+	@Example
+	public void dropsAndCountsWhatWaitsToBeQueuedBeyondTheBoundWhileTheEventLoopStallsAndTakesMoreAfterwards()
+		throws Exception {
+
+		final DefaultEventLoopGroup group = new DefaultEventLoopGroup(2);
+		final CountDownLatch release = new CountDownLatch(1);
+		final NettyLedgerNetwork network = network();
+
+		try {
+			final Channel stream = connect(group, "peer-stall-test", new ConcurrentLinkedQueue<>());
+			final LedgerPeer peer = network.peerOf(stream, remoteAt(ADDRESS, PORT));
+			final int beyond = 10;
+
+			block(stream, release);
+
+			try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
+				IntStream.range(0, NettyLedgerPeer.MAX_AWAITING + beyond)
+					.forEach(n -> peer.send(LedgerWireFixtures.heartbeat(n)));
+
+				assertThat(told(log), contains(Collections.nCopies(beyond,
+					"DEBUG Dropped what was sent to " + ADDRESS + ": too much waits to be queued").toArray()));
+			}
+
+			assertThat(network.droppedOutbound(), is((long) beyond));
+
+			release.countDown();
+			stream.eventLoop().submit(() -> { }).sync();
+
+			final long before = network.droppedOutbound();
+
+			IntStream.range(0, 20).forEach(n -> peer.send(LedgerWireFixtures.heartbeat(2000 + n)));
+			stream.eventLoop().submit(() -> { }).sync();
+
+			assertThat(network.droppedOutbound(), is(before));
+		} finally {
+			release.countDown();
+			group.shutdownGracefully().sync();
+		}
+	}
+
 	@Example
 	public void writesWhatEveryThreadSendsOnTheEventLoopOfTheStreamExactlyOnce() throws Exception {
 		final DefaultEventLoopGroup group = new DefaultEventLoopGroup(2);
 		final ConcurrentLinkedQueue<Object> received = new ConcurrentLinkedQueue<>();
-		final LocalAddress address = new LocalAddress("peer-send-test");
 
 		try {
-			new ServerBootstrap().group(group).channel(LocalServerChannel.class)
-				.childHandler(new ChannelInitializer<LocalChannel>() {
-					@Override
-					protected void initChannel(final LocalChannel channel) {
-						channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-							@Override
-							public void channelRead(final ChannelHandlerContext ctx, final Object message) {
-								received.add(message);
-							}
-						});
-					}
-				}).bind(address).sync();
-
-			final Channel stream = new Bootstrap().group(group).channel(LocalChannel.class)
-				.handler(new ChannelInboundHandlerAdapter()).connect(address).sync().channel();
+			final Channel stream = connect(group, "peer-send-test", received);
 			final LedgerPeer peer = peerOf(stream);
 			final int threads = 8;
 			final int each = 50;

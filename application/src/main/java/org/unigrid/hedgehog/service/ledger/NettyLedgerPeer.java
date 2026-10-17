@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -70,6 +71,10 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV4_LENGTH = 4;
 	private static final int IPV4_MAPPED_ZEROS = 10;
 
+	/* The most messages that may wait on the event loop to be queued. Each is a packet around an object that the peers
+	   share, so it costs little, and a loop that is not stalled has far fewer waiting than the votes of a lane. */
+	static final int MAX_AWAITING = OutboundQueue.VOTES_PER_LANE;
+
 	private final Channel channel;
 	private final Supplier<Optional<InetSocketAddress>> remote;
 	private final PendingRequests pending;
@@ -80,6 +85,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
 	private final OutboundQueue queue = new OutboundQueue();
+	private final AtomicInteger awaiting = new AtomicInteger();
 	private volatile String listedAs;
 	private boolean watching;
 
@@ -165,10 +171,10 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	}
 
 	/* What the stream does not take now waits for it, the votes ahead of the rest (see OutboundQueue), and is lost only
-	   when the lane of it is full (the oldest vote or the new message of the rest) or the stream closes, as the
-	   protocol is made to cope with. The stream is left alone
-	   when a write fails: it carries every protocol, and a write that fails because it is closing is a race, not
-	   news. Any thread may send, and the queue is touched on the event loop of the stream only. */
+	   when the lane of it is full (the oldest vote or the new message of the rest), when too much waits to be queued
+	   (see post) or when the stream closes, as the protocol is made to cope with. The stream is left alone when a
+	   write fails: it carries every protocol, and a write that fails because it is closing is a race, not news.
+	   Any thread may send, and the queue is touched on the event loop of the stream only. */
 	@Override
 	public void send(final Object wire) {
 		final Packet packet = packetOf(wire);
@@ -181,18 +187,31 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		final OutboundQueue.Lane lane = OutboundQueue.Lane.of(wire);
 		final int size = OutboundQueue.sizeOf(wire);
 
-		try {
-			onEventLoop(() -> enqueue(lane, packet, size));
-		} catch (RejectedExecutionException ex) {
-			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream has shut down");
+		if (channel.eventLoop().inEventLoop()) {
+			enqueue(lane, packet, size);
+		} else {
+			post(lane, packet, size);
 		}
 	}
 
-	private void onEventLoop(final Runnable task) {
-		if (channel.eventLoop().inEventLoop()) {
-			task.run();
-		} else {
-			channel.eventLoop().execute(task);
+	/* The event loop is shared by the streams of a connection and may stall, and what is posted to it waits there
+	   before the bound of a lane applies, so the number of messages that wait to be queued is bounded as well */
+	private void post(final OutboundQueue.Lane lane, final Packet packet, final int size) {
+		if (awaiting.incrementAndGet() > MAX_AWAITING) {
+			awaiting.decrementAndGet();
+			dropped.run();
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: too much waits to be queued");
+			return;
+		}
+
+		try {
+			channel.eventLoop().execute(() -> {
+				awaiting.decrementAndGet();
+				enqueue(lane, packet, size);
+			});
+		} catch (RejectedExecutionException ex) {
+			awaiting.decrementAndGet();
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream has shut down");
 		}
 	}
 

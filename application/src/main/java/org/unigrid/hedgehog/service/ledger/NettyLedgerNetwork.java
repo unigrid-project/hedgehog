@@ -126,7 +126,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 		return raced != null ? raced : created;
 	}
 
-	/* How many messages to peers were dropped because the lane of a stream was full */
+	/* How many messages to peers were dropped because the lane of a stream was full or too much waited to be queued */
 	public long droppedOutbound() {
 		return droppedOutbound.get();
 	}
