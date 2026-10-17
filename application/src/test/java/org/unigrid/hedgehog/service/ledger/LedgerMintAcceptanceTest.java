@@ -69,6 +69,9 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	private static final Duration PATIENCE = Duration.ofSeconds(60);
 	private static final Duration QUIET = Duration.ofMillis(2_500);
 
+	/* Shorter than the minute between two heights of the old chain, so that a mint a height late is seen to be late */
+	private static final Duration NOT_A_MINUTE = Duration.ofSeconds(40);
+
 	/* A block of a thousand mints is some 70 kilobytes in each message between the nodes, and takes seconds to be
 	   decided by five nodes of one process; the rest of the entries is dropped once two of them are made */
 	private static final Duration TWO_BLOCKS_OF_A_THOUSAND = Duration.ofSeconds(150);
@@ -227,8 +230,9 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 		awaitBalance(immediate.address(), ONE_AND_A_HALF);
 		advanceTo(due - MINUTE / 2);
 		staysEmpty(wallet.address());
-		advanceTo(due + MINUTE / 2);
-		awaitBalance(wallet.address(), 7 * COIN);
+		advanceTo(due + MINUTE / 4);
+		await().atMost(NOT_A_MINUTE).until(() ->
+			everywhere(node -> fleet.balanceOf(node, wallet.address()) == 7 * COIN));
 
 		assertThat(fleet.submit(1, wallet.claim(owner, fleet.chainId())), equalTo(Optional.empty()));
 		awaitBalance(owner, 7 * COIN);
