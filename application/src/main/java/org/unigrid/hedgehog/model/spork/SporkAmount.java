@@ -29,9 +29,9 @@ import lombok.NoArgsConstructor;
 /* An amount of coins in a spork as the wire carries it: text that ends with a zero byte, which the encoders write
    with toPlainString(). Anyone can send a frame, and `new BigDecimal("1E+999999999")` is a number of a few bytes that
    writes out as a billion digits, so signing it, which writes it out, takes gigabytes. An amount is therefore taken
-   only with at most MAX_DECIMALS decimals, at most MAX_INTEGER_DIGITS digits before the point and a text of at most
-   MAX_TEXT characters, which leaves room for every real amount (the ledger counts in units of 1e-8 in a long, a bit
-   under 12 digits of coins). A frame that holds more is corrupt. */
+   only with at most MAX_DECIMALS decimals (not counting trailing zeros), at most MAX_INTEGER_DIGITS digits before the
+   point and a text of at most MAX_TEXT characters, which leaves room for every real amount (the ledger counts in
+   units of 1e-8 in a long, a bit under 12 digits of coins). A frame that holds more is corrupt. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkAmount {
 	public static final int MAX_DECIMALS = 8;
@@ -39,8 +39,18 @@ public final class SporkAmount {
 	public static final int MAX_TEXT = 48;
 	private static final int SHOWN = 24;
 
+	/* The value is judged without its trailing zeros: 1.500000000 and 1E+9 are real amounts, that a node of an
+	   earlier release took and may have written. The scale as it is stored is bounded all the same, as it is what
+	   toPlainString() writes out: 0E-999999999 is zero with a billion zeros, and a scale near the end of the int
+	   range overflows the sum of the digits. */
 	public static boolean isWithinBounds(final BigDecimal amount) {
-		return Math.abs(amount.scale()) <= MAX_DECIMALS && amount.precision() - amount.scale() <= MAX_INTEGER_DIGITS;
+		if (amount.scale() > MAX_TEXT || amount.scale() < -MAX_INTEGER_DIGITS) {
+			return false;
+		}
+
+		final BigDecimal stripped = amount.stripTrailingZeros();
+
+		return stripped.scale() <= MAX_DECIMALS && stripped.precision() - stripped.scale() <= MAX_INTEGER_DIGITS;
 	}
 
 	public static BigDecimal read(final ByteBuf in) {
