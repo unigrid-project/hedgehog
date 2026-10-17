@@ -179,7 +179,13 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	}
 
 	private void staysTrue(final BooleanSupplier condition) {
-		await().during(QUIET).atMost(QUIET.plusSeconds(5)).until(condition::getAsBoolean);
+		staysTrue(condition, QUIET.plusSeconds(5));
+	}
+
+	/* A condition that delivers a spork to every node takes seconds each time, more with each node, so it is given time
+	   to be looked at enough times to hold for the quiet period */
+	private void staysTrue(final BooleanSupplier condition, final Duration budget) {
+		await().during(QUIET).atMost(budget).until(condition::getAsBoolean);
 	}
 
 	private void staysEmpty(final Address who) {
@@ -560,7 +566,7 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 			});
 
 			return everywhere(node -> fleet.status(node).laggingSporks().isEmpty());
-		});
+		}, PATIENCE);
 
 		fleet.publishSpork(genuine);
 		awaitBalance(recipient, 10 * COIN);
