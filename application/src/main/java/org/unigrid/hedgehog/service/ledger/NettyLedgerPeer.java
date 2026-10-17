@@ -165,7 +165,8 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	}
 
 	/* What the stream does not take now waits for it, the votes ahead of the rest (see OutboundQueue), and is lost only
-	   when the lane of it is full or the stream closes, as the protocol is made to cope with. The stream is left alone
+	   when the lane of it is full (the oldest vote or the new message of the rest) or the stream closes, as the
+	   protocol is made to cope with. The stream is left alone
 	   when a write fails: it carries every protocol, and a write that fails because it is closing is a race, not
 	   news. Any thread may send, and the queue is touched on the event loop of the stream only. */
 	@Override
@@ -198,13 +199,18 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private void enqueue(final OutboundQueue.Lane lane, final Packet packet, final int size) {
 		if (!channel.isActive()) {
 			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream is closed");
-		} else if (queue.offer(lane, packet, size)) {
+		} else {
+			final int lost = queue.offer(lane, packet, size);
+
+			IntStream.range(0, lost).forEach(n -> dropped.run());
+
+			if (lost > 0) {
+				log.atDebug().addArgument(this::id).addArgument(lane)
+					.log("Dropped a message for {}: too much waits in its {} lane");
+			}
+
 			resumeWhenWritable();
 			drain();
-		} else {
-			dropped.run();
-			log.atDebug().addArgument(this::id).addArgument(lane)
-				.log("Dropped what was sent to {}: too much waits in its {} lane");
 		}
 	}
 

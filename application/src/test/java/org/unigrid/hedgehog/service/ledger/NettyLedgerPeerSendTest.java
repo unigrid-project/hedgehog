@@ -132,7 +132,7 @@ public class NettyLedgerPeerSendTest {
 	}
 
 	@Example
-	public void dropsTheNewMessageOfAFullLaneOfVotesAndCountsItAndKeepsWhatWaits() {
+	public void dropsTheOldestVotesOfAFullLaneAndCountsThemAndKeepsTheNewest() {
 		final EmbeddedChannel channel = new EmbeddedChannel();
 		final NettyLedgerNetwork network = network();
 		final LedgerPeer peer = network.peerOf(channel, remoteAt(ADDRESS, PORT));
@@ -145,13 +145,13 @@ public class NettyLedgerPeerSendTest {
 			heartbeats.forEach(peer::send);
 
 			assertThat(told(log), contains(Collections.nCopies(3,
-				"DEBUG Dropped what was sent to " + ADDRESS + ": too much waits in its VOTES lane").toArray()));
+				"DEBUG Dropped a message for " + ADDRESS + ": too much waits in its VOTES lane").toArray()));
 		}
 
 		assertThat(network.droppedOutbound(), is(3L));
 		takeMore(channel);
 
-		assertThat(List.copyOf(channel.outboundMessages()), equalTo(heartbeats.subList(0, fit).stream()
+		assertThat(List.copyOf(channel.outboundMessages()), equalTo(heartbeats.subList(3, fit + 3).stream()
 			.map(heartbeat -> (Object) LedgerHeartbeat.builder().heartbeat(heartbeat).build()).toList()));
 	}
 
@@ -180,6 +180,26 @@ public class NettyLedgerPeerSendTest {
 		assertThat(written.subList(1, written.size()), equalTo(Collections.nCopies(written.size() - 1, packet(largest))));
 		assertThat(written.size() >= 3, is(true));
 		assertThat(written.size() - 1L + network.droppedOutbound(), is(7L));
+	}
+
+	@Example
+	public void dropsTheNewBlocksOfAFullLaneOfTheRestAndKeepsTheOnesThatWaitInTheirOrder() {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final NettyLedgerNetwork network = network();
+		final LedgerPeer peer = network.peerOf(channel, remoteAt(ADDRESS, PORT));
+		final List<Decision> blocks = IntStream.range(0, 8)
+			.mapToObj(n -> new Decision(LedgerWireFixtures.largestBlock(new Random(n)))).toList();
+
+		takeNoMore(channel);
+		blocks.forEach(peer::send);
+		takeMore(channel);
+
+		final List<Object> written = List.copyOf(channel.outboundMessages());
+
+		assertThat(written.size() >= 2, is(true));
+		assertThat(written, equalTo(blocks.subList(0, written.size()).stream().map(block -> (Object) packet(block))
+			.toList()));
+		assertThat(written.size() + network.droppedOutbound(), is(8L));
 	}
 
 	@Example

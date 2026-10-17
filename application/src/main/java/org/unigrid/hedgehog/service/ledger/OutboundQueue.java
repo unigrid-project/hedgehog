@@ -35,27 +35,34 @@ import org.unigrid.hedgehog.model.network.Packet;
    allows at a time, which at the start of a connection is less than one block, and what a stream cannot take is not
    lost but waits here, in two lanes. The votes, which the others wait for to go on, are written before the rest, so
    that a block that fills the window does not hold them up. Each lane is bounded in bytes, so that a stream that is
-   never read cannot make this node queue without end: what comes to a full lane is refused, the lane keeps what it
-   has. Only the event loop of the stream touches this, and nothing is locked. */
+   never read cannot make this node queue without end. A full lane of votes drops its oldest, as a newer vote
+   stands for an older one; a full lane of the rest refuses what comes and keeps what it has, as a block waits for
+   the ones before it. Only the event loop of the stream touches this, and nothing is locked. */
 final class OutboundQueue {
 	/* A ballot, a heartbeat or a status is some 180 bytes encoded */
 	static final int LARGEST_VOTE = 256;
 	static final int VOTES_PER_LANE = 512;
 
 	enum Lane {
-		VOTES(VOTES_PER_LANE * LARGEST_VOTE),
+		VOTES(VOTES_PER_LANE * LARGEST_VOTE, true),
 
 		/* Two of the largest messages that a decoder takes, so that a block can wait behind another */
-		BULK(2 * WireCodec.MAX_MESSAGE_SIZE);
+		BULK(2 * WireCodec.MAX_MESSAGE_SIZE, false);
 
 		private final int limit;
+		private final boolean dropsOldest;
 
-		Lane(final int limit) {
+		Lane(final int limit, final boolean dropsOldest) {
 			this.limit = limit;
+			this.dropsOldest = dropsOldest;
 		}
 
 		int limit() {
 			return limit;
+		}
+
+		boolean dropsOldest() {
+			return dropsOldest;
 		}
 
 		/* A vote is a ballot, a heartbeat or a status, which are of a fixed size and are what the others wait for;
@@ -93,17 +100,26 @@ final class OutboundQueue {
 		};
 	}
 
-	/* False when the lane is full, and then the lane is as it was */
-	boolean offer(final Lane lane, final Packet packet, final int size) {
+	/* How many messages were lost for it: none when it fits, the oldest ones that it takes the room of in a lane of
+	   votes, and the offered one when another lane is full, which is then as it was */
+	int offer(final Lane lane, final Packet packet, final int size) {
 		final Waiting waiting = lanes.get(lane);
+		final boolean fits = waiting.bytes + size <= lane.limit();
 
-		if (waiting.bytes + size > lane.limit()) {
-			return false;
+		if (size > lane.limit() || !fits && !lane.dropsOldest()) {
+			return 1;
+		}
+
+		int lost = 0;
+
+		while (waiting.bytes + size > lane.limit()) {
+			waiting.bytes -= waiting.entries.pollFirst().size();
+			lost++;
 		}
 
 		waiting.entries.addLast(new Entry(packet, size));
 		waiting.bytes += size;
-		return true;
+		return lost;
 	}
 
 	/* The oldest of the votes, and when there is none the oldest of the rest */

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import java.util.Random;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -99,35 +100,72 @@ public class OutboundQueueTest {
 	}
 
 	@Example
-	public void refusesWhatDoesNotFitAndKeepsWhatItHas() {
+	public void refusesWhatDoesNotFitInTheLaneOfTheRestAndKeepsWhatItHas() {
 		final OutboundQueue queue = new OutboundQueue();
 
-		assertThat(queue.offer(VOTES, packetOf(1), VOTES.limit() - 10), is(true));
-		assertThat(queue.offer(VOTES, packetOf(2), 11), is(false));
-		assertThat(queue.offer(VOTES, packetOf(3), 10), is(true));
-		assertThat(queue.offer(VOTES, packetOf(4), 1), is(false));
+		assertThat(queue.offer(BULK, packetOf(1), BULK.limit() - 10), is(0));
+		assertThat(queue.offer(BULK, packetOf(2), 11), is(1));
+		assertThat(queue.offer(BULK, packetOf(3), 10), is(0));
+		assertThat(queue.offer(BULK, packetOf(4), 1), is(1));
 		assertThat(queue.poll().get(), equalTo(packetOf(1)));
 		assertThat(queue.poll().get(), equalTo(packetOf(3)));
 		assertThat(queue.poll().isPresent(), is(false));
 	}
 
 	@Example
+	public void dropsTheOldestVotesToMakeRoomForANewOne() {
+		final OutboundQueue queue = new OutboundQueue();
+
+		assertThat(queue.offer(VOTES, packetOf(1), VOTES.limit() - 10), is(0));
+		assertThat(queue.offer(VOTES, packetOf(2), 10), is(0));
+		assertThat(queue.offer(VOTES, packetOf(3), 1), is(1));
+		assertThat(queue.size(), is(2));
+		assertThat(queue.poll().get(), equalTo(packetOf(2)));
+		assertThat(queue.poll().get(), equalTo(packetOf(3)));
+		assertThat(queue.poll().isPresent(), is(false));
+	}
+
+	@Example
+	public void dropsAsManyOfTheOldestVotesAsTheNewOneTakesTheRoomOf() {
+		final OutboundQueue queue = new OutboundQueue();
+
+		IntStream.range(0, 4).forEach(n -> queue.offer(VOTES, packetOf(n), VOTES.limit() / 4));
+
+		assertThat(queue.offer(VOTES, packetOf(4), VOTES.limit() / 2 + 1), is(3));
+		assertThat(queue.size(), is(2));
+		assertThat(queue.poll().get(), equalTo(packetOf(3)));
+		assertThat(queue.poll().get(), equalTo(packetOf(4)));
+	}
+
+	@Example
+	public void refusesAMessageThatIsLargerThanItsLaneAndKeepsWhatWaits() {
+		final OutboundQueue queue = new OutboundQueue();
+
+		queue.offer(VOTES, packetOf(1), 10);
+
+		assertThat(queue.offer(VOTES, packetOf(2), VOTES.limit() + 1), is(1));
+		assertThat(queue.size(), is(1));
+		assertThat(queue.poll().get(), equalTo(packetOf(1)));
+	}
+
+	@Example
 	public void givesBackTheRoomOfWhatIsTaken() {
 		final OutboundQueue queue = new OutboundQueue();
 
-		assertThat(queue.offer(VOTES, packetOf(1), VOTES.limit()), is(true));
-		assertThat(queue.offer(VOTES, packetOf(2), 1), is(false));
+		assertThat(queue.offer(BULK, packetOf(1), BULK.limit()), is(0));
+		assertThat(queue.offer(BULK, packetOf(2), 1), is(1));
 		assertThat(queue.poll().get(), equalTo(packetOf(1)));
-		assertThat(queue.offer(VOTES, packetOf(3), VOTES.limit()), is(true));
+		assertThat(queue.offer(BULK, packetOf(3), BULK.limit()), is(0));
 	}
 
 	@Example
 	public void boundsEachLaneAlone() {
 		final OutboundQueue queue = new OutboundQueue();
 
-		assertThat(queue.offer(BULK, packetOf(1), BULK.limit()), is(true));
-		assertThat(queue.offer(BULK, packetOf(2), 1), is(false));
-		assertThat(queue.offer(VOTES, packetOf(3), VOTES.limit()), is(true));
+		assertThat(queue.offer(BULK, packetOf(1), BULK.limit()), is(0));
+		assertThat(queue.offer(BULK, packetOf(2), 1), is(1));
+		assertThat(queue.offer(VOTES, packetOf(3), VOTES.limit()), is(0));
+		assertThat(queue.size(), is(2));
 	}
 
 	@Example
@@ -155,7 +193,7 @@ public class OutboundQueueTest {
 
 		assertThat(queue.isEmpty(), is(true));
 		assertThat(queue.size(), is(0));
-		assertThat(queue.offer(VOTES, packetOf(3), VOTES.limit()), is(true));
-		assertThat(queue.offer(BULK, packetOf(4), BULK.limit()), is(true));
+		assertThat(queue.offer(VOTES, packetOf(3), VOTES.limit()), is(0));
+		assertThat(queue.offer(BULK, packetOf(4), BULK.limit()), is(0));
 	}
 }
