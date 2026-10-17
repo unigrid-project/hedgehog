@@ -20,6 +20,9 @@ package org.unigrid.hedgehog.service.ledger;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.util.concurrent.Future;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
@@ -27,6 +30,7 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -72,9 +76,12 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private final long order;
 	private final Predicate<Channel> negotiated;
 	private final Predicate<Channel> outbound;
+	private final Runnable dropped;
 	private final AtomicReference<LedgerDriver> announcedTo = new AtomicReference<>();
 	private final AtomicBoolean spoken = new AtomicBoolean();
+	private final OutboundQueue queue = new OutboundQueue();
 	private volatile String listedAs;
+	private boolean watching;
 
 	/* An IPv4 address that comes as an IPv6 one, ::ffff:a.b.c.d, is the IPv4 address: read as IPv6 every such peer would
 	   have the zeros of the same /64 prefix, and share one limit */
@@ -157,9 +164,10 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		listedAs = null;
 	}
 
-	/* What cannot be sent now is lost, as the protocol is made to cope with, and the stream is left alone: it carries
-	   every protocol, and a write that fails because it is closing is a race, not news. A stream that is backed up
-	   gets nothing more, so that a peer that does not read cannot make this node queue what it says without end. */
+	/* What the stream does not take now waits for it, the votes ahead of the rest (see OutboundQueue), and is lost only
+	   when the lane of it is full or the stream closes, as the protocol is made to cope with. The stream is left alone
+	   when a write fails: it carries every protocol, and a write that fails because it is closing is a race, not
+	   news. Any thread may send, and the queue is touched on the event loop of the stream only. */
 	@Override
 	public void send(final Object wire) {
 		final Packet packet = packetOf(wire);
@@ -169,17 +177,83 @@ public final class NettyLedgerPeer implements LedgerPeer {
 			return;
 		}
 
-		if (!channel.isWritable()) {
-			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream is backed up");
-			return;
+		final OutboundQueue.Lane lane = OutboundQueue.Lane.of(wire);
+		final int size = OutboundQueue.sizeOf(wire);
+
+		try {
+			onEventLoop(() -> enqueue(lane, packet, size));
+		} catch (RejectedExecutionException ex) {
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream has shut down");
+		}
+	}
+
+	private void onEventLoop(final Runnable task) {
+		if (channel.eventLoop().inEventLoop()) {
+			task.run();
+		} else {
+			channel.eventLoop().execute(task);
+		}
+	}
+
+	private void enqueue(final OutboundQueue.Lane lane, final Packet packet, final int size) {
+		if (!channel.isActive()) {
+			log.atDebug().addArgument(this::id).log("Dropped what was sent to {}: its stream is closed");
+		} else if (queue.offer(lane, packet, size)) {
+			resumeWhenWritable();
+			drain();
+		} else {
+			dropped.run();
+			log.atDebug().addArgument(this::id).addArgument(lane)
+				.log("Dropped what was sent to {}: too much waits in its {} lane");
+		}
+	}
+
+	/* The stream says when it takes more, and what waits is dropped with the stream */
+	private void resumeWhenWritable() {
+		if (!watching) {
+			watching = true;
+			channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+				@Override
+				public void channelWritabilityChanged(final ChannelHandlerContext ctx) throws Exception {
+					drain();
+					super.channelWritabilityChanged(ctx);
+				}
+			});
+			channel.closeFuture().addListener(closed -> queue.clear());
+		}
+	}
+
+	private void drain() {
+		boolean wrote = false;
+
+		while (channel.isWritable() && writeNext()) {
+			wrote = true;
 		}
 
-		channel.writeAndFlush(packet).addListener(written -> {
-			if (!written.isSuccess()) {
-				log.atDebug().addArgument(this::id).addArgument(() -> String.valueOf(written.cause()))
-					.log("Could not send to {}: {}");
-			}
-		});
+		if (wrote) {
+			channel.flush();
+		}
+	}
+
+	private boolean writeNext() {
+		return queue.poll().map(packet -> channel.write(packet).addListener(this::written)).isPresent();
+	}
+
+	/* A write that completes is a reason to look at the stream again, as a stream may take more without saying so */
+	private void written(final Future<?> written) {
+		if (!written.isSuccess()) {
+			log.atDebug().addArgument(this::id).addArgument(() -> String.valueOf(written.cause()))
+				.log("Could not send to {}: {}");
+		}
+
+		if (!queue.isEmpty()) {
+			channel.eventLoop().execute(this::drain);
+		}
+	}
+
+	/* For the tests: how many wait for the stream */
+	int waiting() {
+		return queue.size();
 	}
 
 	private static Packet packetOf(final Object wire) {

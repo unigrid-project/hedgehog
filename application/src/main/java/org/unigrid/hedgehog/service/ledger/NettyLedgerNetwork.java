@@ -62,6 +62,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	private final Predicate<Channel> negotiated;
 	private final BlockingDeque<NettyLedgerPeer> seen = new LinkedBlockingDeque<>(MAX_SPEAKERS);
 	private final AtomicLong registrations = new AtomicLong();
+	private final AtomicLong droppedOutbound = new AtomicLong();
 
 	/* A stream is opened by this node when it was the one to create it, which is what dialling a node does */
 	public static boolean openedHere(final Channel channel) {
@@ -119,10 +120,15 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 
 	private NettyLedgerPeer create(final Channel channel, final Supplier<Optional<InetSocketAddress>> remote) {
 		final NettyLedgerPeer created = new NettyLedgerPeer(channel, remote, pending,
-			registrations.incrementAndGet(), negotiated, outbound);
+			registrations.incrementAndGet(), negotiated, outbound, droppedOutbound::incrementAndGet);
 		final NettyLedgerPeer raced = channel.attr(PEER_KEY).setIfAbsent(created);
 
 		return raced != null ? raced : created;
+	}
+
+	/* How many messages to peers were dropped because the lane of a stream was full */
+	public long droppedOutbound() {
+		return droppedOutbound.get();
 	}
 
 	/* For the tests: what is held on to, which must not grow with the streams that came and went */

@@ -242,28 +242,6 @@ public class NettyLedgerNetworkTest {
 		assertThat(channel.isOpen(), is(true));
 	}
 
-	@Property(tries = 10)
-	public void sendsNothingToAStreamThatIsBackedUp(@ForAll @IntRange(min = 0, max = 100) int seed) {
-		final EmbeddedChannel channel = new EmbeddedChannel();
-		final LedgerPeer peer = networkOf().peerOf(channel, remote(FIRST));
-
-		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, false);
-
-		try (DebugLog log = new DebugLog(NettyLedgerPeer.class)) {
-			peer.send(LedgerWireFixtures.status(seed));
-
-			assertThat(told(log),
-				contains("DEBUG Dropped what was sent to " + FIRST + ": its stream is backed up"));
-		}
-
-		assertThat(channel.outboundMessages().isEmpty(), is(true));
-
-		channel.unsafe().outboundBuffer().setUserDefinedWritability(1, true);
-		peer.send(LedgerWireFixtures.status(seed));
-		assertThat(channel.outboundMessages(), contains(LedgerStatus.builder()
-			.status(LedgerWireFixtures.status(seed)).build()));
-	}
-
 	private static List<String> told(final DebugLog log) {
 		return log.events().stream().map(event -> event.getLevel() + " " + event.getFormattedMessage()).toList();
 	}
