@@ -67,7 +67,7 @@ public class SporkReceptionTest {
 	}
 
 	private boolean receive(GridSpork spork) {
-		return handler.receive(spork, sporkDatabase, pendingSporks, lag);
+		return handler.receive(spork, sporkDatabase, pendingSporks, lag, "198.51.100.7");
 	}
 
 	@SneakyThrows

@@ -203,4 +203,20 @@ public class RemoteAddressTest {
 	public void readsNoAddressWhenThereIsNoConnection() {
 		assertThat(RemoteAddress.of(new EmbeddedChannel()), equalTo(Optional.empty()));
 	}
+
+	@Example
+	public void namesAPeerAsTheLedgerDoes() {
+		assertThat(RemoteAddress.idOf(streamOf(connectionOf("10.0.0.1", "10.0.0.1"))), equalTo("10.0.0.1"));
+		assertThat(RemoteAddress.idOf(streamOf(connectionOf("127.0.0.1", "127.0.0.1"))),
+			equalTo("127.0.0.1:" + CONNECTION_PORT));
+		assertThat(RemoteAddress.idOf(streamOf(connectionOf("2001:db8:1:2:3:4:5:6", "2001:db8:1:2:3:4:5:6"))),
+			equalTo("20010db800010002/64"));
+	}
+
+	@Example
+	public void namesAStreamWithoutAnAddressByItself() {
+		final EmbeddedChannel stream = new EmbeddedChannel();
+
+		assertThat(RemoteAddress.idOf(stream), equalTo(stream.id().asLongText()));
+	}
 }

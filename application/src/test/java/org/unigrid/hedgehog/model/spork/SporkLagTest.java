@@ -44,6 +44,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 public class SporkLagTest {
 	private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
+	private static final String PEER = "198.51.100.7";
 
 	private static Signature proposer;
 	private static Signature cosigner;
@@ -107,7 +108,7 @@ public class SporkLagTest {
 
 	/* A spork a second after the one before it, as the lag takes one a second for each type at most */
 	private void record(GridSpork spork) {
-		lag.record(spork, database);
+		lag.record(spork, database, PEER);
 		now = now.plus(SporkLag.VERIFY_GAP);
 	}
 
@@ -322,21 +323,20 @@ public class SporkLagTest {
 		database.set(stored);
 		keyLookups = 0;
 
-		lag.record(older, database);
-		lag.record(stored, database);
+		lag.record(older, database, PEER);
+		lag.record(stored, database, PEER);
 		assertThat(keyLookups, is(0));
 
-		lag.record(newer, database);
+		lag.record(newer, database, PEER);
 		assertThat(keyLookups, is(1));
 	}
 
 	@Example
-	public void verifiesOneSporkOfATypeAndNoMoreInASecondHoweverManyAreSent() {
-		final List<MintSupply> flood = IntStream.range(0, 1000).mapToObj(n -> forged(ago(Duration.ofSeconds(n))))
-			.toList();
+	public void verifiesOneSporkOfATypeFromASourceAndNoMoreInASecondHoweverManyAreSent() {
+		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
 
 		keyLookups = 0;
-		flood.forEach(spork -> lag.record(spork, database));
+		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, PEER));
 
 		assertThat(keyLookups, is(1));
 	}
@@ -344,31 +344,66 @@ public class SporkLagTest {
 	@Example
 	public void verifiesAgainWhenASecondHasPassedAndTheTypesCountApart() {
 		keyLookups = 0;
-		lag.record(forged(ago(Duration.ofMinutes(9))), database);
-		lag.record(forged(ago(Duration.ofMinutes(8))), database);
+		lag.record(forged(ago(Duration.ofMinutes(9))), database, PEER);
+		lag.record(forged(ago(Duration.ofMinutes(8))), database, PEER);
 		assertThat(keyLookups, is(1));
 
-		lag.record(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer), database);
+		lag.record(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer), database, PEER);
 		assertThat(keyLookups, is(2));
 
 		now = now.plus(SporkLag.VERIFY_GAP).minusMillis(1);
-		lag.record(forged(ago(Duration.ofMinutes(6))), database);
+		lag.record(forged(ago(Duration.ofMinutes(6))), database, PEER);
 		assertThat(keyLookups, is(2));
 
 		now = now.plusMillis(1);
-		lag.record(forged(ago(Duration.ofMinutes(5))), database);
+		lag.record(forged(ago(Duration.ofMinutes(5))), database, PEER);
 		assertThat(keyLookups, is(3));
 	}
 
 	@Example
 	public void doesNotRememberASporkThatWasTurnedAwayForComingTooSoonButTheNextOneIsHeard() {
-		lag.record(forged(ago(Duration.ofMinutes(9))), database);
-		lag.record(proposal(ago(Duration.ofMinutes(5))), database);
+		lag.record(forged(ago(Duration.ofMinutes(9))), database, PEER);
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database, PEER);
 		assertThat(isBehind(), is(false));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
-		lag.record(proposal(ago(Duration.ofMinutes(5))), database);
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database, PEER);
 		assertThat(isBehind(), is(true));
+	}
+
+	@Example
+	public void hearsAGenuineSporkFromAnotherSourceAfterABurstOfForgedOnesFromOne() {
+		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
+
+		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, PEER));
+		assertThat(isBehind(), is(false));
+
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database, "203.0.113.9");
+		assertThat(isBehind(), is(true));
+	}
+
+	@Example
+	public void verifiesAtMostTheCeilingOfSporksOfATypeInASecondHoweverManySourcesSendThem() {
+		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
+
+		keyLookups = 0;
+		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, "2001:db8:" + n + "::/64"));
+		assertThat(keyLookups, is(VerifySlots.CEILING));
+
+		now = now.plus(SporkLag.VERIFY_GAP);
+		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, "2001:db8:" + n + "::/64"));
+		assertThat(keyLookups, is(2 * VerifySlots.CEILING));
+	}
+
+	@Example
+	public void countsTheCeilingForEachTypeApart() {
+		final MintSupply supply = forged(ago(Duration.ofMinutes(9)));
+
+		keyLookups = 0;
+		IntStream.range(0, 2 * VerifySlots.CEILING).forEach(n -> lag.record(supply, database, "source-" + n));
+		lag.record(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer), database, "source-0");
+
+		assertThat(keyLookups, is(VerifySlots.CEILING + 1));
 	}
 
 	@SneakyThrows
@@ -385,7 +420,7 @@ public class SporkLagTest {
 		/* Every look at the clock is a second later, so that none of the writers is turned away for coming soon */
 		lag = new SporkLag(() -> NOW.plusSeconds(seconds.incrementAndGet()));
 		Collections.shuffle(sporks);
-		sporks.forEach(spork -> work.add(pool.submit(() -> lag.record(spork, database))));
+		sporks.forEach(spork -> work.add(pool.submit(() -> lag.record(spork, database, PEER))));
 		IntStream.range(0, 100).forEach(i -> work.add(pool.submit(() -> isBehind())));
 
 		for (Future<?> task : work) {

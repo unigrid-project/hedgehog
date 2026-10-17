@@ -98,7 +98,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		return address;
 	}
 
-	static String idOf(final InetSocketAddress socket) {
+	public static String idOf(final InetSocketAddress socket) {
 		final InetAddress address = plain(socket.getAddress());
 		final byte[] bytes = address.getAddress();
 

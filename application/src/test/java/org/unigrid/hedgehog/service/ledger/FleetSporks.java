@@ -122,7 +122,7 @@ final class FleetSporks {
 
 		within(container, () -> new PublishSporkChannelHandler().receive(SerializationUtils.clone(spork),
 			bean(container, SporkDatabase.class), bean(container, PendingSporks.class),
-			bean(container, SporkLag.class)));
+			bean(container, SporkLag.class), "fleet"));
 	}
 
 	/* To every node, and then until each of them holds it, or an error saying that one did not take it. The nodes

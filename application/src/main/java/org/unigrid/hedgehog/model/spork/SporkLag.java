@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BinaryOperator;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
@@ -48,8 +47,9 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * should wait for that to settle instead of acting on the stored spork. Nothing else is trusted, so a peer
 * without a network key cannot make a node wait. Anyone can send a frame and a check costs a signature
 * verification, so the check is made only for a spork newer than the stored one (an older one cannot make the node
-* behind) and at most once a second for each type ({@link #VERIFY_GAP}): a flood of forged sporks costs one check
-* a second, and the sporks that were turned away are sent again.
+* behind) and by {@link VerifySlots}: one check a second for each type and sending peer ({@link #VERIFY_GAP}), and
+* no more than {@link VerifySlots#CEILING} a second for a type whoever sends. A flood of forged sporks from one
+* peer takes only the slots of that peer, and the sporks that were turned away are sent again.
 *
 * <p>What is remembered is bounded: a time stamp more than {@link #FUTURE_ALLOWANCE} ahead of this node's
 * clock is recorded as that far ahead, and a proposal only counts for as long as {@link PendingSporks#LIFETIME}
@@ -72,20 +72,21 @@ public class SporkLag {
 	private InstantSource clock = InstantSource.system();
 	private final Map<Type, Instant> agreed = new ConcurrentHashMap<>();
 	private final Map<Type, Instant> proposed = new ConcurrentHashMap<>();
-	private final Map<Type, Instant> verifiedAt = new ConcurrentHashMap<>();
+	private final VerifySlots slots = new VerifySlots(() -> clock.instant());
 
 	/**
 	* Notes what a spork that came in tells of the network. Verifying is the costly part and anyone can send a frame,
 	* so a spork is checked only if it could make the node behind, which a spork no newer than the stored one cannot,
-	* and if it would move the record. Of a type at most one spork a second is checked, and one that is turned away
-	* for coming too soon is not recorded: a later one will be, as the sporks are sent again and again.
+	* and if it would move the record. The source is the peer that sent it: it may have one spork of a type checked
+	* a second, so a peer that floods forged sporks holds up no other peer, and one that is turned away for coming
+	* too soon is not recorded: a later one will be, as every peer sends the sporks again and again.
 	*/
-	public void record(GridSpork spork, SporkDatabase db) {
+	public void record(GridSpork spork, SporkDatabase db, String source) {
 		if (couldMakeBehind(spork, db)) {
 			final Map<Type, Instant> seen = spork.isPending() ? proposed : agreed;
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
-			if (isLaterThan(seen.get(spork.getType()), stamp) && mayVerify(spork.getType())
+			if (isLaterThan(seen.get(spork.getType()), stamp) && slots.take(spork.getType(), source)
 				&& isVouchedFor(spork)) {
 
 				seen.merge(spork.getType(), stamp, LATER);
@@ -111,19 +112,6 @@ public class SporkLag {
 
 		return Stream.of(Optional.ofNullable(agreed.get(type)), proposal).flatMap(Optional::stream)
 			.max(Comparator.naturalOrder());
-	}
-
-	/* The slot is taken before the check, so a flood of forged sporks costs one check a second, not one each */
-	private boolean mayVerify(Type type) {
-		final Instant now = clock.instant();
-		final AtomicBoolean allowed = new AtomicBoolean();
-
-		verifiedAt.compute(type, (key, last) -> {
-			allowed.set(Objects.isNull(last) || !now.isBefore(last.plus(VERIFY_GAP)));
-			return allowed.get() ? now : last;
-		});
-
-		return allowed.get();
 	}
 
 	private static boolean isDatedAndKnown(GridSpork spork) {

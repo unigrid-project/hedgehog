@@ -60,6 +60,12 @@ public final class RemoteAddress {
 		});
 	}
 
+	/* What a peer is called by anything that limits it: the name the ledger gives its peer, or the stream when the
+	   address is not known */
+	public static String idOf(final Channel stream) {
+		return of(stream).map(NettyLedgerPeer::idOf).orElseGet(() -> stream.id().asLongText());
+	}
+
 	private static InetSocketAddress listening(final Channel connection, final InetSocketAddress socket) {
 		final Integer port = connection.attr(LISTEN_PORT_KEY).get();
 
