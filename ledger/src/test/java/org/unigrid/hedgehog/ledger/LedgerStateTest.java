@@ -79,6 +79,82 @@ public class LedgerStateTest {
 	}
 
 	@Example
+	public void shouldCountWhatIsMintedToEachRecipientAcrossBlocks() {
+		final LedgerState state = soloState(ANY_MINT);
+		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
+
+		assertThat(state.mintedTo(account(1)), equalTo(0L));
+
+		state.apply(soloBlock(state, new Mint(account(1), 5, reference(1)), new Mint(account(2), 7, reference(2)),
+			new Mint(account(1), 3, reference(3)), new Mint(legacy, 9, reference(4))));
+		state.apply(soloBlock(state, new Mint(account(1), 4, reference(5))));
+
+		assertThat(state.mintedTo(account(1)), equalTo(12L));
+		assertThat(state.mintedTo(account(2)), equalTo(7L));
+		assertThat(state.mintedTo(legacy), equalTo(9L));
+		assertThat(state.mintedTo(account(3)), equalTo(0L));
+	}
+
+	@Example
+	public void shouldCountMintsAndNotWhatATransferMoves() {
+		final LedgerState state = soloState(ANY_MINT);
+
+		state.apply(soloBlock(state, mint(1, 500)));
+		state.apply(soloBlock(state, transfer(state, 1, account(2), 100, 1, 0)));
+
+		assertThat(state.balanceOf(account(2)), equalTo(100L));
+		assertThat(state.mintedTo(account(2)), equalTo(0L));
+		assertThat(state.mintedTo(account(1)), equalTo(500L));
+	}
+
+	@Example
+	public void shouldLeaveTheTotalsAloneWhenABlockIsRefusedOrOnlyTried() {
+		final LedgerState state = soloState(ANY_MINT);
+		final Block block = soloBlock(state, mint(1, 5));
+
+		assertThrows(InvalidBlockException.class, () -> state.apply(block.toBuilder().height(9).build()));
+		state.applicable(List.of(mint(1, 5)));
+		state.rootAfter(1, List.of(mint(1, 5)));
+		state.proposalRejection(block);
+		state.rejectionOf(block);
+
+		assertThat(state.mintedTo(account(1)), equalTo(0L));
+
+		state.apply(block);
+
+		assertThat(state.mintedTo(account(1)), equalTo(5L));
+	}
+
+	@Example
+	public void shouldBuildTheTotalsByApplyingTheBlocksOfAnotherChainInOrder() {
+		final LedgerState maker = soloState(ANY_MINT);
+		final LedgerState follower = soloState(NO_MINT);
+		final Block first = soloBlock(maker, mint(1, 5), mint(2, 6));
+
+		maker.apply(first);
+
+		final Block second = soloBlock(maker, new Mint(account(1), 4, reference(3)));
+
+		maker.apply(second);
+		follower.apply(first);
+		follower.apply(second);
+
+		assertThat(follower.mintedTo(account(1)), equalTo(9L));
+		assertThat(follower.mintedTo(account(2)), equalTo(6L));
+	}
+
+	@Example
+	public void shouldCountUpToTheLargestTotalAndRefuseTheMintThatWouldPassIt() {
+		final LedgerState state = soloState(ANY_MINT);
+
+		state.apply(soloBlock(state, new Mint(account(1), Long.MAX_VALUE, reference(1))));
+
+		assertThat(state.mintedTo(account(1)), equalTo(Long.MAX_VALUE));
+		assertThat(reasonOf(state.rejectionOf(new Mint(account(1), 1, reference(2)))), containsString("overflow"));
+		assertThat(state.mintedTo(account(1)), equalTo(Long.MAX_VALUE));
+	}
+
+	@Example
 	public void shouldCreditAMintToALegacyAddressWithoutTouchingAKey() {
 		final LedgerState state = soloState(ANY_MINT);
 		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);

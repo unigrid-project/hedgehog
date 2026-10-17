@@ -442,6 +442,31 @@ public class LedgerTest {
 	}
 
 	@Example
+	public void shouldRestoreWhatWasMintedToEachRecipientFromTheLog() throws IOException {
+		final LegacyWallet wallet = new LegacyWallet(1, true);
+		final Map<LegacyAddress, Long> balances = Map.of(wallet.address(), 500L);
+
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger first = open(fileSystem, stateWithSnapshot(ANY_MINT, FOUNDATION, 500, balances));
+
+			first.submit(new Mint(wallet.address(), 30, reference(1)));
+			first.submit(mint(2, 7));
+			seal(first, FOUNDATION, 2000);
+			assertThat(first.submit(wallet.claim(account(1), first.chainId())), equalTo(Optional.empty()));
+			seal(first, FOUNDATION, 3000);
+			first.submit(new Mint(wallet.address(), 20, reference(3)));
+			seal(first, FOUNDATION, 4000);
+
+			final Ledger second = open(fileSystem, stateWithSnapshot(NO_MINT, FOUNDATION, 500, balances));
+
+			assertThat(second.mintedTo(wallet.address()), equalTo(50L));
+			assertThat(second.mintedTo(account(2)), equalTo(7L));
+			assertThat(second.mintedTo(account(1)), equalTo(0L));
+			assertThat(second.mintedTo(account(3)), equalTo(0L));
+		}
+	}
+
+	@Example
 	public void shouldRefuseToClaimTheSameAddressAgainThroughTheLedger() throws IOException {
 		final LegacyWallet wallet = new LegacyWallet(1, true);
 		final Map<LegacyAddress, Long> balances = Map.of(wallet.address(), 200L,

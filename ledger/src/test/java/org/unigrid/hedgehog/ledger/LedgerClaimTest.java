@@ -145,6 +145,21 @@ public class LedgerClaimTest {
 		assertThat(state.supply(), equalTo(OWED + 20));
 	}
 
+	/* What the spork grants is granted to the address it names, so what is minted to it counts under that address
+	   whoever has claimed it */
+	@Example
+	public void shouldCountWhatIsMintedToAClaimedAddressUnderTheAddressAndNotUnderTheClaimer() {
+		final LedgerState state = claimState(ANY_MINT);
+
+		state.apply(soloBlock(state, new Mint(LEGACY, 30, reference(1))));
+		state.apply(soloBlock(state, claim(state, account(1))));
+		state.apply(soloBlock(state, new Mint(LEGACY, 20, reference(2))));
+
+		assertThat(state.balanceOf(account(1)), equalTo(OWED + 50));
+		assertThat(state.mintedTo(LEGACY), equalTo(50L));
+		assertThat(state.mintedTo(account(1)), equalTo(0L));
+	}
+
 	/* The blacklist is node-local policy: a validator holds to it before it signs, but a block that more than 2/3
 	   signed stands for every node, or the nodes would disagree about the same chain */
 	@Example

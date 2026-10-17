@@ -65,6 +65,11 @@ public final class LedgerState {
 	private Map<Address, Address> redirects = new HashMap<>();
 	private Map<Address, Long> nonces = new HashMap<>();
 	private Set<Reference> minted = new HashSet<>();
+
+	/* What mints have made so far, by the recipient the mint names, before a claimed legacy address is redirected.
+	   It is not in the root: it is the sum of the mints in the blocks, which the transaction roots already commit
+	   to, and only the authority of this node reads it. */
+	private Map<Address, Long> mintedTo = new HashMap<>();
 	private Set<VoteCast> votes = new TreeSet<>();
 	private ValidatorSet validators;
 	private ValidatorSet previousValidators;
@@ -111,6 +116,7 @@ public final class LedgerState {
 		redirects = new HashMap<>(other.redirects);
 		nonces = new HashMap<>(other.nonces);
 		minted = new HashSet<>(other.minted);
+		mintedTo = new HashMap<>(other.mintedTo);
 		votes = new TreeSet<>(other.votes);
 		validators = other.validators;
 		previousValidators = other.previousValidators;
@@ -201,6 +207,12 @@ public final class LedgerState {
 		return minted.contains(reference);
 	}
 
+	/* The total that mints have made to this recipient as the mints named it. A mint to a legacy address that was
+	   claimed is paid to the claimer and still counts here under the legacy address. */
+	public long mintedTo(Address recipient) {
+		return mintedTo.getOrDefault(recipient, 0L);
+	}
+
 	public Optional<String> rejectionOf(Transaction transaction) {
 		return switch (transaction) {
 			case Mint mint -> rejectionOf(mint);
@@ -231,6 +243,7 @@ public final class LedgerState {
 		redirects = next.redirects;
 		nonces = next.nonces;
 		minted = next.minted;
+		mintedTo = next.mintedTo;
 		votes = next.votes;
 		validators = next.validators;
 		previousValidators = next.previousValidators;
@@ -682,9 +695,11 @@ public final class LedgerState {
 		}
 	}
 
-	/* A claimed legacy address no longer holds anything: what is minted to it goes to whoever claimed it */
+	/* A claimed legacy address no longer holds anything: what is minted to it goes to whoever claimed it. The total
+	   cannot overflow, as it is at most the supply and a mint that would overflow the supply is refused. */
 	private void apply(Mint mint) {
 		accounts.merge(redirects.getOrDefault(mint.recipient(), mint.recipient()), mint.amount(), Math::addExact);
+		mintedTo.merge(mint.recipient(), mint.amount(), Math::addExact);
 		supply += mint.amount();
 		minted.add(mint.reference());
 	}

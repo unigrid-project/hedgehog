@@ -246,6 +246,11 @@ public final class Ledger implements ConsensusApp {
 		return state.supply();
 	}
 
+	/* What mints have made to this recipient so far, as the mints named it */
+	public synchronized long mintedTo(Address recipient) {
+		return state.mintedTo(recipient);
+	}
+
 	public synchronized byte[] stateRoot() {
 		return state.stateRoot();
 	}
