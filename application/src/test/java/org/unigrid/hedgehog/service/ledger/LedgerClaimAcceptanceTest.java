@@ -146,17 +146,20 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 		}
 	}
 
-	/* A transaction taken while the validators are still catching up after a restart may not reach the proposer, and
-	   then waits for good, so nothing is submitted before every validator signs */
 	private void awaitSigning() {
 		await().atMost(PATIENCE).until(() -> IntStream.range(0, fleet().validators()).filter(fleet()::isRunning)
 			.allMatch(node -> fleet().status(node).signing()));
 	}
 
-	private void restartEveryNode() {
+	/* A client does not wait until the validators sign again, and a transaction taken before they do is made a block */
+	private void restartEveryNodeAtOnce() {
 		IntStream.range(0, fleet().size()).forEach(fleet()::stop);
 		IntStream.range(0, fleet().size()).forEach(fleet()::restart);
 		fleet().awaitSameChain();
+	}
+
+	private void restartEveryNode() {
+		restartEveryNodeAtOnce();
 		awaitSigning();
 	}
 
@@ -451,7 +454,7 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 
 		final long supply = fleet().supplyOn(0);
 
-		restartEveryNode();
+		restartEveryNodeAtOnce();
 		claim(11, owner);
 
 		assertThat(balances(owner), everyItem(is(fleet().holding(11))));
