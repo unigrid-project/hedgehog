@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.service.ledger;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -66,6 +68,12 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
    of its own, sets the sporks it needs and leaves nothing waiting for the next. */
 public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	private static final BigDecimal CEILING = BigDecimal.valueOf(1_000_000_000L);
+	private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+	private static final BigDecimal FIFTY = BigDecimal.valueOf(50);
+	private static final int WALLETS = 10;
+
+	/* The wallet of the snapshot that the example of the claimed address claims, and no other example does */
+	private static final int CLAIMED_HERE = 8;
 	private static final Duration PATIENCE = Duration.ofSeconds(60);
 	private static final Duration QUIET = Duration.ofMillis(2_500);
 
@@ -123,8 +131,13 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 		return BigDecimal.valueOf(units, 8);
 	}
 
-	private static Mint mintOf(final AccountKey recipient, final long units, final long seconds) {
-		return new Mint(recipient, units, Reference.ofSpork(recipient, seconds));
+	private static Mint mintOf(final Address recipient, final long units, final long number) {
+		return new Mint(recipient, units, Reference.ofSpork(recipient, number));
+	}
+
+	@Override
+	protected LedgerFleet.Settings settings() {
+		return LedgerFleet.Settings.builder().balances(Collections.nCopies(WALLETS, 50 * COIN)).build();
 	}
 
 	private long secondsAgo(final long seconds) {
@@ -571,5 +584,94 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 		fleet.publishSpork(genuine);
 		awaitBalance(recipient, 10 * COIN);
 		awaitSupply(supply + 10 * COIN);
+	}
+
+	/* An entry that a later version moves to another time has another reference, and without the cap the address is
+	   paid again for what the spork has granted it once. A ledger account and a claimed legacy address are granted
+	   the same: what is minted to the claimed address goes to its owner and still counts against the address, so
+	   the owner is not paid again by a moved entry, and gets the rest of what the spork grants the address. The
+	   cap holds after every node has restarted and on a node that joins and syncs. */
+	@Example
+	public void shouldPayAnAddressWhatTheSporkGrantsItAndNotAgainWhenALaterSporkMovesTheEntry() {
+		final LedgerFleet fleet = fleet();
+		final AccountKey granted = account();
+		final LegacyWallet claimed = fleet.wallet(CLAIMED_HERE);
+		final AccountKey owner = account();
+		final AccountKey control = account();
+		final AccountKey afterwards = account();
+		final long first = secondsAgo(180);
+		final long second = secondsAgo(120);
+		final long third = secondsAgo(60);
+		final int firstHeight = fleet.tipHeight() + 1;
+		final long holding = fleet.holding(CLAIMED_HERE);
+
+		ready();
+
+		final long supply = fleet.supplyOn(0);
+
+		try {
+			assertThat(fleet.submit(1, claimed.claim(owner, fleet.chainId())), equalTo(Optional.empty()));
+			awaitBalance(owner, holding);
+
+			publishMints(Map.of(entry(granted, first), HUNDRED, entry(claimed, firstHeight), HUNDRED));
+			awaitBalance(granted, 100 * COIN);
+			awaitBalance(owner, holding + 100 * COIN);
+
+			publishMints(Map.of(entry(granted, second), HUNDRED, entry(claimed, firstHeight + 1), HUNDRED,
+				entry(control, second), BigDecimal.ONE));
+			awaitBalance(control, COIN);
+			refusedEverywhere(mintOf(granted, 100 * COIN, second), mintOf(claimed.address(), 100 * COIN,
+				firstHeight + 1));
+			stillAt(supply + 201 * COIN, Map.of(granted, 100 * COIN, owner, holding + 100 * COIN));
+
+			publishMints(Map.of(entry(granted, first), HUNDRED, entry(granted, second), FIFTY,
+				entry(claimed, firstHeight), HUNDRED, entry(claimed, firstHeight + 1), FIFTY,
+				entry(control, second), BigDecimal.ONE));
+			awaitBalance(granted, 150 * COIN);
+			awaitBalance(owner, holding + 150 * COIN);
+			awaitSupply(supply + 301 * COIN);
+			assertThat(balances(claimed.address()), everyItem(is(0L)));
+
+			restartEveryNode();
+			publishMints(Map.of(entry(granted, third), FIFTY, entry(claimed, firstHeight + 2), FIFTY,
+				entry(afterwards, third), BigDecimal.ONE));
+			awaitBalance(afterwards, COIN);
+			refusedEverywhere(mintOf(granted, 50 * COIN, third), mintOf(claimed.address(), 50 * COIN,
+				firstHeight + 2));
+			stillAt(supply + 302 * COIN, Map.of(granted, 150 * COIN, owner, holding + 150 * COIN));
+
+			final int observer = fleet.addObserver();
+
+			fleet.awaitHeight(observer, fleet.height(0));
+			fleet.awaitSameChain();
+			fleet.deliverSpork(observer, fleet.sporkOn(0, Type.MINT_SUPPLY));
+			fleet.deliverSpork(observer, fleet.sporkOn(0, Type.MINT_STORAGE));
+
+			assertThat(fleet.balanceOf(observer, granted), is(150 * COIN));
+			assertThat(fleet.balanceOf(observer, owner), is(holding + 150 * COIN));
+			refusedEverywhere(mintOf(granted, 50 * COIN, third), mintOf(claimed.address(), 50 * COIN,
+				firstHeight + 2));
+			stillAt(supply + 302 * COIN, Map.of(granted, 150 * COIN, owner, holding + 150 * COIN));
+		} finally {
+			publishMints(Map.of());
+		}
+	}
+
+	private void refusedEverywhere(final Mint... mints) {
+		Arrays.stream(mints).forEach(mint -> IntStream.range(0, fleet().size()).filter(fleet()::isRunning)
+			.forEach(node -> assertThat(fleet().submit(node, mint), equalTo(REFUSED))));
+	}
+
+	private void stillAt(final long supply, final Map<Address, Long> held) {
+		final long height = fleet().height(0);
+
+		staysTrue(() -> everywhere(node -> fleet().height(node) == height && fleet().supplyOn(node) == supply
+			&& held.entrySet().stream().allMatch(who -> fleet().balanceOf(node, who.getKey()) == who.getValue())));
+	}
+
+	private void restartEveryNode() {
+		IntStream.range(0, fleet().size()).forEach(fleet()::stop);
+		IntStream.range(0, fleet().size()).forEach(fleet()::restart);
+		fleet().awaitSameChain();
 	}
 }
