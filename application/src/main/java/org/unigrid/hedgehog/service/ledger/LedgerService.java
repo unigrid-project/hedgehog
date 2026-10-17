@@ -238,7 +238,7 @@ public class LedgerService {
 
 		final LedgerSnapshot ledgerSnapshot = new LedgerSnapshot(reader);
 		final LedgerAuthority authority = new SporkLedgerAuthority(() -> sporks, lag,
-			ledgerSnapshot.mintSchedule(), this::committedSupply);
+			ledgerSnapshot.mintSchedule(), this::committedSupply, this::committedMinted);
 		final Policy policy = Policy.forNetwork(genesis.getValidators().size(), TRANSACTIONS_PER_SECOND);
 
 		final Path files = setup.directory().resolve(chainDirectoryOf(genesis));
@@ -255,6 +255,10 @@ public class LedgerService {
 
 	private long committedSupply() {
 		return supply().orElse(0);
+	}
+
+	private long committedMinted(final Address recipient) {
+		return read(held -> held.mintedTo(recipient)).orElse(0);
 	}
 
 	/* The halt is the driver's to log as it happens; this is the service saying once that the ledger is gone from

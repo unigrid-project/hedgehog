@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.service.ledger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
@@ -33,12 +34,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.LedgerAuthority;
 import org.unigrid.hedgehog.ledger.Mint;
@@ -77,7 +80,18 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
    authority, so the due time of an entry is part of what is kept.
 
    The maximum supply holds for a block as a whole: a mint is judged on the supply of the state it would be made
-   on, which the ledger passes in and which holds the mints before it in the same block. */
+   on, which the ledger passes in and which holds the mints before it in the same block.
+
+   An address is minted what the mint spork grants it and no more. The grant is the sum of the amounts of all the
+   entries of the address that can mint on the ledger: for an old-style address that leaves out the entries at or
+   below the snapshot tip, which are already paid in the snapshot balance and never mint here, and for a ledger
+   account every entry counts. A mint is refused when what has been minted to the address so far, as the state
+   passes it in with the supply, plus this mint would pass that sum. An entry already mints once by its reference;
+   the cap closes the gap where a later spork replaces an entry by another one for the same address, with a new
+   number and so a new reference, which would pay the address twice for what the spork grants it once. The address
+   is the one the entry names, also after it has been claimed, and the mints that fit are still paid to the
+   claimer. The listing leaves out a mint that the cap refuses on what is already committed, as it does for the
+   maximum supply, so that the ledger does not see work in it. */
 @Slf4j
 @RequiredArgsConstructor
 public final class SporkLedgerAuthority implements LedgerAuthority {
@@ -91,17 +105,21 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	@NonNull private final MintSchedule schedule;
 	/* Only for listing what is due: a mint asked about is judged on the supply it is told */
 	@NonNull private final LongSupplier committedSupply;
+	/* Only for listing what is due, like the supply: a mint asked about is judged on the total it is told */
+	@NonNull private final ToLongFunction<Address> committedMinted;
 	private final Set<String> reported = ConcurrentHashMap.newKeySet();
 	private final AtomicInteger decodings = new AtomicInteger();
-	private volatile Decoded decoded = new Decoded(null, List.of(), Map.of());
+	private volatile Decoded decoded = new Decoded(null, List.of(), Map.of(), Map.of());
 
 	/* An entry of the mint spork that can be made some time: when it is due and the mint */
 	private record Prepared(long dueMillis, Mint mint) {
 	}
 
-	/* The entries that can be made, in the order of their references and by reference, and the spork object they
-	   were made from. A reference names one entry, so a mint is found by it and not by looking through all. */
-	private record Decoded(GridSpork spork, List<Prepared> entries, Map<Reference, Prepared> byReference) {
+	/* The entries that can be made, in the order of their references and by reference, what each address is granted
+	   by them, and the spork object they were made from. A reference names one entry, so a mint is found by it and
+	   not by looking through all. */
+	private record Decoded(GridSpork spork, List<Prepared> entries, Map<Reference, Prepared> byReference,
+		Map<Address, Long> granted) {
 	}
 
 	@Override
@@ -110,8 +128,8 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	@Override
-	public boolean authorizes(Mint mint, long time, long supply) {
-		return guarded("authorizing a mint", false, () -> mintAllowed(mint, time, supply));
+	public boolean authorizes(Mint mint, long time, long supply, long minted) {
+		return guarded("authorizing a mint", false, () -> mintAllowed(mint, time, supply, minted));
 	}
 
 	@Override
@@ -126,9 +144,10 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 
 	/* Every due entry is listed, as the ledger leaves out the mints already made and cuts the block itself: cutting
 	   the list here would starve the entries after the first block's worth once those are made. Each must fit
-	   alone under the maximum supply on top of what is committed; the ledger, which asks again with the supply
-	   after the mints before it in the block, keeps the ones that fit together. A mint that never fits is left out
-	   so that the ledger does not see work in it every second. */
+	   alone under the maximum supply and under what its address is granted, on top of what is committed; the
+	   ledger, which asks again with the supply and the totals after the mints before it in the block, keeps the
+	   ones that fit together. A mint that never fits is left out so that the ledger does not see work in it every
+	   second. */
 	private List<Mint> dueMints(long time) {
 		final SporkDatabase database = sporks.get();
 
@@ -138,17 +157,27 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 
 		final Optional<Long> room = room(database, committedSupply.getAsLong());
 
-		return room.stream().flatMap(limit -> dueFrom(database, time).filter(mint -> mint.amount() <= limit))
-			.toList();
+		return room.stream().flatMap(limit -> dueFrom(database, time, limit)).toList();
 	}
 
-	private boolean mintAllowed(Mint mint, long time, long supply) {
+	private boolean mintAllowed(Mint mint, long time, long supply, long minted) {
 		final SporkDatabase database = sporks.get();
 
 		return Objects.nonNull(database)
 			&& room(database, supply).filter(limit -> mint.amount() <= limit).isPresent()
-			&& preparedFor(database, mint.reference()).filter(entry -> entry.dueMillis() <= time
-				&& entry.mint().equals(mint)).isPresent();
+			&& stored(database).filter(held -> isEntryDue(held, mint, time) && fitsGrant(held, mint, minted))
+				.isPresent();
+	}
+
+	private static boolean isEntryDue(Decoded held, Mint mint, long time) {
+		return Optional.ofNullable(held.byReference().get(mint.reference()))
+			.filter(entry -> entry.dueMillis() <= time && entry.mint().equals(mint)).isPresent();
+	}
+
+	/* Judged against the sum of all the entries of the address and not against its own entry, and written so that
+	   no sum is formed that could overflow */
+	private static boolean fitsGrant(Decoded held, Mint mint, long minted) {
+		return mint.amount() <= held.granted().getOrDefault(mint.recipient(), 0L) - minted;
 	}
 
 	private boolean claimAllowed(Claim claim) {
@@ -188,14 +217,14 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	/* In the order of the references, which the decoding sorted them in */
-	private Stream<Mint> dueFrom(SporkDatabase database, long time) {
-		return known(database, Type.MINT_STORAGE).map(this::decodedFrom).map(Decoded::entries).stream()
-			.flatMap(List::stream).filter(entry -> entry.dueMillis() <= time).map(Prepared::mint);
+	private Stream<Mint> dueFrom(SporkDatabase database, long time, long limit) {
+		return stored(database).stream().flatMap(held -> held.entries().stream()
+			.filter(entry -> entry.dueMillis() <= time && entry.mint().amount() <= limit).map(Prepared::mint)
+			.filter(mint -> fitsGrant(held, mint, committedMinted.applyAsLong(mint.recipient()))));
 	}
 
-	private Optional<Prepared> preparedFor(SporkDatabase database, Reference reference) {
-		return known(database, Type.MINT_STORAGE).map(this::decodedFrom)
-			.map(held -> held.byReference().get(reference));
+	private Optional<Decoded> stored(SporkDatabase database) {
+		return known(database, Type.MINT_STORAGE).map(this::decodedFrom);
 	}
 
 	private Decoded decodedFrom(GridSpork spork) {
@@ -207,11 +236,19 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 
 		final List<Prepared> fresh = decode(Optional.ofNullable(spork.<MintStorage.SporkData>getData())
 			.map(MintStorage.SporkData::getMints));
-		final Decoded made = new Decoded(spork, fresh, fresh.stream().collect(Collectors.toUnmodifiableMap(
-			prepared -> prepared.mint().reference(), Function.identity(), (first, second) -> first)));
+		final Map<Reference, Prepared> byReference = fresh.stream().collect(Collectors.toUnmodifiableMap(
+			prepared -> prepared.mint().reference(), Function.identity(), (first, second) -> first));
+		final Decoded made = new Decoded(spork, fresh, byReference, grantsOf(byReference.values()));
 
 		decoded = made;
 		return made;
+	}
+
+	/* What the entries that can be made grant each address, each reference once. A sum that a long cannot hold is
+	   cut at the largest, which no supply can reach. */
+	private static Map<Address, Long> grantsOf(Collection<Prepared> entries) {
+		return entries.stream().map(Prepared::mint).collect(Collectors.toUnmodifiableMap(Mint::recipient,
+			Mint::amount, (first, second) -> first > Long.MAX_VALUE - second ? Long.MAX_VALUE : first + second));
 	}
 
 	private List<Prepared> decode(Optional<Map<Location, BigDecimal>> mints) {

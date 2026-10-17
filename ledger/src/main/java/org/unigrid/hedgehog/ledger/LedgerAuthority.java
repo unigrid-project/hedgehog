@@ -30,10 +30,11 @@ public interface LedgerAuthority {
 	   has already made. */
 	List<Mint> due(long time);
 
-	/* The entry, the amount and the moment: may this mint be made in a block of this time? The supply is that of
-	   the state the mint would be made on, which already holds the mints before it in the same block, so a limit
-	   on the supply holds for the block as a whole. */
-	boolean authorizes(Mint mint, long time, long supply);
+	/* The entry, the amount and the moment: may this mint be made in a block of this time? The supply and what has
+	   been minted to the recipient of the mint, as the mint names it, are those of the state the mint would be made
+	   on, which already holds the mints before it in the same block, so a limit on either holds for the block as a
+	   whole. */
+	boolean authorizes(Mint mint, long time, long supply, long minted);
 
 	/* No default for these two: an authority that forgot one would let anything through */
 	boolean authorizes(Claim claim);

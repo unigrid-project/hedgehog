@@ -102,20 +102,22 @@ public class SporkLedgerAuthorityTest {
 		private volatile RuntimeException unreadable;
 		private volatile RuntimeException unaskable;
 		private volatile RuntimeException unsupplied;
+		private volatile RuntimeException unminted;
 		private volatile SporkDatabase database = SporkDatabase.builder().build();
 		private volatile long supply;
+		private final Map<org.unigrid.hedgehog.ledger.Address, Long> minted = new ConcurrentHashMap<>();
 		private final SporkLedgerAuthority real = new SporkLedgerAuthority(this::read, lag(), SCHEDULE,
-			this::supplied);
+			this::supplied, this::mintedTo);
 		private final Asked authority = new Asked();
 
-		/* The questions of the ledger, a mint being asked on the supply of the rig */
+		/* The questions of the ledger, a mint being asked on the supply and the minted totals of the rig */
 		private final class Asked {
 			List<Mint> due(long time) {
 				return real.due(time);
 			}
 
 			boolean authorizes(Mint mint, long time) {
-				return real.authorizes(mint, time, supply);
+				return real.authorizes(mint, time, supply, mintedTo(mint.recipient()));
 			}
 
 			boolean authorizes(Claim claim) {
@@ -154,6 +156,14 @@ public class SporkLedgerAuthorityTest {
 			}
 
 			return supply;
+		}
+
+		private long mintedTo(org.unigrid.hedgehog.ledger.Address recipient) {
+			if (unminted != null) {
+				throw unminted;
+			}
+
+			return minted.getOrDefault(recipient, 0L);
 		}
 
 		private SporkLag lag() {
@@ -956,12 +966,12 @@ public class SporkLedgerAuthorityTest {
 
 		rig.cap("100");
 		rig.supply = 100 * UNITS_PER_COIN;
-		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, 0), is(true));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, 0, 0), is(true));
 
 		rig.supply = 0;
-		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room), is(true));
-		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room + 1), is(false));
-		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, Long.MAX_VALUE), is(false));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room, 0), is(true));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, room + 1, 0), is(false));
+		assertThat(rig.real.authorizes(theMintOfAnEntry(), FAR_FUTURE, Long.MAX_VALUE, 0), is(false));
 	}
 
 	@Example
@@ -976,9 +986,141 @@ public class SporkLedgerAuthorityTest {
 		rig.store(entries);
 		rig.cap("15");
 
-		assertThat(rig.real.authorizes(first, FAR_FUTURE, 0), is(true));
-		assertThat(rig.real.authorizes(second, FAR_FUTURE, 0), is(true));
-		assertThat(rig.real.authorizes(second, FAR_FUTURE, first.amount()), is(false));
+		assertThat(rig.real.authorizes(first, FAR_FUTURE, 0, 0), is(true));
+		assertThat(rig.real.authorizes(second, FAR_FUTURE, 0, 0), is(true));
+		assertThat(rig.real.authorizes(second, FAR_FUTURE, first.amount(), 0), is(false));
+	}
+
+	@Example
+	public void shouldGrantAnAddressTheSumOfAllItsEntriesInTheSpork() {
+		final Rig rig = Rig.open();
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(accountEntry(2, 5), BigDecimal.ONE);
+		entries.put(accountEntry(2, 6), new BigDecimal("2"));
+		entries.put(accountEntry(2, 7), new BigDecimal("3"));
+		rig.store(entries);
+
+		assertThat(rig.real.authorizes(accountMint(2, 5, UNITS_PER_COIN), FAR_FUTURE, 0, 5 * UNITS_PER_COIN),
+			is(true));
+		assertThat(rig.real.authorizes(accountMint(2, 5, UNITS_PER_COIN), FAR_FUTURE, 0, 5 * UNITS_PER_COIN + 1),
+			is(false));
+		assertThat(rig.real.authorizes(accountMint(2, 7, 3 * UNITS_PER_COIN), FAR_FUTURE, 0, 3 * UNITS_PER_COIN),
+			is(true));
+		assertThat(rig.real.authorizes(accountMint(2, 7, 3 * UNITS_PER_COIN), FAR_FUTURE, 0,
+			3 * UNITS_PER_COIN + 1), is(false));
+	}
+
+	@Example
+	public void shouldRefuseTheMintOfAReplacedEntryOnceTheAddressHasWhatTheSporkGrants() {
+		final Rig rig = Rig.open();
+		final long hundred = 100 * UNITS_PER_COIN;
+
+		rig.store(grant(accountEntry(2, 6), "100"));
+
+		assertThat(rig.real.authorizes(accountMint(2, 6, hundred), FAR_FUTURE, 0, 0), is(true));
+		assertThat(rig.real.authorizes(accountMint(2, 6, hundred), FAR_FUTURE, 0, hundred), is(false));
+		assertThat(rig.real.authorizes(accountMint(2, 6, hundred), FAR_FUTURE, 0, 1), is(false));
+
+		rig.store(Map.of(accountEntry(2, 5), new BigDecimal("100"), accountEntry(2, 6), new BigDecimal("50")));
+
+		assertThat(rig.real.authorizes(accountMint(2, 6, 50 * UNITS_PER_COIN), FAR_FUTURE, 0, hundred), is(true));
+		assertThat(rig.real.authorizes(accountMint(2, 6, 50 * UNITS_PER_COIN), FAR_FUTURE, 0, hundred + 1),
+			is(false));
+	}
+
+	@Example
+	public void shouldRefuseEveryMintOfAnAddressThatHasMoreThanTheSporkNowGrants() {
+		final Rig rig = Rig.open();
+
+		rig.store(grant(accountEntry(2, 6), "10"));
+
+		assertThat(rig.real.authorizes(accountMint(2, 6, 1), FAR_FUTURE, 0, 11 * UNITS_PER_COIN), is(false));
+		assertThat(rig.real.authorizes(accountMint(2, 6, 1), FAR_FUTURE, 0, Long.MAX_VALUE), is(false));
+	}
+
+	@Example
+	public void shouldGrantAnOldAddressOnlyWhatItsEntriesAboveTheTipMint() {
+		final Rig rig = Rig.open();
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(oldEntry(7, (int) TIP_HEIGHT), new BigDecimal("40"));
+		entries.put(oldEntry(7, (int) TIP_HEIGHT - 5), new BigDecimal("30"));
+		entries.put(oldEntry(7, (int) TIP_HEIGHT + 5), new BigDecimal("2"));
+		entries.put(oldEntry(7, (int) TIP_HEIGHT + 6), new BigDecimal("1"));
+		rig.store(entries);
+
+		assertThat(rig.real.authorizes(oldMint(7, TIP_HEIGHT + 5, 2 * UNITS_PER_COIN), FAR_FUTURE, 0,
+			UNITS_PER_COIN), is(true));
+		assertThat(rig.real.authorizes(oldMint(7, TIP_HEIGHT + 5, 2 * UNITS_PER_COIN), FAR_FUTURE, 0,
+			UNITS_PER_COIN + 1), is(false));
+		assertThat(rig.real.authorizes(oldMint(7, TIP_HEIGHT, 40 * UNITS_PER_COIN), FAR_FUTURE, 0, 0), is(false));
+		assertThat(rig.real.authorizes(oldMint(7, TIP_HEIGHT - 5, 30 * UNITS_PER_COIN), FAR_FUTURE, 0, 0),
+			is(false));
+	}
+
+	@Example
+	public void shouldJudgeAnAddressByItsOwnGrantAndNotByTheGrantsOfOthers() {
+		final Rig rig = Rig.open();
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(accountEntry(2, 5), new BigDecimal("5"));
+		entries.put(accountEntry(3, 5), BigDecimal.TEN);
+		rig.store(entries);
+
+		assertThat(rig.real.authorizes(accountMint(3, 5, UNITS_OF_AN_ENTRY), FAR_FUTURE, 0, 0), is(true));
+		assertThat(rig.real.authorizes(accountMint(3, 5, UNITS_OF_AN_ENTRY), FAR_FUTURE, 0, 1), is(false));
+		assertThat(rig.real.authorizes(accountMint(2, 5, 5 * UNITS_PER_COIN), FAR_FUTURE, 0, 1), is(false));
+		assertThat(rig.real.authorizes(accountMint(2, 5, 5 * UNITS_PER_COIN), FAR_FUTURE, 0, 0), is(true));
+	}
+
+	@Example
+	public void shouldCountAGrantThatALongCannotHoldAsTheLargestAndStillAnswer() {
+		final Rig rig = Rig.open();
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+		final String largest = "92233720368.54775807";
+
+		entries.put(accountEntry(2, 5), new BigDecimal(largest));
+		entries.put(accountEntry(2, 6), new BigDecimal(largest));
+		rig.store(entries);
+		rig.cap(largest);
+
+		assertThat(rig.authority.due(FAR_FUTURE), hasSize(2));
+		assertThat(rig.real.authorizes(accountMint(2, 5, Long.MAX_VALUE), FAR_FUTURE, 0, 0), is(true));
+		assertThat(rig.real.authorizes(accountMint(2, 6, Long.MAX_VALUE), FAR_FUTURE, 0, 1), is(false));
+	}
+
+	@Example
+	public void shouldNotListAMintThatPassesWhatIsAlreadyMintedToItsAddress() {
+		final Rig rig = Rig.open();
+		final Mint replaced = accountMint(2, 6, 100 * UNITS_PER_COIN);
+		final Mint other = accountMint(3, 6, UNITS_OF_AN_ENTRY);
+		final Map<Location, BigDecimal> entries = new LinkedHashMap<>();
+
+		entries.put(accountEntry(2, 6), new BigDecimal("100"));
+		entries.put(accountEntry(3, 6), BigDecimal.TEN);
+		rig.store(entries);
+
+		assertThat(rig.authority.due(FAR_FUTURE), containsInAnyOrder(replaced, other));
+
+		rig.minted.put(replaced.recipient(), 1L);
+
+		assertThat(rig.authority.due(FAR_FUTURE), contains(other));
+		assertThat(rig.authority.authorizes(replaced, FAR_FUTURE), is(false));
+
+		rig.minted.put(replaced.recipient(), 100 * UNITS_PER_COIN);
+		rig.minted.put(other.recipient(), UNITS_OF_AN_ENTRY);
+
+		assertThat(rig.authority.due(FAR_FUTURE), is(empty()));
+	}
+
+	@Example
+	public void shouldListNoMintsWhenTheMintedTotalsCannotBeRead() {
+		final Rig rig = Rig.open();
+
+		rig.unminted = new IllegalStateException("The ledger is closed");
+
+		assertThat(rig.authority.due(FAR_FUTURE), is(empty()));
 	}
 
 	@Example

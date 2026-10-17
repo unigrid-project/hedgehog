@@ -27,13 +27,19 @@ import java.util.function.Predicate;
    says otherwise */
 record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicate<Claim> claims,
 	Predicate<Transfer> transfers) implements LedgerAuthority {
-	/* The question a mint is asked, with the supply of the state it would be made on */
+	/* The question a mint is asked, with the supply of the state it would be made on and what has been minted to the
+	   recipient of the mint on that state */
 	interface MintRule {
+		boolean allows(Mint mint, long time, long supply, long minted);
+	}
+
+	interface SupplyRule {
 		boolean allows(Mint mint, long time, long supply);
 	}
 
 	static TestAuthority open() {
-		return new TestAuthority(time -> List.of(), (mint, time, supply) -> true, claim -> true, transfer -> true);
+		return new TestAuthority(time -> List.of(), (mint, time, supply, minted) -> true, claim -> true,
+			transfer -> true);
 	}
 
 	TestAuthority withSchedule(LongFunction<List<Mint>> other) {
@@ -44,7 +50,11 @@ record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicat
 		return withMintsOnSupply((mint, time, supply) -> other.test(mint, time));
 	}
 
-	TestAuthority withMintsOnSupply(MintRule other) {
+	TestAuthority withMintsOnSupply(SupplyRule other) {
+		return withMintsOnTotals((mint, time, supply, minted) -> other.allows(mint, time, supply));
+	}
+
+	TestAuthority withMintsOnTotals(MintRule other) {
 		return new TestAuthority(schedule, other, claims, transfers);
 	}
 
@@ -62,8 +72,8 @@ record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicat
 	}
 
 	@Override
-	public boolean authorizes(Mint mint, long time, long supply) {
-		return mints.allows(mint, time, supply);
+	public boolean authorizes(Mint mint, long time, long supply, long minted) {
+		return mints.allows(mint, time, supply, minted);
 	}
 
 	@Override

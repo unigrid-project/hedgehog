@@ -168,6 +168,77 @@ public class LedgerAuthorityTest {
 		assertThat(follower.balanceOf(account(2)), equalTo(6L));
 	}
 
+	private static LedgerAuthority grantingEach(long grant) {
+		return TestAuthority.open().withMintsOnTotals((mint, time, supply, minted) -> minted + mint.amount() <= grant);
+	}
+
+	/* A second mint to an account, with a reference of its own that depends on the amount */
+	private static Mint another(int n, long amount) {
+		return new Mint(account(n), amount, reference(1000 + (int) amount));
+	}
+
+	@Example
+	public void shouldAskWithWhatMintsToTheRecipientHaveMadeInTheBlockAndBefore() {
+		final List<String> asked = new ArrayList<>();
+		final LedgerState state = soloState(TestAuthority.open().withMintsOnTotals(
+			(mint, time, supply, minted) -> asked.add(mint.amount() + " after " + minted)));
+		final Block block = soloBlock(soloState(ANY_MINT), mint(1, 5), another(1, 6), mint(2, 7));
+
+		assertThat(state.proposalRejection(block).isPresent(), is(false));
+		assertThat(asked, equalTo(List.of("5 after 0", "6 after 5", "7 after 0")));
+
+		asked.clear();
+		state.apply(block);
+		assertThat(asked, equalTo(List.of()));
+		state.rejectionOf(another(1, 8));
+		state.rejectionOf(another(3, 9));
+
+		assertThat(asked, equalTo(List.of("8 after 11", "9 after 0")));
+	}
+
+	@Example
+	public void shouldRefuseTheMintThatPassesWhatTheRecipientMayHaveTogetherWithTheOnesBeforeItInTheBlock() {
+		final LedgerState state = soloState(grantingEach(10));
+		final LedgerState maker = soloState(ANY_MINT);
+
+		assertThat(state.proposalRejection(soloBlock(maker, mint(1, 5), another(1, 5))).isPresent(), is(false));
+		assertThat(reasonOf(state.proposalRejection(soloBlock(maker, mint(1, 5), another(1, 6)))),
+			containsString("not authorized"));
+		assertThat(state.proposalRejection(soloBlock(maker, mint(1, 10), mint(2, 10))).isPresent(), is(false));
+		assertThat(state.mintedTo(account(1)), equalTo(0L));
+	}
+
+	@Example
+	public void shouldCountTheMintsOfEarlierBlocksAgainstTheRecipient() {
+		final LedgerState state = soloState(grantingEach(10));
+
+		state.apply(soloBlock(soloState(ANY_MINT), mint(1, 6)));
+
+		assertThat(reasonOf(state.rejectionOf(another(1, 5))), containsString("not authorized"));
+		assertThat(state.rejectionOf(another(1, 4)).isPresent(), is(false));
+		assertThat(state.rejectionOf(mint(2, 10)).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldKeepOnlyTheMintsThatFitWhatTheRecipientMayHaveWhenPickingTheTransactionsOfABlock() {
+		final LedgerState state = soloState(grantingEach(10));
+
+		assertThat(state.applicable(List.of(mint(1, 6), another(1, 5), mint(2, 10))),
+			equalTo(List.of(mint(1, 6), mint(2, 10))));
+		assertThat(state.applicable(List.of(another(1, 5), mint(1, 6))), equalTo(List.of(another(1, 5))));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 6), another(1, 5))));
+	}
+
+	@Example
+	public void shouldTakeACertifiedBlockWhateverTheRecipientHasBeenGiven() {
+		final LedgerState follower = soloState(grantingEach(10));
+
+		follower.apply(soloBlock(soloState(ANY_MINT), mint(1, 8), another(1, 9)));
+
+		assertThat(follower.balanceOf(account(1)), equalTo(17L));
+		assertThat(follower.mintedTo(account(1)), equalTo(17L));
+	}
+
 	@Example
 	public void shouldListTheDueMintsWithoutTheOnesAlreadyMadeAndKeepTheirOrder() {
 		final Mint first = mint(1, 5);
