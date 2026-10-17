@@ -75,10 +75,11 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	private static final Duration RESPONSIVE = Duration.ofSeconds(10);
 	private static final Duration ANSWER = Duration.ofSeconds(2);
 
-	/* A block of a thousand mints is some 70 kilobytes in each message between the nodes, and takes seconds to be
-	   decided by five nodes of one process, more when the host is busy; the rest of the entries is dropped once the
-	   first block is made */
-	private static final Duration A_BLOCK_OF_A_THOUSAND = Duration.ofSeconds(120);
+	/* A block of a thousand mints is some 70 kilobytes in each message between the nodes: the six blocks of the
+	   entries that are due are decided by five nodes of one process in some ten seconds, and this leaves room for a
+	   host that is busy */
+	private static final Duration ALL_THE_BLOCKS = Duration.ofSeconds(120);
+	private static final int DUE_ENTRIES = 5_100;
 	private static final long MINUTE = 60_000;
 	private static final long ONE_AND_A_HALF = 150_000_000L;
 	private static final Optional<String> REFUSED = Optional.of("Mint is not authorized");
@@ -366,7 +367,7 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	}
 
 	@Example
-	public void shouldStayResponsiveAndMakeABlockWhileFiveThousandEntriesAreDue() {
+	public void shouldStayResponsiveAndMintEveryEntryWhileFiveThousandAreDue() {
 		final LedgerFleet fleet = fleet();
 		final Map<Location, BigDecimal> entries = new HashMap<>();
 		final long seconds = secondsAgo(60);
@@ -376,18 +377,23 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 
 		final long supply = fleet.supplyOn(0);
 
-		IntStream.range(0, 5_100).forEach(n -> entries.put(entry(account(), seconds), new BigDecimal("0.01")));
-		publishMints(entries);
+		IntStream.range(0, DUE_ENTRIES).forEach(n -> entries.put(entry(account(), seconds), new BigDecimal("0.01")));
 
-		await().during(RESPONSIVE).atMost(RESPONSIVE.multipliedBy(3)).until(() ->
-			everywhere(node -> answersWithin(node, ANSWER)));
-		await().atMost(A_BLOCK_OF_A_THOUSAND).until(() -> everywhere(node ->
-			fleet.supplyOn(node) >= supply + 1_000 * unit));
-		IntStream.range(0, fleet.size()).forEach(node -> assertThat(fleet.status(node).running(), is(true)));
+		try {
+			publishMints(entries);
 
-		publishMints(Map.of());
-		awaitOneChain();
-		assertThat((fleet.supplyOn(0) - supply) % unit, is(0L));
+			await().during(RESPONSIVE).atMost(RESPONSIVE.multipliedBy(3)).until(() ->
+				everywhere(node -> answersWithin(node, ANSWER)));
+			await().atMost(ALL_THE_BLOCKS).until(() -> everywhere(node ->
+				fleet.supplyOn(node) >= supply + DUE_ENTRIES * unit));
+			IntStream.range(0, fleet.size()).forEach(node -> assertThat(fleet.status(node).running(), is(true)));
+
+			awaitOneChain();
+			assertThat(IntStream.range(0, fleet.size()).mapToObj(fleet::supplyOn).toList(),
+				everyItem(is(supply + DUE_ENTRIES * unit)));
+		} finally {
+			publishMints(Map.of());
+		}
 	}
 
 	/* A node that is busy with its mints holds on to its ledger and cannot be asked how far it has come */
