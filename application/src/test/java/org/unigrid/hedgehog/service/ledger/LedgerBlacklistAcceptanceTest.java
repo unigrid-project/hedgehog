@@ -244,6 +244,12 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 			assertThat("node " + node, fleet().submit(node, transaction), equalTo(reason)));
 	}
 
+	/* The nodes pass on a spork they took, so a copy that is late would put back a list that a test has just taken from
+	   a node. When the list has been quiet for a moment the copies have arrived. */
+	private void awaitGossipSettled() {
+		staysTrue(() -> everywhere(node -> Objects.nonNull(fleet().sporkOn(node, Type.LEDGER_BLACKLIST))));
+	}
+
 	private void staysAsItIs() {
 		fleet().awaitSameChain();
 
@@ -328,6 +334,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 
 		ready();
 		blacklist(fleet().wallet(8));
+		awaitGossipSettled();
 
 		final GridSpork list = fleet().sporkOn(0, Type.LEDGER_BLACKLIST);
 
@@ -343,7 +350,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 	}
 
 	/* The proposer of the next height is made to take the claim, so that it puts the block forward at once. One of the
-	   honest validators has no list, which must not make it vote for the block either. */
+	   honest validators has no list while it votes, which must not make it vote for the block either. */
 	@Example
 	public void shouldHaveTheHonestValidatorsPrevoteNilForAListedClaimAndGoOnWithoutIt() {
 		final LegacyWallet listed = fleet().wallet(4);
@@ -352,6 +359,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 
 		ready();
 		blacklist(listed);
+		awaitGossipSettled();
 		fleet().awaitSameChain();
 
 		final long height = fleet().height(0) + 1;
@@ -369,6 +377,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 
 			await().atMost(PATIENCE).until(() -> honest.stream().allMatch(node ->
 				heardNilPrevote(liar, node, height)));
+			assertThat(fleet().status(bare).unsetSporks(), hasItem(Type.LEDGER_BLACKLIST));
 			honest.forEach(node ->
 				assertThat("node " + node, heardProposalOf(node, liar, height, listed), is(true)));
 			staysAsItIs();
