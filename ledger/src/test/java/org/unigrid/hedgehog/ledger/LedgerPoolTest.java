@@ -75,6 +75,30 @@ public class LedgerPoolTest {
 	}
 
 	@Example
+	public void shouldLeaveOutWhatMakesTheCheckOfTheReplacingLedgerThrowAndStillHaveWorkForTheRest()
+		throws IOException {
+
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Ledger replaced = open(fileSystem, "old", ANY_MINT);
+			final Ledger replacing = open(fileSystem, "new", mintsWhere(mint -> {
+				if (mint.equals(mint(2, 200))) {
+					throw new IllegalStateException("The policy cannot answer for this mint");
+				}
+
+				return true;
+			}));
+
+			replaced.submit(mint(1, 100));
+			replaced.submit(mint(2, 200));
+			replaced.submit(mint(3, 300));
+			replacing.takeWaitingFrom(replaced);
+
+			assertThat(replacing.waiting(), contains(mint(1, 100), mint(3, 300)));
+			assertThat(replacing.hasWork(0), is(true));
+		}
+	}
+
+	@Example
 	public void shouldLeaveTheReplacedLedgerAsItWas() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
 			final Ledger replaced = open(fileSystem, "old", ANY_MINT);
