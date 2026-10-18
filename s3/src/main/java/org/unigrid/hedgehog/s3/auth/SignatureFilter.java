@@ -30,14 +30,17 @@ import java.net.URI;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.Payload;
+import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
 
 /* Pre-matching, so nothing about the routes can be learnt without a valid signature */
@@ -48,8 +51,30 @@ public class SignatureFilter implements ContainerRequestFilter {
 	public static final String DECODED_LENGTH = "x-amz-decoded-content-length";
 	private static final String AWS_CHUNKED = "aws-chunked";
 
+	private static final String ORIGIN = "Origin";
+	private static final String REQUEST_METHOD = "Access-Control-Request-Method";
+
+	/* Only names a bucket can have, so no encoded slash makes the path mean more than the bucket and its key */
+	private static final Pattern BUCKET_PATH = Pattern.compile("/[a-z0-9.-]+(/.*)?");
+
 	private final CredentialStore credentials;
 	private final Clock clock;
+	private final String domain;
+
+	/* Whether the request names a bucket, in its host or in its path */
+	private boolean namesBucket(final ContainerRequestContext request) {
+		final String host = request.getHeaderString(HttpHeaders.HOST);
+
+		return Objects.nonNull(domain) && Objects.nonNull(host) && VirtualHostFilter.subdomain(host, domain)
+			.isPresent() || BUCKET_PATH.matcher(request.getUriInfo().getRequestUri().getRawPath()).matches();
+	}
+
+	/* A browser sends a CORS preflight without credentials, and the CORS rules of the bucket alone answer it. An
+	   OPTIONS request lacking what makes it a preflight has to be signed like any other. */
+	private boolean isPreflight(final ContainerRequestContext request) {
+		return HttpMethod.OPTIONS.equals(request.getMethod()) && Objects.nonNull(request.getHeaderString(ORIGIN))
+			&& Objects.nonNull(request.getHeaderString(REQUEST_METHOD)) && namesBucket(request);
+	}
 
 	private static Authorization authorization(final ContainerRequestContext request) {
 		final String header = request.getHeaderString(HttpHeaders.AUTHORIZATION);
@@ -81,10 +106,9 @@ public class SignatureFilter implements ContainerRequestFilter {
 		}
 	}
 
-	/* A browser sends a CORS preflight without credentials, and only the CORS rules answer it */
 	@Override
 	public void filter(final ContainerRequestContext request) {
-		if (HttpMethod.OPTIONS.equals(request.getMethod())) {
+		if (isPreflight(request)) {
 			return;
 		}
 

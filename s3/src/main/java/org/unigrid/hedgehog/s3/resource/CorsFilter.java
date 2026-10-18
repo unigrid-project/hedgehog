@@ -30,11 +30,8 @@ import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.s3.entity.CORSConfiguration;
-import org.unigrid.hedgehog.s3.entity.CORSRule;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
-import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.request.BucketNames;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
@@ -57,15 +54,6 @@ public class CorsFilter implements ContainerResponseFilter {
 			.filter(BucketNames::valid);
 	}
 
-	private Optional<CORSRule> rule(final String name, final String origin, final String method) throws IOException,
-		BlobStoreException, MalformedXmlException {
-
-		final Optional<Bucket> bucket = namespace.bucket(name);
-		final Optional<CORSConfiguration> rules = bucket.isPresent() ? Cors.rules(bucket.get()) : Optional.empty();
-
-		return rules.flatMap(found -> Cors.match(found, origin, method, List.of()));
-	}
-
 	/* A preflight answers for itself */
 	@Override
 	public void filter(final ContainerRequestContext request, final ContainerResponseContext response) {
@@ -77,9 +65,8 @@ public class CorsFilter implements ContainerResponseFilter {
 		}
 
 		try {
-			rule(bucket.get(), origin, request.getMethod()).ifPresent(rule -> Cors.allow(rule, origin,
-				response.getHeaders()::putSingle
-			));
+			Cors.rules(namespace, bucket.get()).flatMap(rules -> Cors.match(rules, origin, request.getMethod(),
+				List.of())).ifPresent(rule -> Cors.allow(rule, origin, response.getHeaders()::putSingle));
 		} catch (IOException | BlobStoreException | MalformedXmlException ex) {
 			log.warn("Failed to read the CORS rules of bucket {}, so a response to {} goes without them",
 				bucket.get(), origin, ex

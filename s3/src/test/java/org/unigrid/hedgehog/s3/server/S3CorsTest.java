@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.allOf;
@@ -95,41 +96,87 @@ public class S3CorsTest {
 		return RawHttp.exchange(port, RawHttp.signed(port, method, path, body.length, headers), body);
 	}
 
-	@Example
-	public void refusesAPreflightWithoutAnOrigin() throws Exception {
-		try (S3Node node = node(true)) {
-			final RawHttp.Answer answer = preflight(node.getPort(), OBJECT, asking(null, "GET", null));
+	private static RawHttp.Answer virtualHost(final int port, final String method, final String path,
+		final Map<String, String> headers) throws IOException {
 
-			assertThat(answer.status(), equalTo(HttpURLConnection.HTTP_BAD_REQUEST));
-			assertThat(answer.body(), allOf(containsString("<Code>BadRequest</Code>"),
-				containsString("Insufficient information. Origin request header needed."))
-			);
-		}
+		final StringBuilder head = new StringBuilder(method + " " + path + " HTTP/1.1\r\nHost: " + BUCKET + "."
+			+ S3Fixture.DOMAIN + ":" + port + "\r\nContent-Length: 0\r\n"
+		);
+
+		headers.forEach((name, value) -> head.append(name).append(": ").append(value).append("\r\n"));
+		return RawHttp.exchange(port, head.append("\r\n").toString().getBytes(StandardCharsets.ISO_8859_1),
+			new byte[0]
+		);
 	}
 
-	@Example
-	public void refusesAPreflightToABucketThatIsNotThere() throws Exception {
-		try (S3Node node = node(true)) {
-			for (String path : List.of("/other/a.jpg", "/other", "/")) {
-				final RawHttp.Answer answer = preflight(node.getPort(), path, asking(APP, "GET", null));
+	/* An error without what differs between any two requests */
+	private static String anonymous(final String error) {
+		return error.replaceAll("<Resource>.*</Resource>|<RequestId>.*</RequestId>", "");
+	}
 
+	/* Only a preflight goes unsigned, so an OPTIONS request lacking what makes one is refused like any other unsigned
+	   request, and tells nothing of the routes */
+	@Example
+	public void refusesAnUnsignedOptionsRequestThatIsNoPreflight() throws Exception {
+		try (S3Node node = node(true)) {
+			final List<RawHttp.Answer> refused = List.of(
+				preflight(node.getPort(), OBJECT, asking(null, "GET", null)),
+				preflight(node.getPort(), OBJECT, asking(APP, null, null)),
+				preflight(node.getPort(), "/" + BUCKET, asking(null, null, null)),
+				preflight(node.getPort(), "/", asking(APP, "GET", null)),
+				preflight(node.getPort(), "/application.wadl", asking(null, null, null))
+			);
+
+			for (RawHttp.Answer answer : refused) {
 				assertThat(answer.status(), equalTo(FORBIDDEN));
-				assertThat(answer.body(), allOf(containsString("<Code>AccessForbidden</Code>"),
-					containsString("CORSResponse: Bucket not found"))
-				);
+				assertThat(answer.body(), containsString("<Code>AccessDenied</Code>"));
+				assertThat(answer.headers().get("Allow"), nullValue());
 			}
 		}
 	}
 
+	/* Otherwise a preflight would tell anyone which buckets there are */
 	@Example
-	public void refusesAPreflightToABucketWithoutRules() throws Exception {
+	public void refusesAPreflightToAMissingBucketAsOneToABucketWithoutRules() throws Exception {
 		try (S3Node node = node(false)) {
-			final RawHttp.Answer answer = preflight(node.getPort(), OBJECT, asking(APP, "GET", null));
+			final RawHttp.Answer unruled = preflight(node.getPort(), OBJECT, asking(APP, "GET", null));
+			final RawHttp.Answer missing = preflight(node.getPort(), "/other/a.jpg", asking(APP, "GET", null));
 
-			assertThat(answer.status(), equalTo(FORBIDDEN));
-			assertThat(answer.body(), allOf(containsString("<Code>AccessForbidden</Code>"),
-				containsString("CORSResponse: CORS is not enabled for this bucket."))
+			for (RawHttp.Answer answer : List.of(unruled, missing, preflight(node.getPort(), "/other",
+				asking(APP, "GET", null)))) {
+
+				assertThat(answer.status(), equalTo(FORBIDDEN));
+				assertThat(answer.body(), allOf(containsString("<Code>AccessForbidden</Code>"),
+					containsString("CORSResponse: CORS is not enabled for this bucket."))
+				);
+			}
+
+			assertThat(anonymous(missing.body()), equalTo(anonymous(unruled.body())));
+			assertThat(new TreeSet<>(missing.headers().names()),
+				equalTo(new TreeSet<>(unruled.headers().names()))
 			);
+		}
+	}
+
+	@Example
+	public void servesNoDescriptionOfItsRoutes() throws Exception {
+		try (S3Node node = node(true)) {
+			final RawHttp.Answer unsigned = RawHttp.exchange(node.getPort(), RawHttp.unsigned("GET",
+				"/application.wadl", 0), new byte[0]
+			);
+			final RawHttp.Answer description = signed(node.getPort(), "GET", "/application.wadl", Map.of(),
+				new byte[0]
+			);
+			final RawHttp.Answer options = signed(node.getPort(), "OPTIONS", "/" + BUCKET, Map.of(),
+				new byte[0]
+			);
+
+			assertThat(unsigned.status(), equalTo(FORBIDDEN));
+			assertThat(description.status(), equalTo(HttpURLConnection.HTTP_NOT_FOUND));
+			assertThat(description.body(), containsString("<Code>NoSuchBucket</Code>"));
+			assertThat(options.status(), equalTo(HttpURLConnection.HTTP_BAD_REQUEST));
+			assertThat(options.body(), containsString("Origin request header needed."));
+			assertThat(options.headers().get("Allow"), nullValue());
 		}
 	}
 
@@ -171,7 +218,7 @@ public class S3CorsTest {
 	@Example
 	public void refusesAPreflightNoRuleAllows() throws Exception {
 		final List<Map<String, String>> refused = List.of(asking(ELSEWHERE, "PUT", null),
-			asking(APP, "PUT", "x-custom"), asking("https://example.com", "PUT", null), asking(APP, null, null),
+			asking(APP, "PUT", "x-custom"), asking("https://example.com", "PUT", null),
 			asking(APP, "GET", "content-type"), asking(APP, "DELETE", null)
 		);
 
@@ -236,15 +283,23 @@ public class S3CorsTest {
 	}
 
 	@Example
-	public void findsTheRulesOfAVirtualHostBucketRefusedBeforeItsRewrite() throws Exception {
+	public void answersAVirtualHostBucketByTheRulesOfThatBucket() throws Exception {
 		try (S3Node node = node(true)) {
-			final byte[] head = ("GET /a.jpg HTTP/1.1\r\nHost: " + BUCKET + "." + S3Fixture.DOMAIN + ":"
-				+ node.getPort() + "\r\nContent-Length: 0\r\nOrigin: " + ELSEWHERE + "\r\n\r\n")
-				.getBytes(StandardCharsets.ISO_8859_1);
-			final RawHttp.Answer answer = RawHttp.exchange(node.getPort(), head, new byte[0]);
+			final RawHttp.Answer refused = virtualHost(node.getPort(), "GET", "/a.jpg",
+				Map.of(ORIGIN, ELSEWHERE)
+			);
 
-			assertThat(answer.status(), equalTo(FORBIDDEN));
-			assertThat(answer.headers().get(ALLOW_ORIGIN), equalTo("*"));
+			assertThat(refused.status(), equalTo(FORBIDDEN));
+			assertThat(refused.headers().get(ALLOW_ORIGIN), equalTo("*"));
+
+			for (String path : List.of("/", "/a.jpg")) {
+				final RawHttp.Answer cleared = virtualHost(node.getPort(), "OPTIONS", path,
+					asking(APP, "PUT", null)
+				);
+
+				assertThat(cleared.status(), equalTo(OK));
+				assertThat(cleared.headers().get(ALLOW_ORIGIN), equalTo(APP));
+			}
 		}
 	}
 

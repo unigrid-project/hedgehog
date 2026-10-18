@@ -63,7 +63,6 @@ final class Cors {
 	private static final String EXPOSE_HEADERS = "Access-Control-Expose-Headers";
 	private static final String MAX_AGE = "Access-Control-Max-Age";
 	private static final String VARY = String.join(LIST, ORIGIN, REQUEST_HEADERS, REQUEST_METHOD);
-	private static final String NO_BUCKET = "CORSResponse: Bucket not found";
 	private static final String NO_RULES = "CORSResponse: CORS is not enabled for this bucket.";
 
 	/* Word for word what S3 answers, misspelling included */
@@ -86,8 +85,7 @@ final class Cors {
 		throws IOException, BlobStoreException, MalformedXmlException {
 
 		final String origin = origin(headers);
-		final Bucket bucket = namespace.bucket(name).orElseThrow(() -> forbidden(NO_BUCKET));
-		final CORSConfiguration rules = rules(bucket).orElseThrow(() -> forbidden(NO_RULES));
+		final CORSConfiguration rules = rules(namespace, name).orElseThrow(() -> forbidden(NO_RULES));
 		final String method = Objects.requireNonNullElse(headers.getHeaderString(REQUEST_METHOD),
 			HttpMethod.OPTIONS
 		);
@@ -104,10 +102,10 @@ final class Cors {
 		return response.build();
 	}
 
-	/* Only a bucket has rules, so a preflight of the service is refused as one of a bucket that is not there */
+	/* Only a bucket has rules */
 	static Response preflight(final HttpHeaders headers) {
 		origin(headers);
-		throw forbidden(NO_BUCKET);
+		throw forbidden(NO_RULES);
 	}
 
 	/* The rule that lets the origin send the request, given the method and every header it means to send */
@@ -121,11 +119,16 @@ final class Cors {
 		).findFirst();
 	}
 
-	static Optional<CORSConfiguration> rules(final Bucket bucket) throws IOException, MalformedXmlException {
-		final String document = bucket.configurations().get(Bucket.CORS);
+	/* A bucket that is not there has no rules, unlike what S3 answers, so that nobody learns from a preflight which
+	   buckets there are */
+	static Optional<CORSConfiguration> rules(final Namespace namespace, final String name) throws IOException,
+		BlobStoreException, MalformedXmlException {
 
-		return Objects.isNull(document) ? Optional.empty() : Optional.of(S3Xml.read(CORSConfiguration.class,
-			new ByteArrayInputStream(document.getBytes(StandardCharsets.UTF_8))
+		final Optional<String> document = namespace.bucket(name).map(bucket -> bucket.configurations()
+			.get(Bucket.CORS));
+
+		return document.isEmpty() ? Optional.empty() : Optional.of(S3Xml.read(CORSConfiguration.class,
+			new ByteArrayInputStream(document.get().getBytes(StandardCharsets.UTF_8))
 		));
 	}
 
