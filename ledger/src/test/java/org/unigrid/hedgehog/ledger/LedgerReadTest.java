@@ -100,6 +100,24 @@ public class LedgerReadTest {
 		}
 	}
 
+	@Example
+	public void shouldCountNothingClaimableWhereTheClaimRuleRefusesTheSnapshotBalance() throws IOException {
+		final LedgerState negative = stateWithSnapshot(ANY_MINT, SOLO, OWED, Map.of(LEGACY, -OWED));
+		final LedgerState aboveWhatIsLeft = stateWithSnapshot(ANY_MINT, SOLO, OWED - 1, Map.of(LEGACY, OWED));
+
+		for (final LedgerState state : List.of(negative, aboveWhatIsLeft)) {
+			try (FileSystem fileSystem = newFileSystem()) {
+				final Ledger ledger = new Ledger(state, BlockLog.open(fileSystem.getPath(LOG)));
+
+				assertThat(ledger.claimable(LEGACY), equalTo(0L));
+
+				seal(ledger, new Mint(LEGACY, 30, reference(1)));
+
+				assertThat(ledger.claimable(LEGACY), equalTo(0L));
+			}
+		}
+	}
+
 	@Property(tries = 20)
 	public void shouldBeExactlyWhatTheClaimCredits(@ForAll @LongRange(min = 0, max = 1_000_000) long minted)
 		throws IOException {
