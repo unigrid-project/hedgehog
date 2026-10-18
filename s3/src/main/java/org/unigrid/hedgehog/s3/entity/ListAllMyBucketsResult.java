@@ -38,4 +38,7 @@ public class ListAllMyBucketsResult {
 	@XmlElementWrapper(name = "Buckets")
 	@XmlElement(name = "Bucket")
 	private List<Bucket> buckets = new ArrayList<>();
+
+	@XmlElement(name = "Owner")
+	private Owner owner;
 }

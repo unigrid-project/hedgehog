@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.option;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 import lombok.Getter;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import picocli.CommandLine;
@@ -65,9 +66,25 @@ public class S3Options {
 	)
 	private static Duration cacheHalfLife;
 
+	/* The id grants read access to the whole namespace, so whoever passes it keeps it out of shared shell histories,
+	   for instance with picocli's @file arguments */
+	@Option(names = "--s3root", scope = CommandLine.ScopeType.INHERIT,
+		description = "Blob id of the root manifest of an S3 namespace to mount in place of the namespace of this "
+			+ "node, such as to recover the namespace of a lost node."
+	)
+	private static String root;
+
 	public static Path getCacheDirectory() {
 		return cacheDirectory != null ? cacheDirectory
 			: ApplicationDirectory.create().getUserDataDir().resolve("s3").resolve("cache");
+	}
+
+	public static Path getIndexDirectory() {
+		return ApplicationDirectory.create().getUserDataDir().resolve("s3").resolve("index");
+	}
+
+	public static Optional<String> getRoot() {
+		return Optional.ofNullable(root);
 	}
 
 	@Getter @Option(names = "--s3plain", scope = CommandLine.ScopeType.INHERIT,

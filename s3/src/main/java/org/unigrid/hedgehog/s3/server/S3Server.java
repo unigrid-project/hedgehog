@@ -45,6 +45,9 @@ import org.unigrid.hedgehog.s3.auth.SignatureFilter;
 import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
 import org.unigrid.hedgehog.s3.http.RequestIdFilter;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
+import org.unigrid.hedgehog.s3.index.Namespace;
+import org.unigrid.hedgehog.s3.resource.BucketResource;
+import org.unigrid.hedgehog.s3.resource.ObjectResource;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
@@ -58,11 +61,11 @@ public final class S3Server implements AutoCloseable {
 	private final EventLoopGroup group;
 	private final Channel channel;
 
-	public static S3Server start(final S3ServerConfig config, final BlobStore blobs, final CredentialStore credentials)
-		throws GeneralSecurityException, InterruptedException, IOException, ReflectiveOperationException,
-		URISyntaxException {
+	public static S3Server start(final S3ServerConfig config, final BlobStore blobs, final Namespace namespace,
+		final CredentialStore credentials) throws GeneralSecurityException, InterruptedException, IOException,
+		ReflectiveOperationException, URISyntaxException {
 
-		return start(config, resources(config, blobs, credentials));
+		return start(config, resources(config, blobs, namespace, credentials, Clock.systemUTC()));
 	}
 
 	static S3Server start(final S3ServerConfig config, final ResourceConfig resources) throws GeneralSecurityException,
@@ -83,12 +86,15 @@ public final class S3Server implements AutoCloseable {
 		}
 	}
 
-	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
-		final CredentialStore credentials) {
+	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs, final Namespace namespace,
+		final CredentialStore credentials, final Clock clock) {
 
-		return resources(config, blobs, credentials, Clock.systemUTC());
+		return resources(config, blobs, credentials, clock).registerInstances(new ServiceResource(namespace),
+			new BucketResource(namespace, clock), new ObjectResource(namespace, blobs, clock)
+		);
 	}
 
+	/* The protocol without the operations, which leaves the routes to whoever registers resources */
 	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
 		final CredentialStore credentials, final Clock clock) {
 
@@ -101,7 +107,7 @@ public final class S3Server implements AutoCloseable {
 			}
 		};
 
-		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class)
+		return new ResourceConfig(S3ExceptionMapper.class)
 			.register(new RequestIdFilter(clock)).register(new SignatureFilter(credentials, clock))
 			.register(new VirtualHostFilter(config.getDomain().orElse(null))).register(bindings);
 	}

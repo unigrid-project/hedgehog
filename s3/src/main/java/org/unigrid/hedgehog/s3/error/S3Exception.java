@@ -18,12 +18,15 @@
 
 package org.unigrid.hedgehog.s3.error;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.Getter;
 
 /* Thrown for ordinary outcomes such as a missing key, so it carries no stack trace */
 @Getter
 public class S3Exception extends RuntimeException {
 	private final S3ErrorCode code;
+	private final Map<String, Object> headers = new LinkedHashMap<>();
 
 	public S3Exception(final S3ErrorCode code) {
 		this(code, code.getMessage());
@@ -36,5 +39,11 @@ public class S3Exception extends RuntimeException {
 	public S3Exception(final S3ErrorCode code, final String message, final Throwable cause) {
 		super(message, cause, false, false);
 		this.code = code;
+	}
+
+	/* Some refusals still describe what was found, such as the delete marker that hides a key */
+	public S3Exception header(final String name, final Object value) {
+		headers.put(name, value);
+		return this;
 	}
 }

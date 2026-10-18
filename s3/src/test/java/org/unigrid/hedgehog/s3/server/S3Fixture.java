@@ -31,6 +31,7 @@ import lombok.NoArgsConstructor;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.unigrid.hedgehog.s3.auth.SdkSigner;
 import org.unigrid.hedgehog.s3.auth.SigV4;
+import org.unigrid.hedgehog.s3.index.PosixFiles;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -79,11 +80,15 @@ public final class S3Fixture {
 		return start(config(port), clock, resources);
 	}
 
+	/* Serves the S3 operations, or only the resources given in their place */
 	public static S3Server start(final S3ServerConfig config, final Clock clock, final Class<?>... resources)
 		throws Exception {
 
-		return S3Server.start(config, S3Server.resources(config, new MemoryBlobStore(), credentials(), clock)
-			.registerClasses(resources)
+		final MemoryBlobStore blobs = new MemoryBlobStore();
+
+		return S3Server.start(config, resources.length == 0 ? S3Server.resources(config, blobs,
+			S3Node.namespace(PosixFiles.create(), blobs), credentials(), clock)
+			: S3Server.resources(config, blobs, credentials(), clock).registerClasses(resources)
 		);
 	}
 

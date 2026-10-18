@@ -34,7 +34,7 @@ public class S3XmlTest {
 		+ "<Name>photos</Name></Bucket></Buckets>";
 
 	private static final ListAllMyBucketsResult PHOTOS = new ListAllMyBucketsResult(
-		List.of(new Bucket(Instant.EPOCH, "photos")));
+		List.of(new Bucket(Instant.EPOCH, "photos")), null);
 
 	private static ListAllMyBucketsResult read(final String xml) throws Exception {
 		return S3Xml.read(ListAllMyBucketsResult.class,

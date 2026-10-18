@@ -38,6 +38,11 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
+import org.unigrid.hedgehog.s3.index.BucketNotEmptyException;
+import org.unigrid.hedgehog.s3.index.ConditionFailedException;
+import org.unigrid.hedgehog.s3.index.NoSuchBucketException;
+import org.unigrid.hedgehog.s3.index.NoSuchUploadException;
 import org.unigrid.hedgehog.s3.spi.BlobNotFoundException;
 import org.unigrid.hedgehog.s3.spi.BlobUnavailableException;
 
@@ -69,6 +74,25 @@ public class S3ExceptionMapperTest {
 		assertThat(S3ExceptionMapper.translate(new NotFoundException()).getCode(), equalTo(S3ErrorCode.NotImplemented));
 		assertThat(S3ExceptionMapper.translate(new BadRequestException()).getCode(),
 			equalTo(S3ErrorCode.InvalidRequest)
+		);
+	}
+
+	@Example
+	public void namesTheS3ErrorsOfRefusedIndexChangesAndDocuments() {
+		assertThat(S3ExceptionMapper.translate(new NoSuchBucketException("photos")).getCode(),
+			equalTo(S3ErrorCode.NoSuchBucket)
+		);
+		assertThat(S3ExceptionMapper.translate(new BucketNotEmptyException("photos")).getCode(),
+			equalTo(S3ErrorCode.BucketNotEmpty)
+		);
+		assertThat(S3ExceptionMapper.translate(new NoSuchUploadException("upload")).getCode(),
+			equalTo(S3ErrorCode.NoSuchUpload)
+		);
+		assertThat(S3ExceptionMapper.translate(new ConditionFailedException("guard")).getCode(),
+			equalTo(S3ErrorCode.PreconditionFailed)
+		);
+		assertThat(S3ExceptionMapper.translate(new MalformedXmlException("body")).getCode(),
+			equalTo(S3ErrorCode.MalformedXML)
 		);
 	}
 

@@ -20,16 +20,23 @@ package org.unigrid.hedgehog.s3.resource;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.io.IOException;
+import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.s3.entity.Bucket;
 import org.unigrid.hedgehog.s3.entity.ListAllMyBucketsResult;
+import org.unigrid.hedgehog.s3.index.Namespace;
+import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 @Path("/")
+@RequiredArgsConstructor
 public class ServiceResource {
-	/* Placeholder until buckets can be created */
+	private final Namespace namespace;
+
 	@GET
-	@Produces(MediaType.APPLICATION_XML)
-	public ListAllMyBucketsResult listBuckets() {
-		return new ListAllMyBucketsResult();
+	public Response listBuckets() throws IOException, BlobStoreException {
+		return Responses.xml(new ListAllMyBucketsResult(namespace.buckets().stream()
+			.map(bucket -> new Bucket(bucket.created(), bucket.name())).toList(), Responses.owner()
+		));
 	}
 }

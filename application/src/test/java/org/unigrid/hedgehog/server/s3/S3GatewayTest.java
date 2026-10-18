@@ -18,7 +18,18 @@
 
 package org.unigrid.hedgehog.server.s3;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.FileSystem;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -35,11 +46,51 @@ import org.unigrid.hedgehog.command.option.OptionsCli;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
+import org.unigrid.hedgehog.s3.index.Bucket;
+import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
+import org.unigrid.hedgehog.s3.spi.Blob;
+import org.unigrid.hedgehog.s3.spi.BlobId;
+import org.unigrid.hedgehog.s3.spi.BlobNotFoundException;
+import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.service.storage.StorageBlobStore;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class S3GatewayTest {
+	private static class MapBlobStore implements BlobStore {
+		private final Map<BlobId, byte[]> blobs = new ConcurrentHashMap<>();
+
+		@Override
+		public BlobId store(InputStream input) throws IOException {
+			final BlobId id = new BlobId(UUID.randomUUID().toString());
+
+			blobs.put(id, input.readAllBytes());
+			return id;
+		}
+
+		@Override
+		public Blob open(BlobId id) throws BlobNotFoundException {
+			final byte[] content = Optional.ofNullable(blobs.get(id)).orElseThrow(BlobNotFoundException::new);
+
+			return new Blob() {
+				@Override
+				public long size() {
+					return content.length;
+				}
+
+				@Override
+				public void writeTo(OutputStream output) throws IOException {
+					output.write(content);
+				}
+			};
+		}
+
+		@Override
+		public void delete(BlobId id) {
+			blobs.remove(id);
+		}
+	}
+
 	@Provide
 	public Arbitrary<String> provideHost() {
 		return OptionsCli.hosts();
@@ -66,6 +117,30 @@ public class S3GatewayTest {
 		OptionsCli.parse(List.of("daemon"), "--s3cachesize=" + size);
 
 		assertThrows(IllegalArgumentException.class, () -> S3Gateway.cached(new StorageBlobStore(null)));
+	}
+
+	@Example
+	public void shouldMountTheNamespaceItsRootNames() throws Exception {
+		final BlobStore blobs = new MapBlobStore();
+		final BlobId root;
+
+		try (FileSystem files = Jimfs.newFileSystem(Configuration.unix().toBuilder().setAttributeViews("basic",
+			"owner", "posix").build())) {
+
+			OptionsCli.parse(List.of("daemon"));
+
+			try (Namespace namespace = S3Gateway.namespace(files.getPath("/lost"), blobs)) {
+				namespace.createBucket(Bucket.builder().name("photos").created(Instant.EPOCH).build());
+				namespace.flush();
+				root = namespace.root().orElseThrow();
+			}
+
+			OptionsCli.parse(List.of("daemon"), "--s3root", root.value());
+
+			try (Namespace namespace = S3Gateway.namespace(files.getPath("/recovered"), blobs)) {
+				assertThat(namespace.buckets().stream().map(Bucket::name).toList(), equalTo(List.of("photos")));
+			}
+		}
 	}
 
 	@Property
