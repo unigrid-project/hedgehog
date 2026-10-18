@@ -185,6 +185,30 @@ public class SigV4Test {
 	}
 
 	@Example
+	public void signsThePresignedUrlExampleOfS3() {
+		final String query = "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524"
+			+ "%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400"
+			+ "&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404";
+		final String canonical = SigV4.canonicalRequest("GET", "/test.txt", query,
+			headers("host", "examplebucket.s3.amazonaws.com")::get, List.of("host"), "UNSIGNED-PAYLOAD",
+			Set.of("X-Amz-Signature")
+		);
+		final String stringToSign = SigV4.stringToSign(S3_TIMESTAMP, S3_SCOPE, canonical);
+
+		assertThat(canonical, equalTo("GET\n/test.txt\nX-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential="
+			+ "AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z"
+			+ "&X-Amz-Expires=86400&X-Amz-SignedHeaders=host\nhost:examplebucket.s3.amazonaws.com\n\nhost\n"
+			+ "UNSIGNED-PAYLOAD")
+		);
+		assertThat(stringToSign, equalTo("AWS4-HMAC-SHA256\n" + S3_TIMESTAMP + "\n" + S3_SCOPE + "\n"
+			+ "3bfa292879f6447bbcda7001decf97f4a54dc650c8942174ae0a9121cf58ad04")
+		);
+		assertThat(SigV4.sign(SigV4.signingKey(S3_SECRET, "20130524", "us-east-1", "s3"), stringToSign),
+			equalTo("aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404")
+		);
+	}
+
+	@Example
 	public void encodesOnceAndKeepsTheSlashesOfAPath() {
 		assertThat(SigV4.canonicalUri("/bucket/a%20b/c+d%2Be~f%7E/%E2%82%AC"),
 			equalTo("/bucket/a%20b/c%2Bd%2Be~f~/%E2%82%AC")

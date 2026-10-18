@@ -39,7 +39,12 @@ record Authorization(Credential credential, List<String> signedHeaders, String s
 
 	static final String CONTENT_SHA256 = "x-amz-content-sha256";
 	static final String DATE = "x-amz-date";
+	static final String ALGORITHM_PARAMETER = "X-Amz-Algorithm";
+	static final String SIGNATURE_PARAMETER = "X-Amz-Signature";
 	static final Duration MAX_SKEW = Duration.ofMinutes(15);
+	static final Duration MAX_EXPIRY = Duration.ofDays(7);
+
+	private static final String UNSIGNED = "UNSIGNED-PAYLOAD";
 
 	private static final String PREFIX = SigV4.ALGORITHM + " ";
 	private static final String HOST = "host";
@@ -63,6 +68,43 @@ record Authorization(Credential credential, List<String> signedHeaders, String s
 			signedHeaders(field(fields, "SignedHeaders", malformed), malformed),
 			field(fields, "Signature", malformed), timestamp(headers), payloadHash, Optional.empty()
 		).dated(malformed);
+	}
+
+	static Authorization fromQuery(final Function<String, String> query, final Function<String, String> headers) {
+		final S3ErrorCode malformed = S3ErrorCode.AuthorizationQueryParametersError;
+		final Function<String, String> parameter = name -> Optional.ofNullable(query.apply(name))
+			.orElseThrow(() -> new S3Exception(malformed, "Query-string authentication requires the " + name
+				+ " parameter"
+			));
+
+		if (!SigV4.ALGORITHM.equals(parameter.apply(ALGORITHM_PARAMETER))) {
+			throw new S3Exception(malformed, ALGORITHM_PARAMETER + " only supports " + SigV4.ALGORITHM);
+		}
+
+		return new Authorization(Credential.parse(parameter.apply("X-Amz-Credential"), malformed),
+			signedHeaders(parameter.apply("X-Amz-SignedHeaders"), malformed),
+			parameter.apply(SIGNATURE_PARAMETER), parameter.apply("X-Amz-Date"),
+			Optional.ofNullable(headers.apply(CONTENT_SHA256)).orElse(UNSIGNED),
+			Optional.of(expiry(parameter.apply("X-Amz-Expires")))
+		).dated(malformed);
+	}
+
+	private static Duration expiry(final String seconds) {
+		final S3Exception invalid = new S3Exception(S3ErrorCode.AuthorizationQueryParametersError,
+			"X-Amz-Expires must be a number of seconds from 1 to " + MAX_EXPIRY.toSeconds()
+		);
+
+		try {
+			final Duration expiry = Duration.ofSeconds(Long.parseLong(seconds));
+
+			if (expiry.isNegative() || expiry.isZero() || expiry.compareTo(MAX_EXPIRY) > 0) {
+				throw invalid;
+			}
+
+			return expiry;
+		} catch (NumberFormatException ex) {
+			throw invalid;
+		}
 	}
 
 	Authorization dated(final S3ErrorCode malformed) {
@@ -139,7 +181,8 @@ record Authorization(Credential credential, List<String> signedHeaders, String s
 		}
 	}
 
+	/* A presigned request carries its own signature in the query it signs */
 	Set<String> excludedQuery() {
-		return Set.of();
+		return expiry.isPresent() ? Set.of(SIGNATURE_PARAMETER) : Set.of();
 	}
 }

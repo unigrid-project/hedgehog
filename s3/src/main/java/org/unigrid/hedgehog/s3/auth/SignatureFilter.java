@@ -24,6 +24,7 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.container.PreMatching;
 import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MultivaluedMap;
 import java.net.URI;
 import java.time.Clock;
 import java.util.Locale;
@@ -46,12 +47,24 @@ public class SignatureFilter implements ContainerRequestFilter {
 
 	private static Authorization authorization(final ContainerRequestContext request) {
 		final String header = request.getHeaderString(HttpHeaders.AUTHORIZATION);
+		final MultivaluedMap<String, String> query = request.getUriInfo().getQueryParameters();
+		final boolean presigned = query.containsKey(Authorization.ALGORITHM_PARAMETER);
 
-		if (header == null) {
-			throw new S3Exception(S3ErrorCode.AccessDenied);
+		if (header != null && presigned) {
+			throw new S3Exception(S3ErrorCode.InvalidArgument, "Only one auth mechanism allowed; only the "
+				+ "X-Amz-Algorithm query parameter or the Authorization header should be specified"
+			);
 		}
 
-		return Authorization.fromHeader(header, request::getHeaderString);
+		if (header != null) {
+			return Authorization.fromHeader(header, request::getHeaderString);
+		}
+
+		if (presigned) {
+			return Authorization.fromQuery(query::getFirst, request::getHeaderString);
+		}
+
+		throw new S3Exception(S3ErrorCode.AccessDenied);
 	}
 
 	static OptionalLong length(final String value) {
