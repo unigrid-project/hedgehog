@@ -180,6 +180,17 @@ public class LedgerClaimCommandTest {
 		assertThat(outcome.cli().out(), not(containsString(ACCOUNT.toUpperCase(Locale.ROOT))));
 	}
 
+	@Example
+	public void takesASignatureWithTheBlanksItWasCopiedWith() {
+		final LegacyWallet wallet = new LegacyWallet(SECRET, true);
+		final byte[] signature = wallet.sign(TEXT);
+		final Outcome outcome = ask(info(), accepted(), ADDRESS_OPTION, wallet.base58(), TO_OPTION, ACCOUNT,
+			SIGNATURE_OPTION, " " + Base64.getEncoder().encodeToString(signature) + "\n");
+
+		assertThat(outcome.cli().exitCode(), equalTo(0));
+		assertThat(claimIn(outcome).signature(), equalTo(signature));
+	}
+
 	@Property(tries = 20)
 	public void sendsTheClaimOfTheSignatureOfTheWallet(@ForAll @IntRange(min = 1, max = 100_000) int secret,
 		@ForAll boolean compressed) {

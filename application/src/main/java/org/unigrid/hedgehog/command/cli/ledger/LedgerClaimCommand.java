@@ -133,7 +133,8 @@ public class LedgerClaimCommand implements Callable<Integer> {
 
 	private byte[] sixtyFiveBytes(String base64) {
 		try {
-			final byte[] bytes = Base64.getDecoder().decode(base64);
+			/* A signature copied out of the wallet often brings the line it was printed on */
+			final byte[] bytes = Base64.getDecoder().decode(base64.strip());
 
 			if (bytes.length == LegacySignature.SIZE) {
 				return bytes;
