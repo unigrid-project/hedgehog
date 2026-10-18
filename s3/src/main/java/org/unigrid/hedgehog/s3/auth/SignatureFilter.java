@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
@@ -126,13 +127,19 @@ public class SignatureFilter implements ContainerRequestFilter {
 			authorization.timestamp(), authorization.credential().scope(), authorization.signature()))
 			: Optional.empty();
 		final AwsChunkedInputStream body = new AwsChunkedInputStream(request.getEntityStream(), signer,
-			mode.hasTrailer()
+			mode.hasTrailer() ? names(request.getHeaderString(Payload.TRAILER)) : Set.of(), length
 		);
 
 		unchunk(request, length);
 		return Payload.create(request::getHeaderString, body, OptionalLong.of(length), Optional.empty(),
 			body::trailer
 		);
+	}
+
+	private static Set<String> names(final String list) {
+		return Arrays.stream(Optional.ofNullable(list).orElse("").split(",")).map(String::strip)
+			.filter(name -> !name.isEmpty()).map(name -> name.toLowerCase(Locale.ROOT))
+			.collect(Collectors.toSet());
 	}
 
 	/* Resources see the body as it was before the client framed it, and store its other encodings with it */

@@ -21,13 +21,16 @@ package org.unigrid.hedgehog.s3.auth;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -47,6 +50,7 @@ public class AwsChunkedInputStreamTest {
 	);
 	private static final String CRLF = "\r\n";
 	private static final String TRAILER = "x-amz-checksum-crc32c";
+	private static final int EXAMPLE_LENGTH = 66560;
 
 	private static byte[] a(final int length) {
 		final byte[] data = new byte[length];
@@ -99,7 +103,7 @@ public class AwsChunkedInputStreamTest {
 		final byte[] body = documentedExample("b6c6ea8a5354eaf15b3cb7646744f4275b71ea724fed81ceb9323e279d449df9");
 
 		assertThat(decode(new AwsChunkedInputStream(new ByteArrayInputStream(body),
-			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), false)),
+			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), Set.of(), EXAMPLE_LENGTH)),
 			equalTo(a(66560))
 		);
 	}
@@ -110,7 +114,7 @@ public class AwsChunkedInputStreamTest {
 
 		body[1000] = 'b';
 		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(body),
-			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), false)),
+			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), Set.of(), EXAMPLE_LENGTH)),
 			equalTo(S3ErrorCode.SignatureDoesNotMatch)
 		);
 	}
@@ -120,7 +124,8 @@ public class AwsChunkedInputStreamTest {
 		final byte[] body = documentedExample("b6c6ea8a5354eaf15b3cb7646744f4275b71ea724fed81ceb9323e279d449df9");
 
 		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(body),
-			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), false)),
+			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), Set.of(),
+			EXAMPLE_LENGTH)),
 			equalTo(S3ErrorCode.SignatureDoesNotMatch)
 		);
 	}
@@ -130,7 +135,7 @@ public class AwsChunkedInputStreamTest {
 		final byte[] body = documentedExample("0".repeat(64));
 
 		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(body),
-			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), false)),
+			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), Set.of(), EXAMPLE_LENGTH)),
 			equalTo(S3ErrorCode.SignatureDoesNotMatch)
 		);
 	}
@@ -139,7 +144,8 @@ public class AwsChunkedInputStreamTest {
 	public void decodesTheSignedTrailerOfTheS3Example() throws IOException {
 		final AwsChunkedInputStream chunks = new AwsChunkedInputStream(new ByteArrayInputStream(
 			documentedTrailerExample("sOO8/Q==")),
-			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), true
+			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), Set.of(TRAILER),
+			EXAMPLE_LENGTH
 		);
 
 		assertThat(decode(chunks), equalTo(a(66560)));
@@ -149,7 +155,8 @@ public class AwsChunkedInputStreamTest {
 	@Example
 	public void refusesATamperedTrailer() {
 		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(documentedTrailerExample("AAAAAA==")),
-			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), true)),
+			Optional.of(signer("106e2a8a18243abcf37539882f36619c00e2dfc72633413f02d3b74544bfeb8e")), Set.of(TRAILER),
+			EXAMPLE_LENGTH)),
 			equalTo(S3ErrorCode.SignatureDoesNotMatch)
 		);
 	}
@@ -221,7 +228,7 @@ public class AwsChunkedInputStreamTest {
 
 		final Map<String, String> trailers = new LinkedHashMap<>(Map.of(TRAILER, "AAAAAA=="));
 		final AwsChunkedInputStream chunks = new AwsChunkedInputStream(new ByteArrayInputStream(unsigned(data, size,
-			trailers)), Optional.empty(), true
+			trailers)), Optional.empty(), Set.of(TRAILER), data.length
 		);
 
 		assertThat(readInSteps(chunks, steps), equalTo(data));
@@ -236,7 +243,7 @@ public class AwsChunkedInputStreamTest {
 
 		final String seed = SigV4.sha256Hex(data);
 		final AwsChunkedInputStream chunks = new AwsChunkedInputStream(new ByteArrayInputStream(signed(data, size,
-			seed)), Optional.of(signer(seed)), false
+			seed)), Optional.of(signer(seed)), Set.of(), data.length
 		);
 
 		assertThat(readInSteps(chunks, steps), equalTo(data));
@@ -249,8 +256,8 @@ public class AwsChunkedInputStreamTest {
 		final byte[] body = unsigned(data, size, Map.of());
 		final byte[] truncated = Arrays.copyOf(body, Math.max(0, body.length - 2 - cut));
 
-		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(truncated), Optional.empty(), false)),
-			equalTo(S3ErrorCode.IncompleteBody)
+		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(truncated), Optional.empty(), Set.of(),
+			data.length)), equalTo(S3ErrorCode.IncompleteBody)
 		);
 	}
 
@@ -260,15 +267,84 @@ public class AwsChunkedInputStreamTest {
 			"1".repeat(5000) + "\r\n", "-1\r\n\r\n", "fffffffffffffffff\r\n" }) {
 
 			assertThat(body.substring(0, 5), refusal(new AwsChunkedInputStream(new ByteArrayInputStream(bytes(body)),
-				Optional.empty(), false)), equalTo(S3ErrorCode.InvalidRequest)
+				Optional.empty(), Set.of(), Long.MAX_VALUE)), equalTo(S3ErrorCode.InvalidRequest)
 			);
 		}
+	}
+
+	/* Repeats the same byte for as long as it is read, as a client that never ends a line would send it */
+	private static InputStream endless(final String start, final char repeated) {
+		final InputStream head = new ByteArrayInputStream(bytes(start));
+
+		return new InputStream() {
+			@Override
+			public int read() throws IOException {
+				final int octet = head.read();
+
+				return octet < 0 ? repeated : octet;
+			}
+		};
+	}
+
+	private static S3ErrorCode unsignedRefusal(final Set<String> announced, final String... trailers) {
+		return refusal(new AwsChunkedInputStream(new ByteArrayInputStream(bytes("1\r\na\r\n0\r\n",
+			String.join("", Arrays.stream(trailers).map(trailer -> trailer + CRLF).toList()), CRLF)), Optional.empty(),
+			announced, 1
+		));
+	}
+
+	@Example
+	public void refusesAnEndlessLine() {
+		assertThat(refusal(new AwsChunkedInputStream(endless("", '1'), Optional.empty(), Set.of(), Long.MAX_VALUE)),
+			equalTo(S3ErrorCode.InvalidRequest)
+		);
+		assertThat(refusal(new AwsChunkedInputStream(endless("0\r\n", 'x'), Optional.empty(), Set.of(TRAILER),
+			Long.MAX_VALUE)), equalTo(S3ErrorCode.InvalidRequest)
+		);
+	}
+
+	@Example
+	public void refusesAChunkLargerThanTheDeclaredBody() {
+		assertThat(refusal(new AwsChunkedInputStream(endless("ffffff\r\n", 'a'), Optional.empty(), Set.of(), 1000)),
+			equalTo(S3ErrorCode.InvalidRequest)
+		);
+		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(bytes("3\r\nabc\r\n3\r\nabc\r\n0\r\n\r\n")),
+			Optional.empty(), Set.of(), 5)), equalTo(S3ErrorCode.InvalidRequest)
+		);
+	}
+
+	@Example
+	public void refusesTrailersItWasNotPromised() {
+		assertThat(unsignedRefusal(Set.of(TRAILER), "x-amz-checksum-sha256:AAAA"),
+			equalTo(S3ErrorCode.MalformedTrailerError)
+		);
+		assertThat(unsignedRefusal(Set.of(), TRAILER + ":AAAAAA=="), equalTo(S3ErrorCode.MalformedTrailerError));
+		assertThat(unsignedRefusal(Set.of(TRAILER), TRAILER + ":AAAAAA==", TRAILER + ":AAAAAA=="),
+			equalTo(S3ErrorCode.MalformedTrailerError)
+		);
+		assertThat(unsignedRefusal(Set.of(TRAILER), "x-amz-trailer-signature:00"),
+			equalTo(S3ErrorCode.MalformedTrailerError)
+		);
+		assertThat(unsignedRefusal(Set.of(TRAILER), "no separator"), equalTo(S3ErrorCode.MalformedTrailerError));
+	}
+
+	@Example
+	public void refusesMoreTrailersThanItKeeps() {
+		final Set<String> announced = IntStream.range(0, 20).mapToObj(i -> "x-amz-meta-" + i)
+			.collect(Collectors.toSet());
+
+		assertThat(unsignedRefusal(announced, IntStream.range(0, 9).mapToObj(i -> "x-amz-meta-" + i + ":v")
+			.toArray(String[]::new)), equalTo(S3ErrorCode.MalformedTrailerError)
+		);
+		assertThat(unsignedRefusal(announced, IntStream.range(0, 6).mapToObj(i -> "x-amz-meta-" + i + ":"
+			+ "v".repeat(3000)).toArray(String[]::new)), equalTo(S3ErrorCode.MalformedTrailerError)
+		);
 	}
 
 	@Example
 	public void refusesAnUnsignedChunkWhereSignaturesAreExpected() {
 		assertThat(refusal(new AwsChunkedInputStream(new ByteArrayInputStream(bytes("1\r\na\r\n0\r\n\r\n")),
-			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), false)),
+			Optional.of(signer("4f232c4386841ef735655705268965c44a0e4690baa4adea153f7db9fa80a0a9")), Set.of(), EXAMPLE_LENGTH)),
 			equalTo(S3ErrorCode.SignatureDoesNotMatch)
 		);
 	}

@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -37,12 +38,15 @@ import org.unigrid.hedgehog.s3.error.S3Exception;
 
 /*
    Decodes an aws-chunked body: chunks of '<hex size>[;chunk-signature=<signature>]' and data, a last chunk of size
-   zero, and then trailing headers when the client announced them. A chunk is verified as its last byte is read, so
-   a reader never sees the end of a chunk the signature refuses.
+   zero, and then the trailing headers the client announced. A chunk is verified as its last byte is read, so a
+   reader never sees the end of a chunk the signature refuses. Lines, trailers and chunk sizes are all bounded, so
+   the framing alone cannot make the server hold more than a few kilobytes.
 */
 @RequiredArgsConstructor
 final class AwsChunkedInputStream extends InputStream {
 	private static final int MAX_LINE = 4096;
+	private static final int MAX_TRAILERS = 8;
+	private static final int MAX_TRAILER_BYTES = 16 * 1024;
 	private static final Pattern HEADER = Pattern.compile("(\\p{XDigit}{1,15})(?:;chunk-signature=(\\p{XDigit}+))?"
 		+ "(?:;.*)?"
 	);
@@ -50,12 +54,15 @@ final class AwsChunkedInputStream extends InputStream {
 
 	private final InputStream input;
 	private final Optional<ChunkSigner> signer;
-	private final boolean trailing;
+	private final Set<String> announced;
+	private final long length;
 	private final Map<String, String> trailers = new LinkedHashMap<>();
 
 	private final MessageDigest digest = ChecksumAlgorithm.SHA256.digest();
+	private long declared;
 	private long remaining;
 	private String signature;
+	private int trailerBytes;
 	private boolean started;
 	private boolean ended;
 
@@ -119,6 +126,12 @@ final class AwsChunkedInputStream extends InputStream {
 		remaining = Long.parseLong(header.group(1), 16);
 		signature = header.group(2);
 
+		if (remaining > length - declared) {
+			throw malformed("A chunk runs past the decoded length the request declared");
+		}
+
+		declared += remaining;
+
 		if (remaining == 0) {
 			signer.ifPresent(chunks -> chunks.verifyChunk(digest.digest(), signature));
 			readTrailers();
@@ -126,18 +139,32 @@ final class AwsChunkedInputStream extends InputStream {
 		}
 	}
 
-	private void readTrailers() throws IOException {
-		for (Optional<String> line = readLine(); line.isPresent() && !line.get().isEmpty(); line = readLine()) {
-			final String[] trailer = line.get().split(":", 2);
+	private boolean isAllowed(final String trailer) {
+		return announced.contains(trailer) || signer.isPresent() && !announced.isEmpty()
+			&& TRAILER_SIGNATURE.equals(trailer);
+	}
 
-			if (!trailing || trailer.length != 2) {
-				throw malformed("The body ends with something other than the trailers it announced");
-			}
+	private void addTrailer(final String line) {
+		final String[] trailer = line.split(":", 2);
+		final String name = trailer[0].strip().toLowerCase(Locale.ROOT);
 
-			trailers.put(trailer[0].strip().toLowerCase(Locale.ROOT), trailer[1].strip());
+		trailerBytes += line.length();
+
+		if (trailer.length != 2 || !isAllowed(name) || trailers.containsKey(name) || trailers.size() == MAX_TRAILERS
+			|| trailerBytes > MAX_TRAILER_BYTES) {
+
+			throw new S3Exception(S3ErrorCode.MalformedTrailerError);
 		}
 
-		if (trailing) {
+		trailers.put(name, trailer[1].strip());
+	}
+
+	private void readTrailers() throws IOException {
+		for (Optional<String> line = readLine(); line.isPresent() && !line.get().isEmpty(); line = readLine()) {
+			addTrailer(line.get());
+		}
+
+		if (!announced.isEmpty()) {
 			final String canonical = trailers.entrySet().stream()
 				.filter(trailer -> !TRAILER_SIGNATURE.equals(trailer.getKey()))
 				.map(trailer -> trailer.getKey() + ":" + trailer.getValue() + "\n")
