@@ -61,6 +61,7 @@ module org.unigrid.hedgehog {
 	requires j8fu;
 	requires net.harawata.appdirs;
 	requires org.unigrid.hedgehog.common;
+	requires org.unigrid.hedgehog.s3;
 	requires org.bitcoinj.core;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;

@@ -71,6 +71,11 @@
 			<version>0.0.9-SNAPSHOT</version>
 		</dependency>
 		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-s3</artifactId>
+			<version>0.0.9-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>info.picocli</groupId>
 			<artifactId>picocli</artifactId>
 			<version>${picocli.version}</version>
