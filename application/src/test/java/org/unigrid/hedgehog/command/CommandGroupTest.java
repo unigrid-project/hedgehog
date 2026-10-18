@@ -46,7 +46,7 @@ public class CommandGroupTest {
 			"gridnode-start", "gridnode-stop", "gridnode-list", "storage-put", "storage-get", "storage-delete", "stop",
 			"ledger"
 		),
-		"cli ledger", List.of("info", "balance", "block", "transfer"),
+		"cli ledger", List.of("info", "balance", "block", "transfer", "vote"),
 		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate")
 	);
 
