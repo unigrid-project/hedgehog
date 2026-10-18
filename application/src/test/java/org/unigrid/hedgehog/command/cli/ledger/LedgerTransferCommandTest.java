@@ -19,14 +19,10 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -34,9 +30,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
-import mockit.Invocation;
-import mockit.Mock;
-import mockit.MockUp;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -53,9 +46,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -65,7 +56,6 @@ import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
-import org.unigrid.hedgehog.server.rest.RestToken;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.server.rest.entity.LedgerSubmission;
@@ -79,9 +69,6 @@ public class LedgerTransferCommandTest {
 	private static final byte[] CHAIN = HexFormat.of().parseHex(CHAIN_ID);
 	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String RECIPIENT = "ab".repeat(32);
-	private static final String NODE = "node.test";
-	private static final int PORT = 4321;
-	private static final String TOKEN = "rest-token";
 	private static final String ID = "9f".repeat(64);
 	private static final String MINIMUM_FEE = "0.00100000";
 	private static final long MINIMUM_FEE_UNITS = 100_000L;
@@ -90,11 +77,6 @@ public class LedgerTransferCommandTest {
 	private static final String AMOUNT_OPTION = "--amount";
 	private static final String FEE_OPTION = "--fee";
 	private static final String NONCE_OPTION = "--nonce";
-
-	static {
-		LedgerTransferCommandTest.class.getModule().addOpens(
-			LedgerTransferCommandTest.class.getPackageName(), MockUp.class.getModule());
-	}
 
 	private record BeforeSending(Result sent, HedgehogCli.Result cli) { }
 
@@ -133,47 +115,23 @@ public class LedgerTransferCommandTest {
 
 	private static Outcome sendOn(FileSystem fs, Response info, Response account, Response submitted,
 		String... arguments) {
+		final FakeLedgerNode node = new FakeLedgerNode(info, account, submitted);
 
-		fakeOptions();
-		final FakeNode node = new FakeNode(info, account, submitted);
 		final HedgehogCli.Result cli = runOn(fs, arguments);
 
 		return new Outcome(List.copyOf(node.requests()), node.connected(), node.closed(), cli);
 	}
 
-	private static void fakeOptions() {
-		new MockUp<RestOptions>() {
-			@Mock public String getHost() {
-				return NODE;
-			}
-
-			@Mock public int getPort() {
-				return PORT;
-			}
-		};
-
-		new MockUp<RestToken>() {
-			@Mock public String resolve() {
-				return TOKEN;
-			}
-		};
-	}
-
-	private static void readBackItsEntity(Response canned) {
-		new MockUp<Response>(canned.getClass()) {
-			@Mock public Object readEntity(Invocation invocation, Class<?> type) {
-				return invocation.<Response>getInvokedInstance().getEntity();
-			}
-
-			@Mock public Object readEntity(Invocation invocation, GenericType<?> type) {
-				return invocation.<Response>getInvokedInstance().getEntity();
-			}
-		};
-	}
-
 	private static Response info(String minimumFee) {
 		return Response.ok(new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000", 0L,
 			List.of("33".repeat(32)), minimumFee, 0, List.of(), List.of())).build();
+	}
+
+	private static Response noLedger() {
+		final LedgerInfo info = new LedgerInfo(false, false, null, false, null, 0, null, null, null, null,
+			null, 0, List.of(), List.of());
+
+		return Response.ok(info).build();
 	}
 
 	private static Response account(long nonce) {
@@ -281,6 +239,24 @@ public class LedgerTransferCommandTest {
 			assertThat(outcome.cli().exitCode(), equalTo(2));
 			assertThat(outcome.cli().out(), emptyString());
 			assertThat(outcome.cli().err(), containsString("No minimum fee is set on the node; pass --fee"));
+			assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
+				equalTo(false));
+			outcome.cli().assertNoStackTrace();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesWhenTheNodeHasNoLedger() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			final Outcome outcome = sendOn(fs, noLedger(), account(0), accepted(), KEY_OPTION, KEY_FILE,
+				TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0");
+
+			assertThat(outcome.cli().exitCode(), equalTo(1));
+			assertThat(outcome.cli().out(), emptyString());
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of("The ledger is not running")));
 			assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
 				equalTo(false));
 			outcome.cli().assertNoStackTrace();
@@ -410,62 +386,6 @@ public class LedgerTransferCommandTest {
 			assertThat(outcome.cli().exitCode(), equalTo(0));
 			assertThat(transferIn(outcome).recipient(),
 				equalTo(AccountKey.fromHex(typed.toLowerCase(Locale.ROOT))));
-		}
-	}
-
-	private static final class FakeNode extends MockUp<RestClient> {
-		private final Response info;
-		private final Response account;
-		private final Response submitted;
-		private final List<Request> requests = new ArrayList<>();
-		private boolean connected;
-		private boolean closed;
-
-		private FakeNode(Response info, Response account, Response submitted) {
-			this.info = info;
-			this.account = account;
-			this.submitted = submitted;
-			readBackItsEntity(info);
-			readBackItsEntity(account);
-			readBackItsEntity(submitted);
-		}
-
-		@Mock public void $init(String host, int port, boolean secure, String token, Duration readTimeout) {
-			connected = true;
-		}
-
-		@Mock public Response get(String location) {
-			return answer(HttpMethod.GET, location, null);
-		}
-
-		@Mock public Response post(String location, Entity<?> entity) {
-			return answer(HttpMethod.POST, location, entity);
-		}
-
-		@Mock public void close() {
-			closed = true;
-		}
-
-		private Response answer(String method, String location, Entity<?> entity) {
-			requests.add(new Request(method, location, Optional.ofNullable(entity), Optional.empty()));
-
-			return switch (location) {
-				case "/ledger" -> info;
-				case "/ledger/transaction" -> submitted;
-				default -> account;
-			};
-		}
-
-		private List<Request> requests() {
-			return requests;
-		}
-
-		private boolean connected() {
-			return connected;
-		}
-
-		private boolean closed() {
-			return closed;
 		}
 	}
 }

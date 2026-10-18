@@ -20,11 +20,9 @@ package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
-import java.util.HexFormat;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ed25519;
-import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
@@ -76,7 +74,7 @@ public class LedgerTransferCommand implements Callable<Integer> {
 
 	private int send(LedgerClient ledger, Draft draft) throws LedgerClient.Refused {
 		final LedgerInfo info = ledger.info();
-		final byte[] chainId = chainId(info);
+		final byte[] chainId = LedgerClient.chainId(info);
 		final long feeUnits = draft.fee() != null ? draft.fee() : minimumFee(info);
 		final long nonceUnits = draft.nonce() != null ? draft.nonce()
 			: ledger.account(LedgerText.text(Ed25519.publicKey(draft.seed()))).nonce();
@@ -142,14 +140,5 @@ public class LedgerTransferCommand implements Callable<Integer> {
 
 	private ParameterException refused(String reason) {
 		return new ParameterException(spec.commandLine(), reason);
-	}
-
-	/* A node without a ledger reports no chain, and nothing can be signed for it */
-	private static byte[] chainId(LedgerInfo info) throws LedgerClient.Refused {
-		if (info.chainId() == null) {
-			throw new LedgerClient.Refused(LedgerDriver.NOT_RUNNING);
-		}
-
-		return HexFormat.of().parseHex(info.chainId());
 	}
 }

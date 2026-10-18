@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
@@ -106,6 +107,15 @@ final class LedgerClient implements AutoCloseable {
 	private static int failed(final String reason) {
 		System.err.println(reason);
 		return 1;
+	}
+
+	/* A node without a ledger reports no chain, and nothing can be signed for it */
+	static byte[] chainId(final LedgerInfo info) throws Refused {
+		if (info.chainId() == null) {
+			throw new Refused(LedgerDriver.NOT_RUNNING);
+		}
+
+		return HEX.parseHex(info.chainId());
 	}
 
 	static int print(final Question<?> question) {
