@@ -42,4 +42,10 @@ public class S3Options {
 			+ "addressing when unset)."
 	)
 	private static String domain;
+
+	@Getter @Option(names = "--s3plain", scope = CommandLine.ScopeType.INHERIT,
+		description = "Serve S3 over plain HTTP instead of TLS, for local tools that cannot trust a self-signed "
+			+ "certificate."
+	)
+	private static boolean plain;
 }

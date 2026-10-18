@@ -40,7 +40,7 @@ public class S3Gateway {
 
 	static S3ServerConfig config() {
 		return S3ServerConfig.builder().host(S3Options.getHost()).port(S3Options.getPort())
-			.domain(S3Options.getDomain()).build();
+			.domain(S3Options.getDomain()).tls(!S3Options.isPlain()).build();
 	}
 
 	/* Placeholder credentials until access keys can be created */
