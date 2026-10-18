@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -80,11 +81,13 @@ public class LedgerVoteCommand implements Callable<Integer> {
 	private int send(LedgerClient ledger, Draft draft) throws LedgerClient.Refused {
 		final LedgerInfo info = ledger.info();
 		final byte[] chainId = LedgerClient.chainId(info, draft.chain());
-		refuseWhenNotAllowed(draft, info);
-		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), info.round(), chainId);
+		final long round = LedgerClient.round(info);
+
+		refuseWhenNotAllowed(draft, LedgerClient.validators(info));
+		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), round, chainId);
 
 		LedgerClient.announce(chainId, "vote to %s %s in round %d".formatted(
-			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), info.round()));
+			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), round));
 		System.out.println(Json.parse(ledger.submit(vote.encode())));
 		return 0;
 	}
@@ -112,14 +115,14 @@ public class LedgerVoteCommand implements Callable<Integer> {
 		}
 	}
 
-	private void refuseWhenNotAllowed(Draft draft, LedgerInfo info) {
+	private void refuseWhenNotAllowed(Draft draft, List<String> validators) {
 		final String voter = Ed25519.publicKey(draft.seed()).toString();
 
-		if (!info.validators().contains(voter)) {
+		if (!validators.contains(voter)) {
 			throw refused("This key is not a validator of the chain");
 		}
 
-		final boolean listed = info.validators().contains(draft.candidate().toString());
+		final boolean listed = validators.contains(draft.candidate().toString());
 
 		if (draft.action() == Vote.Action.ADD && listed) {
 			throw refused(draft.candidate() + " is a validator already");

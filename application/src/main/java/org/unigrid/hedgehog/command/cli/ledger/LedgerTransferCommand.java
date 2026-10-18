@@ -85,7 +85,7 @@ public class LedgerTransferCommand implements Callable<Integer> {
 		final byte[] chainId = LedgerClient.chainId(info, draft.chain());
 		final long feeUnits = draft.fee() != null ? draft.fee() : minimumFee(info);
 		final long nonceUnits = draft.nonce() != null ? draft.nonce()
-			: ledger.account(LedgerText.text(Ed25519.publicKey(draft.seed()))).nonce();
+			: LedgerClient.nonce(ledger.account(LedgerText.text(Ed25519.publicKey(draft.seed()))));
 		final Transfer transfer = Transfer.signed(draft.seed(), draft.recipient(), draft.amount(), feeUnits,
 			nonceUnits, chainId);
 

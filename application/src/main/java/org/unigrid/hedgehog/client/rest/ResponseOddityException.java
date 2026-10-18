@@ -32,6 +32,8 @@ public class ResponseOddityException extends Exception {
 	/* What the node sent along with the status; a ledger node explains there why it refused a request */
 	@Getter private final String body;
 
+	@Getter private final int statusCode;
+
 	public ResponseOddityException(StatusType status) {
 		this(status, "");
 	}
@@ -43,6 +45,7 @@ public class ResponseOddityException extends Exception {
 		);
 
 		this.body = body;
+		this.statusCode = status.getStatusCode();
 	}
 
 	public static ResponseOddityException of(Response response) {

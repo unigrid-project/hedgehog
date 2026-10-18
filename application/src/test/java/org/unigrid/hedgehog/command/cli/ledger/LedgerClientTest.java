@@ -60,6 +60,7 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 public class LedgerClientTest {
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final String ID = "9f".repeat(64);
+	private static final String UNREADABLE = "The node answered something this command cannot read: ";
 
 	private static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
 		"12.50000000", 0L, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
@@ -210,5 +211,55 @@ public class LedgerClientTest {
 
 		assertThat(thrown.get(), sameInstance(unreadable));
 		assertThat(result.connection(), equalTo(Optional.empty()));
+	}
+
+	@Provide
+	public Arbitrary<String> notChainIds() {
+		return Arbitraries.oneOf(Arbitraries.strings().ofMaxLength(200).filter(text -> !text.matches("[0-9a-f]{128}")),
+			Arbitraries.strings().withChars("0123456789abcdef").ofMaxLength(200).filter(text -> text.length() != 128));
+	}
+
+	@Example
+	public void saysInOneLineThatTheStatusOfTheNodeIsNoStatus() {
+		for (final Asking asking : List.<Asking>of(LedgerClient::info, ledger -> ledger.account("a"),
+			ledger -> ledger.block(1), ledger -> ledger.submit(new byte[] { 4 }))) {
+
+			assertThat(refusalOf(answered(Response.status(599).entity("<html>").build(), asking)),
+				equalTo(UNREADABLE + "status 599"));
+		}
+	}
+
+	@Property(tries = 50)
+	public void refusesAChainIdThatIsNoHexOfAChainId(@ForAll("notChainIds") String chainId) {
+		final LedgerInfo odd = new LedgerInfo(true, false, "", true, chainId, 3, "22".repeat(64), "12.50000000", 0L,
+			List.of(), "0.00100000", 0, List.of(), List.of());
+
+		assertThat(assertThrows(LedgerClient.Refused.class,
+			() -> LedgerClient.chainId(odd, Optional.empty())).getMessage(),
+			equalTo(UNREADABLE + "the chain id is not 128 hex characters"));
+	}
+
+	@Example
+	public void refusesAnAnswerThatLacksWhatTheCommandNeeds() {
+		final LedgerInfo noRound = new LedgerInfo(true, false, "", true, "11".repeat(64), 3, "22".repeat(64),
+			"12.50000000", null, List.of(), "0.00100000", 0, List.of(), List.of());
+		final LedgerInfo noValidators = new LedgerInfo(true, false, "", true, "11".repeat(64), 3, "22".repeat(64),
+			"12.50000000", 0L, null, "0.00100000", 0, List.of(), List.of());
+		final LedgerAccount noNonce = new LedgerAccount("ab".repeat(32), "account", "6.99900000", null,
+			"10.00000000", null, null);
+
+		assertThat(assertThrows(LedgerClient.Refused.class, () -> LedgerClient.round(noRound)).getMessage(),
+			equalTo(UNREADABLE + "no round"));
+		assertThat(assertThrows(LedgerClient.Refused.class,
+			() -> LedgerClient.validators(noValidators)).getMessage(), equalTo(UNREADABLE + "no validators"));
+		assertThat(assertThrows(LedgerClient.Refused.class, () -> LedgerClient.nonce(noNonce)).getMessage(),
+			equalTo(UNREADABLE + "no nonce"));
+	}
+
+	@Example
+	public void takesWhatTheNodeSaysWhenItIsThere() throws LedgerClient.Refused {
+		assertThat(LedgerClient.round(INFO), equalTo(0L));
+		assertThat(LedgerClient.validators(INFO), equalTo(INFO.validators()));
+		assertThat(LedgerClient.nonce(ACCOUNT), equalTo(1L));
 	}
 }

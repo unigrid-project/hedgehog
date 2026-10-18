@@ -36,6 +36,7 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
@@ -52,6 +53,7 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 final class LedgerClient implements AutoCloseable {
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final HexFormat HEX = HexFormat.of();
+	private static final String UNREADABLE = "The node answered something this command cannot read: ";
 
 	@FunctionalInterface
 	interface Session {
@@ -74,7 +76,16 @@ final class LedgerClient implements AutoCloseable {
 		}
 
 		private Refused(final ResponseOddityException oddity) {
-			this(errorIn(oddity.getBody()).orElse(oddity.getMessage()));
+			this(errorIn(oddity.getBody()).orElseGet(() -> describe(oddity)));
+		}
+
+		static Refused unreadable(final String what) {
+			return new Refused(UNREADABLE + what);
+		}
+
+		private static String describe(final ResponseOddityException oddity) {
+			return Status.fromStatusCode(oddity.getStatusCode()) == null
+				? UNREADABLE + "status " + oddity.getStatusCode() : oddity.getMessage();
 		}
 
 		private static Optional<String> errorIn(final String body) {
@@ -117,7 +128,7 @@ final class LedgerClient implements AutoCloseable {
 			throw new Refused(LedgerDriver.NOT_RUNNING);
 		}
 
-		final byte[] chainId = HEX.parseHex(info.chainId());
+		final byte[] chainId = parsedChainId(info.chainId());
 
 		if (expected.isPresent() && !Arrays.equals(expected.get(), chainId)) {
 			throw new Refused("The node is on chain " + HEX.formatHex(chainId) + ", not on "
@@ -125,6 +136,41 @@ final class LedgerClient implements AutoCloseable {
 		}
 
 		return chainId;
+	}
+
+	private static byte[] parsedChainId(final String hex) throws Refused {
+		try {
+			final byte[] chainId = HEX.parseHex(hex);
+
+			if (chainId.length == Digests.HASH_SIZE) {
+				return chainId;
+			}
+		} catch (IllegalArgumentException ex) {
+			/* Refused below, in the same words as a wrong length */
+		}
+
+		throw Refused.unreadable("the chain id is not " + 2 * Digests.HASH_SIZE + " hex characters");
+	}
+
+	/* Whoever answers for the node may leave out what a command needs, and then there is nothing to sign */
+	static long round(final LedgerInfo info) throws Refused {
+		return required(info.round(), "round");
+	}
+
+	static List<String> validators(final LedgerInfo info) throws Refused {
+		return required(info.validators(), "validators");
+	}
+
+	static long nonce(final LedgerAccount account) throws Refused {
+		return required(account.nonce(), "nonce");
+	}
+
+	private static <T> T required(final T value, final String name) throws Refused {
+		if (value == null) {
+			throw Refused.unreadable("no " + name);
+		}
+
+		return value;
 	}
 
 	/* What was signed is told before the node answers, on the error stream so that the output stays the answer of
@@ -174,7 +220,7 @@ final class LedgerClient implements AutoCloseable {
 		try {
 			final Response response = sending.send();
 
-			if (!List.of(success).contains(Status.fromStatusCode(response.getStatus()))) {
+			if (Arrays.stream(success).noneMatch(status -> status.getStatusCode() == response.getStatus())) {
 				throw ResponseOddityException.of(response);
 			}
 

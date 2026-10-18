@@ -122,7 +122,7 @@ public class RestClient implements AutoCloseable {
 			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
 		);
 
-		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
+		if (status.stream().noneMatch(known -> known.getStatusCode() == response.getStatus())) {
 			throw ResponseOddityException.of(response);
 		}
 	}

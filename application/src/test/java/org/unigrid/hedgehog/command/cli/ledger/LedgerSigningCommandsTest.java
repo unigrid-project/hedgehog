@@ -47,10 +47,11 @@ import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LegacyWallet;
 import picocli.CommandLine;
 
-/* A node that cannot prove who it is must not be the one to say what is signed: where the node is not on this
-   machine the chain is named by the person, and what is signed is shown before the node answers */
+/* What transfer, vote and claim have in common: a node that cannot prove who it is must not be the one to say what
+   is signed, so where the node is not on this machine the chain is named by the person and what is signed is shown
+   before the node answers, and whatever a node answers, the command ends with a line and no stack trace */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
-public class LedgerChainRequirementTest {
+public class LedgerSigningCommandsTest {
 	private static final String CHAIN_ID = "11".repeat(64);
 	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String ACCOUNT = "ab".repeat(32);
@@ -58,6 +59,7 @@ public class LedgerChainRequirementTest {
 	private static final LegacyWallet WALLET = new LegacyWallet(7, true);
 	private static final String REMOTE = "192.0.2.7";
 	private static final String REASON = "Balance does not cover the transfer";
+	private static final String UNREADABLE = "The node answered something this command cannot read: ";
 
 	private record Command(List<String> arguments, String signed) { }
 
@@ -86,13 +88,17 @@ public class LedgerChainRequirementTest {
 		return List.of(transfer(), vote(), claim());
 	}
 
-	private static Response info() {
-		return Response.ok(new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000", 7L,
-			List.of(Ed25519.publicKey(SEED).toString()), "0.00100000", 0, List.of(), List.of())).build();
+	private static Response info(final String chainId, final Long round, final List<String> validators) {
+		return Response.ok(new LedgerInfo(true, false, "", true, chainId, 3, "22".repeat(64), "12.50000000", round,
+			validators, "0.00100000", 0, List.of(), List.of())).build();
 	}
 
-	private static Response account() {
-		return Response.ok(new LedgerAccount(ACCOUNT, "account", "10.00000000", 0L, "10.00000000", null, null))
+	private static Response info() {
+		return info(CHAIN_ID, 7L, List.of(Ed25519.publicKey(SEED).toString()));
+	}
+
+	private static Response account(final Long nonce) {
+		return Response.ok(new LedgerAccount(ACCOUNT, "account", "10.00000000", nonce, "10.00000000", null, null))
 			.build();
 	}
 
@@ -105,13 +111,13 @@ public class LedgerChainRequirementTest {
 	}
 
 	@SneakyThrows
-	private static Outcome run(final String host, final Response submitted, final Command command,
-		final String... more) {
+	private static Outcome run(final String host, final Response info, final Response account,
+		final Response submitted, final Command command, final String... more) {
 
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.writeSeed(fs, SEED);
 
-			final FakeLedgerNode node = new FakeLedgerNode(host, info(), account(), submitted);
+			final FakeLedgerNode node = new FakeLedgerNode(host, info, account, submitted);
 			final HedgehogCli.Result cli = HedgehogCli.run(
 				() -> new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath),
 				Stream.of(Stream.of("cli", "ledger"), command.arguments().stream(), Stream.of(more))
@@ -121,8 +127,28 @@ public class LedgerChainRequirementTest {
 		}
 	}
 
+	private static Outcome run(final String host, final Response info, final Response submitted,
+		final Command command) {
+
+		return run(host, info, account(0L), submitted, command);
+	}
+
+	private static Outcome run(final String host, final Response submitted, final Command command,
+		final String... more) {
+
+		return run(host, info(), account(0L), submitted, command, more);
+	}
+
 	private static long posts(final Outcome outcome) {
 		return outcome.node().requests().stream().filter(request -> HttpMethod.POST.equals(request.method())).count();
+	}
+
+	private static void assertEndsWithOneLine(final Outcome outcome, final String line) {
+		assertThat(outcome.cli().exitCode(), equalTo(1));
+		assertThat(outcome.cli().out(), emptyString());
+		assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(line)));
+		assertThat(posts(outcome), equalTo(0L));
+		outcome.cli().assertNoStackTrace();
 	}
 
 	@Example
@@ -182,5 +208,37 @@ public class LedgerChainRequirementTest {
 				assertThat(posts(outcome), equalTo(1L));
 			}
 		}
+	}
+
+	@Example
+	public void saysInOneLineThatAStatusOfTheNodeIsNoStatus() {
+		for (final Command command : commands()) {
+			assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, Response.status(599).entity("<html>").build(),
+				accepted(), command), UNREADABLE + "status 599");
+		}
+	}
+
+	@Example
+	public void saysInOneLineThatTheChainIdOfTheNodeIsNoChainId() {
+		for (final Command command : commands()) {
+			for (final String odd : List.of("zz", "1", "11".repeat(63), "11".repeat(65))) {
+				assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(odd, 7L, List.of()), accepted(), command),
+					UNREADABLE + "the chain id is not 128 hex characters");
+			}
+		}
+	}
+
+	@Example
+	public void saysInOneLineThatTheNodeLeftOutTheRoundTheValidatorsOrTheNonce() {
+		final List<String> voter = List.of(Ed25519.publicKey(SEED).toString());
+		final Command withoutNonce = new Command(
+			transfer().arguments().subList(0, transfer().arguments().size() - 2), "");
+
+		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(CHAIN_ID, null, voter), accepted(), vote()),
+			UNREADABLE + "no round");
+		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(CHAIN_ID, 7L, null), accepted(), vote()),
+			UNREADABLE + "no validators");
+		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(), account(null), accepted(), withoutNonce),
+			UNREADABLE + "no nonce");
 	}
 }

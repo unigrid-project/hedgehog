@@ -22,6 +22,9 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,7 +129,10 @@ final class FakeLedgerNode extends MockUp<RestClient> {
 	private static void readBackItsEntity(Response canned) {
 		new MockUp<Response>(canned.getClass()) {
 			@Mock public Object readEntity(Invocation invocation, Class<?> type) {
-				return invocation.<Response>getInvokedInstance().getEntity();
+				final Object entity = invocation.<Response>getInvokedInstance().getEntity();
+
+				return type == InputStream.class
+					? new ByteArrayInputStream(entity.toString().getBytes(StandardCharsets.UTF_8)) : entity;
 			}
 
 			@Mock public Object readEntity(Invocation invocation, GenericType<?> type) {
