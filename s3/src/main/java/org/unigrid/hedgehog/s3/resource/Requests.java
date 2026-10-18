@@ -57,10 +57,12 @@ final class Requests {
 		return clock.instant().truncatedTo(ChronoUnit.MILLIS);
 	}
 
-	static void key(final String key) {
+	static String key(final String key) {
 		if (!ObjectKeys.valid(key)) {
 			throw new S3Exception(S3ErrorCode.KeyTooLongError);
 		}
+
+		return key;
 	}
 
 	/* Holds when the conditional headers of a write accept the latest version, and refuses the write otherwise.

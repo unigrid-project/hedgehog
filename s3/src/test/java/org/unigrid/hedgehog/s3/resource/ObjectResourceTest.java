@@ -66,7 +66,7 @@ import software.amazon.awssdk.services.s3.model.StorageClass;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 public class ObjectResourceTest {
-	private static final String BUCKET = "photos";
+	static final String BUCKET = "photos";
 	private static final byte[] DATA = new byte[70_000];
 	private static final long TOO_LARGE = (5L << 30) + 1;
 	private static final int TIMEOUT_MILLIS = 10_000;

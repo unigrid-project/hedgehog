@@ -20,20 +20,44 @@ package org.unigrid.hedgehog.s3.resource;
 
 import jakarta.ws.rs.core.HttpHeaders;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Date;
 import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.index.Namespace;
+import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 final class Versions {
 	static final String VERSION_ID = "versionId";
 
+	/* What a delete did: the version it was asked to remove, or the delete marker it left in place of the key */
+	record Deleted(String versionId, boolean deleteMarker) {
+	}
+
 	private Versions() {
 		/* Static helpers only */
+	}
+
+	/* Deleting what is not there succeeds, as it does in S3 */
+	static Deleted delete(final Namespace namespace, final Instant at, final String bucket, final String key,
+		final String versionId) throws IOException, BlobStoreException, NamespaceException {
+
+		if (Objects.isNull(versionId)) {
+			final Optional<ObjectVersion> marker = namespace.delete(bucket, key, at);
+			return new Deleted(marker.map(ObjectVersion::versionId).orElse(null), marker.isPresent());
+		}
+
+		final Optional<ObjectVersion> removed = namespace.remove(bucket, key, versionId, version -> true);
+
+		if (removed.isEmpty()) {
+			Requests.bucket(namespace, bucket);
+		}
+
+		return new Deleted(versionId, removed.map(ObjectVersion::deleteMarker).orElse(false));
 	}
 
 	/* The version named, or the latest one without a version id, which may be a delete marker */

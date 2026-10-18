@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.s3.resource;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -34,6 +35,11 @@ import java.time.Clock;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.entity.CreateBucketConfiguration;
+import org.unigrid.hedgehog.s3.entity.Delete;
+import org.unigrid.hedgehog.s3.entity.DeleteError;
+import org.unigrid.hedgehog.s3.entity.DeleteObject;
+import org.unigrid.hedgehog.s3.entity.DeleteResult;
+import org.unigrid.hedgehog.s3.entity.DeletedObject;
 import org.unigrid.hedgehog.s3.entity.LocationConstraint;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
@@ -51,6 +57,7 @@ public class BucketResource {
 	private static final String OBJECT_LOCK = "x-amz-bucket-object-lock-enabled";
 	private static final String REGION = "x-amz-bucket-region";
 	private static final String DEFAULT_REGION = "us-east-1";
+	private static final int MAX_DELETE = 1000;
 
 	private final Namespace namespace;
 	private final Clock clock;
@@ -102,5 +109,49 @@ public class BucketResource {
 		Requests.subresource(uri, Subresource.NONE);
 		namespace.deleteBucket(name);
 		return Response.noContent().build();
+	}
+
+	@POST
+	public Response deleteObjects(@PathParam("bucket") final String name, @Context final UriInfo uri,
+		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
+		MalformedXmlException {
+
+		Requests.subresource(uri, Subresource.DELETE);
+		Requests.bucket(namespace, name);
+
+		final Delete delete = Requests.xml(Delete.class, request).filter(BucketResource::deletable)
+			.orElseThrow(() -> new S3Exception(S3ErrorCode.MalformedXML));
+		final DeleteResult result = new DeleteResult();
+
+		for (DeleteObject object : delete.getObjects()) {
+			try {
+				result.getDeleted().add(deleteObject(name, object));
+			} catch (S3Exception ex) {
+				result.getErrors().add(new DeleteError(object.getKey(), object.getVersionId(),
+					ex.getCode().name(), ex.getMessage()
+				));
+			}
+		}
+
+		if (Boolean.TRUE.equals(delete.getQuiet())) {
+			result.getDeleted().clear();
+		}
+
+		return Responses.xml(result);
+	}
+
+	private DeletedObject deleteObject(final String bucket, final DeleteObject object) throws IOException,
+		BlobStoreException, NamespaceException {
+
+		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket,
+			Requests.key(object.getKey()), object.getVersionId());
+
+		return deleted.deleteMarker() ? new DeletedObject(object.getKey(), object.getVersionId(), true,
+			deleted.versionId()) : new DeletedObject(object.getKey(), object.getVersionId(), null, null);
+	}
+
+	private static boolean deletable(final Delete delete) {
+		return !delete.getObjects().isEmpty() && delete.getObjects().size() <= MAX_DELETE
+			&& delete.getObjects().stream().allMatch(object -> Objects.nonNull(object.getKey()));
 	}
 }

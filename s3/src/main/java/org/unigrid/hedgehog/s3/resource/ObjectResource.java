@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.s3.resource;
 
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HEAD;
 import jakarta.ws.rs.PUT;
@@ -34,6 +35,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
@@ -87,6 +89,24 @@ public class ObjectResource {
 
 		Requests.subresource(uri, Subresource.NONE);
 		return read(bucket, key, uri.getQueryParameters(), headers, false);
+	}
+
+	@DELETE
+	public Response delete(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
+		@Context final UriInfo uri) throws IOException, BlobStoreException, NamespaceException {
+
+		Requests.subresource(uri, Subresource.NONE);
+
+		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, key,
+			uri.getQueryParameters().getFirst(Versions.VERSION_ID));
+		final Response.ResponseBuilder response = Response.noContent();
+
+		if (deleted.deleteMarker()) {
+			response.header(Responses.DELETE_MARKER, true);
+		}
+
+		return (Objects.isNull(deleted.versionId()) ? response
+			: response.header(Responses.VERSION_ID, deleted.versionId())).build();
 	}
 
 	private Response putObject(final String bucket, final String key, final HttpHeaders headers,
