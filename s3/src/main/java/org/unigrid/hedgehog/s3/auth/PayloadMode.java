@@ -58,4 +58,12 @@ enum PayloadMode {
 	boolean isChunked() {
 		return this != SHA256 && this != UNSIGNED;
 	}
+
+	boolean isSignedChunks() {
+		return this == SIGNED_CHUNKS || this == SIGNED_CHUNKS_WITH_TRAILER;
+	}
+
+	boolean hasTrailer() {
+		return this == SIGNED_CHUNKS_WITH_TRAILER || this == UNSIGNED_CHUNKS_WITH_TRAILER;
+	}
 }

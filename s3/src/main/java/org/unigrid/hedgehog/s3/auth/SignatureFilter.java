@@ -27,6 +27,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import java.net.URI;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -42,6 +43,9 @@ import org.unigrid.hedgehog.s3.spi.CredentialStore;
 @Priority(Priorities.AUTHENTICATION)
 @RequiredArgsConstructor
 public class SignatureFilter implements ContainerRequestFilter {
+	public static final String DECODED_LENGTH = "x-amz-decoded-content-length";
+	private static final String AWS_CHUNKED = "aws-chunked";
+
 	private final CredentialStore credentials;
 	private final Clock clock;
 
@@ -101,21 +105,50 @@ public class SignatureFilter implements ContainerRequestFilter {
 			throw new S3Exception(S3ErrorCode.SignatureDoesNotMatch);
 		}
 
-		payload(request, PayloadMode.of(authorization.payloadHash()), authorization).attach(request);
+		payload(request, PayloadMode.of(authorization.payloadHash()), authorization, signingKey).attach(request);
 	}
 
-	private Payload payload(final ContainerRequestContext request, final PayloadMode mode,
-		final Authorization authorization) {
+	private static Payload payload(final ContainerRequestContext request, final PayloadMode mode,
+		final Authorization authorization, final byte[] signingKey) {
 
-		if (mode.isChunked()) {
-			throw new S3Exception(S3ErrorCode.NotImplemented, "Chunked uploads are not supported yet");
+		if (!mode.isChunked()) {
+			final Optional<String> sha256 = mode == PayloadMode.SHA256 ? Optional.of(authorization.payloadHash())
+				: Optional.empty();
+
+			return Payload.create(request::getHeaderString, request.getEntityStream(),
+				length(request.getHeaderString(HttpHeaders.CONTENT_LENGTH)), sha256, name -> Optional.empty()
+			);
 		}
 
-		final Optional<String> sha256 = mode == PayloadMode.SHA256 ? Optional.of(authorization.payloadHash())
+		final long length = length(request.getHeaderString(DECODED_LENGTH))
+			.orElseThrow(() -> new S3Exception(S3ErrorCode.MissingContentLength));
+		final Optional<ChunkSigner> signer = mode.isSignedChunks() ? Optional.of(new ChunkSigner(signingKey,
+			authorization.timestamp(), authorization.credential().scope(), authorization.signature()))
 			: Optional.empty();
-
-		return Payload.create(request::getHeaderString, request.getEntityStream(),
-			length(request.getHeaderString(HttpHeaders.CONTENT_LENGTH)), sha256, name -> Optional.empty()
+		final AwsChunkedInputStream body = new AwsChunkedInputStream(request.getEntityStream(), signer,
+			mode.hasTrailer()
 		);
+
+		unchunk(request, length);
+		return Payload.create(request::getHeaderString, body, OptionalLong.of(length), Optional.empty(),
+			body::trailer
+		);
+	}
+
+	/* Resources see the body as it was before the client framed it, and store its other encodings with it */
+	private static void unchunk(final ContainerRequestContext request, final long length) {
+		final String declared = Optional.ofNullable(request.getHeaderString(HttpHeaders.CONTENT_ENCODING))
+			.orElse("");
+		final String encodings = Arrays.stream(declared.split(",")).map(String::strip)
+			.filter(encoding -> !encoding.isEmpty() && !AWS_CHUNKED.equalsIgnoreCase(encoding))
+			.collect(Collectors.joining(","));
+
+		request.getHeaders().putSingle(HttpHeaders.CONTENT_LENGTH, Long.toString(length));
+
+		if (encodings.isEmpty()) {
+			request.getHeaders().remove(HttpHeaders.CONTENT_ENCODING);
+		} else {
+			request.getHeaders().putSingle(HttpHeaders.CONTENT_ENCODING, encodings);
+		}
 	}
 }

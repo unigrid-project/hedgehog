@@ -35,9 +35,12 @@ import org.unigrid.hedgehog.s3.spi.CredentialStore;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.SdkHttpClient;
+import software.amazon.awssdk.http.SdkHttpConfigurationOption;
 import software.amazon.awssdk.http.SdkHttpMethod;
 import software.amazon.awssdk.http.SdkHttpRequest;
 import software.amazon.awssdk.http.apache5.Apache5HttpClient;
+import software.amazon.awssdk.utils.AttributeMap;
 import software.amazon.awssdk.profiles.ProfileFile;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -73,8 +76,27 @@ public final class S3Fixture {
 	}
 
 	public static S3Server start(final int port, final Clock clock, final Class<?>... resources) throws Exception {
-		return S3Server.start(config(port), S3Server.resources(config(port), new MemoryBlobStore(), credentials(),
-			clock).registerClasses(resources)
+		return start(config(port), clock, resources);
+	}
+
+	public static S3Server start(final S3ServerConfig config, final Clock clock, final Class<?>... resources)
+		throws Exception {
+
+		return S3Server.start(config, S3Server.resources(config, new MemoryBlobStore(), credentials(), clock)
+			.registerClasses(resources)
+		);
+	}
+
+	public static S3Server startTls(final int port, final Class<?>... resources) throws Exception {
+		return start(S3ServerConfig.builder().host(HOST).port(port).domain(DOMAIN).build(), Clock.systemUTC(),
+			resources
+		);
+	}
+
+	/* The server certificate is self-signed, which only a client trusting every certificate accepts */
+	public static SdkHttpClient trustingHttpClient() {
+		return Apache5HttpClient.builder().buildWithDefaults(AttributeMap.builder()
+			.put(SdkHttpConfigurationOption.TRUST_ALL_CERTIFICATES, true).build()
 		);
 	}
 
