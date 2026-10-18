@@ -280,6 +280,11 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	}
 
 	@AfterTry
+	public void answerWhatIsStillWaiting() {
+		unanswered.forEach(future -> future.complete(Optional.empty()));
+	}
+
+	@AfterTry
 	public void closeTheChains() {
 		LedgerResource.setSubmitTimeout(LedgerResource.SUBMIT_TIMEOUT);
 		chains.forEach(Chain::close);
@@ -824,26 +829,32 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		}
 	}
 
+	/* A submit that was answered 504 is still queued on the driver, so it keeps its wait until the ledger answers it */
 	@Example
-	public void shouldAnswerGatewayTimeoutWhenTheLedgerDoesNotAnswerAndGoOnTakingSubmits() {
+	public void shouldAnswerGatewayTimeoutAndKeepTheWaitOfTheSubmitUntilTheLedgerAnswers() {
 		answering = neverAnswering();
 		LedgerResource.setSubmitTimeout(Duration.ofMillis(50));
 
 		final long started = System.nanoTime();
 
-		for (int n = 0; n <= WAITING_AT_MOST; n++) {
+		for (int n = 0; n < WAITING_AT_MOST; n++) {
 			final long nonce = n;
-			final ResponseOddityException refused = refusedBy(() -> submit(transfer(nonce)));
+			final ResponseOddityException timedOut = refusedBy(() -> submit(transfer(nonce)));
 
-			assertThat(refused.getMessage(), startsWith("504 "));
-			assertThat(refused.getBody(), equalTo(errorBody(
+			assertThat(timedOut.getMessage(), startsWith("504 "));
+			assertThat(timedOut.getBody(), equalTo(errorBody(
 				"No answer from the ledger in time, it may still take the transaction")));
 		}
 
+		final ResponseOddityException turnedAway = refusedBy(() -> submit(transfer(WAITING_AT_MOST)));
+
 		assertThat(Duration.ofNanos(System.nanoTime() - started), lessThan(PATIENCE));
+		assertThat(turnedAway.getMessage(), startsWith("429 "));
+		assertThat(submitted.size(), equalTo(WAITING_AT_MOST));
 		assertThat(unanswered.stream().filter(CompletableFuture::isCancelled).count(), equalTo(0L));
 
+		unanswered.get(0).complete(Optional.empty());
 		answering = answeringWith(Optional.empty());
-		assertThat(submit(transfer(0)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+		assertThat(submit(transfer(WAITING_AT_MOST)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
 	}
 }

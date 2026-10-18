@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -77,7 +78,8 @@ public class LedgerResource extends CDIBridgeResource {
 	private static final String NO_ANSWER = "The ledger could not answer";
 
 	/* A request is served by its own resource object, so what the requests share is held by the class. Every
-	   submit that waits holds a thread of the server, which has no other limit on them. */
+	   submit that waits holds a thread of the server, which has no other limit on them, and every one that the
+	   ledger has not answered is queued on its driver. */
 	private static final Semaphore WAITING = new Semaphore(MAX_SUBMITS_IN_FLIGHT);
 	private static volatile Duration submitTimeout = SUBMIT_TIMEOUT;
 
@@ -163,9 +165,10 @@ public class LedgerResource extends CDIBridgeResource {
 			return error(Status.TOO_MANY_REQUESTS, "Too many transactions wait for the ledger");
 		}
 
+		final CompletableFuture<Optional<String>> future = submitHoldingTheWait(transaction);
+
 		try {
-			return verdict(transaction,
-				ledger.submit(transaction).get(submitTimeout.toMillis(), TimeUnit.MILLISECONDS));
+			return verdict(transaction, future.get(submitTimeout.toMillis(), TimeUnit.MILLISECONDS));
 		} catch (TimeoutException ex) {
 			return error(Status.GATEWAY_TIMEOUT,
 				"No answer from the ledger in time, it may still take the transaction");
@@ -175,8 +178,21 @@ public class LedgerResource extends CDIBridgeResource {
 		} catch (InterruptedException ex) {
 			Thread.currentThread().interrupt();
 			return error(Status.SERVICE_UNAVAILABLE, NO_ANSWER);
-		} finally {
+		}
+	}
+
+	/* The wait is given back when the ledger has answered, not when the response is sent: a submit that timed out
+	   is still queued on a driver that stalls, so freeing its wait at the timeout would let a steady client queue
+	   more of them than the limit, without end */
+	private CompletableFuture<Optional<String>> submitHoldingTheWait(final Transaction transaction) {
+		try {
+			final CompletableFuture<Optional<String>> future = ledger.submit(transaction);
+
+			future.whenComplete((refusal, failure) -> WAITING.release());
+			return future;
+		} catch (RuntimeException ex) {
 			WAITING.release();
+			throw ex;
 		}
 	}
 
