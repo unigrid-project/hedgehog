@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -27,6 +29,8 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
@@ -41,6 +45,7 @@ import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.ledger.WireCodec;
+import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
@@ -65,6 +70,8 @@ public class LedgerResource extends CDIBridgeResource {
 	static final Duration SUBMIT_TIMEOUT = Duration.ofSeconds(10);
 	static final int MAX_SUBMITS_IN_FLIGHT = 16;
 	private static final HexFormat HEX = HexFormat.of();
+	private static final ObjectMapper JSON = new JsonConfiguration().getContext(LedgerSubmission.class);
+	private static final int MAX_BODY = 4 * 1024;
 	private static final int MAX_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
 	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String NO_ANSWER = "The ledger could not answer";
@@ -103,12 +110,22 @@ public class LedgerResource extends CDIBridgeResource {
 			.orElseGet(() -> error(Status.BAD_REQUEST, "A height is a whole number that fits a long"));
 	}
 
+	/* The body is read by hand and at most one byte beyond the bound, since a reader that is left to the JSON
+	   library takes a string of twenty million characters before anything can refuse it */
 	@Path("/transaction") @POST
-	public Response submit(final LedgerSubmission submission) {
+	public Response submit(final InputStream body) throws IOException {
+		final byte[] sent = body.readNBytes(MAX_BODY + 1);
+
+		if (sent.length > MAX_BODY) {
+			return error(Status.REQUEST_ENTITY_TOO_LARGE, "A request is at most " + MAX_BODY + " bytes");
+		}
+
 		final Transaction transaction;
 
 		try {
-			transaction = decode(submission);
+			transaction = decode(JSON.readValue(sent, LedgerSubmission.class));
+		} catch (JsonProcessingException ex) {
+			return error(Status.BAD_REQUEST, "A request is JSON with the hex of a transaction");
 		} catch (IllegalArgumentException ex) {
 			return error(Status.BAD_REQUEST, ex.getMessage());
 		}

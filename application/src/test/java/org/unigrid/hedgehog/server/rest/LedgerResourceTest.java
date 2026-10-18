@@ -118,6 +118,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private static final LegacyWallet WIDE_WALLET = new LegacyWallet(8, false);
 	private static final int LONGEST_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
 	private static final int WAITING_AT_MOST = 16;
+	private static final int MAX_BODY = 4096;
 
 	/* In the hex of a transfer: the kind, the sender, the type and key of the recipient, then the amount */
 	private static final int AMOUNT_AT = 2 * (1 + AccountKey.SIZE + 1 + AccountKey.SIZE);
@@ -757,7 +758,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		final String encoded = hex(WIDE_WALLET.claim(CAROL, CHAIN).encode());
 
 		for (final String transaction : List.of("0".repeat(LONGEST_HEX + 1), "0".repeat(LONGEST_HEX + 2),
-			encoded + "00", "0".repeat(100_000))) {
+			encoded + "00", "0".repeat(MAX_BODY - LONGEST_HEX))) {
 
 			assertThat(refusalOf(() -> submit(transaction)), startsWith("400 "));
 		}
@@ -766,6 +767,27 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		assertThat(refusalOf(() -> submit("05".repeat(LedgerCodecs.MAX_TRANSACTION_SIZE))), startsWith("400 "));
 		assertThat(decodings.get(), equalTo(1));
 		assertThat(submitted, empty());
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldReadNoMoreOfABodyThanATransactionNeedsAndSayWhenItIsTooLong() {
+		final String opening = "{\"transaction\":\"" + hex(transfer(0).encode()) + "\"";
+		final String atTheBound = opening + " ".repeat(MAX_BODY - opening.length() - 1) + "}";
+
+		assertThat(atTheBound.length(), equalTo(MAX_BODY));
+		assertThat(client.post(SUBMIT, Entity.json(atTheBound)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+
+		for (final String body : List.of(atTheBound + " ", "x".repeat(1 << 20),
+			opening + ",\"padding\":\"" + "0".repeat(1 << 20) + "\"}")) {
+
+			final ResponseOddityException refused = refusedBy(() -> client.post(SUBMIT, Entity.json(body)));
+
+			assertThat(refused.getMessage(), startsWith("413 "));
+			assertThat(refused.getBody(), equalTo(errorBody("A request is at most " + MAX_BODY + " bytes")));
+		}
+
+		assertThat(submitted.size(), equalTo(1));
 	}
 
 	@Example
