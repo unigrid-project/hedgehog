@@ -41,6 +41,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerDriver;
@@ -73,6 +74,7 @@ public class LedgerResource extends CDIBridgeResource {
 	private static final int MAX_SUBMITS_IN_FLIGHT = 16;
 	private static final HexFormat HEX = HexFormat.of();
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(LedgerSubmission.class);
+	private static final Pattern DIGITS = Pattern.compile("[0-9]+");
 	private static final int MAX_BODY = 4 * 1024;
 	private static final int MAX_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
 	private static final String NO_ANSWER = "The ledger could not answer";
@@ -108,7 +110,7 @@ public class LedgerResource extends CDIBridgeResource {
 	public Response block(@PathParam("height") final String text) {
 		return heightOf(text).map(height -> answer(held -> held.block(height).map(block -> ok(LedgerBlock.of(block)))
 			.orElseGet(() -> error(Status.NOT_FOUND, "No block at height " + height))))
-			.orElseGet(() -> error(Status.BAD_REQUEST, "A height is a whole number that fits a long"));
+			.orElseGet(() -> error(Status.BAD_REQUEST, "A height is a whole number in digits that fits a long"));
 	}
 
 	/* The body is read by hand and at most one byte beyond the bound, since a reader that is left to the JSON
@@ -200,9 +202,10 @@ public class LedgerResource extends CDIBridgeResource {
 			.orElseGet(() -> Response.accepted(new LedgerSubmitted(true, id, null)).build());
 	}
 
+	/* Plain digits only: parseLong alone would also take a plus sign, a minus sign and the digits of other scripts */
 	private static Optional<Long> heightOf(final String text) {
 		try {
-			return Optional.of(Long.parseLong(text));
+			return Optional.of(text).filter(DIGITS.asMatchPredicate()).map(Long::parseLong);
 		} catch (NumberFormatException ex) {
 			return Optional.empty();
 		}

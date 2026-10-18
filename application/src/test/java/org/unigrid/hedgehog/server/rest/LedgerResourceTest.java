@@ -121,6 +121,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private static final int LONGEST_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
 	private static final int WAITING_AT_MOST = 16;
 	private static final int MAX_BODY = 4096;
+	private static final String ARABIC_INDIC_ONE = String.valueOf((char) 0x661);
 
 	/* In the hex of a transfer: the kind, the sender, the type and key of the recipient, then the amount */
 	private static final int AMOUNT_AT = 2 * (1 + AccountKey.SIZE + 1 + AccountKey.SIZE);
@@ -593,7 +594,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	public void shouldAnswerNotFoundForAHeightOutsideTheChain() {
 		newest = chainOf(2);
 
-		for (final String height : List.of("0", "-1", "3", "9223372036854775807", "-9223372036854775808")) {
+		for (final String height : List.of("0", "3", "9223372036854775807")) {
 			assertThat(height, failureOf("/ledger/block/" + height, Status.NOT_FOUND),
 				equalTo(Map.of("error", "No block at height " + height)));
 		}
@@ -603,7 +604,8 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	public void shouldRefuseAHeightThatIsNoNumberOfALong() {
 		newest = chainOf(2);
 
-		for (final String height : List.of("abc", "99999999999999999999", "-9223372036854775809", "1.5", "0x1", "1e3")) {
+		for (final String height : List.of("abc", "99999999999999999999", "-9223372036854775809", "1.5", "0x1", "1e3",
+			"+1", "-1", "-9223372036854775808", ARABIC_INDIC_ONE)) {
 			assertThat(height, failureOf("/ledger/block/" + height, Status.BAD_REQUEST), hasKey("error"));
 		}
 	}
