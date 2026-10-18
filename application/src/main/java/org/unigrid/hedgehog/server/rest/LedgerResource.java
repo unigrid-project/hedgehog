@@ -68,8 +68,8 @@ import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class LedgerResource extends CDIBridgeResource {
-	static final Duration SUBMIT_TIMEOUT = Duration.ofSeconds(10);
-	static final int MAX_SUBMITS_IN_FLIGHT = 16;
+	private static final Duration SUBMIT_TIMEOUT = Duration.ofSeconds(10);
+	private static final int MAX_SUBMITS_IN_FLIGHT = 16;
 	private static final HexFormat HEX = HexFormat.of();
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(LedgerSubmission.class);
 	private static final int MAX_BODY = 4 * 1024;
@@ -81,7 +81,6 @@ public class LedgerResource extends CDIBridgeResource {
 	   submit that waits holds a thread of the server, which has no other limit on them, and every one that the
 	   ledger has not answered is queued on its driver. */
 	private static final Semaphore WAITING = new Semaphore(MAX_SUBMITS_IN_FLIGHT);
-	private static volatile Duration submitTimeout = SUBMIT_TIMEOUT;
 
 	@CDIBridgeInject
 	private LedgerService ledger;
@@ -135,10 +134,6 @@ public class LedgerResource extends CDIBridgeResource {
 		return await(transaction);
 	}
 
-	static void setSubmitTimeout(final Duration timeout) {
-		submitTimeout = timeout;
-	}
-
 	/* The length is bounded before the hex is read, so that nothing longer than a transaction can be is decoded */
 	private static Transaction decode(final LedgerSubmission submission) {
 		if (submission == null || submission.transaction() == null) {
@@ -168,7 +163,7 @@ public class LedgerResource extends CDIBridgeResource {
 		final CompletableFuture<Optional<String>> future = submitHoldingTheWait(transaction);
 
 		try {
-			return verdict(transaction, future.get(submitTimeout.toMillis(), TimeUnit.MILLISECONDS));
+			return verdict(transaction, future.get(SUBMIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS));
 		} catch (TimeoutException ex) {
 			return error(Status.GATEWAY_TIMEOUT,
 				"No answer from the ledger in time, it may still take the transaction");

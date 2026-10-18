@@ -29,6 +29,7 @@ import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -60,7 +62,6 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasKey;
-import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -142,6 +143,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private final List<Chain> chains = new ArrayList<>();
 	private final List<Transaction> submitted = new CopyOnWriteArrayList<>();
 	private final List<CompletableFuture<Optional<String>>> unanswered = new CopyOnWriteArrayList<>();
+	private final List<Duration> waited = new CopyOnWriteArrayList<>();
 	private volatile Ledger newest;
 	private volatile Report reported;
 	private volatile Answering answering;
@@ -251,6 +253,23 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		};
 	}
 
+	/* A ledger that is still at it when the wait runs out: the wait ends at once, whatever it was asked to be, and is
+	   noted, so that no test waits for the real time and the time asked is still known */
+	private Answering outlastingTheWait() {
+		return transaction -> {
+			final CompletableFuture<Optional<String>> future = new CompletableFuture<>() {
+				@Override
+				public Optional<String> get(final long timeout, final TimeUnit unit) throws TimeoutException {
+					waited.add(Duration.of(timeout, unit.toChronoUnit()));
+					throw new TimeoutException();
+				}
+			};
+
+			unanswered.add(future);
+			return future;
+		};
+	}
+
 	@BeforeTry
 	public void fakeTheService() {
 		newest = null;
@@ -258,6 +277,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		answering = answeringWith(Optional.empty());
 		submitted.clear();
 		unanswered.clear();
+		waited.clear();
 		sporkDatabase.setLedgerFee(null);
 
 		new MockUp<LedgerService>() {
@@ -286,7 +306,6 @@ public class LedgerResourceTest extends BaseRestClientTest {
 
 	@AfterTry
 	public void closeTheChains() {
-		LedgerResource.setSubmitTimeout(LedgerResource.SUBMIT_TIMEOUT);
 		chains.forEach(Chain::close);
 		chains.clear();
 	}
@@ -832,10 +851,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	/* A submit that was answered 504 is still queued on the driver, so it keeps its wait until the ledger answers it */
 	@Example
 	public void shouldAnswerGatewayTimeoutAndKeepTheWaitOfTheSubmitUntilTheLedgerAnswers() {
-		answering = neverAnswering();
-		LedgerResource.setSubmitTimeout(Duration.ofMillis(50));
-
-		final long started = System.nanoTime();
+		answering = outlastingTheWait();
 
 		for (int n = 0; n < WAITING_AT_MOST; n++) {
 			final long nonce = n;
@@ -848,7 +864,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 
 		final ResponseOddityException turnedAway = refusedBy(() -> submit(transfer(WAITING_AT_MOST)));
 
-		assertThat(Duration.ofNanos(System.nanoTime() - started), lessThan(PATIENCE));
+		assertThat(waited, equalTo(Collections.nCopies(WAITING_AT_MOST, Duration.ofSeconds(10))));
 		assertThat(turnedAway.getMessage(), startsWith("429 "));
 		assertThat(submitted.size(), equalTo(WAITING_AT_MOST));
 		assertThat(unanswered.stream().filter(CompletableFuture::isCancelled).count(), equalTo(0L));
