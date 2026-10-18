@@ -109,13 +109,15 @@ public class NodeResourceTest extends BaseRestClientTest {
 	@Property(tries = 50)
 	public void shouldAddNodeWithMissingPort(@ForAll("provideAddress") InetSocketAddress address) {
 		final String url = "/node";
-		final Status status = Status.fromStatusCode(client.post(url, Entity.text(address.getHostString())).getStatus());
+		final String host = address.getHostString();
+		final Status status = Status.fromStatusCode(client.post(url, Entity.text(host)).getStatus());
 
 		/* Generated hosts repeat, and a host added before answers with a conflict */
 		assertThat(status, is(oneOf(Status.CREATED, Status.CONFLICT)));
 
 		if (status == Status.CREATED) {
-			final Node node = Node.builder().address(new InetSocketAddress(address.getHostName(), DEFAULT_PORT)).build();
+			/* The address that was posted, not the name that a reverse lookup of it gives, which may be another one */
+			final Node node = Node.builder().address(new InetSocketAddress(host, DEFAULT_PORT)).build();
 
 			assertThat(Status.fromStatusCode(client.get(url + node.getURI()).getStatus()), equalTo(Status.OK));
 		}
