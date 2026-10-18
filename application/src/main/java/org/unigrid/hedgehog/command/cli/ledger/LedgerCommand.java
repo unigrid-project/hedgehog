@@ -21,7 +21,8 @@ package org.unigrid.hedgehog.command.cli.ledger;
 import picocli.CommandLine.Command;
 
 @Command(name = "ledger", description = "Read the ledger of a node.",
-	subcommands = { LedgerInfoCommand.class, LedgerBalanceCommand.class, LedgerBlockCommand.class }
+	subcommands = { LedgerInfoCommand.class, LedgerBalanceCommand.class, LedgerBlockCommand.class,
+		LedgerTransferCommand.class }
 )
 public class LedgerCommand {
 	/* Empty on purpose */

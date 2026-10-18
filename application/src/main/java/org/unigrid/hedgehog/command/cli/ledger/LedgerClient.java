@@ -67,7 +67,7 @@ final class LedgerClient implements AutoCloseable {
 	}
 
 	static final class Refused extends Exception {
-		private Refused(final String text) {
+		Refused(final String text) {
 			super(text);
 		}
 
