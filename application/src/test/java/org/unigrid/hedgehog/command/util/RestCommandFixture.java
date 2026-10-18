@@ -26,6 +26,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -139,7 +140,10 @@ public final class RestCommandFixture {
 	private static void readsBackItsEntity(Response canned) {
 		new MockUp<Response>(canned.getClass()) {
 			@Mock public Object readEntity(Invocation invocation, Class<?> type) {
-				return invocation.<Response>getInvokedInstance().getEntity();
+				final Object entity = invocation.<Response>getInvokedInstance().getEntity();
+
+				return type == InputStream.class
+					? new ByteArrayInputStream(entity.toString().getBytes(StandardCharsets.UTF_8)) : entity;
 			}
 
 			@Mock public Object readEntity(Invocation invocation, GenericType<?> type) {
