@@ -88,7 +88,7 @@ public class S3ServerTest {
 		try (S3Server server = start(port)) {
 			final HttpURLConnection connection = signed(port, "HEAD", "/bucket/key");
 
-			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED));
+			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_FOUND));
 			assertThat(connection.getHeaderField("x-amz-request-id"), matchesPattern("[0-9A-F]{16}"));
 			assertThat(connection.getContentLengthLong(), lessThanOrEqualTo(0L));
 		}

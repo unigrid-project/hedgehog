@@ -50,6 +50,10 @@ public class MemoryBlobStore implements BlobStore {
 		}
 	}
 
+	public int size() {
+		return blobs.size();
+	}
+
 	private record MemoryBlob(byte[] content) implements Blob {
 		@Override
 		public long size() {

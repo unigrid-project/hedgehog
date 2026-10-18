@@ -20,9 +20,15 @@ package org.unigrid.hedgehog.s3.resource;
 
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.util.Map;
+import org.unigrid.hedgehog.s3.checksum.ChecksumAlgorithm;
 import org.unigrid.hedgehog.s3.entity.Owner;
+import org.unigrid.hedgehog.s3.index.ObjectVersion;
 
 final class Responses {
+	static final String VERSION_ID = "x-amz-version-id";
+	static final String DELETE_MARKER = "x-amz-delete-marker";
+
 	/* Every bucket and object of a node belongs to the one account its keys share */
 	private static final String OWNER = "hedgehog";
 
@@ -36,5 +42,24 @@ final class Responses {
 
 	static Response xml(final Object document) {
 		return Response.ok(document, MediaType.APPLICATION_XML_TYPE).build();
+	}
+
+	static String quoted(final String etag) {
+		return "\"" + etag + "\"";
+	}
+
+	/* Only a bucket that ever had versioning enabled hands out version ids other than the null one */
+	static Response.ResponseBuilder versioned(final Response.ResponseBuilder response, final ObjectVersion version) {
+		return version.isNullVersion() ? response : response.header(VERSION_ID, version.versionId());
+	}
+
+	static Response.ResponseBuilder checksums(final Response.ResponseBuilder response,
+		final Map<String, String> checksums) {
+
+		checksums.forEach((algorithm, value) -> response.header(ChecksumAlgorithm.valueOf(algorithm).getHeader(),
+			value
+		));
+
+		return response;
 	}
 }

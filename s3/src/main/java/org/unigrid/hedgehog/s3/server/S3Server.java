@@ -47,6 +47,7 @@ import org.unigrid.hedgehog.s3.http.RequestIdFilter;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.resource.BucketResource;
+import org.unigrid.hedgehog.s3.resource.ObjectResource;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
@@ -89,7 +90,7 @@ public final class S3Server implements AutoCloseable {
 		final CredentialStore credentials, final Clock clock) {
 
 		return resources(config, blobs, credentials, clock).registerInstances(new ServiceResource(namespace),
-			new BucketResource(namespace, clock)
+			new BucketResource(namespace, clock), new ObjectResource(namespace, blobs, clock)
 		);
 	}
 
