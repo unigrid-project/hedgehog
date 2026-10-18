@@ -22,13 +22,10 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
-import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -43,12 +40,19 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN_ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.OTHER_CHAIN_ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.SEED;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.assertNothingPosted;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.noLedger;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.runAgainst;
+import static org.unigrid.hedgehog.command.cli.ledger.FakeLedgerNode.accepted;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.Outcome;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.Refusal;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
-import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
@@ -58,27 +62,17 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.server.rest.entity.LedgerSubmission;
 import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
-import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerVoteCommandTest {
-	private static final String CHAIN_ID = "11".repeat(64);
-	private static final byte[] CHAIN = HexFormat.of().parseHex(CHAIN_ID);
-	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String CANDIDATE = "ab".repeat(32);
 	private static final String OTHER_VALIDATOR = "33".repeat(32);
 	private static final long ROUND = 7;
-	private static final String ID = "9f".repeat(64);
 	private static final String KEY_OPTION = "--key";
 	private static final String CANDIDATE_OPTION = "--candidate";
 	private static final String ADD_OPTION = "--add";
 	private static final String REMOVE_OPTION = "--remove";
 	private static final String CHAIN_OPTION = "--chain";
-	private static final String OTHER_CHAIN_ID = "22".repeat(64);
-
-	private record BeforeSending(Result sent, HedgehogCli.Result cli) { }
-
-	private record Outcome(List<Request> requests, boolean connected, boolean closed, HedgehogCli.Result cli) { }
 
 	@Provide
 	public Arbitrary<byte[]> seeds() {
@@ -90,27 +84,12 @@ public class LedgerVoteCommandTest {
 		return Arbitraries.strings().alpha().numeric().withChars(' ', '.', ':', '\'').ofMinLength(1).ofMaxLength(60);
 	}
 
-	private static String[] ledger(String... arguments) {
-		return Stream.concat(Stream.of("cli", "ledger", "vote"), Stream.of(arguments)).toArray(String[]::new);
-	}
-
-	private static HedgehogCli.Result runOn(FileSystem fs, String... arguments) {
-		return HedgehogCli.run(() -> new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath),
-			ledger(arguments));
-	}
-
-	private static BeforeSending refusedOn(FileSystem fs, String... arguments) {
-		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
-		final Result sent = RestCommandFixture.run(() -> cli.set(runOn(fs, arguments)), Response.ok().build());
-
-		return new BeforeSending(sent, cli.get());
+	private static Refusal refusedOn(FileSystem fs, String... arguments) {
+		return LedgerCommandFixtures.refusedOn(fs, "vote", arguments);
 	}
 
 	private static Outcome sendOn(FileSystem fs, Response info, Response submitted, String... arguments) {
-		final FakeLedgerNode node = new FakeLedgerNode(info, Response.ok().build(), submitted);
-		final HedgehogCli.Result cli = runOn(fs, arguments);
-
-		return new Outcome(List.copyOf(node.requests()), node.connected(), node.closed(), cli);
+		return runAgainst(new FakeLedgerNode(info, Response.ok().build(), submitted), fs, "vote", arguments);
 	}
 
 	private static Response info(long round, String... validators) {
@@ -118,17 +97,6 @@ public class LedgerVoteCommandTest {
 			round, List.of(validators), "0.00100000", 0, List.of(), List.of());
 
 		return Response.ok(info).build();
-	}
-
-	private static Response noLedger() {
-		final LedgerInfo info = new LedgerInfo(false, false, null, false, null, 0, null, null, null, null,
-			null, 0, List.of(), List.of());
-
-		return Response.ok(info).build();
-	}
-
-	private static Response accepted() {
-		return FakeLedgerNode.accepted();
 	}
 
 	private static Vote voteIn(Outcome outcome) {
@@ -143,12 +111,7 @@ public class LedgerVoteCommandTest {
 		return "Signed for chain " + CHAIN_ID + ": vote to add " + CANDIDATE + " in round " + ROUND;
 	}
 
-	private static void assertNothingPosted(Outcome outcome) {
-		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
-			equalTo(false));
-	}
-
-	private static void assertRefusedBeforeSending(BeforeSending outcome) {
+	private static void assertRefusedBeforeSending(Refusal outcome) {
 		assertThat(outcome.sent().request(), equalTo(Optional.empty()));
 		assertThat(outcome.sent().connection(), equalTo(Optional.empty()));
 		assertThat(outcome.cli().exitCode(), equalTo(2));
@@ -222,7 +185,7 @@ public class LedgerVoteCommandTest {
 			LedgerKeyFixtures.writeSeed(fs, SEED);
 
 			for (final String typed : List.of("1".repeat(127), "zz".repeat(64))) {
-				final BeforeSending outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION,
+				final Refusal outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION,
 					CANDIDATE, ADD_OPTION, CHAIN_OPTION, typed);
 
 				assertRefusedBeforeSending(outcome);
@@ -352,7 +315,7 @@ public class LedgerVoteCommandTest {
 			LedgerKeyFixtures.writeSeed(fs, SEED);
 
 			for (final String typed : List.of("", "nonsense")) {
-				final BeforeSending outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, typed,
+				final Refusal outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, typed,
 					ADD_OPTION);
 
 				assertRefusedBeforeSending(outcome);
@@ -367,7 +330,7 @@ public class LedgerVoteCommandTest {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.write(fs, KEY_FILE, HexFormat.of().formatHex(SEED) + "\n", "rw-r--r--");
 
-			final BeforeSending outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE,
+			final Refusal outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE,
 				ADD_OPTION);
 
 			assertRefusedBeforeSending(outcome);

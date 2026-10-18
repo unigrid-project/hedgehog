@@ -19,7 +19,6 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -51,6 +50,11 @@ import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.startsWith;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ACCOUNT;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.INFO;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.MAPPER;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.block;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.errorBody;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -60,28 +64,17 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.server.rest.RestToken;
-import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
-import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.server.rest.entity.LedgerTransactionView;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerReadCommandsTest {
-	private static final ObjectMapper MAPPER = new ObjectMapper();
-	private static final String ACCOUNT_HEX = "ab".repeat(32);
+	private static final String ACCOUNT_HEX = ACCOUNT.address();
 	private static final String NO_TOKEN_FILE = "/home/holder/rest.token";
 	private static final String LOCAL_HOST = "127.0.0.1";
 
-	private static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
-		"12.50000000", 0L, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
-
-	private static final LedgerAccount ACCOUNT = new LedgerAccount(ACCOUNT_HEX, "account", "6.99900000", 1L,
-		"10.00000000", null, null);
-
-	private static final LedgerBlock BLOCK = new LedgerBlock(5, 0, 1_760_000_000_000L, "aa".repeat(64),
-		"bb".repeat(64), "cc".repeat(64), "dd".repeat(64), "ee".repeat(32), List.of(LedgerTransactionView.builder()
-		.id("ff".repeat(64)).kind("mint").recipient(ACCOUNT_HEX).amount("10.00000000").build()),
-		List.of("11".repeat(32)), 1);
+	private static final LedgerBlock BLOCK = block(List.of(LedgerTransactionView.builder()
+		.id("ff".repeat(64)).kind("mint").recipient(ACCOUNT_HEX).amount("10.00000000").build()));
 
 	private record Outcome(Result sent, HedgehogCli.Result cli) { }
 
@@ -136,11 +129,6 @@ public class LedgerReadCommandsTest {
 
 	private static Request read(final String location) {
 		return new Request(HttpMethod.GET, location, Optional.empty(), Optional.empty());
-	}
-
-	@SneakyThrows
-	private static String errorBody(final String text) {
-		return MAPPER.writeValueAsString(Map.of("error", text));
 	}
 
 	@SneakyThrows

@@ -61,6 +61,7 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
@@ -85,7 +86,6 @@ public class LedgerCommandsAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private static final long FEE = 100_000L;
 	private static final long ONE_AND_A_HALF = 150_000_000L;
 	private static final String TEXT_TO_SIGN = "Text to sign: ";
-	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final int FAILED = 1;
 	private static final int MISUSED = 2;
 
@@ -399,11 +399,13 @@ public class LedgerCommandsAcceptanceTest extends BaseLedgerAcceptanceTest {
 
 		assertThat(info.running(), is(false));
 		assertThat(info.chainId(), nullValue());
-		assertRefused(cli(bare, "balance", account), FAILED, NOT_RUNNING);
-		assertRefused(cli(bare, "block", "1"), FAILED, NOT_RUNNING);
-		assertRefused(cli(bare, "transfer", "--key", key, "--to", account, "--amount", "1"), FAILED, NOT_RUNNING);
-		assertRefused(cli(bare, "vote", "--key", key, "--candidate", account, "--add"), FAILED, NOT_RUNNING);
+		assertRefused(cli(bare, "balance", account), FAILED, LedgerDriver.NOT_RUNNING);
+		assertRefused(cli(bare, "block", "1"), FAILED, LedgerDriver.NOT_RUNNING);
+		assertRefused(cli(bare, "transfer", "--key", key, "--to", account, "--amount", "1"), FAILED,
+			LedgerDriver.NOT_RUNNING);
+		assertRefused(cli(bare, "vote", "--key", key, "--candidate", account, "--add"), FAILED,
+			LedgerDriver.NOT_RUNNING);
 		assertRefused(cli(bare, "claim", "--address", fleet().wallet(3).base58(), "--to", account), FAILED,
-			NOT_RUNNING);
+			LedgerDriver.NOT_RUNNING);
 	}
 }

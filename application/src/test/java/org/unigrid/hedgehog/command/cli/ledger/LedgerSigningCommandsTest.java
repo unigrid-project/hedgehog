@@ -23,7 +23,6 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
-import java.nio.file.Path;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -37,8 +36,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
-import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.command.HedgehogCli;
+import static org.unigrid.hedgehog.command.cli.ledger.FakeLedgerNode.accepted;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN_ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.SEED;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.UNREADABLE;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.runAgainst;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.Outcome;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.ledger.Ed25519;
@@ -50,27 +54,20 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LegacyWallet;
-import picocli.CommandLine;
 
 /* What transfer, vote and claim have in common: a node that cannot prove who it is must not be the one to say what
    is signed, so where the node is not on this machine the chain is named by the person and what is signed is shown
    before the node answers, and whatever a node answers, the command ends with a line and no stack trace */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerSigningCommandsTest {
-	private static final String CHAIN_ID = "11".repeat(64);
-	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String ACCOUNT = "ab".repeat(32);
-	private static final String ID = "9f".repeat(64);
 	private static final LegacyWallet WALLET = new LegacyWallet(7, true);
 	private static final String REMOTE = "192.0.2.7";
 	private static final String REASON = "Balance does not cover the transfer";
-	private static final String UNREADABLE = "The node answered something this command cannot read: ";
 	private static final String ESCAPES = "\u001b[31mred\u001b[0m\ttab\nnext\u0007";
 	private static final String PRINTABLE = "[31mred[0m\ttabnext";
 
 	private record Command(List<String> arguments, String signed) { }
-
-	private record Outcome(FakeLedgerNode node, HedgehogCli.Result cli) { }
 
 	private static Command transfer() {
 		return new Command(List.of("transfer", "--key", KEY_FILE, "--to", ACCOUNT, "--amount", "1.5", "--fee",
@@ -109,10 +106,6 @@ public class LedgerSigningCommandsTest {
 			.build();
 	}
 
-	private static Response accepted() {
-		return FakeLedgerNode.accepted();
-	}
-
 	private static Response refused() {
 		return Response.status(Status.CONFLICT).entity(new LedgerSubmitted(false, ID, REASON)).build();
 	}
@@ -124,13 +117,8 @@ public class LedgerSigningCommandsTest {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.writeSeed(fs, SEED);
 
-			final FakeLedgerNode node = new FakeLedgerNode(host, info, account, submitted);
-			final HedgehogCli.Result cli = HedgehogCli.run(
-				() -> new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath),
-				Stream.of(Stream.of("cli", "ledger"), command.arguments().stream(), Stream.of(more))
-					.flatMap(stream -> stream).toArray(String[]::new));
-
-			return new Outcome(node, cli);
+			return runAgainst(new FakeLedgerNode(host, info, account, submitted), fs, command.arguments().get(0),
+				Stream.concat(command.arguments().stream().skip(1), Stream.of(more)).toArray(String[]::new));
 		}
 	}
 
@@ -147,11 +135,11 @@ public class LedgerSigningCommandsTest {
 	}
 
 	private static long posts(final Outcome outcome) {
-		return outcome.node().requests().stream().filter(request -> HttpMethod.POST.equals(request.method())).count();
+		return outcome.requests().stream().filter(request -> HttpMethod.POST.equals(request.method())).count();
 	}
 
 	private static String idPosted(final Outcome outcome) {
-		final Request posted = outcome.node().requests().stream()
+		final Request posted = outcome.requests().stream()
 			.filter(request -> HttpMethod.POST.equals(request.method())).findFirst().orElseThrow();
 		final LedgerSubmission submission = (LedgerSubmission) posted.entity().orElseThrow().getEntity();
 
@@ -243,8 +231,8 @@ public class LedgerSigningCommandsTest {
 			assertThat(outcome.cli().err(), containsString("Pass --chain: a node at " + REMOTE
 				+ " cannot prove which chain it is on; `cli ledger info` on a node you trust shows it"));
 			assertThat(outcome.cli().out(), emptyString());
-			assertThat(outcome.node().connected(), equalTo(false));
-			assertThat(outcome.node().requests().isEmpty(), equalTo(true));
+			assertThat(outcome.connected(), equalTo(false));
+			assertThat(outcome.requests().isEmpty(), equalTo(true));
 			outcome.cli().assertNoStackTrace();
 		}
 	}

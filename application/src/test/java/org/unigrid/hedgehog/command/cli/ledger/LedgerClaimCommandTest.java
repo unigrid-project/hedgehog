@@ -27,7 +27,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import mockit.Invocation;
 import mockit.Mock;
@@ -43,10 +42,19 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN_ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.OTHER_CHAIN_ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.assertNothingPosted;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ledger;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.noLedger;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.runAgainst;
+import static org.unigrid.hedgehog.command.cli.ledger.FakeLedgerNode.accepted;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.Outcome;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.Refusal;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
-import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;
@@ -59,15 +67,11 @@ import org.unigrid.hedgehog.service.ledger.LegacyWallet;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerClaimCommandTest {
-	private static final String CHAIN_ID = "11".repeat(64);
-	private static final String OTHER_CHAIN_ID = "22".repeat(64);
-	private static final byte[] CHAIN = HexFormat.of().parseHex(CHAIN_ID);
 	private static final byte[] OTHER_CHAIN = HexFormat.of().parseHex(OTHER_CHAIN_ID);
 	private static final String ACCOUNT = "ab".repeat(32);
 	private static final String OTHER_ACCOUNT = "cd".repeat(32);
 	private static final AccountKey RECIPIENT = AccountKey.fromHex(ACCOUNT);
 	private static final String TEXT = "claim " + CHAIN_ID + " " + ACCOUNT;
-	private static final String ID = "9f".repeat(64);
 	private static final int SECRET = 7;
 	private static final int SECRET_OF_THE_FAKE = 4242;
 	private static final String ADDRESS_OPTION = "--address";
@@ -77,12 +81,8 @@ public class LedgerClaimCommandTest {
 	private static final String NOT_BASE64 = "The signature is not 65 bytes of base64";
 	private static final String MADE_WITH = "The signature was made with the key of ";
 
-	private record BeforeConnecting(Result sent, HedgehogCli.Result cli) { }
-
-	private record Outcome(List<Request> requests, boolean connected, boolean closed, HedgehogCli.Result cli) { }
-
 	private static String[] claim(String... arguments) {
-		return Stream.concat(Stream.of("cli", "ledger", "claim"), Stream.of(arguments)).toArray(String[]::new);
+		return ledger("claim", arguments);
 	}
 
 	private static String[] signed(LegacyWallet wallet, byte[] signature, String... more) {
@@ -90,19 +90,12 @@ public class LedgerClaimCommandTest {
 			Base64.getEncoder().encodeToString(signature)), Stream.of(more)).toArray(String[]::new);
 	}
 
-	private static BeforeConnecting refusedBeforeConnecting(String... arguments) {
-		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
-		final Result sent = RestCommandFixture.run(() -> cli.set(HedgehogCli.run(claim(arguments))),
-			Response.ok().build());
-
-		return new BeforeConnecting(sent, cli.get());
+	private static Refusal refusedBeforeConnecting(String... arguments) {
+		return LedgerCommandFixtures.refusedBeforeConnecting("claim", arguments);
 	}
 
 	private static Outcome ask(Response info, Response submitted, String... arguments) {
-		final FakeLedgerNode node = new FakeLedgerNode(info, Response.ok().build(), submitted);
-		final HedgehogCli.Result cli = HedgehogCli.run(claim(arguments));
-
-		return new Outcome(List.copyOf(node.requests()), node.connected(), node.closed(), cli);
+		return runAgainst(new FakeLedgerNode(info, Response.ok().build(), submitted), "claim", arguments);
 	}
 
 	private static Response info() {
@@ -110,17 +103,6 @@ public class LedgerClaimCommandTest {
 			7L, List.of(), "0.00100000", 0, List.of(), List.of());
 
 		return Response.ok(info).build();
-	}
-
-	private static Response noLedger() {
-		final LedgerInfo info = new LedgerInfo(false, false, null, false, null, 0, null, null, null, null,
-			null, 0, List.of(), List.of());
-
-		return Response.ok(info).build();
-	}
-
-	private static Response accepted() {
-		return FakeLedgerNode.accepted();
 	}
 
 	private static Claim claimIn(Outcome outcome) {
@@ -135,11 +117,6 @@ public class LedgerClaimCommandTest {
 		return "Signed for chain " + CHAIN_ID + ": claim of " + wallet.base58() + " to " + ACCOUNT;
 	}
 
-	private static void assertNothingPosted(Outcome outcome) {
-		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
-			equalTo(false));
-	}
-
 	private static void assertRefused(Outcome outcome, int exitCode, String message) {
 		assertThat(outcome.cli().exitCode(), equalTo(exitCode));
 		assertThat(outcome.cli().err(), containsString(message));
@@ -148,7 +125,7 @@ public class LedgerClaimCommandTest {
 		outcome.cli().assertNoStackTrace();
 	}
 
-	private static void assertRefusedBeforeConnecting(BeforeConnecting outcome, String message) {
+	private static void assertRefusedBeforeConnecting(Refusal outcome, String message) {
 		assertThat(outcome.sent().request(), equalTo(Optional.empty()));
 		assertThat(outcome.sent().connection(), equalTo(Optional.empty()));
 		assertThat(outcome.cli().exitCode(), equalTo(2));

@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -26,7 +25,6 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -44,6 +42,14 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ACCOUNT;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.CHAIN;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.ID;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.INFO;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.SEED;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.UNREADABLE;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.block;
+import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.errorBody;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
@@ -60,23 +66,10 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerClientTest {
-	private static final ObjectMapper MAPPER = new ObjectMapper();
-	private static final String ID = "9f".repeat(64);
-	private static final String UNREADABLE = "The node answered something this command cannot read: ";
-	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
-	private static final byte[] CHAIN = HexFormat.of().parseHex("11".repeat(64));
-	private static final AccountKey RECIPIENT = AccountKey.fromHex("ab".repeat(32));
+	private static final AccountKey RECIPIENT = AccountKey.fromHex(ACCOUNT.address());
 	private static final Transfer TRANSFER = Transfer.signed(SEED, RECIPIENT, 1, 1, 0, CHAIN);
 	private static final String TRANSFER_ID = HexFormat.of().formatHex(TRANSFER.id());
-
-	private static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
-		"12.50000000", 0L, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
-
-	private static final LedgerAccount ACCOUNT = new LedgerAccount("ab".repeat(32), "account", "6.99900000", 1L,
-		"10.00000000", null, null);
-
-	private static final LedgerBlock BLOCK = new LedgerBlock(5, 0, 1_760_000_000_000L, "aa".repeat(64),
-		"bb".repeat(64), "cc".repeat(64), "dd".repeat(64), "ee".repeat(32), List.of(), List.of("11".repeat(32)), 1);
+	private static final LedgerBlock BLOCK = block(List.of());
 
 	private record Outcome(Result sent, Object value) { }
 
@@ -118,11 +111,6 @@ public class LedgerClientTest {
 
 	private static Request get(final String location) {
 		return new Request(HttpMethod.GET, location, Optional.empty(), Optional.empty());
-	}
-
-	@SneakyThrows
-	private static String errorBody(final String text) {
-		return MAPPER.writeValueAsString(Map.of("error", text));
 	}
 
 	private static String refusalOf(final Outcome outcome) {
