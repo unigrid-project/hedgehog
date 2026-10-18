@@ -110,6 +110,7 @@ final class InboundLanes {
 				budget.giveBack(peer, size, junk);
 			}
 
+			stopPosting();
 			throw e;
 		}
 	}
@@ -144,23 +145,34 @@ final class InboundLanes {
 		try {
 			wake();
 		} catch (RejectedExecutionException e) {
-			if (controlLane.remove(task)) {
+			final boolean refused = controlLane.remove(task);
+
+			stopPosting();
+
+			if (refused) {
 				throw e;
 			}
 		}
 	}
 
 	/* One run of the serial executor drains both lanes, and is posted when a lane gets a task and none is posted:
-	   the executor holds one task of the driver, not as many as were sent to it. */
+	   the executor holds one task of the driver, not as many as were sent to it. A run that the executor refuses
+	   leaves the post with the thread that made it, which gives it up through stopPosting. */
 	private void wake() {
 		if (drainPosted.compareAndSet(false, true)) {
-			try {
-				serial.execute(this::drain);
-			} catch (RejectedExecutionException e) {
-				drainPosted.set(false);
-				throw e;
-			}
+			serial.execute(this::drain);
 		}
+	}
+
+	/* An executor that refuses a run takes no more, so what waits in the control lane is run here, on the thread
+	   that holds the post, as nothing else will run it and the callers of those tasks wait for their answers. The
+	   post is given up only once the lane is seen empty, since a thread that added a task meanwhile found the post
+	   held, and left the task for the run that was to come. */
+	private void stopPosting() {
+		do {
+			runControlLane();
+			drainPosted.set(false);
+		} while (!controlLane.isEmpty() && drainPosted.compareAndSet(false, true));
 	}
 
 	/* All of the control lane first, then so many items of peers that the control work that comes meanwhile waits
@@ -186,13 +198,11 @@ final class InboundLanes {
 		}
 	}
 
-	/* An executor that refuses the next run takes no more, and what waits in the control lane is run here, on the
-	   serial thread, as nothing else will: the callers of those tasks wait for their answers. */
 	private void postAgain() {
 		try {
 			wake();
 		} catch (RejectedExecutionException e) {
-			runControlLane();
+			stopPosting();
 		}
 	}
 

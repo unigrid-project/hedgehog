@@ -20,6 +20,11 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.jqwik.api.Example;
@@ -35,11 +40,13 @@ public class InboundLanesTest {
 	private final QueuedSerial queue = new QueuedSerial();
 	private final List<String> ran = new ArrayList<>();
 	private Runnable endOfRun = () -> { };
+	private Runnable atRefusal = () -> { };
 	private final InboundLanes lanes = new InboundLanes(this::serial, new PeerLimiter(() -> 0, Policy.DEFAULT),
 		new QueueBudget(10, 10, 10_000, 10_000), kind -> true, Runnable::run, () -> endOfRun.run());
 
 	private void serial(final Runnable task) {
 		if (refusing.get()) {
+			atRefusal.run();
 			throw new RejectedExecutionException("The executor takes no more tasks");
 		}
 
@@ -76,5 +83,40 @@ public class InboundLanesTest {
 		drainAsAWorkerDoes();
 
 		assertThat(ran, equalTo(List.of("first", "late")));
+	}
+
+	/* The thread whose run is refused still holds the post while it gives up, so a task that another thread adds
+	   meanwhile finds the run posted and waits for it: it is the first thread that has to see to that task */
+	@Example
+	public void shouldNotLeaveATaskThatMetTheRefusalOfAnotherThreadWhereNothingRunsIt() throws Exception {
+		final CountDownLatch executorRefusing = new CountDownLatch(1);
+		final CountDownLatch otherAdded = new CountDownLatch(1);
+		final ExecutorService first = Executors.newSingleThreadExecutor();
+
+		atRefusal = () -> {
+			executorRefusing.countDown();
+			awaitUninterruptibly(otherAdded);
+		};
+		refusing.set(true);
+
+		final Future<?> refused = first.submit(() -> lanes.control(() -> ran.add("first")));
+
+		executorRefusing.await();
+		lanes.control(() -> ran.add("second"));
+		otherAdded.countDown();
+
+		assertThat(assertThrows(ExecutionException.class, refused::get).getCause().getClass(),
+			equalTo(RejectedExecutionException.class));
+		first.shutdown();
+
+		assertThat(ran, equalTo(List.of("second")));
+	}
+
+	private static void awaitUninterruptibly(final CountDownLatch latch) {
+		try {
+			latch.await();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
 	}
 }
