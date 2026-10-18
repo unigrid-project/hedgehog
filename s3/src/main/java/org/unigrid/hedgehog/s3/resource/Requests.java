@@ -114,9 +114,7 @@ final class Requests {
 	}
 
 	/* Request documents are small, so a body past the cap is refused rather than read on */
-	static <T> Optional<T> xml(final Class<T> type, final ContainerRequestContext request) throws IOException,
-		MalformedXmlException {
-
+	static byte[] document(final ContainerRequestContext request) throws IOException {
 		final byte[] body = request.getEntityStream().readNBytes(MAX_XML_BYTES + 1);
 
 		if (body.length > MAX_XML_BYTES) {
@@ -126,6 +124,13 @@ final class Requests {
 		}
 
 		Payload.of(request).finish();
+		return body;
+	}
+
+	static <T> Optional<T> xml(final Class<T> type, final ContainerRequestContext request) throws IOException,
+		MalformedXmlException {
+
+		final byte[] body = document(request);
 
 		return body.length == 0 ? Optional.empty()
 			: Optional.of(S3Xml.read(type, new ByteArrayInputStream(body)));

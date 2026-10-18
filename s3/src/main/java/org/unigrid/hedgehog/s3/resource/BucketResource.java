@@ -72,7 +72,12 @@ public class BucketResource {
 		@Context final HttpHeaders headers, @Context final ContainerRequestContext request) throws IOException,
 		BlobStoreException, NamespaceException, MalformedXmlException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.CORS,
+			Subresource.TAGGING);
+
+		if (subresource == Subresource.CORS) {
+			return Cors.write(namespace, name, request);
+		}
 
 		if (subresource == Subresource.TAGGING) {
 			return Tags.writeBucket(namespace, name, request);
@@ -107,9 +112,13 @@ public class BucketResource {
 	public Response read(@PathParam("bucket") final String name, @Context final UriInfo uri) throws IOException,
 		BlobStoreException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
-			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.CORS,
+			Subresource.LIST_TYPE, Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS);
 		final Bucket bucket = Requests.bucket(namespace, name);
+
+		if (subresource == Subresource.CORS) {
+			return Cors.read(bucket);
+		}
 
 		return Responses.xml(switch (subresource) {
 			case LOCATION -> new LocationConstraint(bucket.location());
@@ -124,7 +133,12 @@ public class BucketResource {
 	public Response delete(@PathParam("bucket") final String name, @Context final UriInfo uri) throws IOException,
 		BlobStoreException, NamespaceException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.CORS,
+			Subresource.TAGGING);
+
+		if (subresource == Subresource.CORS) {
+			return Cors.delete(namespace, name);
+		}
 
 		if (subresource == Subresource.TAGGING) {
 			return Tags.deleteBucket(namespace, name);

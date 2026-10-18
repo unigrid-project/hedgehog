@@ -55,6 +55,7 @@ public enum S3ErrorCode {
 	MethodNotAllowed(Status.METHOD_NOT_ALLOWED, "The specified method is not allowed against this resource."),
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
+	NoSuchCORSConfiguration(Status.NOT_FOUND, "The CORS configuration does not exist"),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
 	NoSuchTagSet(Status.NOT_FOUND, "The TagSet does not exist."),
 	NoSuchUpload(Status.NOT_FOUND, "The specified multipart upload does not exist."),
