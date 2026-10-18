@@ -25,6 +25,7 @@ import java.util.Arrays;
 /* The decoded index of a run: the first key, offset and length of every page, and the bloom filter of its keys */
 record RunIndex(byte[][] firsts, long[] offsets, int[] lengths, Bloom bloom) implements PageCache.Weighed {
 	private static final int FORMAT = 1;
+	private static final int SMALLEST_PAGE_ENTRY = 3;
 	private static final int PAGE_OVERHEAD = 64;
 
 	static RunIndex decode(final byte[] sealed) throws IOException {
@@ -32,17 +33,17 @@ record RunIndex(byte[][] firsts, long[] offsets, int[] lengths, Bloom bloom) imp
 			final int format = input.readUnsignedByte();
 
 			if (format != FORMAT) {
-				throw new IOException("Unknown run format " + format);
+				throw new CorruptIndexException("Unknown run format " + format);
 			}
 
-			final int pages = Codec.readCount(input);
+			final int pages = Codec.readCount(input, SMALLEST_PAGE_ENTRY);
 			final byte[][] firsts = new byte[pages][];
 			final long[] offsets = new long[pages];
 			final int[] lengths = new int[pages];
 
 			for (int i = 0; i < pages; i++) {
 				offsets[i] = Codec.readNumber(input);
-				lengths[i] = Codec.readCount(input);
+				lengths[i] = Codec.readInt(input);
 				firsts[i] = Codec.readBytes(input);
 			}
 

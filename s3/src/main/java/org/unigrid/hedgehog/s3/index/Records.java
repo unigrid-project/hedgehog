@@ -36,7 +36,7 @@ final class Records {
 		final int format = input.readUnsignedByte();
 
 		if (format != FORMAT) {
-			throw new IOException("Unknown record format " + format);
+			throw new CorruptIndexException("Unknown record format " + format);
 		}
 	}
 
@@ -150,7 +150,7 @@ final class Records {
 	}
 
 	private static Part readPart(final DataInput input) throws IOException {
-		return Part.builder().number(Codec.readCount(input)).slices(Codec.readList(input, Records::readSlice))
+		return Part.builder().number(Codec.readInt(input)).slices(Codec.readList(input, Records::readSlice))
 			.etag(Codec.readNullable(input, Codec::readString)).checksums(Codec.readMap(input))
 			.lastModified(Codec.readNullable(input, Codec::readInstant)).build();
 	}

@@ -25,6 +25,7 @@ import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.TreeMap;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -32,6 +33,7 @@ import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.unigrid.hedgehog.s3.jqwik.Expect.assertThrows;
 
 public class RunTest {
 	private final MemoryBlobStore blobs = new MemoryBlobStore();
@@ -60,7 +62,7 @@ public class RunTest {
 		final RunInfo info = RunWriter.write(Cursor.of(model.values().iterator()), model.size(), true,
 			PosixFiles.create().getPath("/"), blobs, config).orElseThrow();
 
-		return new Run(info, blobs, new PageCache(cacheBytes));
+		return new Run(info, blobs, new PageCache(cacheBytes), config.getMaxBlockBytes());
 	}
 
 	static List<Slot> drain(final Cursor cursor) throws Exception {
@@ -95,5 +97,21 @@ public class RunTest {
 
 		assertThat(drain(run.scan(from, to)), equalTo(range));
 		assertThat(drain(run.scan(from, null)), equalTo(List.copyOf(model.tailMap(from, true).values())));
+	}
+
+	/* A manifest from a damaged or forged blob may place the index anywhere and claim any length for it */
+	@Property(tries = 100)
+	public void refusesAnIndexOutsideTheRunOrPastTheBlockLimit(@ForAll("batches") final List<Batch> batches,
+		@ForAll final long size, @ForAll final long indexOffset) throws Exception {
+
+		final NavigableMap<byte[], Slot> model = model(batches);
+		final RunInfo real = RunWriter.write(Cursor.of(model.values().iterator()), model.size(), true,
+			PosixFiles.create().getPath("/"), blobs, NamespaceConfig.builder().build()).orElseThrow();
+		final RunInfo forged = new RunInfo(real.id(), size, indexOffset, real.entries(), real.first(), real.last());
+		final long blockLimit = 1024;
+
+		Assume.that(size != real.size() || indexOffset != real.indexOffset());
+		assertThrows(CorruptIndexException.class, () -> new Run(forged, blobs, new PageCache(0), blockLimit)
+			.get(model.firstKey()));
 	}
 }

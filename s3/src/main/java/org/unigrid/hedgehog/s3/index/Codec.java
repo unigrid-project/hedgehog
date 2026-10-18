@@ -25,8 +25,10 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -95,7 +97,7 @@ final class Codec {
 		final int length = sealed.length - Integer.BYTES;
 
 		if (length < 0 || ByteBuffer.wrap(sealed, length, Integer.BYTES).getInt() != checksum(sealed, length)) {
-			throw new IOException("Checksum mismatch in an index block");
+			throw new CorruptIndexException("Checksum mismatch in an index block");
 		}
 
 		return Arrays.copyOf(sealed, length);
@@ -112,6 +114,7 @@ final class Codec {
 		output.writeByte((int) rest);
 	}
 
+	/* Only ever written for sizes, counts and offsets, so a negative number means damage */
 	static long readNumber(final DataInput input) throws IOException {
 		long value = 0;
 
@@ -121,21 +124,29 @@ final class Codec {
 			value |= (long) (current & SEVEN_BITS) << shift;
 
 			if (current >= 0) {
-				return value;
+				return value < 0 ? fail("A variable-length number overflows") : value;
 			}
 		}
 
-		throw new IOException("Malformed variable-length number");
+		return fail("A variable-length number runs past ten bytes");
 	}
 
-	static int readCount(final DataInput input) throws IOException {
+	static int readInt(final DataInput input) throws IOException {
+		final long value = readNumber(input);
+		return value > Integer.MAX_VALUE ? fail("Number out of range: " + value) : (int) value;
+	}
+
+	/* A count of the elements that follow, each at least the given number of bytes long, checked against the bytes
+	   left so a damaged count fails here instead of sizing an allocation */
+	static int readCount(final DataInput input, final int minimumBytes) throws IOException {
 		final long count = readNumber(input);
+		final long remaining = input instanceof InputStream stream ? stream.available() : Integer.MAX_VALUE;
 
-		if (count < 0 || count > Integer.MAX_VALUE) {
-			throw new IOException("Count out of range: " + count);
-		}
+		return count > remaining / minimumBytes ? fail("A count of " + count + " overruns the input") : (int) count;
+	}
 
-		return (int) count;
+	private static <T> T fail(final String message) throws CorruptIndexException {
+		throw new CorruptIndexException(message);
 	}
 
 	static void writeBytes(final DataOutput output, final byte[] bytes) throws IOException {
@@ -144,7 +155,7 @@ final class Codec {
 	}
 
 	static byte[] readBytes(final DataInput input) throws IOException {
-		final byte[] bytes = new byte[readCount(input)];
+		final byte[] bytes = new byte[readCount(input, 1)];
 
 		input.readFully(bytes);
 		return bytes;
@@ -164,7 +175,14 @@ final class Codec {
 	}
 
 	static Instant readInstant(final DataInput input) throws IOException {
-		return Instant.ofEpochSecond(input.readLong(), input.readInt());
+		final long seconds = input.readLong();
+		final int nanos = input.readInt();
+
+		try {
+			return Instant.ofEpochSecond(seconds, nanos);
+		} catch (DateTimeException | ArithmeticException exception) {
+			throw new CorruptIndexException("An instant out of range", exception);
+		}
 	}
 
 	static <E extends Enum<E>> E readEnum(final DataInput input, final Class<E> type) throws IOException {
@@ -173,7 +191,7 @@ final class Codec {
 		try {
 			return Enum.valueOf(type, name);
 		} catch (IllegalArgumentException exception) {
-			throw new IOException("Unknown " + type.getSimpleName() + ": " + name, exception);
+			throw new CorruptIndexException("Unknown " + type.getSimpleName() + ": " + name, exception);
 		}
 	}
 
@@ -200,7 +218,7 @@ final class Codec {
 	}
 
 	static <T> List<T> readList(final DataInput input, final Reader<T> reader) throws IOException {
-		final int count = readCount(input);
+		final int count = readCount(input, 1);
 		final List<T> values = new ArrayList<>();
 
 		for (int i = 0; i < count; i++) {
@@ -220,7 +238,7 @@ final class Codec {
 	}
 
 	static Map<String, String> readMap(final DataInput input) throws IOException {
-		final int count = readCount(input);
+		final int count = readCount(input, 2);
 		final Map<String, String> values = new HashMap<>();
 
 		for (int i = 0; i < count; i++) {

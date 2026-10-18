@@ -58,7 +58,7 @@ record Manifest(long sequence, List<RunInfo> runs, List<Pending> pending) {
 			final int format = input.readUnsignedByte();
 
 			if (magic != MAGIC || format != FORMAT) {
-				throw new IOException("Not a namespace manifest of a known format");
+				throw new CorruptIndexException("Not a namespace manifest of a known format");
 			}
 
 			return new Manifest(input.readLong(), Codec.readList(input, Manifest::readRun),

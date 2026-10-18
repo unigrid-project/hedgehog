@@ -83,7 +83,7 @@ public class KeysTest {
 	}
 
 	@Property
-	public void parsesTheKeysItBuilds(@ForAll("addresses") final Address address) {
+	public void parsesTheKeysItBuilds(@ForAll("addresses") final Address address) throws CorruptIndexException {
 		assertThat(Keys.parse(encode(address)), equalTo(new Keys.Parsed(address.bucket(), address.key(),
 			address.sequence())));
 

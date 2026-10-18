@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
@@ -32,11 +33,13 @@ final class Run {
 	private final RunInfo info;
 	private final BlobStore blobs;
 	private final PageCache cache;
+	private final long maxBlockBytes;
 
-	Run(final RunInfo info, final BlobStore blobs, final PageCache cache) {
+	Run(final RunInfo info, final BlobStore blobs, final PageCache cache, final long maxBlockBytes) {
 		this.info = info;
 		this.blobs = blobs;
 		this.cache = cache;
+		this.maxBlockBytes = maxBlockBytes;
 	}
 
 	RunInfo info() {
@@ -84,10 +87,21 @@ final class Run {
 			() -> Page.decode(read(offset, index.lengths()[number])));
 	}
 
+	/* The manifest and the index say where blocks lie, and both may come from a damaged or forged blob */
 	private byte[] read(final long offset, final long length) throws IOException, BlobStoreException {
-		final ByteArrayOutputStream bytes = new ByteArrayOutputStream(Math.toIntExact(length));
+		if (length < 0 || length > maxBlockBytes) {
+			throw new CorruptIndexException("A run block claims " + length + " bytes");
+		}
 
-		blobs.open(info.id()).writeTo(bytes, offset, length);
+		final Blob blob = blobs.open(info.id());
+
+		if (offset < 0 || offset > blob.size() - length) {
+			throw new CorruptIndexException("A run block lies outside its run");
+		}
+
+		final ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) length);
+
+		blob.writeTo(bytes, offset, length);
 		return bytes.toByteArray();
 	}
 

@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
+import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
@@ -86,7 +87,8 @@ final class Tree implements Closeable {
 		Files.createDirectories(directory);
 
 		final Optional<BlobId> root = Objects.isNull(mount) ? readRoot(directory) : adopt(directory, mount);
-		final Manifest manifest = root.isPresent() ? Manifest.decode(read(blobs, root.get())) : Manifest.EMPTY;
+		final Manifest manifest = root.isPresent() ? Manifest.decode(read(blobs, root.get(), config))
+			: Manifest.EMPTY;
 		final Memtable memtable = new Memtable();
 		final AtomicLong sequence = new AtomicLong(manifest.sequence());
 		final Journal journal = Journal.open(directory, (number, batch) -> {
@@ -124,15 +126,24 @@ final class Tree implements Closeable {
 		return Optional.of(mount);
 	}
 
-	private static byte[] read(final BlobStore blobs, final BlobId id) throws IOException, BlobStoreException {
-		final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+	/* A mounted root may name any blob, so its size is checked before it is read into memory */
+	private static byte[] read(final BlobStore blobs, final BlobId id, final NamespaceConfig config)
+		throws IOException, BlobStoreException {
 
-		blobs.open(id).writeTo(bytes);
+		final Blob blob = blobs.open(id);
+
+		if (blob.size() > config.getMaxBlockBytes()) {
+			throw new CorruptIndexException("The root names a blob too large for a manifest");
+		}
+
+		final ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) blob.size());
+
+		blob.writeTo(bytes);
 		return bytes.toByteArray();
 	}
 
 	private Run run(final RunInfo info) {
-		return new Run(info, blobs, cache);
+		return new Run(info, blobs, cache, config.getMaxBlockBytes());
 	}
 
 	private List<Run> runs(final Manifest manifest) {

@@ -40,6 +40,10 @@ public class NamespaceConfig {
 	@Builder.Default private final int bloomBitsPerKey = 10;
 	@Builder.Default private final long cacheBytes = 32 * MEBIBYTE;
 
+	/* The largest run page, run index or manifest a read accepts, so a damaged or forged blob cannot make the index
+	   allocate without bound. It must stay above the page size plus the largest record. */
+	@Builder.Default private final long maxBlockBytes = 256 * MEBIBYTE;
+
 	/* How long a superseded run, manifest or released object blob survives, which must outlast the longest read
 	   that may still be using it */
 	@Builder.Default private final Duration grace = Duration.ofHours(1);

@@ -146,7 +146,7 @@ final class Journal implements Closeable {
 	private static void decode(final byte[] payload, final Replay replay) throws IOException {
 		Codec.decode(payload, input -> {
 			final long sequence = input.readLong();
-			final int count = Codec.readCount(input);
+			final int count = Codec.readCount(input, 2);
 			final Batch batch = new Batch();
 
 			for (int i = 0; i < count; i++) {

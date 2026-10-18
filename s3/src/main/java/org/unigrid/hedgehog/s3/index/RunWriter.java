@@ -19,15 +19,12 @@
 package org.unigrid.hedgehog.s3.index;
 
 import java.io.BufferedOutputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,30 +32,22 @@ import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 /* Writes slots that arrive in key order as a run blob, through a scratch file so a run of any size streams into
-   the blob store. The layout, where every number is LEB128 and every byte string carries its length up front:
-
-     run   := page... index
-     page  := count, entry..., crc
-     entry := shared, rest, value
-     index := format, page count, (offset, length, first key) per page, bloom filter, crc
-
-   A key keeps only the bytes past the prefix it shares with the key before it in the same page, so each page
-   decodes on its own. A tombstone has no value, and crc is the CRC32C of what precedes it in the page or index as
-   a big-endian int. A page closes once it passes the configured size and the manifest records where the index
-   starts, so a reader fetches the index and then just the pages it needs. */
+   the blob store. The run is its pages, laid out as Page describes, followed by its index: a format byte, the page
+   count, the offset, length and first key of every page and the bloom filter of all keys, sealed with a CRC32C.
+   Numbers are LEB128 and byte strings carry their length up front. A page closes once its keys and values pass
+   the configured size, and the manifest records where the index starts, so a reader fetches the index and then
+   only the pages it needs. */
 final class RunWriter {
 	private final OutputStream output;
 	private final Bloom bloom;
 	private final int pageBytes;
-	private final ByteArrayOutputStream page = new ByteArrayOutputStream();
-	private final DataOutputStream entryOutput = new DataOutputStream(page);
+	private final List<Slot> page = new ArrayList<>();
 	private final List<byte[]> firsts = new ArrayList<>();
 	private final List<Long> offsets = new ArrayList<>();
 	private final List<Integer> lengths = new ArrayList<>();
 	private byte[] first;
 	private byte[] last;
-	private byte[] previous;
-	private int count;
+	private long pageSize;
 	private long offset;
 	private long entries;
 	private long size;
@@ -102,45 +91,35 @@ final class RunWriter {
 	}
 
 	private void add(final Slot slot) throws IOException {
-		final byte[] key = slot.key();
-		final int shared = Objects.isNull(previous) ? 0 : Arrays.mismatch(previous, key);
-
-		if (count == 0) {
-			firsts.add(key);
+		if (page.isEmpty()) {
+			firsts.add(slot.key());
 		}
 
-		Codec.writeNumber(entryOutput, shared);
-		Codec.writeBytes(entryOutput, Arrays.copyOfRange(key, shared, key.length));
-		Codec.writeNullable(entryOutput, slot.value(), Codec::writeBytes);
-		bloom.add(key);
-		first = Objects.requireNonNullElse(first, key);
-		last = key;
-		previous = key;
-		count++;
+		page.add(slot);
+		pageSize += slot.key().length + (slot.tombstone() ? 0 : slot.value().length);
+		bloom.add(slot.key());
+		first = Objects.requireNonNullElse(first, slot.key());
+		last = slot.key();
 		entries++;
 
-		if (page.size() >= pageBytes) {
+		if (pageSize >= pageBytes) {
 			closePage();
 		}
 	}
 
 	private void closePage() throws IOException {
-		final byte[] sealed = Codec.seal(Codec.encode(pageOutput -> {
-			Codec.writeNumber(pageOutput, count);
-			pageOutput.write(page.toByteArray());
-		}));
+		final byte[] sealed = Page.encode(page);
 
 		output.write(sealed);
 		offsets.add(offset);
 		lengths.add(sealed.length);
 		offset += sealed.length;
-		page.reset();
-		previous = null;
-		count = 0;
+		page.clear();
+		pageSize = 0;
 	}
 
 	private void finish() throws IOException {
-		if (count > 0) {
+		if (!page.isEmpty()) {
 			closePage();
 		}
 

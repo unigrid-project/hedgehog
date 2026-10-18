@@ -95,12 +95,12 @@ final class Keys {
 		return new Builder(GARBAGE).text(blob.value()).bytes();
 	}
 
-	static BlobId garbageBlob(final byte[] key) {
+	static BlobId garbageBlob(final byte[] key) throws CorruptIndexException {
 		return new BlobId(new Cursor(key).text());
 	}
 
 	/* Parses version and upload keys, whose trailing number is the sequence they were written at */
-	static Parsed parse(final byte[] key) {
+	static Parsed parse(final byte[] key) throws CorruptIndexException {
 		final Cursor cursor = new Cursor(key);
 		final String bucket = cursor.text();
 		final String name = cursor.text();
@@ -217,10 +217,10 @@ final class Keys {
 			this.key = key;
 		}
 
-		String text() {
+		String text() throws CorruptIndexException {
 			final ByteArrayOutputStream text = new ByteArrayOutputStream();
 
-			while (key[position] != 0 || key[position + 1] != TERMINATOR) {
+			while (at(position) != 0 || at(position + 1) != TERMINATOR) {
 				text.write(key[position]);
 				position += key[position] == 0 ? 2 : 1;
 			}
@@ -229,8 +229,17 @@ final class Keys {
 			return text.toString(StandardCharsets.UTF_8);
 		}
 
-		long number() {
+		long number() throws CorruptIndexException {
+			at(position + Long.BYTES - 1);
 			return ByteBuffer.wrap(key, position, Long.BYTES).getLong();
+		}
+
+		private byte at(final int index) throws CorruptIndexException {
+			if (index >= key.length) {
+				throw new CorruptIndexException("An index key ends early");
+			}
+
+			return key[index];
 		}
 	}
 }

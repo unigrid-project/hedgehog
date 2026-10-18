@@ -99,7 +99,16 @@ final class Bloom {
 
 	static Bloom read(final DataInput input) throws IOException {
 		final int probes = input.readUnsignedByte();
-		final long[] words = new long[Codec.readCount(input)];
+
+		if (probes < 1 || probes > MAX_PROBES) {
+			throw new CorruptIndexException("A bloom filter with " + probes + " probes");
+		}
+
+		final long[] words = new long[Codec.readCount(input, Long.BYTES)];
+
+		if (words.length == 0) {
+			throw new CorruptIndexException("A bloom filter without bits");
+		}
 
 		for (int i = 0; i < words.length; i++) {
 			words[i] = input.readLong();
