@@ -390,8 +390,8 @@ public final class Namespace implements AutoCloseable {
 	   a mutation trying to refer to it again fails instead of keeping a blob that is about to vanish, and it leaves
 	   the queue only once the blob store confirms the delete, so a crash in between deletes it again later. */
 	private void sweepGarbage() throws IOException, BlobStoreException {
-		final List<BlobId> due = dueGarbage();
-		final List<BlobId> claimed = write((transaction, references) -> claim(transaction, due));
+		final Instant now = config.getClock().instant();
+		final List<BlobId> claimed = claim(dueGarbage(now), now);
 
 		try {
 			for (BlobId blob : claimed) {
@@ -407,8 +407,8 @@ public final class Namespace implements AutoCloseable {
 		}
 	}
 
-	private List<BlobId> dueGarbage() throws IOException, BlobStoreException {
-		final Instant now = config.getClock().instant();
+	/* Picks released blobs due at the instant from a snapshot, which a claim then has to confirm under the lock */
+	List<BlobId> dueGarbage(final Instant now) throws IOException, BlobStoreException {
 		final List<BlobId> due = new ArrayList<>();
 		final Cursor cursor = tree.snapshot().scan(Keys.garbage(), Keys.end(Keys.garbage()));
 
@@ -421,20 +421,24 @@ public final class Namespace implements AutoCloseable {
 		return due;
 	}
 
-	private List<BlobId> claim(final Transaction transaction, final List<BlobId> due) throws IOException,
-		BlobStoreException {
+	/* Claims the candidates that are still released and due at the instant. Between picking and claiming, a blob
+	   may have been referred to and released again, which queued it anew with a later due time. */
+	List<BlobId> claim(final List<BlobId> candidates, final Instant now) throws IOException, BlobStoreException {
+		return write((transaction, references) -> {
+			final List<BlobId> claimed = new ArrayList<>();
 
-		final List<BlobId> claimed = new ArrayList<>();
+			for (BlobId blob : candidates) {
+				final Optional<byte[]> queued = transaction.get(Keys.garbage(blob));
+				final boolean due = queued.isPresent()
+					&& !Codec.decode(queued.get(), Codec::readInstant).isAfter(now);
 
-		for (BlobId blob : due) {
-			final boolean queued = transaction.get(Keys.garbage(blob)).isPresent();
-
-			if (queued && References.count(transaction, blob) == 0 && deleting.add(blob)) {
-				claimed.add(blob);
+				if (due && References.count(transaction, blob) == 0 && deleting.add(blob)) {
+					claimed.add(blob);
+				}
 			}
-		}
 
-		return claimed;
+			return claimed;
+		});
 	}
 
 	private static void check(final boolean holds) throws ConditionFailedException {
