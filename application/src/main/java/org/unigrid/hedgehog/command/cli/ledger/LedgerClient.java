@@ -25,6 +25,7 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -109,13 +110,21 @@ final class LedgerClient implements AutoCloseable {
 		return 1;
 	}
 
-	/* A node without a ledger reports no chain, and nothing can be signed for it */
-	static byte[] chainId(final LedgerInfo info) throws Refused {
+	/* A node without a ledger reports no chain, and nothing can be signed for it. A chain typed by the user guards
+	   against a node that answers for another chain, as its certificate proves nothing */
+	static byte[] chainId(final LedgerInfo info, final Optional<byte[]> expected) throws Refused {
 		if (info.chainId() == null) {
 			throw new Refused(LedgerDriver.NOT_RUNNING);
 		}
 
-		return HEX.parseHex(info.chainId());
+		final byte[] chainId = HEX.parseHex(info.chainId());
+
+		if (expected.isPresent() && !Arrays.equals(expected.get(), chainId)) {
+			throw new Refused("The node is on chain " + HEX.formatHex(chainId) + ", not on "
+				+ HEX.formatHex(expected.get()));
+		}
+
+		return chainId;
 	}
 
 	static int print(final Question<?> question) {

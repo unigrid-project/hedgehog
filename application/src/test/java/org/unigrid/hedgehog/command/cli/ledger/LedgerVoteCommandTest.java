@@ -25,6 +25,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -61,7 +62,7 @@ import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerVoteCommandTest {
-	private static final String CHAIN_ID = "11".repeat(32);
+	private static final String CHAIN_ID = "11".repeat(64);
 	private static final byte[] CHAIN = HexFormat.of().parseHex(CHAIN_ID);
 	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String CANDIDATE = "ab".repeat(32);
@@ -72,6 +73,8 @@ public class LedgerVoteCommandTest {
 	private static final String CANDIDATE_OPTION = "--candidate";
 	private static final String ADD_OPTION = "--add";
 	private static final String REMOVE_OPTION = "--remove";
+	private static final String CHAIN_OPTION = "--chain";
+	private static final String OTHER_CHAIN_ID = "22".repeat(64);
 
 	private record BeforeSending(Result sent, HedgehogCli.Result cli) { }
 
@@ -170,6 +173,57 @@ public class LedgerVoteCommandTest {
 			assertThat(vote.hasValidSignature(CHAIN), equalTo(true));
 			assertThat(outcome.connected(), equalTo(true));
 			assertThat(outcome.closed(), equalTo(true));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void takesTheChainThatIsGivenInAnyCase() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final AccountKey voter = Ed25519.publicKey(SEED);
+
+			for (final String typed : List.of(CHAIN_ID, CHAIN_ID.toUpperCase(Locale.ROOT))) {
+				final Outcome outcome = sendOn(fs, info(ROUND, voter.toString()), accepted(), KEY_OPTION,
+					KEY_FILE, CANDIDATE_OPTION, CANDIDATE, ADD_OPTION, CHAIN_OPTION, typed);
+
+				assertThat(outcome.cli().exitCode(), equalTo(0));
+				assertThat(voteIn(outcome).hasValidSignature(CHAIN), equalTo(true));
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAChainThatIsNotTheOneOfTheNode() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final AccountKey voter = Ed25519.publicKey(SEED);
+
+			final Outcome outcome = sendOn(fs, info(ROUND, voter.toString()), accepted(), KEY_OPTION, KEY_FILE,
+				CANDIDATE_OPTION, CANDIDATE, ADD_OPTION, CHAIN_OPTION, OTHER_CHAIN_ID);
+
+			assertThat(outcome.cli().exitCode(), equalTo(1));
+			assertThat(outcome.cli().err().lines().toList(),
+				equalTo(List.of("The node is on chain " + CHAIN_ID + ", not on " + OTHER_CHAIN_ID)));
+			assertNothingPosted(outcome);
+			outcome.cli().assertNoStackTrace();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAChainThatIsNoChainId() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			for (final String typed : List.of("1".repeat(127), "zz".repeat(64))) {
+				final BeforeSending outcome = refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION,
+					CANDIDATE, ADD_OPTION, CHAIN_OPTION, typed);
+
+				assertRefusedBeforeSending(outcome);
+				assertThat(outcome.cli().err(), containsString(CHAIN_OPTION));
+			}
 		}
 	}
 

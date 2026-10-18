@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
@@ -29,6 +30,7 @@ import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFile;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
@@ -38,6 +40,9 @@ import picocli.CommandLine.Spec;
 public class LedgerVoteCommand implements Callable<Integer> {
 	@Spec
 	private CommandSpec spec;
+
+	@Mixin
+	private ChainOption chain;
 
 	@Option(names = "--key", required = true, paramLabel = "<file>",
 		description = "The key file that holds the seed of the voter."
@@ -73,7 +78,7 @@ public class LedgerVoteCommand implements Callable<Integer> {
 
 	private int send(LedgerClient ledger, Draft draft) throws LedgerClient.Refused {
 		final LedgerInfo info = ledger.info();
-		final byte[] chainId = LedgerClient.chainId(info);
+		final byte[] chainId = LedgerClient.chainId(info, draft.chain());
 		refuseWhenNotAllowed(draft, info);
 		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), info.round(), chainId);
 
@@ -82,10 +87,10 @@ public class LedgerVoteCommand implements Callable<Integer> {
 	}
 
 	private Draft draft() {
-		return new Draft(requestedCandidate(), voting.action(), seed());
+		return new Draft(requestedCandidate(), voting.action(), chain.expected(spec), seed());
 	}
 
-	private record Draft(AccountKey candidate, Vote.Action action, byte[] seed) {
+	private record Draft(AccountKey candidate, Vote.Action action, Optional<byte[]> chain, byte[] seed) {
 		/* Empty on purpose */
 	}
 

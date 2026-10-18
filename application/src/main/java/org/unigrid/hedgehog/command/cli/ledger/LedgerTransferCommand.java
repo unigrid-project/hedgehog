@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ed25519;
@@ -27,9 +28,11 @@ import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFile;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
@@ -37,8 +40,13 @@ import picocli.CommandLine.Spec;
 
 @Command(name = "transfer", description = "Sign a transfer with a key file and send it to the node.")
 public class LedgerTransferCommand implements Callable<Integer> {
+	private static final BigDecimal LARGEST_FEE = BigDecimal.valueOf(LedgerFee.SporkData.MAX_UNITS, Coin.DECIMALS);
+
 	@Spec
 	private CommandSpec spec;
+
+	@Mixin
+	private ChainOption chain;
 
 	@Option(names = "--key", required = true, paramLabel = "<file>",
 		description = "The key file that holds the seed of the sender."
@@ -74,7 +82,7 @@ public class LedgerTransferCommand implements Callable<Integer> {
 
 	private int send(LedgerClient ledger, Draft draft) throws LedgerClient.Refused {
 		final LedgerInfo info = ledger.info();
-		final byte[] chainId = LedgerClient.chainId(info);
+		final byte[] chainId = LedgerClient.chainId(info, draft.chain());
 		final long feeUnits = draft.fee() != null ? draft.fee() : minimumFee(info);
 		final long nonceUnits = draft.nonce() != null ? draft.nonce()
 			: ledger.account(LedgerText.text(Ed25519.publicKey(draft.seed()))).nonce();
@@ -86,10 +94,11 @@ public class LedgerTransferCommand implements Callable<Integer> {
 	}
 
 	private Draft draft() {
-		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), seed());
+		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), chain.expected(spec),
+			seed());
 	}
 
-	private record Draft(Address recipient, long amount, Long fee, Long nonce, byte[] seed) {
+	private record Draft(Address recipient, long amount, Long fee, Long nonce, Optional<byte[]> chain, byte[] seed) {
 		/* Empty on purpose */
 	}
 
@@ -122,12 +131,23 @@ public class LedgerTransferCommand implements Callable<Integer> {
 	}
 
 	/* A node may set a minimum of zero, which LedgerText.units refuses for an amount that is typed */
-	private long minimumFee(LedgerInfo info) {
+	private long minimumFee(LedgerInfo info) throws LedgerClient.Refused {
 		if (info.minimumFee() == null) {
 			throw refused("No minimum fee is set on the node; pass --fee");
 		}
 
-		return new BigDecimal(info.minimumFee()).movePointRight(Coin.DECIMALS).longValueExact();
+		try {
+			final BigDecimal proposed = new BigDecimal(info.minimumFee());
+
+			if (proposed.signum() >= 0 && proposed.compareTo(LARGEST_FEE) <= 0) {
+				return proposed.movePointRight(Coin.DECIMALS).longValueExact();
+			}
+		} catch (NumberFormatException | ArithmeticException ex) {
+			/* Whoever answers for the node may send any text; it is refused below like any other fee */
+		}
+
+		throw new LedgerClient.Refused("The node asks a fee of " + info.minimumFee()
+			+ ", which no fee spork can set; pass --fee to choose it");
 	}
 
 	private long units(String option, String coins) {

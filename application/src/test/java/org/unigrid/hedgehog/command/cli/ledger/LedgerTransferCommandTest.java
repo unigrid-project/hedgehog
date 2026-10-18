@@ -65,7 +65,7 @@ import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class LedgerTransferCommandTest {
-	private static final String CHAIN_ID = "11".repeat(32);
+	private static final String CHAIN_ID = "11".repeat(64);
 	private static final byte[] CHAIN = HexFormat.of().parseHex(CHAIN_ID);
 	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
 	private static final String RECIPIENT = "ab".repeat(32);
@@ -77,6 +77,9 @@ public class LedgerTransferCommandTest {
 	private static final String AMOUNT_OPTION = "--amount";
 	private static final String FEE_OPTION = "--fee";
 	private static final String NONCE_OPTION = "--nonce";
+	private static final String CHAIN_OPTION = "--chain";
+	private static final String OTHER_CHAIN_ID = "22".repeat(64);
+	private static final long ONE_COIN_UNITS = 100_000_000L;
 
 	private record BeforeSending(Result sent, HedgehogCli.Result cli) { }
 
@@ -160,6 +163,11 @@ public class LedgerTransferCommandTest {
 		outcome.cli().assertNoStackTrace();
 	}
 
+	private static void assertNothingPosted(Outcome outcome) {
+		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
+			equalTo(false));
+	}
+
 	@Property(tries = 20)
 	@SneakyThrows
 	public void signsTheTransferWithTheSenderOfTheKeyFile(@ForAll("seeds") byte[] seed,
@@ -185,6 +193,53 @@ public class LedgerTransferCommandTest {
 			assertThat(transfer.hasValidSignature(CHAIN), equalTo(true));
 			assertThat(outcome.connected(), equalTo(true));
 			assertThat(outcome.closed(), equalTo(true));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void takesTheChainThatIsGivenInAnyCase() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			for (final String typed : List.of(CHAIN_ID, CHAIN_ID.toUpperCase(Locale.ROOT))) {
+				final Outcome outcome = sendOn(fs, info(MINIMUM_FEE), account(0), accepted(),
+					KEY_OPTION, KEY_FILE, TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION,
+					"0", CHAIN_OPTION, typed);
+
+				assertThat(outcome.cli().exitCode(), equalTo(0));
+				assertThat(transferIn(outcome).hasValidSignature(CHAIN), equalTo(true));
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAChainThatIsNotTheOneOfTheNode() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			final Outcome outcome = sendOn(fs, info(MINIMUM_FEE), account(0), accepted(), KEY_OPTION, KEY_FILE,
+				TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0", CHAIN_OPTION, OTHER_CHAIN_ID);
+
+			assertThat(outcome.cli().exitCode(), equalTo(1));
+			assertThat(outcome.cli().err().lines().toList(),
+				equalTo(List.of("The node is on chain " + CHAIN_ID + ", not on " + OTHER_CHAIN_ID)));
+			assertNothingPosted(outcome);
+			outcome.cli().assertNoStackTrace();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAChainThatIsNoChainId() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			for (final String typed : List.of("1".repeat(127), "zz".repeat(64))) {
+				assertRefusedBeforeSending(refusedOn(fs, KEY_OPTION, KEY_FILE, TO_OPTION, RECIPIENT,
+					AMOUNT_OPTION, "1", NONCE_OPTION, "0", CHAIN_OPTION, typed), CHAIN_OPTION);
+			}
 		}
 	}
 
@@ -224,6 +279,54 @@ public class LedgerTransferCommandTest {
 				TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0");
 
 			assertThat(transferIn(outcome).fee(), equalTo(0L));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void takesAMinimumFeeOfOneCoin() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			final Outcome outcome = sendOn(fs, info("1.00000000"), account(0), accepted(), KEY_OPTION, KEY_FILE,
+				TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0");
+
+			assertThat(outcome.cli().exitCode(), equalTo(0));
+			assertThat(transferIn(outcome).fee(), equalTo(ONE_COIN_UNITS));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAMinimumFeeAboveAnyFeeSpork() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			for (final String minimum : List.of("1.00000001", "-0.00000001", "0.000000001", "lots", "1E+999999999")) {
+				final Outcome outcome = sendOn(fs, info(minimum), account(0), accepted(), KEY_OPTION,
+					KEY_FILE, TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0");
+
+				assertThat(outcome.cli().exitCode(), equalTo(1));
+				assertThat(outcome.cli().err().lines().toList(),
+					equalTo(List.of("The node asks a fee of " + minimum
+						+ ", which no fee spork can set; pass --fee to choose it")));
+				assertNothingPosted(outcome);
+				outcome.cli().assertNoStackTrace();
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void takesAFeeThatIsGivenAboveAnyFeeSpork() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+
+			final Outcome outcome = sendOn(fs, info("5.00000000"), account(0), accepted(), KEY_OPTION, KEY_FILE,
+				TO_OPTION, RECIPIENT, AMOUNT_OPTION, "1", NONCE_OPTION, "0", FEE_OPTION, "2");
+
+			assertThat(outcome.cli().exitCode(), equalTo(0));
+			assertThat(transferIn(outcome).fee(), equalTo(2 * ONE_COIN_UNITS));
 		}
 	}
 
