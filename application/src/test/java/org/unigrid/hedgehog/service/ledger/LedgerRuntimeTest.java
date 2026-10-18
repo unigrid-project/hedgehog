@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.service.ledger;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -41,6 +43,7 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
 public class LedgerRuntimeTest {
 	private static final int TASKS = 2_000;
 	private static final long STOP_MILLIS = 5_000;
+	private static final long TIMER_DELAY_MILLIS = 300;
 	private static final InheritableThreadLocal<String> CONTEXT = new InheritableThreadLocal<>();
 
 	private static List<Thread> threadsNamed(final String name) {
@@ -204,17 +207,16 @@ public class LedgerRuntimeTest {
 	}
 
 	@Example
-	@SneakyThrows
 	public void shouldDropTheTimersThatAreWaitingWhenClosed() {
 		final AtomicBoolean ran = new AtomicBoolean();
 		final LedgerRuntime runtime = new LedgerRuntime(unique());
 
-		runtime.schedule(() -> ran.set(true), 300);
+		runtime.schedule(() -> ran.set(true), TIMER_DELAY_MILLIS);
 		runtime.close();
 
 		assertThat(runtime.awaitStopped(STOP_MILLIS), is(true));
-		Thread.sleep(400);
-		assertThat(ran.get(), is(false));
+		await().during(Duration.ofMillis(2 * TIMER_DELAY_MILLIS)).atMost(Duration.ofMillis(STOP_MILLIS))
+			.until(() -> !ran.get());
 	}
 
 	@Example
