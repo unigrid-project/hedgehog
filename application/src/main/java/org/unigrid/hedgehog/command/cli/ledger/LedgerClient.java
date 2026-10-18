@@ -156,8 +156,8 @@ final class LedgerClient implements AutoCloseable {
 	/* A transaction the ledger will not take comes back as the reason it gives */
 	LedgerSubmitted submit(final byte[] encoded) throws Refused {
 		final Entity<LedgerSubmission> body = Entity.json(new LedgerSubmission(HEX.formatHex(encoded)));
-		final LedgerSubmitted answer = answer(() -> rest.post("/ledger/transaction", body), LedgerSubmitted.class,
-			Status.ACCEPTED, Status.CONFLICT);
+		final LedgerSubmitted answer = answer(() -> rest.postBounded("/ledger/transaction", body),
+			LedgerSubmitted.class, Status.ACCEPTED, Status.CONFLICT);
 
 		if (!answer.accepted()) {
 			throw new Refused(answer.reason());

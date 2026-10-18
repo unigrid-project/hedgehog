@@ -75,7 +75,7 @@ final class FakeLedgerNode extends MockUp<RestClient> {
 		return answer(HttpMethod.GET, location, null);
 	}
 
-	@Mock public Response post(String location, Entity<?> entity) {
+	@Mock public Response postBounded(String location, Entity<?> entity) {
 		return answer(HttpMethod.POST, location, entity);
 	}
 

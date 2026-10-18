@@ -182,6 +182,10 @@ public final class RestCommandFixture {
 			return respond(HttpMethod.POST, location, entity, null);
 		}
 
+		@Mock public Response postBounded(String location, Entity<?> entity) throws ResponseOddityException {
+			return respond(HttpMethod.POST, location, entity, null);
+		}
+
 		/* The command closes a streamed body once sent, so its bytes are kept instead, and its length is the
 		   Content-Length that the connection announces */
 		@Mock public Response postStream(String location, InputStream body, long length)
