@@ -49,7 +49,7 @@ final class Versions {
 		Requests.key(key);
 
 		if (Objects.isNull(versionId)) {
-			final Optional<ObjectVersion> marker = namespace.delete(bucket, key, at);
+			final Optional<ObjectVersion> marker = namespace.delete(bucket, key, at, latest -> true);
 			return new Deleted(marker.map(ObjectVersion::versionId).orElse(null), marker.isPresent());
 		}
 

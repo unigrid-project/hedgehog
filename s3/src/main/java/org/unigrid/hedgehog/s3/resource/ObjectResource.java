@@ -197,7 +197,6 @@ public class ObjectResource {
 
 		final ObjectVersion from = source.read(namespace, headers);
 		final boolean replace = ObjectHeaders.replaced(headers);
-		final boolean replaceTags = Tags.replaced(headers);
 
 		if (!replace && source.names(bucket, key)) {
 			throw new S3Exception(S3ErrorCode.InvalidRequest, "This copy request is illegal because it is "
@@ -207,13 +206,8 @@ public class ObjectResource {
 		}
 
 		final Instant now = Requests.now(clock);
-		final ObjectVersion stored = namespace.put(from.toBuilder().bucket(bucket).key(key).versionId(null)
-			.lastModified(now).retention(null).legalHold(false)
-			.headers(replace ? ObjectHeaders.content(headers) : from.headers())
-			.metadata(replace ? ObjectHeaders.metadata(headers) : from.metadata())
-			.tags(replaceTags ? Tags.header(headers) : from.tags()).build(),
-			latest -> Requests.writable(headers, latest)
-		);
+		final ObjectVersion stored = namespace.copy(source.pinned(from), found -> copied(source.check(found,
+			headers), bucket, key, headers, now), latest -> Requests.writable(headers, latest));
 		final CopyObjectResult result = new CopyObjectResult();
 
 		result.setETag(Responses.quoted(stored.etag()));
@@ -221,6 +215,18 @@ public class ObjectResource {
 
 		return Responses.copied(Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), stored),
 			from).build();
+	}
+
+	/* A copy keeps the content of its source, and its headers, metadata and tags unless the request replaces them */
+	private static ObjectVersion copied(final ObjectVersion source, final String bucket, final String key,
+		final HttpHeaders headers, final Instant now) {
+
+		final boolean replace = ObjectHeaders.replaced(headers);
+
+		return source.toBuilder().bucket(bucket).key(key).versionId(null).lastModified(now).retention(null)
+			.legalHold(false).headers(replace ? ObjectHeaders.content(headers) : source.headers())
+			.metadata(replace ? ObjectHeaders.metadata(headers) : source.metadata())
+			.tags(Tags.replaced(headers) ? Tags.header(headers) : source.tags()).build();
 	}
 
 	private Response read(final String bucket, final String key, final MultivaluedMap<String, String> query,

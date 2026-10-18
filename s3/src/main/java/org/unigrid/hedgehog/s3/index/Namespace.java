@@ -35,6 +35,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
@@ -179,13 +180,32 @@ public final class Namespace implements AutoCloseable {
 		});
 	}
 
-	/* Deletes the way a delete without a version id does: an unversioned bucket drops the null version, and any
-	   other bucket stores a delete marker, which the answer holds */
-	public Optional<ObjectVersion> delete(final String bucket, final String key, final Instant at)
-		throws IOException, BlobStoreException, NoSuchBucketException {
+	/* Stores a copy of a version once the guard accepts the newest version of the target key. The source is read
+	   under the writer lock along with the write, so its blobs cannot be released and deleted before the copy
+	   refers to them. The build gets the source as found then and answers the version to store, which is stored
+	   the way put stores one. */
+	public ObjectVersion copy(final VersionRef source, final Function<Optional<ObjectVersion>, ObjectVersion> build,
+		final Predicate<Optional<ObjectVersion>> guard) throws IOException, BlobStoreException, NamespaceException {
+
+		return write((transaction, references) -> {
+			final ObjectVersion version = build.apply(find(transaction, source));
+			final Bucket bucket = requireBucket(transaction, version.bucket());
+
+			check(guard.test(latest(transaction, version.bucket(), version.key())));
+			return store(transaction, references, bucket, version);
+		});
+	}
+
+	/* Deletes the way a delete without a version id does once the guard accepts the newest version there is: an
+	   unversioned bucket drops the null version, and any other bucket stores a delete marker, which the answer
+	   holds */
+	public Optional<ObjectVersion> delete(final String bucket, final String key, final Instant at,
+		final Predicate<Optional<ObjectVersion>> guard) throws IOException, BlobStoreException, NamespaceException {
 
 		return write((transaction, references) -> {
 			final Bucket found = requireBucket(transaction, bucket);
+
+			check(guard.test(latest(transaction, bucket, key)));
 
 			if (found.versioning() == Versioning.UNVERSIONED) {
 				dropNullVersion(transaction, references, bucket, key);
@@ -292,19 +312,17 @@ public final class Namespace implements AutoCloseable {
 	public Part putPart(final String bucket, final String key, final String uploadId, final Part part)
 		throws IOException, BlobStoreException, NoSuchUploadException {
 
-		return write((transaction, references) -> {
-			final long upload = Keys.parse(requireUpload(transaction, bucket, key, uploadId).key()).sequence();
-			final byte[] slotKey = Keys.part(upload, part.number());
-			final Optional<byte[]> replaced = transaction.get(slotKey);
+		return write((transaction, references) -> storePart(transaction, references,
+			requireUpload(transaction, bucket, key, uploadId), part));
+	}
 
-			if (replaced.isPresent()) {
-				references.release(Records.part(replaced.get()).blobs());
-			}
+	/* Stores a part copied from a version, which is read under the writer lock the way copy reads its source */
+	public Part copyPart(final String bucket, final String key, final String uploadId, final VersionRef source,
+		final Function<Optional<ObjectVersion>, Part> build) throws IOException, BlobStoreException,
+		NamespaceException {
 
-			transaction.put(slotKey, Records.part(part));
-			references.retain(part.blobs());
-			return part;
-		});
+		return write((transaction, references) -> storePart(transaction, references,
+			requireUpload(transaction, bucket, key, uploadId), build.apply(find(transaction, source))));
 	}
 
 	/* The parts of the upload numbered past the marker, at most limit of them */
@@ -567,6 +585,19 @@ public final class Namespace implements AutoCloseable {
 			.map(value -> new Slot(slotKey, value));
 	}
 
+	private static Optional<ObjectVersion> find(final View view, final VersionRef ref) throws IOException,
+		BlobStoreException, NoSuchBucketException {
+
+		requireBucket(view, ref.bucket());
+
+		if (Objects.isNull(ref.versionId())) {
+			return latest(view, ref.bucket(), ref.key());
+		}
+
+		final Optional<Slot> slot = findVersion(view, ref.bucket(), ref.key(), ref.versionId());
+		return slot.isPresent() ? Optional.of(version(slot.get())) : Optional.empty();
+	}
+
 	private static Optional<Slot> findNullVersion(final View view, final String bucket, final String key)
 		throws IOException, BlobStoreException {
 
@@ -608,6 +639,22 @@ public final class Namespace implements AutoCloseable {
 			transaction.delete(found.get().key());
 			references.release(version(found.get()).blobs());
 		}
+	}
+
+	/* Stores the part in place of any part of the upload with the same number */
+	private static Part storePart(final Transaction transaction, final References references, final Slot upload,
+		final Part part) throws IOException, BlobStoreException {
+
+		final byte[] slotKey = Keys.part(Keys.parse(upload.key()).sequence(), part.number());
+		final Optional<byte[]> replaced = transaction.get(slotKey);
+
+		if (replaced.isPresent()) {
+			references.release(Records.part(replaced.get()).blobs());
+		}
+
+		transaction.put(slotKey, Records.part(part));
+		references.retain(part.blobs());
+		return part;
 	}
 
 	private static Optional<Slot> findUpload(final View view, final String bucket, final String key,
