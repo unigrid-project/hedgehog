@@ -79,19 +79,25 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 		return HttpUtil.isTransferEncodingChunked(request) ? -1 : HttpUtil.getContentLength(request, 0L);
 	}
 
-	/* A HEAD response keeps the length of the body it leaves out, when its resource gave one */
+	/* The length a resource declares stands where Jersey learnt none, as for a body longer than what it buffers, and
+	   in a HEAD response, which leaves the body out */
+	private void frame(final HttpResponse response, final long length) {
+		final boolean declared = response.headers().contains(HttpHeaderNames.CONTENT_LENGTH);
+
+		if (length >= 0 && (!declared || !isHead())) {
+			HttpUtil.setContentLength(response, length);
+		} else if (!declared) {
+			HttpUtil.setTransferEncodingChunked(response, true);
+		}
+	}
+
 	private HttpResponse head(final long length, final ContainerResponse container) {
 		final HttpResponse response = new DefaultHttpResponse(request.protocolVersion(),
 			status(container.getStatusInfo())
 		);
 
 		container.getStringHeaders().forEach(response.headers()::add);
-
-		if (length < 0) {
-			HttpUtil.setTransferEncodingChunked(response, true);
-		} else if (!isHead() || !response.headers().contains(HttpHeaderNames.CONTENT_LENGTH)) {
-			HttpUtil.setContentLength(response, length);
-		}
+		frame(response, length);
 
 		if (!drains) {
 			response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
@@ -108,14 +114,17 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 
 		started = true;
 		drains = body.remainsWithin(declaredLength(), MAX_DRAIN);
-		context.write(head(length, container));
+
+		final HttpResponse response = head(length, container);
+
+		context.write(response);
 
 		if (isHead() || length == 0) {
 			context.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
 			return null;
 		}
 
-		return new BufferedOutputStream(new Body(), CHUNK);
+		return new BufferedOutputStream(new Body(HttpUtil.getContentLength(response, -1L)), CHUNK);
 	}
 
 	/* Suspending only keeps a response open, so a suspension that would have to time out is refused */
@@ -152,8 +161,17 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 		return true;
 	}
 
+	/* A body of a declared length is cut along with its connection if it turns out longer or shorter */
+	@RequiredArgsConstructor
 	private final class Body extends OutputStream {
+		private final long length;
 		private ChannelFuture last = context.newSucceededFuture();
+		private long written;
+
+		private void cut(final String reason) throws IOException {
+			context.close();
+			throw new IOException(reason);
+		}
 
 		private boolean isSent() throws InterruptedIOException {
 			try {
@@ -186,11 +204,16 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 		}
 
 		@Override
-		public void write(final byte[] bytes, final int offset, final int length) throws IOException {
-			for (int start = offset; start < offset + length; start += CHUNK) {
-				final int size = Math.min(CHUNK, offset + length - start);
+		public void write(final byte[] bytes, final int offset, final int count) throws IOException {
+			for (int start = offset; start < offset + count; start += CHUNK) {
+				final int size = Math.min(CHUNK, offset + count - start);
+
+				if (length >= 0 && written + size > length) {
+					cut("The response runs past the length it declared");
+				}
 
 				awaitRoom();
+				written += size;
 				last = context.writeAndFlush(new DefaultHttpContent(context.alloc().buffer(size)
 					.writeBytes(bytes, start, size)
 				));
@@ -199,6 +222,10 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 
 		@Override
 		public void close() throws IOException {
+			if (length >= 0 && written != length) {
+				cut("The response ended short of the length it declared");
+			}
+
 			awaitRoom();
 			last = context.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
 		}

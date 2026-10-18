@@ -118,7 +118,8 @@ final class RawHttp {
 				}
 			}
 		} finally {
-			decoder.finishAndReleaseAll();
+			decoder.close();
+			decoder.releaseInbound();
 		}
 
 		return answers;
