@@ -26,7 +26,7 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 /* A consistent view of the tree: the memtable taking writes, the one being flushed if a flush is under way, and the
    runs newest first, all read at a sequence so writes committed after it stay out of sight */
-record Snapshot(List<Memtable> memtables, List<Run> runs, long sequence) {
+record Snapshot(List<Memtable> memtables, List<Run> runs, long sequence) implements View {
 	Snapshot {
 		memtables = List.copyOf(memtables);
 		runs = List.copyOf(runs);
@@ -57,7 +57,8 @@ record Snapshot(List<Memtable> memtables, List<Run> runs, long sequence) {
 	}
 
 	/* The value of the key, absent when the key was never written or its newest slot is a tombstone */
-	Optional<byte[]> get(final byte[] key) throws IOException, BlobStoreException {
+	@Override
+	public Optional<byte[]> get(final byte[] key) throws IOException, BlobStoreException {
 		return slot(key).map(Slot::value);
 	}
 
@@ -81,8 +82,8 @@ record Snapshot(List<Memtable> memtables, List<Run> runs, long sequence) {
 		return Optional.empty();
 	}
 
-	/* The live slots in [from, to), where a null end is open */
-	Cursor scan(final byte[] from, final byte[] to) {
+	@Override
+	public Cursor scan(final byte[] from, final byte[] to) {
 		return new MergeCursor(sources(from, to), false);
 	}
 

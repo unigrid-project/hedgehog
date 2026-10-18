@@ -94,7 +94,8 @@ public class CorruptionTest {
 		final String bucket = "bucket";
 		final String key = "key";
 
-		return Arbitraries.oneOf(IndexArbitraries.versions(bucket, key, ObjectVersion.NULL_VERSION).map(Records::version),
+		return Arbitraries.oneOf(
+			IndexArbitraries.versions(bucket, key, ObjectVersion.NULL_VERSION).map(Records::version),
 			IndexArbitraries.buckets(bucket).map(Records::bucket),
 			IndexArbitraries.uploads(bucket, key, Keys.id(1)).map(Records::upload),
 			IndexArbitraries.parts().map(Records::part));
@@ -150,7 +151,9 @@ public class CorruptionTest {
 	}
 
 	@Property
-	public void damagedRecordsFailCleanly(@ForAll("records") final byte[] record, @ForAll("damage") final Damage damage) {
+	public void damagedRecordsFailCleanly(@ForAll("records") final byte[] record,
+		@ForAll("damage") final Damage damage) {
+
 		final byte[] damaged = damage.apply(record);
 
 		assertFailsCleanly(() -> Records.version("bucket", "key", 1, damaged));

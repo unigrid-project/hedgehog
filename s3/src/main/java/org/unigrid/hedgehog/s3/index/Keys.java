@@ -95,6 +95,10 @@ final class Keys {
 		return new Builder(GARBAGE).text(blob.value()).bytes();
 	}
 
+	static String bucketName(final byte[] key) throws CorruptIndexException {
+		return new Cursor(key).text();
+	}
+
 	static BlobId garbageBlob(final byte[] key) throws CorruptIndexException {
 		return new BlobId(new Cursor(key).text());
 	}

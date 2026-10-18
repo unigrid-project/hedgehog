@@ -82,6 +82,11 @@ final class Records {
 		});
 	}
 
+	/* Reads the flag that follows the format byte without decoding the rest */
+	static boolean isNullVersion(final byte[] value) {
+		return value.length > 1 && value[1] != 0;
+	}
+
 	static byte[] upload(final Upload upload) {
 		return Codec.encode(output -> {
 			output.writeByte(FORMAT);

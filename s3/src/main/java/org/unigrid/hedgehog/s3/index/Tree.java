@@ -49,8 +49,8 @@ final class Tree implements Closeable {
 	private static final byte[] FIRST_KEY = new byte[0];
 
 	@FunctionalInterface
-	interface Work<T> {
-		T run(Transaction transaction) throws IOException, BlobStoreException, NamespaceException;
+	interface Work<T, E extends Exception> {
+		T run(Transaction transaction) throws IOException, BlobStoreException, E;
 	}
 
 	private record Head(Manifest manifest, BlobId root) {
@@ -158,7 +158,8 @@ final class Tree implements Closeable {
 		return Optional.ofNullable(head.root());
 	}
 
-	<T> T write(final Work<T> work) throws IOException, BlobStoreException, NamespaceException {
+	/* Runs the work under the writer lock and commits what it wrote, or nothing when it throws */
+	<T, E extends Exception> T write(final Work<T, E> work) throws IOException, BlobStoreException, E {
 		writer.lock();
 
 		try {

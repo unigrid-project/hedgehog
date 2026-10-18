@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,13 +48,14 @@ final class Batch {
 		return Optional.ofNullable(slots.get(key));
 	}
 
+	/* A copy of the range, so the transaction can keep writing while it walks what it read */
 	Iterator<Slot> scan(final byte[] from, final byte[] to) {
 		if (!Keys.before(from, to)) {
 			return Collections.emptyIterator();
 		}
 
-		return (Objects.isNull(to) ? slots.tailMap(from, true) : slots.subMap(from, true, to, false)).values()
-			.iterator();
+		return List.copyOf((Objects.isNull(to) ? slots.tailMap(from, true) : slots.subMap(from, true, to, false))
+			.values()).iterator();
 	}
 
 	Collection<Slot> slots() {

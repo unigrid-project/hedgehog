@@ -34,9 +34,9 @@ public class ManifestTest {
 	@Provide
 	Arbitrary<Manifest> manifests() {
 		final Arbitrary<BlobId> ids = Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(8).map(BlobId::new);
-		final Arbitrary<RunInfo> runs = Combinators.combine(ids, Arbitraries.longs().greaterOrEqual(0),
-			Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs().greaterOrEqual(0), IndexArbitraries.rawKeys(),
-			IndexArbitraries.rawKeys()).as(RunInfo::new);
+		final Arbitrary<Long> numbers = Arbitraries.longs().greaterOrEqual(0);
+		final Arbitrary<RunInfo> runs = Combinators.combine(ids, numbers, numbers, numbers,
+			IndexArbitraries.rawKeys(), IndexArbitraries.rawKeys()).as(RunInfo::new);
 		final Arbitrary<Manifest.Pending> pending = Combinators.combine(ids, IndexArbitraries.instants())
 			.as(Manifest.Pending::new);
 

@@ -53,7 +53,8 @@ public class KeysTest {
 
 	@Provide
 	Arbitrary<Address> addresses() {
-		return Combinators.combine(texts(), texts(), Arbitraries.longs().between(1, Long.MAX_VALUE)).as(Address::new);
+		return Combinators.combine(texts(), texts(), Arbitraries.longs().between(1, Long.MAX_VALUE))
+			.as(Address::new);
 	}
 
 	private static byte[] encode(final Address address) {
@@ -61,8 +62,11 @@ public class KeysTest {
 	}
 
 	@Property
-	public void comparesTextInUtf8Order(@ForAll("texts") final String first, @ForAll("texts") final String second) {
-		assertThat(Integer.signum(Keys.compare(first, second)), equalTo(Integer.signum(UTF8.compare(first, second))));
+	public void comparesTextInUtf8Order(@ForAll("texts") final String first,
+		@ForAll("texts") final String second) {
+
+		assertThat(Integer.signum(Keys.compare(first, second)),
+			equalTo(Integer.signum(UTF8.compare(first, second))));
 	}
 
 	@Property
@@ -74,7 +78,9 @@ public class KeysTest {
 	}
 
 	@Property
-	public void ordersUploadsOldestFirst(@ForAll("addresses") final Address address, @ForAll @Positive final long later) {
+	public void ordersUploadsOldestFirst(@ForAll("addresses") final Address address,
+		@ForAll @Positive final long later) {
+
 		final long next = address.sequence() + later;
 
 		Assume.that(next > 0);
@@ -110,7 +116,8 @@ public class KeysTest {
 
 		final byte[] start = Keys.object(Keys.VERSION, address.bucket(), address.key());
 		final byte[] key = encode(other);
-		final boolean inside = Arrays.compareUnsigned(key, start) >= 0 && Arrays.compareUnsigned(key, Keys.end(start)) < 0;
+		final boolean inside = Arrays.compareUnsigned(key, start) >= 0
+			&& Arrays.compareUnsigned(key, Keys.end(start)) < 0;
 
 		assertThat(inside, equalTo(address.bucket().equals(other.bucket()) && address.key().equals(other.key())));
 	}

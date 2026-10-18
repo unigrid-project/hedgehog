@@ -26,7 +26,7 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 /* One mutation under the writer lock: it reads the snapshot it started from together with its own writes, and its
    writes commit as one batch at the sequence after that snapshot */
-final class Transaction {
+final class Transaction implements View {
 	private final Snapshot snapshot;
 	private final Batch batch = new Batch();
 
@@ -42,12 +42,14 @@ final class Transaction {
 		return batch;
 	}
 
-	Optional<byte[]> get(final byte[] key) throws IOException, BlobStoreException {
+	@Override
+	public Optional<byte[]> get(final byte[] key) throws IOException, BlobStoreException {
 		final Optional<Slot> own = batch.get(key);
 		return own.isPresent() ? Optional.ofNullable(own.get().value()) : snapshot.get(key);
 	}
 
-	Cursor scan(final byte[] from, final byte[] to) {
+	@Override
+	public Cursor scan(final byte[] from, final byte[] to) {
 		final List<Cursor> sources = new ArrayList<>();
 
 		sources.add(Cursor.of(batch.scan(from, to)));

@@ -40,14 +40,18 @@ public final class IndexArbitraries {
 	/* Mostly a small alphabet so keys share prefixes and delimiters, with NUL, the edges of UTF-16 and surrogate
 	   pairs mixed in because they are where code point order and naive orders part ways */
 	public static Arbitrary<String> texts() {
+		return texts(MAX_TEXT);
+	}
+
+	public static Arbitrary<String> texts(final int maxCodePoints) {
 		final Arbitrary<Integer> codePoints = Arbitraries.frequencyOf(
 			Tuple.of(12, Arbitraries.of((int) 'a', (int) 'b', (int) '/', (int) '.')),
 			Tuple.of(1, Arbitraries.of(0, 0x7F, 0x80, 0xD7FF, 0xE000, 0xFFFF, 0x10000, 0x10FFFF)),
-			Tuple.of(1, Arbitraries.integers().between(0, Character.MAX_CODE_POINT)
-				.filter(codePoint -> codePoint < Character.MIN_SURROGATE || codePoint > Character.MAX_SURROGATE))
+			Tuple.of(1, Arbitraries.integers().between(0, Character.MAX_CODE_POINT).filter(codePoint ->
+				codePoint < Character.MIN_SURROGATE || codePoint > Character.MAX_SURROGATE))
 		);
 
-		return codePoints.list().ofMaxSize(MAX_TEXT).map(list -> list.stream()
+		return codePoints.list().ofMaxSize(maxCodePoints).map(list -> list.stream()
 			.collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString());
 	}
 
@@ -87,9 +91,10 @@ public final class IndexArbitraries {
 	}
 
 	public static Arbitrary<BlobRef> slices() {
+		final Arbitrary<Long> numbers = Arbitraries.longs().between(0, Long.MAX_VALUE / 2);
+
 		return Combinators.combine(Arbitraries.strings().alpha().numeric().ofMinLength(1).ofMaxLength(MAX_TEXT),
-			Arbitraries.longs().between(0, Long.MAX_VALUE / 2), Arbitraries.longs().between(0, Long.MAX_VALUE / 2))
-			.as((id, offset, length) -> new BlobRef(new BlobId(id), offset, length));
+			numbers, numbers).as((id, offset, length) -> new BlobRef(new BlobId(id), offset, length));
 	}
 
 	public static Arbitrary<Part> parts() {

@@ -82,7 +82,8 @@ public class RecordsTest {
 
 	@Property
 	public void readsBackTheUploadsItWrites(@ForAll("uploads") final Tuple2<Long, Upload> stored) throws IOException {
-		assertThat(Records.upload(BUCKET, KEY, stored.get1(), Records.upload(stored.get2())), equalTo(stored.get2()));
+		assertThat(Records.upload(BUCKET, KEY, stored.get1(), Records.upload(stored.get2())),
+			equalTo(stored.get2()));
 	}
 
 	@Property
