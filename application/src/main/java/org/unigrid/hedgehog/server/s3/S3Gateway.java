@@ -22,21 +22,31 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Optional;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
+import org.unigrid.hedgehog.s3.index.Namespace;
+import org.unigrid.hedgehog.s3.index.NamespaceConfig;
 import org.unigrid.hedgehog.s3.server.S3Server;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
+import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
+import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 import org.unigrid.hedgehog.service.storage.StorageBlobStore;
 import org.unigrid.hedgehog.service.storage.StorageService;
 
+@Slf4j
 @Eager @ApplicationScoped
 public class S3Gateway {
 	@Inject
 	private StorageService storage;
 
+	private Namespace namespace;
 	private S3Server server;
 
 	static S3ServerConfig config() {
@@ -44,11 +54,20 @@ public class S3Gateway {
 			.domain(S3Options.getDomain()).tls(!S3Options.isPlain()).build();
 	}
 
+	/* The runs and manifests of the index are blobs like any object, read through the same cache */
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
-		server = S3Server.start(config(), cached(new StorageBlobStore(storage)),
-			new S3Credentials(S3Credentials.getFile()));
+		final BlobStore blobs = cached(new StorageBlobStore(storage));
+
+		namespace = namespace(S3Options.getIndexDirectory(), blobs);
+
+		try {
+			server = S3Server.start(config(), blobs, namespace, new S3Credentials(S3Credentials.getFile()));
+		} catch (Exception ex) {
+			namespace.close();
+			throw ex;
+		}
 	}
 
 	static BlobStore cached(final BlobStore store) {
@@ -56,8 +75,25 @@ public class S3Gateway {
 			S3Options.getCacheHalfLife());
 	}
 
+	static Namespace namespace(final Path directory, final BlobStore blobs) throws IOException, BlobStoreException {
+		final NamespaceConfig config = NamespaceConfig.builder().build();
+		final Optional<String> root = S3Options.getRoot();
+
+		return root.isPresent() ? Namespace.mount(directory, blobs, new BlobId(root.get()), config)
+			: Namespace.open(directory, blobs, config);
+	}
+
+	/* Writes a failed flush leaves behind stay in the journal and reach the network on the next start */
 	@PreDestroy
-	public void destroy() {
+	public void destroy() throws IOException {
 		server.close();
+
+		try {
+			namespace.flush();
+		} catch (IOException | BlobStoreException ex) {
+			log.warn("Failed to flush the S3 namespace index, whose latest writes stay in its journal", ex);
+		} finally {
+			namespace.close();
+		}
 	}
 }

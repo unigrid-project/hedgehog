@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.option;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -97,6 +98,22 @@ public class S3OptionsTest {
 		);
 		assertThat(S3Options.getCacheSize(), equalTo(S3Options.DEFAULT_CACHE_SIZE));
 		assertThat(S3Options.getCacheHalfLife(), equalTo(Duration.ofDays(1)));
+	}
+
+	@Example
+	public void shouldKeepTheIndexOfItsOwnNamespaceInTheDataDirectory() {
+		OptionsCli.parse(DAEMON);
+
+		assertThat(S3Options.getIndexDirectory(),
+			equalTo(ApplicationDirectory.create().getUserDataDir().resolve("s3").resolve("index"))
+		);
+		assertThat(S3Options.getRoot(), equalTo(Optional.empty()));
+	}
+
+	@Property
+	public void shouldTakeTheRootToMount(@ForAll @AlphaChars @StringLength(min = 1, max = 64) String root) {
+		OptionsCli.parse(DAEMON, "--s3root", root);
+		assertThat(S3Options.getRoot(), equalTo(Optional.of(root)));
 	}
 
 	@Property
