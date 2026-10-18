@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.s3.cache;
 
+import java.io.InputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -27,12 +28,17 @@ import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobNotFoundException;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 
-/* Counts the blobs opened, and can hold every open back until enough callers have arrived */
+/* Counts the blobs opened, and can hold every open back until enough callers have arrived or step in on a store */
 public class CountingBlobStore extends MemoryBlobStore {
 	private static final long PATIENCE_SECONDS = 10;
 
 	private final AtomicInteger opens = new AtomicInteger();
 	private CountDownLatch arrivals = new CountDownLatch(0);
+	private Stored stored = id -> { };
+
+	public interface Stored {
+		void run(BlobId id) throws Exception;
+	}
 
 	public int opens() {
 		return opens.get();
@@ -40,6 +46,20 @@ public class CountingBlobStore extends MemoryBlobStore {
 
 	public void holdOpensFor(final CountDownLatch latch) {
 		arrivals = latch;
+	}
+
+	/* Runs between storing a blob and handing back its id, where another caller can race the one storing */
+	public void whenStored(final Stored hook) {
+		stored = hook;
+	}
+
+	@SneakyThrows
+	@Override
+	public BlobId store(final InputStream input) {
+		final BlobId id = super.store(input);
+
+		stored.run(id);
+		return id;
 	}
 
 	@SneakyThrows(InterruptedException.class)

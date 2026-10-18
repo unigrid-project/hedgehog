@@ -59,8 +59,11 @@ public final class CachingBlobStore implements BlobStore {
 	private final Duration halfLife;
 	private final Clock clock;
 	private final Map<String, CacheEntry> entries = new HashMap<>();
+	private final Map<String, Long> deleted = new HashMap<>();
 	private boolean indexed;
 	private long bytes;
+	private long deletions;
+	private int stores;
 
 	private record Claim(CacheEntry entry, boolean fresh) { }
 
@@ -97,6 +100,16 @@ public final class CachingBlobStore implements BlobStore {
 
 	@Override
 	public BlobId store(final InputStream input) throws IOException, BlobStoreException {
+		final long since = beginStore();
+
+		try {
+			return store(input, since);
+		} finally {
+			endStore();
+		}
+	}
+
+	private BlobId store(final InputStream input, final long since) throws IOException, BlobStoreException {
 		final Path partial = partial();
 
 		try {
@@ -109,7 +122,7 @@ public final class CachingBlobStore implements BlobStore {
 			}
 
 			if (tee.isComplete()) {
-				admit(name(id), partial);
+				admit(name(id), partial, since);
 			}
 
 			return id;
@@ -235,9 +248,24 @@ public final class CachingBlobStore implements BlobStore {
 		return Files.createTempFile(directory, null, PARTIAL);
 	}
 
+	/* A delete that lands while a store runs must not be undone by caching what the store wrote. Deletes are only
+	   remembered while stores run, and forgotten once none do. */
 	@Synchronized
-	private void admit(final String name, final Path partial) throws IOException {
-		if (!index().containsKey(name)) {
+	private long beginStore() {
+		stores++;
+		return deletions;
+	}
+
+	@Synchronized
+	private void endStore() {
+		if (--stores == 0) {
+			deleted.clear();
+		}
+	}
+
+	@Synchronized
+	private void admit(final String name, final Path partial, final long since) throws IOException {
+		if (!index().containsKey(name) && deleted.getOrDefault(name, since) <= since) {
 			final CacheEntry entry = entry(name, 1);
 
 			entries.put(name, entry);
@@ -275,6 +303,10 @@ public final class CachingBlobStore implements BlobStore {
 	@Synchronized
 	private void drop(final String name) throws IOException {
 		final CacheEntry entry = index().get(name);
+
+		if (stores > 0) {
+			deleted.put(name, ++deletions);
+		}
 
 		if (entry != null) {
 			discard(entry);

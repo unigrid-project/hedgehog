@@ -362,6 +362,20 @@ public class CachingBlobStoreTest {
 	}
 
 	@Property
+	public void cachesNothingOfABlobDeletedWhileItWasStored(@ForAll byte[] content) throws Exception {
+		try (Fixture fixture = new Fixture()) {
+			final CachingBlobStore cache = fixture.cache(ROOMY);
+
+			fixture.delegate.whenStored(cache::delete);
+
+			final BlobId id = store(cache, content);
+
+			assertThrows(BlobNotFoundException.class, () -> cache.open(id));
+			assertThat(fixture.cachedBytes(), equalTo(0L));
+		}
+	}
+
+	@Property
 	public void letsReadersFinishABlobDeletedUnderThem(@ForAll byte[] content) throws Exception {
 		try (Fixture fixture = new Fixture()) {
 			final CachingBlobStore cache = fixture.cache(ROOMY);
