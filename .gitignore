@@ -6,6 +6,7 @@ socomo.html
 /application/target/
 /native-image/target/
 /common/target/
+/s3/target/
 jshell.history
 release.properties
 pom.xml.releaseBackup
