@@ -299,10 +299,11 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 		assertThat(balances(owner), everyItem(is(fleet().holding(0))));
 	}
 
-	/* The node that proposes does not count its own proposal as a newer list, so the validators are the ones to look at.
-	   The older list is empty and would let the address through. */
+	/* The list is proposed to a validator, which holds back claims from the moment it is proposed as the validators
+	   it reaches do. The older list is empty and would let the address through. */
 	@Example
 	public void shouldHoldBackEveryClaimWhileANewerListIsKnownAndNotHereYet() {
+		final int host = 0;
 		final AccountKey owner = account();
 		final AccountKey neighbour = account();
 		final LedgerBlacklist.SporkData newer = listing(fleet().wallet(2));
@@ -310,17 +311,19 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 		ready();
 		blacklist();
 
-		final String digest = fleet().proposeByRest(restHost(), BLACKLIST, newer);
+		final String digest = fleet().proposeByRest(host, BLACKLIST, newer);
 
-		assertThat(bean(containerName(restHost()), PendingSporks.class).proposalOf(Type.LEDGER_BLACKLIST)
+		assertThat(bean(containerName(host), PendingSporks.class).proposalOf(Type.LEDGER_BLACKLIST)
 			.isPresent(), is(true));
+		assertThat(fleet().status(host).laggingSporks(), hasItem(Type.LEDGER_BLACKLIST));
+		assertThat(fleet().submit(host, claimOf(2, owner)), equalTo(HELD_BACK));
 		await().atMost(PATIENCE).until(() -> validators().allMatch(node ->
 			fleet().status(node).laggingSporks().contains(Type.LEDGER_BLACKLIST)));
 		validators().forEach(node -> assertThat(fleet().submit(node, claimOf(2, owner)), equalTo(HELD_BACK)));
 		validators().forEach(node -> assertThat(fleet().submit(node, claimOf(3, neighbour)), equalTo(HELD_BACK)));
 		staysAsItIs();
 
-		fleet().cosignByRest(restHost(), digest);
+		fleet().cosignByRest(host, digest);
 		awaitListed(newer);
 		assertRefusedEverywhere(claimOf(2, owner), HELD_BACK);
 		claim(1, 3, neighbour);

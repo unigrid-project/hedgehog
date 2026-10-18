@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
@@ -48,6 +49,9 @@ public class LedgerFeeResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@Path("/ledger-fee") @GET
 	public Response get() {
@@ -74,6 +78,6 @@ public class LedgerFeeResource extends CDIBridgeResource {
 		);
 
 		spork.setData(parameters);
-		return ResourceHelper.propose(spork, privateKey, sporkDatabase.getLedgerFee(), pendingSporks, topology);
+		return ResourceHelper.propose(spork, privateKey, sporkDatabase, pendingSporks, topology, lag);
 	}
 }

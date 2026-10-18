@@ -396,6 +396,18 @@ public class SporkLagTest {
 	}
 
 	@Example
+	public void leavesWhatThisNodeProposesItselfUnlimitedAndHearsEachOfIt() {
+		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
+
+		keyLookups = 0;
+		IntStream.range(0, 5).forEach(n -> lag.record(forged, database, SporkLag.LOCAL));
+		assertThat(keyLookups, is(5));
+
+		lag.record(proposal(ago(Duration.ofMinutes(5))), database, SporkLag.LOCAL);
+		assertThat(isBehind(), is(true));
+	}
+
+	@Example
 	public void countsTheCeilingForEachTypeApart() {
 		final MintSupply supply = forged(ago(Duration.ofMinutes(9)));
 

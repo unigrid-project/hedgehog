@@ -44,6 +44,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkAmount;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -62,6 +63,9 @@ public class MintStorageResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@Path("/mint-storage") @GET
 	public Response list() {
@@ -125,9 +129,7 @@ public class MintStorageResource extends CDIBridgeResource {
 				);
 
 				ms.<MintStorage.SporkData>getData().getMints().put(location, mintAmount);
-				return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintStorage(), pendingSporks,
-					topology
-				);
+				return ResourceHelper.propose(ms, privateKey, sporkDatabase, pendingSporks, topology, lag);
 			});
 		}
 

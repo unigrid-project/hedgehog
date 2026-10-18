@@ -49,6 +49,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -67,6 +68,9 @@ public class GridSporkResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@GET
 	public Response list() {
@@ -151,6 +155,7 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		for (GridSpork spork : sporks) {
 			if (pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
+				lag.record(spork, sporkDatabase, SporkLag.LOCAL);
 				SporkRecipients.sendAll(spork, topology);
 				proposals.add(PendingSporkInfo.of(spork));
 			}

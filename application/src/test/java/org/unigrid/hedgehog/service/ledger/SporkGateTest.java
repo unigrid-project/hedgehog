@@ -57,6 +57,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.server.rest.ResourceHelper;
@@ -74,6 +75,8 @@ public class SporkGateTest extends BaseMockedWeldTest {
 
 	@Inject private Topology topology;
 	@Inject private PendingSporks pendingSporks;
+	@Inject private SporkDatabase sporkDatabase;
+	@Inject private SporkLag lag;
 
 	private final EmbeddedChannel ledger = stream(true);
 	private final EmbeddedChannel earlier = stream(false);
@@ -178,7 +181,7 @@ public class SporkGateTest extends BaseMockedWeldTest {
 		final LedgerFee spork = ledgerFee();
 
 		spork.archive();
-		ResourceHelper.propose(spork, proposer.getPrivateKey(), null, pendingSporks, topology);
+		ResourceHelper.propose(spork, proposer.getPrivateKey(), sporkDatabase, pendingSporks, topology, lag);
 
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.LEDGER_FEE));
 		assertThat(sporkTypesWrittenTo(earlier), empty());

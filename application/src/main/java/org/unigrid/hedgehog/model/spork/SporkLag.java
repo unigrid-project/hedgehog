@@ -67,6 +67,9 @@ public class SporkLag {
 	public static final Duration FUTURE_ALLOWANCE = Duration.ofMinutes(10);
 	public static final Duration VERIFY_GAP = Duration.ofSeconds(1);
 
+	/* The source of what this node proposes itself. No peer is named so: a peer is its address or its stream. */
+	public static final String LOCAL = "local";
+
 	private static final BinaryOperator<Instant> LATER = BinaryOperator.maxBy(Comparator.naturalOrder());
 
 	private InstantSource clock = InstantSource.system();
@@ -86,12 +89,18 @@ public class SporkLag {
 			final Map<Type, Instant> seen = spork.isPending() ? proposed : agreed;
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
-			if (isLaterThan(seen.get(spork.getType()), stamp) && slots.take(spork.getType(), source)
+			if (isLaterThan(seen.get(spork.getType()), stamp) && mayVerify(spork.getType(), source)
 				&& isVouchedFor(spork)) {
 
 				seen.merge(spork.getType(), stamp, LATER);
 			}
 		}
+	}
+
+	/* What this node proposes itself is not limited: it is asked for by a holder of the REST token and a network key,
+	   not by anyone who can send a frame, and a proposal that is turned away is not sent again by anyone */
+	private boolean mayVerify(Type type, String source) {
+		return LOCAL.equals(source) || slots.take(type, source);
 	}
 
 	private static boolean couldMakeBehind(GridSpork spork, SporkDatabase db) {
