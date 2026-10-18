@@ -584,4 +584,21 @@ public class NamespaceTest {
 			fixture.namespace.close();
 		}
 	}
+
+	/* The blob store gives every blob it stores an id of its own, so only a copy refers to a blob again. A blob id
+	   generated twice would refer to a blob the namespace may already have deleted, which the model counts as live. */
+	@Property
+	public void generatesEveryBlobIdOnce(@ForAll("operations") final List<Op> operations) {
+		final List<BlobId> generated = operations.stream().flatMap(NamespaceTest::slices).map(BlobRef::id).toList();
+
+		assertThat(Set.copyOf(generated).size(), equalTo(generated.size()));
+	}
+
+	private static Stream<BlobRef> slices(final Op operation) {
+		return switch (operation) {
+			case Put put -> put.content().parts().stream().flatMap(part -> part.slices().stream());
+			case PutPart put -> put.part().slices().stream();
+			default -> Stream.empty();
+		};
+	}
 }
