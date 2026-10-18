@@ -26,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -37,6 +39,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -52,6 +55,7 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 public final class CachingBlobStore implements BlobStore {
 	private static final String PARTIAL = ".partial";
 	private static final Pattern NAME = Pattern.compile("[0-9a-f]{64}");
+	private static final Set<PosixFilePermission> OWNER_ONLY = PosixFilePermissions.fromString("rwx------");
 
 	private final BlobStore delegate;
 	private final Path directory;
@@ -347,6 +351,11 @@ public final class CachingBlobStore implements BlobStore {
 	private Map<String, CacheEntry> index() throws IOException {
 		if (!indexed) {
 			Files.createDirectories(directory);
+
+			/* The cached blobs are decrypted, so no other local user may list or read them */
+			if (directory.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+				Files.setPosixFilePermissions(directory, OWNER_ONLY);
+			}
 
 			try (Stream<Path> files = Files.list(directory)) {
 				for (Path file : files.toList()) {

@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -388,6 +389,21 @@ public class CachingBlobStoreTest {
 			}
 
 			assertThat(fixture.cachedBytes(), equalTo(0L));
+		}
+	}
+
+	@Example
+	public void keepsTheCacheDirectoryToItsOwner() throws Exception {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix().toBuilder()
+			.setAttributeViews("basic", "owner", "posix", "unix").build())) {
+
+			final Path directory = Files.createDirectory(fileSystem.getPath("/cache"));
+
+			Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwxr-xr-x"));
+			store(new CachingBlobStore(new CountingBlobStore(), directory, ROOMY, HALF_LIFE), new byte[SIZE]);
+
+			assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(directory)),
+				equalTo("rwx------"));
 		}
 	}
 
