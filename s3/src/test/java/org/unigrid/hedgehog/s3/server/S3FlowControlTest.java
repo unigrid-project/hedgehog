@@ -18,14 +18,10 @@
 
 package org.unigrid.hedgehog.s3.server;
 
-import java.io.ByteArrayOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.Socket;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -35,25 +31,13 @@ import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterContainer;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.startsWith;
-import org.unigrid.hedgehog.s3.auth.SdkSigner;
-import org.unigrid.hedgehog.s3.auth.SigV4;
-import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
-import software.amazon.awssdk.http.SdkHttpMethod;
-import software.amazon.awssdk.http.SdkHttpRequest;
-import software.amazon.awssdk.http.auth.aws.signer.AwsV4HttpSigner;
-import software.amazon.awssdk.identity.spi.AwsCredentialsIdentity;
 
-/*
-   Uploads go through a raw socket rather than the SDK, whose HTTP client logs every byte it sends at the debug
-   level the tests run with, which makes it slower than the paced resource it should outrun.
-*/
 public class S3FlowControlTest {
 	private static final long UPLOAD = 256L * 1024 * 1024;
 	private static final long ABORTED_AFTER = 8L * 1024 * 1024;
@@ -67,7 +51,6 @@ public class S3FlowControlTest {
 	private static final int PROBE_TIMEOUT_MILLIS = 2000;
 	private static final long TIMEOUT_SECONDS = 30;
 	private static final String FORBIDDEN = "HTTP/1.1 403";
-	private static final String END_OF_HEAD = "\r\n\r\n";
 
 	private static NettyLeaks leaks;
 
@@ -79,60 +62,6 @@ public class S3FlowControlTest {
 	@AfterContainer
 	public static void stopWatchingLeaks() {
 		leaks.close();
-	}
-
-	private static S3Server start(final int port, final PacedResource resource) throws Exception {
-		final S3ServerConfig config = S3Fixture.config(port);
-
-		return S3Server.start(config, S3Server.resources(config, new MemoryBlobStore(), S3Fixture.credentials())
-			.register(resource).register(PacedResource.RawBody.class)
-		);
-	}
-
-	/* Sends the signed head of an upload with an unsigned body, leaving the body to the caller */
-	private static Socket startUpload(final int port, final String path, final long length) throws IOException {
-		final URI uri = S3Fixture.endpoint(port).resolve(path);
-		final SdkHttpRequest request = AwsV4HttpSigner.create().sign(signing -> signing
-			.identity(AwsCredentialsIdentity.create(S3Fixture.ACCESS_KEY, S3Fixture.SECRET_KEY))
-			.request(SdkHttpRequest.builder().uri(uri).method(SdkHttpMethod.PUT)
-				.putHeader("Content-Length", Long.toString(length)).build())
-			.putProperty(AwsV4HttpSigner.SERVICE_SIGNING_NAME, SigV4.SERVICE)
-			.putProperty(AwsV4HttpSigner.REGION_NAME, SdkSigner.REGION)
-			.putProperty(AwsV4HttpSigner.PAYLOAD_SIGNING_ENABLED, false)
-		).request();
-		final StringBuilder head = new StringBuilder("PUT " + uri.getRawPath() + " HTTP/1.1\r\n");
-		final Socket socket = new Socket(S3Fixture.HOST, port);
-
-		request.headers().forEach((name, values) -> head.append(name).append(": ").append(values.getFirst())
-			.append("\r\n")
-		);
-		socket.getOutputStream().write(head.append("\r\n").toString().getBytes(StandardCharsets.ISO_8859_1));
-		return socket;
-	}
-
-	private static void send(final OutputStream body, final long length, final AtomicLong sent) throws IOException {
-		final byte[] block = new byte[PacedResource.BLOCK];
-
-		while (sent.get() < length) {
-			body.write(block);
-			sent.addAndGet(block.length);
-		}
-	}
-
-	private static String head(final InputStream response) throws IOException {
-		final ByteArrayOutputStream head = new ByteArrayOutputStream();
-
-		while (!head.toString(StandardCharsets.ISO_8859_1).endsWith(END_OF_HEAD)) {
-			final int octet = response.read();
-
-			if (octet < 0) {
-				throw new EOFException(head.toString(StandardCharsets.ISO_8859_1));
-			}
-
-			head.write(octet);
-		}
-
-		return head.toString(StandardCharsets.ISO_8859_1);
 	}
 
 	private static long readSlowly(final InputStream body) throws IOException, InterruptedException {
@@ -153,8 +82,7 @@ public class S3FlowControlTest {
 	private static String probe(final int port) throws IOException {
 		try (Socket socket = new Socket(S3Fixture.HOST, port)) {
 			socket.setSoTimeout(PROBE_TIMEOUT_MILLIS);
-			socket.getOutputStream().write(("GET / HTTP/1.1\r\nHost: " + S3Fixture.HOST + END_OF_HEAD)
-				.getBytes(StandardCharsets.ISO_8859_1));
+			socket.getOutputStream().write(RawHttp.unsigned("GET", "/", 0));
 
 			return new String(socket.getInputStream().readNBytes(FORBIDDEN.length()), StandardCharsets.ISO_8859_1);
 		}
@@ -166,10 +94,13 @@ public class S3FlowControlTest {
 		final AtomicLong sent = new AtomicLong();
 		final PacedResource resource = new PacedResource(sent::get, new CountDownLatch(0));
 
-		try (S3Server server = start(port, resource); Socket socket = startUpload(port, "/bucket/large", UPLOAD)) {
-			send(socket.getOutputStream(), UPLOAD, sent);
+		try (S3Server server = resource.serve(port); Socket socket = new Socket(S3Fixture.HOST, port)) {
+			socket.getOutputStream().write(RawHttp.signed(port, "PUT", "/bucket/large", UPLOAD));
+			RawHttp.send(socket.getOutputStream(), UPLOAD, sent);
 
-			assertThat(head(socket.getInputStream()), containsString(PacedResource.READ + ": " + UPLOAD));
+			assertThat(RawHttp.answers(socket.getInputStream(), 1).getFirst().headers().get(PacedResource.READ),
+				equalTo(Long.toString(UPLOAD))
+			);
 		}
 
 		assertThat(resource.getPeakBuffered().get(),
@@ -184,8 +115,9 @@ public class S3FlowControlTest {
 		final int port = S3Fixture.freePort();
 		final PacedResource resource = new PacedResource(() -> 0, new CountDownLatch(0));
 
-		try (S3Server server = start(port, resource); Socket socket = startUpload(port, "/bucket/aborted", UPLOAD)) {
-			send(socket.getOutputStream(), ABORTED_AFTER, new AtomicLong());
+		try (S3Server server = resource.serve(port); Socket socket = new Socket(S3Fixture.HOST, port)) {
+			socket.getOutputStream().write(RawHttp.signed(port, "PUT", "/bucket/aborted", UPLOAD));
+			RawHttp.send(socket.getOutputStream(), ABORTED_AFTER, new AtomicLong());
 			socket.setSoLinger(true, 0);
 			socket.close();
 
@@ -200,7 +132,7 @@ public class S3FlowControlTest {
 		final int port = S3Fixture.freePort();
 		final PacedResource resource = new PacedResource(() -> 0, new CountDownLatch(0));
 
-		try (S3Server server = start(port, resource)) {
+		try (S3Server server = resource.serve(port)) {
 			final HttpURLConnection connection = S3Fixture.signed(port, "GET", "/bucket/large");
 
 			try (InputStream body = connection.getInputStream()) {
@@ -218,7 +150,7 @@ public class S3FlowControlTest {
 		final CountDownLatch resumed = new CountDownLatch(1);
 		final PacedResource resource = new PacedResource(() -> 0, resumed);
 
-		try (S3Server server = start(port, resource)) {
+		try (S3Server server = resource.serve(port)) {
 			final HttpURLConnection connection = S3Fixture.signed(port, "GET", "/bucket/stalled");
 
 			try {

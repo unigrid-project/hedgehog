@@ -44,7 +44,7 @@ public class S3RequestBodyTest {
 	private static final Duration STALL = Duration.ofMillis(200);
 
 	private static S3RequestBody body(final EmbeddedChannel channel) {
-		return new S3RequestBody(channel, HIGH_WATER, LOW_WATER, STALL);
+		return new S3RequestBody(channel, new S3ReadGate(channel), HIGH_WATER, LOW_WATER, STALL);
 	}
 
 	private static List<ByteBuf> offer(final S3RequestBody body, final List<byte[]> parts) {

@@ -44,10 +44,12 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.netty.httpserver.NettySecurityContext;
 import org.unigrid.hedgehog.s3.http.Payload;
+import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 
 /*
    Reads uploads at a fixed pace and writes downloads as fast as the server lets it, noting meanwhile how much the
-   server holds on its behalf. A download can stall after its first block until the test resumes it.
+   server holds on its behalf. A download can instead stall after its first block until the test resumes it, and
+   then end after its second.
 */
 @Path("/{bucket}/{key:.+}")
 @RequiredArgsConstructor
@@ -55,6 +57,7 @@ public class PacedResource {
 	public static final String READ = "x-paced-read";
 	public static final int BLOCK = 64 * 1024;
 	public static final long DOWNLOAD = 64L * 1024 * 1024;
+	public static final long STALLED_DOWNLOAD = 2L * BLOCK;
 
 	private static final long BYTES_PER_SECOND = 64L * 1024 * 1024;
 	private static final long NANOS_PER_SECOND = 1_000_000_000L;
@@ -78,6 +81,14 @@ public class PacedResource {
 		public void filter(final ContainerRequestContext request) {
 			request.setProperty(RAW_BODY, request.getEntityStream());
 		}
+	}
+
+	public S3Server serve(final int port) throws Exception {
+		final S3ServerConfig config = S3Fixture.config(port);
+
+		return S3Server.start(config, S3Server.resources(config, new MemoryBlobStore(), S3Fixture.credentials())
+			.register(this).register(RawBody.class)
+		);
 	}
 
 	@PUT
@@ -109,11 +120,12 @@ public class PacedResource {
 	@GET
 	public StreamingOutput get(@Context ContainerRequestContext request) {
 		final Channel channel = ((NettySecurityContext) request.getSecurityContext()).getNettyContext().channel();
+		final long length = resumed.getCount() > 0 ? STALLED_DOWNLOAD : DOWNLOAD;
 
 		return output -> {
 			final byte[] block = new byte[BLOCK];
 
-			for (long written = 0; written < DOWNLOAD; written += BLOCK) {
+			for (long written = 0; written < length; written += BLOCK) {
 				peakPending.accumulateAndGet(pending(channel), Math::max);
 				output.write(block);
 				stallOnce(output);

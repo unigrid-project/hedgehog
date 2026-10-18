@@ -58,6 +58,7 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 	private final HttpRequest request;
 	private final S3RequestBody body;
 	private final Duration stallTimeout;
+	private final Runnable answered;
 	private boolean started;
 
 	private static HttpResponseStatus status(final Response.StatusType status) {
@@ -119,17 +120,19 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 	@Override
 	public void commit() {
 		body.discard();
+		answered.run();
 	}
 
 	@Override
 	public synchronized void failure(final Throwable error) {
-		final ChannelFuture answered = started ? context.newSucceededFuture()
+		final ChannelFuture answer = started ? context.newSucceededFuture()
 			: context.writeAndFlush(new DefaultFullHttpResponse(request.protocolVersion(),
 				HttpResponseStatus.INTERNAL_SERVER_ERROR
 			));
 
-		answered.addListener(ChannelFutureListener.CLOSE);
+		answer.addListener(ChannelFutureListener.CLOSE);
 		body.discard();
+		answered.run();
 	}
 
 	@Override

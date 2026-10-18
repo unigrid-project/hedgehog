@@ -31,20 +31,21 @@ import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 
 /*
-   The body of a request as its resource reads it. The channel stops reading once the high mark of it waits here and
-   resumes below the low mark, so a client sending faster than the resource stores is held back by its own TCP window
-   rather than by the memory of the server. Every buffer is released once it is read, discarded or failed.
+   The body of a request as its resource reads it. The body holds the channel back from reading once the high mark
+   of it waits here and lets go below the low mark, so a client sending faster than the resource stores is held back
+   by its own TCP window rather than by the memory of the server. Every buffer is released once it is read,
+   discarded or failed.
 */
 @RequiredArgsConstructor
 final class S3RequestBody extends InputStream {
 	private final Channel channel;
+	private final S3ReadGate gate;
 	private final int highWater;
 	private final int lowWater;
 	private final Duration stallTimeout;
 	private final Deque<ByteBuf> buffers = new ArrayDeque<>();
 
 	private int buffered;
-	private boolean paused;
 	private boolean ended;
 	private boolean discarded;
 	private IOException failure;
@@ -58,9 +59,8 @@ final class S3RequestBody extends InputStream {
 		buffers.add(content);
 		buffered += content.readableBytes();
 
-		if (buffered >= highWater && !paused) {
-			paused = true;
-			channel.config().setAutoRead(false);
+		if (buffered >= highWater) {
+			gate.hold(this);
 		}
 
 		notifyAll();
@@ -88,15 +88,8 @@ final class S3RequestBody extends InputStream {
 		buffers.forEach(ByteBuf::release);
 		buffers.clear();
 		buffered = 0;
-		resume();
+		gate.release(this);
 		notifyAll();
-	}
-
-	private void resume() {
-		if (paused) {
-			paused = false;
-			channel.config().setAutoRead(true);
-		}
 	}
 
 	private boolean isAwaited() {
@@ -164,7 +157,7 @@ final class S3RequestBody extends InputStream {
 		}
 
 		if (buffered <= lowWater) {
-			resume();
+			gate.release(this);
 		}
 
 		return read;
