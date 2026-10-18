@@ -30,6 +30,7 @@ module org.unigrid.hedgehog.s3 {
 	opens org.unigrid.hedgehog.s3.entity to jakarta.xml.bind;
 	opens org.unigrid.hedgehog.s3.resource;
 
+	exports org.unigrid.hedgehog.s3.cache;
 	exports org.unigrid.hedgehog.s3.server;
 	exports org.unigrid.hedgehog.s3.spi;
 }
