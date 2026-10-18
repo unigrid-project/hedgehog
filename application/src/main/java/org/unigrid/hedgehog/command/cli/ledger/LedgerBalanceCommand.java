@@ -19,39 +19,36 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
 
-@Command(name = "block", description = "Show the block at a height of the chain, with its transactions.")
-public class LedgerBlock implements Callable<Integer> {
+@Command(name = "balance",
+	description = "Show the balance of an account or a legacy address, and what a legacy address can still claim."
+)
+public class LedgerBalanceCommand implements Callable<Integer> {
 	@Spec
 	private CommandSpec spec;
 
-	@Parameters(index = "0", paramLabel = "<height>", description = "The height of the block, from 1 up to the tip.")
-	private String height;
+	@Parameters(index = "0", paramLabel = "<address>",
+		description = "An account as 64 hex characters, or a legacy address."
+	)
+	private String address;
 
 	@Override
 	public Integer call() {
-		final long requested = requested();
+		final String requested = requested();
 
-		return LedgerClient.print(ledger -> ledger.block(requested));
+		return LedgerClient.print(ledger -> ledger.account(requested));
 	}
 
-	private long requested() {
-		try {
-			final long parsed = Long.parseLong(height);
-
-			if (parsed >= 1) {
-				return parsed;
-			}
-		} catch (NumberFormatException ex) {
-			/* Refused below, in the same words as a height under 1 */
-		}
-
-		throw new ParameterException(spec.commandLine(),
-			"\"%s\" is not a height: a height is a whole number from 1 up to the tip".formatted(height));
+	/* The node knows an account by lower case hex only, so what is asked for is the address in its own spelling */
+	private String requested() {
+		return LedgerText.typed(address).map(LedgerText::text).orElseThrow(() -> new ParameterException(
+			spec.commandLine(), "\"%s\" is neither an account (64 hex characters) nor a legacy address"
+				.formatted(address)));
 	}
 }

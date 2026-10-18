@@ -24,7 +24,7 @@ import picocli.CommandLine.Command;
 @Command(name = "info",
 	description = "Show the state of the ledger of the node: its chain, tip, supply, validators and minimum fee."
 )
-public class LedgerInfo implements Callable<Integer> {
+public class LedgerInfoCommand implements Callable<Integer> {
 	@Override
 	public Integer call() {
 		return LedgerClient.print(LedgerClient::info);
