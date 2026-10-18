@@ -18,17 +18,23 @@
 
 package org.unigrid.hedgehog.s3.auth;
 
+import java.util.regex.Pattern;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 
-/* The access key and the scope a request was signed for, written <key>/<date>/<region>/s3/aws4_request */
+/*
+   The access key and the scope a request was signed for, written <key>/<date>/<region>/s3/aws4_request. Any region
+   is accepted, as the gateway serves only one.
+*/
 public record Credential(String accessKeyId, String date, String region) {
 	private static final int PARTS = 5;
+	private static final Pattern DATE = Pattern.compile("\\d{8}");
 
 	static Credential parse(final String value, final S3ErrorCode malformed) {
 		final String[] parts = value.split("/", -1);
 
-		if (parts.length != PARTS || !SigV4.SERVICE.equals(parts[3]) || !SigV4.TERMINATOR.equals(parts[4])) {
+		if (parts.length != PARTS || !DATE.matcher(parts[1]).matches() || parts[2].isBlank()
+			|| !SigV4.SERVICE.equals(parts[3]) || !SigV4.TERMINATOR.equals(parts[4])) {
 			throw new S3Exception(malformed, "The credential '" + value + "' is not of the form "
 				+ "<access key>/<date>/<region>/s3/aws4_request"
 			);

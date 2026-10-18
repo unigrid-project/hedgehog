@@ -107,8 +107,11 @@ record Authorization(Credential credential, List<String> signedHeaders, String s
 		}
 	}
 
+	/* The signing key is derived for the day of the scope, so that day has to be the day the request was signed */
 	Authorization dated(final S3ErrorCode malformed) {
-		if (!timestamp.startsWith(credential.date())) {
+		final int dateLength = credential.date().length();
+
+		if (timestamp.length() < dateLength || !timestamp.substring(0, dateLength).equals(credential.date())) {
 			throw new S3Exception(malformed, "Invalid credential date. Date is not the same as X-Amz-Date.");
 		}
 

@@ -109,6 +109,37 @@ public class AuthorizationTest {
 		);
 	}
 
+	@Example
+	public void refusesAScopeThatDoesNotNameTheDayAndService() {
+		final String[] scopes = { "AKID//us-east-1/s3/aws4_request", "AKID/2013/us-east-1/s3/aws4_request",
+			"AKID/201305/us-east-1/s3/aws4_request", "AKID/20130525/us-east-1/s3/aws4_request",
+			"AKID/2013052x/us-east-1/s3/aws4_request", "AKID/201305240/us-east-1/s3/aws4_request",
+			"AKID/20130524//s3/aws4_request", "AKID/20130524/ /s3/aws4_request", "AKID/20130524/us-east-1/s4/aws4_request",
+			"AKID/20130524/us-east-1/S3/aws4_request", "AKID/20130524/us-east-1/s3/aws4_requests",
+			"AKID/20130524/us-east-1/s3", "AKID/20130524/us-east-1/s3/aws4_request/more"
+		};
+
+		for (String scope : scopes) {
+			assertThat(scope, refusal(() -> presigned(with("X-Amz-Credential", scope))),
+				equalTo(S3ErrorCode.AuthorizationQueryParametersError)
+			);
+			assertThat(scope, refusal(() -> Authorization.fromHeader("AWS4-HMAC-SHA256 Credential=" + scope
+				+ ", SignedHeaders=host, Signature=00", Map.of("x-amz-date", "20130524T000000Z",
+				"x-amz-content-sha256", "UNSIGNED-PAYLOAD")::get)), equalTo(S3ErrorCode.AuthorizationHeaderMalformed)
+			);
+		}
+	}
+
+	@Example
+	public void refusesASignatureDatedOtherwiseThanItsScope() {
+		for (String date : new String[] { "", "2013", "20130525T000000Z" }) {
+			assertThat(date, refusal(() -> Authorization.fromHeader("AWS4-HMAC-SHA256 Credential=AKID/20130524/"
+				+ "us-east-1/s3/aws4_request, SignedHeaders=host, Signature=00", Map.of("x-amz-date", date,
+				"x-amz-content-sha256", "UNSIGNED-PAYLOAD")::get)), equalTo(S3ErrorCode.AuthorizationHeaderMalformed)
+			);
+		}
+	}
+
 	@Property
 	public void acceptsAPresignedRequestUntilItExpires(@ForAll @LongRange(min = -900, max = 86400) long elapsed) {
 		presigned(PRESIGNED).checkTime(SIGNED.plusSeconds(elapsed));
