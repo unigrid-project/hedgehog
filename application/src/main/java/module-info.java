@@ -68,6 +68,7 @@ module org.unigrid.hedgehog {
 	opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;
 	opens org.unigrid.hedgehog.server.rest.entity to com.fasterxml.jackson.databind;
 	opens org.unigrid.hedgehog.command.bootstrap to info.picocli;
+	opens org.unigrid.hedgehog.command.s3 to info.picocli;
 
 	exports org.unigrid.hedgehog.model.gridnode to com.fasterxml.jackson.databind;
 }

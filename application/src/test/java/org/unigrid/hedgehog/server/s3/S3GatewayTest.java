@@ -67,4 +67,13 @@ public class S3GatewayTest {
 
 		assertThrows(IllegalArgumentException.class, () -> S3Gateway.cached(new StorageBlobStore(null)));
 	}
+
+	@Property
+	public void shouldServePlainHttpWhenAsked(@ForAll @IntRange(min = 1, max = OptionsCli.MAX_PORT) int port) {
+		OptionsCli.parse(List.of("daemon"), "--s3port", String.valueOf(port), "--s3plain");
+
+		assertThat(S3Gateway.config(), equalTo(S3ServerConfig.builder().host("localhost").port(port).tls(false)
+			.build()
+		));
+	}
 }

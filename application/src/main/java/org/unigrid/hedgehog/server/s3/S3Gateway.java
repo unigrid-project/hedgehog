@@ -22,7 +22,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.Optional;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.model.cdi.Eager;
@@ -42,14 +41,14 @@ public class S3Gateway {
 
 	static S3ServerConfig config() {
 		return S3ServerConfig.builder().host(S3Options.getHost()).port(S3Options.getPort())
-			.domain(S3Options.getDomain()).build();
+			.domain(S3Options.getDomain()).tls(!S3Options.isPlain()).build();
 	}
 
-	/* Placeholder credentials until access keys can be created */
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
-		server = S3Server.start(config(), cached(new StorageBlobStore(storage)), accessKeyId -> Optional.empty());
+		server = S3Server.start(config(), cached(new StorageBlobStore(storage)),
+			new S3Credentials(S3Credentials.getFile()));
 	}
 
 	static BlobStore cached(final BlobStore store) {

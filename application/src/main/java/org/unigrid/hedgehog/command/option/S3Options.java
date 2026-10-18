@@ -69,4 +69,10 @@ public class S3Options {
 		return cacheDirectory != null ? cacheDirectory
 			: ApplicationDirectory.create().getUserDataDir().resolve("s3").resolve("cache");
 	}
+
+	@Getter @Option(names = "--s3plain", scope = CommandLine.ScopeType.INHERIT,
+		description = "Serve S3 over plain HTTP instead of TLS, for local tools that cannot trust a self-signed "
+			+ "certificate."
+	)
+	private static boolean plain;
 }

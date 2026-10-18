@@ -60,12 +60,19 @@ public class S3OptionsTest {
 	}
 
 	@Example
-	public void shouldServeLocallyWithoutADomainByDefault() {
+	public void shouldServeLocallyOverTlsWithoutADomainByDefault() {
 		OptionsCli.parse(DAEMON);
 
 		assertThat(S3Options.getHost(), equalTo("localhost"));
 		assertThat(S3Options.getPort(), equalTo(S3Options.DEFAULT_PORT));
 		assertThat(S3Options.getDomain(), nullValue());
+		assertThat(S3Options.isPlain(), equalTo(false));
+	}
+
+	@Example
+	public void shouldServePlainHttpWhenAsked() {
+		OptionsCli.parse(DAEMON, "--s3plain");
+		assertThat(S3Options.isPlain(), equalTo(true));
 	}
 
 	@Property

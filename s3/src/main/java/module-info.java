@@ -18,19 +18,28 @@
 
 module org.unigrid.hedgehog.s3 {
 	requires static lombok;
+	requires io.netty.codec.http;
 	requires io.netty.handler;
+	requires jakarta.annotation;
 	requires io.netty.transport;
 	requires jakarta.ws.rs;
 	requires jakarta.xml.bind;
 	requires jersey.common;
 	requires jersey.container.netty.http;
 	requires jersey.server;
+	requires org.slf4j;
 	requires org.unigrid.hedgehog.common;
 
 	opens org.unigrid.hedgehog.s3.entity to jakarta.xml.bind;
+	opens org.unigrid.hedgehog.s3.error;
+	opens org.unigrid.hedgehog.s3.http;
 	opens org.unigrid.hedgehog.s3.resource;
 
+	exports org.unigrid.hedgehog.s3.auth;
 	exports org.unigrid.hedgehog.s3.cache;
+	exports org.unigrid.hedgehog.s3.checksum;
+	exports org.unigrid.hedgehog.s3.error;
+	exports org.unigrid.hedgehog.s3.http;
 	exports org.unigrid.hedgehog.s3.server;
 	exports org.unigrid.hedgehog.s3.spi;
 }

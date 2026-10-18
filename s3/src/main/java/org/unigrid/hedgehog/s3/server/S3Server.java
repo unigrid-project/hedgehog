@@ -34,11 +34,17 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
+import java.time.Clock;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.unigrid.hedgehog.s3.auth.SignatureFilter;
+import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
+import org.unigrid.hedgehog.s3.http.RequestIdFilter;
+import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
@@ -56,7 +62,12 @@ public final class S3Server implements AutoCloseable {
 		throws GeneralSecurityException, InterruptedException, IOException, ReflectiveOperationException,
 		URISyntaxException {
 
-		final ResourceConfig resources = resources(config, blobs, credentials);
+		return start(config, resources(config, blobs, credentials));
+	}
+
+	static S3Server start(final S3ServerConfig config, final ResourceConfig resources) throws GeneralSecurityException,
+		InterruptedException, IOException, ReflectiveOperationException, URISyntaxException {
+
 		final Container container = (Container) constructor("NettyHttpContainer", Application.class)
 			.newInstance(resources);
 		final EventLoopGroup group = new NioEventLoopGroup(COMMUNICATION_THREADS);
@@ -72,21 +83,31 @@ public final class S3Server implements AutoCloseable {
 		}
 	}
 
-	private static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
+	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
 		final CredentialStore credentials) {
 
-		return new ResourceConfig(ServiceResource.class).register(new AbstractBinder() {
+		return resources(config, blobs, credentials, Clock.systemUTC());
+	}
+
+	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
+		final CredentialStore credentials, final Clock clock) {
+
+		final AbstractBinder bindings = new AbstractBinder() {
 			@Override
 			protected void configure() {
 				bind(config).to(S3ServerConfig.class);
 				bind(blobs).to(BlobStore.class);
 				bind(credentials).to(CredentialStore.class);
 			}
-		});
+		};
+
+		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class)
+			.register(new RequestIdFilter(clock)).register(new SignatureFilter(credentials, clock))
+			.register(new VirtualHostFilter(config.getDomain().orElse(null))).register(bindings);
 	}
 
 	/* Jersey's public Netty factory owns its event loops and hides the container that has to be shut down, so
-	   its package-private container and initializer are built directly instead */
+	   its package-private container and request handler are built directly instead */
 	private static Constructor<?> constructor(final String name, final Class<?>... parameters)
 		throws ReflectiveOperationException {
 
@@ -96,17 +117,18 @@ public final class S3Server implements AutoCloseable {
 		return constructor;
 	}
 
-	/* Without an SSL context the initializer serves plain HTTP */
 	private static ChannelHandler initializer(final S3ServerConfig config, final Container container,
 		final ResourceConfig resources) throws GeneralSecurityException, IOException, ReflectiveOperationException,
 		URISyntaxException {
 
 		final String scheme = config.isTls() ? "https" : "http";
 		final URI base = new URI(scheme, null, config.getHost(), config.getPort(), "/", null, null);
+		final Constructor<?> handler = constructor("JerseyServerHandler", URI.class, container.getClass(),
+			ResourceConfig.class);
 
-		return (ChannelHandler) constructor("JerseyServerInitializer", URI.class, SslContext.class,
-			container.getClass(), ResourceConfig.class)
-			.newInstance(base, config.isTls() ? ssl() : null, container, resources);
+		return new S3ChannelInitializer(config.isTls() ? Optional.of(ssl()) : Optional.empty(),
+			() -> (ChannelHandler) handler.newInstance(base, container, resources)
+		);
 	}
 
 	private static SslContext ssl() throws GeneralSecurityException, IOException {
