@@ -35,7 +35,7 @@ import net.jqwik.api.constraints.StringLength;
 import org.unigrid.hedgehog.Hedgehog;
 import picocli.CommandLine;
 
-/* Bootstrap, CLI and Util only group their subcommands, so on their own they have nothing to run */
+/* Bootstrap, CLI, Util and S3 only group their subcommands, so on their own they have nothing to run */
 public class CommandGroupTest {
 	private static final Map<String, List<String>> GROUPS = Map.of(
 		"bootstrap", List.of("import", "info", "balance", "history", "sign", "fetch"),
@@ -43,7 +43,8 @@ public class CommandGroupTest {
 			"gridspork-renew", "gridspork-pending", "gridspork-cosign", "node-add", "node-remove", "node-list",
 			"gridnode-start", "gridnode-stop", "gridnode-list", "storage-put", "storage-get", "storage-delete", "stop"
 		),
-		"util", List.of("key-generate", "key-sign", "key-validate")
+		"util", List.of("key-generate", "key-sign", "key-validate"),
+		"s3", List.of("key")
 	);
 
 	@Provide
