@@ -29,7 +29,11 @@ import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.notNullValue;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -86,10 +90,46 @@ public class S3ServerTest {
 
 			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_OK));
 			assertThat(connection.getContentType(), equalTo("application/xml"));
+			assertThat(connection.getHeaderField("x-amz-request-id"), matchesPattern("[0-9A-F]{16}"));
 			assertThat(new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8),
 				containsString("<ListAllMyBucketsResult "
 				+ "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Buckets/></ListAllMyBucketsResult>")
 			);
+		}
+	}
+
+	@Example
+	public void answersAnUnsupportedOperationWithAnS3Error() throws Exception {
+		final int port = freePort();
+
+		try (S3Server server = start(port)) {
+			final HttpURLConnection connection = (HttpURLConnection) endpoint(port).resolve("bucket/a%20key?torrent")
+				.toURL().openConnection();
+
+			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED));
+			assertThat(connection.getContentType(), equalTo("application/xml"));
+			assertThat(connection.getHeaderField("x-amz-id-2"), notNullValue());
+			assertThat(connection.getHeaderField("Date"), endsWith(" GMT"));
+			assertThat(new String(connection.getErrorStream().readAllBytes(), StandardCharsets.UTF_8),
+				containsString("<Error><Code>NotImplemented</Code><Message>A header or query you provided implies "
+				+ "functionality that is not implemented.</Message><Resource>/bucket/a key</Resource><RequestId>"
+				+ connection.getHeaderField("x-amz-request-id") + "</RequestId></Error>")
+			);
+		}
+	}
+
+	@Example
+	public void answersHeadWithoutAnErrorBody() throws Exception {
+		final int port = freePort();
+
+		try (S3Server server = start(port)) {
+			final HttpURLConnection connection = (HttpURLConnection) endpoint(port).resolve("bucket/key").toURL()
+				.openConnection();
+
+			connection.setRequestMethod("HEAD");
+			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED));
+			assertThat(connection.getHeaderField("x-amz-request-id"), matchesPattern("[0-9A-F]{16}"));
+			assertThat(connection.getContentLengthLong(), lessThanOrEqualTo(0L));
 		}
 	}
 

@@ -39,6 +39,8 @@ import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
+import org.unigrid.hedgehog.s3.http.RequestIdFilter;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
@@ -56,7 +58,12 @@ public final class S3Server implements AutoCloseable {
 		throws GeneralSecurityException, InterruptedException, IOException, ReflectiveOperationException,
 		URISyntaxException {
 
-		final ResourceConfig resources = resources(config, blobs, credentials);
+		return start(config, resources(config, blobs, credentials));
+	}
+
+	static S3Server start(final S3ServerConfig config, final ResourceConfig resources) throws GeneralSecurityException,
+		InterruptedException, IOException, ReflectiveOperationException, URISyntaxException {
+
 		final Container container = (Container) constructor("NettyHttpContainer", Application.class)
 			.newInstance(resources);
 		final EventLoopGroup group = new NioEventLoopGroup(COMMUNICATION_THREADS);
@@ -72,17 +79,20 @@ public final class S3Server implements AutoCloseable {
 		}
 	}
 
-	private static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
+	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
 		final CredentialStore credentials) {
 
-		return new ResourceConfig(ServiceResource.class).register(new AbstractBinder() {
+		final AbstractBinder bindings = new AbstractBinder() {
 			@Override
 			protected void configure() {
 				bind(config).to(S3ServerConfig.class);
 				bind(blobs).to(BlobStore.class);
 				bind(credentials).to(CredentialStore.class);
 			}
-		});
+		};
+
+		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class, RequestIdFilter.class)
+			.register(bindings);
 	}
 
 	/* Jersey's public Netty factory owns its event loops and hides the container that has to be shut down, so
