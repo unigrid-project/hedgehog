@@ -33,7 +33,6 @@ import jakarta.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.Objects;
-import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.entity.CreateBucketConfiguration;
 import org.unigrid.hedgehog.s3.entity.Delete;
 import org.unigrid.hedgehog.s3.entity.DeleteError;
@@ -52,7 +51,6 @@ import org.unigrid.hedgehog.s3.request.BucketNames;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 @Path("/{bucket}")
-@RequiredArgsConstructor
 public class BucketResource {
 	private static final String OBJECT_LOCK = "x-amz-bucket-object-lock-enabled";
 	private static final String REGION = "x-amz-bucket-region";
@@ -61,6 +59,13 @@ public class BucketResource {
 
 	private final Namespace namespace;
 	private final Clock clock;
+	private final Listings listings;
+
+	public BucketResource(final Namespace namespace, final Clock clock) {
+		this.namespace = namespace;
+		this.clock = clock;
+		listings = new Listings(namespace);
+	}
 
 	@PUT
 	public Response create(@PathParam("bucket") final String name, @Context final UriInfo uri,
@@ -98,8 +103,15 @@ public class BucketResource {
 	public Response read(@PathParam("bucket") final String name, @Context final UriInfo uri) throws IOException,
 		BlobStoreException {
 
-		Requests.subresource(uri, Subresource.LOCATION);
-		return Responses.xml(new LocationConstraint(Requests.bucket(namespace, name).location()));
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
+			Subresource.LOCATION);
+		final Bucket bucket = Requests.bucket(namespace, name);
+
+		return Responses.xml(switch (subresource) {
+			case LOCATION -> new LocationConstraint(bucket.location());
+			case LIST_TYPE -> listings.objectsV2(name, uri.getQueryParameters());
+			default -> listings.objects(name, uri.getQueryParameters());
+		});
 	}
 
 	@DELETE

@@ -43,6 +43,8 @@ import org.unigrid.hedgehog.s3.request.Preconditions;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 final class Requests {
+	static final int MAX_LISTED = 1000;
+
 	private static final int MAX_XML_BYTES = 1 << 20;
 
 	private Requests() {
@@ -56,6 +58,21 @@ final class Requests {
 	/* Listings write milliseconds, so the index keeps no more than that */
 	static Instant now(final Clock clock) {
 		return clock.instant().truncatedTo(ChronoUnit.MILLIS);
+	}
+
+	/* How many entries a listing page may hold, where S3 quietly lowers a larger limit to its own */
+	static int limit(final String value) {
+		try {
+			final int limit = Objects.isNull(value) ? MAX_LISTED : Integer.parseInt(value);
+
+			if (limit >= 0) {
+				return Math.min(limit, MAX_LISTED);
+			}
+		} catch (NumberFormatException ex) {
+			/* Refused below, like a negative limit */
+		}
+
+		throw new S3Exception(S3ErrorCode.InvalidArgument, "A listing limit must be an integer of 0 or more.");
 	}
 
 	/* Every route that names an object passes its key through here before the index sees it */
