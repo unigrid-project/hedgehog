@@ -48,6 +48,7 @@ import org.unigrid.hedgehog.model.network.ChannelMap;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.producer.ApplicationDirectoryProducer;
 import org.unigrid.hedgehog.model.producer.SporkDatabaseProducer;

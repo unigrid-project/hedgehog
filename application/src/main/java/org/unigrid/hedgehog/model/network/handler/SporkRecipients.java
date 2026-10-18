@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.service.ledger;
+package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
 import java.util.Objects;
@@ -28,6 +28,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
 /* Where a spork may be sent. A node of release 0.0.8 reads the two bytes of the type of a spork, and for a type it
    does not know it logs an error and leaves the rest of the frame unread, which it then reads on as more types:

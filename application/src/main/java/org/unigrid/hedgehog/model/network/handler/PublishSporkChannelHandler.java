@@ -29,7 +29,6 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
-import org.unigrid.hedgehog.service.ledger.SporkRecipients;
 
 @Slf4j
 @Sharable

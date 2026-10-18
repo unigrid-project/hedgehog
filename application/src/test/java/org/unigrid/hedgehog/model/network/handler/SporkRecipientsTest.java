@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.service.ledger;
+package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Arrays;

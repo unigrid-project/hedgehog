@@ -22,18 +22,32 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import java.nio.file.Path;
 import net.jqwik.api.Example;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 
 public class PackageCycleTest {
-	@Example
-	public void shouldHaveNoCyclesBetweenPackages() throws Exception {
+	private static JavaClasses production() throws Exception {
 		/* Importing the production classes root keeps test classes out and works on the module path */
 		final Path root = Path.of(Hedgehog.class.getProtectionDomain().getCodeSource().getLocation().toURI());
 		final JavaClasses classes = new ClassFileImporter().importPath(root);
 
 		assertThat(classes.size(), greaterThan(0));
-		slices().matching("(**)").should().beFreeOfCycles().check(classes);
+		return classes;
+	}
+
+	@Example
+	public void shouldHaveNoCyclesBetweenPackages() throws Exception {
+		slices().matching("(**)").should().beFreeOfCycles().check(production());
+	}
+
+	/* The handlers, the schedules and the resources call the ledger service, which is the part of the node that
+	   knows nothing of them: whatever they share belongs with them or below the service, not in it */
+	@Example
+	public void shouldLetTheTransportCallTheLedgerServiceAndNotTheOtherWayRound() throws Exception {
+		noClasses().that().resideInAPackage("..service.ledger..").should().dependOnClassesThat()
+			.resideInAnyPackage("..model.network.handler..", "..model.network.schedule..", "..server..")
+			.check(production());
 	}
 }
