@@ -135,10 +135,19 @@ final class InboundLanes {
 	}
 
 	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer
-	   or a rebuild that waited behind a queue of them would be late by all of them. Never dropped. */
+	   or a rebuild that waited behind a queue of them would be late by all of them. Never dropped: it runs, or the
+	   executor refuses the run and this throws. A task that was refused is taken back, since its caller was told it
+	   will not run, unless a run has taken it meanwhile, and then it has run. */
 	void control(Runnable task) {
 		controlLane.add(task);
-		wake();
+
+		try {
+			wake();
+		} catch (RejectedExecutionException e) {
+			if (controlLane.remove(task)) {
+				throw e;
+			}
+		}
 	}
 
 	/* One run of the serial executor drains both lanes, and is posted when a lane gets a task and none is posted:
@@ -159,18 +168,31 @@ final class InboundLanes {
 	   again. */
 	private void drain() {
 		try {
-			for (Runnable task = controlLane.poll(); task != null; task = controlLane.poll()) {
-				guard.accept(task);
-			}
-
+			runControlLane();
 			serveSome();
 			guard.accept(afterRun);
 		} finally {
 			drainPosted.set(false);
 
 			if (!controlLane.isEmpty() || !inboundLane.isEmpty()) {
-				wake();
+				postAgain();
 			}
+		}
+	}
+
+	private void runControlLane() {
+		for (Runnable task = controlLane.poll(); task != null; task = controlLane.poll()) {
+			guard.accept(task);
+		}
+	}
+
+	/* An executor that refuses the next run takes no more, and what waits in the control lane is run here, on the
+	   serial thread, as nothing else will: the callers of those tasks wait for their answers. */
+	private void postAgain() {
+		try {
+			wake();
+		} catch (RejectedExecutionException e) {
+			runControlLane();
 		}
 	}
 

@@ -378,7 +378,8 @@ public final class LedgerDriver implements Closeable {
 
 	/* Empty when the transaction was taken in, otherwise why not, as the ledger says it. It also goes to every peer.
 	   The answer is made on the serial thread, which is also where a callback of the future runs, so a callback
-	   must not wait for the driver. An executor that takes no more tasks makes this throw, not answer. */
+	   must not wait for the driver. An executor that takes no more tasks makes this throw, not answer, and a task it
+	   took is answered even if it was shut down meanwhile. */
 	public CompletableFuture<Optional<String>> submit(Transaction transaction) {
 		return CompletableFuture.supplyAsync(() -> guarded(() -> admit(transaction), Optional.of(NOT_RUNNING)),
 			this::control);

@@ -19,7 +19,9 @@
 package org.unigrid.hedgehog.ledger;
 
 /* Runs the tasks it is given one at a time, in the order they were given, from whatever thread gives them. A task
-   that gives another one does not wait for it. The driver hands every event to it, so the node never has two at once. */
+   that gives another one does not wait for it. The driver hands every event to it, so the node never has two at once.
+   A task it has taken it runs, also when it is shut down meanwhile, and one it cannot take it refuses by throwing a
+   RejectedExecutionException: the driver waits for the run it has posted, and answers its callers from it. */
 @FunctionalInterface
 public interface Serial {
 	void execute(Runnable task);
