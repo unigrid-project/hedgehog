@@ -53,6 +53,10 @@ final class Responses {
 		return version.isNullVersion() ? response : response.header(VERSION_ID, version.versionId());
 	}
 
+	static Response.ResponseBuilder copied(final Response.ResponseBuilder response, final ObjectVersion source) {
+		return source.isNullVersion() ? response : response.header(CopySource.VERSION_HEADER, source.versionId());
+	}
+
 	static Response.ResponseBuilder checksums(final Response.ResponseBuilder response,
 		final Map<String, String> checksums) {
 

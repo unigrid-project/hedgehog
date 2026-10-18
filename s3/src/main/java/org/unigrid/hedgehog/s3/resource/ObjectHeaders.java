@@ -43,6 +43,9 @@ final class ObjectHeaders {
 	private static final String STANDARD = "STANDARD";
 	private static final String DEFAULT_TYPE = "binary/octet-stream";
 	private static final String ACCEPT_RANGES = "Accept-Ranges";
+	private static final String METADATA_DIRECTIVE = "x-amz-metadata-directive";
+	private static final String COPY = "COPY";
+	private static final String REPLACE = "REPLACE";
 
 	private static final List<String> CONTENT = List.of(HttpHeaders.CONTENT_TYPE, "Content-Disposition",
 		HttpHeaders.CONTENT_ENCODING, HttpHeaders.CONTENT_LANGUAGE, HttpHeaders.CACHE_CONTROL, HttpHeaders.EXPIRES
@@ -62,6 +65,17 @@ final class ObjectHeaders {
 		return headers.getRequestHeaders().keySet().stream().filter(name -> name.toLowerCase(Locale.ROOT)
 			.startsWith(METADATA)).collect(Collectors.toMap(name -> name.substring(METADATA.length())
 			.toLowerCase(Locale.ROOT), headers::getHeaderString, (first, second) -> first + "," + second));
+	}
+
+	/* Whether a copy takes its headers and metadata from the request instead of from its source */
+	static boolean replaced(final HttpHeaders headers) {
+		final String directive = Objects.requireNonNullElse(headers.getHeaderString(METADATA_DIRECTIVE), COPY);
+
+		if (!COPY.equals(directive) && !REPLACE.equals(directive)) {
+			throw new S3Exception(S3ErrorCode.InvalidArgument, "Unknown metadata directive.");
+		}
+
+		return REPLACE.equals(directive);
 	}
 
 	/* Encryption is left to the storage layer and every object is stored alike, so asking for more is refused */

@@ -28,6 +28,7 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.EntityTag;
 import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -38,6 +39,7 @@ import java.util.Date;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.s3.entity.CopyObjectResult;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.Subresource;
@@ -72,7 +74,11 @@ public class ObjectResource {
 		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException {
 
 		Requests.subresource(uri, Subresource.NONE);
-		return putObject(bucket, key, headers, request);
+
+		final Optional<CopySource> source = CopySource.of(headers);
+
+		return source.isPresent() ? copyObject(bucket, key, headers, source.get())
+			: putObject(bucket, key, headers, request);
 	}
 
 	@GET
@@ -127,6 +133,41 @@ public class ObjectResource {
 
 		return Responses.checksums(Responses.versioned(Response.ok().tag(new EntityTag(body.etag())), stored),
 			body.checksums()).build();
+	}
+
+	/* The copy refers to the slices of its source instead of copying them, so it costs no more than the index
+	   entry, whatever the size of the object */
+	private Response copyObject(final String bucket, final String key, final HttpHeaders headers,
+		final CopySource source) throws IOException, BlobStoreException, NamespaceException {
+
+		Requests.key(key);
+		ObjectHeaders.refuseUnsupported(headers);
+		Requests.bucket(namespace, bucket);
+
+		final ObjectVersion from = source.read(namespace, headers);
+		final boolean replace = ObjectHeaders.replaced(headers);
+
+		if (!replace && source.names(bucket, key)) {
+			throw new S3Exception(S3ErrorCode.InvalidRequest, "This copy request is illegal because it is "
+				+ "trying to copy an object to itself without changing the object's metadata, storage "
+				+ "class, website redirect location or encryption attributes."
+			);
+		}
+
+		final Instant now = Requests.now(clock);
+		final ObjectVersion stored = namespace.put(from.toBuilder().bucket(bucket).key(key).versionId(null)
+			.lastModified(now).retention(null).legalHold(false)
+			.headers(replace ? ObjectHeaders.content(headers) : from.headers())
+			.metadata(replace ? ObjectHeaders.metadata(headers) : from.metadata()).build(),
+			latest -> Requests.writable(headers, latest)
+		);
+		final CopyObjectResult result = new CopyObjectResult();
+
+		result.setETag(Responses.quoted(stored.etag()));
+		result.setLastModified(now);
+
+		return Responses.copied(Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), stored),
+			from).build();
 	}
 
 	private Response read(final String bucket, final String key, final MultivaluedMap<String, String> query,
