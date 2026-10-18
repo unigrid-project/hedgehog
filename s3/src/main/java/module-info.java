@@ -19,4 +19,6 @@
 module org.unigrid.hedgehog.s3 {
 	requires static lombok;
 	requires org.unigrid.hedgehog.common;
+
+	exports org.unigrid.hedgehog.s3.spi;
 }
