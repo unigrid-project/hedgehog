@@ -115,10 +115,15 @@ public class LedgerResource extends CDIBridgeResource {
 	}
 
 	/* The body is read by hand and at most one byte beyond the bound, since a reader that is left to the JSON
-	   library takes a string of twenty million characters before anything can refuse it */
+	   library takes a string of twenty million characters before anything can refuse it. What the client goes on
+	   sending is held by the server up to its own bound, so the stream is closed to have the rest dropped. */
 	@Path("/transaction") @POST
 	public Response submit(final InputStream body) throws IOException {
-		final byte[] sent = body.readNBytes(MAX_BODY + 1);
+		final byte[] sent;
+
+		try (body) {
+			sent = body.readNBytes(MAX_BODY + 1);
+		}
 
 		if (sent.length > MAX_BODY) {
 			return error(Status.REQUEST_ENTITY_TOO_LARGE, "A request is at most " + MAX_BODY + " bytes");

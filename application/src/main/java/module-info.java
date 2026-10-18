@@ -38,6 +38,7 @@ module org.unigrid.hedgehog {
 	requires io.netty.buffer;
 	requires io.netty.transport;
 	requires io.netty.codec;
+	requires io.netty.codec.http;
 	requires io.netty.incubator.codec.classes.quic;
 	requires io.netty.common;
 	requires io.netty.handler;

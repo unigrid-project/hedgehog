@@ -21,8 +21,12 @@ package org.unigrid.hedgehog.server.rest;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
@@ -128,13 +132,31 @@ public class RestServer extends AbstractServer {
 		);
 	}
 
+	/* The initializer of the container builds the pipeline of a connection, so the limit is set in after its codec,
+	   where a request has been read from the wire and nothing has yet queued it */
+	private static ChannelHandler limited(final ChannelHandler jersey) {
+		final long uploadLimit = Math.max(StorageResource.MAX_UPLOAD_BYTES, RestOptions.getMaxUpload());
+
+		return new ChannelInitializer<SocketChannel>() {
+			@Override
+			protected void initChannel(final SocketChannel connection) {
+				final ChannelPipeline pipeline = connection.pipeline();
+
+				pipeline.addLast(jersey);
+				pipeline.addAfter(pipeline.context(HttpServerCodec.class).name(), null, new RequestBodyLimit(
+					RequestBodyLimit.MAX_REQUEST_BYTES, uploadLimit, RequestBodyLimit.BODY_TIME,
+					RequestBodyLimit.LINGER));
+			}
+		};
+	}
+
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
 		token = RestToken.getConfigured().orElseGet(this::generateToken);
 		resourceConfig = getResourceConfig();
 		container = getContainerInstance();
-		final ChannelHandler initializer = getJerseyInitializerInstance(container);
+		final ChannelHandler initializer = limited(getJerseyInitializerInstance(container));
 
 		channel = new ServerBootstrap().group(group)
 			.channel(NioServerSocketChannel.class)

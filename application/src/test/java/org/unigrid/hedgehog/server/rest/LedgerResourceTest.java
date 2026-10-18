@@ -25,7 +25,9 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -62,6 +64,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -836,8 +839,8 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		assertThat(atTheBound.length(), equalTo(MAX_BODY));
 		assertThat(client.post(SUBMIT, Entity.json(atTheBound)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
 
-		for (final String body : List.of(atTheBound + " ", "x".repeat(1 << 20),
-			opening + ",\"padding\":\"" + "0".repeat(1 << 20) + "\"}")) {
+		for (final String body : List.of(atTheBound + " ", "x".repeat(1 << 19),
+			opening + ",\"padding\":\"" + "0".repeat(1 << 19) + "\"}")) {
 
 			final ResponseOddityException refused = refusedBy(() -> client.post(SUBMIT, Entity.json(body)));
 
@@ -846,6 +849,30 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		}
 
 		assertThat(submitted.size(), equalTo(1));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldCloseTheBodyOnceItIsReadSoThatWhatTheClientSendsNextIsDropped() {
+		for (final String sent : List.of("x".repeat(MAX_BODY + 1), "{")) {
+			final ClosingStream body = new ClosingStream(sent.getBytes(StandardCharsets.UTF_8));
+
+			new LedgerResource().submit(body);
+			assertThat(body.closed, is(true));
+		}
+	}
+
+	private static final class ClosingStream extends ByteArrayInputStream {
+		private boolean closed;
+
+		private ClosingStream(final byte[] data) {
+			super(data);
+		}
+
+		@Override
+		public void close() {
+			closed = true;
+		}
 	}
 
 	@Example
