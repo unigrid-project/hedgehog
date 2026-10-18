@@ -346,7 +346,7 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 	}
 
 	@Example
-	public void shouldMintTwoEntriesOfOneAddressAsTwoGrantsAndSkipWhatCannotBeMinted() {
+	public void shouldMintTwoEntriesOfOneAddressAsTwoGrantsAndSkipWhatCanNeverBeMinted() {
 		final LedgerFleet fleet = fleet();
 		final AccountKey control = account();
 		final AccountKey twice = account();
@@ -363,7 +363,7 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 		entries.put(entry(control, seconds), BigDecimal.ONE);
 		entries.put(entry(twice, seconds), new BigDecimal("3"));
 		entries.put(entry(twice, seconds - 1), new BigDecimal("4"));
-		entries.put(entry(never.get(0), 0xFFFF_FFFFL), BigDecimal.TEN);
+		entries.put(entry(never.get(0), seconds), new BigDecimal("-0.00000001"));
 		entries.put(entry(never.get(1), seconds), BigDecimal.ZERO);
 		entries.put(entry(never.get(2), seconds), BigDecimal.valueOf(-1));
 		entries.put(entry(never.get(3), seconds), new BigDecimal("92233720368.54775808"));
@@ -371,8 +371,8 @@ public class LedgerMintAcceptanceTest extends BaseLedgerFleetTest {
 		entries.put(entry(upperCase, seconds), BigDecimal.TEN);
 		entries.put(entry("not an address", seconds), BigDecimal.TEN);
 		entries.put(entry("", seconds), BigDecimal.TEN);
-		entries.put(entry(wallet(), 0xFFFF_FFFFL), BigDecimal.TEN);
-		entries.put(entry(wallet(), Integer.MAX_VALUE), BigDecimal.TEN);
+		entries.put(entry(wallet(), 1), BigDecimal.TEN);
+		entries.put(entry(wallet(), fleet.tipHeight()), BigDecimal.TEN);
 		publishMints(entries);
 
 		awaitBalance(control, COIN);
