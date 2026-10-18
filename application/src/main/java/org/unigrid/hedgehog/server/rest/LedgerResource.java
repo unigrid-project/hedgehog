@@ -43,6 +43,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.Ledger;
+import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.ledger.WireCodec;
@@ -74,7 +75,6 @@ public class LedgerResource extends CDIBridgeResource {
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(LedgerSubmission.class);
 	private static final int MAX_BODY = 4 * 1024;
 	private static final int MAX_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
-	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String NO_ANSWER = "The ledger could not answer";
 
 	/* A request is served by its own resource object, so what the requests share is held by the class. Every
@@ -194,7 +194,8 @@ public class LedgerResource extends CDIBridgeResource {
 	private static Response verdict(final Transaction transaction, final Optional<String> refusal) {
 		final String id = HEX.formatHex(transaction.id());
 
-		return refusal.map(reason -> NOT_RUNNING.equals(reason) ? error(Status.SERVICE_UNAVAILABLE, reason)
+		return refusal.map(reason -> LedgerDriver.NOT_RUNNING.equals(reason)
+			? error(Status.SERVICE_UNAVAILABLE, reason)
 			: Response.status(Status.CONFLICT).entity(new LedgerSubmitted(false, id, reason)).build())
 			.orElseGet(() -> Response.accepted(new LedgerSubmitted(true, id, null)).build());
 	}
@@ -208,7 +209,7 @@ public class LedgerResource extends CDIBridgeResource {
 	}
 
 	private Response answer(final Function<Ledger, Response> reading) {
-		return ledger.read(reading).orElseGet(() -> error(Status.SERVICE_UNAVAILABLE, NOT_RUNNING));
+		return ledger.read(reading).orElseGet(() -> error(Status.SERVICE_UNAVAILABLE, LedgerDriver.NOT_RUNNING));
 	}
 
 	/* Unset is not zero: a node with no fee spork refuses every transfer, whatever the fee. A fee the spork cannot

@@ -77,7 +77,6 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 @ApplicationScoped
 public class LedgerService {
 	private static final String THREADS = "ledger";
-	private static final String NOT_RUNNING = "The ledger is not running";
 	private static final String LEDGER_DIRECTORY = "ledger";
 	private static final int CHAIN_DIRECTORY_CHARACTERS = 16;
 	private static final List<Type> POLICY = List.of(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.LEDGER_BLACKLIST,
@@ -359,7 +358,7 @@ public class LedgerService {
 	}
 
 	private static CompletableFuture<Optional<String>> refused() {
-		return CompletableFuture.completedFuture(Optional.of(NOT_RUNNING));
+		return CompletableFuture.completedFuture(Optional.of(LedgerDriver.NOT_RUNNING));
 	}
 
 	public Report status() {

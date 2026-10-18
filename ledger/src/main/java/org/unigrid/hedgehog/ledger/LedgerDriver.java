@@ -81,7 +81,9 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    that the caller passes. A peer that becomes penalised is cut off, once for each penalty, by asking the network
    to close its connections (DoorKeeper). */
 public final class LedgerDriver implements Closeable {
-	private static final String NOT_RUNNING = "The ledger is not running";
+	/* The reason a submit is refused with while there is no node to take it. It is also how the REST interface knows
+	   to answer 503 and not 409, so there is one text of it. */
+	public static final String NOT_RUNNING = "The ledger is not running";
 	private static final String REPLACED = "The ledger node failed and was replaced: send it again";
 	private static final int LAPSE_STATUSES = 2;
 	private static final long STATUS_GAP_MILLIS = 1_000;

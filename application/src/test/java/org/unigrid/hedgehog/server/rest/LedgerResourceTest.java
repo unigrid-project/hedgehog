@@ -74,6 +74,7 @@ import org.unigrid.hedgehog.ledger.Certificate;
 import org.unigrid.hedgehog.ledger.Decision;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Ledger;
+import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.ledger.LedgerNode;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Reference;
@@ -691,7 +692,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 
 	@Example
 	public void shouldAnswerThatTheLedgerIsNotRunningWhenTheLedgerSaysSo() {
-		answering = answeringWith(Optional.of(NO_LEDGER));
+		answering = answeringWith(Optional.of(LedgerDriver.NOT_RUNNING));
 
 		final ResponseOddityException refused = refusedBy(() -> submit(transfer(0)));
 
