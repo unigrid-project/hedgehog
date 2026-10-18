@@ -21,10 +21,14 @@ package org.unigrid.hedgehog.ledger;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Optional;
 import org.bouncycastle.crypto.ec.CustomNamedCurves;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.signers.ECDSASigner;
+import org.bouncycastle.math.ec.ECAlgorithms;
+import org.bouncycastle.math.ec.ECPoint;
+import org.bouncycastle.util.BigIntegers;
 
 /* The signature that the wallet of the legacy chain makes with signmessage: 65 bytes, a header byte that says
    which encoding of the key it was made for (27 to 30 uncompressed, 31 to 34 compressed), then r and s. The
@@ -38,6 +42,7 @@ public final class LegacySignature {
 	private static final int FIRST_HEADER = 27;
 	private static final int FIRST_COMPRESSED_HEADER = 31;
 	private static final int LAST_HEADER = 34;
+	private static final int RECOVERY_IDS = 4;
 	static final int COMPRESSED_KEY_SIZE = 33;
 	static final int UNCOMPRESSED_KEY_SIZE = 65;
 	private static final int EVEN_Y_PREFIX = 2;
@@ -62,10 +67,9 @@ public final class LegacySignature {
 			return false;
 		}
 
-		final BigInteger r = new BigInteger(1, Arrays.copyOfRange(signature, 1, 1 + COORDINATE_SIZE));
-		final BigInteger s = new BigInteger(1, Arrays.copyOfRange(signature, 1 + COORDINATE_SIZE, SIZE));
+		final BigInteger s = sOf(signature);
 
-		if (s.compareTo(CURVE.getN().shiftRight(1)) > 0) {
+		if (isHigh(s)) {
 			return false;
 		}
 
@@ -73,16 +77,79 @@ public final class LegacySignature {
 			final ECDSASigner verifier = new ECDSASigner();
 
 			verifier.init(false, new ECPublicKeyParameters(CURVE.getCurve().decodePoint(publicKey), CURVE));
-			return verifier.verifySignature(messageHash(message), r, s);
+			return verifier.verifySignature(messageHash(message), rOf(signature), s);
 		} catch (IllegalArgumentException e) {
 			return false;
 		}
 	}
 
+	/* The key that signed the text, found from the signature alone because the wallet prints no key with it. Four
+	   keys fit one signature and the header says which is meant (SEC 1 section 4.1.6), in the encoding it names, so
+	   verify holds for the key given. Empty for what verify could never take: a size other than 65, a header out of
+	   range, r or s outside 1 to n - 1, a high s, no point for r, or a text the wallet could not have signed. */
+	public static Optional<byte[]> recover(String text, byte[] signature) {
+		if (!isRecoverable(signature)) {
+			return Optional.empty();
+		}
+
+		try {
+			return keyOf(new BigInteger(1, messageHash(text)), signature);
+		} catch (IllegalArgumentException e) {
+			return Optional.empty();
+		}
+	}
+
+	private static boolean isRecoverable(byte[] signature) {
+		return signature.length == SIZE && isHeader(Byte.toUnsignedInt(signature[0])) && isInRange(rOf(signature))
+			&& isLow(sOf(signature));
+	}
+
+	private static BigInteger rOf(byte[] signature) {
+		return new BigInteger(1, Arrays.copyOfRange(signature, 1, 1 + COORDINATE_SIZE));
+	}
+
+	private static BigInteger sOf(byte[] signature) {
+		return new BigInteger(1, Arrays.copyOfRange(signature, 1 + COORDINATE_SIZE, SIZE));
+	}
+
+	private static boolean isHigh(BigInteger s) {
+		return s.compareTo(CURVE.getN().shiftRight(1)) > 0;
+	}
+
+	private static boolean isLow(BigInteger s) {
+		return isInRange(s) && !isHigh(s);
+	}
+
+	private static boolean isInRange(BigInteger value) {
+		return value.signum() > 0 && value.compareTo(CURVE.getN()) < 0;
+	}
+
+	private static boolean isHeader(int header) {
+		return header >= FIRST_HEADER && header <= LAST_HEADER;
+	}
+
+	/* Q = r^-1 (sR - eG), where R is the point the signer's nonce made: its x is r, or r + n when the nonce point
+	   overflowed the order, and its y is odd or even as the recovery id says. The curve has a cofactor of 1, so
+	   every point on it has the order n and R needs no check of that. */
+	private static Optional<byte[]> keyOf(BigInteger hash, byte[] signature) {
+		final int header = Byte.toUnsignedInt(signature[0]);
+		final int recoveryId = (header - FIRST_HEADER) % RECOVERY_IDS;
+		final BigInteger n = CURVE.getN();
+		final BigInteger r = rOf(signature);
+		final BigInteger x = r.add(BigInteger.valueOf(recoveryId >> 1).multiply(n));
+		final byte[] encoded = Bytes.concat(new byte[] { (byte) (EVEN_Y_PREFIX + (recoveryId & 1)) },
+			BigIntegers.asUnsignedByteArray(COORDINATE_SIZE, x));
+		final BigInteger rInverse = r.modInverse(n);
+		final ECPoint key = ECAlgorithms.sumOfTwoMultiplies(CURVE.getG(), hash.negate().multiply(rInverse).mod(n),
+			CURVE.getCurve().decodePoint(encoded), sOf(signature).multiply(rInverse).mod(n)).normalize();
+
+		return key.isInfinity() ? Optional.empty() : Optional.of(key.getEncoded(header >= FIRST_COMPRESSED_HEADER));
+	}
+
 	private static boolean headerFits(byte[] publicKey, byte header) {
 		final int value = Byte.toUnsignedInt(header);
 
-		if (value < FIRST_HEADER || value > LAST_HEADER) {
+		if (!isHeader(value)) {
 			return false;
 		}
 

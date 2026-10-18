@@ -18,12 +18,23 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.CharRange;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.StringLength;
+import org.bouncycastle.util.BigIntegers;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -172,10 +183,103 @@ public class LegacySignatureTest {
 		assertThat(LegacySignature.messageHash(text), equalTo(
 			HexFormat.of().parseHex("d56f2842c39980121551f9d40fed5e42d862bf826b34b5770dfb3fdd21af1896")));
 		assertThat(LegacySignature.verify(publicKey, signature, text), is(true));
+		assertThat(LegacySignature.recover(text, signature).orElseThrow(), equalTo(publicKey));
 	}
 
 	@Example
 	public void shouldRefuseAMessageThatNeedsMoreThanOneLengthByte() {
 		assertThrows(IllegalArgumentException.class, () -> LegacySignature.messageHash("x".repeat(253)));
+	}
+
+	private static byte[] withHeader(byte[] signature, int header) {
+		final byte[] copy = signature.clone();
+
+		copy[0] = (byte) header;
+		return copy;
+	}
+
+	private static BigInteger xWithoutPoint() {
+		for (long x = 1;; x++) {
+			final BigInteger candidate = BigInteger.valueOf(x);
+			final byte[] encoded = Bytes.concat(new byte[] { 2 }, BigIntegers.asUnsignedByteArray(32, candidate));
+
+			try {
+				LegacySignature.CURVE.getCurve().decodePoint(encoded);
+			} catch (IllegalArgumentException e) {
+				return candidate;
+			}
+		}
+	}
+
+	/* The key that made the signature, in the encoding the header names */
+	@Property(tries = 60)
+	public void shouldRecoverTheKeyThatSigned(@ForAll @IntRange(min = 1, max = 5000) int secret,
+		@ForAll boolean compressed, @ForAll @CharRange(from = ' ', to = '~') @StringLength(max = 252) String text) {
+
+		final LegacyWallet wallet = new LegacyWallet(secret, compressed);
+		final byte[] signature = wallet.sign(text);
+		final byte[] recovered = LegacySignature.recover(text, signature).orElseThrow();
+
+		assertThat(recovered, equalTo(wallet.publicKey()));
+		assertThat(LegacySignature.addressOf(recovered), equalTo(wallet.address()));
+		assertThat(LegacySignature.verify(recovered, signature, text), is(true));
+	}
+
+	@Property(tries = 60)
+	public void shouldRecoverAKeyThatVerifiesForEveryHeaderOfTheSameEncoding(
+		@ForAll @IntRange(min = 1, max = 5000) int secret, @ForAll boolean compressed,
+		@ForAll @IntRange(min = 0, max = 3) int recoveryId) {
+
+		final byte[] signature = withHeader(new LegacyWallet(secret, compressed).sign(MESSAGE),
+			27 + recoveryId + (compressed ? 4 : 0));
+
+		LegacySignature.recover(MESSAGE, signature)
+			.ifPresent(key -> assertThat(LegacySignature.verify(key, signature, MESSAGE), is(true)));
+	}
+
+	@Property(tries = 60)
+	public void shouldRecoverAnotherKeyFromTheSignatureOfAnotherText(@ForAll @IntRange(min = 1, max = 5000) int secret,
+		@ForAll boolean compressed, @ForAll @CharRange(from = ' ', to = '~') @StringLength(max = 252) String text,
+		@ForAll @CharRange(from = ' ', to = '~') @StringLength(max = 252) String other) {
+
+		Assume.that(!text.equals(other));
+
+		final LegacyWallet wallet = new LegacyWallet(secret, compressed);
+		final Optional<LegacyAddress> address = LegacySignature.recover(other, wallet.sign(text))
+			.map(LegacySignature::addressOf);
+
+		assertThat(address, not(equalTo(Optional.of(wallet.address()))));
+	}
+
+	@Example
+	public void shouldRecoverNothingFromWhatIsMalformed() {
+		final byte[] signature = withHeader(new LegacyWallet(7, true).sign(MESSAGE), 31);
+		final BigInteger n = LegacySignature.CURVE.getN();
+		final BigInteger field = LegacySignature.CURVE.getCurve().getField().getCharacteristic();
+		final BigInteger s = LegacyWallet.sOf(signature);
+		final Map<String, byte[]> malformed = new LinkedHashMap<>();
+
+		malformed.put("64 bytes", Arrays.copyOf(signature, 64));
+		malformed.put("66 bytes", Arrays.copyOf(signature, 66));
+		malformed.put("header 26", withHeader(signature, 26));
+		malformed.put("header 35", withHeader(signature, 35));
+		malformed.put("r 0", LegacyWallet.withR(signature, BigInteger.ZERO));
+		malformed.put("r n", LegacyWallet.withR(signature, n));
+		malformed.put("s 0", LegacyWallet.withS(signature, BigInteger.ZERO));
+		malformed.put("s n", LegacyWallet.withS(signature, n));
+		malformed.put("high s", LegacyWallet.withS(signature, n.subtract(s)));
+		malformed.put("no point for r", LegacyWallet.withR(signature, xWithoutPoint()));
+		malformed.put("x beyond 32 bytes", LegacyWallet.withR(withHeader(signature, 33), n.subtract(BigInteger.ONE)));
+		malformed.put("x beyond the field", LegacyWallet.withR(withHeader(signature, 33), field.subtract(n)));
+		malformed.forEach((name, bad) -> assertThat(name, LegacySignature.recover(MESSAGE, bad),
+			equalTo(Optional.empty())));
+	}
+
+	@Example
+	public void shouldRecoverNothingForATextThatAsciiCannotCarry() {
+		final byte[] signature = new LegacyWallet(7, true).sign(MESSAGE);
+
+		assertThat(LegacySignature.recover("café", signature), equalTo(Optional.empty()));
+		assertThat(LegacySignature.recover("x".repeat(253), signature), equalTo(Optional.empty()));
 	}
 }

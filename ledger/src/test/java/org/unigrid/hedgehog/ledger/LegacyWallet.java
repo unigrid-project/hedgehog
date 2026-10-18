@@ -21,15 +21,19 @@ package org.unigrid.hedgehog.ledger;
 import java.math.BigInteger;
 import java.util.Arrays;
 import org.bouncycastle.crypto.digests.SHA256Digest;
-import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
-import org.bouncycastle.crypto.signers.ECDSASigner;
 import org.bouncycastle.crypto.signers.HMacDSAKCalculator;
+import org.bouncycastle.math.ec.ECPoint;
 import org.bouncycastle.util.BigIntegers;
 
 /* A key of the legacy chain with the secret `secret`, signing the way its wallet does. The recovery id in the
-   header is not used by the ledger, which is handed the key, so it is left at 0. */
+   header is worked out from the nonce point of the signature itself and not by recovering the key, so a test of the
+   recovery is not checked by the code it checks. */
 final class LegacyWallet {
 	private static final int COORDINATE = 32;
+	private static final int FIRST_HEADER = 27;
+	private static final int COMPRESSED_HEADER_OFFSET = 4;
+	private static final int OVERFLOWED_ID = 2;
+	private static final int ODD_ID = 1;
 
 	private final BigInteger secret;
 	private final boolean compressed;
@@ -53,23 +57,41 @@ final class LegacyWallet {
 		return new Claim(publicKey, recipient, sign(Claim.message(chainId, recipient)));
 	}
 
+	/* Deterministic ECDSA (RFC 6979). A low s is the one of the two that is kept, which turns the nonce point over, so
+	   the parity of its y flips with it. */
 	byte[] sign(String message) {
-		final ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
-
-		signer.init(true, new ECPrivateKeyParameters(secret, LegacySignature.CURVE));
-
-		final BigInteger[] signature = signer.generateSignature(LegacySignature.messageHash(message));
 		final BigInteger n = LegacySignature.CURVE.getN();
-		final BigInteger s = signature[1].compareTo(n.shiftRight(1)) > 0 ? n.subtract(signature[1]) : signature[1];
+		final byte[] hash = LegacySignature.messageHash(message);
+		final HMacDSAKCalculator calculator = new HMacDSAKCalculator(new SHA256Digest());
 
-		return Bytes.concat(new byte[] { (byte) (27 + (compressed ? 4 : 0)) },
-			BigIntegers.asUnsignedByteArray(COORDINATE, signature[0]), BigIntegers.asUnsignedByteArray(COORDINATE, s));
+		calculator.init(n, secret, hash);
+
+		final BigInteger k = calculator.nextK();
+		final ECPoint nonce = LegacySignature.CURVE.getG().multiply(k).normalize();
+		final BigInteger x = nonce.getAffineXCoord().toBigInteger();
+		final BigInteger r = x.mod(n);
+		final BigInteger s = k.modInverse(n).multiply(new BigInteger(1, hash).add(secret.multiply(r))).mod(n);
+		final boolean flipped = s.compareTo(n.shiftRight(1)) > 0;
+		final boolean odd = nonce.getAffineYCoord().toBigInteger().testBit(0) != flipped;
+		final int recoveryId = (odd ? ODD_ID : 0) + (x.compareTo(n) >= 0 ? OVERFLOWED_ID : 0);
+		final int header = FIRST_HEADER + recoveryId + (compressed ? COMPRESSED_HEADER_OFFSET : 0);
+
+		return Bytes.concat(new byte[] { (byte) header }, BigIntegers.asUnsignedByteArray(COORDINATE, r),
+			BigIntegers.asUnsignedByteArray(COORDINATE, flipped ? n.subtract(s) : s));
+	}
+
+	static byte[] withR(byte[] signature, BigInteger r) {
+		return with(signature, r, 1);
 	}
 
 	static byte[] withS(byte[] signature, BigInteger s) {
+		return with(signature, s, 1 + COORDINATE);
+	}
+
+	private static byte[] with(byte[] signature, BigInteger value, int offset) {
 		final byte[] copy = Arrays.copyOf(signature, signature.length);
 
-		System.arraycopy(BigIntegers.asUnsignedByteArray(COORDINATE, s), 0, copy, 1 + COORDINATE, COORDINATE);
+		System.arraycopy(BigIntegers.asUnsignedByteArray(COORDINATE, value), 0, copy, offset, COORDINATE);
 		return copy;
 	}
 
