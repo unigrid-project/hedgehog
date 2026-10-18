@@ -87,7 +87,8 @@ final class Multipart {
 
 		final Upload upload = namespace.createUpload(Upload.builder().template(ObjectVersion.builder()
 			.bucket(bucket).key(Requests.key(key)).lastModified(Requests.now(clock))
-			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers)).build())
+			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers))
+			.tags(Tags.header(headers)).build())
 			.checksumAlgorithm(headers.getHeaderString(CHECKSUM_ALGORITHM))
 			.checksumType(headers.getHeaderString(CHECKSUM_TYPE)).build()
 		);

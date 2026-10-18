@@ -47,6 +47,7 @@ public enum S3ErrorCode {
 	InvalidPartOrder(Status.BAD_REQUEST, "The list of parts was not in ascending order."),
 	InvalidRange(Status.REQUESTED_RANGE_NOT_SATISFIABLE, "The requested range cannot be satisfied."),
 	InvalidRequest(Status.BAD_REQUEST, "Invalid Request"),
+	InvalidTag(Status.BAD_REQUEST, "The tag provided was not a valid tag."),
 	KeyTooLongError(Status.BAD_REQUEST, "Your key is too long."),
 	MalformedTrailerError(Status.BAD_REQUEST, "The request contained trailing data that was not well-formed or "
 		+ "did not conform to our published schema."),
@@ -55,6 +56,7 @@ public enum S3ErrorCode {
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
+	NoSuchTagSet(Status.NOT_FOUND, "The TagSet does not exist."),
 	NoSuchUpload(Status.NOT_FOUND, "The specified multipart upload does not exist."),
 	NoSuchVersion(Status.NOT_FOUND, "The version ID specified in the request does not match an existing version."),
 	NotImplemented(Status.NOT_IMPLEMENTED, "A header or query you provided implies functionality that is not "

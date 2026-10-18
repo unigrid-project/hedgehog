@@ -70,9 +70,13 @@ public class BucketResource {
 	@PUT
 	public Response create(@PathParam("bucket") final String name, @Context final UriInfo uri,
 		@Context final HttpHeaders headers, @Context final ContainerRequestContext request) throws IOException,
-		BlobStoreException, MalformedXmlException {
+		BlobStoreException, NamespaceException, MalformedXmlException {
 
-		Requests.subresource(uri, Subresource.NONE);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+
+		if (subresource == Subresource.TAGGING) {
+			return Tags.writeBucket(namespace, name, request);
+		}
 
 		if (!BucketNames.valid(name)) {
 			throw new S3Exception(S3ErrorCode.InvalidBucketName);
@@ -104,12 +108,13 @@ public class BucketResource {
 		BlobStoreException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
-			Subresource.LOCATION, Subresource.UPLOADS);
+			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS);
 		final Bucket bucket = Requests.bucket(namespace, name);
 
 		return Responses.xml(switch (subresource) {
 			case LOCATION -> new LocationConstraint(bucket.location());
 			case LIST_TYPE -> listings.objectsV2(name, uri.getQueryParameters());
+			case TAGGING -> Tags.bucket(bucket);
 			case UPLOADS -> listings.uploads(name, uri.getQueryParameters());
 			default -> listings.objects(name, uri.getQueryParameters());
 		});
@@ -119,7 +124,12 @@ public class BucketResource {
 	public Response delete(@PathParam("bucket") final String name, @Context final UriInfo uri) throws IOException,
 		BlobStoreException, NamespaceException {
 
-		Requests.subresource(uri, Subresource.NONE);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+
+		if (subresource == Subresource.TAGGING) {
+			return Tags.deleteBucket(namespace, name);
+		}
+
 		namespace.deleteBucket(name);
 		return Response.noContent().build();
 	}

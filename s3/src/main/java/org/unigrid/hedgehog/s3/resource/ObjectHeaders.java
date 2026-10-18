@@ -105,6 +105,10 @@ final class ObjectHeaders {
 		content.forEach(response::header);
 		version.metadata().forEach((name, value) -> response.header(METADATA + name, value));
 
+		if (!version.tags().isEmpty()) {
+			response.header(Tags.COUNT, version.tags().size());
+		}
+
 		return Responses.versioned(response.tag(new EntityTag(version.etag()))
 			.lastModified(Date.from(version.lastModified())).header(ACCEPT_RANGES, "bytes"), version
 		);

@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.s3.entity.CopyObjectResult;
@@ -79,9 +80,16 @@ public class ObjectResource {
 	@PUT
 	public Response put(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
 		@Context final UriInfo uri, @Context final HttpHeaders headers,
-		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException {
+		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
+		MalformedXmlException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
+			Subresource.UPLOAD_ID);
+
+		if (subresource == Subresource.TAGGING) {
+			return Tags.writeObject(namespace, bucket, key, uri.getQueryParameters(), request);
+		}
+
 		final Optional<CopySource> source = CopySource.of(headers);
 
 		if (subresource == Subresource.UPLOAD_ID) {
@@ -108,9 +116,14 @@ public class ObjectResource {
 		@Context final UriInfo uri, @Context final HttpHeaders headers) throws IOException, BlobStoreException,
 		NamespaceException {
 
-		return Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID) == Subresource.UPLOAD_ID
-			? multipart.listParts(bucket, key, uri.getQueryParameters())
-			: read(bucket, key, uri.getQueryParameters(), headers, true);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
+			Subresource.UPLOAD_ID);
+
+		return switch (subresource) {
+			case TAGGING -> Tags.readObject(namespace, bucket, key, uri.getQueryParameters());
+			case UPLOAD_ID -> multipart.listParts(bucket, key, uri.getQueryParameters());
+			default -> read(bucket, key, uri.getQueryParameters(), headers, true);
+		};
 	}
 
 	@HEAD
@@ -125,7 +138,14 @@ public class ObjectResource {
 	public Response delete(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
 		@Context final UriInfo uri) throws IOException, BlobStoreException, NamespaceException {
 
-		return Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID) == Subresource.UPLOAD_ID
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
+			Subresource.UPLOAD_ID);
+
+		if (subresource == Subresource.TAGGING) {
+			return Tags.deleteObject(namespace, bucket, key, uri.getQueryParameters());
+		}
+
+		return subresource == Subresource.UPLOAD_ID
 			? multipart.abort(bucket, key, uri.getQueryParameters())
 			: deleteObject(bucket, key, uri.getQueryParameters().getFirst(Versions.VERSION_ID));
 	}
@@ -152,11 +172,13 @@ public class ObjectResource {
 		Requests.bucket(namespace, bucket);
 		Requests.writable(headers, namespace.latest(bucket, key));
 
+		final Map<String, String> tags = Tags.header(headers);
 		final Instant now = Requests.now(clock);
 		final Body body = Body.store(blobs, request, MAX_SIZE);
 		final ObjectVersion stored = body.commit(blobs, () -> namespace.put(ObjectVersion.builder().bucket(bucket)
 			.key(key).lastModified(now).etag(body.etag()).parts(body.parts(now)).checksums(body.checksums())
-			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers)).build(),
+			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers)).tags(tags)
+			.build(),
 			latest -> Requests.writable(headers, latest))
 		);
 
@@ -175,6 +197,7 @@ public class ObjectResource {
 
 		final ObjectVersion from = source.read(namespace, headers);
 		final boolean replace = ObjectHeaders.replaced(headers);
+		final boolean replaceTags = Tags.replaced(headers);
 
 		if (!replace && source.names(bucket, key)) {
 			throw new S3Exception(S3ErrorCode.InvalidRequest, "This copy request is illegal because it is "
@@ -187,7 +210,8 @@ public class ObjectResource {
 		final ObjectVersion stored = namespace.put(from.toBuilder().bucket(bucket).key(key).versionId(null)
 			.lastModified(now).retention(null).legalHold(false)
 			.headers(replace ? ObjectHeaders.content(headers) : from.headers())
-			.metadata(replace ? ObjectHeaders.metadata(headers) : from.metadata()).build(),
+			.metadata(replace ? ObjectHeaders.metadata(headers) : from.metadata())
+			.tags(replaceTags ? Tags.header(headers) : from.tags()).build(),
 			latest -> Requests.writable(headers, latest)
 		);
 		final CopyObjectResult result = new CopyObjectResult();
