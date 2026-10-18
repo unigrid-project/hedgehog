@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -58,6 +59,11 @@ public class LedgerTextTest {
 	}
 
 	@Provide
+	public Arbitrary<String> typedAccounts() {
+		return Arbitraries.strings().withChars("0123456789abcdefABCDEF").ofLength(2 * ACCOUNT_BYTES);
+	}
+
+	@Provide
 	public Arbitrary<String> legacyAddresses() {
 		return Arbitraries.bytes().array(byte[].class).ofSize(LEGACY_BYTES).map(LegacyAddress::encode);
 	}
@@ -85,6 +91,26 @@ public class LedgerTextTest {
 		assertThat(address.orElseThrow() instanceof org.unigrid.hedgehog.ledger.LegacyAddress, is(true));
 		assertThat(address.orElseThrow().bytes(), equalTo(LegacyAddress.decode(legacy)));
 		assertThat(LedgerText.text(address.orElseThrow()), equalTo(legacy));
+	}
+
+	@Property(tries = 200)
+	public void shouldTakeAnAccountTypedInAnyCaseAsTheOneInLowerCase(@ForAll("typedAccounts") final String typed) {
+		assertThat(LedgerText.typed(typed),
+			equalTo(Optional.of(AccountKey.fromHex(typed.toLowerCase(Locale.ROOT)))));
+	}
+
+	@Property(tries = 200)
+	public void shouldTakeATypedLegacyAddressExactlyAsWritten(@ForAll("legacyAddresses") final String legacy) {
+		assertThat(LedgerText.typed(legacy), equalTo(LedgerText.address(legacy)));
+	}
+
+	@Example
+	public void shouldNotChangeTheCaseOfALegacyAddressToMakeSenseOfIt() {
+		assertThat(LedgerText.typed(ZERO_HASH_ADDRESS).isPresent(), is(true));
+		assertThat(LedgerText.typed(ZERO_HASH_ADDRESS.toLowerCase(Locale.ROOT)), equalTo(Optional.empty()));
+		assertThat(LedgerText.typed(ZERO_HASH_ADDRESS.toUpperCase(Locale.ROOT)), equalTo(Optional.empty()));
+		assertThat(LedgerText.typed(""), equalTo(Optional.empty()));
+		assertThat(LedgerText.typed("ab".repeat(ACCOUNT_BYTES) + "a"), equalTo(Optional.empty()));
 	}
 
 	@Property(tries = 200)

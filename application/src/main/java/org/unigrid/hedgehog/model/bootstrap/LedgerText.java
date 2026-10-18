@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.bootstrap;
 
 import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -52,6 +53,14 @@ public final class LedgerText {
 		} catch (IllegalArgumentException ex) {
 			return Optional.empty();
 		}
+	}
+
+	/* An address as a person types it: an account in any case, since case means nothing in hex, but a legacy address
+	   exactly as written, as case is part of base58 */
+	public static Optional<Address> typed(final String text) {
+		final String lowerCase = text.toLowerCase(Locale.ROOT);
+
+		return address(isAccount(lowerCase) ? lowerCase : text);
 	}
 
 	public static String text(final Address address) {

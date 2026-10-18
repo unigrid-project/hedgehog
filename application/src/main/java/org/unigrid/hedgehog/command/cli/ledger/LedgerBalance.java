@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
-import java.util.Locale;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import picocli.CommandLine.Command;
@@ -46,16 +45,10 @@ public class LedgerBalance implements Callable<Integer> {
 		return LedgerClient.print(ledger -> ledger.account(requested));
 	}
 
-	/* The node knows an account by lower case hex only, but a legacy address is base58, which case changes */
+	/* The node knows an account by lower case hex only, so what is asked for is the address in its own spelling */
 	private String requested() {
-		final String lowerCase = address.toLowerCase(Locale.ROOT);
-		final String text = LedgerText.isAccount(lowerCase) ? lowerCase : address;
-
-		if (LedgerText.address(text).isEmpty()) {
-			throw new ParameterException(spec.commandLine(),
-				"\"%s\" is neither an account (64 hex characters) nor a legacy address".formatted(address));
-		}
-
-		return text;
+		return LedgerText.typed(address).map(LedgerText::text).orElseThrow(() -> new ParameterException(
+			spec.commandLine(), "\"%s\" is neither an account (64 hex characters) nor a legacy address"
+				.formatted(address)));
 	}
 }
