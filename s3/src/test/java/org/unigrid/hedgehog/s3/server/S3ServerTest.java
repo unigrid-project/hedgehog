@@ -30,13 +30,12 @@ import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.unigrid.hedgehog.s3.server.S3Fixture.client;
-import static org.unigrid.hedgehog.s3.server.S3Fixture.endpoint;
 import static org.unigrid.hedgehog.s3.server.S3Fixture.freePort;
+import static org.unigrid.hedgehog.s3.server.S3Fixture.signed;
 import static org.unigrid.hedgehog.s3.server.S3Fixture.start;
 import software.amazon.awssdk.services.s3.S3Client;
 
 public class S3ServerTest {
-
 	@Example
 	public void listsNoBucketsToAnSdkClient() throws Exception {
 		final int port = freePort();
@@ -51,7 +50,7 @@ public class S3ServerTest {
 		final int port = freePort();
 
 		try (S3Server server = start(port)) {
-			final HttpURLConnection connection = (HttpURLConnection) endpoint(port).toURL().openConnection();
+			final HttpURLConnection connection = signed(port, "GET", "/");
 
 			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_OK));
 			assertThat(connection.getContentType(), equalTo("application/xml"));
@@ -68,8 +67,7 @@ public class S3ServerTest {
 		final int port = freePort();
 
 		try (S3Server server = start(port)) {
-			final HttpURLConnection connection = (HttpURLConnection) endpoint(port).resolve("bucket/a%20key?torrent")
-				.toURL().openConnection();
+			final HttpURLConnection connection = signed(port, "GET", "/bucket/a%20key?torrent");
 
 			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED));
 			assertThat(connection.getContentType(), equalTo("application/xml"));
@@ -88,10 +86,8 @@ public class S3ServerTest {
 		final int port = freePort();
 
 		try (S3Server server = start(port)) {
-			final HttpURLConnection connection = (HttpURLConnection) endpoint(port).resolve("bucket/key").toURL()
-				.openConnection();
+			final HttpURLConnection connection = signed(port, "HEAD", "/bucket/key");
 
-			connection.setRequestMethod("HEAD");
 			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED));
 			assertThat(connection.getHeaderField("x-amz-request-id"), matchesPattern("[0-9A-F]{16}"));
 			assertThat(connection.getContentLengthLong(), lessThanOrEqualTo(0L));

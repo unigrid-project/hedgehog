@@ -34,12 +34,14 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
+import java.time.Clock;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.unigrid.hedgehog.s3.auth.SignatureFilter;
 import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
 import org.unigrid.hedgehog.s3.http.RequestIdFilter;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
@@ -84,6 +86,12 @@ public final class S3Server implements AutoCloseable {
 	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
 		final CredentialStore credentials) {
 
+		return resources(config, blobs, credentials, Clock.systemUTC());
+	}
+
+	static ResourceConfig resources(final S3ServerConfig config, final BlobStore blobs,
+		final CredentialStore credentials, final Clock clock) {
+
 		final AbstractBinder bindings = new AbstractBinder() {
 			@Override
 			protected void configure() {
@@ -93,7 +101,8 @@ public final class S3Server implements AutoCloseable {
 			}
 		};
 
-		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class, RequestIdFilter.class)
+		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class)
+			.register(new RequestIdFilter(clock)).register(new SignatureFilter(credentials, clock))
 			.register(new VirtualHostFilter(config.getDomain().orElse(null))).register(bindings);
 	}
 

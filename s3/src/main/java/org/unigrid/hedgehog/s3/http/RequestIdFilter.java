@@ -22,16 +22,21 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.ContainerResponseFilter;
 import jakarta.ws.rs.core.HttpHeaders;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
+import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.error.S3Error;
 
-/* Clients correct their clock from the date of a response, and support requests quote both ids */
+/*
+   Support requests quote both ids, and clients correct their clock from the date of a refusal, so the date comes
+   from the clock signatures are checked against.
+*/
+@RequiredArgsConstructor
 public class RequestIdFilter implements ContainerResponseFilter {
 	public static final String REQUEST_ID = "x-amz-request-id";
 	public static final String HOST_ID = "x-amz-id-2";
@@ -42,6 +47,8 @@ public class RequestIdFilter implements ContainerResponseFilter {
 
 	private static final DateTimeFormatter HTTP_DATE = DateTimeFormatter
 		.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH).withZone(ZoneOffset.UTC);
+
+	private final Clock clock;
 
 	private static byte[] random(final int length) {
 		final byte[] bytes = new byte[length];
@@ -64,7 +71,7 @@ public class RequestIdFilter implements ContainerResponseFilter {
 
 		response.getHeaders().putSingle(REQUEST_ID, id);
 		response.getHeaders().putSingle(HOST_ID, Base64.getEncoder().encodeToString(random(HOST_ID_BYTES)));
-		response.getHeaders().putSingle(HttpHeaders.DATE, HTTP_DATE.format(Instant.now()));
+		response.getHeaders().putSingle(HttpHeaders.DATE, HTTP_DATE.format(clock.instant()));
 
 		if (response.getEntity() instanceof S3Error error) {
 			error.setRequestId(id);

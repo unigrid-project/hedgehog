@@ -20,17 +20,23 @@ package org.unigrid.hedgehog.s3.server;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.URI;
+import java.time.Clock;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
+import org.unigrid.hedgehog.s3.auth.SdkSigner;
+import org.unigrid.hedgehog.s3.auth.SigV4;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.SdkHttpMethod;
+import software.amazon.awssdk.http.SdkHttpRequest;
 import software.amazon.awssdk.http.apache5.Apache5HttpClient;
 import software.amazon.awssdk.profiles.ProfileFile;
 import software.amazon.awssdk.regions.Region;
@@ -63,13 +69,39 @@ public final class S3Fixture {
 	}
 
 	public static S3Server start(final int port, final Class<?>... resources) throws Exception {
-		return S3Server.start(config(port), S3Server.resources(config(port), new MemoryBlobStore(), credentials())
-			.registerClasses(resources)
+		return start(port, Clock.systemUTC(), resources);
+	}
+
+	public static S3Server start(final int port, final Clock clock, final Class<?>... resources) throws Exception {
+		return S3Server.start(config(port), S3Server.resources(config(port), new MemoryBlobStore(), credentials(),
+			clock).registerClasses(resources)
 		);
 	}
 
 	public static URI endpoint(final int port) {
 		return URI.create("http://" + HOST + ":" + port + "/");
+	}
+
+	/* A request the SDK signed without sending it, so a test can look at the raw answer */
+	public static HttpURLConnection signed(final int port, final String method, final String path,
+		final String secretKey) throws IOException {
+
+		final URI uri = endpoint(port).resolve(path);
+		final SdkHttpRequest request = SdkSigner.sign(SdkHttpRequest.builder().uri(uri)
+			.method(SdkHttpMethod.fromValue(method)).putHeader("x-amz-content-sha256", SigV4.sha256Hex(new byte[0]))
+			.build(), new byte[0], ACCESS_KEY, secretKey, Clock.systemUTC()
+		);
+		final HttpURLConnection connection = (HttpURLConnection) uri.toURL().openConnection();
+
+		connection.setRequestMethod(method);
+		request.headers().forEach((name, values) -> connection.setRequestProperty(name, values.getFirst()));
+		return connection;
+	}
+
+	public static HttpURLConnection signed(final int port, final String method, final String path)
+		throws IOException {
+
+		return signed(port, method, path, SECRET_KEY);
 	}
 
 	public static S3ClientBuilder client(final URI endpoint, final String secretKey) {

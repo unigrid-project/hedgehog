@@ -35,6 +35,7 @@ module org.unigrid.hedgehog.s3 {
 	opens org.unigrid.hedgehog.s3.http;
 	opens org.unigrid.hedgehog.s3.resource;
 
+	exports org.unigrid.hedgehog.s3.auth;
 	exports org.unigrid.hedgehog.s3.checksum;
 	exports org.unigrid.hedgehog.s3.error;
 	exports org.unigrid.hedgehog.s3.http;
