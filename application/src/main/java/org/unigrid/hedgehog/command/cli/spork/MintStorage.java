@@ -32,6 +32,7 @@ import lombok.SneakyThrows;
 import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
+import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -124,7 +125,7 @@ public class MintStorage implements Runnable {
 	/* Only a ledger account has a time, and a time that has passed mints at once: mostly a number meant for another
 	   unit, like a date written in digits. A height of the old chain is no time and is not judged. */
 	private void requireNotPast(final long seconds) {
-		if (!allowPast && MintEntry.isAccount(address) && Instant.ofEpochSecond(seconds).isBefore(Instant.now())) {
+		if (!allowPast && LedgerText.isAccount(address) && Instant.ofEpochSecond(seconds).isBefore(Instant.now())) {
 			throw new IllegalArgumentException("The time '" + number + "' has already passed, so the mint would "
 				+ "happen at once. Digits are seconds since 1970: " + seconds + " is "
 				+ Instant.ofEpochSecond(seconds) + ". To give a date, write an ISO-8601 instant like "
@@ -134,7 +135,7 @@ public class MintStorage implements Runnable {
 
 	/* Only a ledger account has a time to give, as an address of the old chain is placed by a height of that chain */
 	private long secondsOfTheInstant() {
-		if (!MintEntry.isAccount(address)) {
+		if (!LedgerText.isAccount(address)) {
 			throw new IllegalArgumentException("An old-style address takes a height of the old chain in digits, "
 				+ "not '" + number + "'; only a ledger account of 64 lower-case hex characters takes a "
 				+ "time");

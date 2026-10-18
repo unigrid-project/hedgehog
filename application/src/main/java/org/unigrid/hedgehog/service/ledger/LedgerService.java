@@ -414,6 +414,6 @@ public class LedgerService {
 	}
 
 	private OptionalLong readLong(final ToLongFunction<Ledger> reading) {
-		return read(held -> reading.applyAsLong(held)).map(OptionalLong::of).orElseGet(OptionalLong::empty);
+		return read(reading::applyAsLong).map(OptionalLong::of).orElseGet(OptionalLong::empty);
 	}
 }

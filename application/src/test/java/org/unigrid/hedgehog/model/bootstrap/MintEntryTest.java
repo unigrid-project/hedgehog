@@ -163,17 +163,6 @@ public class MintEntryTest {
 		assertThat(MintEntry.of(location("ab".repeat(ACCOUNT_BYTES), 7), null), equalTo(Optional.empty()));
 	}
 
-	@Property
-	public void tellsAnAccountFromTheAddressesTheOldChainHad(@ForAll("accounts") String account,
-		@ForAll("hashes") byte[] hash) {
-
-		assertThat(MintEntry.isAccount(account), is(true));
-		assertThat(MintEntry.isAccount(account.toUpperCase()), is(account.equals(account.toUpperCase())));
-		assertThat(MintEntry.isAccount(legacy(hash)), is(false));
-		assertThat(MintEntry.isAccount("garbage"), is(false));
-		assertThat(MintEntry.isAccount(null), is(false));
-	}
-
 	@Example
 	public void countsTheNumberUnsignedWhateverTheModelHolds() {
 		final String account = "ab".repeat(ACCOUNT_BYTES);

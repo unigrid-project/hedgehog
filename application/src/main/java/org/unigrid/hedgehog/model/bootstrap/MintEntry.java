@@ -73,14 +73,10 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 			.map(recipient -> new MintEntry(recipient, Integer.toUnsignedLong(location.getHeight()), value)));
 	}
 
-	public static boolean isAccount(final String address) {
-		return LedgerText.isAccount(address);
-	}
-
 	/* The int to keep for a number that was typed or sent. One rule for the command line and the node, so they agree
 	   on what a number may be for each kind of address. */
 	public static int heightOf(final String address, final long number) {
-		return isAccount(address) ? secondsOf(number) : oldHeightOf(number);
+		return LedgerText.isAccount(address) ? secondsOf(number) : oldHeightOf(number);
 	}
 
 	private static int secondsOf(final long number) {

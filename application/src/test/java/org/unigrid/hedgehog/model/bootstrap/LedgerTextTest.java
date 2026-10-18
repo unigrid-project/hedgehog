@@ -87,6 +87,17 @@ public class LedgerTextTest {
 		assertThat(LedgerText.text(address.orElseThrow()), equalTo(legacy));
 	}
 
+	@Property(tries = 200)
+	public void shouldTellAnAccountFromTheAddressesTheOldChainHad(@ForAll("accounts") final String account,
+		@ForAll("legacyAddresses") final String legacy) {
+
+		assertThat(LedgerText.isAccount(account), is(true));
+		assertThat(LedgerText.isAccount(account.toUpperCase()), is(account.equals(account.toUpperCase())));
+		assertThat(LedgerText.isAccount(legacy), is(false));
+		assertThat(LedgerText.isAccount("garbage"), is(false));
+		assertThat(LedgerText.isAccount(null), is(false));
+	}
+
 	@Example
 	public void shouldNotTakeAnAccountInUpperCaseOrOfAnotherWidth() {
 		final String account = "ab".repeat(ACCOUNT_BYTES);
