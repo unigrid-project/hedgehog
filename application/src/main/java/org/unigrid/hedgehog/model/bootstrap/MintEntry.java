@@ -24,7 +24,6 @@ import java.math.RoundingMode;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.regex.Pattern;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.MintSchedule;
@@ -54,7 +53,6 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 	}
 
 	private static final long MAXIMUM_NUMBER = Location.MAXIMUM_NUMBER;
-	private static final Pattern ACCOUNT = Pattern.compile("[0-9a-f]{" + 2 * AccountKey.SIZE + "}");
 	private static final long MILLIS_PER_SECOND = 1000;
 	private static final int UNIT_DIGITS = Coin.DECIMALS;
 	private static final int WHOLE_DIGITS_OF_A_LONG = 11;
@@ -71,12 +69,12 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 
 	public static Optional<MintEntry> of(final Location location, final BigDecimal amount) {
 		return Optional.ofNullable(amount).flatMap(value -> Optional.ofNullable(location.getAddress())
-			.map(address -> address.getWif()).flatMap(MintEntry::recipientOf)
+			.map(address -> address.getWif()).flatMap(LedgerText::address)
 			.map(recipient -> new MintEntry(recipient, Integer.toUnsignedLong(location.getHeight()), value)));
 	}
 
 	public static boolean isAccount(final String address) {
-		return Objects.nonNull(address) && ACCOUNT.matcher(address).matches();
+		return LedgerText.isAccount(address);
 	}
 
 	/* The int to keep for a number that was typed or sent. One rule for the command line and the node, so they agree
@@ -100,20 +98,6 @@ public record MintEntry(Address recipient, long number, BigDecimal amount) {
 		} catch (ArithmeticException ex) {
 			throw new IllegalArgumentException("An old-style address takes a height of the old chain, up to "
 				+ Integer.MAX_VALUE + ", found " + number, ex);
-		}
-	}
-
-	private static Optional<Address> recipientOf(final String address) {
-		if (isAccount(address)) {
-			return Optional.of(AccountKey.fromHex(address));
-		}
-
-		try {
-			final byte[] hash = LegacyAddress.decode(address);
-
-			return Optional.of(new org.unigrid.hedgehog.ledger.LegacyAddress(hash));
-		} catch (IllegalArgumentException ex) {
-			return Optional.empty();
 		}
 	}
 
