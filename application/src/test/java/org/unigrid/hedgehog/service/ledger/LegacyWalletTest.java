@@ -21,7 +21,9 @@ package org.unigrid.hedgehog.service.ledger;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.StringLength;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -30,6 +32,7 @@ import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.LegacySignature;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 
 public class LegacyWalletTest {
@@ -56,6 +59,15 @@ public class LegacyWalletTest {
 
 		assertThat(claim.hasValidSignature(OTHER_CHAIN), is(false));
 		assertThat(redirected.hasValidSignature(CHAIN), is(false));
+	}
+
+	@Property(tries = 40)
+	public void shouldWriteTheRecoveryIdOfItsKeyIntoTheHeader(@ForAll @IntRange(min = 1, max = 100_000) int secret,
+		@ForAll boolean compressed, @ForAll @AlphaChars @StringLength(min = 1, max = 100) String text) {
+
+		final LegacyWallet wallet = new LegacyWallet(secret, compressed);
+
+		assertThat(LegacySignature.recover(text, wallet.sign(text)).orElseThrow(), equalTo(wallet.publicKey()));
 	}
 
 	@Example
