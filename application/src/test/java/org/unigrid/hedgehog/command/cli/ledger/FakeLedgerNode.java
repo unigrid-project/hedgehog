@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import mockit.Invocation;
@@ -36,12 +37,17 @@ import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
+import org.unigrid.hedgehog.ledger.Transaction;
+import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.server.rest.RestToken;
+import org.unigrid.hedgehog.server.rest.entity.LedgerSubmission;
+import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 
 /* One canned answer for each route a ledger command asks, so a test sees what was sent and whether the
    connection was opened and closed */
 final class FakeLedgerNode extends MockUp<RestClient> {
 	static final String LOCAL = RestCommandFixture.HOST;
+	private static final String POSTED = "the id of the transaction that is posted";
 	private static final int PORT = 4321;
 	private static final String TOKEN = "rest-token";
 
@@ -91,9 +97,30 @@ final class FakeLedgerNode extends MockUp<RestClient> {
 
 		return switch (location) {
 			case "/ledger" -> info;
-			case "/ledger/transaction" -> submitted;
+			case "/ledger/transaction" -> named(entity);
 			default -> account;
 		};
+	}
+
+	/* A node that takes a transaction names it by its id, which is what makes the acceptance one of this transaction */
+	private Response named(Entity<?> entity) {
+		if (submitted.getEntity() instanceof LedgerSubmitted answer && answer.accepted() && POSTED.equals(answer.id())) {
+			final Transaction posted = WireCodec.decodeTransaction(
+				HexFormat.of().parseHex(((LedgerSubmission) entity.getEntity()).transaction()));
+
+			return Response.accepted(new LedgerSubmitted(true, HexFormat.of().formatHex(posted.id()), null)).build();
+		}
+
+		return submitted;
+	}
+
+	/* The acceptance of whatever transaction is posted */
+	static Response accepted() {
+		return accepted(POSTED);
+	}
+
+	static Response accepted(String id) {
+		return Response.accepted(new LedgerSubmitted(true, id, null)).build();
 	}
 
 	List<Request> requests() {

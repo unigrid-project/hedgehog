@@ -38,6 +38,7 @@ import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.LedgerDriver;
+import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
@@ -199,14 +200,22 @@ final class LedgerClient implements AutoCloseable {
 		return read("/ledger/block/" + height, LedgerBlock.class);
 	}
 
-	/* A transaction the ledger will not take comes back as the reason it gives */
-	LedgerSubmitted submit(final byte[] encoded) throws Refused {
-		final Entity<LedgerSubmission> body = Entity.json(new LedgerSubmission(HEX.formatHex(encoded)));
+	/* A transaction the ledger will not take comes back as the reason it gives. A node that takes it names it by its
+	   id, which is known here, so an acceptance that names another transaction is not taken for this one. */
+	LedgerSubmitted submit(final Transaction transaction) throws Refused {
+		final Entity<LedgerSubmission> body = Entity.json(new LedgerSubmission(HEX.formatHex(transaction.encode())));
 		final LedgerSubmitted answer = answer(() -> rest.postBounded("/ledger/transaction", body),
 			LedgerSubmitted.class, Status.ACCEPTED, Status.CONFLICT);
 
 		if (!answer.accepted()) {
-			throw new Refused(answer.reason());
+			throw new Refused(Optional.ofNullable(answer.reason()).orElse("refused"));
+		}
+
+		final String id = HEX.formatHex(transaction.id());
+
+		if (!id.equals(answer.id())) {
+			throw new Refused("The node answered for the transaction " + Optional.ofNullable(answer.id())
+				.orElse("(no id)") + " and this one is " + id);
 		}
 
 		return answer;

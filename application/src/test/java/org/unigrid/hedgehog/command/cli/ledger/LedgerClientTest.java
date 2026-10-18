@@ -37,7 +37,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import net.jqwik.api.constraints.Size;
+import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -50,6 +50,8 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.ledger.AccountKey;
+import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
@@ -61,6 +63,11 @@ public class LedgerClientTest {
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final String ID = "9f".repeat(64);
 	private static final String UNREADABLE = "The node answered something this command cannot read: ";
+	private static final byte[] SEED = HexFormat.of().parseHex("42".repeat(32));
+	private static final byte[] CHAIN = HexFormat.of().parseHex("11".repeat(64));
+	private static final AccountKey RECIPIENT = AccountKey.fromHex("ab".repeat(32));
+	private static final Transfer TRANSFER = Transfer.signed(SEED, RECIPIENT, 1, 1, 0, CHAIN);
+	private static final String TRANSFER_ID = HexFormat.of().formatHex(TRANSFER.id());
 
 	private static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
 		"12.50000000", 0L, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
@@ -139,27 +146,59 @@ public class LedgerClientTest {
 	}
 
 	@Property(tries = 30)
-	public void sendsTheEncodedTransactionAsHexAndHandsBackTheIdItIsFoundBy(@ForAll @Size(min = 1, max = 163)
-		byte[] encoded) {
+	public void sendsTheEncodedTransactionAsHexAndHandsBackTheIdItIsFoundBy(
+		@ForAll @LongRange(min = 0, max = 1_000_000) long nonce) {
 
-		final LedgerSubmitted accepted = new LedgerSubmitted(true, ID, null);
-		final Outcome outcome = answered(Response.accepted(accepted).build(), ledger -> ledger.submit(encoded));
+		final Transfer transfer = Transfer.signed(SEED, RECIPIENT, 1, 1, nonce, CHAIN);
+		final LedgerSubmitted accepted = new LedgerSubmitted(true, HexFormat.of().formatHex(transfer.id()), null);
+		final Outcome outcome = answered(Response.accepted(accepted).build(), ledger -> ledger.submit(transfer));
 		final Request request = outcome.sent().request().orElseThrow();
 
 		assertThat(request.method(), equalTo(HttpMethod.POST));
 		assertThat(request.location(), equalTo("/ledger/transaction"));
 		assertThat(request.entity().orElseThrow().getMediaType(), equalTo(MediaType.APPLICATION_JSON_TYPE));
 		assertThat((Object) request.entity().orElseThrow().getEntity(),
-			equalTo(new LedgerSubmission(HexFormat.of().formatHex(encoded))));
+			equalTo(new LedgerSubmission(HexFormat.of().formatHex(transfer.encode()))));
 
 		assertThat(outcome.value(), equalTo(accepted));
+	}
+
+	@Provide
+	public Arbitrary<String> otherIds() {
+		return Arbitraries.strings().withChars("0123456789abcdef").ofLength(128).filter(id -> !id.equals(TRANSFER_ID));
+	}
+
+	@Property(tries = 30)
+	public void refusesAnAcceptanceThatNamesAnotherTransaction(@ForAll("otherIds") String id) {
+		final Outcome outcome = answered(Response.accepted(new LedgerSubmitted(true, id, null)).build(),
+			ledger -> ledger.submit(TRANSFER));
+
+		assertThat(refusalOf(outcome), equalTo("The node answered for the transaction " + id
+			+ " and this one is " + TRANSFER_ID));
+	}
+
+	@Example
+	public void refusesAnAcceptanceThatNamesNothing() {
+		final Outcome outcome = answered(Response.accepted(new LedgerSubmitted(true, null, null)).build(),
+			ledger -> ledger.submit(TRANSFER));
+
+		assertThat(refusalOf(outcome), equalTo("The node answered for the transaction (no id) and this one is "
+			+ TRANSFER_ID));
+	}
+
+	@Example
+	public void saysRefusedWhereTheNodeRefusesWithoutAReason() {
+		final Outcome outcome = answered(Response.status(Status.CONFLICT)
+			.entity(new LedgerSubmitted(false, ID, null)).build(), ledger -> ledger.submit(TRANSFER));
+
+		assertThat(refusalOf(outcome), equalTo("refused"));
 	}
 
 	@Property(tries = 30)
 	public void givesTheReasonOfALedgerThatRefusesTheTransactionWordForWord(@ForAll("reasons") String reason) {
 		final LedgerSubmitted refused = new LedgerSubmitted(false, ID, reason);
 		final Outcome outcome = answered(Response.status(Status.CONFLICT).entity(refused).build(),
-			ledger -> ledger.submit(new byte[] { 4 }));
+			ledger -> ledger.submit(TRANSFER));
 
 		assertThat(refusalOf(outcome), equalTo(reason));
 	}
@@ -171,7 +210,7 @@ public class LedgerClientTest {
 		final ResponseOddityException oddity = new ResponseOddityException(status, errorBody(text));
 
 		for (final Asking asking : List.<Asking>of(LedgerClient::info, ledger -> ledger.account("a"),
-			ledger -> ledger.block(1), ledger -> ledger.submit(new byte[] { 4 }))) {
+			ledger -> ledger.block(1), ledger -> ledger.submit(TRANSFER))) {
 
 			assertThat(refusalOf(run(command -> RestCommandFixture.runWithOddity(command, oddity), asking)),
 				equalTo(text));
@@ -222,7 +261,7 @@ public class LedgerClientTest {
 	@Example
 	public void saysInOneLineThatTheStatusOfTheNodeIsNoStatus() {
 		for (final Asking asking : List.<Asking>of(LedgerClient::info, ledger -> ledger.account("a"),
-			ledger -> ledger.block(1), ledger -> ledger.submit(new byte[] { 4 }))) {
+			ledger -> ledger.block(1), ledger -> ledger.submit(TRANSFER))) {
 
 			assertThat(refusalOf(answered(Response.status(599).entity("<html>").build(), asking)),
 				equalTo(UNREADABLE + "status 599"));

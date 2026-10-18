@@ -37,10 +37,13 @@ import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
+import org.unigrid.hedgehog.server.rest.entity.LedgerSubmission;
 import org.unigrid.hedgehog.server.rest.entity.LedgerSubmitted;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
@@ -103,7 +106,7 @@ public class LedgerSigningCommandsTest {
 	}
 
 	private static Response accepted() {
-		return Response.accepted(new LedgerSubmitted(true, ID, null)).build();
+		return FakeLedgerNode.accepted();
 	}
 
 	private static Response refused() {
@@ -143,6 +146,15 @@ public class LedgerSigningCommandsTest {
 		return outcome.node().requests().stream().filter(request -> HttpMethod.POST.equals(request.method())).count();
 	}
 
+	private static String idPosted(final Outcome outcome) {
+		final Request posted = outcome.node().requests().stream()
+			.filter(request -> HttpMethod.POST.equals(request.method())).findFirst().orElseThrow();
+		final LedgerSubmission submission = (LedgerSubmission) posted.entity().orElseThrow().getEntity();
+
+		return HexFormat.of().formatHex(WireCodec.decodeTransaction(HexFormat.of().parseHex(submission.transaction()))
+			.id());
+	}
+
 	private static void assertEndsWithOneLine(final Outcome outcome, final String line) {
 		assertThat(outcome.cli().exitCode(), equalTo(1));
 		assertThat(outcome.cli().out(), emptyString());
@@ -158,7 +170,30 @@ public class LedgerSigningCommandsTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
 			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(command.signed())));
-			assertThat(outcome.cli().out(), containsString(ID));
+			assertThat(outcome.cli().out(), containsString(idPosted(outcome)));
+		}
+	}
+
+	@Example
+	public void saysInOneLineThatTheNodeTookAnotherTransactionThanTheOneSent() {
+		for (final Command command : commands()) {
+			final Outcome outcome = run(FakeLedgerNode.LOCAL, FakeLedgerNode.accepted(ID), command);
+
+			assertThat(outcome.cli().exitCode(), equalTo(1));
+			assertThat(outcome.cli().out(), emptyString());
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(command.signed(),
+				"The node answered for the transaction " + ID + " and this one is " + idPosted(outcome))));
+			outcome.cli().assertNoStackTrace();
+		}
+	}
+
+	@Example
+	public void saysRefusedWhereTheNodeRefusesWithoutAReason() {
+		for (final Command command : commands()) {
+			final Outcome outcome = run(FakeLedgerNode.LOCAL, Response.status(Status.CONFLICT)
+				.entity(new LedgerSubmitted(false, ID, null)).build(), command);
+
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(command.signed(), "refused")));
 		}
 	}
 

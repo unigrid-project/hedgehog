@@ -88,7 +88,7 @@ public class LedgerVoteCommand implements Callable<Integer> {
 
 		LedgerClient.announce(chainId, "vote to %s %s in round %d".formatted(
 			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), round));
-		System.out.println(Json.parse(ledger.submit(vote.encode())));
+		System.out.println(Json.parse(ledger.submit(vote)));
 		return 0;
 	}
 

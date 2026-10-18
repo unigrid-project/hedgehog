@@ -120,7 +120,7 @@ public class LedgerClaimCommandTest {
 	}
 
 	private static Response accepted() {
-		return Response.accepted(new LedgerSubmitted(true, ID, null)).build();
+		return FakeLedgerNode.accepted();
 	}
 
 	private static Claim claimIn(Outcome outcome) {
@@ -206,7 +206,7 @@ public class LedgerClaimCommandTest {
 
 		assertThat(outcome.cli().exitCode(), equalTo(0));
 		assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(wallet))));
-		assertThat(outcome.cli().out(), containsString(ID));
+		assertThat(outcome.cli().out(), containsString(HexFormat.of().formatHex(claim.id())));
 		assertThat(claim.publicKey(), equalTo(wallet.publicKey()));
 		assertThat(claim.recipient(), equalTo(RECIPIENT));
 		assertThat(claim.signature(), equalTo(signature));

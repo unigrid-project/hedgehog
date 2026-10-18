@@ -92,7 +92,7 @@ public class LedgerTransferCommand implements Callable<Integer> {
 		LedgerClient.announce(chainId, "transfer %s to %s fee %s nonce %d".formatted(
 			LedgerText.coins(draft.amount()), LedgerText.text(draft.recipient()), LedgerText.coins(feeUnits),
 			nonceUnits));
-		System.out.println(Json.parse(ledger.submit(transfer.encode())));
+		System.out.println(Json.parse(ledger.submit(transfer)));
 		return 0;
 	}
 

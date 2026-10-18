@@ -143,7 +143,7 @@ public class LedgerTransferCommandTest {
 	}
 
 	private static Response accepted() {
-		return Response.accepted(new LedgerSubmitted(true, ID, null)).build();
+		return FakeLedgerNode.accepted();
 	}
 
 	private static Transfer transferIn(Outcome outcome) {
@@ -189,7 +189,7 @@ public class LedgerTransferCommandTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
 			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(units, nonce))));
-			assertThat(outcome.cli().out(), containsString(ID));
+			assertThat(outcome.cli().out(), containsString(HexFormat.of().formatHex(transfer.id())));
 			assertThat(transfer.sender(), equalTo(Ed25519.publicKey(seed)));
 			assertThat(transfer.recipient(), equalTo(AccountKey.fromHex(RECIPIENT)));
 			assertThat(transfer.amount(), equalTo(units));

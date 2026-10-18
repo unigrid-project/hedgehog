@@ -128,7 +128,7 @@ public class LedgerVoteCommandTest {
 	}
 
 	private static Response accepted() {
-		return Response.accepted(new LedgerSubmitted(true, ID, null)).build();
+		return FakeLedgerNode.accepted();
 	}
 
 	private static Vote voteIn(Outcome outcome) {
@@ -169,7 +169,7 @@ public class LedgerVoteCommandTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
 			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed())));
-			assertThat(outcome.cli().out(), containsString(ID));
+			assertThat(outcome.cli().out(), containsString(HexFormat.of().formatHex(vote.id())));
 			assertThat(vote.voter(), equalTo(voter));
 			assertThat(vote.candidate(), equalTo(AccountKey.fromHex(CANDIDATE)));
 			assertThat(vote.action(), equalTo(Vote.Action.ADD));
