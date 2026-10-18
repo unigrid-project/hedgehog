@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -185,6 +186,31 @@ public class LegacySignatureTest {
 			HexFormat.of().parseHex("d56f2842c39980121551f9d40fed5e42d862bf826b34b5770dfb3fdd21af1896")));
 		assertThat(LegacySignature.verify(publicKey, signature, text), is(true));
 		assertThat(LegacySignature.recover(text, signature).orElseThrow(), equalTo(publicKey));
+	}
+
+	/* Made by the signing code of the legacy wallet itself, the path of its signmessage call (CHashWriter over the
+	   magic and the text, CKey::SignCompact on libsecp256k1), for both encodings of one key, and kept as the wallet
+	   prints it, in base64. The text is the claim of an account on a chain. */
+	@Example
+	public void shouldAcceptTheClaimOfASignatureMadeByTheLegacyWallet() {
+		final byte[] chainId = HexFormat.of().parseHex("def0b9a3cdc4f37149f7b4616748a5d428fed991fb5ed33ddbeffb3af5376cca"
+			+ "11a14e7aab4d6374ed195ed549a1279c8a3afd910bc61e7fabf6e8b046a3aa27");
+		final AccountKey account = AccountKey.fromHex("e468f1df4a0267c7dc5e0b8869c51820ff1db5204cc7d1aa64cba7f2b79b5e7a");
+		final Map<String, String> signatures = Map.of(
+			"02ffce729dcedd30046c63f3284feea462650ef2ebc5cff62570ad3aecdf934881",
+			"HzPXLYr6vriQLWK92mt3wWdIaO+nfUy8IbAayYaOjIIlXUzGCy9B4WRKObBsAUSgnCLBSRETaZBR9lzlOEzgP7s=",
+			"04ffce729dcedd30046c63f3284feea462650ef2ebc5cff62570ad3aecdf934881"
+				+ "94a63953ef2268ab06d825b6804bd1e1ac25030450d4ee323cfdfeb921f006d0",
+			"GzPXLYr6vriQLWK92mt3wWdIaO+nfUy8IbAayYaOjIIlXUzGCy9B4WRKObBsAUSgnCLBSRETaZBR9lzlOEzgP7s=");
+
+		signatures.forEach((key, base64) -> {
+			final byte[] publicKey = HexFormat.of().parseHex(key);
+			final byte[] signature = Base64.getDecoder().decode(base64);
+
+			assertThat(LegacySignature.recover(Claim.message(chainId, account), signature).orElseThrow(),
+				equalTo(publicKey));
+			assertThat(new Claim(publicKey, account, signature).hasValidSignature(chainId), is(true));
+		});
 	}
 
 	@Example
