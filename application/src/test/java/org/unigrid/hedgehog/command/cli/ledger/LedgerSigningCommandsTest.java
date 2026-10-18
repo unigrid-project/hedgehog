@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
@@ -63,6 +65,8 @@ public class LedgerSigningCommandsTest {
 	private static final String REMOTE = "192.0.2.7";
 	private static final String REASON = "Balance does not cover the transfer";
 	private static final String UNREADABLE = "The node answered something this command cannot read: ";
+	private static final String ESCAPES = "\u001b[31mred\u001b[0m\ttab\nnext\u0007";
+	private static final String PRINTABLE = "[31mred[0m\ttabnext";
 
 	private record Command(List<String> arguments, String signed) { }
 
@@ -185,6 +189,28 @@ public class LedgerSigningCommandsTest {
 				"The node answered for the transaction " + ID + " and this one is " + idPosted(outcome))));
 			outcome.cli().assertNoStackTrace();
 		}
+	}
+
+	@SneakyThrows
+	@Example
+	public void printsNothingOfTheNodeThatCouldMoveTheCursorOrRecolourTheTerminal() {
+		final String error = new ObjectMapper().writeValueAsString(Map.of("error", ESCAPES));
+
+		for (final Command command : commands()) {
+			final Outcome refused = run(FakeLedgerNode.LOCAL, Response.status(Status.CONFLICT)
+				.entity(new LedgerSubmitted(false, ID, ESCAPES)).build(), command);
+			final Outcome errored = run(FakeLedgerNode.LOCAL, Response.status(Status.BAD_REQUEST).entity(error).build(),
+				accepted(), command);
+
+			assertThat(refused.cli().err().lines().toList(), equalTo(List.of(command.signed(), PRINTABLE)));
+			assertThat(errored.cli().err().lines().toList(), equalTo(List.of(PRINTABLE)));
+			assertThat(refused.cli().err().chars().noneMatch(LedgerSigningCommandsTest::isStray), equalTo(true));
+			assertThat(errored.cli().err().chars().noneMatch(LedgerSigningCommandsTest::isStray), equalTo(true));
+		}
+	}
+
+	private static boolean isStray(final int character) {
+		return Character.isISOControl(character) && character != '\t' && character != '\n';
 	}
 
 	@Example

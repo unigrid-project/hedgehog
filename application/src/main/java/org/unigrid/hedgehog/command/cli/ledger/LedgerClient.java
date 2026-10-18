@@ -118,8 +118,16 @@ final class LedgerClient implements AutoCloseable {
 	}
 
 	private static int failed(final String reason) {
-		System.err.println(reason);
+		System.err.println(printable(reason));
 		return 1;
+	}
+
+	/* The words of a node are shown as they are, but a control character in them, which could move the cursor or
+	   recolour a terminal, is dropped. A tab is a space that stays. */
+	private static String printable(final String text) {
+		return String.valueOf(text).chars()
+			.filter(character -> !Character.isISOControl(character) || character == '\t')
+			.collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
 	}
 
 	/* A node without a ledger reports no chain, and nothing can be signed for it. A chain typed by the user guards
