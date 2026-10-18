@@ -241,9 +241,18 @@ final class LedgerClient implements AutoCloseable {
 				throw ResponseOddityException.of(response);
 			}
 
-			return response.readEntity(type);
+			return entityOf(response, type);
 		} catch (ResponseOddityException ex) {
 			throw new Refused(ex);
+		}
+	}
+
+	/* A body that is not what was asked for is a bad answer, not a node that could not be reached */
+	private static <T> T entityOf(final Response response, final Class<T> type) throws Refused {
+		try {
+			return response.readEntity(type);
+		} catch (ProcessingException ex) {
+			throw Refused.unreadable("the body is not what was asked for");
 		}
 	}
 
