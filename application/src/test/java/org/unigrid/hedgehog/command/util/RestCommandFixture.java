@@ -48,7 +48,8 @@ import org.unigrid.hedgehog.server.rest.RestToken;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RestCommandFixture {
-	public static final String HOST = "node.test";
+	/* A node on this machine, since the ledger commands ask for the chain of any other */
+	public static final String HOST = "localhost";
 	public static final int PORT = 4321;
 	public static final String TOKEN = "fixture-token";
 

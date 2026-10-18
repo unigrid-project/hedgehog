@@ -78,7 +78,11 @@ public class LedgerClaimCommand implements Callable<Integer> {
 			return 0;
 		}
 
-		System.out.println(Json.parse(ledger.submit(claimOf(draft, chainId, text).encode())));
+		final Claim claim = claimOf(draft, chainId, text);
+
+		LedgerClient.announce(chainId, "claim of %s to %s".formatted(LedgerText.text(draft.address()),
+			draft.recipient()));
+		System.out.println(Json.parse(ledger.submit(claim.encode())));
 		return 0;
 	}
 

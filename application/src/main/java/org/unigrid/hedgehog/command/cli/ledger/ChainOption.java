@@ -18,25 +18,31 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.HexFormat;
 import java.util.Optional;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.ledger.Digests;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 
-/* The certificate of a node proves nothing, so the chain id must be named when the node is not on the local machine */
+/* The certificate of a node proves nothing, so a node that answers for another chain, or one that is not the node
+   meant, can only be told by the chain id the person names. It is left out only where the node is on this machine,
+   since anything else could be any node that answers, and could choose what is signed. */
 final class ChainOption {
 	private static final int HEX_LENGTH = 2 * Digests.HASH_SIZE;
 
 	@Option(names = "--chain", paramLabel = "<hex>",
 		description = "The chain id of the node, as `cli ledger info` shows it; guards against a node that is not "
-			+ "the one meant."
+			+ "the one meant. Required when the node is not on this machine."
 	)
 	private String chain;
 
 	Optional<byte[]> expected(CommandSpec spec) {
 		if (chain == null) {
+			requireWhenRemote(spec);
 			return Optional.empty();
 		}
 
@@ -52,5 +58,23 @@ final class ChainOption {
 
 		throw new ParameterException(spec.commandLine(),
 			"--chain is not a chain id of " + HEX_LENGTH + " hex characters");
+	}
+
+	private static void requireWhenRemote(CommandSpec spec) {
+		final String host = RestOptions.getHost();
+
+		if (!isLoopback(host)) {
+			throw new ParameterException(spec.commandLine(), "Pass --chain: a node at " + host
+				+ " cannot prove which chain it is on; `cli ledger info` on a node you trust shows it");
+		}
+	}
+
+	/* A name that cannot be resolved is not known to be on this machine */
+	private static boolean isLoopback(String host) {
+		try {
+			return InetAddress.getByName(host).isLoopbackAddress();
+		} catch (UnknownHostException ex) {
+			return false;
+		}
 	}
 }

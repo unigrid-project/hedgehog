@@ -89,16 +89,19 @@ public class LedgerTransferCommand implements Callable<Integer> {
 		final Transfer transfer = Transfer.signed(draft.seed(), draft.recipient(), draft.amount(), feeUnits,
 			nonceUnits, chainId);
 
+		LedgerClient.announce(chainId, "transfer %s to %s fee %s nonce %d".formatted(
+			LedgerText.coins(draft.amount()), LedgerText.text(draft.recipient()), LedgerText.coins(feeUnits),
+			nonceUnits));
 		System.out.println(Json.parse(ledger.submit(transfer.encode())));
 		return 0;
 	}
 
 	private Draft draft() {
-		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), chain.expected(spec),
-			seed());
+		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), seed(),
+			chain.expected(spec));
 	}
 
-	private record Draft(Address recipient, long amount, Long fee, Long nonce, Optional<byte[]> chain, byte[] seed) {
+	private record Draft(Address recipient, long amount, Long fee, Long nonce, byte[] seed, Optional<byte[]> chain) {
 		/* Empty on purpose */
 	}
 

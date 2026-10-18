@@ -139,6 +139,10 @@ public class LedgerVoteCommandTest {
 		return (Vote) WireCodec.decodeTransaction(HexFormat.of().parseHex(submission.transaction()));
 	}
 
+	private static String signed() {
+		return "Signed for chain " + CHAIN_ID + ": vote to add " + CANDIDATE + " in round " + ROUND;
+	}
+
 	private static void assertNothingPosted(Outcome outcome) {
 		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
 			equalTo(false));
@@ -164,7 +168,7 @@ public class LedgerVoteCommandTest {
 			final Vote vote = voteIn(outcome);
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
-			assertThat(outcome.cli().err(), emptyString());
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed())));
 			assertThat(outcome.cli().out(), containsString(ID));
 			assertThat(vote.voter(), equalTo(voter));
 			assertThat(vote.candidate(), equalTo(AccountKey.fromHex(CANDIDATE)));
@@ -320,7 +324,7 @@ public class LedgerVoteCommandTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(1));
 			assertThat(outcome.cli().out(), emptyString());
-			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(reason)));
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(), reason)));
 			outcome.cli().assertNoStackTrace();
 		}
 	}

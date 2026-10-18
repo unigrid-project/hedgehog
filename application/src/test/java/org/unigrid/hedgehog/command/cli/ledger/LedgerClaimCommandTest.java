@@ -131,6 +131,10 @@ public class LedgerClaimCommandTest {
 		return (Claim) WireCodec.decodeTransaction(HexFormat.of().parseHex(submission.transaction()));
 	}
 
+	private static String signed(LegacyWallet wallet) {
+		return "Signed for chain " + CHAIN_ID + ": claim of " + wallet.base58() + " to " + ACCOUNT;
+	}
+
 	private static void assertNothingPosted(Outcome outcome) {
 		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
 			equalTo(false));
@@ -201,7 +205,7 @@ public class LedgerClaimCommandTest {
 		final Claim claim = claimIn(outcome);
 
 		assertThat(outcome.cli().exitCode(), equalTo(0));
-		assertThat(outcome.cli().err(), emptyString());
+		assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(wallet))));
 		assertThat(outcome.cli().out(), containsString(ID));
 		assertThat(claim.publicKey(), equalTo(wallet.publicKey()));
 		assertThat(claim.recipient(), equalTo(RECIPIENT));
@@ -294,7 +298,8 @@ public class LedgerClaimCommandTest {
 
 		assertThat(outcome.cli().exitCode(), equalTo(1));
 		assertThat(outcome.cli().out(), emptyString());
-		assertThat(outcome.cli().err().lines().toList(), equalTo(List.of("Legacy address is already claimed")));
+		assertThat(outcome.cli().err().lines().toList(),
+			equalTo(List.of(signed(wallet), "Legacy address is already claimed")));
 		outcome.cli().assertNoStackTrace();
 	}
 

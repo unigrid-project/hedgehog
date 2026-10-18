@@ -31,13 +31,14 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.server.rest.RestToken;
 
 /* One canned answer for each route a ledger command asks, so a test sees what was sent and whether the
    connection was opened and closed */
 final class FakeLedgerNode extends MockUp<RestClient> {
-	private static final String NODE = "node.test";
+	static final String LOCAL = RestCommandFixture.HOST;
 	private static final int PORT = 4321;
 	private static final String TOKEN = "rest-token";
 
@@ -53,10 +54,14 @@ final class FakeLedgerNode extends MockUp<RestClient> {
 	private boolean closed;
 
 	FakeLedgerNode(Response info, Response account, Response submitted) {
+		this(LOCAL, info, account, submitted);
+	}
+
+	FakeLedgerNode(String host, Response info, Response account, Response submitted) {
 		this.info = info;
 		this.account = account;
 		this.submitted = submitted;
-		fakeOptions();
+		fakeOptions(host);
 		readBackItsEntity(info);
 		readBackItsEntity(account);
 		readBackItsEntity(submitted);
@@ -100,10 +105,10 @@ final class FakeLedgerNode extends MockUp<RestClient> {
 		return closed;
 	}
 
-	private static void fakeOptions() {
+	private static void fakeOptions(String host) {
 		new MockUp<RestOptions>() {
 			@Mock public String getHost() {
-				return NODE;
+				return host;
 			}
 
 			@Mock public int getPort() {

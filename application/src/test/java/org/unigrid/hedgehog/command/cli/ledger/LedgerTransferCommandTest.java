@@ -163,6 +163,11 @@ public class LedgerTransferCommandTest {
 		outcome.cli().assertNoStackTrace();
 	}
 
+	private static String signed(long units, long nonce) {
+		return "Signed for chain " + CHAIN_ID + ": transfer " + LedgerText.coins(units) + " to " + RECIPIENT
+			+ " fee " + MINIMUM_FEE + " nonce " + nonce;
+	}
+
 	private static void assertNothingPosted(Outcome outcome) {
 		assertThat(outcome.requests().stream().anyMatch(request -> HttpMethod.POST.equals(request.method())),
 			equalTo(false));
@@ -183,7 +188,7 @@ public class LedgerTransferCommandTest {
 			final Transfer transfer = transferIn(outcome);
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
-			assertThat(outcome.cli().err(), emptyString());
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(units, nonce))));
 			assertThat(outcome.cli().out(), containsString(ID));
 			assertThat(transfer.sender(), equalTo(Ed25519.publicKey(seed)));
 			assertThat(transfer.recipient(), equalTo(AccountKey.fromHex(RECIPIENT)));
@@ -409,7 +414,7 @@ public class LedgerTransferCommandTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(1));
 			assertThat(outcome.cli().out(), emptyString());
-			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(reason)));
+			assertThat(outcome.cli().err().lines().toList(), equalTo(List.of(signed(ONE_COIN_UNITS, 0), reason)));
 			outcome.cli().assertNoStackTrace();
 		}
 	}

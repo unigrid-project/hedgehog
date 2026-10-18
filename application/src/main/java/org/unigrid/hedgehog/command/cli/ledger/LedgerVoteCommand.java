@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.AccountKey;
@@ -82,15 +83,17 @@ public class LedgerVoteCommand implements Callable<Integer> {
 		refuseWhenNotAllowed(draft, info);
 		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), info.round(), chainId);
 
+		LedgerClient.announce(chainId, "vote to %s %s in round %d".formatted(
+			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), info.round()));
 		System.out.println(Json.parse(ledger.submit(vote.encode())));
 		return 0;
 	}
 
 	private Draft draft() {
-		return new Draft(requestedCandidate(), voting.action(), chain.expected(spec), seed());
+		return new Draft(requestedCandidate(), voting.action(), seed(), chain.expected(spec));
 	}
 
-	private record Draft(AccountKey candidate, Vote.Action action, Optional<byte[]> chain, byte[] seed) {
+	private record Draft(AccountKey candidate, Vote.Action action, byte[] seed, Optional<byte[]> chain) {
 		/* Empty on purpose */
 	}
 

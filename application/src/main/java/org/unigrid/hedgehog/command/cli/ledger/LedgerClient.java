@@ -127,6 +127,13 @@ final class LedgerClient implements AutoCloseable {
 		return chainId;
 	}
 
+	/* What was signed is told before the node answers, on the error stream so that the output stays the answer of
+	   the node alone. A node that cannot be vouched for chose the chain, and may have chosen the fee and the nonce
+	   as well, so the person gets to see them. */
+	static void announce(final byte[] chainId, final String signed) {
+		System.err.println("Signed for chain " + HEX.formatHex(chainId) + ": " + signed);
+	}
+
 	static int print(final Question<?> question) {
 		return session(ledger -> {
 			System.out.println(Json.parse(question.ask(ledger)));
