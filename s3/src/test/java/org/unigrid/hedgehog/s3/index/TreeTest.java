@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.s3.index;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -29,6 +30,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
@@ -45,19 +47,23 @@ import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.s3.jqwik.Expect.assertThrows;
 
 public class TreeTest {
 	static final NamespaceConfig CONFIG = NamespaceConfig.builder().pageBytes(48).cacheBytes(1024)
 		.maintenanceInterval(Duration.ZERO).build();
 
-	private sealed interface Step permits Write, Flush, Reopen {
+	private sealed interface Step permits Write, Flush, Compact, Reopen {
 	}
 
 	private record Write(Batch batch) implements Step {
 	}
 
 	private record Flush() implements Step {
+	}
+
+	private record Compact(boolean everything) implements Step {
 	}
 
 	private record Reopen() implements Step {
@@ -84,7 +90,8 @@ public class TreeTest {
 	@Provide
 	Arbitrary<List<Step>> steps() {
 		return Arbitraries.<Step>frequencyOf(Tuple.of(8, IndexArbitraries.batches().map(Write::new)),
-			Tuple.of(1, Arbitraries.just(new Flush())), Tuple.of(1, Arbitraries.just(new Reopen()))
+			Tuple.of(2, Arbitraries.just(new Flush())), Tuple.of(1, Arbitraries.just(new Reopen())),
+			Tuple.of(1, Arbitraries.of(true, false).map(Compact::new))
 		).list().ofMaxSize(30);
 	}
 
@@ -148,6 +155,7 @@ public class TreeTest {
 			switch (step) {
 				case Write write -> write(tree, write.batch());
 				case Flush flush -> tree.flush();
+				case Compact compact -> tree.compact(compact.everything());
 				case Reopen reopen -> {
 					tree.close();
 					tree = open();
@@ -225,6 +233,58 @@ public class TreeTest {
 		}
 
 		try (Tree tree = open()) {
+			assertHolds(tree);
+		}
+	}
+
+	@Property(tries = 20)
+	public void keepsTheRunCountLogarithmicInTheFlushes(@ForAll @IntRange(min = 1, max = 64) final int flushes)
+		throws Exception {
+
+		try (Tree tree = open()) {
+			for (int i = 0; i < flushes; i++) {
+				final Batch batch = new Batch();
+
+				batch.put(ByteBuffer.allocate(Integer.BYTES).putInt(i).array(), new byte[] {1});
+				write(tree, batch);
+				tree.flush();
+				tree.compact(false);
+			}
+
+			assertThat(tree.snapshot().runs().size(), lessThanOrEqualTo(2 + Integer.numberOfTrailingZeros(
+				Integer.highestOneBit(flushes))));
+
+			assertHolds(tree);
+		}
+	}
+
+	/* A reader still on the snapshot from before a compaction keeps reading the runs it replaced until the grace
+	   period is over, and only then are those runs deleted */
+	@Property(tries = 50)
+	public void keepsSupersededRunsThroughTheGracePeriod(@ForAll("batches") final List<Batch> first,
+		@ForAll("batches") final List<Batch> second) throws Exception {
+
+		final MutableClock clock = new MutableClock();
+		final NamespaceConfig config = CONFIG.toBuilder().clock(clock).cacheBytes(0).build();
+
+		try (Tree tree = Tree.open(directory, blobs, config, null)) {
+			write(tree, first);
+			tree.flush();
+			write(tree, second);
+			tree.flush();
+
+			final Snapshot before = tree.snapshot();
+			final List<Slot> seen = RunTest.drain(before.scan(new byte[0], null));
+
+			tree.compact(true);
+			clock.advance(config.getGrace().minusSeconds(1));
+			tree.maintain();
+			assertThat(RunTest.drain(before.scan(new byte[0], null)), equalTo(seen));
+			assertThat(blobs.deletions(), equalTo(Set.of()));
+			clock.advance(Duration.ofSeconds(2));
+			tree.maintain();
+			assertThat(blobs.deletions().containsAll(before.runs().stream().map(run -> run.info().id())
+				.toList()), equalTo(true));
 			assertHolds(tree);
 		}
 	}

@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.s3.index;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobId;
@@ -28,10 +30,13 @@ import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobUnavailableException;
 import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
 
-/* A memory store that can be told to fail a coming store call, the way a store with too few nodes online does */
+/* A memory store that can be told to fail a coming store call, the way a store with too few nodes online does, and
+   that remembers which blobs it holds and which ids it was asked to delete */
 public class FlakyBlobStore implements BlobStore {
 	private final MemoryBlobStore blobs = new MemoryBlobStore();
 	private final AtomicInteger storesUntilFailure = new AtomicInteger(-1);
+	private final Set<BlobId> stored = ConcurrentHashMap.newKeySet();
+	private final Set<BlobId> deletions = ConcurrentHashMap.newKeySet();
 
 	public void failStoreAfter(final int successes) {
 		storesUntilFailure.set(successes);
@@ -41,13 +46,24 @@ public class FlakyBlobStore implements BlobStore {
 		storesUntilFailure.set(-1);
 	}
 
+	public Set<BlobId> stored() {
+		return Set.copyOf(stored);
+	}
+
+	public Set<BlobId> deletions() {
+		return Set.copyOf(deletions);
+	}
+
 	@Override
 	public BlobId store(final InputStream input) throws IOException, BlobUnavailableException {
 		if (storesUntilFailure.getAndUpdate(count -> count >= 0 ? count - 1 : count) == 0) {
 			throw new BlobUnavailableException("Too few storage nodes online");
 		}
 
-		return blobs.store(input);
+		final BlobId id = blobs.store(input);
+
+		stored.add(id);
+		return id;
 	}
 
 	@Override
@@ -57,6 +73,8 @@ public class FlakyBlobStore implements BlobStore {
 
 	@Override
 	public void delete(final BlobId id) throws BlobNotFoundException {
+		deletions.add(id);
 		blobs.delete(id);
+		stored.remove(id);
 	}
 }

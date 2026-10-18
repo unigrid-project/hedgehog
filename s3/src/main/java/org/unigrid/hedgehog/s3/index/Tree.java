@@ -26,15 +26,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobId;
+import org.unigrid.hedgehog.s3.spi.BlobNotFoundException;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
@@ -63,9 +66,10 @@ final class Tree implements Closeable {
 	private final Journal journal;
 	private final ReentrantLock writer = new ReentrantLock();
 	private final ReentrantLock maintainer = new ReentrantLock();
+	private final Set<BlobId> swept = new HashSet<>();
 	private volatile Snapshot snapshot;
 	private volatile Head head;
-	private Instant dirtySince;
+	private volatile Instant dirtySince;
 
 	private Tree(final Path directory, final BlobStore blobs, final NamespaceConfig config, final Journal journal,
 		final Memtable memtable, final long sequence, final Head head) {
@@ -222,8 +226,95 @@ final class Tree implements Closeable {
 		}
 	}
 
+	/* Merges a window of the newest runs into one, or every run when asked to or once there are more than the
+	   configured count. The window takes the newest run and then each older one no larger than the runs before it
+	   together, which keeps the number of runs about logarithmic in the size of the namespace while the newest,
+	   smallest runs merge most often. A merge that reaches the oldest run drops tombstones, as nothing older is
+	   left for them to hide. Answers whether it merged anything. */
+	boolean compact(final boolean everything) throws IOException, BlobStoreException {
+		maintainer.lock();
+
+		try {
+			final List<Run> runs = snapshot.runs();
+			final int window = everything || runs.size() > config.getMaxRuns() ? runs.size() : window(runs);
+
+			if (window < 2) {
+				return false;
+			}
+
+			final List<Run> merged = runs.subList(0, window);
+			final List<Run> older = runs.subList(window, runs.size());
+			final List<Cursor> sources = merged.stream().map(run -> run.scan(FIRST_KEY, null)).toList();
+			final Cursor slots = new MergeCursor(sources, true);
+			final long entries = merged.stream().mapToLong(each -> each.info().entries()).sum();
+			final Optional<Run> run = RunWriter.write(slots, entries, !older.isEmpty(), directory, blobs, config)
+				.map(this::run);
+			final List<Run> next = Stream.concat(run.stream(), older.stream()).toList();
+
+			install(next, merged.stream().map(each -> each.info().id()).toList(), head.manifest().sequence(),
+				latest -> latest.withRuns(next));
+
+			return true;
+		} finally {
+			maintainer.unlock();
+		}
+	}
+
+	private static int window(final List<Run> runs) {
+		long newer = 0;
+		int window = 0;
+
+		while (window < runs.size() && (window == 0 || runs.get(window).info().size() <= newer)) {
+			newer += runs.get(window++).info().size();
+		}
+
+		return window;
+	}
+
+	/* Deletes the superseded runs and manifests whose grace period is over. The manifest keeps listing them until
+	   the next one is written, and a blob that is already gone counts as deleted. */
+	void sweep() throws IOException, BlobStoreException {
+		maintainer.lock();
+
+		try {
+			final Instant now = config.getClock().instant();
+
+			for (Manifest.Pending pending : head.manifest().pending()) {
+				if (!pending.due().isAfter(now) && !swept.contains(pending.blob())) {
+					delete(blobs, pending.blob());
+					swept.add(pending.blob());
+				}
+			}
+		} finally {
+			maintainer.unlock();
+		}
+	}
+
+	static void delete(final BlobStore blobs, final BlobId blob) throws IOException, BlobStoreException {
+		try {
+			blobs.delete(blob);
+		} catch (BlobNotFoundException gone) {
+			/* Deleted before, by a sweep that stopped before its manifest recorded it */
+		}
+	}
+
+	/* Flushes once the memtable is large or old enough, or a failed flush left work behind, then compacts and
+	   sweeps */
+	void maintain() throws IOException, BlobStoreException {
+		final Instant since = dirtySince;
+		final boolean old = Objects.nonNull(since) && !since.plus(config.getFlushInterval())
+			.isAfter(config.getClock().instant());
+
+		if (old || snapshot.frozen().isPresent() || snapshot.active().bytes() >= config.getFlushBytes()) {
+			flush();
+		}
+
+		compact(false);
+		sweep();
+	}
+
 	/* Stores the manifest of the runs and points the root at it, after which the superseded blobs and the manifest
-	   the root named before wait out the grace period */
+	   the root named before wait out the grace period. Blobs already swept leave the pending list here. */
 	private void install(final List<Run> runs, final List<BlobId> superseded, final long sequence,
 		final UnaryOperator<Snapshot> change) throws IOException, BlobStoreException {
 
@@ -231,11 +322,14 @@ final class Tree implements Closeable {
 		final Instant due = config.getClock().instant().plus(config.getGrace());
 		final Stream<Manifest.Pending> released = Stream.concat(superseded.stream(),
 			Stream.ofNullable(current.root())).map(blob -> new Manifest.Pending(blob, due));
+		final Stream<Manifest.Pending> waiting = current.manifest().pending().stream()
+			.filter(pending -> !swept.contains(pending.blob()));
 		final Manifest next = new Manifest(sequence, runs.stream().map(Run::info).toList(),
-			Stream.concat(current.manifest().pending().stream(), released).toList());
+			Stream.concat(waiting, released).toList());
 		final BlobId root = blobs.store(new ByteArrayInputStream(next.encode()));
 
 		LocalFiles.replace(directory.resolve(ROOT), root.value().getBytes(StandardCharsets.UTF_8));
+		swept.clear();
 		writer.lock();
 
 		try {

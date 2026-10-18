@@ -33,6 +33,9 @@ public final class IndexArbitraries {
 	private static final int MAX_ITEMS = 3;
 	private static final long LATEST_SECOND = 4_000_000_000L;
 
+	/* Long enough that two generated blobs never share an id by chance, so only copies share blobs */
+	private static final int BLOB_ID_LENGTH = 16;
+
 	private IndexArbitraries() {
 		/* Static helpers only */
 	}
@@ -93,8 +96,8 @@ public final class IndexArbitraries {
 	public static Arbitrary<BlobRef> slices() {
 		final Arbitrary<Long> numbers = Arbitraries.longs().between(0, Long.MAX_VALUE / 2);
 
-		return Combinators.combine(Arbitraries.strings().alpha().numeric().ofMinLength(1).ofMaxLength(MAX_TEXT),
-			numbers, numbers).as((id, offset, length) -> new BlobRef(new BlobId(id), offset, length));
+		return Combinators.combine(Arbitraries.strings().alpha().numeric().ofLength(BLOB_ID_LENGTH), numbers,
+			numbers).as((id, offset, length) -> new BlobRef(new BlobId(id), offset, length));
 	}
 
 	public static Arbitrary<Part> parts() {

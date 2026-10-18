@@ -18,13 +18,17 @@
 
 package org.unigrid.hedgehog.s3.index;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -35,6 +39,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tuple;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.s3.spi.BlobId;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
@@ -66,17 +71,58 @@ public class NamespaceTest {
 	static final class Fixture {
 		private final Path directory;
 		private final FlakyBlobStore blobs = new FlakyBlobStore();
+		private final MutableClock clock = new MutableClock();
+		private final NamespaceConfig config = TreeTest.CONFIG.toBuilder().clock(clock).build();
 		private final NamespaceModel model = new NamespaceModel();
+		private final Set<BlobId> everReferenced = new HashSet<>();
 		private Namespace namespace;
 
 		Fixture(final FileSystem files) throws Exception {
 			directory = files.getPath("/namespace");
-			namespace = Namespace.open(directory, blobs, TreeTest.CONFIG);
+			namespace = Namespace.open(directory, blobs, config);
 		}
 
 		void reopen() throws Exception {
 			namespace.close();
-			namespace = Namespace.open(directory, blobs, TreeTest.CONFIG);
+			namespace = Namespace.open(directory, blobs, config);
+		}
+
+		void referenced(final Set<BlobId> blobs) {
+			everReferenced.addAll(blobs);
+		}
+
+		/* No blob a version or part still refers to may ever have been deleted */
+		void assertNothingLiveDeleted() {
+			final Set<BlobId> deleted = new HashSet<>(blobs.deletions());
+
+			deleted.retainAll(model.blobs());
+			assertThat(deleted, equalTo(Set.of()));
+		}
+
+		/* Once the grace period is over, every blob nothing refers to any more is gone, and of the index itself only
+		   the manifest the root names and its runs are left */
+		void assertCollected() throws Exception {
+			namespace.flush();
+			namespace.compact();
+			clock.advance(config.getGrace().plusSeconds(1));
+			namespace.maintain();
+
+			final Set<BlobId> released = new HashSet<>(everReferenced);
+			final BlobId root = namespace.root().orElseThrow();
+			final Set<BlobId> index = new HashSet<>(Set.of(root));
+
+			released.removeAll(model.blobs());
+			Manifest.decode(read(root)).runs().forEach(run -> index.add(run.id()));
+			assertNothingLiveDeleted();
+			assertThat(blobs.deletions().containsAll(released), equalTo(true));
+			assertThat(blobs.stored(), equalTo(index));
+		}
+
+		private byte[] read(final BlobId id) throws Exception {
+			final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+
+			blobs.open(id).writeTo(bytes);
+			return bytes.toByteArray();
 		}
 
 		Optional<Bucket> bucket(final String name) {
@@ -204,7 +250,22 @@ public class NamespaceTest {
 
 				assertThat(stored, equalTo(content.toBuilder().versionId(stored.versionId()).build()));
 				assertThat(stored.isNullVersion(), equalTo(!fixture.versioned(bucket)));
+				fixture.referenced(stored.blobs());
 				fixture.model.put(stored);
+			}
+		}
+	}
+
+	/* Copies the newest version of a key by reference, so both keys share its blobs */
+	record Copy(String bucket, String source, String target) implements Op {
+		@Override
+		public void run(final Fixture fixture) throws Exception {
+			final Optional<ObjectVersion> found = fixture.model.latest(bucket, source)
+				.filter(version -> !version.deleteMarker());
+
+			if (found.isPresent()) {
+				new Put(bucket, target, found.get().toBuilder().key(target).versionId(null).build(), false)
+					.run(fixture);
 			}
 		}
 	}
@@ -287,6 +348,7 @@ public class NamespaceTest {
 				assertThat(fixture.namespace.putPart(upload.get().bucket(), upload.get().key(),
 					upload.get().uploadId(), part), equalTo(part));
 
+				fixture.referenced(part.blobs());
 				fixture.model.parts(upload.get().uploadId()).put(part.number(), part);
 			}
 		}
@@ -336,6 +398,23 @@ public class NamespaceTest {
 				assertThat(fixture.namespace.upload(upload.bucket(), upload.key(), upload.uploadId()),
 					equalTo(Optional.empty()));
 			}
+		}
+	}
+
+	record Compact() implements Op {
+		@Override
+		public void run(final Fixture fixture) throws Exception {
+			fixture.namespace.compact();
+		}
+	}
+
+	/* Lets time pass and maintains, which may flush, compact and delete what the grace period no longer protects */
+	record Maintain(Duration elapsed) implements Op {
+		@Override
+		public void run(final Fixture fixture) throws Exception {
+			fixture.clock.advance(elapsed);
+			fixture.namespace.maintain();
+			fixture.assertNothingLiveDeleted();
 		}
 	}
 
@@ -460,7 +539,8 @@ public class NamespaceTest {
 				.map(template -> new CreateUpload(bucket, key, template.toBuilder().parts(null).build())))),
 			Tuple.of(3, Combinators.combine(picks, IndexArbitraries.parts()).as(PutPart::new)),
 			Tuple.of(1, picks.map(Complete::new)),
-			Tuple.of(1, picks.map(Abort::new))
+			Tuple.of(1, picks.map(Abort::new)),
+			Tuple.of(3, Combinators.combine(buckets(), keys(), keys()).as(Copy::new))
 		);
 	}
 
@@ -468,6 +548,9 @@ public class NamespaceTest {
 		return Arbitraries.frequencyOf(
 			Tuple.of(1, Arbitraries.just(new Flush())),
 			Tuple.of(1, Arbitraries.just(new Reopen())),
+			Tuple.of(1, Arbitraries.just(new Compact())),
+			Tuple.of(2, Arbitraries.longs().between(0, 2 * TreeTest.CONFIG.getGrace().toSeconds())
+				.map(seconds -> new Maintain(Duration.ofSeconds(seconds)))),
 			Tuple.of(2, Combinators.combine(buckets(), queries()).as(ListObjects::new)),
 			Tuple.of(2, Combinators.combine(buckets(), queries()).as(ListVersions::new)),
 			Tuple.of(1, Combinators.combine(buckets(), queries()).as(ListUploads::new)),
@@ -492,6 +575,9 @@ public class NamespaceTest {
 			}
 
 			fixture.verify();
+			fixture.reopen();
+			fixture.verify();
+			fixture.assertCollected();
 			fixture.reopen();
 			fixture.verify();
 		} finally {

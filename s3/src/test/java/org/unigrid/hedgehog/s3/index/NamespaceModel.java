@@ -23,12 +23,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
+import org.unigrid.hedgehog.s3.spi.BlobId;
 
 /* What a namespace should hold, kept the plain way: keys in UTF-8 byte order, versions newest first, uploads oldest
    first, and listings computed from the whole ordered contents and then cut down to the page asked for */
@@ -116,6 +119,16 @@ public final class NamespaceModel {
 		if (list.isEmpty()) {
 			versions(bucket).remove(key);
 		}
+	}
+
+	/* Every blob a version or a part of an upload refers to */
+	public Set<BlobId> blobs() {
+		final Set<BlobId> blobs = new HashSet<>();
+
+		versions.values().forEach(keys -> keys.values().forEach(list -> list.forEach(version ->
+			blobs.addAll(version.blobs()))));
+		parts.values().forEach(numbered -> numbered.values().forEach(part -> blobs.addAll(part.blobs())));
+		return blobs;
 	}
 
 	public List<Upload> uploads() {

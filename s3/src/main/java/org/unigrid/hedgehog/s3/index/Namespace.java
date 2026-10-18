@@ -27,9 +27,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
@@ -40,24 +44,31 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
    guard fails nothing is written. Reads see a consistent snapshot and never wait for writers. One node writes a
    namespace at a time; several writers on one namespace, and anchoring its root anywhere but the local root file,
    are left for later. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Namespace implements AutoCloseable {
-	private final Tree tree;
+	private static final int SWEEP_BATCH = 1000;
 
-	private Namespace(final Tree tree) {
-		this.tree = tree;
+	@FunctionalInterface
+	private interface Mutation<T, E extends Exception> {
+		T run(Transaction transaction, References references) throws IOException, BlobStoreException, E;
 	}
+
+	private final Tree tree;
+	private final BlobStore blobs;
+	private final NamespaceConfig config;
+	private final Set<BlobId> deleting = ConcurrentHashMap.newKeySet();
 
 	public static Namespace open(final Path directory, final BlobStore blobs, final NamespaceConfig config)
 		throws IOException, BlobStoreException {
 
-		return new Namespace(Tree.open(directory, blobs, config, null));
+		return new Namespace(Tree.open(directory, blobs, config, null), blobs, config);
 	}
 
 	/* Mounts the namespace a root names, such as on a fresh node recovering the namespace of a lost one */
 	public static Namespace mount(final Path directory, final BlobStore blobs, final BlobId root,
 		final NamespaceConfig config) throws IOException, BlobStoreException {
 
-		return new Namespace(Tree.open(directory, blobs, config, Objects.requireNonNull(root)));
+		return new Namespace(Tree.open(directory, blobs, config, Objects.requireNonNull(root)), blobs, config);
 	}
 
 	/* The manifest the local root names, whose id grants read access to the whole namespace */
@@ -66,7 +77,7 @@ public final class Namespace implements AutoCloseable {
 	}
 
 	public boolean createBucket(final Bucket bucket) throws IOException, BlobStoreException {
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final byte[] key = Keys.bucket(bucket.name());
 
 			if (transaction.get(key).isPresent()) {
@@ -95,7 +106,7 @@ public final class Namespace implements AutoCloseable {
 	public Bucket updateBucket(final String name, final UnaryOperator<Bucket> change)
 		throws IOException, BlobStoreException, NoSuchBucketException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Bucket changed = change.apply(requireBucket(transaction, name));
 
 			if (!changed.name().equals(name)) {
@@ -108,7 +119,7 @@ public final class Namespace implements AutoCloseable {
 	}
 
 	public void deleteBucket(final String name) throws IOException, BlobStoreException, NamespaceException {
-		tree.write(transaction -> {
+		write((transaction, references) -> {
 			requireBucket(transaction, name);
 
 			if (any(transaction, Keys.objects(Keys.VERSION, name, "")) || any(transaction,
@@ -142,11 +153,11 @@ public final class Namespace implements AutoCloseable {
 	public ObjectVersion put(final ObjectVersion version, final Predicate<Optional<ObjectVersion>> guard)
 		throws IOException, BlobStoreException, NamespaceException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Bucket bucket = requireBucket(transaction, version.bucket());
 
 			check(guard.test(latest(transaction, version.bucket(), version.key())));
-			return store(transaction, bucket, version);
+			return store(transaction, references, bucket, version);
 		});
 	}
 
@@ -155,16 +166,16 @@ public final class Namespace implements AutoCloseable {
 	public Optional<ObjectVersion> delete(final String bucket, final String key, final Instant at)
 		throws IOException, BlobStoreException, NoSuchBucketException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Bucket found = requireBucket(transaction, bucket);
 
 			if (found.versioning() == Versioning.UNVERSIONED) {
-				findNullVersion(transaction, bucket, key).ifPresent(slot -> transaction.delete(slot.key()));
+				dropNullVersion(transaction, references, bucket, key);
 				return Optional.empty();
 			}
 
-			return Optional.of(store(transaction, found, ObjectVersion.builder().bucket(bucket).key(key)
-				.deleteMarker(true).lastModified(at).build()));
+			return Optional.of(store(transaction, references, found, ObjectVersion.builder().bucket(bucket)
+				.key(key).deleteMarker(true).lastModified(at).build()));
 		});
 	}
 
@@ -172,7 +183,7 @@ public final class Namespace implements AutoCloseable {
 	public Optional<ObjectVersion> remove(final String bucket, final String key, final String versionId,
 		final Predicate<ObjectVersion> guard) throws IOException, BlobStoreException, ConditionFailedException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Optional<Slot> found = findVersion(transaction, bucket, key, versionId);
 
 			if (found.isEmpty()) {
@@ -183,6 +194,7 @@ public final class Namespace implements AutoCloseable {
 
 			check(guard.test(version));
 			transaction.delete(found.get().key());
+			references.release(version.blobs());
 			return Optional.of(version);
 		});
 	}
@@ -191,7 +203,7 @@ public final class Namespace implements AutoCloseable {
 	public Optional<ObjectVersion> update(final String bucket, final String key, final String versionId,
 		final UnaryOperator<ObjectVersion> change) throws IOException, BlobStoreException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Optional<Slot> found = findVersion(transaction, bucket, key, versionId);
 
 			if (found.isEmpty()) {
@@ -233,8 +245,13 @@ public final class Namespace implements AutoCloseable {
 			resume.isPresent() ? query.keyMarker() : null);
 	}
 
+	/* Starts an upload under a new upload id. The template only carries attributes, so it holds no parts. */
 	public Upload createUpload(final Upload upload) throws IOException, BlobStoreException, NoSuchBucketException {
-		return tree.write(transaction -> {
+		if (!upload.template().parts().isEmpty()) {
+			throw new IllegalArgumentException("An upload gets its content from its parts");
+		}
+
+		return write((transaction, references) -> {
 			requireBucket(transaction, upload.bucket());
 
 			final Upload stored = upload.toBuilder().uploadId(Keys.id(transaction.sequence())).build();
@@ -257,10 +274,17 @@ public final class Namespace implements AutoCloseable {
 	public Part putPart(final String bucket, final String key, final String uploadId, final Part part)
 		throws IOException, BlobStoreException, NoSuchUploadException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final long upload = Keys.parse(requireUpload(transaction, bucket, key, uploadId).key()).sequence();
+			final byte[] slotKey = Keys.part(upload, part.number());
+			final Optional<byte[]> replaced = transaction.get(slotKey);
 
-			transaction.put(Keys.part(upload, part.number()), Records.part(part));
+			if (replaced.isPresent()) {
+				references.release(Records.part(replaced.get()).blobs());
+			}
+
+			transaction.put(slotKey, Records.part(part));
+			references.retain(part.blobs());
 			return part;
 		});
 	}
@@ -292,26 +316,28 @@ public final class Namespace implements AutoCloseable {
 		final BiFunction<Upload, List<Part>, ObjectVersion> assembly,
 		final Predicate<Optional<ObjectVersion>> guard) throws IOException, BlobStoreException, NamespaceException {
 
-		return tree.write(transaction -> {
+		return write((transaction, references) -> {
 			final Slot upload = requireUpload(transaction, bucket, key, uploadId);
 			final Bucket found = requireBucket(transaction, bucket);
 
 			check(guard.test(latest(transaction, bucket, key)));
 
-			final ObjectVersion version = assembly.apply(upload(upload), dropUpload(transaction, upload));
+			final List<Part> parts = dropUpload(transaction, references, upload);
+			final ObjectVersion version = assembly.apply(upload(upload), parts);
 
 			if (!version.bucket().equals(bucket) || !version.key().equals(key)) {
 				throw new IllegalArgumentException("An upload completes as a version of its own key");
 			}
 
-			return store(transaction, found, version);
+			return store(transaction, references, found, version);
 		});
 	}
 
 	public void abortUpload(final String bucket, final String key, final String uploadId) throws IOException,
 		BlobStoreException, NoSuchUploadException {
 
-		tree.write(transaction -> dropUpload(transaction, requireUpload(transaction, bucket, key, uploadId)));
+		write((transaction, references) -> dropUpload(transaction, references,
+			requireUpload(transaction, bucket, key, uploadId)));
 	}
 
 	public Listing<Upload> listUploads(final String bucket, final ListQuery query) throws IOException,
@@ -331,9 +357,84 @@ public final class Namespace implements AutoCloseable {
 		tree.flush();
 	}
 
+	/* Merges every run into one, which drops what deleted records left behind */
+	public void compact() throws IOException, BlobStoreException {
+		tree.compact(true);
+	}
+
+	/* Flushes when the memtable is due, compacts, and deletes the superseded runs and manifests and the released
+	   object blobs whose grace period is over */
+	public void maintain() throws IOException, BlobStoreException {
+		tree.maintain();
+		sweepGarbage();
+	}
+
 	@Override
 	public void close() throws IOException {
 		tree.close();
+	}
+
+	private <T, E extends Exception> T write(final Mutation<T, E> mutation) throws IOException, BlobStoreException,
+		E {
+
+		return tree.write(transaction -> {
+			final References references = new References();
+			final T result = mutation.run(transaction, references);
+
+			references.settle(transaction, config.getClock().instant().plus(config.getGrace()), deleting);
+			return result;
+		});
+	}
+
+	/* Deletes the released blobs that are due. Each is claimed under the writer lock while nothing refers to it, so
+	   a mutation trying to refer to it again fails instead of keeping a blob that is about to vanish, and it leaves
+	   the queue only once the blob store confirms the delete, so a crash in between deletes it again later. */
+	private void sweepGarbage() throws IOException, BlobStoreException {
+		final List<BlobId> due = dueGarbage();
+		final List<BlobId> claimed = write((transaction, references) -> claim(transaction, due));
+
+		try {
+			for (BlobId blob : claimed) {
+				Tree.delete(blobs, blob);
+			}
+
+			write((transaction, references) -> {
+				claimed.forEach(blob -> transaction.delete(Keys.garbage(blob)));
+				return null;
+			});
+		} finally {
+			claimed.forEach(deleting::remove);
+		}
+	}
+
+	private List<BlobId> dueGarbage() throws IOException, BlobStoreException {
+		final Instant now = config.getClock().instant();
+		final List<BlobId> due = new ArrayList<>();
+		final Cursor cursor = tree.snapshot().scan(Keys.garbage(), Keys.end(Keys.garbage()));
+
+		for (Slot slot = cursor.next(); Objects.nonNull(slot) && due.size() < SWEEP_BATCH; slot = cursor.next()) {
+			if (!Codec.decode(slot.value(), Codec::readInstant).isAfter(now)) {
+				due.add(Keys.garbageBlob(slot.key()));
+			}
+		}
+
+		return due;
+	}
+
+	private List<BlobId> claim(final Transaction transaction, final List<BlobId> due) throws IOException,
+		BlobStoreException {
+
+		final List<BlobId> claimed = new ArrayList<>();
+
+		for (BlobId blob : due) {
+			final boolean queued = transaction.get(Keys.garbage(blob)).isPresent();
+
+			if (queued && References.count(transaction, blob) == 0 && deleting.add(blob)) {
+				claimed.add(blob);
+			}
+		}
+
+		return claimed;
 	}
 
 	private static void check(final boolean holds) throws ConditionFailedException {
@@ -430,21 +531,32 @@ public final class Namespace implements AutoCloseable {
 		return Optional.empty();
 	}
 
-	private static ObjectVersion store(final Transaction transaction, final Bucket bucket,
-		final ObjectVersion version) throws IOException, BlobStoreException {
+	private static ObjectVersion store(final Transaction transaction, final References references,
+		final Bucket bucket, final ObjectVersion version) throws IOException, BlobStoreException {
 
 		final boolean versioned = bucket.versioning() == Versioning.ENABLED;
 
 		if (!versioned) {
-			findNullVersion(transaction, bucket.name(), version.key())
-				.ifPresent(slot -> transaction.delete(slot.key()));
+			dropNullVersion(transaction, references, bucket.name(), version.key());
 		}
 
 		final ObjectVersion stored = version.toBuilder().versionId(versioned ? Keys.id(transaction.sequence())
 			: ObjectVersion.NULL_VERSION).build();
 
 		transaction.put(Keys.version(bucket.name(), version.key(), transaction.sequence()), Records.version(stored));
+		references.retain(stored.blobs());
 		return stored;
+	}
+
+	private static void dropNullVersion(final Transaction transaction, final References references,
+		final String bucket, final String key) throws IOException, BlobStoreException {
+
+		final Optional<Slot> found = findNullVersion(transaction, bucket, key);
+
+		if (found.isPresent()) {
+			transaction.delete(found.get().key());
+			references.release(version(found.get()).blobs());
+		}
 	}
 
 	private static Optional<Slot> findUpload(final View view, final String bucket, final String key,
@@ -468,14 +580,17 @@ public final class Namespace implements AutoCloseable {
 	}
 
 	/* Deletes the upload with its parts and answers the parts in order */
-	private static List<Part> dropUpload(final Transaction transaction, final Slot upload) throws IOException,
-		BlobStoreException {
+	private static List<Part> dropUpload(final Transaction transaction, final References references,
+		final Slot upload) throws IOException, BlobStoreException {
 
 		final List<Part> parts = new ArrayList<>();
 
 		for (Slot slot : slots(transaction, Keys.parts(Keys.parse(upload.key()).sequence()))) {
-			parts.add(Records.part(slot.value()));
+			final Part part = Records.part(slot.value());
+
+			parts.add(part);
 			transaction.delete(slot.key());
+			references.release(part.blobs());
 		}
 
 		transaction.delete(upload.key());
