@@ -51,6 +51,32 @@ public final class IndexArbitraries {
 			.collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString());
 	}
 
+	/* Few distinct bytes, the escape and terminator values among them, so batches keep hitting the same keys */
+	public static Arbitrary<byte[]> rawKeys() {
+		return Arbitraries.of((byte) 0x00, (byte) 0x01, (byte) 0x7F, (byte) 0x80, (byte) 0xFF).list().ofMaxSize(3)
+			.map(list -> {
+				final byte[] key = new byte[list.size()];
+
+				for (int i = 0; i < key.length; i++) {
+					key[i] = list.get(i);
+				}
+
+				return key;
+			});
+	}
+
+	public static Arbitrary<Batch> batches() {
+		final Arbitrary<byte[]> values = Arbitraries.bytes().array(byte[].class).ofMaxSize(MAX_TEXT).injectNull(0.3);
+
+		return Combinators.combine(rawKeys(), values).as(Slot::new).list().ofMinSize(1).ofMaxSize(MAX_ITEMS)
+			.map(slots -> {
+				final Batch batch = new Batch();
+
+				slots.forEach(slot -> batch.write(slot.key(), slot.value()));
+				return batch;
+			});
+	}
+
 	public static Arbitrary<Instant> instants() {
 		return Combinators.combine(Arbitraries.longs().between(0, LATEST_SECOND),
 			Arbitraries.integers().between(0, 999_999_999)).as(Instant::ofEpochSecond);

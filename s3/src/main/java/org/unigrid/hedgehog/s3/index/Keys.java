@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.OptionalLong;
 import org.unigrid.hedgehog.s3.spi.BlobId;
 
@@ -125,6 +126,11 @@ final class Keys {
 	/* The first key after the given one */
 	static byte[] after(final byte[] key) {
 		return Arrays.copyOf(key, key.length + 1);
+	}
+
+	/* Whether the key lies before an exclusive end, where a null end is open */
+	static boolean before(final byte[] key, final byte[] end) {
+		return Objects.isNull(end) || Arrays.compareUnsigned(key, end) < 0;
 	}
 
 	static String id(final long sequence) {
