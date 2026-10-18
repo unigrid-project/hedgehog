@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -17,19 +19,19 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Random;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.RandomUtils;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
@@ -69,14 +71,41 @@ public class GridSporkProvider {
 						.wif(RandomStringUtils.randomAlphanumeric(40)).build();
 
 					final Vesting vesting = Vesting.builder()
-						.start(Instant.ofEpochSecond(RandomUtils.nextInt()))
-						.duration(Duration.ofSeconds(RandomUtils.nextInt()))
-						.parts(RandomUtils.nextInt(5, 100)).build();
+						.amount(BigDecimal.valueOf(RandomUtils.nextLong(0, Long.MAX_VALUE), 8))
+						.start(Instant.ofEpochSecond(RandomUtils.nextInt(), RandomUtils.nextInt(0, 1_000_000_000)))
+						.duration(Duration.ofSeconds(RandomUtils.nextInt(), RandomUtils.nextInt(0, 1_000_000_000)))
+						.parts(RandomUtils.nextInt(5, 100))
+						.cliff(RandomUtils.nextInt(4, 40))
+						.percent(RandomUtils.nextInt(1, 40))
+						.block(RandomUtils.nextInt()).build();
 
 					vests.put(address, vesting);
 				}
 
 				data.setVestingAddresses(vests);
+				return data;
+			} case STATISTICS_PUBKEY: {
+				final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
+				final byte[] key = RandomUtils.nextBytes(140);
+
+				data.setPublicKey(Hex.encodeHexString(key));
+				return data;
+			} case STORAGE: {
+				final StorageSpork.SporkData data = new StorageSpork.SporkData();
+
+				data.setMaxBytesPerNode(RandomUtils.nextLong(0, Long.MAX_VALUE));
+				data.setChunkSize(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setFragmentSize(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setOuterParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setMaxOuterDataChunks(RandomUtils.nextInt(0, 1 << 16));
+				data.setInnerParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setMaxParityPercent(RandomUtils.nextInt(0, 1 << 16));
+				data.setRepairIntervalMinutes(RandomUtils.nextInt(0, Integer.MAX_VALUE));
+				data.setTombstoneDays(RandomUtils.nextInt(0, 1 << 16));
+				data.setManifestCopies(RandomUtils.nextInt(0, 1 << 8));
+				data.setPlacementSlack(RandomUtils.nextInt(0, 1 << 8));
+				data.setRepairThresholdPercent(RandomUtils.nextInt(0, 1 << 8));
+				data.setExtraPoolPercent(RandomUtils.nextInt(0, 1 << 8));
 				return data;
 			}
 		}
@@ -84,16 +113,49 @@ public class GridSporkProvider {
 		throw new IllegalArgumentException("Unsupported chunk type");
 	}
 
+	private SignatureLog signatureLog() {
+		final SignatureLog log = new SignatureLog();
+		final Instant start = Instant.ofEpochMilli(RandomUtils.nextLong(0, Instant.now().toEpochMilli()));
+		final int size = RandomUtils.nextInt(0, 5);
+
+		for (int i = 0; i < size; i++) {
+			final boolean isCosigned = RandomUtils.nextBoolean();
+
+			log.append(SignatureLogEntry.builder().timeStamp(start.plusMillis(i)).signer(publicKey())
+				.digest(RandomUtils.nextBytes(SignatureLogEntry.DIGEST_SIZE)).signature(signature())
+				.cosigner(isCosigned ? publicKey() : null).cosignature(isCosigned ? signature() : null).build()
+			);
+		}
+
+		return log;
+	}
+
+	private static String publicKey() {
+		return Hex.encodeHexString(RandomUtils.nextBytes(Signature.PUBLIC_KEY_HEX_SIZE));
+	}
+
+	private static byte[] signature() {
+		return RandomUtils.nextBytes(RandomUtils.nextInt(130, 140));
+	}
+
 	public Arbitrary<GridSpork> provide(GridSpork.Type gridSporkType, short flags, byte[] signature,
 		Instant time, Instant previousTime) throws IllegalArgumentException {
 
+		/* Limit amount of failures with "UNDEFINED" during data set generation by jqwik */
+		if (gridSporkType == GridSpork.Type.UNDEFINED && signature.length > 52) {
+			gridSporkType = GridSpork.Type.MINT_STORAGE;
+		}
+
 		final GridSpork gridSpork = GridSpork.create(gridSporkType);
 
+		gridSpork.setFlags((short) (gridSpork.getFlags() | flags));
 		gridSpork.setTimeStamp(time);
 		gridSpork.setPreviousTimeStamp(previousTime);
 		gridSpork.setData(chunkData(gridSporkType));
 		gridSpork.setPreviousData(chunkData(gridSporkType));
 		gridSpork.setSignature(signature);
+		gridSpork.setCosignature(RandomUtils.nextBoolean() ? signature() : null);
+		gridSpork.setSignatureLog(signatureLog());
 
 		return Arbitraries.of(gridSpork);
 	}

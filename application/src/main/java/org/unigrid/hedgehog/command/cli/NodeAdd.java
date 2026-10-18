@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,12 +18,34 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import org.unigrid.hedgehog.command.util.RestClientCommand;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Parameters;
 
 @Command(name = "node-add")
-public class NodeAdd implements Runnable {
+public class NodeAdd extends RestClientCommand {
+	@Parameters(index = "0", description = "The ip:port combination of the node to add.")
+	private String address;
+
+	public NodeAdd() {
+		super(HttpMethod.POST, "/node");
+	}
+
 	@Override
-	public void run() {
-		System.out.println("...");
+	protected <T> Entity<T> getEntity() {
+		return (Entity<T>) Entity.text(address);
+	}
+
+	@Override
+	protected void execute(Response response) {
+		if (Status.fromStatusCode(response.getStatus()) == Status.CONFLICT) {
+			System.err.println(response.getStatusInfo());
+		} else {
+			System.out.println(response.getLocation());
+		}
 	}
 }

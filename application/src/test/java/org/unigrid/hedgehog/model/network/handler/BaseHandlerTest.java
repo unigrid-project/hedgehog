@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -29,7 +31,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.lifecycle.AfterProperty;
 import net.jqwik.api.lifecycle.BeforeProperty;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.server.BaseServerTest;
 
 @RequiredArgsConstructor
@@ -51,7 +53,11 @@ public class BaseHandlerTest<T extends Packet, H> extends BaseServerTest {
 					for (Entry<String, ChannelHandler> entry : ctx.pipeline()) {
 						if (entry.getValue().getClass().equals(channelType)) {
 							if (channelCallback.isPresent()) {
-								channelCallback.get().accept(ctx, (T) obj);
+								try {
+									channelCallback.get().accept(ctx, (T) obj);
+								} catch(ClassCastException ex) {
+									/* Silently skip packets not intended for this handler */
+								}
 							}
 						}
 					}

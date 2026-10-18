@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,26 +18,144 @@
 
 package org.unigrid.hedgehog.model.network;
 
-import io.netty.channel.Channel;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import io.netty.channel.ChannelFuture;
+import io.netty.util.concurrent.Future;
+import jakarta.ws.rs.core.UriBuilder;
 import java.net.InetSocketAddress;
-import java.time.Instant;
+import java.net.NetworkInterface;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import org.unigrid.hedgehog.model.network.packet.Ping;
+import lombok.NoArgsConstructor;
+import lombok.SneakyThrows;
+import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Data
+@Slf4j
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Node {
+
 	private InetSocketAddress address;
-	@Builder.Default private Optional<Channel> channel = Optional.empty();
-	@Builder.Default private Details details = new Details();
-	private Instant lastPingTime;
-	@Builder.Default private Optional<Ping> ping = Optional.empty();
+	@JsonIgnore
+	@Builder.Default
+	@ToString.Exclude
+	private Optional<Connection> connection = Optional.empty();
+	@Builder.Default
+	private Details details = new Details();
+	private long nsPing;
 
 	@Data
+	@Builder
+	@NoArgsConstructor
+	@AllArgsConstructor
 	public static class Details {
+
 		private String[] protocols;
 		private int version;
+	}
+
+	@SneakyThrows
+	public boolean isMe() {
+		final AtomicBoolean found = new AtomicBoolean();
+
+		try {
+			NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
+				ni.inetAddresses().forEach(a -> {
+					final InetSocketAddress socketAddress = new InetSocketAddress(a.getHostAddress(),
+						NetOptions.getPort()
+					);
+
+					if (equals(Node.builder().address(socketAddress).build())) {
+						found.set(true);
+					}
+				});
+			});
+
+			if (!found.get()) {
+				final Node me = Node.fromAddress(NetOptions.getHost());
+				final String address = String.format("%s:%s", NetOptions.getHost(), NetOptions.getPort());
+
+				return equals(Node.fromAddress(address));
+			}
+
+		} catch (URISyntaxException | UnknownHostException ex) {
+			log.atTrace().log("Invalid host/address format {}", ex.getMessage());
+			return false;
+		}
+
+		return found.get();
+	}
+
+	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
+		log.atDebug().log("Send all packet " + packet.toString());
+		if (node.getConnection().isPresent()) {
+			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
+
+			out.addListener(f -> {
+				consumer.ifPresent(c -> {
+					c.accept(node, f);
+				});
+			});
+		}
+	}
+
+	/* A node is identified by its resolved address, so one that cannot be resolved cannot be compared or stored */
+	public static Node fromURI(URI uri) throws UnknownHostException {
+		int port = uri.getPort();
+
+		if (uri.getPort() == -1) {
+			port = NetOptions.DEFAULT_PORT;
+		}
+
+		final InetSocketAddress address = new InetSocketAddress(uri.getHost(), port);
+
+		if (address.isUnresolved()) {
+			throw new UnknownHostException(uri.getHost());
+		}
+
+		return Node.builder().address(address).build();
+	}
+
+	public static Node fromAddress(String address) throws URISyntaxException, UnknownHostException {
+		return fromURI(new URI(null, address, null, null, null).parseServerAuthority());
+	}
+
+	/* JSON leaves the address unresolved, and a node is identified by its resolved address */
+	@JsonSetter("address")
+	public void setResolvedAddress(InetSocketAddress address) {
+		this.address = address.isUnresolved()
+			? new InetSocketAddress(address.getHostString(), address.getPort())
+			: address;
+	}
+
+	public URI getURI() {
+		return UriBuilder.fromPath("/{host}:{port}").build(address.getAddress().getHostAddress(), address.getPort());
+	}
+
+	@Override
+	public boolean equals(Object o) {
+		final URI me = getURI();
+		final URI other = ((Node) o).getURI();
+		final boolean isEqual = me.equals(other);
+
+		log.atTrace().log("Comparing {} with {} = {}", me, other, isEqual);
+		return isEqual;
+	}
+
+	@Override
+	public int hashCode() {
+		return getURI().hashCode();
 	}
 }

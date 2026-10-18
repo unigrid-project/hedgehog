@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -23,6 +25,7 @@ module org.unigrid.hedgehog {
 	requires jakarta.interceptor;
 	requires jakarta.ws.rs;
 	requires jakarta.annotation;
+	requires jakarta.validation;
 	requires jakarta.el;
 	requires com.fasterxml.jackson.databind;
 	requires com.fasterxml.jackson.datatype.jsr310;
@@ -30,6 +33,8 @@ module org.unigrid.hedgehog {
 	requires free.port.finder;
 	requires org.apache.commons.lang3;
 	requires org.apache.commons.codec;
+	requires org.bouncycastle.provider;
+	requires org.bouncycastle.pg;
 	requires io.netty.buffer;
 	requires io.netty.transport;
 	requires io.netty.codec;
@@ -40,6 +45,7 @@ module org.unigrid.hedgehog {
 	requires jersey.client;
 	requires jersey.container.netty.http;
 	requires jersey.media.json.jackson;
+	requires jersey.bean.validation;
 	requires jersey.common;
 	requires jersey.hk2;
 	requires org.reflections;
@@ -54,8 +60,13 @@ module org.unigrid.hedgehog {
 	requires jakarta.xml.bind;
 	requires j8fu;
 	requires net.harawata.appdirs;
-	requires org.graalvm.sdk;
 	requires org.unigrid.hedgehog.common;
+	requires org.bitcoinj.core;
 
 	opens org.unigrid.hedgehog.model.s3.entity to jakarta.xml.bind;
+	opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;
+	opens org.unigrid.hedgehog.server.rest.entity to com.fasterxml.jackson.databind;
+	opens org.unigrid.hedgehog.command.bootstrap to info.picocli;
+
+	exports org.unigrid.hedgehog.model.gridnode to com.fasterxml.jackson.databind;
 }

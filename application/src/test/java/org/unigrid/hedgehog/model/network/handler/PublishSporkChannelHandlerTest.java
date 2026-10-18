@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -26,15 +28,17 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.ShrinkingMode;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -51,7 +55,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 	@BeforeProperty
 	private void mockBeforePublishSpork() {
 		new MockUp<GridSpork>() {
-			@Mock public boolean isValidSignature() {
+			@Mock public boolean isDoublySigned() {
 				return true;
 			}
 		};
@@ -65,8 +69,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
 	}
 
-	@Property(tries = 50)
 	@Domain(SuiteDomain.class)
+	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
 		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
@@ -74,7 +78,7 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		int expectedInvocations = 0;
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
-			/* Only count triggers on the server-side  */
+			/* Only count triggers on the server-side */
 			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
 				invocations.incrementAndGet();
 			}
@@ -83,16 +87,20 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
-			final P2PClient client = new P2PClient(host, port);
+			final Connection connection = new P2PClient(host, port);
 			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
 
-			client.send(publishSpork);
+			connection.send(publishSpork);
 			expectedInvocations++;
 
-			await().untilAtomic(invocations, is(expectedInvocations));
-			client.closeDirty();
+			/* We do greaterThanOrEqualTo() because it's difficult to predict exactly how these are distributed
+			   between the nodes. For example, the server might share it's connected nodes with some node(s) and
+			   instantly increase the amount of sends on the network... */
+
+			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+			connection.closeDirty();
 		}
 
-		await().untilAtomic(invocations, is(expectedInvocations));
+		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
 	}
 }

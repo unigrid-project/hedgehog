@@ -82,4 +82,13 @@ public class Version {
 			return DEFAULT_NAME;
 		}
 	}
+
+	@SneakyThrows
+	public static String getVersionNumber() {
+		try {
+			return getAtIndex(2);
+		} catch (IndexOutOfBoundsException ex) {
+			return DEFAULT_VERSION;
+		}
+	}
 }

@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -26,8 +28,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.packet.Hello;
+import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
+@Slf4j
 @RequiredArgsConstructor
 public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStreamChannel> {
 	public static final AttributeKey<Type> CHANNEL_TYPE_KEY = AttributeKey.valueOf("CHANNEL_TYPE");
@@ -51,7 +61,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 	protected void initChannel(QuicStreamChannel channel) throws Exception {
 		channel.pipeline().channel().attr(CHANNEL_TYPE_KEY).set(type);
 		channel.pipeline().addLast(handlersCreator.get().toArray(new ChannelHandler[0]));
-
+		log.atDebug().log("TYPE=CLIENT");
+		if (type == Type.CLIENT) {
+			log.atTrace().log("Sending HELLO message to {}", channel.remoteAddress());
+			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
+		}
+		log.atDebug().log("Schedulers");
 		if (Objects.nonNull(schedulersCreator.get())) {
 			schedulersCreator.get().forEach(s -> {
 
@@ -69,5 +84,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				}
 			});
 		}
+		log.atDebug().log("CDIUtil");
+		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+				log.atTrace().log("Exchanging sporks with {}", channel.remoteAddress());
+				PublishAndSaveSporkSchedule.writeAndFlush(channel, db, pendingSporks);
+			});
+		});
 	}
 }

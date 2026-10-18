@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -32,14 +35,18 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.InvalidPathException;
 import java.util.Optional;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CopyObjectResult;
 import org.unigrid.hedgehog.model.s3.entity.ListBucketResult;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchBucketException;
 import org.unigrid.hedgehog.model.s3.entity.NoSuchKeyException;
+import org.unigrid.hedgehog.model.s3.entity.UploadTooLargeException;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.service.LimitedInputStream;
 import org.unigrid.hedgehog.service.ObjectService;
 
 @Path("/storage-object")
@@ -57,11 +64,23 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
-	public Response create(@PathParam("bucket") String bucket, @PathParam("key") String key, InputStream data) {
+	public Response create(@Context HttpHeaders httpHeaders, @NotNull @PathParam("bucket") String bucket,
+		@NotNull @PathParam("key") String key, @NotNull InputStream data) {
+
+		final long maxUpload = RestOptions.getMaxUpload();
+
 		try {
-			objectService.put(bucket, key, data);
+			if (httpHeaders.getLength() > maxUpload) {
+				throw new UploadTooLargeException(maxUpload);
+			}
+
+			objectService.put(bucket, key, new LimitedInputStream(data, maxUpload));
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (UploadTooLargeException e) {
+			return Response.status(Response.Status.REQUEST_ENTITY_TOO_LARGE).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -76,7 +95,7 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/list/{bucket}") @GET
 	@Produces(MediaType.APPLICATION_XML)
-	public Response list(@PathParam("bucket") String bucket, @Context UriInfo uriInfo) {
+	public Response list(@NotNull @PathParam("bucket") String bucket, @NotNull @Context UriInfo uriInfo) {
 		MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
 
 		Optional<String> prefix = Optional.ofNullable(params.getFirst("prefix")).filter(s -> !s.isEmpty());
@@ -89,6 +108,8 @@ public class StorageObject extends CDIBridgeResource {
 			result = objectService.listBucket(bucket, prefix, delimiter, maxKeys);
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		}
 
 		return Response.ok().entity(result).build();
@@ -101,8 +122,9 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @PUT
 	@Produces(MediaType.APPLICATION_XML)
-	public Response copy(@Context HttpHeaders httpHeaders, @PathParam("bucket") String destinationBucket,
-		@PathParam("key") String destinationKey) {
+	public Response copy(@Context HttpHeaders httpHeaders, @NotNull @PathParam("bucket") String destinationBucket,
+		@NotNull @PathParam("key") String destinationKey) {
+
 		String copySource = httpHeaders.getHeaderString("x-amz-copy-source");
 
 		if (copySource == null) {
@@ -110,7 +132,7 @@ public class StorageObject extends CDIBridgeResource {
 			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
 		}
 
-		String[] parts = copySource.split("/", 2);
+		String[] parts = copySource.replaceFirst("^/+", "").split("/", 2);
 		String sourceBucket = parts[0];
 		String sourceKey = parts.length > 1 ? parts[1] : "";
 
@@ -120,6 +142,8 @@ public class StorageObject extends CDIBridgeResource {
 			result = objectService.copy(sourceBucket, sourceKey, destinationBucket, destinationKey);
 		} catch (NoSuchBucketException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -134,13 +158,15 @@ public class StorageObject extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}/{key}") @GET
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
-	public Response get(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+	public Response get(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key) {
 		byte[] byteArray;
 
 		try {
 			byteArray = objectService.getObject(bucket, key);
 		} catch (NoSuchBucketException | NoSuchKeyException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (Exception e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}
@@ -155,13 +181,15 @@ public class StorageObject extends CDIBridgeResource {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html">Delete Object</a>
 	 */
 	@Path("/{bucket}/{key}") @DELETE
-	public Response delete(@PathParam("bucket") String bucket, @PathParam("key") String key) {
+	public Response delete(@NotNull @PathParam("bucket") String bucket, @NotNull @PathParam("key") String key) {
 		boolean isDeleted;
 
 		try {
 			isDeleted = objectService.delete(bucket, key);
 		} catch (NoSuchKeyException e) {
 			return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		} catch (Exception e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
 		}

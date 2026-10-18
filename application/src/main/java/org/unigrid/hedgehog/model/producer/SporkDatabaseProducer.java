@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -12,7 +14,7 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.model.producer;
 
@@ -26,6 +28,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -50,6 +53,14 @@ public class SporkDatabaseProducer {
 				sporkDatabase.set(SporkDatabase.builder().build());
 				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
 				log.atTrace().log(() -> ex.toString());
+			} catch (ClassCastException | SerializationException ex) {
+				sporkDatabase.set(SporkDatabase.builder().build());
+
+				log.atWarn().log("Database serialization incompatibility, defaulting to fresh"
+					+ " spork database: {}", ex.getMessage()
+				);
+
+				log.atTrace().log(() -> ex.toString());
 			}
 		}
 
@@ -63,7 +74,7 @@ public class SporkDatabaseProducer {
 			SporkDatabase.persist(path(), sporkDatabase.get());
 
 		} catch (Exception ex) {
-			log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
+			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
 			log.atTrace().log(() -> ex.toString());
 		}
 	}

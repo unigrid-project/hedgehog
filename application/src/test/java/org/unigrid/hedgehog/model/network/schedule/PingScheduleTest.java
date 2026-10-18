@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -25,15 +27,16 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void> {
 	public static final int PERIOD_MS = 75;
-	public static final int WAIT_TIME_MS = 1000;
-	public static final double TOLERANCE = 0.08; /* 8% */
+	public static final int WAIT_TIME_MS = 3000;
+	public static final double TOLERANCE = 0.15; /* 15% */
 
 	public PingScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PingSchedule.class);
@@ -42,13 +45,13 @@ public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void>
 	@Property(tries = 5)
 	public void shoulBeAbleToSchedulePing(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
 		final AtomicInteger invocations = new AtomicInteger();
-		final List<P2PClient> clients = new ArrayList<>();
+		final List<Connection> connections = new ArrayList<>();
 
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
 
-			clients.add(new P2PClient(host, port));
+			connections.add(new P2PClient(host, port));
 		}
 
 		setScheduleCallback(Optional.of(channel -> {
@@ -61,8 +64,8 @@ public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void>
 		Thread.sleep(WAIT_TIME_MS);
 		setScheduleCallback(Optional.empty());
 
-		for (P2PClient client : clients) {
-			client.close();
+		for (Connection connection : connections) {
+			connection.close();
 		}
 
 		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();

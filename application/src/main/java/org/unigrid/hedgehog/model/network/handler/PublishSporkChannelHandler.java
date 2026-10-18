@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -18,18 +20,14 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.CDI;
-import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.client.P2PClient;
-import org.unigrid.hedgehog.model.collection.NullableMap;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.*;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -41,34 +39,43 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
-		final Instance<SporkDatabase> db = CDI.current().select(SporkDatabase.class);
-		final GridSpork newSpork = publishSpork.getGridSpork();
+		final GridSpork spork = publishSpork.getGridSpork();
 
-		if (db.isUnsatisfied()) {
-			throw new IllegalStateException("Unable to locate spork database bean.");
-		}
-
-		final Map<Type, GridSpork> entries = NullableMap.of(MINT_STORAGE, db.get().getMintStorage(),
-			MINT_SUPPLY, db.get().getMintSupply(),
-			VESTING_STORAGE, db.get().getVestingStorage()
-		);
-
-		final GridSpork oldSpork = entries.get(newSpork.getType());
-
-		if (!entries.containsKey(newSpork.getType())) {
+		if (spork.getType() == Type.UNDEFINED) {
 			log.atError().log("Received unsupported spork type - ignoring.");
-			return; /* Bail out on unsupported type */
+			return;
 		}
 
-		if (newSpork.isNewerThan(oldSpork) && newSpork.isValidSignature()) {
-			db.get().set(newSpork);
+		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+				if (receive(spork, db, pendingSporks)) {
+					CDIUtil.resolveAndRun(Topology.class, topology -> {
+						// TODO: Handle errors better rather than sending Optional.empty()
+						Topology.sendAll(publishSpork, topology, Optional.empty());
+					});
+				}
+			});
+		});
+	}
 
-			final Instance<Topology> topology = CDI.current().select(Topology.class);
+	/**
+	* Stores a co-signed spork that may replace the stored one, or holds a spork signed once as a proposal.
+	* Returns whether the spork was new to this node, and should therefore travel further.
+	*/
+	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks) {
+		final GridSpork stored = db.get(spork.getType());
 
-			if (topology.isResolvable()) {
-				// TODO: Handle errors better rather than sending Optional.empty()
-				P2PClient.sendAll(publishSpork, topology.get(), Optional.empty());
-			}
+		if (spork.isPending()) {
+			return pendingSporks.offer(spork, stored);
 		}
+
+		if (spork.canReplace(stored)) {
+			db.set(spork);
+			pendingSporks.retainProposalsOver(spork);
+			return true;
+		}
+
+		log.atDebug().log("Dropped a {} spork that cannot replace the stored one", spork.getType());
+		return false;
 	}
 }

@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.util;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.jul.JULHelper;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -23,6 +26,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.java.Log;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.Example;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -60,5 +64,16 @@ public class ApplicationLogLevelTest {
 		} else {
 			return messageLevel > logLevel;
 		}
+	}
+
+	@Example
+	public boolean shouldThrowExceptionOnUnsupportedLevel() {
+		try {
+			ApplicationLogLevel.getVerbosityFromLevel(Level.ALL);
+		} catch (UnsupportedLogLevelException ex) {
+			return true;
+		}
+
+		return false;
 	}
 }

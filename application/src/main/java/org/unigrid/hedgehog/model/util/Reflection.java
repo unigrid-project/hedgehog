@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -12,52 +14,23 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.model.util;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.commons.lang3.reflect.MethodUtils;
 
 @Slf4j
 public class Reflection {
-	public static void resetIllegalAccessLogger() throws IllegalAccessException,
-		InvocationTargetException, NoSuchFieldException, NoSuchMethodException {
-
-		Class<?> unsafeClass;
-		Class<?> loggerClass;
-
-		try {
-			unsafeClass = Class.forName("sun.misc.Unsafe");
-			loggerClass = Class.forName("jdk.internal.module.IllegalAccessLogger");
-
-		} catch (ClassNotFoundException ex) {
-			log.warn("Unable to choke IllegalAccessLoger", ex);
-			return; /* Bail out, as it means we are on a Java release where we need to ignore this */
-		}
-
-		final Field field = unsafeClass.getDeclaredField("theUnsafe");
-
-		field.setAccessible(true);
-		Object unsafe = field.get(null);
-
-		final Field loggerField = loggerClass.getDeclaredField("logger");
-		final Method staticFieldOffset = unsafeClass.getDeclaredMethod("staticFieldOffset", Field.class);
-		final Method putObjectVolatile = unsafeClass.getDeclaredMethod("putObjectVolatile",
-			Object.class, long.class, Object.class
-		);
-
-		final long offset = (long) staticFieldOffset.invoke(unsafe, loggerField);
-		putObjectVolatile.invoke(unsafe, loggerClass, offset, null);
-	}
-
 	public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
 		final Set<Field> fields = new HashSet<>();
 
@@ -83,5 +56,15 @@ public class Reflection {
 
 		constructor.setAccessible(true);
 		return constructor;
+	}
+
+	public static <T, I> T invoke(I instance, String name, Object... arguments)
+		throws ClassNotFoundException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
+
+		return (T) MethodUtils.invokeMethod(instance, true, name, arguments);
+	}
+
+	public static <R, T> R getFieldValue(T instance, String name) throws IllegalAccessException {
+		return (R) FieldUtils.getField((Class<T>) instance.getClass(), name, true).get(instance);
 	}
 }

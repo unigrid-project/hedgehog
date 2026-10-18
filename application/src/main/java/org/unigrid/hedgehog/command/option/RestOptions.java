@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -33,4 +35,15 @@ public class RestOptions {
 		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
 	)
 	private static int port;
+
+	@Getter @Option(names = "--resttoken", scope = CommandLine.ScopeType.INHERIT,
+		description = "REST bearer token (defaults to $HEDGEHOG_REST_TOKEN, then a token generated into the "
+			+ "data directory).", defaultValue = "${env:HEDGEHOG_REST_TOKEN}"
+	)
+	private static String token;
+
+	@Getter @Option(names = "--restmaxupload", scope = CommandLine.ScopeType.INHERIT,
+		description = "Largest storage upload in bytes (defaults to ${DEFAULT-VALUE}).", defaultValue = "1073741824"
+	)
+	private static long maxUpload;
 }

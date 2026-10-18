@@ -1,0 +1,139 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.model.crypto;
+
+import java.security.InvalidAlgorithmParameterException;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.RandomUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.unigrid.hedgehog.command.option.NetOptions;
+
+@Slf4j
+public class NetworkKey {
+	public static String[] getPublicKeys() {
+		return NetOptions.getNetworkKeys();
+	}
+
+	public static String[] getRetiredPublicKeys() {
+		return NetOptions.getRetiredNetworkKeys();
+	}
+
+	public static Optional<String> signerOf(Signable signable) {
+		return signerOf(DigestUtils.sha512(signable.getSignable()), signable.getSignature());
+	}
+
+	public static Set<String> getKnownPublicKeys() {
+		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
+			.collect(Collectors.toCollection(LinkedHashSet::new));
+	}
+
+	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
+		return signerAmong(getKnownPublicKeys(), digest, signature);
+	}
+
+	public static Optional<String> currentSignerOf(byte[] digest, byte[] signature) {
+		return signerAmong(List.of(getPublicKeys()), digest, signature);
+	}
+
+	private static Optional<String> signerAmong(Collection<String> keys, byte[] digest, byte[] signature) {
+		return keys.stream().filter(key -> verifies(digest, signature, key)).findFirst();
+	}
+
+	private static boolean verifies(byte[] digest, byte[] signature, String key) {
+		try {
+			return Signature.verifyDigest(digest, signature, key);
+		} catch (VerifySignatureException ex) {
+			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
+			return false;
+		}
+	}
+
+	public static boolean isTrusted(String privateKey) {
+		try {
+			if (RandomSignableData.create(privateKey).isValidSignature()) {
+				return true;
+			}
+		} catch (SigningException  ex) {
+			log.atTrace().log(ex.getMessage());
+		}
+
+		return false;
+	}
+
+	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+	private static final class RandomSignableData implements Signable {
+		private static final int SIZE = 32;
+		@Getter private byte[] signable;
+		@Getter private byte[] signature;
+
+		public static RandomSignableData create(String privateKeyHex) throws SigningException {
+			final RandomSignableData randomSignableData = new RandomSignableData();
+
+			randomSignableData.sign(privateKeyHex);
+			return randomSignableData;
+		}
+
+		@Override
+		public boolean isValidSignature() {
+			try {
+				for (String key : getPublicKeys()) {
+					if (Signature.verify(this, key)) {
+						return true;
+					}
+				}
+			} catch (VerifySignatureException ex) {
+				log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
+			}
+
+			return false;
+		}
+
+		@Override
+		public void sign(String privateKeyHex) throws SigningException {
+			signable = RandomUtils.nextBytes(SIZE);
+
+			try {
+				final Signature signature = new Signature(Optional.of(privateKeyHex),
+					Optional.empty()
+				);
+
+				this.signature = signature.sign(signable);
+
+			} catch (InvalidAlgorithmParameterException | IllegalArgumentException | InvalidKeySpecException
+				| NoSuchAlgorithmException  ex) {
+
+				throw new SigningException("Failed to prepare random signable data", ex);
+			}
+		}
+	}
+}

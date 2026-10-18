@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -28,9 +30,6 @@ import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.constraints.Size;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_STORAGE;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.MINT_SUPPLY;
-import static org.unigrid.hedgehog.model.spork.GridSpork.Type.VESTING_STORAGE;
 
 public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -54,25 +53,6 @@ public class BaseSporkDatabaseTest extends BaseMockedWeldTest {
 			return SporkDatabase.load(path);
 		} else {
 			return SporkDatabase.builder().build();
-		}
-	}
-
-	protected static void set(SporkDatabase sporkDatabase, GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				sporkDatabase.setMintStorage((MintStorage) gridSpork);
-				break;
-
-			case MINT_SUPPLY:
-				sporkDatabase.setMintSupply((MintSupply) gridSpork);
-				break;
-
-			case VESTING_STORAGE:
-				sporkDatabase.setVestingStorage((VestingStorage) gridSpork);
-				break;
-
-			default:
-				throw new IllegalArgumentException("Unsupported spork type passed.");
 		}
 	}
 }

@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -26,6 +28,8 @@ import com.fasterxml.jackson.databind.ser.std.StdKeySerializers;
 import java.io.IOException;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,25 +38,41 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class MintStorage extends GridSpork implements Serializable {
+	private static final long serialVersionUID = 3170149889466677164L;
+
 	public MintStorage() {
 		setType(Type.MINT_STORAGE);
+
+		final MintStorage.SporkData data = new MintStorage.SporkData();
+		data.setMints(new HashMap<>());
+		setData(data);
 	}
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = 4256094579914357173L;
+
 		@JsonSerialize(keyUsing = Location.Serializer.class)
 		@JsonDeserialize(keyUsing = Location.Deserializer.class)
 		private Map<Location, BigDecimal> mints;
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
-		public static class Location implements Serializable {
+		public static class Location implements Serializable, Comparable<Location> {
+			private static final long serialVersionUID = -727370077924808425L;
+			private static final Comparator<Location> ORDER = Comparator.comparing(Location::getAddress,
+				Comparator.nullsFirst(Comparator.naturalOrder())).thenComparingInt(Location::getHeight);
+
 			private Address address;
 			private int height;
+
+			@Override
+			public int compareTo(Location other) {
+				return ORDER.compare(this, other);
+			}
 
 			public static class Deserializer extends KeyDeserializer {
 				@Override
@@ -74,6 +94,13 @@ public class MintStorage extends GridSpork implements Serializable {
 					generator.writeFieldName(location.address.getWif() + "/" + location.height);
 				}
 			}
+		}
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setMints(new HashMap<>());
+			return data;
 		}
 	}
 }

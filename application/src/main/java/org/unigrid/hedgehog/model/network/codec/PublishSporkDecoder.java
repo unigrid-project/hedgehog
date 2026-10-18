@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -19,11 +21,13 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
+import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 
+@ChannelCodec(priority = 11)
 public class PublishSporkDecoder extends AbstractGridSporkDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
 	/*
 	    Packet format:

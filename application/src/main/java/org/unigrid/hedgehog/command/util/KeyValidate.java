@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -17,15 +19,14 @@
 package org.unigrid.hedgehog.command.util;
 
 import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Optional;
 import lombok.Getter;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
-import org.unigrid.hedgehog.model.Signature;
+import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.VerifySignatureException;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -50,8 +51,8 @@ public class KeyValidate implements Runnable {
 			final Signature signature = new Signature(Optional.empty(), Optional.of(key));
 			System.out.println(signature.verify(Hex.decodeHex(data), Hex.decodeHex(signatureHex)));
 
-		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeyException
-			| InvalidKeySpecException | NoSuchAlgorithmException | SignatureException ex) {
+		} catch (DecoderException | InvalidAlgorithmParameterException | InvalidKeySpecException
+			| NoSuchAlgorithmException | VerifySignatureException ex) {
 
 			System.err.println(String.format("Failed to verify signature: %s", ex));
 		}

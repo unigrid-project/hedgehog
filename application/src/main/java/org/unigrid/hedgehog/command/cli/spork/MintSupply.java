@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,12 +18,14 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.MultivaluedMap;
+import jakarta.ws.rs.core.Response;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.client.RestClient;
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.Json;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
@@ -34,20 +38,38 @@ public class MintSupply implements Runnable {
 	@Override
 	@SneakyThrows
 	public void run() {
-		final RestClient client = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true);
-
 		if (spec.parent().userObject() instanceof GridSporkGet) {
-			System.out.println("A");
-		} else if (spec.parent().userObject() instanceof GridSporkGrow) {
-			System.out.println("B");
+			final RestClientCommand cmd = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-supply") {
+
+				@Override
+				protected void execute(Response response) {
+					System.out.println(Json.parse(response.readEntity(String.class)));
+				}
+			};
+
+			cmd.run();
 		} else if (spec.parent().userObject() instanceof GridSporkSet) {
-			System.out.println("C");
+			final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, "/gridspork/mint-supply") {
+
+				@Override
+				protected <T> Entity<T> getEntity() {
+					return (Entity<T>) Entity.text(GridSporkSet.getData());
+				}
+
+				@Override
+				protected void execute(Response response) {
+					System.out.println(Json.parse(response.readEntity(String.class)));
+				}
+			};
+
+			final MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
+			headers.add("privateKey", GridSporkSet.getKey());
+
+			cmd.setHeaders(headers);
+			cmd.run();
+		} else {
+			/* Will only happen if we forget to extend this method */
+			throw new UnsupportedOperationException();
 		}
-
-		client.post(String.format("/gridspork/set/mint-supply/%s",
-			GridSporkSet.getKey()), GridSporkSet.getData()
-		);
-
-		client.close();
 	}
 }

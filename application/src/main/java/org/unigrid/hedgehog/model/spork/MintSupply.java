@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -12,7 +14,7 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.model.spork;
 
@@ -21,18 +23,32 @@ import java.math.BigDecimal;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class MintSupply extends GridSpork implements Serializable {
+	private static final long serialVersionUID = -126744934705964189L;
+
 	public MintSupply() {
 		setType(Type.MINT_SUPPLY);
 		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
+
+		final MintSupply.SporkData data = new MintSupply.SporkData();
+		data.setMaxSupply(BigDecimal.ZERO);
+		setData(data);
 	}
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = -5847719002392038534L;
+
 		private BigDecimal maxSupply;
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setMaxSupply(BigDecimal.ZERO);
+			return data;
+		}
 	}
 }

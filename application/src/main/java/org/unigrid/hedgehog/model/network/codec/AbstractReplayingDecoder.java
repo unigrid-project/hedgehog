@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -23,8 +25,8 @@ import io.netty.util.Attribute;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.network.codec.chunk.TypedCodec;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Slf4j
 public abstract class AbstractReplayingDecoder<T extends Packet> extends ReplayingDecoder<T> {
@@ -47,6 +49,7 @@ public abstract class AbstractReplayingDecoder<T extends Packet> extends Replayi
 		/* Should we forward this packet on to the next decoder? */
 		if (forward) {
 			in.resetReaderIndex();
+			in.retain();
 			ctx.fireChannelRead(in);
 		}
 	}

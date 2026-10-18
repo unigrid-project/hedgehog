@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,12 +18,31 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import org.unigrid.hedgehog.command.util.RestClientCommand;
+import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.GenericType;
+import jakarta.ws.rs.core.Response;
+import java.util.Set;
+import org.unigrid.hedgehog.model.network.Node;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "node-remove")
-public class NodeRemove implements Runnable {
+public class NodeRemove extends RestClientCommand {
+	@CommandLine.Parameters(index = "0", description = "The ip:port combination of the node to remove.")
+	private String address;
+
+	public NodeRemove() {
+		super(HttpMethod.DELETE);
+	}
+
 	@Override
-	public void run() {
-		System.out.println("...");
+	protected String getLocation() {
+		return "/node/%s".formatted(address);
+	}
+
+	@Override
+	protected void execute(Response response) {
+		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
 	}
 }

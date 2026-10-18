@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -12,13 +14,16 @@
 
     You should have received an addended copy of the GNU Affero General Public License with this program.
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
-*/
+ */
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,24 +32,52 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import org.unigrid.hedgehog.model.Address;
-import org.unigrid.hedgehog.model.network.chunk.ChunkData;
 
 @Data @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = false)
 public class VestingStorage extends GridSpork implements Serializable {
+	private static final long serialVersionUID = -799684885387679880L;
+
 	public VestingStorage() {
 		setType(Type.VESTING_STORAGE);
+
+		final VestingStorage.SporkData data = new VestingStorage.SporkData();
+		data.setVestingAddresses(new HashMap<>());
+		setData(data);
 	}
 
 	@Data
 	public static class SporkData implements ChunkData {
+		private static final long serialVersionUID = 5831251856818111926L;
+
 		private Map<Address, Vesting> vestingAddresses;
 
-		@Data @Builder @AllArgsConstructor @NoArgsConstructor
+		@Data @Builder(toBuilder = true) @AllArgsConstructor @NoArgsConstructor
 		public static class Vesting implements Serializable {
-			private Instant start;
+			private static final long serialVersionUID = 6642936482739543603L;
+
+			private BigDecimal amount;
+
+			private int block;
+
+			private int cliff;
+
+			@JsonFormat(shape = JsonFormat.Shape.STRING)
 			private Duration duration;
+
 			private int parts;
+
+			private int percent;
+
+			@JsonFormat(shape = JsonFormat.Shape.STRING)
+			private Instant start;
+		}
+
+		public SporkData empty() {
+			final SporkData data = new SporkData();
+
+			data.setVestingAddresses(new HashMap<>());
+			return data;
 		}
 	}
 }

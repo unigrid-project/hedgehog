@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.cdi;
 
+import jakarta.annotation.Priority;
 import jakarta.interceptor.AroundInvoke;
 import jakarta.interceptor.Interceptor;
 import jakarta.interceptor.InvocationContext;
@@ -24,6 +27,7 @@ import lombok.Cleanup;
 import org.apache.commons.configuration2.sync.LockMode;
 
 @Interceptor @Protected
+@Priority(Interceptor.Priority.APPLICATION)
 public class ProtectedInterceptor {
 	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 

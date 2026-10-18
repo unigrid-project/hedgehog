@@ -28,6 +28,10 @@ public class ApplicationDirectory {
 	@Getter private final String author;
 	@Getter private final String name;
 
+	public Path getUserCacheDir() {
+		return Paths.get(AppDirsFactory.getInstance().getUserCacheDir(name, null, author));
+	}
+
 	public Path getUserConfigDir() {
 		return Paths.get(AppDirsFactory.getInstance().getUserConfigDir(name, null, author, true));
 	}

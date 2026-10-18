@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -50,7 +52,7 @@ public class BucketService {
 	}
 
 	public String create(String name) {
-		final File customDir = dataDir.resolve(name).toFile();
+		final File customDir = StoragePath.bucket(dataDir, name).toFile();
 		String location = "";
 
 		try {
@@ -86,7 +88,7 @@ public class BucketService {
 	}
 
 	public boolean delete(String bucketName) throws IOException {
-		final File customDir = dataDir.resolve(bucketName).toFile();
+		final File customDir = StoragePath.bucket(dataDir, bucketName).toFile();
 
 		if (!customDir.exists()) {
 			return false;

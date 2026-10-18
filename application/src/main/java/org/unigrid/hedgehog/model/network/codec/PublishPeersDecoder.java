@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -22,7 +24,7 @@ import java.net.InetSocketAddress;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
@@ -49,7 +51,7 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 			in.skipBytes(6 /* 48 bytes */);
 
 			final String hostAddress = ByteBufUtils.readNullTerminatedString(in);
-			final InetSocketAddress socketAddress = InetSocketAddress.createUnresolved(hostAddress, port);
+			final InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
 			final Node node = Node.builder().address(socketAddress).build();
 
 			publishPeers.getNodes().add(node);

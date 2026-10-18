@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -17,6 +19,7 @@
 package org.unigrid.hedgehog.server;
 
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.List;
 import mockit.Mocked;
 import net.jqwik.api.constraints.IntRange;
@@ -29,11 +32,12 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
+import org.unigrid.hedgehog.jqwik.NamedCDIProvider;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 
 @WeldSetup(TestServer.class)
 public class BaseServerTest extends BaseMockedWeldTest {
-	private static final int NUM_SERVERS = 10;
+	private static final int NUM_SERVERS = 20;
 
 	@Mocked
 	protected NetOptions netOptions;
@@ -48,13 +52,32 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	public Arbitrary<List<TestServer>> provideTestServers(@ForAll @IntRange(min = 0, max = NUM_SERVERS - 1) int from,
 		@ForAll @IntRange(min = 1, max = NUM_SERVERS) int num) {
 
-		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS - 1)));
+		return Arbitraries.shuffle(servers.subList(from, Math.min(from + num, NUM_SERVERS)));
+	}
+
+	protected List<TestServer> servers() {
+		return servers;
+	}
+
+	protected String containerName(int index) {
+		return getClass().getSimpleName() + (index + 1);
+	}
+
+	/* Most tests read the state a server wrote through the shared CDI.current(), so isolating the servers is opt-in */
+	protected boolean isolateContainers() {
+		return false;
 	}
 
 	@BeforeTry
 	public void before() {
-		for (TestServer s : servers) {
-			TestServer.mockProperties(s);
+		for (int i = 0; i < servers.size(); i++) {
+			final TestServer server = servers.get(i);
+
+			if (isolateContainers()) {
+				NamedCDIProvider.within(containerName(i), () -> TestServer.mockProperties(server));
+			} else {
+				TestServer.mockProperties(server);
+			}
 		}
 	}
 }

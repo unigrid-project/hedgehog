@@ -16,9 +16,11 @@
 
 package org.unigrid.hedgehog.nativeimage;
 
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
@@ -27,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.exec.OS;
 import org.apache.commons.lang3.StringUtils;
 
 @Slf4j
@@ -35,9 +38,17 @@ public class Unzipper {
 	private static final int PROGRESS_CLEARANCE = 15;
 
 	private static void printProgress(long position, long size) {
-		final char incompleteCharacter = '░'; // U+2591
-		final char completeCharacter = '█'; // U+2588
-		final int complete = (int) ((float) position / size * PROGRESS_WIDTH);
+		final int complete = (int) ((float) (position < 0 ? 0 : position) / size * PROGRESS_WIDTH);
+		char incompleteCharacter;
+		char completeCharacter;
+
+		if (OS.isFamilyWindows()) {
+			incompleteCharacter = ' ';
+			completeCharacter = '#';
+		} else {
+			incompleteCharacter = '░'; // U+2591
+			completeCharacter = '█'; // U+2588
+		}
 
 		System.out.print(String.format("\r Unpacking: [%s%s]%s\r",
 			StringUtils.repeat(completeCharacter, complete),
@@ -68,9 +79,15 @@ public class Unzipper {
 					} else {
 						printProgress(in.position(), in.size());
 						Files.createDirectories(path.getParent());
-						final File file = path.toFile();
 
-						IOUtils.copy(archive.getInputStream(entry), new FileOutputStream(file));
+						final File file = path.toFile();
+						final OutputStream out = new BufferedOutputStream(
+							new FileOutputStream(file)
+						);
+
+						IOUtils.copy(archive.getInputStream(entry), out);
+						out.flush();
+						IOUtils.closeQuietly(out);
 
 						if (path.getParent().endsWith(NativeProperties.BIN_DIRECTORY)) {
 							file.setExecutable(true);

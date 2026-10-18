@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -37,11 +39,16 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SporkDatabase implements Serializable {
+	private static final long serialVersionUID = 5650360876357285601L;
+
 	public static final String SPORK_DB_FILE = "spork.db";
 
 	private MintStorage mintStorage;
 	private MintSupply mintSupply;
 	private VestingStorage vestingStorage;
+	private StorageSpork storageSpork;
+
+	private StatisticsPubKey statisticsPubKey;
 
 	public static SporkDatabase load(Path path) throws IOException {
 		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
@@ -61,6 +68,8 @@ public class SporkDatabase implements Serializable {
 			case MINT_STORAGE: return mintStorage;
 			case MINT_SUPPLY: return mintSupply;
 			case VESTING_STORAGE: return vestingStorage;
+			case STORAGE: return storageSpork;
+			case STATISTICS_PUBKEY: return statisticsPubKey;
 			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
 		}
 	}
@@ -77,6 +86,14 @@ public class SporkDatabase implements Serializable {
 
 			case VESTING_STORAGE:
 				vestingStorage = (VestingStorage) gridSpork;
+				break;
+
+			case STORAGE:
+				storageSpork = (StorageSpork) gridSpork;
+				break;
+
+			case STATISTICS_PUBKEY:
+				statisticsPubKey = (StatisticsPubKey) gridSpork;
 				break;
 
 			default:

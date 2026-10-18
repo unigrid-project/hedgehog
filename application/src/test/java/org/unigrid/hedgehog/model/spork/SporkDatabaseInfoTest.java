@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -27,7 +29,6 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
-import static org.unigrid.hedgehog.model.spork.BaseSporkDatabaseTest.set;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo.Overview;
 
 public class SporkDatabaseInfoTest extends BaseSporkDatabaseTest {
@@ -52,7 +53,7 @@ public class SporkDatabaseInfoTest extends BaseSporkDatabaseTest {
 	@Domain(SuiteDomain.class)
 	public void shouldSetOverviewOnPopulatedDatabase(@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) {
 		final SporkDatabase sporkDatabase = SporkDatabase.builder().build();
-		set(sporkDatabase, gridSpork);
+		sporkDatabase.set(gridSpork);
 
 		final SporkDatabaseInfo info = new SporkDatabaseInfo(sporkDatabase);
 

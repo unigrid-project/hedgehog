@@ -30,7 +30,7 @@ public class NativeProperties {
 
 	static {
 		if (OS.isFamilyWindows()) {
-			runScript = "run.bat";
+			runScript = "run.cmd";
 		} else {
 			runScript = "run.sh";
 		}

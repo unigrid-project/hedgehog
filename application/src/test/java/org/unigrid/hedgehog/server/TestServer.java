@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -23,6 +25,7 @@ import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
@@ -36,6 +39,14 @@ public class TestServer {
 	private RestServer rest;
 
 	public static void mockProperties(TestServer server) {
+		mockProperties();
+
+		CDIUtil.instantiate(server.getP2p());
+		CDIUtil.instantiate(server.getRest());
+	}
+
+	public static void mockProperties() {
+
 		new Expectations() {{
 			int port = FreePortFinder.findFreeLocalPort();
 
@@ -43,9 +54,7 @@ public class TestServer {
 			NetOptions.getPort(); result = port;
 			RestOptions.getHost(); result = "localhost";
 			RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
+			Network.getSeeds(); result = new String[] { "127.0.200.1", "127.0.200.2", "127.0.200.3" };
 		}};
-
-		CDIUtil.instantiate(server.getP2p());
-		CDIUtil.instantiate(server.getRest());
 	}
 }

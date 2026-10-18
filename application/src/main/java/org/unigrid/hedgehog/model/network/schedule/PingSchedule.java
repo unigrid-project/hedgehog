@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -33,7 +35,9 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			channel.writeAndFlush(Ping.builder().build());
+			final Ping ping = Ping.builder().build();
+			channel.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
+			channel.writeAndFlush(ping);
 		};
 	}
 }

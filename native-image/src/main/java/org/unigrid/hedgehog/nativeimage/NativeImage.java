@@ -26,48 +26,31 @@ import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.exec.CommandLine;
 import org.apache.commons.exec.DefaultExecutor;
 import org.apache.commons.exec.ExecuteException;
-import org.apache.commons.exec.ExecuteWatchdog;
 import org.apache.commons.lang3.ArrayUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public class NativeImage {
-	public static final long WATCHDOG_TIMEOUT_MS = 60000;
-	public static final long ERROR_26_WAIT_MS = 50;
-
 	private static int start(Path basePath, String[] args) throws ExecuteException, InterruptedException, IOException {
 		final Path script = basePath.resolve(Path.of(
 			NativeProperties.BIN_DIRECTORY, NativeProperties.getRunScript())
 		);
 
-		final CommandLine cmdLine = CommandLine.parse(String.format("%s %s",
-			script.toString(), String.join(" ", args))
-		);
+		final CommandLine cmdLine = new CommandLine(script.toString());
+		cmdLine.addArguments(args);
 
-		final DefaultExecutor executor = new DefaultExecutor();
+		final DefaultExecutor executor = DefaultExecutor.builder().get();
 		executor.setExitValue(0);
 
-		/* We retry untill some unrecoverable error is detected */
-		while (true) {
-			try {
-				final ExecuteWatchdog watchdog = new ExecuteWatchdog(WATCHDOG_TIMEOUT_MS);
-				executor.setWatchdog(watchdog);
-				return executor.execute(cmdLine);
+		try {
+			return executor.execute(cmdLine);
 
-			/* error code 2 is just a generic error from PicoCLI that we can ignore */
-			} catch (ExecuteException ex) {
-				if (ex.getExitValue() != 2) {
-					throw ex;
-				}
-
-				return ex.getExitValue();
-			} catch (IOException ex) {
-				/* Error 26 is "Text file busy", which can happen during rapid turnarounds */
-				if (ex.getMessage().contains("error=26")) {
-					Thread.sleep(ERROR_26_WAIT_MS);
-				} else {
-					throw ex;
-				}
+		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
+		} catch (ExecuteException ex) {
+			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
+				throw ex;
 			}
+
+			return ex.getExitValue();
 		}
 	}
 
@@ -76,7 +59,9 @@ public class NativeImage {
 			.getResourceAsStream(NativeProperties.getBundledJlinkZip().toString());
 
 		final ApplicationDirectory applicationDirectory = ApplicationDirectory.create();
-		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(Path.of(NativeProperties.getHash()));
+		final Path jlinkDistribution = applicationDirectory.getUserDataDir().resolve(
+			Path.of(NativeProperties.getHash())
+		);
 
 		if (Files.notExists(jlinkDistribution) || ArrayUtils.contains(args, "--force-unpack")) {
 			final SeekableByteChannel channel = new SeekableInMemoryByteChannel(IOUtils.toByteArray(archive));

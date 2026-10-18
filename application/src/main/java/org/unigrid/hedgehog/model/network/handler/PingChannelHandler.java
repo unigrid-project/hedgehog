@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -19,6 +21,8 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
 @Sharable
@@ -32,6 +36,13 @@ public class PingChannelHandler extends AbstractInboundHandler<Ping> {
 		if (!ping.isResponse()) {
 			ping.setResponse(true);
 			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+		} else {
+			CDIUtil.resolveAndRun(Topology.class, topology -> {
+				topology.getChannels().get(ctx.channel()).ifPresent(n -> {
+					final long previousTime = ctx.channel().attr(Ping.PING_TIME_KEY).get();
+					n.setNsPing(System.nanoTime() - previousTime);
+				});
+			});
 		}
 	}
 }

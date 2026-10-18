@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,20 +18,35 @@
 
 package org.unigrid.hedgehog.command;
 
-import org.unigrid.hedgehog.command.cli.GridSporkGet;
-import org.unigrid.hedgehog.command.cli.GridSporkGrow;
+import org.unigrid.hedgehog.command.cli.GridSporkCosign;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGet;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkGrow;
 import org.unigrid.hedgehog.command.cli.GridSporkList;
-import org.unigrid.hedgehog.command.cli.GridSporkSet;
+import org.unigrid.hedgehog.command.cli.GridSporkLog;
+import org.unigrid.hedgehog.command.cli.GridSporkPending;
+import org.unigrid.hedgehog.command.cli.GridSporkRenew;
+import org.unigrid.hedgehog.command.cli.spork.GridSporkSet;
+import org.unigrid.hedgehog.command.cli.GridnodeList;
+import org.unigrid.hedgehog.command.cli.GridnodeStart;
+import org.unigrid.hedgehog.command.cli.GridnodeStop;
 import org.unigrid.hedgehog.command.cli.NodeAdd;
 import org.unigrid.hedgehog.command.cli.NodeList;
 import org.unigrid.hedgehog.command.cli.NodeRemove;
+import org.unigrid.hedgehog.command.cli.Stop;
+import org.unigrid.hedgehog.command.cli.StorageDelete;
+import org.unigrid.hedgehog.command.cli.StorageGet;
+import org.unigrid.hedgehog.command.cli.StoragePut;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 
 @Command(name = "cli", subcommands = { GridSporkGet.class, GridSporkGrow.class, GridSporkSet.class, GridSporkList.class,
-	NodeAdd.class, NodeRemove.class, NodeList.class
+	GridSporkLog.class, GridSporkRenew.class, GridSporkPending.class, GridSporkCosign.class,
+	NodeAdd.class, NodeRemove.class, NodeList.class,
+	GridnodeStart.class, GridnodeStop.class, GridnodeList.class,
+	StoragePut.class, StorageGet.class, StorageDelete.class,
+	Stop.class
 })
 public class CLI {
 	@Mixin private NetOptions netOptions;

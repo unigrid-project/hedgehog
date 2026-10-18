@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -17,28 +19,16 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.collection.OptionalMap;
-import org.unigrid.hedgehog.model.network.chunk.ChunkGroup;
-import org.unigrid.hedgehog.model.network.chunk.ChunkScanner;
-import org.unigrid.hedgehog.model.network.chunk.ChunkType;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.network.packet.Packet;
-import org.unigrid.hedgehog.model.network.codec.api.ChunkEncoder;
+import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.spork.SporkContentEncoder;
 
 @Slf4j
 public abstract class AbstractGridSporkEncoder<T extends Packet> extends AbstractMessageToByteEncoder<T> {
-
-	private final OptionalMap<GridSpork.Type, ChunkEncoder> encoders;
-
-	protected AbstractGridSporkEncoder() {
-		encoders = ChunkScanner.scan(ChunkType.ENCODER, ChunkGroup.GRIDSPORK);
-	}
 
 	/*
 	    Packet format:
@@ -51,31 +41,45 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 	    [                       << spork data >>                       ]
 	    [                    << spork delta data >>                    ]
 	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosignature (size long, 0 while pending) >>]
+	    [      signature log entries       ][   << log entries >>      >>]
+
+	    Signature log entry:
+	    [                    signed version timestamp                  ]
+	    [     size     ][            signer public key (size long)   >>]
+	    [                    << SHA-512 digest (64 bytes) >>           ]
+	    [     size     ][             signature (size long)          >>]
+	    [     size     ][   cosigner public key (size long, 0 if none) >>]
+	    [     size     ][       cosignature (size long, 0 if none)   >>]
 	*/
 	public void encodeGridSpork(ChannelHandlerContext ctx, GridSpork spork, ByteBuf out) throws Exception {
-		final Optional<ChunkEncoder> ce = encoders.getOptional(spork.getType());
-
 		log.atTrace().log("encoding spork chunk of type {}", spork.getType());
 
-		if (ce.isPresent()) {
+		if (SporkContentEncoder.canEncode(spork.getType())) {
 			@Cleanup("release")
 			final ByteBuf data = Unpooled.buffer();
 
-			data.writeShort(spork.getType().getValue());
-			data.writeShort(spork.getFlags());
-			data.writeZero(4 /* 32 bits */);
-			data.writeLong(spork.getTimeStamp().getEpochSecond());
-			data.writeLong(spork.getPreviousTimeStamp().getEpochSecond());
-			data.writeZero(8 /* 64 bits */);
+			SporkContentEncoder.encode(spork, data);
 
-			ce.get().encodeChunk(ctx, spork.getData(), data);
-			ce.get().encodeChunk(ctx, spork.getPreviousData(), data);
+			writeSized(data, spork.getSignature());
+			writeSized(data, spork.isPending() ? new byte[0] : spork.getCosignature());
 
-			data.writeShort(spork.getSignature().length);
-			data.writeBytes(spork.getSignature());
+			data.writeInt(spork.getSignatureLog().size());
+
+			spork.getSignatureLog().getEntries().forEach(entry -> {
+				data.writeBytes(entry.toBytes());
+
+				/* The hashed layout leaves out an absent cosigner, the wire marks it with two empty sizes */
+				if (!entry.isCosigned()) {
+					data.writeZero(2 * Short.BYTES);
+				}
+			});
 			out.writeBytes(data);
-
-			log.atTrace().log(() -> ByteBufUtil.prettyHexDump(out));
 		}
+	}
+
+	private static void writeSized(ByteBuf data, byte[] bytes) {
+		data.writeShort(bytes.length);
+		data.writeBytes(bytes);
 	}
 }

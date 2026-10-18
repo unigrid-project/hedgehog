@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -35,6 +37,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
 import java.security.cert.CertificateException;
 import javax.net.ssl.SSLException;
 import lombok.Getter;
@@ -42,6 +45,7 @@ import lombok.SneakyThrows;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.glassfish.jersey.server.validation.ValidationFeature;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.cdi.Eager;
@@ -54,23 +58,38 @@ public class RestServer extends AbstractServer {
 
 	private Container container;
 	private final NioEventLoopGroup group = new NioEventLoopGroup(COMMUNICATION_THREADS);
-	private ResourceConfig resourceConfig = getResourceConfig();
+	private ResourceConfig resourceConfig;
 	@Getter private Channel channel;
+	@Getter private String token;
+
+	@SneakyThrows
+	private String generateToken() {
+		final String generated = RestToken.generate();
+
+		RestToken.write(RestToken.getFile(), generated);
+		return generated;
+	}
 
 	private ResourceConfig getResourceConfig() {
 		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
+			BootstrapResource.class,
+			GridnodeResource.class,
 			MintStorageResource.class,
 			MintSupplyResource.class,
 			NodeResource.class,
 			VestingStorageResource.class,
 			StorageBucket.class,
-			StorageObject.class
+			StorageObject.class,
+			StorageResource.class,
+			StorageSporkResource.class,
+			UtilResource.class
 		);
 
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
-		config.register(InternalServerErrorMapper.class);
+		config.register(ValidationFeature.class);
+		config.register(new BearerTokenFilter(token));
 
 		return config;
 	}
@@ -109,6 +128,8 @@ public class RestServer extends AbstractServer {
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
+		token = RestToken.getConfigured().orElseGet(this::generateToken);
+		resourceConfig = getResourceConfig();
 		container = getContainerInstance();
 		final ChannelHandler initializer = getJerseyInitializerInstance(container);
 
@@ -119,9 +140,14 @@ public class RestServer extends AbstractServer {
 	}
 
 	@PreDestroy
+	@SneakyThrows
 	public void destroy() {
 		channel.close();
 		container.getApplicationHandler().onShutdown(container);
 		group.shutdownGracefully();
+
+		if (RestToken.getConfigured().isEmpty()) {
+			Files.deleteIfExists(RestToken.getFile());
+		}
 	}
 }

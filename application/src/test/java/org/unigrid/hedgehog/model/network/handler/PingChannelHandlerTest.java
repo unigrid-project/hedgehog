@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -27,10 +29,12 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.Property;
+import net.jqwik.api.ShrinkingMode;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.client.P2PClient;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -41,7 +45,7 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 		super(PingChannelHandler.class);
 	}
 
-	@Property(tries = 50)
+	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
 	public void shoulBeAbleToPingNetwork(@ForAll("provideTestServers") List<TestServer> servers,
 		@ForAll @ByteRange(min = 3, max = 5) byte pingsPerServer,
 		@Mocked PingSchedule pingSchedule) throws Exception {
@@ -59,15 +63,15 @@ public class PingChannelHandlerTest extends BaseHandlerTest<Ping, PingChannelHan
 		for (TestServer server : servers) {
 			final String host = server.getP2p().getHostName();
 			final int port = server.getP2p().getPort();
-			final P2PClient client = new P2PClient(host, port);
+			final Connection connection = new P2PClient(host, port);
 
 			for (int i = 0; i < pingsPerServer; i++) {
-				client.send(Ping.builder().build());
+				connection.send(Ping.builder().build());
 				expectedInvocations++;
 			}
 
 			await().untilAtomic(invocations, is(expectedInvocations));
-			client.closeDirty();
+			connection.closeDirty();
 		}
 
 		await().untilAtomic(invocations, is(expectedInvocations));

@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -23,7 +25,7 @@ import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 import org.unigrid.hedgehog.model.network.packet.AskNodeDetails;
-import org.unigrid.hedgehog.model.network.packet.Packet;
+import org.unigrid.hedgehog.model.network.Packet;
 
 @Sharable
 public class AskNodeDetailsEncoder extends AbstractMessageToByteEncoder<AskNodeDetails>

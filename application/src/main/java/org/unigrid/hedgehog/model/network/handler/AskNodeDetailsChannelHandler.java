@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -28,6 +30,7 @@ public class AskNodeDetailsChannelHandler extends AbstractInboundHandler<AskNode
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext context, AskNodeDetails askNodeDetails) throws Exception {
+		//TODO: Implement me
 		//ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 	}
 }

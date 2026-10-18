@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -16,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.DELETE;
@@ -25,8 +28,8 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.ResponseBuilder;
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.s3.entity.CreateBucketConfiguration;
@@ -48,18 +51,14 @@ public class StorageBucket extends CDIBridgeResource {
 	 */
 	@Path("/{bucket}") @PUT
 	@Consumes(MediaType.APPLICATION_XML)
-	public Response create(@PathParam("bucket") String bucket, CreateBucketConfiguration bucketConfiguration) {
-		if (bucketConfiguration == null) {
-			String errorMessage = "Request should contain BucketConfiguration file";
-			return Response.status(Response.Status.BAD_REQUEST).entity(errorMessage).build();
+	public Response create(@NotNull @PathParam("bucket") String bucket,
+		@NotNull CreateBucketConfiguration bucketConfiguration) {
+
+		try {
+			return Response.ok().header("Location", "/" + bucketService.create(bucket)).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		}
-
-		String location = bucketService.create(bucket);
-
-		ResponseBuilder builder = Response.ok();
-		builder.header("Location", "/" + location);
-
-		return builder.build();
 	}
 
 	/**
@@ -79,16 +78,19 @@ public class StorageBucket extends CDIBridgeResource {
 	 * @see <a href="https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteBucket.html">Delete Bucket</a>
 	 */
 	@Path("/{bucket}") @DELETE
-	public Response delete(@PathParam("bucket") String bucket) {
+	public Response delete(@NotNull @PathParam("bucket") String bucket) {
 		boolean isDeleted;
 
 		try {
 			isDeleted = bucketService.delete(bucket);
+
 			if (!isDeleted) {
 				return Response.status(Response.Status.NOT_FOUND).build();
 			}
 		} catch (IOException e) {
 			return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e.getMessage()).build();
+		} catch (InvalidPathException e) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
 		}
 
 		return Response.noContent().build();

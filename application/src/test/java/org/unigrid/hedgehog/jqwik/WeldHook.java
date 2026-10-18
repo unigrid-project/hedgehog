@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -25,6 +27,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -34,6 +37,8 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.lifecycle.AroundContainerHook;
 import net.jqwik.api.lifecycle.AroundPropertyHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
@@ -41,13 +46,24 @@ import net.jqwik.api.lifecycle.PropertyExecutionResult;
 import net.jqwik.api.lifecycle.PropertyExecutor;
 import net.jqwik.api.lifecycle.PropertyLifecycleContext;
 import org.apache.commons.lang3.StringUtils;
+import org.awaitility.Awaitility;
 import org.jboss.weld.environment.se.Weld;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.jboss.weld.environment.se.events.ContainerInitialized;
+import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.util.Reflection;
 
 public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 	private static final int AROUND_PROPERTY_PROXIMITY = -15;
+
+	/* The network tests share a runner with as many forks as it has cores, and a QUIC handshake there can
+	   take longer than Awaitility's default of ten seconds. */
+	private static final Duration AWAIT_TIMEOUT = Duration.ofMinutes(1);
+
+	static {
+		Awaitility.setDefaultTimeout(AWAIT_TIMEOUT);
+	}
 
 	private boolean findScan(Class<?> clazz) {
 		final WeldSetup weldSetup = clazz.getAnnotation(WeldSetup.class);
@@ -90,6 +106,12 @@ public class WeldHook implements AroundContainerHook, AroundPropertyHook {
 					throw new IllegalArgumentException("Unable to instantiate extension type", ex);
 				}
 			}).collect(Collectors.toList());
+
+			/* Discovery finds the Daemon, which would download the latest published snapshot into every container. */
+			new MockUp<Daemon>() {
+				@Mock
+				void start(ContainerInitialized event) { }
+			};
 
 			final Weld weldInitializer = new Weld(name)
 				.beanClasses(weldClasses.toArray(new Class<?>[0]))

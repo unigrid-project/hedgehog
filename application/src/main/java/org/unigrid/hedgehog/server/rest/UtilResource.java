@@ -1,0 +1,68 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.server.rest;
+
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
+import org.unigrid.hedgehog.model.NodeStatus;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
+import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.cdi.CDIContext;
+import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
+import org.unigrid.hedgehog.server.rest.entity.StatusResponse;
+import org.unigrid.hedgehog.server.rest.entity.VersionResponse;
+
+@Path("/")
+@Produces(MediaType.APPLICATION_JSON)
+@Consumes(MediaType.APPLICATION_JSON)
+public class UtilResource extends CDIBridgeResource {
+	@CDIBridgeInject
+	private ChainHeight chainHeight;
+
+	@CDIBridgeInject
+	private NodeStatus nodeStatus;
+
+	@Path("/stop") @POST
+	public Response stop() {
+		CDIContext.stop();
+		return Response.status(Response.Status.ACCEPTED).build();
+	}
+
+	@Path("/height") @GET
+	public Response height() {
+		return chainHeight.current().map(height -> Response.ok().entity(new HeightResponse(height)).build())
+			.orElseGet(() -> Response.status(Response.Status.SERVICE_UNAVAILABLE).build());
+	}
+
+	@Path("/status") @GET
+	public Response status() {
+		return Response.ok().entity(StatusResponse.of(nodeStatus.current())).build();
+	}
+
+	@Path("/version") @GET
+	public Response version() {
+		return Response.ok().entity(VersionResponse.create()).build();
+	}
+}

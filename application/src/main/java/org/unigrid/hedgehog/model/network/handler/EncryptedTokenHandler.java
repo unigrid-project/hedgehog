@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -40,11 +42,11 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.Hedgehog;
 
 @ApplicationScoped
 public class EncryptedTokenHandler implements QuicTokenHandler {
-	private static final String SERVER_NAME = Hedgehog.class.getSimpleName();
+	/* Part of the token wire format, so it must not follow a rename of the main class */
+	private static final String SERVER_NAME = "Hedgehog";
 	private static final int IPV6_LENGTH = 16;
 	private static final int QUICHE_MAX_CONN_ID_LEN = 18;
 

@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -21,6 +23,15 @@ import org.unigrid.hedgehog.model.function.VoidFunctionE;
 
 @Slf4j
 public class ExceptionUtil {
+	/**
+	* Executes a functional callback (VoidFunctionE) and swallows the exceptions. This allows us to execute
+	* functional callbacks that throw checked exceptions (something Java does not allow by default). Any
+	* swallowed exceptions are logged at trace level.
+	*
+	* @param  function   A functional callback of type VoidFunctionE (takes no arguments and returns void)
+	* @param  exceptions A varags list of all the exceptions that we should swallow. Any thrown checked exceptions not
+	*                    swallowed will be rethrown as runtime exceptions.
+	*/
 	public static <E extends Exception> void swallow(VoidFunctionE function,
 		Class<? extends Exception>... exceptions) throws E {
 

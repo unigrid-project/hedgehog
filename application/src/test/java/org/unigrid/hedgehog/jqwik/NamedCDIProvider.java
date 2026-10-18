@@ -2,6 +2,8 @@
     Unigrid Hedgehog
     Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
 
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
     This program is free software: you can redistribute it and/or modify it under the terms of the
     addended GNU Affero General Public License as published by the The Unigrid Foundation and
     the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
@@ -25,13 +27,30 @@ import org.jboss.weld.environment.se.WeldContainer;
 public class NamedCDIProvider implements CDIProvider {
 	public static final AtomicReference<String> NAME_REFERENCE = new AtomicReference<>();
 
+	/* Netty threads inherit this from the thread that starts them, which pins each server's handlers to the
+	   container it was bound in instead of whichever container was injected last */
+	private static final InheritableThreadLocal<String> THREAD_NAME = new InheritableThreadLocal<>();
+
+	public static void within(String name, Runnable runnable) {
+		final String previous = THREAD_NAME.get();
+		THREAD_NAME.set(name);
+
+		try {
+			runnable.run();
+		} finally {
+			THREAD_NAME.set(previous);
+		}
+	}
+
 	@Override
 	public CDI<Object> getCDI() {
-		if (Objects.isNull(NAME_REFERENCE.get())) {
+		final String name = Objects.requireNonNullElseGet(THREAD_NAME.get(), NAME_REFERENCE::get);
+
+		if (Objects.isNull(name)) {
 			throw new IllegalStateException("No namespace set for requested CDI instance");
 		}
 
-		return WeldContainer.instance(NAME_REFERENCE.get());
+		return WeldContainer.instance(name);
 	}
 
 	@Override
