@@ -27,9 +27,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
-import java.util.function.IntPredicate;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
@@ -42,20 +39,16 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.bean;
 import static org.unigrid.hedgehog.service.ledger.LedgerFleet.COIN;
 import org.unigrid.hedgehog.ledger.AccountKey;
-import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Reference;
-import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
-import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 /* A legacy address holds what the bootstrap snapshot says, on a running network: validators and an observer that dial
@@ -66,58 +59,14 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
    is an amount (the snapshot says it), and what a transfer cannot name is a legacy address as the sender (it names a
    key), so those two are shown through what the account gets and through a sender that only looks like the address.
    The fleet is shared by the examples, so each one has wallets and accounts of its own and leaves nothing waiting. */
-public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
+public class LedgerClaimAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private static final int WALLETS = 12;
-	private static final BigDecimal CEILING = BigDecimal.valueOf(1_000_000_000L);
-	private static final Duration PATIENCE = Duration.ofSeconds(60);
-	private static final Duration QUIET = Duration.ofMillis(2_500);
 	private static final Optional<String> CLAIMED = Optional.of("Legacy address is already claimed");
 	private static final Optional<String> BAD_SIGNATURE = Optional.of("Claim signature is not valid");
 	private static final Optional<String> NOTHING = Optional.of("Nothing to claim");
-	private static final Optional<String> HELD_BACK = Optional.of("Claim is not authorized");
 	private static final Optional<String> WAITING = Optional.of("Already waiting for a block");
 	private static final Optional<String> USED = Optional.of("Reference already used");
-	private static final Optional<String> NO_MINT = Optional.of("Mint is not authorized");
 	private static final Optional<String> NOT_COVERED = Optional.of("Balance does not cover the transfer");
-	private static final AtomicInteger NEXT = new AtomicInteger(50_000);
-
-	private static byte[] newSeed() {
-		return LedgerTestChain.seed(NEXT.incrementAndGet());
-	}
-
-	private static AccountKey account() {
-		return Ed25519.publicKey(newSeed());
-	}
-
-	private static LegacyWallet outsider() {
-		return new LegacyWallet(NEXT.incrementAndGet(), true);
-	}
-
-	private static Location entry(final LegacyWallet wallet, final long height) {
-		return entry(wallet.base58(), height);
-	}
-
-	private static Location entry(final AccountKey account, final long seconds) {
-		return entry(account.toString(), seconds);
-	}
-
-	private static Location entry(final String address, final long number) {
-		return new Location(new org.unigrid.hedgehog.model.Address(address), (int) number);
-	}
-
-	private static MintStorage.SporkData mints(final Map<Location, BigDecimal> entries) {
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-
-		data.setMints(new HashMap<>(entries));
-		return data;
-	}
-
-	private static MintSupply.SporkData ceilingOf(final BigDecimal coins) {
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-
-		data.setMaxSupply(coins);
-		return data;
-	}
 
 	@Override
 	protected LedgerFleet.Settings settings() {
@@ -126,7 +75,8 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 	}
 
 	/* Every spork that a node needs before it acts on a mint, a claim or a transfer is set, an unset one meaning no */
-	private void ready() {
+	@Override
+	protected void ready() {
 		awaitSigning();
 
 		if (Objects.isNull(fleet().sporkOn(0, Type.MINT_SUPPLY))) {
@@ -146,73 +96,19 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 		}
 	}
 
-	private void awaitSigning() {
-		await().atMost(PATIENCE).until(() -> IntStream.range(0, fleet().validators()).filter(fleet()::isRunning)
-			.allMatch(node -> fleet().status(node).signing()));
-	}
-
-	/* A client does not wait until the validators sign again, and a transaction taken before they do is made a block */
-	private void restartEveryNodeAtOnce() {
-		IntStream.range(0, fleet().size()).forEach(fleet()::stop);
-		IntStream.range(0, fleet().size()).forEach(fleet()::restart);
-		fleet().awaitSameChain();
-	}
-
 	private void restartEveryNode() {
 		restartEveryNodeAtOnce();
 		awaitSigning();
 	}
 
-	private long secondsAgo(final long seconds) {
-		return fleet().clock().now() / 1000 - seconds;
-	}
-
-	private Claim claimOf(final int wallet, final AccountKey owner) {
-		return fleet().wallet(wallet).claim(owner, fleet().chainId());
-	}
-
 	/* The wallet claims onto the account at a validator, and the account has the snapshot balance on every node */
 	private void claim(final int wallet, final AccountKey owner) {
-		assertThat(fleet().submit(1, claimOf(wallet, owner)), equalTo(Optional.empty()));
-		awaitBalance(owner, fleet().holding(wallet));
-		fleet().awaitSameChain();
-	}
-
-	private boolean everywhere(final IntPredicate test) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning).allMatch(test);
-	}
-
-	private List<Long> balances(final Address who) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning)
-			.mapToObj(node -> fleet().balanceOf(node, who)).toList();
+		claim(1, wallet, owner);
 	}
 
 	private List<Long> supplies() {
 		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning)
 			.mapToObj(node -> fleet().supplyOn(node)).toList();
-	}
-
-	private void awaitBalance(final Address who, final long units) {
-		await().atMost(PATIENCE).until(() -> everywhere(node -> fleet().balanceOf(node, who) == units));
-	}
-
-	private void staysTrue(final BooleanSupplier condition) {
-		await().during(QUIET).atMost(QUIET.plusSeconds(5)).until(condition::getAsBoolean);
-	}
-
-	/* A refusal is the same on every node, whichever it is put to, and makes no block */
-	private void assertRefusedEverywhere(final Transaction transaction, final Optional<String> reason) {
-		IntStream.range(0, fleet().size()).filter(fleet()::isRunning).forEach(node ->
-			assertThat("node " + node, fleet().submit(node, transaction), equalTo(reason)));
-	}
-
-	private void staysAsItIs() {
-		fleet().awaitSameChain();
-
-		final long height = fleet().height(0);
-		final long supply = fleet().supplyOn(0);
-
-		staysTrue(() -> everywhere(node -> fleet().height(node) == height && fleet().supplyOn(node) == supply));
 	}
 
 	private Mint snapshotBalanceAgain(final int wallet) {
@@ -278,7 +174,7 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 		staysTrue(() -> everywhere(node -> fleet().supplyOn(node) == supply + COIN));
 
 		assertRefusedEverywhere(new Mint(wallet.address(), 10 * COIN,
-			Reference.ofSpork(wallet.address(), fleet().tipHeight())), NO_MINT);
+			Reference.ofSpork(wallet.address(), fleet().tipHeight())), REFUSED);
 		assertThat(balances(owner), everyItem(is(fleet().holding(2))));
 		assertThat(balances(wallet.address()), everyItem(is(0L)));
 	}
@@ -441,7 +337,7 @@ public class LedgerClaimAcceptanceTest extends BaseLedgerFleetTest {
 		assertThat(fleet().submit(joined, claimOf(9, account())), equalTo(CLAIMED));
 		assertThat(fleet().submit(joined, snapshotBalanceAgain(9)), equalTo(USED));
 		assertThat(fleet().submit(joined, new Mint(wallet.address(), COIN,
-			Reference.ofSpork(wallet.address(), fleet().tipHeight()))), equalTo(NO_MINT));
+			Reference.ofSpork(wallet.address(), fleet().tipHeight()))), equalTo(REFUSED));
 		staysAsItIs();
 	}
 

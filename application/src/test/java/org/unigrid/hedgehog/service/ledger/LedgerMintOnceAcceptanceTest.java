@@ -25,11 +25,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BooleanSupplier;
-import java.util.function.IntPredicate;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import org.apache.commons.lang3.SerializationUtils;
@@ -46,17 +42,10 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.bean;
 import static org.unigrid.hedgehog.service.ledger.LedgerFleet.COIN;
 import org.unigrid.hedgehog.ledger.AccountKey;
-import org.unigrid.hedgehog.ledger.Address;
-import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Mint;
-import org.unigrid.hedgehog.ledger.Reference;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
-import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
-import org.unigrid.hedgehog.model.spork.LedgerFee;
-import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 /* An entry of the mint spork mints once, and what is broken or hostile in the spork neither stops a node nor makes it
@@ -67,11 +56,8 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
    to hold the spork and for a newer one that is known to come, and a spork that the network keys did not sign
    changes nothing. The fleet is shared by the examples, so each one works with accounts of its own, sets the sporks
    it needs and leaves nothing waiting for the next. */
-public class LedgerMintOnceAcceptanceTest extends BaseLedgerFleetTest {
-	private static final BigDecimal CEILING = BigDecimal.valueOf(1_000_000_000L);
+public class LedgerMintOnceAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private static final int WALLETS = 10;
-	private static final Duration PATIENCE = Duration.ofSeconds(60);
-	private static final Duration QUIET = Duration.ofMillis(2_500);
 	private static final Duration RESPONSIVE = Duration.ofSeconds(10);
 	private static final Duration ANSWER = Duration.ofSeconds(2);
 
@@ -80,115 +66,15 @@ public class LedgerMintOnceAcceptanceTest extends BaseLedgerFleetTest {
 	   host that is busy */
 	private static final Duration ALL_THE_BLOCKS = Duration.ofSeconds(120);
 	private static final int DUE_ENTRIES = 5_100;
-	private static final Optional<String> REFUSED = Optional.of("Mint is not authorized");
-	private static final AtomicInteger NEXT = new AtomicInteger(10_000);
-
-	private static AccountKey account() {
-		return Ed25519.publicKey(LedgerTestChain.seed(NEXT.incrementAndGet()));
-	}
-
-	private static LegacyWallet wallet() {
-		return new LegacyWallet(NEXT.incrementAndGet(), true);
-	}
-
-	private static Location entry(final String address, final long number) {
-		return new Location(new org.unigrid.hedgehog.model.Address(address), (int) number);
-	}
-
-	private static Location entry(final AccountKey account, final long seconds) {
-		return entry(account.toString(), seconds);
-	}
-
-	private static Location entry(final LegacyWallet wallet, final long height) {
-		return entry(wallet.base58(), height);
-	}
-
-	private static MintStorage.SporkData mints(final Map<Location, BigDecimal> entries) {
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-
-		data.setMints(new HashMap<>(entries));
-		return data;
-	}
-
-	private static MintSupply.SporkData ceilingOf(final BigDecimal coins) {
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-
-		data.setMaxSupply(coins);
-		return data;
-	}
-
-	private static Mint mintOf(final Address recipient, final long units, final long number) {
-		return new Mint(recipient, units, Reference.ofSpork(recipient, number));
-	}
 
 	@Override
 	protected LedgerFleet.Settings settings() {
 		return LedgerFleet.Settings.builder().balances(Collections.nCopies(WALLETS, 50 * COIN)).build();
 	}
 
-	private long secondsAgo(final long seconds) {
-		return fleet().clock().now() / 1000 - seconds;
-	}
-
-	/* Every spork that a node needs before it acts on a mint, a claim or a transfer is set, an unset one meaning no */
-	private void ready() {
-		if (!isCappedAt(CEILING)) {
-			fleet().publishSpork(Type.MINT_SUPPLY, ceilingOf(CEILING));
-		}
-
-		if (Objects.isNull(fleet().sporkOn(0, Type.LEDGER_FEE))) {
-			fleet().publishSpork(Type.LEDGER_FEE, new LedgerFee.SporkData());
-		}
-
-		if (Objects.isNull(fleet().sporkOn(0, Type.LEDGER_BLACKLIST))) {
-			fleet().publishSpork(Type.LEDGER_BLACKLIST, new LedgerBlacklist.SporkData());
-		}
-	}
-
 	/* A node that has lost its mint spork, as one does whose spork database was removed */
 	private void forget(final int node) {
 		bean(containerName(node), SporkDatabase.class).setMintStorage(null);
-	}
-
-	private boolean isCappedAt(final BigDecimal maximum) {
-		return Optional.ofNullable(fleet().sporkOn(0, Type.MINT_SUPPLY))
-			.map(spork -> spork.<MintSupply.SporkData>getData().getMaxSupply())
-			.filter(held -> held.compareTo(maximum) == 0).isPresent();
-	}
-
-	private GridSpork publishMints(final Map<Location, BigDecimal> entries) {
-		return fleet().publishSpork(Type.MINT_STORAGE, mints(entries));
-	}
-
-	private boolean everywhere(final IntPredicate test) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning).allMatch(test);
-	}
-
-	private List<Long> balances(final Address who) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning)
-			.mapToObj(node -> fleet().balanceOf(node, who)).toList();
-	}
-
-	private void awaitBalance(final Address who, final long units) {
-		await().atMost(PATIENCE).until(() -> everywhere(node -> fleet().balanceOf(node, who) == units));
-	}
-
-	private void awaitSupply(final long units) {
-		await().atMost(PATIENCE).until(() -> everywhere(node -> fleet().supplyOn(node) == units));
-	}
-
-	private void staysTrue(final BooleanSupplier condition) {
-		staysTrue(condition, QUIET.plusSeconds(5));
-	}
-
-	/* A condition that delivers a spork to every node takes seconds each time, more with each node, so it is given time
-	   to be looked at enough times to hold for the quiet period */
-	private void staysTrue(final BooleanSupplier condition, final Duration budget) {
-		await().during(QUIET).atMost(budget).until(condition::getAsBoolean);
-	}
-
-	private void staysEmpty(final Address who) {
-		staysTrue(() -> everywhere(node -> fleet().balanceOf(node, who) == 0));
 	}
 
 	@Example
@@ -266,8 +152,8 @@ public class LedgerMintOnceAcceptanceTest extends BaseLedgerFleetTest {
 		entries.put(entry(upperCase, seconds), BigDecimal.TEN);
 		entries.put(entry("not an address", seconds), BigDecimal.TEN);
 		entries.put(entry("", seconds), BigDecimal.TEN);
-		entries.put(entry(wallet(), 1), BigDecimal.TEN);
-		entries.put(entry(wallet(), fleet.tipHeight()), BigDecimal.TEN);
+		entries.put(entry(outsider(), 1), BigDecimal.TEN);
+		entries.put(entry(outsider(), fleet.tipHeight()), BigDecimal.TEN);
 		publishMints(entries);
 
 		awaitBalance(control, COIN);

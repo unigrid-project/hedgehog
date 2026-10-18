@@ -19,21 +19,16 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import jakarta.enterprise.inject.spi.CDI;
-import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BooleanSupplier;
-import java.util.function.IntPredicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import mockit.Invocation;
@@ -51,20 +46,16 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.bean;
 import static org.unigrid.hedgehog.service.ledger.LedgerFleet.COIN;
 import org.unigrid.hedgehog.ledger.AccountKey;
-import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ballot;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.ledger.Message;
 import org.unigrid.hedgehog.ledger.Proposal;
-import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
-import org.unigrid.hedgehog.model.spork.MintStorage;
-import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -78,14 +69,9 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
    validators signed stands whatever the list says: a node that catches up after the list names the address, and a
    node that joins after it, applies the claim. The fleet is shared by the examples, so each one has wallets and
    accounts of its own, sets the list it needs and leaves nothing waiting. */
-public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
+public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private static final int WALLETS = 10;
-	private static final BigDecimal CEILING = BigDecimal.valueOf(1_000_000_000L);
-	private static final Duration PATIENCE = Duration.ofSeconds(60);
-	private static final Duration QUIET = Duration.ofMillis(2_500);
 	private static final String BLACKLIST = "/gridspork/ledger-blacklist";
-	private static final Optional<String> HELD_BACK = Optional.of("Claim is not authorized");
-	private static final AtomicInteger NEXT = new AtomicInteger(70_000);
 
 	/* The container of the validator that is made to say yes to every claim, and what each node hears of the
 	   consensus */
@@ -103,24 +89,6 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 		final String liar = LIAR.get();
 
 		return Objects.nonNull(liar) && liar.equals(thisNode());
-	}
-
-	private static AccountKey account() {
-		return Ed25519.publicKey(LedgerTestChain.seed(NEXT.incrementAndGet()));
-	}
-
-	private static MintStorage.SporkData noMints() {
-		final MintStorage.SporkData data = new MintStorage.SporkData();
-
-		data.setMints(new HashMap<>());
-		return data;
-	}
-
-	private static MintSupply.SporkData ceiling() {
-		final MintSupply.SporkData data = new MintSupply.SporkData();
-
-		data.setMaxSupply(CEILING);
-		return data;
 	}
 
 	@Override
@@ -165,24 +133,21 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 		return Ed25519.publicKey(fleet().seed(validator));
 	}
 
-	private void ready() {
+	@Override
+	protected void ready() {
 		awaitSigning();
 
 		if (Objects.isNull(fleet().sporkOn(0, Type.MINT_SUPPLY))) {
-			fleet().publishSpork(Type.MINT_SUPPLY, ceiling());
+			fleet().publishSpork(Type.MINT_SUPPLY, ceilingOf(CEILING));
 		}
 
 		if (Objects.isNull(fleet().sporkOn(0, Type.MINT_STORAGE))) {
-			fleet().publishSpork(Type.MINT_STORAGE, noMints());
+			fleet().publishSpork(Type.MINT_STORAGE, mints(Map.of()));
 		}
 
 		if (Objects.isNull(fleet().sporkOn(0, Type.LEDGER_FEE))) {
 			fleet().publishSpork(Type.LEDGER_FEE, new LedgerFee.SporkData());
 		}
-	}
-
-	private void awaitSigning() {
-		await().atMost(PATIENCE).until(() -> validators().allMatch(node -> fleet().status(node).signing()));
 	}
 
 	private LedgerBlacklist.SporkData listing(final LegacyWallet... wallets) {
@@ -210,53 +175,10 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerFleetTest {
 		awaitListed(data);
 	}
 
-	private Claim claimOf(final int wallet, final AccountKey owner) {
-		return fleet().wallet(wallet).claim(owner, fleet().chainId());
-	}
-
-	/* The wallet claims onto the account at a node, and the account has the snapshot balance on every node */
-	private void claim(final int at, final int wallet, final AccountKey owner) {
-		assertThat(fleet().submit(at, claimOf(wallet, owner)), equalTo(Optional.empty()));
-		awaitBalance(owner, fleet().holding(wallet));
-		fleet().awaitSameChain();
-	}
-
-	private boolean everywhere(final IntPredicate test) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning).allMatch(test);
-	}
-
-	private List<Long> balances(final Address who) {
-		return IntStream.range(0, fleet().size()).filter(fleet()::isRunning)
-			.mapToObj(node -> fleet().balanceOf(node, who)).toList();
-	}
-
-	private void awaitBalance(final Address who, final long units) {
-		await().atMost(PATIENCE).until(() -> everywhere(node -> fleet().balanceOf(node, who) == units));
-	}
-
-	private void staysTrue(final BooleanSupplier condition) {
-		await().during(QUIET).atMost(QUIET.plusSeconds(5)).until(condition::getAsBoolean);
-	}
-
-	/* A refusal is the same on every node, whichever it is put to, and makes no block */
-	private void assertRefusedEverywhere(final Transaction transaction, final Optional<String> reason) {
-		IntStream.range(0, fleet().size()).filter(fleet()::isRunning).forEach(node ->
-			assertThat("node " + node, fleet().submit(node, transaction), equalTo(reason)));
-	}
-
 	/* The nodes pass on a spork they took, so a copy that is late would put back a list that a test has just taken from
 	   a node. When the list has been quiet for a moment the copies have arrived. */
 	private void awaitGossipSettled() {
 		staysTrue(() -> everywhere(node -> Objects.nonNull(fleet().sporkOn(node, Type.LEDGER_BLACKLIST))));
-	}
-
-	private void staysAsItIs() {
-		fleet().awaitSameChain();
-
-		final long height = fleet().height(0);
-		final long supply = fleet().supplyOn(0);
-
-		staysTrue(() -> everywhere(node -> fleet().height(node) == height && fleet().supplyOn(node) == supply));
 	}
 
 	private int proposerAt(final long height) {
