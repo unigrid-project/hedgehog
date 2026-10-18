@@ -34,6 +34,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.CharRange;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
+import org.bouncycastle.math.ec.ECAlgorithms;
 import org.bouncycastle.util.BigIntegers;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -200,14 +201,29 @@ public class LegacySignatureTest {
 
 	private static BigInteger xWithoutPoint() {
 		for (long x = 1;; x++) {
-			final BigInteger candidate = BigInteger.valueOf(x);
-			final byte[] encoded = Bytes.concat(new byte[] { 2 }, BigIntegers.asUnsignedByteArray(32, candidate));
-
-			try {
-				LegacySignature.CURVE.getCurve().decodePoint(encoded);
-			} catch (IllegalArgumentException e) {
-				return candidate;
+			if (!hasPoint(BigInteger.valueOf(x))) {
+				return BigInteger.valueOf(x);
 			}
+		}
+	}
+
+	private static BigInteger smallestRWithAPointBeyondTheOrder() {
+		final BigInteger n = LegacySignature.CURVE.getN();
+
+		for (BigInteger r = BigInteger.ONE;; r = r.add(BigInteger.ONE)) {
+			if (hasPoint(n.add(r))) {
+				return r;
+			}
+		}
+	}
+
+	private static boolean hasPoint(BigInteger x) {
+		try {
+			LegacySignature.CURVE.getCurve().decodePoint(Bytes.concat(new byte[] { 2 },
+				BigIntegers.asUnsignedByteArray(32, x)));
+			return true;
+		} catch (IllegalArgumentException e) {
+			return false;
 		}
 	}
 
@@ -273,6 +289,32 @@ public class LegacySignatureTest {
 		malformed.put("x beyond the field", LegacyWallet.withR(withHeader(signature, 33), field.subtract(n)));
 		malformed.forEach((name, bad) -> assertThat(name, LegacySignature.recover(MESSAGE, bad),
 			equalTo(Optional.empty())));
+	}
+
+	/* No wallet key makes such a signature in practice (the nonce point must lie beyond the order, about 2^-128), so
+	   it is built the other way round: a point R with x = n + r, a chosen s, and the key Q = r^-1 (sR - eG) that makes
+	   the signature valid. That verify holds for Q is checked by the verifier, which is not the code that built Q. */
+	@Example
+	public void shouldRecoverTheKeyWhenTheNonceOverflowedTheOrder() {
+		final BigInteger n = LegacySignature.CURVE.getN();
+		final BigInteger r = smallestRWithAPointBeyondTheOrder();
+		final BigInteger s = BigInteger.TWO;
+		final BigInteger hash = new BigInteger(1, LegacySignature.messageHash(MESSAGE));
+		final BigInteger rInverse = r.modInverse(n);
+
+		for (final int recoveryId : new int[] { 2, 3 }) {
+			final byte[] nonce = Bytes.concat(new byte[] { (byte) (2 + (recoveryId & 1)) },
+				BigIntegers.asUnsignedByteArray(32, n.add(r)));
+			final byte[] key = ECAlgorithms.sumOfTwoMultiplies(LegacySignature.CURVE.getG(),
+				hash.negate().multiply(rInverse).mod(n), LegacySignature.CURVE.getCurve().decodePoint(nonce),
+				s.multiply(rInverse).mod(n)).normalize().getEncoded(true);
+			final byte[] signature = LegacyWallet.withS(LegacyWallet.withR(
+				withHeader(new LegacyWallet(7, true).sign(MESSAGE), 31 + recoveryId), r), s);
+
+			assertThat("recovery id " + recoveryId, LegacySignature.verify(key, signature, MESSAGE), is(true));
+			assertThat("recovery id " + recoveryId, LegacySignature.recover(MESSAGE, signature).orElseThrow(),
+				equalTo(key));
+		}
 	}
 
 	@Example
