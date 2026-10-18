@@ -140,7 +140,7 @@ final class Journal implements Closeable {
 		}
 
 		final byte[] payload = input.readNBytes(length);
-		return LocalFiles.checksum(payload) == checksum ? payload : null;
+		return Codec.checksum(payload, payload.length) == checksum ? payload : null;
 	}
 
 	private static void decode(final byte[] payload, final Replay replay) throws IOException {
@@ -180,7 +180,7 @@ final class Journal implements Closeable {
 
 		try {
 			LocalFiles.writeFully(channel, ByteBuffer.allocate(HEADER + payload.length).putInt(payload.length)
-				.putInt(LocalFiles.checksum(payload)).put(payload).flip());
+				.putInt(Codec.checksum(payload, payload.length)).put(payload).flip());
 
 			channel.force(false);
 		} catch (IOException failure) {

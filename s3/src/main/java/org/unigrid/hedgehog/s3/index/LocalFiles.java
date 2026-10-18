@@ -29,7 +29,6 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
-import java.util.zip.CRC32C;
 
 /* The local files hold blob ids, and an id grants read access to its blob, so only their owner may read them */
 final class LocalFiles {
@@ -41,9 +40,13 @@ final class LocalFiles {
 		/* Static helpers only */
 	}
 
+	static FileAttribute<?>[] ownerOnly(final Path path) {
+		return path.getFileSystem().supportedFileAttributeViews().contains("posix") ? OWNER_ONLY
+			: new FileAttribute<?>[0];
+	}
+
 	static FileChannel open(final Path path, final OpenOption... options) throws IOException {
-		final boolean posix = path.getFileSystem().supportedFileAttributeViews().contains("posix");
-		return FileChannel.open(path, Set.of(options), posix ? OWNER_ONLY : new FileAttribute<?>[0]);
+		return FileChannel.open(path, Set.of(options), ownerOnly(path));
 	}
 
 	static void writeFully(final FileChannel channel, final ByteBuffer buffer) throws IOException {
@@ -73,12 +76,5 @@ final class LocalFiles {
 
 		Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		sync(path.getParent());
-	}
-
-	static int checksum(final byte[] bytes) {
-		final CRC32C checksum = new CRC32C();
-
-		checksum.update(bytes);
-		return (int) checksum.getValue();
 	}
 }

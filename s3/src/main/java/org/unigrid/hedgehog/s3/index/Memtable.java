@@ -93,6 +93,11 @@ final class Memtable {
 		return bytes.get();
 	}
 
+	/* Every slot written, overwritten ones included, which bounds the keys a flush writes */
+	long count() {
+		return slots.size();
+	}
+
 	boolean isEmpty() {
 		return slots.isEmpty();
 	}

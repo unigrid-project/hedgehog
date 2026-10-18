@@ -25,14 +25,17 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.zip.CRC32C;
 
 /* Lengths and counts are unsigned LEB128 numbers, strings are UTF-8 behind their length, and maps go out sorted
    so the same record always encodes to the same bytes */
@@ -73,6 +76,29 @@ final class Codec {
 
 	static <T> T decode(final byte[] bytes, final Reader<T> reader) throws IOException {
 		return reader.read(new DataInputStream(new ByteArrayInputStream(bytes)));
+	}
+
+	static int checksum(final byte[] bytes, final int length) {
+		final CRC32C checksum = new CRC32C();
+
+		checksum.update(bytes, 0, length);
+		return (int) checksum.getValue();
+	}
+
+	/* Appends the CRC32C of the bytes as a big-endian int */
+	static byte[] seal(final byte[] bytes) {
+		return ByteBuffer.allocate(bytes.length + Integer.BYTES).put(bytes).putInt(checksum(bytes, bytes.length))
+			.array();
+	}
+
+	static byte[] unseal(final byte[] sealed) throws IOException {
+		final int length = sealed.length - Integer.BYTES;
+
+		if (length < 0 || ByteBuffer.wrap(sealed, length, Integer.BYTES).getInt() != checksum(sealed, length)) {
+			throw new IOException("Checksum mismatch in an index block");
+		}
+
+		return Arrays.copyOf(sealed, length);
 	}
 
 	static void writeNumber(final DataOutput output, final long value) throws IOException {
