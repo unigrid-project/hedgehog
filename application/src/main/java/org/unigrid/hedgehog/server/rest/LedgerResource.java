@@ -71,6 +71,7 @@ import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
 @Consumes(MediaType.APPLICATION_JSON)
 public class LedgerResource extends CDIBridgeResource {
 	private static final Duration SUBMIT_TIMEOUT = Duration.ofSeconds(10);
+	private static final Duration HOLD = Duration.ofSeconds(60);
 	private static final int MAX_SUBMITS_IN_FLIGHT = 16;
 	private static final HexFormat HEX = HexFormat.of();
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(LedgerSubmission.class);
@@ -180,12 +181,15 @@ public class LedgerResource extends CDIBridgeResource {
 
 	/* The wait is given back when the ledger has answered, not when the response is sent: a submit that timed out
 	   is still queued on a driver that stalls, so freeing its wait at the timeout would let a steady client queue
-	   more of them than the limit, without end */
+	   more of them than the limit, without end. A ledger that never answers, as one whose executor is gone, would
+	   keep the wait for good and turn every submit away until the node is restarted, so a wait is given back after
+	   HOLD at the latest. The future of the ledger is left as it is: the copy is what runs out. */
 	private CompletableFuture<Optional<String>> submitHoldingTheWait(final Transaction transaction) {
 		try {
 			final CompletableFuture<Optional<String>> future = ledger.submit(transaction);
 
-			future.whenComplete((refusal, failure) -> WAITING.release());
+			future.copy().orTimeout(HOLD.toMillis(), TimeUnit.MILLISECONDS)
+				.whenComplete((refusal, failure) -> WAITING.release());
 			return future;
 		} catch (RuntimeException ex) {
 			WAITING.release();

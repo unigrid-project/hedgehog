@@ -146,6 +146,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private final List<Transaction> submitted = new CopyOnWriteArrayList<>();
 	private final List<CompletableFuture<Optional<String>>> unanswered = new CopyOnWriteArrayList<>();
 	private final List<Duration> waited = new CopyOnWriteArrayList<>();
+	private final List<Duration> held = new CopyOnWriteArrayList<>();
 	private volatile Ledger newest;
 	private volatile Report reported;
 	private volatile Answering answering;
@@ -255,15 +256,44 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		};
 	}
 
-	/* A ledger that is still at it when the wait runs out: the wait ends at once, whatever it was asked to be, and is
-	   noted, so that no test waits for the real time and the time asked is still known */
+	/* A future whose wait runs out as soon as it is asked to wait, whatever it was asked to be, and is noted, so that
+	   no test waits for the real time and the time asked is still known */
+	private class OutlastedWait extends CompletableFuture<Optional<String>> {
+		@Override
+		public Optional<String> get(final long timeout, final TimeUnit unit) throws TimeoutException {
+			waited.add(Duration.of(timeout, unit.toChronoUnit()));
+			throw new TimeoutException();
+		}
+	}
+
+	/* A ledger that is still at it when the wait runs out */
 	private Answering outlastingTheWait() {
 		return transaction -> {
-			final CompletableFuture<Optional<String>> future = new CompletableFuture<>() {
+			final CompletableFuture<Optional<String>> future = new OutlastedWait();
+
+			unanswered.add(future);
+			return future;
+		};
+	}
+
+	/* A ledger that is still at it when the wait runs out, and when the hold on the wait runs out: a copy of the
+	   future, which follows it, runs out its hold as soon as it is asked to hold, and the time asked is noted */
+	private Answering outlastingTheHold() {
+		return transaction -> {
+			final CompletableFuture<Optional<String>> future = new OutlastedWait() {
 				@Override
-				public Optional<String> get(final long timeout, final TimeUnit unit) throws TimeoutException {
-					waited.add(Duration.of(timeout, unit.toChronoUnit()));
-					throw new TimeoutException();
+				public CompletableFuture<Optional<String>> copy() {
+					final CompletableFuture<Optional<String>> copy = new CompletableFuture<>() {
+						@Override
+						public CompletableFuture<Optional<String>> orTimeout(final long timeout, final TimeUnit unit) {
+							held.add(Duration.of(timeout, unit.toChronoUnit()));
+							completeExceptionally(new TimeoutException());
+							return this;
+						}
+					};
+
+					thenAccept(copy::complete);
+					return copy;
 				}
 			};
 
@@ -280,6 +310,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		submitted.clear();
 		unanswered.clear();
 		waited.clear();
+		held.clear();
 		sporkDatabase.setLedgerFee(null);
 
 		new MockUp<LedgerService>() {
@@ -875,5 +906,23 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		unanswered.get(0).complete(Optional.empty());
 		answering = answeringWith(Optional.empty());
 		assertThat(submit(transfer(WAITING_AT_MOST)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+	}
+
+	/* A ledger that never answers must not keep the waits for good: they come back after a minute whatever happens */
+	@Example
+	public void shouldGiveTheWaitOfASubmitBackAfterAMinuteWhenTheLedgerNeverAnswers() {
+		final int submits = 2 * WAITING_AT_MOST;
+
+		answering = outlastingTheHold();
+
+		for (int n = 0; n < submits; n++) {
+			final long nonce = n;
+
+			assertThat(refusedBy(() -> submit(transfer(nonce))).getMessage(), startsWith("504 "));
+		}
+
+		assertThat(held, equalTo(Collections.nCopies(submits, Duration.ofSeconds(60))));
+		assertThat(submitted.size(), equalTo(submits));
+		assertThat(unanswered.stream().filter(CompletableFuture::isDone).count(), equalTo(0L));
 	}
 }
