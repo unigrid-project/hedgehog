@@ -281,6 +281,20 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	}
 
 	@Example
+	@SneakyThrows
+	public void shouldLeaveOutAMinimumFeeThatTheSporkCannotTell() {
+		newest = chainOf(1);
+
+		for (final String fee : List.of("-0.001", "1.00000001", "0.000000001")) {
+			setMinimumFee(fee);
+
+			assertThat(fee, info().running(), equalTo(true));
+			assertThat(fee, info().height(), equalTo(1L));
+			assertThat(fee, client.getEntity("/ledger", String.class), not(containsString("minimumFee")));
+		}
+	}
+
+	@Example
 	public void shouldPassOnWhatTheServiceReportsOfItsState() {
 		newest = chainOf(2);
 		reported = new Report(false, true, "The block log is behind", false, 2, "", 5, List.of(Type.LEDGER_FEE),

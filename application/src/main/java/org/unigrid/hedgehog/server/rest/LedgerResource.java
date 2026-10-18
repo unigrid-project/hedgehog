@@ -90,10 +90,16 @@ public class LedgerResource extends CDIBridgeResource {
 		return ledger.read(reading).orElseGet(() -> error(Status.SERVICE_UNAVAILABLE, NOT_RUNNING));
 	}
 
-	/* Unset is not zero: a node with no fee spork refuses every transfer, whatever the fee */
+	/* Unset is not zero: a node with no fee spork refuses every transfer, whatever the fee. A fee the spork cannot
+	   tell is left out as well, so that a spork failing its own validation does not take the status down with it */
 	private String minimumFee() {
-		return Optional.ofNullable(sporkDatabase.getLedgerFee()).map(spork -> spork.<LedgerFee.SporkData>getData())
-			.map(LedgerFee.SporkData::units).map(LedgerText::coins).orElse(null);
+		try {
+			return Optional.ofNullable(sporkDatabase.getLedgerFee())
+				.map(spork -> spork.<LedgerFee.SporkData>getData()).map(LedgerFee.SporkData::units)
+				.map(LedgerText::coins).orElse(null);
+		} catch (IllegalArgumentException ex) {
+			return null;
+		}
 	}
 
 	private static Response ok(final Object entity) {
