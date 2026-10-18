@@ -53,6 +53,8 @@ public enum S3ErrorCode {
 	KeyTooLongError(Status.BAD_REQUEST, "Your key is too long."),
 	MalformedTrailerError(Status.BAD_REQUEST, "The request contained trailing data that was not well-formed or "
 		+ "did not conform to our published schema."),
+	MalformedPOSTRequest(Status.BAD_REQUEST, "The body of your POST request is not well-formed "
+		+ "multipart/form-data."),
 	MalformedXML(Status.BAD_REQUEST, "The XML that you provided was not well formed or did not validate."),
 	MethodNotAllowed(Status.METHOD_NOT_ALLOWED, "The specified method is not allowed against this resource."),
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
