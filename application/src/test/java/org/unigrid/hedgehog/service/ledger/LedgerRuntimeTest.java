@@ -281,6 +281,29 @@ public class LedgerRuntimeTest {
 		assertThat(finished.get(), is(true));
 	}
 
+	/* The driver answers the callers that wait on it from the events that are queued when the runtime is closed, and
+	   an event that was dropped would leave its caller waiting for good */
+	@Example
+	@SneakyThrows
+	public void shouldRunTheEventsThatAreWaitingWhenClosed() {
+		final CountDownLatch started = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final CountDownLatch waitingRan = new CountDownLatch(1);
+		final LedgerRuntime runtime = new LedgerRuntime(unique());
+
+		runtime.execute(() -> {
+			started.countDown();
+			awaitQuietly(release);
+		});
+		started.await(STOP_MILLIS, TimeUnit.MILLISECONDS);
+		runtime.execute(waitingRan::countDown);
+		runtime.close();
+		release.countDown();
+
+		assertThat(waitingRan.await(STOP_MILLIS, TimeUnit.MILLISECONDS), is(true));
+		assertThat(runtime.awaitStopped(STOP_MILLIS), is(true));
+	}
+
 	private static void awaitQuietly(final CountDownLatch latch) {
 		try {
 			latch.await(STOP_MILLIS, TimeUnit.MILLISECONDS);
