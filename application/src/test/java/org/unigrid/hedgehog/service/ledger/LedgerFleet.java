@@ -62,6 +62,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
+import org.unigrid.hedgehog.server.rest.RestServer;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.bean;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.within;
 import org.unigrid.hedgehog.service.ledger.LedgerService.Setup;
@@ -480,6 +481,12 @@ public final class LedgerFleet implements AutoCloseable {
 	/* To one node alone, whether or not it takes it */
 	public void deliverSpork(final int node, final GridSpork spork) {
 		sporks.deliver(node, spork);
+	}
+
+	/* The real REST server of the container at an index of the servers: that of a node, or that of a container no node
+	   was made in, which runs no ledger */
+	public RestServer restOf(final int index) {
+		return servers.get(index).getRest();
 	}
 
 	/* The command of the foundation, to the real REST server of one node: the data is proposed at the location with
