@@ -65,7 +65,7 @@ public class ListAllMyBucketsResultTest {
 
 	@Property
 	public void readsBackTheBucketsItWrote(@ForAll final List<@From("buckets") Bucket> buckets) throws JAXBException {
-		final ListAllMyBucketsResult result = new ListAllMyBucketsResult(buckets);
+		final ListAllMyBucketsResult result = new ListAllMyBucketsResult(buckets, new Owner("id", "name"));
 
 		assertThat(unmarshal(marshal(result)), equalTo(result));
 	}
@@ -74,10 +74,10 @@ public class ListAllMyBucketsResultTest {
 	public void writesBucketsInTheS3Namespace() throws JAXBException {
 		final Bucket bucket = new Bucket(Instant.EPOCH, "photos");
 
-		assertThat(marshal(new ListAllMyBucketsResult(List.of(bucket))), containsString(
+		assertThat(marshal(new ListAllMyBucketsResult(List.of(bucket), new Owner("id", "name"))), containsString(
 			"<ListAllMyBucketsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Buckets><Bucket>"
 			+ "<CreationDate>1970-01-01T00:00:00.000Z</CreationDate><Name>photos</Name></Bucket></Buckets>"
-			+ "</ListAllMyBucketsResult>"
+			+ "<Owner><ID>id</ID><DisplayName>name</DisplayName></Owner></ListAllMyBucketsResult>"
 		));
 	}
 }

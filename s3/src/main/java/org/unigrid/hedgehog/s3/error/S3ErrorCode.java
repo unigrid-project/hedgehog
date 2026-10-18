@@ -47,6 +47,7 @@ public enum S3ErrorCode {
 	InvalidPartOrder(Status.BAD_REQUEST, "The list of parts was not in ascending order."),
 	InvalidRange(Status.REQUESTED_RANGE_NOT_SATISFIABLE, "The requested range cannot be satisfied."),
 	InvalidRequest(Status.BAD_REQUEST, "Invalid Request"),
+	KeyTooLongError(Status.BAD_REQUEST, "Your key is too long."),
 	MalformedTrailerError(Status.BAD_REQUEST, "The request contained trailing data that was not well-formed or "
 		+ "did not conform to our published schema."),
 	MalformedXML(Status.BAD_REQUEST, "The XML that you provided was not well formed or did not validate."),

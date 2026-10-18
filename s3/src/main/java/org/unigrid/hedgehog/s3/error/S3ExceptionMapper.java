@@ -31,15 +31,35 @@ import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
+import org.unigrid.hedgehog.s3.index.BucketNotEmptyException;
+import org.unigrid.hedgehog.s3.index.ConditionFailedException;
+import org.unigrid.hedgehog.s3.index.NoSuchBucketException;
+import org.unigrid.hedgehog.s3.index.NoSuchUploadException;
 import org.unigrid.hedgehog.s3.spi.BlobUnavailableException;
 
 @Slf4j
 public class S3ExceptionMapper implements ExceptionMapper<Throwable> {
 	private static final Duration RETRY_AFTER = Duration.ofSeconds(5);
+
+	/* In order, so a subclass is named before its superclass. Every path an S3 operation uses is routed, so one that
+	   matches nothing names an unsupported operation. */
+	private static final List<Map.Entry<Class<? extends Throwable>, S3ErrorCode>> RECOGNISED = List.of(
+		Map.entry(BlobUnavailableException.class, S3ErrorCode.ServiceUnavailable),
+		Map.entry(MalformedXmlException.class, S3ErrorCode.MalformedXML),
+		Map.entry(NoSuchBucketException.class, S3ErrorCode.NoSuchBucket),
+		Map.entry(BucketNotEmptyException.class, S3ErrorCode.BucketNotEmpty),
+		Map.entry(NoSuchUploadException.class, S3ErrorCode.NoSuchUpload),
+		Map.entry(ConditionFailedException.class, S3ErrorCode.PreconditionFailed),
+		Map.entry(NotAllowedException.class, S3ErrorCode.MethodNotAllowed),
+		Map.entry(NotFoundException.class, S3ErrorCode.NotImplemented),
+		Map.entry(ClientErrorException.class, S3ErrorCode.InvalidRequest)
+	);
 
 	@Context private UriInfo uri;
 	@Context private Request request;
@@ -53,15 +73,9 @@ public class S3ExceptionMapper implements ExceptionMapper<Throwable> {
 			.orElseGet(() -> unexpected(thrown));
 	}
 
-	/* Every path an S3 operation uses is routed, so one that matches nothing names an unsupported operation */
 	private static Optional<S3Exception> recognise(final Throwable thrown) {
-		return Optional.ofNullable(switch (thrown) {
-			case BlobUnavailableException _ -> new S3Exception(S3ErrorCode.ServiceUnavailable);
-			case NotAllowedException _ -> new S3Exception(S3ErrorCode.MethodNotAllowed);
-			case NotFoundException _ -> new S3Exception(S3ErrorCode.NotImplemented);
-			case ClientErrorException _ -> new S3Exception(S3ErrorCode.InvalidRequest);
-			default -> null;
-		});
+		return RECOGNISED.stream().filter(known -> known.getKey().isInstance(thrown)).findFirst()
+			.map(known -> new S3Exception(known.getValue()));
 	}
 
 	private static S3Exception unexpected(final Throwable thrown) {
@@ -73,6 +87,8 @@ public class S3ExceptionMapper implements ExceptionMapper<Throwable> {
 	public Response toResponse(final Throwable thrown) {
 		final S3Exception error = translate(thrown);
 		final Response.ResponseBuilder response = Response.status(error.getCode().getStatus());
+
+		error.getHeaders().forEach(response::header);
 
 		if (error.getCode() == S3ErrorCode.ServiceUnavailable) {
 			response.header(HttpHeaders.RETRY_AFTER, RETRY_AFTER.toSeconds());

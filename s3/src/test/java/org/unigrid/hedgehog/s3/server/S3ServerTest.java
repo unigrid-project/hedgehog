@@ -57,7 +57,7 @@ public class S3ServerTest {
 			assertThat(connection.getHeaderField("x-amz-request-id"), matchesPattern("[0-9A-F]{16}"));
 			assertThat(new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8),
 				containsString("<ListAllMyBucketsResult "
-				+ "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Buckets/></ListAllMyBucketsResult>")
+				+ "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Buckets/><Owner><ID>")
 			);
 		}
 	}
