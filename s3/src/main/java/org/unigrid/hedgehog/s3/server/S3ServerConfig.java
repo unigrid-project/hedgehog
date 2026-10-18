@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.s3.server;
 
+import java.time.Duration;
 import java.util.Optional;
 import lombok.Builder;
 import lombok.NonNull;
@@ -30,6 +31,16 @@ public class S3ServerConfig {
 	private final int port;
 	private final String domain;
 	@Builder.Default private final boolean tls = true;
+
+	/* A request body stops being read from its socket once this much of it waits for the resource. Large enough that
+	   a resource reading in big blocks seldom waits for the network, small enough for many uploads at once. */
+	@Builder.Default private final int bodyHighWater = 1024 * 1024;
+
+	/* Reading resumes below this mark, far enough under the high one that reading is not toggled on every packet */
+	@Builder.Default private final int bodyLowWater = 256 * 1024;
+
+	/* A request or response that makes no progress for this long is cut, along with its connection */
+	@Builder.Default @NonNull private final Duration stallTimeout = Duration.ofMinutes(1);
 
 	/* Requests to a subdomain of it name their bucket in the host, as virtual-host style clients send them */
 	public Optional<String> getDomain() {

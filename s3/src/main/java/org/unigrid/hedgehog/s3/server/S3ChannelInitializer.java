@@ -22,10 +22,8 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
-import io.netty.handler.codec.http.HttpServerExpectContinueHandler;
 import io.netty.handler.codec.http.HttpServerKeepAliveHandler;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.stream.ChunkedWriteHandler;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import lombok.RequiredArgsConstructor;
@@ -41,15 +39,14 @@ final class S3ChannelInitializer extends ChannelInitializer<SocketChannel> {
 	private static final int MAX_CHUNK = 64 * 1024;
 
 	private final Optional<SslContext> ssl;
-	private final Callable<ChannelHandler> jersey;
+	private final Callable<ChannelHandler> requests;
 
 	@Override
 	protected void initChannel(final SocketChannel channel) throws Exception {
 		ssl.ifPresent(context -> channel.pipeline().addLast(context.newHandler(channel.alloc())));
 
 		channel.pipeline().addLast(new HttpServerCodec(MAX_REQUEST_LINE, MAX_HEADERS, MAX_CHUNK),
-			new HttpServerKeepAliveHandler(), new HttpServerExpectContinueHandler(), new ChunkedWriteHandler(),
-			jersey.call()
+			new HttpServerKeepAliveHandler(), requests.call()
 		);
 	}
 }
