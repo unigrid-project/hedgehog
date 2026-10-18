@@ -80,13 +80,21 @@ final class Versions {
 			throw new S3Exception(S3ErrorCode.NotImplemented, "MFA delete is not implemented.");
 		}
 
-		namespace.updateBucket(name, bucket -> bucket.toBuilder().versioning(state).build());
+		namespace.updateBucket(name, bucket -> {
+			if (bucket.objectLock() && state != Versioning.ENABLED) {
+				throw new S3Exception(S3ErrorCode.InvalidBucketState, "An Object Lock configuration is "
+					+ "present on this bucket, so the versioning state cannot be changed.");
+			}
+
+			return bucket.toBuilder().versioning(state).build();
+		});
+
 		return Response.ok().build();
 	}
 
-	/* Deleting what is not there succeeds, as it does in S3 */
+	/* Deleting what is not there succeeds, as it does in S3, while a version Object Lock keeps is refused */
 	static Deleted delete(final Namespace namespace, final Instant at, final String bucket, final String key,
-		final String versionId) throws IOException, BlobStoreException, NamespaceException {
+		final String versionId, final boolean bypass) throws IOException, BlobStoreException, NamespaceException {
 
 		Requests.key(key);
 
@@ -95,7 +103,8 @@ final class Versions {
 			return new Deleted(marker.map(ObjectVersion::versionId).orElse(null), marker.isPresent());
 		}
 
-		final Optional<ObjectVersion> removed = namespace.remove(bucket, key, versionId, version -> true);
+		final Optional<ObjectVersion> removed = namespace.remove(bucket, key, versionId,
+			version -> ObjectLocks.removable(version, at, bypass));
 
 		if (removed.isEmpty()) {
 			Requests.bucket(namespace, bucket);

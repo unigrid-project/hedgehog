@@ -44,6 +44,7 @@ public enum S3ErrorCode {
 	InvalidAccessKeyId(Status.FORBIDDEN, "The AWS access key ID that you provided does not exist in our records."),
 	InvalidArgument(Status.BAD_REQUEST, "Invalid Argument"),
 	InvalidBucketName(Status.BAD_REQUEST, "The specified bucket is not valid."),
+	InvalidBucketState(Status.CONFLICT, "The request is not valid for the current state of the bucket."),
 	InvalidDigest(Status.BAD_REQUEST, "The Content-MD5 or checksum value that you specified is not valid."),
 	InvalidPart(Status.BAD_REQUEST, "One or more of the specified parts could not be found."),
 	InvalidPartOrder(Status.BAD_REQUEST, "The list of parts was not in ascending order."),
@@ -58,12 +59,16 @@ public enum S3ErrorCode {
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
+	NoSuchObjectLockConfiguration(Status.NOT_FOUND, "The specified object does not have a ObjectLock "
+		+ "configuration."),
 	NoSuchTagSet(Status.NOT_FOUND, "The TagSet does not exist."),
 	NoSuchUpload(Status.NOT_FOUND, "The specified multipart upload does not exist."),
 	NoSuchVersion(Status.NOT_FOUND, "The version ID specified in the request does not match an existing version."),
 	NotImplemented(Status.NOT_IMPLEMENTED, "A header or query you provided implies functionality that is not "
 		+ "implemented."),
 	NotModified(Status.NOT_MODIFIED, "Not Modified"),
+	ObjectLockConfigurationNotFoundError(Status.NOT_FOUND, "Object Lock configuration does not exist for this "
+		+ "bucket."),
 	PreconditionFailed(Status.PRECONDITION_FAILED, "At least one of the preconditions that you specified did not "
 		+ "hold."),
 	RequestTimeTooSkewed(Status.FORBIDDEN, "The difference between the request time and the server's time is too "

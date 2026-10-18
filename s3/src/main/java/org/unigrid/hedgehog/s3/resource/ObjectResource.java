@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.s3.entity.CopyObjectResult;
@@ -70,12 +69,14 @@ public class ObjectResource {
 	private final BlobStore blobs;
 	private final Clock clock;
 	private final Multipart multipart;
+	private final ObjectLocks locks;
 
 	public ObjectResource(final Namespace namespace, final BlobStore blobs, final Clock clock) {
 		this.namespace = namespace;
 		this.blobs = blobs;
 		this.clock = clock;
 		multipart = new Multipart(namespace, blobs, clock);
+		locks = new ObjectLocks(namespace, clock);
 	}
 
 	@PUT
@@ -85,18 +86,32 @@ public class ObjectResource {
 		MalformedXmlException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.UPLOAD_ID);
+			Subresource.UPLOAD_ID, Subresource.RETENTION, Subresource.LEGAL_HOLD);
+		final MultivaluedMap<String, String> query = uri.getQueryParameters();
 
-		if (subresource == Subresource.TAGGING) {
-			return Tags.writeObject(namespace, bucket, key, uri.getQueryParameters(), request);
-		}
+		return switch (subresource) {
+			case TAGGING -> Tags.writeObject(namespace, bucket, key, query, request);
+			case RETENTION -> locks.retain(bucket, key, query, request);
+			case LEGAL_HOLD -> locks.hold(bucket, key, query, request);
+			case UPLOAD_ID -> writePart(bucket, key, query, headers, request);
+			default -> write(bucket, key, headers, request);
+		};
+	}
+
+	private Response writePart(final String bucket, final String key, final MultivaluedMap<String, String> query,
+		final HttpHeaders headers, final ContainerRequestContext request) throws IOException, BlobStoreException,
+		NamespaceException {
 
 		final Optional<CopySource> source = CopySource.of(headers);
 
-		if (subresource == Subresource.UPLOAD_ID) {
-			return source.isPresent() ? multipart.copyPart(bucket, key, uri.getQueryParameters(), headers,
-				source.get()) : multipart.uploadPart(bucket, key, uri.getQueryParameters(), request);
-		}
+		return source.isPresent() ? multipart.copyPart(bucket, key, query, headers, source.get())
+			: multipart.uploadPart(bucket, key, query, request);
+	}
+
+	private Response write(final String bucket, final String key, final HttpHeaders headers,
+		final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException {
+
+		final Optional<CopySource> source = CopySource.of(headers);
 
 		return source.isPresent() ? copyObject(bucket, key, headers, source.get())
 			: putObject(bucket, key, headers, request);
@@ -118,11 +133,13 @@ public class ObjectResource {
 		NamespaceException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.UPLOAD_ID);
+			Subresource.UPLOAD_ID, Subresource.RETENTION, Subresource.LEGAL_HOLD);
 
 		return switch (subresource) {
 			case TAGGING -> Tags.readObject(namespace, bucket, key, uri.getQueryParameters());
 			case UPLOAD_ID -> multipart.listParts(bucket, key, uri.getQueryParameters());
+			case RETENTION -> locks.retention(bucket, key, uri.getQueryParameters());
+			case LEGAL_HOLD -> locks.legalHold(bucket, key, uri.getQueryParameters());
 			default -> read(bucket, key, uri.getQueryParameters(), headers, true);
 		};
 	}
@@ -137,7 +154,8 @@ public class ObjectResource {
 
 	@DELETE
 	public Response delete(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
-		@Context final UriInfo uri) throws IOException, BlobStoreException, NamespaceException {
+		@Context final UriInfo uri, @Context final ContainerRequestContext request) throws IOException,
+		BlobStoreException, NamespaceException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
 			Subresource.UPLOAD_ID);
@@ -148,13 +166,15 @@ public class ObjectResource {
 
 		return subresource == Subresource.UPLOAD_ID
 			? multipart.abort(bucket, key, uri.getQueryParameters())
-			: deleteObject(bucket, key, uri.getQueryParameters().getFirst(Versions.VERSION_ID));
+			: deleteObject(bucket, key, uri.getQueryParameters().getFirst(Versions.VERSION_ID),
+			ObjectLocks.bypassing(request));
 	}
 
-	private Response deleteObject(final String bucket, final String key, final String versionId)
-		throws IOException, BlobStoreException, NamespaceException {
+	private Response deleteObject(final String bucket, final String key, final String versionId,
+		final boolean bypass) throws IOException, BlobStoreException, NamespaceException {
 
-		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, key, versionId);
+		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, key, versionId,
+			bypass);
 		final Response.ResponseBuilder response = Response.noContent();
 
 		if (deleted.deleteMarker()) {
@@ -170,18 +190,19 @@ public class ObjectResource {
 
 		Requests.key(key);
 		ObjectHeaders.refuseUnsupported(headers);
+		ObjectLocks.checkDigest(request);
 
 		final Bucket target = Requests.bucket(namespace, bucket);
 
 		Requests.writable(headers, namespace.latest(bucket, key));
 
-		final Map<String, String> tags = Tags.header(headers);
 		final Instant now = Requests.now(clock);
+		final ObjectVersion.ObjectVersionBuilder version = ObjectLocks.lock(ObjectVersion.builder().bucket(bucket)
+			.key(key).lastModified(now).headers(ObjectHeaders.content(headers))
+			.metadata(ObjectHeaders.metadata(headers)).tags(Tags.header(headers)), target, headers, now);
 		final Body body = Body.store(blobs, request, MAX_SIZE);
-		final ObjectVersion stored = body.commit(blobs, () -> namespace.put(ObjectVersion.builder().bucket(bucket)
-			.key(key).lastModified(now).etag(body.etag()).parts(body.parts(now)).checksums(body.checksums())
-			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers)).tags(tags)
-			.build(),
+		final ObjectVersion stored = body.commit(blobs, () -> namespace.put(version.etag(body.etag())
+			.parts(body.parts(now)).checksums(body.checksums()).build(),
 			latest -> Requests.writable(headers, latest))
 		);
 
@@ -210,7 +231,7 @@ public class ObjectResource {
 
 		final Instant now = Requests.now(clock);
 		final ObjectVersion stored = namespace.copy(source.pinned(from), found -> copied(source.check(found,
-			headers), bucket, key, headers, now), latest -> Requests.writable(headers, latest));
+			headers), target, key, headers, now), latest -> Requests.writable(headers, latest));
 		final CopyObjectResult result = new CopyObjectResult();
 
 		result.setETag(Responses.quoted(stored.etag()));
@@ -220,16 +241,17 @@ public class ObjectResource {
 			stored), from).build();
 	}
 
-	/* A copy keeps the content of its source, and its headers, metadata and tags unless the request replaces them */
-	private static ObjectVersion copied(final ObjectVersion source, final String bucket, final String key,
+	/* A copy keeps the content of its source, and its headers, metadata and tags unless the request replaces them,
+	   but takes its lock from the request or the bucket it is copied to */
+	private static ObjectVersion copied(final ObjectVersion source, final Bucket target, final String key,
 		final HttpHeaders headers, final Instant now) {
 
 		final boolean replace = ObjectHeaders.replaced(headers);
 
-		return source.toBuilder().bucket(bucket).key(key).versionId(null).lastModified(now).retention(null)
-			.legalHold(false).headers(replace ? ObjectHeaders.content(headers) : source.headers())
+		return ObjectLocks.lock(source.toBuilder().bucket(target.name()).key(key).versionId(null).lastModified(now)
+			.headers(replace ? ObjectHeaders.content(headers) : source.headers())
 			.metadata(replace ? ObjectHeaders.metadata(headers) : source.metadata())
-			.tags(Tags.replaced(headers) ? Tags.header(headers) : source.tags()).build();
+			.tags(Tags.replaced(headers) ? Tags.header(headers) : source.tags()), target, headers, now).build();
 	}
 
 	private Response read(final String bucket, final String key, final MultivaluedMap<String, String> query,

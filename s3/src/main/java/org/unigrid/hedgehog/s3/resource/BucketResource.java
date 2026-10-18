@@ -47,6 +47,7 @@ import org.unigrid.hedgehog.s3.http.Subresource;
 import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
+import org.unigrid.hedgehog.s3.index.Versioning;
 import org.unigrid.hedgehog.s3.request.BucketNames;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
@@ -60,11 +61,13 @@ public class BucketResource {
 	private final Namespace namespace;
 	private final Clock clock;
 	private final Listings listings;
+	private final ObjectLocks locks;
 
 	public BucketResource(final Namespace namespace, final Clock clock) {
 		this.namespace = namespace;
 		this.clock = clock;
 		listings = new Listings(namespace);
+		locks = new ObjectLocks(namespace, clock);
 	}
 
 	@PUT
@@ -73,31 +76,42 @@ public class BucketResource {
 		BlobStoreException, NamespaceException, MalformedXmlException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.VERSIONING);
+			Subresource.VERSIONING, Subresource.OBJECT_LOCK);
 
-		if (subresource == Subresource.TAGGING) {
-			return Tags.writeBucket(namespace, name, request);
-		} else if (subresource == Subresource.VERSIONING) {
-			return Versions.configure(namespace, name, request);
-		}
+		return subresource == Subresource.NONE ? createBucket(name, headers, request) : configure(name, subresource,
+			request);
+	}
+
+	/* A bucket gets Object Lock when it is created, along with versioning, which it then keeps enabled */
+	private Response createBucket(final String name, final HttpHeaders headers,
+		final ContainerRequestContext request) throws IOException, BlobStoreException, MalformedXmlException {
 
 		if (!BucketNames.valid(name)) {
 			throw new S3Exception(S3ErrorCode.InvalidBucketName);
 		}
 
-		if (Boolean.parseBoolean(headers.getHeaderString(OBJECT_LOCK))) {
-			throw new S3Exception(S3ErrorCode.NotImplemented, "Object Lock is not available yet.");
-		}
-
+		final boolean locked = Boolean.parseBoolean(headers.getHeaderString(OBJECT_LOCK));
 		final Bucket bucket = Bucket.builder().name(name).created(clock.instant()).location(Requests
 			.xml(CreateBucketConfiguration.class, request).map(CreateBucketConfiguration::getLocationConstraint)
-			.orElse(null)).build();
+			.orElse(null)).objectLock(locked).versioning(locked ? Versioning.ENABLED : null).build();
 
 		if (!namespace.createBucket(bucket)) {
 			throw new S3Exception(S3ErrorCode.BucketAlreadyOwnedByYou);
 		}
 
 		return Response.ok().header(HttpHeaders.LOCATION, "/" + name).build();
+	}
+
+	private Response configure(final String name, final Subresource subresource,
+		final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
+		MalformedXmlException {
+
+		return switch (subresource) {
+			case TAGGING -> Tags.writeBucket(namespace, name, request);
+			case VERSIONING -> Versions.configure(namespace, name, request);
+			case OBJECT_LOCK -> locks.configure(name, request);
+			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
+		};
 	}
 
 	@HEAD
@@ -112,7 +126,7 @@ public class BucketResource {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
 			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS, Subresource.VERSIONING,
-			Subresource.VERSIONS);
+			Subresource.VERSIONS, Subresource.OBJECT_LOCK);
 		final Bucket bucket = Requests.bucket(namespace, name);
 
 		return Responses.xml(switch (subresource) {
@@ -130,6 +144,7 @@ public class BucketResource {
 			case LOCATION -> new LocationConstraint(bucket.location());
 			case TAGGING -> Tags.bucket(bucket);
 			case VERSIONING -> Versions.configuration(bucket);
+			case OBJECT_LOCK -> ObjectLocks.configuration(bucket);
 			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
 		};
 	}
@@ -162,7 +177,7 @@ public class BucketResource {
 
 		for (DeleteObject object : delete.getObjects()) {
 			try {
-				result.getDeleted().add(deleteObject(name, object));
+				result.getDeleted().add(deleteObject(name, object, ObjectLocks.bypassing(request)));
 			} catch (S3Exception ex) {
 				result.getErrors().add(new DeleteError(object.getKey(), object.getVersionId(),
 					ex.getCode().name(), ex.getMessage()
@@ -177,11 +192,11 @@ public class BucketResource {
 		return Responses.xml(result);
 	}
 
-	private DeletedObject deleteObject(final String bucket, final DeleteObject object) throws IOException,
-		BlobStoreException, NamespaceException {
+	private DeletedObject deleteObject(final String bucket, final DeleteObject object, final boolean bypass)
+		throws IOException, BlobStoreException, NamespaceException {
 
 		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, object.getKey(),
-			object.getVersionId());
+			object.getVersionId(), bypass);
 
 		return deleted.deleteMarker() ? new DeletedObject(object.getKey(), object.getVersionId(), true,
 			deleted.versionId()) : new DeletedObject(object.getKey(), object.getVersionId(), null, null);

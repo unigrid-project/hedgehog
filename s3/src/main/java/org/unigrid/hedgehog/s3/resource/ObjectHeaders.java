@@ -110,6 +110,7 @@ final class ObjectHeaders {
 			response.header(Tags.COUNT, version.tags().size());
 		}
 
+		ObjectLocks.describe(response, bucket, version);
 		return Responses.versioned(response.tag(new EntityTag(version.etag()))
 			.lastModified(Date.from(version.lastModified())).header(ACCEPT_RANGES, "bytes"), bucket, version
 		);

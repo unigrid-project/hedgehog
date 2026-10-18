@@ -86,10 +86,12 @@ final class Multipart {
 
 		ObjectHeaders.refuseUnsupported(headers);
 
-		final Upload upload = namespace.createUpload(Upload.builder().template(ObjectVersion.builder()
-			.bucket(bucket).key(Requests.key(key)).lastModified(Requests.now(clock))
-			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers))
-			.tags(Tags.header(headers)).build())
+		final Instant now = Requests.now(clock);
+		final ObjectVersion template = ObjectLocks.lock(ObjectVersion.builder().bucket(bucket)
+			.key(Requests.key(key)).lastModified(now).headers(ObjectHeaders.content(headers))
+			.metadata(ObjectHeaders.metadata(headers)).tags(Tags.header(headers)), Requests.bucket(namespace,
+			bucket), headers, now).build();
+		final Upload upload = namespace.createUpload(Upload.builder().template(template)
 			.checksumAlgorithm(headers.getHeaderString(CHECKSUM_ALGORITHM))
 			.checksumType(headers.getHeaderString(CHECKSUM_TYPE)).build()
 		);
