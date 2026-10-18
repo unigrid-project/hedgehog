@@ -20,17 +20,23 @@ package org.unigrid.hedgehog.server.s3;
 
 import java.util.List;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
 import org.unigrid.hedgehog.command.option.OptionsCli;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
+import org.unigrid.hedgehog.service.storage.StorageBlobStore;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class S3GatewayTest {
@@ -46,5 +52,19 @@ public class S3GatewayTest {
 		OptionsCli.parse(List.of("daemon"), "--s3host", host, "--s3port", String.valueOf(port), "--s3domain", domain);
 
 		assertThat(S3Gateway.config(), equalTo(S3ServerConfig.builder().host(host).port(port).domain(domain).build()));
+	}
+
+	@Example
+	public void shouldServeTheStorageThroughACache() {
+		OptionsCli.parse(List.of("daemon"));
+
+		assertThat(S3Gateway.cached(new StorageBlobStore(null)), instanceOf(CachingBlobStore.class));
+	}
+
+	@Property
+	public void shouldSizeTheCacheAsTheOptionsSay(@ForAll @LongRange(min = Long.MIN_VALUE, max = -1) long size) {
+		OptionsCli.parse(List.of("daemon"), "--s3cachesize=" + size);
+
+		assertThrows(IllegalArgumentException.class, () -> S3Gateway.cached(new StorageBlobStore(null)));
 	}
 }

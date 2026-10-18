@@ -26,8 +26,10 @@ import java.util.Optional;
 import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.server.S3Server;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
+import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.service.storage.StorageBlobStore;
 import org.unigrid.hedgehog.service.storage.StorageService;
 
@@ -47,7 +49,12 @@ public class S3Gateway {
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
-		server = S3Server.start(config(), new StorageBlobStore(storage), accessKeyId -> Optional.empty());
+		server = S3Server.start(config(), cached(new StorageBlobStore(storage)), accessKeyId -> Optional.empty());
+	}
+
+	static BlobStore cached(final BlobStore store) {
+		return new CachingBlobStore(store, S3Options.getCacheDirectory(), S3Options.getCacheSize(),
+			S3Options.getCacheHalfLife());
 	}
 
 	@PreDestroy
