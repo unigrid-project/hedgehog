@@ -22,7 +22,7 @@ import picocli.CommandLine.Command;
 
 @Command(name = "ledger", description = "Read the ledger of a node and send transfers and votes to it.",
 	subcommands = { LedgerInfoCommand.class, LedgerBalanceCommand.class, LedgerBlockCommand.class,
-		LedgerTransferCommand.class, LedgerVoteCommand.class }
+		LedgerTransferCommand.class, LedgerClaimCommand.class, LedgerVoteCommand.class }
 )
 public class LedgerCommand {
 	/* Empty on purpose */
