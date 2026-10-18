@@ -32,6 +32,7 @@ import net.jqwik.api.lifecycle.TryLifecycleContext;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import picocli.CommandLine.Option;
 
@@ -41,7 +42,7 @@ import picocli.CommandLine.Option;
 */
 public class RestoreOptionsHook implements AroundTryHook {
 	private static final List<Field> OPTIONS = Stream.of(GridnodeOptions.class, NetOptions.class, RestOptions.class,
-		SnapshotOptions.class).flatMap(type -> Arrays.stream(type.getDeclaredFields()))
+		S3Options.class, SnapshotOptions.class).flatMap(type -> Arrays.stream(type.getDeclaredFields()))
 		.filter(field -> field.isAnnotationPresent(Option.class)).peek(field -> field.setAccessible(true)).toList();
 
 	@Override

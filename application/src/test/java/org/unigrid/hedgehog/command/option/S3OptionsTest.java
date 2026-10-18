@@ -1,0 +1,73 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.command.option;
+
+import java.util.List;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.StringLength;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.PropagationMode;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+
+@AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
+public class S3OptionsTest {
+	private static final List<String> DAEMON = List.of("daemon");
+
+	@Provide
+	public Arbitrary<String> provideHost() {
+		return OptionsCli.hosts();
+	}
+
+	@Property
+	public void shouldTakeTheAddressAndDomainItIsGiven(@ForAll("provideHost") String host,
+		@ForAll @IntRange(min = 1, max = OptionsCli.MAX_PORT) int port, @ForAll("provideHost") String domain) {
+
+		OptionsCli.parse(DAEMON, "--s3host", host, "--s3port", String.valueOf(port), "--s3domain", domain);
+
+		assertThat(S3Options.getHost(), equalTo(host));
+		assertThat(S3Options.getPort(), equalTo(port));
+		assertThat(S3Options.getDomain(), equalTo(domain));
+	}
+
+	@Example
+	public void shouldServeLocallyWithoutADomainByDefault() {
+		OptionsCli.parse(DAEMON);
+
+		assertThat(S3Options.getHost(), equalTo("localhost"));
+		assertThat(S3Options.getPort(), equalTo(S3Options.DEFAULT_PORT));
+		assertThat(S3Options.getDomain(), nullValue());
+	}
+
+	@Property
+	public void shouldRefuseAPortThatIsNotANumber(@ForAll @AlphaChars @StringLength(min = 1, max = 10) String value) {
+		assertThat(OptionsCli.refusal(DAEMON, "--s3port", value).getMessage(),
+			containsString("--s3port': '" + value + "'")
+		);
+	}
+}
