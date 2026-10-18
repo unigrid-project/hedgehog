@@ -160,8 +160,19 @@ public class ObjectResourceTest {
 
 	@Example
 	public void refusesAKeyLongerThanS3Allows() throws Exception {
+		final String tooLong = "€".repeat(342);
+
 		try (S3Node node = node()) {
-			assertThat(code(() -> put(node.getClient(), "x".repeat(1025), DATA)), equalTo("KeyTooLongError"));
+			put(node.getClient(), "key", DATA);
+
+			assertThat(code(() -> put(node.getClient(), tooLong, DATA)), equalTo("KeyTooLongError"));
+			assertThat(code(() -> get(node.getClient(), tooLong)), equalTo("KeyTooLongError"));
+			assertThat(code(() -> node.getClient().copyObject(request -> request.sourceBucket(BUCKET)
+				.sourceKey(tooLong).destinationBucket(BUCKET).destinationKey("copy"))), equalTo("KeyTooLongError")
+			);
+			assertThat(code(() -> node.getClient().copyObject(request -> request.sourceBucket(BUCKET)
+				.sourceKey("key").destinationBucket(BUCKET).destinationKey(tooLong))), equalTo("KeyTooLongError")
+			);
 		}
 	}
 

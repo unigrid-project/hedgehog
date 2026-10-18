@@ -46,6 +46,8 @@ final class Versions {
 	static Deleted delete(final Namespace namespace, final Instant at, final String bucket, final String key,
 		final String versionId) throws IOException, BlobStoreException, NamespaceException {
 
+		Requests.key(key);
+
 		if (Objects.isNull(versionId)) {
 			final Optional<ObjectVersion> marker = namespace.delete(bucket, key, at);
 			return new Deleted(marker.map(ObjectVersion::versionId).orElse(null), marker.isPresent());
@@ -63,6 +65,8 @@ final class Versions {
 	/* The version named, or the latest one without a version id, which may be a delete marker */
 	static ObjectVersion find(final Namespace namespace, final String bucket, final String key,
 		final String versionId) throws IOException, BlobStoreException {
+
+		Requests.key(key);
 
 		final Optional<ObjectVersion> found = Objects.isNull(versionId) ? namespace.latest(bucket, key)
 			: namespace.version(bucket, key, versionId);

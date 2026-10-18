@@ -114,6 +114,27 @@ public class ObjectDeleteTest {
 	}
 
 	@Example
+	public void refusesAKeyS3WouldNotTake() throws Exception {
+		final String tooLong = "€".repeat(342);
+
+		try (S3Node node = ObjectResourceTest.node()) {
+			put(node.getClient(), "kept", DATA);
+
+			assertThat(code(() -> node.getClient().deleteObject(request -> request.bucket(BUCKET).key(tooLong))),
+				equalTo("KeyTooLongError")
+			);
+
+			final DeleteObjectsResponse deleted = node.getClient().deleteObjects(request -> request.bucket(BUCKET)
+				.delete(delete -> delete.objects(keys("", tooLong, "kept"))));
+
+			assertThat(deleted.deleted().stream().map(DeletedObject::key).toList(), contains("kept"));
+			assertThat(deleted.errors().stream().map(error -> error.key() + " " + error.code()).toList(),
+				contains(" InvalidArgument", tooLong + " KeyTooLongError")
+			);
+		}
+	}
+
+	@Example
 	public void refusesMoreKeysThanOneRequestMayDelete() throws Exception {
 		try (S3Node node = ObjectResourceTest.node()) {
 			final String[] many = IntStream.range(0, 1001).mapToObj(i -> "key" + i).toArray(String[]::new);

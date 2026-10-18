@@ -143,8 +143,8 @@ public class BucketResource {
 	private DeletedObject deleteObject(final String bucket, final DeleteObject object) throws IOException,
 		BlobStoreException, NamespaceException {
 
-		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket,
-			Requests.key(object.getKey()), object.getVersionId());
+		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, object.getKey(),
+			object.getVersionId());
 
 		return deleted.deleteMarker() ? new DeletedObject(object.getKey(), object.getVersionId(), true,
 			deleted.versionId()) : new DeletedObject(object.getKey(), object.getVersionId(), null, null);

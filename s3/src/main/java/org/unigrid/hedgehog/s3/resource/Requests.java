@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.entity.S3Xml;
@@ -57,7 +58,12 @@ final class Requests {
 		return clock.instant().truncatedTo(ChronoUnit.MILLIS);
 	}
 
+	/* Every route that names an object passes its key through here before the index sees it */
 	static String key(final String key) {
+		if (Objects.isNull(key) || key.isEmpty()) {
+			throw new S3Exception(S3ErrorCode.InvalidArgument, "The key must not be empty.");
+		}
+
 		if (!ObjectKeys.valid(key)) {
 			throw new S3Exception(S3ErrorCode.KeyTooLongError);
 		}
