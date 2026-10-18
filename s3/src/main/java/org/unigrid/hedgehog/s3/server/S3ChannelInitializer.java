@@ -25,14 +25,14 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpServerExpectContinueHandler;
 import io.netty.handler.codec.http.HttpServerKeepAliveHandler;
 import io.netty.handler.ssl.SslContext;
-import io.netty.handler.stream.ChunkedWriteHandler;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import lombok.RequiredArgsConstructor;
 
 /*
    Jersey's own initializer keeps Netty's 4 KiB limit on the request line, which a long key with a presigned query
-   exceeds, and leaves connections open after a client asked to close them.
+   exceeds, and leaves connections open after a client asked to close them. A request expecting to continue is
+   invited at once, as its body is still read only as fast as its resource consumes it.
 */
 @RequiredArgsConstructor
 final class S3ChannelInitializer extends ChannelInitializer<SocketChannel> {
@@ -41,15 +41,14 @@ final class S3ChannelInitializer extends ChannelInitializer<SocketChannel> {
 	private static final int MAX_CHUNK = 64 * 1024;
 
 	private final Optional<SslContext> ssl;
-	private final Callable<ChannelHandler> jersey;
+	private final Callable<ChannelHandler> requests;
 
 	@Override
 	protected void initChannel(final SocketChannel channel) throws Exception {
 		ssl.ifPresent(context -> channel.pipeline().addLast(context.newHandler(channel.alloc())));
 
 		channel.pipeline().addLast(new HttpServerCodec(MAX_REQUEST_LINE, MAX_HEADERS, MAX_CHUNK),
-			new HttpServerKeepAliveHandler(), new HttpServerExpectContinueHandler(), new ChunkedWriteHandler(),
-			jersey.call()
+			new HttpServerKeepAliveHandler(), new HttpServerExpectContinueHandler(), requests.call()
 		);
 	}
 }

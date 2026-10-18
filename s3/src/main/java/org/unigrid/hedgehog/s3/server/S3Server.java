@@ -36,11 +36,14 @@ import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
+import org.glassfish.jersey.server.ApplicationHandler;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
+import org.glassfish.jersey.spi.ExecutorServiceProvider;
 import org.unigrid.hedgehog.s3.auth.SignatureFilter;
 import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
 import org.unigrid.hedgehog.s3.http.RequestIdFilter;
@@ -75,7 +78,7 @@ public final class S3Server implements AutoCloseable {
 		try {
 			return new S3Server(container, group, new ServerBootstrap().group(group)
 				.channel(NioServerSocketChannel.class)
-				.childHandler(initializer(config, container, resources))
+				.childHandler(initializer(config, container.getApplicationHandler()))
 				.bind(new InetSocketAddress(config.getHost(), config.getPort())).sync().channel());
 		} catch (final Exception failure) {
 			shutdown(container, group);
@@ -107,7 +110,7 @@ public final class S3Server implements AutoCloseable {
 	}
 
 	/* Jersey's public Netty factory owns its event loops and hides the container that has to be shut down, so
-	   its package-private container and request handler are built directly instead */
+	   its package-private container is built directly instead */
 	private static Constructor<?> constructor(final String name, final Class<?>... parameters)
 		throws ReflectiveOperationException {
 
@@ -117,17 +120,16 @@ public final class S3Server implements AutoCloseable {
 		return constructor;
 	}
 
-	private static ChannelHandler initializer(final S3ServerConfig config, final Container container,
-		final ResourceConfig resources) throws GeneralSecurityException, IOException, ReflectiveOperationException,
-		URISyntaxException {
+	private static ChannelHandler initializer(final S3ServerConfig config, final ApplicationHandler application)
+		throws GeneralSecurityException, IOException, URISyntaxException {
 
 		final String scheme = config.isTls() ? "https" : "http";
 		final URI base = new URI(scheme, null, config.getHost(), config.getPort(), "/", null, null);
-		final Constructor<?> handler = constructor("JerseyServerHandler", URI.class, container.getClass(),
-			ResourceConfig.class);
+		final ExecutorService executor = application.getInjectionManager().getInstance(ExecutorServiceProvider.class)
+			.getExecutorService();
 
 		return new S3ChannelInitializer(config.isTls() ? Optional.of(ssl()) : Optional.empty(),
-			() -> (ChannelHandler) handler.newInstance(base, container, resources)
+			() -> new S3RequestHandler(base, application, executor, config)
 		);
 	}
 
