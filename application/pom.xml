@@ -372,6 +372,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.bootstrap=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=info.picocli
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.ledger=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.spork=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.option=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.util=info.picocli

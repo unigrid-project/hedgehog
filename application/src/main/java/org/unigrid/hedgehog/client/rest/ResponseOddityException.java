@@ -18,14 +18,30 @@
 
 package org.unigrid.hedgehog.client.rest;
 
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.StatusType;
+import lombok.Getter;
 
 public class ResponseOddityException extends Exception {
+	/* What the node sent along with the status; a ledger node explains there why it refused a request */
+	@Getter private final String body;
+
 	public ResponseOddityException(StatusType status) {
+		this(status, "");
+	}
+
+	public ResponseOddityException(StatusType status, String body) {
 		super(String.format("%d %s (%s)",
 			status.getStatusCode(), Status.fromStatusCode(status.getStatusCode()),
 			status.getReasonPhrase())
 		);
+
+		this.body = body;
+	}
+
+	public static ResponseOddityException of(Response response) {
+		return new ResponseOddityException(response.getStatusInfo(),
+			response.hasEntity() ? response.readEntity(String.class) : "");
 	}
 }

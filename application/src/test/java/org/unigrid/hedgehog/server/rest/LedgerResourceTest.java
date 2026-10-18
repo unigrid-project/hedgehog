@@ -545,6 +545,25 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		}
 	}
 
+	/* The command line prints this text: the status line alone would not say what to change */
+	@Example
+	public void shouldKeepTheErrorTextOfARefusedRequestInTheExceptionTheClientThrows() {
+		final ResponseOddityException height = assertThrows(ResponseOddityException.class,
+			() -> client.get("/ledger/block/abc"));
+
+		final ResponseOddityException notRunning = assertThrows(ResponseOddityException.class,
+			() -> client.get("/ledger/account/" + ALICE));
+
+		final ResponseOddityException transaction = assertThrows(ResponseOddityException.class, () -> submit("zz"));
+
+		assertThat(height.getMessage(), startsWith("400 "));
+		assertThat(height.getBody(), containsString("A height is a whole number"));
+		assertThat(notRunning.getMessage(), startsWith("503 "));
+		assertThat(notRunning.getBody(), equalTo("{\"error\":\"" + NO_LEDGER + "\"}"));
+		assertThat(transaction.getMessage(), startsWith("400 "));
+		assertThat(transaction.getBody(), startsWith("{\"error\":"));
+	}
+
 	@Example
 	public void shouldReadTheNewestLedgerWhenTheNodeReplacesItBetweenTwoRequests() {
 		newest = chainOf(1);

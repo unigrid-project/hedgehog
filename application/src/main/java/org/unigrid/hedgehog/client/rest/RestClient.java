@@ -115,7 +115,7 @@ public class RestClient implements AutoCloseable {
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
 		if (isTokenRejected(response)) {
-			throw new ResponseOddityException(response.getStatusInfo());
+			throw ResponseOddityException.of(response);
 		}
 
 		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
@@ -123,7 +123,7 @@ public class RestClient implements AutoCloseable {
 		);
 
 		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
-			throw new ResponseOddityException(response.getStatusInfo());
+			throw ResponseOddityException.of(response);
 		}
 	}
 

@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.command.cli.spork.GridSporkSet;
 import org.unigrid.hedgehog.command.cli.GridnodeList;
 import org.unigrid.hedgehog.command.cli.GridnodeStart;
 import org.unigrid.hedgehog.command.cli.GridnodeStop;
+import org.unigrid.hedgehog.command.cli.ledger.LedgerCommand;
 import org.unigrid.hedgehog.command.cli.NodeAdd;
 import org.unigrid.hedgehog.command.cli.NodeList;
 import org.unigrid.hedgehog.command.cli.NodeRemove;
@@ -46,7 +47,7 @@ import picocli.CommandLine.Mixin;
 	NodeAdd.class, NodeRemove.class, NodeList.class,
 	GridnodeStart.class, GridnodeStop.class, GridnodeList.class,
 	StoragePut.class, StorageGet.class, StorageDelete.class,
-	Stop.class
+	LedgerCommand.class, Stop.class
 })
 public class CLI {
 	@Mixin private NetOptions netOptions;
