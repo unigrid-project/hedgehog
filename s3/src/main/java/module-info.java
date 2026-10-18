@@ -25,6 +25,7 @@ module org.unigrid.hedgehog.s3 {
 	requires jersey.common;
 	requires jersey.container.netty.http;
 	requires jersey.server;
+	requires org.slf4j;
 	requires org.unigrid.hedgehog.common;
 
 	opens org.unigrid.hedgehog.s3.entity to jakarta.xml.bind;

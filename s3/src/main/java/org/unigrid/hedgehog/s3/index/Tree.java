@@ -162,6 +162,10 @@ final class Tree implements Closeable {
 		return Optional.ofNullable(head.root());
 	}
 
+	long unflushedBytes() {
+		return snapshot.active().bytes();
+	}
+
 	/* Runs the work under the writer lock and commits what it wrote, or nothing when it throws */
 	<T, E extends Exception> T write(final Work<T, E> work) throws IOException, BlobStoreException, E {
 		writer.lock();

@@ -29,11 +29,15 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
-import lombok.AccessLevel;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
@@ -43,8 +47,9 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
    changes and assembly functions run under the writer lock against the current state, and when one throws or a
    guard fails nothing is written. Reads see a consistent snapshot and never wait for writers. One node writes a
    namespace at a time; several writers on one namespace, and anchoring its root anywhere but the local root file,
-   are left for later. */
-@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+   are left for later. Unless its interval is zero, a background thread maintains the namespace, and right away
+   once the memtable outgrows the flush size. */
+@Slf4j
 public final class Namespace implements AutoCloseable {
 	private static final int SWEEP_BATCH = 1000;
 
@@ -57,18 +62,31 @@ public final class Namespace implements AutoCloseable {
 	private final BlobStore blobs;
 	private final NamespaceConfig config;
 	private final Set<BlobId> deleting = ConcurrentHashMap.newKeySet();
+	private final Optional<ScheduledExecutorService> maintenance;
+	private final AtomicBoolean maintenanceRequested = new AtomicBoolean();
+
+	private Namespace(final Tree tree, final BlobStore blobs, final NamespaceConfig config) {
+		this.tree = tree;
+		this.blobs = blobs;
+		this.config = config;
+
+		maintenance = config.getMaintenanceInterval().isZero() ? Optional.empty()
+			: Optional.of(Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon()
+			.name("namespace-maintenance").factory()));
+	}
 
 	public static Namespace open(final Path directory, final BlobStore blobs, final NamespaceConfig config)
 		throws IOException, BlobStoreException {
 
-		return new Namespace(Tree.open(directory, blobs, config, null), blobs, config);
+		return new Namespace(Tree.open(directory, blobs, config, null), blobs, config).start();
 	}
 
 	/* Mounts the namespace a root names, such as on a fresh node recovering the namespace of a lost one */
 	public static Namespace mount(final Path directory, final BlobStore blobs, final BlobId root,
 		final NamespaceConfig config) throws IOException, BlobStoreException {
 
-		return new Namespace(Tree.open(directory, blobs, config, Objects.requireNonNull(root)), blobs, config);
+		return new Namespace(Tree.open(directory, blobs, config, Objects.requireNonNull(root)), blobs, config)
+			.start();
 	}
 
 	/* The manifest the local root names, whose id grants read access to the whole namespace */
@@ -363,27 +381,56 @@ public final class Namespace implements AutoCloseable {
 	}
 
 	/* Flushes when the memtable is due, compacts, and deletes the superseded runs and manifests and the released
-	   object blobs whose grace period is over */
+	   object blobs whose grace period is over. The background maintenance calls this every interval. */
 	public void maintain() throws IOException, BlobStoreException {
 		tree.maintain();
 		sweepGarbage();
 	}
 
+	/* Waits for a maintenance round under way and stops the background. Writes not yet flushed stay in the journal
+	   for the next open. */
 	@Override
 	public void close() throws IOException {
+		maintenance.ifPresent(ExecutorService::close);
 		tree.close();
+	}
+
+	private Namespace start() {
+		final long interval = config.getMaintenanceInterval().toMillis();
+
+		maintenance.ifPresent(executor -> executor.scheduleWithFixedDelay(this::maintainQuietly, interval, interval,
+			TimeUnit.MILLISECONDS));
+
+		return this;
+	}
+
+	/* A failed round leaves every write in the journal and the next round tries again */
+	private void maintainQuietly() {
+		maintenanceRequested.set(false);
+
+		try {
+			maintain();
+		} catch (IOException | BlobStoreException | RuntimeException exception) {
+			log.warn("Maintenance of the S3 namespace index failed and waits for its next round", exception);
+		}
 	}
 
 	private <T, E extends Exception> T write(final Mutation<T, E> mutation) throws IOException, BlobStoreException,
 		E {
 
-		return tree.write(transaction -> {
+		final T result = tree.write(transaction -> {
 			final References references = new References();
-			final T result = mutation.run(transaction, references);
+			final T done = mutation.run(transaction, references);
 
 			references.settle(transaction, config.getClock().instant().plus(config.getGrace()), deleting);
-			return result;
+			return done;
 		});
+
+		if (tree.unflushedBytes() >= config.getFlushBytes() && !maintenanceRequested.getAndSet(true)) {
+			maintenance.ifPresent(executor -> executor.execute(this::maintainQuietly));
+		}
+
+		return result;
 	}
 
 	/* Deletes the released blobs that are due. Each is claimed under the writer lock while nothing refers to it, so
