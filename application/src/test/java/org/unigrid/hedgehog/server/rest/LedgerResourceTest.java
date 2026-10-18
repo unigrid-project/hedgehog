@@ -22,30 +22,46 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.nio.file.FileSystem;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.jqwik.Expect;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Block;
@@ -61,12 +77,15 @@ import org.unigrid.hedgehog.ledger.Timeouts;
 import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.ledger.Vote;
+import org.unigrid.hedgehog.ledger.WireCodec;
+import org.unigrid.hedgehog.model.network.codec.LedgerCodecs;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
+import org.unigrid.hedgehog.server.rest.entity.LedgerSubmission;
 import org.unigrid.hedgehog.server.rest.entity.LedgerTransactionView;
 import org.unigrid.hedgehog.service.ledger.LedgerService;
 import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
@@ -75,7 +94,8 @@ import org.unigrid.hedgehog.service.ledger.LegacyWallet;
 
 /* The ledger as the node's REST interface shows it. The service is faked to hand out a real ledger that has been
    given real blocks, so that what is read is what a node would read, and the ledger it hands out can be changed
-   between two requests as the node does when it replaces its ledger. */
+   between two requests as the node does when it replaces its ledger. What the ledger answers a submitted
+   transaction is scripted, as the driver answers on its own thread whenever it likes. */
 public class LedgerResourceTest extends BaseRestClientTest {
 	private static final HexFormat HEX = HexFormat.of();
 	private static final byte[] ALICE_SEED = LedgerTestChain.seed(11);
@@ -90,6 +110,20 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private static final long THREE_COINS = 300_000_000L;
 	private static final long FEE = 100_000L;
 	private static final String NO_LEDGER = "The ledger is not running";
+	private static final String SUBMIT = "/ledger/transaction";
+	private static final byte[] CHAIN = LedgerTestChain.seed(99);
+	private static final LegacyWallet WIDE_WALLET = new LegacyWallet(8, false);
+	private static final int LONGEST_HEX = 2 * LedgerCodecs.MAX_TRANSACTION_SIZE;
+	private static final int WAITING_AT_MOST = 16;
+
+	/* In the hex of a transfer: the kind, the sender, the type and key of the recipient, then the amount */
+	private static final int AMOUNT_AT = 2 * (1 + AccountKey.SIZE + 1 + AccountKey.SIZE);
+	private static final Duration PATIENCE = Duration.ofSeconds(10);
+	private static final List<String> REFUSALS = List.of("Transfer nonce is already used",
+		"Balance does not cover the transfer", "Fee is below what this node demands",
+		"Legacy address is already claimed", "The ledger node failed and was replaced: send it again",
+		"Not queued: one waits for this nonce, or it is outside the window or not covered",
+		"Could not check: \"quoted\", back\\slash, ö and a\nline break");
 
 	/* The blocks of the chain the tests read, each made from what the ledger has at that point */
 	private static final List<Function<Ledger, List<Transaction>>> BLOCKS = List.of(
@@ -102,8 +136,15 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	private SporkDatabase sporkDatabase;
 
 	private final List<Chain> chains = new ArrayList<>();
+	private final List<Transaction> submitted = new CopyOnWriteArrayList<>();
+	private final List<CompletableFuture<Optional<String>>> unanswered = new CopyOnWriteArrayList<>();
 	private volatile Ledger newest;
 	private volatile Report reported;
+	private volatile Answering answering;
+
+	/* How the ledger answers a transaction handed to it: at once, or when the test lets it */
+	private interface Answering extends Function<Transaction, CompletableFuture<Optional<String>>> {
+	}
 
 	private static Reference reference(final int n) {
 		final byte[] bytes = new byte[Reference.SIZE];
@@ -193,10 +234,26 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		sporkDatabase.setLedgerFee(spork);
 	}
 
+	private static Answering answeringWith(final Optional<String> answer) {
+		return transaction -> CompletableFuture.completedFuture(answer);
+	}
+
+	private Answering neverAnswering() {
+		return transaction -> {
+			final CompletableFuture<Optional<String>> future = new CompletableFuture<>();
+
+			unanswered.add(future);
+			return future;
+		};
+	}
+
 	@BeforeTry
 	public void fakeTheService() {
 		newest = null;
 		reported = null;
+		answering = answeringWith(Optional.empty());
+		submitted.clear();
+		unanswered.clear();
 		sporkDatabase.setLedgerFee(null);
 
 		new MockUp<LedgerService>() {
@@ -209,13 +266,55 @@ public class LedgerResourceTest extends BaseRestClientTest {
 			public Report status() {
 				return Optional.ofNullable(reported).orElseGet(() -> reportOf(newest));
 			}
+
+			@Mock
+			public CompletableFuture<Optional<String>> submit(final Transaction transaction) {
+				submitted.add(transaction);
+				return answering.apply(transaction);
+			}
 		};
 	}
 
 	@AfterTry
 	public void closeTheChains() {
+		LedgerResource.setSubmitTimeout(LedgerResource.SUBMIT_TIMEOUT);
 		chains.forEach(Chain::close);
 		chains.clear();
+	}
+
+	private static Transfer transfer(final long nonce) {
+		return Transfer.signed(ALICE_SEED, BOB, THREE_COINS, FEE, nonce, CHAIN);
+	}
+
+	@SneakyThrows
+	private Response submit(final String transaction) {
+		return client.post(SUBMIT, Entity.json(new LedgerSubmission(transaction)));
+	}
+
+	private Response submit(final Transaction transaction) {
+		return submit(hex(transaction.encode()));
+	}
+
+	private static String refusalOf(final Expect.Action submitting) {
+		return assertThrows(ResponseOddityException.class, submitting).getMessage();
+	}
+
+	private List<String> submittedIds() {
+		return submitted.stream().map(Transaction::id).map(LedgerResourceTest::hex).toList();
+	}
+
+	private static AtomicInteger countDecodings() {
+		final AtomicInteger decodings = new AtomicInteger();
+
+		new MockUp<WireCodec>() {
+			@Mock
+			public Transaction decodeTransaction(final Invocation invocation, final byte[] data) {
+				decodings.incrementAndGet();
+				return invocation.proceed();
+			}
+		};
+
+		return decodings;
 	}
 
 	private Map<?, ?> failureOf(final String location, final Status expected) {
@@ -465,5 +564,151 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		assertThat(failureOf("/ledger/block/3", Status.SERVICE_UNAVAILABLE), equalTo(Map.of("error", NO_LEDGER)));
 		assertThat(failureOf("/ledger/account/" + CAROL, Status.SERVICE_UNAVAILABLE),
 			equalTo(Map.of("error", NO_LEDGER)));
+	}
+
+	@Example
+	public void shouldTakeASignedTransferAndGiveBackTheIdByWhichItIsFound() {
+		final Transfer transfer = transfer(0);
+		final Response response = submit(transfer);
+
+		assertThat(response.getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+		assertThat(response.readEntity(Map.class), equalTo(Map.of("accepted", true, "id", hex(transfer.id()))));
+		assertThat(submittedIds(), equalTo(List.of(hex(transfer.id()))));
+	}
+
+	@Example
+	public void shouldTakeEveryKindOfTransactionAClientSignsAndTheLongestOneThereIs() {
+		final List<Transaction> signed = List.of(
+			Vote.signed(LedgerTestChain.SEEDS.get(0), CAROL, Vote.Action.ADD, 0, CHAIN),
+			WALLET.claim(CAROL, CHAIN), WIDE_WALLET.claim(CAROL, CHAIN));
+
+		assertThat(signed.getLast().encode().length, equalTo(LedgerCodecs.MAX_TRANSACTION_SIZE));
+
+		for (final Transaction transaction : signed) {
+			assertThat(submit(transaction).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+		}
+
+		assertThat(submittedIds(), equalTo(signed.stream().map(Transaction::id).map(LedgerResourceTest::hex).toList()));
+	}
+
+	@Example
+	public void shouldGiveTheReasonOfALedgerThatRefusesATransactionWordForWord() {
+		final Transfer transfer = transfer(0);
+
+		for (final String reason : REFUSALS) {
+			answering = answeringWith(Optional.of(reason));
+
+			final Response response = submit(transfer);
+
+			assertThat(reason, response.getStatus(), equalTo(Status.CONFLICT.getStatusCode()));
+			assertThat(reason, response.readEntity(Map.class),
+				equalTo(Map.of("accepted", false, "id", hex(transfer.id()), "reason", reason)));
+		}
+
+		assertThat(submittedIds().size(), equalTo(REFUSALS.size()));
+	}
+
+	@Example
+	public void shouldAnswerThatTheLedgerIsNotRunningWhenTheLedgerSaysSo() {
+		answering = answeringWith(Optional.of(NO_LEDGER));
+
+		assertThat(refusalOf(() -> submit(transfer(0))), startsWith("503 "));
+	}
+
+	@Example
+	public void shouldRefuseAMintBecauseMintsComeOnlyFromTheSporks() {
+		assertThat(refusalOf(() -> submit(new Mint(ALICE, TEN_COINS, reference(9)))), startsWith("400 "));
+		assertThat(submitted, empty());
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseWhatIsNoTransactionWithoutHandingItToTheLedger() {
+		final String encoded = hex(transfer(0).encode());
+		final List<String> bodies = List.of("{}", "{\"transaction\": null}", "{\"transaction\": 4}", "", "{",
+			"[]", "{\"transaction\": \"\"}");
+		final String withoutAmount = encoded.substring(0, AMOUNT_AT) + "0".repeat(2 * Long.BYTES)
+			+ encoded.substring(AMOUNT_AT + 2 * Long.BYTES);
+		final List<String> transactions = List.of("0", "abc", "zz", "0x04", " " + encoded, encoded + " ",
+			encoded + "00", encoded.substring(0, encoded.length() - 2), "09" + encoded.substring(2),
+			encoded.substring(0, 2), "05".repeat(40), withoutAmount);
+
+		for (final String body : bodies) {
+			assertThat(body, refusalOf(() -> client.post(SUBMIT, Entity.json(body))), startsWith("400 "));
+		}
+
+		for (final String transaction : transactions) {
+			assertThat(transaction, refusalOf(() -> submit(transaction)), startsWith("400 "));
+		}
+
+		assertThat(submitted, empty());
+	}
+
+	@Example
+	public void shouldNotDecodeAnythingLongerThanATransactionCanBe() {
+		final AtomicInteger decodings = countDecodings();
+		final String encoded = hex(WIDE_WALLET.claim(CAROL, CHAIN).encode());
+
+		for (final String transaction : List.of("0".repeat(LONGEST_HEX + 1), "0".repeat(LONGEST_HEX + 2),
+			encoded + "00", "0".repeat(100_000))) {
+
+			assertThat(refusalOf(() -> submit(transaction)), startsWith("400 "));
+		}
+
+		assertThat(decodings.get(), equalTo(0));
+		assertThat(refusalOf(() -> submit("05".repeat(LedgerCodecs.MAX_TRANSACTION_SIZE))), startsWith("400 "));
+		assertThat(decodings.get(), equalTo(1));
+		assertThat(submitted, empty());
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseTheSeventeenthSubmitThatWaitsAndTakeOneAgainOnceAnAnswerHasComeBack() {
+		final ExecutorService callers = Executors.newFixedThreadPool(WAITING_AT_MOST);
+
+		answering = neverAnswering();
+
+		try {
+			final List<Future<Response>> calls = IntStream.range(0, WAITING_AT_MOST)
+				.mapToObj(n -> callers.submit(() -> submit(transfer(n)))).toList();
+
+			await().atMost(PATIENCE).until(unanswered::size, equalTo(WAITING_AT_MOST));
+			assertThat(refusalOf(() -> submit(transfer(WAITING_AT_MOST))), startsWith("429 "));
+			assertThat(submitted.size(), equalTo(WAITING_AT_MOST));
+
+			unanswered.get(0).complete(Optional.empty());
+			await().atMost(PATIENCE).until(() -> calls.stream().filter(Future::isDone).count(), equalTo(1L));
+			answering = answeringWith(Optional.empty());
+			assertThat(submit(transfer(WAITING_AT_MOST + 1)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+
+			unanswered.forEach(future -> future.complete(Optional.empty()));
+
+			for (final Future<Response> call : calls) {
+				assertThat(call.get().getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+			}
+		} finally {
+			unanswered.forEach(future -> future.complete(Optional.empty()));
+			callers.shutdownNow();
+		}
+	}
+
+	@Example
+	public void shouldAnswerGatewayTimeoutWhenTheLedgerDoesNotAnswerAndGoOnTakingSubmits() {
+		answering = neverAnswering();
+		LedgerResource.setSubmitTimeout(Duration.ofMillis(50));
+
+		final long started = System.nanoTime();
+
+		for (int n = 0; n <= WAITING_AT_MOST; n++) {
+			final long nonce = n;
+
+			assertThat(refusalOf(() -> submit(transfer(nonce))), startsWith("504 "));
+		}
+
+		assertThat(Duration.ofNanos(System.nanoTime() - started), lessThan(PATIENCE));
+		assertThat(unanswered.stream().filter(CompletableFuture::isCancelled).count(), equalTo(0L));
+
+		answering = answeringWith(Optional.empty());
+		assertThat(submit(transfer(0)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
 	}
 }
