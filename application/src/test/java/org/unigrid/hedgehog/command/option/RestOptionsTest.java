@@ -29,7 +29,6 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
-import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.NumericChars;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
@@ -38,8 +37,6 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class,propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class RestOptionsTest {
-	private static final long GIGABYTE = 1L << 30;
-
 	@Provide
 	public Arbitrary<List<String>> provideCommand() {
 		return Arbitraries.of(List.of("cli"), List.of("cli", "stop"), List.of("cli", "node-list"), List.of("daemon"));
@@ -52,7 +49,7 @@ public class RestOptionsTest {
 
 	@Provide
 	public Arbitrary<String> provideNumberOption() {
-		return Arbitraries.of("--restport", "--restmaxupload");
+		return Arbitraries.just("--restport");
 	}
 
 	@Property
@@ -69,14 +66,11 @@ public class RestOptionsTest {
 	}
 
 	@Property
-	public void shouldTakeTheTokenAndUploadLimitItIsGiven(@ForAll("provideCommand") List<String> command,
-		@ForAll @AlphaChars @NumericChars @StringLength(min = 1, max = 64) String token,
-		@ForAll @LongRange(min = 0) long maxUpload) {
+	public void shouldTakeTheTokenItIsGiven(@ForAll("provideCommand") List<String> command,
+		@ForAll @AlphaChars @NumericChars @StringLength(min = 1, max = 64) String token) {
 
-		OptionsCli.parse(command, "--resttoken", token, "--restmaxupload", String.valueOf(maxUpload));
-
+		OptionsCli.parse(command, "--resttoken", token);
 		assertThat(RestOptions.getToken(), equalTo(token));
-		assertThat(RestOptions.getMaxUpload(), equalTo(maxUpload));
 	}
 
 	@Property
@@ -86,7 +80,6 @@ public class RestOptionsTest {
 		assertThat(RestOptions.getHost(), equalTo("localhost"));
 		assertThat(RestOptions.getPort(), equalTo(RestOptions.DEFAULT_PORT));
 		assertThat(RestOptions.getToken(), equalTo(System.getenv("HEDGEHOG_REST_TOKEN")));
-		assertThat(RestOptions.getMaxUpload(), equalTo(GIGABYTE));
 	}
 
 	@Property
