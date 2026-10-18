@@ -18,13 +18,17 @@
 
 package org.unigrid.hedgehog.s3.server;
 
+import io.netty.handler.codec.http.HttpHeaderNames;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterContainer;
 import net.jqwik.api.lifecycle.BeforeContainer;
@@ -33,10 +37,14 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.s3.jqwik.Expect;
 
 public class S3ConnectionTest {
 	private static final int OK = 200;
 	private static final int FORBIDDEN = 403;
+	private static final long SMALL_REST = 64 * 1024;
+	private static final long ENDLESS = 1L << 40;
+	private static final long OVERRUN = 64L * 1024 * 1024;
 	private static final int TIMEOUT_MILLIS = 30_000;
 
 	/* Ample time to answer a request that was not held back behind the one before it */
@@ -83,6 +91,51 @@ public class S3ConnectionTest {
 			assertThat(answers.stream().map(RawHttp.Answer::complete).toList(), contains(true, true));
 			assertThat(answers.stream().map(RawHttp.Answer::status).toList(), contains(OK, FORBIDDEN));
 			assertThat(answers.getFirst().length(), equalTo((int) PacedResource.STALLED_DOWNLOAD));
+		}
+
+		assertThat(leaks.collect(), empty());
+	}
+
+	@Example
+	public void drainsTheSmallRestOfAnUnreadBodyToServeTheNextRequest() throws Exception {
+		final int port = S3Fixture.freePort();
+		final PacedResource resource = new PacedResource(() -> 0, new CountDownLatch(0));
+
+		try (S3Server server = resource.serve(port); Socket socket = connect(port)) {
+			final OutputStream out = socket.getOutputStream();
+			final InputStream in = socket.getInputStream();
+
+			out.write(RawHttp.unsigned("PUT", "/bucket/refused", SMALL_REST));
+
+			final RawHttp.Answer refusal = RawHttp.answers(in, 1).getFirst();
+
+			assertThat(refusal.status(), equalTo(FORBIDDEN));
+			assertThat(refusal.headers().get(HttpHeaderNames.CONNECTION), equalTo("keep-alive"));
+
+			RawHttp.send(out, SMALL_REST, new AtomicLong());
+			out.write(RawHttp.unsigned("GET", "/", 0));
+
+			assertThat(RawHttp.answers(in, 1).getFirst().status(), equalTo(FORBIDDEN));
+		}
+
+		assertThat(leaks.collect(), empty());
+	}
+
+	@Example
+	public void closesAConnectionRatherThanDrainALargeUnreadBody() throws Exception {
+		final int port = S3Fixture.freePort();
+		final PacedResource resource = new PacedResource(() -> 0, new CountDownLatch(0));
+
+		try (S3Server server = resource.serve(port); Socket socket = connect(port)) {
+			socket.getOutputStream().write(RawHttp.unsigned("PUT", "/bucket/refused", ENDLESS));
+
+			final RawHttp.Answer refusal = RawHttp.answers(socket.getInputStream(), 1).getFirst();
+
+			assertThat(refusal.status(), equalTo(FORBIDDEN));
+			assertThat(refusal.headers().get(HttpHeaderNames.CONNECTION), equalTo("close"));
+			Expect.assertThrows(IOException.class, () -> RawHttp.send(socket.getOutputStream(), OVERRUN,
+				new AtomicLong()
+			));
 		}
 
 		assertThat(leaks.collect(), empty());

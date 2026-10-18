@@ -116,15 +116,38 @@ public class S3RequestBodyTest {
 	}
 
 	@Example
-	public void discardsWhatItsResourceLeftAndWhatStillArrives() throws IOException {
-		final S3RequestBody body = body(new EmbeddedChannel());
-		final List<ByteBuf> buffers = offer(body, List.of(new byte[HIGH_WATER]));
+	public void stopsReadingOnceClosedUntilItsResponseDecidesToDrainTheRest() throws IOException {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final S3RequestBody body = body(channel);
+		final List<ByteBuf> buffers = offer(body, List.of(new byte[1]));
 
 		body.close();
 
 		assertThat(body.read(), equalTo(-1));
 		assertThat(counts(buffers), everyItem(equalTo(0)));
+		assertThat(channel.config().isAutoRead(), is(false));
+
+		body.discard(true);
+		body.close();
+
+		assertThat(channel.config().isAutoRead(), is(true));
 		assertThat(counts(offer(body, List.of(new byte[1]))), everyItem(equalTo(0)));
+	}
+
+	@Example
+	public void knowsWhetherTheRestOfItsBodyIsWithinALimit() {
+		final S3RequestBody body = body(new EmbeddedChannel());
+
+		offer(body, List.of(new byte[LOW_WATER]));
+
+		assertThat(body.remainsWithin(LOW_WATER + 2, 2), is(true));
+		assertThat(body.remainsWithin(LOW_WATER + 3, 2), is(false));
+		assertThat(body.remainsWithin(-1, HIGH_WATER), is(false));
+
+		body.end();
+
+		assertThat(body.remainsWithin(-1, 0), is(true));
+		body.discard(true);
 	}
 
 	@Example

@@ -46,11 +46,14 @@ final class S3RequestBody extends InputStream {
 	private final Deque<ByteBuf> buffers = new ArrayDeque<>();
 
 	private int buffered;
+	private long received;
 	private boolean ended;
 	private boolean discarded;
 	private IOException failure;
 
 	synchronized void offer(final ByteBuf content) {
+		received += content.readableBytes();
+
 		if (discarded || failure != null || !content.isReadable()) {
 			content.release();
 			return;
@@ -71,24 +74,35 @@ final class S3RequestBody extends InputStream {
 		notifyAll();
 	}
 
+	/* Whether the client has at most the limit left to send of a body of the given length, or -1 when unknown */
+	synchronized boolean remainsWithin(final long length, final long limit) {
+		return ended || length >= 0 && length - received <= limit;
+	}
+
 	synchronized void fail(final IOException cause) {
 		if (!discarded && failure == null) {
 			failure = cause;
 			release();
+			gate.release(this);
 		}
 	}
 
-	/* Drops whatever the resource left unread, so the connection can go on to the next request */
-	synchronized void discard() {
+	/* Drops whatever the resource left unread, and reads on only if the rest is to be drained for the next request */
+	synchronized void discard(final boolean drain) {
 		discarded = true;
 		release();
+
+		if (drain) {
+			gate.release(this);
+		} else {
+			gate.hold(this);
+		}
 	}
 
 	private void release() {
 		buffers.forEach(ByteBuf::release);
 		buffers.clear();
 		buffered = 0;
-		gate.release(this);
 		notifyAll();
 	}
 
@@ -168,8 +182,11 @@ final class S3RequestBody extends InputStream {
 		return buffered;
 	}
 
+	/* The response decides whether the rest is drained, so reading stops until then unless it already decided */
 	@Override
-	public void close() {
-		discard();
+	public synchronized void close() {
+		if (!discarded) {
+			discard(false);
+		}
 	}
 }

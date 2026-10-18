@@ -54,12 +54,17 @@ import org.glassfish.jersey.server.spi.ContainerResponseWriter;
 final class S3ResponseWriter implements ContainerResponseWriter {
 	private static final int CHUNK = 64 * 1024;
 
+	/* At most this much of a body its resource left unread is drained to keep the connection, as a client could
+	   otherwise make the server read an endless body; past it the connection closes after the response */
+	private static final long MAX_DRAIN = 1024 * 1024;
+
 	private final ChannelHandlerContext context;
 	private final HttpRequest request;
 	private final S3RequestBody body;
 	private final Duration stallTimeout;
 	private final Runnable answered;
 	private boolean started;
+	private boolean drains = true;
 
 	private static HttpResponseStatus status(final Response.StatusType status) {
 		return status.getReasonPhrase() == null ? HttpResponseStatus.valueOf(status.getStatusCode())
@@ -68,6 +73,10 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 
 	private boolean isHead() {
 		return HttpMethod.HEAD.equals(request.method());
+	}
+
+	private long declaredLength() {
+		return HttpUtil.isTransferEncodingChunked(request) ? -1 : HttpUtil.getContentLength(request, 0L);
 	}
 
 	/* A HEAD response keeps the length of the body it leaves out, when its resource gave one */
@@ -84,7 +93,9 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 			HttpUtil.setContentLength(response, length);
 		}
 
-		if (HttpUtil.isKeepAlive(request)) {
+		if (!drains) {
+			response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+		} else if (HttpUtil.isKeepAlive(request)) {
 			response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
 		}
 
@@ -96,6 +107,7 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 		final ContainerResponse container) {
 
 		started = true;
+		drains = body.remainsWithin(declaredLength(), MAX_DRAIN);
 		context.write(head(length, container));
 
 		if (isHead() || length == 0) {
@@ -118,8 +130,8 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 	}
 
 	@Override
-	public void commit() {
-		body.discard();
+	public synchronized void commit() {
+		body.discard(drains);
 		answered.run();
 	}
 
@@ -131,7 +143,7 @@ final class S3ResponseWriter implements ContainerResponseWriter {
 			));
 
 		answer.addListener(ChannelFutureListener.CLOSE);
-		body.discard();
+		body.discard(false);
 		answered.run();
 	}
 
