@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.s3.auth;
 
 import jakarta.annotation.Priority;
+import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
@@ -80,8 +81,13 @@ public class SignatureFilter implements ContainerRequestFilter {
 		}
 	}
 
+	/* A browser sends a CORS preflight without credentials, and only the CORS rules answer it */
 	@Override
 	public void filter(final ContainerRequestContext request) {
+		if (HttpMethod.OPTIONS.equals(request.getMethod())) {
+			return;
+		}
+
 		final Authorization authorization = authorization(request);
 		final Credential credential = authorization.credential();
 		final String secretKey = credentials.secretKey(credential.accessKeyId())

@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.s3.resource;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.OPTIONS;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -132,6 +133,13 @@ public class ObjectResource {
 
 		Requests.subresource(uri, Subresource.NONE);
 		return read(bucket, key, uri.getQueryParameters(), headers, false);
+	}
+
+	@OPTIONS
+	public Response preflight(@PathParam("bucket") final String bucket, @Context final HttpHeaders headers)
+		throws IOException, BlobStoreException, MalformedXmlException {
+
+		return Cors.preflight(namespace, bucket, headers);
 	}
 
 	@DELETE

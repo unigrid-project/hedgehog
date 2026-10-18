@@ -45,21 +45,23 @@ public class VirtualHostFilter implements ContainerRequestFilter {
 
 	private final String domain;
 
-	static Optional<String> bucket(final String host, final String domain) {
+	/* What a request to a subdomain of the domain names its bucket, whether or not that is a bucket name */
+	public static Optional<String> subdomain(final String host, final String domain) {
 		final String name = PORT.matcher(host).replaceFirst("").toLowerCase(Locale.ROOT);
 		final String suffix = "." + domain.toLowerCase(Locale.ROOT);
 
-		if (!name.endsWith(suffix) || name.length() == suffix.length()) {
-			return Optional.empty();
-		}
+		return name.endsWith(suffix) && name.length() > suffix.length()
+			? Optional.of(name.substring(0, name.length() - suffix.length())) : Optional.empty();
+	}
 
-		final String bucket = name.substring(0, name.length() - suffix.length());
+	static Optional<String> bucket(final String host, final String domain) {
+		final Optional<String> bucket = subdomain(host, domain);
 
-		if (!BUCKET.matcher(bucket).matches()) {
+		if (bucket.isPresent() && !BUCKET.matcher(bucket.get()).matches()) {
 			throw new S3Exception(S3ErrorCode.InvalidBucketName);
 		}
 
-		return Optional.of(bucket);
+		return bucket;
 	}
 
 	static URI rewrite(final URI uri, final String bucket) {

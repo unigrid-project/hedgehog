@@ -27,11 +27,13 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum S3ErrorCode {
 	AccessDenied(Status.FORBIDDEN, "Access Denied"),
+	AccessForbidden(Status.FORBIDDEN, "Access Forbidden"),
 	AuthorizationHeaderMalformed(Status.BAD_REQUEST, "The authorization header that you provided is not valid."),
 	AuthorizationQueryParametersError(Status.BAD_REQUEST,
 		"The authorization query parameters that you provided are not valid."),
 	BadDigest(Status.BAD_REQUEST,
 		"The Content-MD5 or checksum value that you specified did not match what the server received."),
+	BadRequest(Status.BAD_REQUEST, "Bad Request"),
 	BucketAlreadyOwnedByYou(Status.CONFLICT, "The bucket that you tried to create already exists, and you own it."),
 	BucketNotEmpty(Status.CONFLICT, "The bucket that you tried to delete is not empty."),
 	EntityTooLarge(Status.BAD_REQUEST, "Your proposed upload exceeds the maximum allowed size."),
