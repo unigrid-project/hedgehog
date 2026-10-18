@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.s3.resource;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -38,8 +39,8 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.Objects;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.entity.CopyObjectResult;
+import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.Subresource;
@@ -54,7 +55,6 @@ import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 @Path("/{bucket}/{key:.+}")
-@RequiredArgsConstructor
 public class ObjectResource {
 	/* The largest object a single PUT may write, and the largest part of a multipart upload */
 	static final long MAX_SIZE = 5L << 30;
@@ -67,26 +67,50 @@ public class ObjectResource {
 	private final Namespace namespace;
 	private final BlobStore blobs;
 	private final Clock clock;
+	private final Multipart multipart;
+
+	public ObjectResource(final Namespace namespace, final BlobStore blobs, final Clock clock) {
+		this.namespace = namespace;
+		this.blobs = blobs;
+		this.clock = clock;
+		multipart = new Multipart(namespace, blobs, clock);
+	}
 
 	@PUT
 	public Response put(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
 		@Context final UriInfo uri, @Context final HttpHeaders headers,
 		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException {
 
-		Requests.subresource(uri, Subresource.NONE);
-
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID);
 		final Optional<CopySource> source = CopySource.of(headers);
+
+		if (subresource == Subresource.UPLOAD_ID) {
+			return source.isPresent() ? multipart.copyPart(bucket, key, uri.getQueryParameters(), headers,
+				source.get()) : multipart.uploadPart(bucket, key, uri.getQueryParameters(), request);
+		}
 
 		return source.isPresent() ? copyObject(bucket, key, headers, source.get())
 			: putObject(bucket, key, headers, request);
 	}
 
+	@POST
+	public Response post(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
+		@Context final UriInfo uri, @Context final HttpHeaders headers,
+		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
+		MalformedXmlException {
+
+		return Requests.subresource(uri, Subresource.UPLOADS, Subresource.UPLOAD_ID) == Subresource.UPLOADS
+			? multipart.create(bucket, key, headers) : multipart.complete(bucket, key, uri, headers, request);
+	}
+
 	@GET
 	public Response get(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
-		@Context final UriInfo uri, @Context final HttpHeaders headers) throws IOException, BlobStoreException {
+		@Context final UriInfo uri, @Context final HttpHeaders headers) throws IOException, BlobStoreException,
+		NamespaceException {
 
-		Requests.subresource(uri, Subresource.NONE);
-		return read(bucket, key, uri.getQueryParameters(), headers, true);
+		return Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID) == Subresource.UPLOAD_ID
+			? multipart.listParts(bucket, key, uri.getQueryParameters())
+			: read(bucket, key, uri.getQueryParameters(), headers, true);
 	}
 
 	@HEAD
@@ -101,10 +125,15 @@ public class ObjectResource {
 	public Response delete(@PathParam("bucket") final String bucket, @PathParam("key") final String key,
 		@Context final UriInfo uri) throws IOException, BlobStoreException, NamespaceException {
 
-		Requests.subresource(uri, Subresource.NONE);
+		return Requests.subresource(uri, Subresource.NONE, Subresource.UPLOAD_ID) == Subresource.UPLOAD_ID
+			? multipart.abort(bucket, key, uri.getQueryParameters())
+			: deleteObject(bucket, key, uri.getQueryParameters().getFirst(Versions.VERSION_ID));
+	}
 
-		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, key,
-			uri.getQueryParameters().getFirst(Versions.VERSION_ID));
+	private Response deleteObject(final String bucket, final String key, final String versionId)
+		throws IOException, BlobStoreException, NamespaceException {
+
+		final Versions.Deleted deleted = Versions.delete(namespace, Requests.now(clock), bucket, key, versionId);
 		final Response.ResponseBuilder response = Response.noContent();
 
 		if (deleted.deleteMarker()) {

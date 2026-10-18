@@ -104,12 +104,13 @@ public class BucketResource {
 		BlobStoreException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
-			Subresource.LOCATION);
+			Subresource.LOCATION, Subresource.UPLOADS);
 		final Bucket bucket = Requests.bucket(namespace, name);
 
 		return Responses.xml(switch (subresource) {
 			case LOCATION -> new LocationConstraint(bucket.location());
 			case LIST_TYPE -> listings.objectsV2(name, uri.getQueryParameters());
+			case UPLOADS -> listings.uploads(name, uri.getQueryParameters());
 			default -> listings.objects(name, uri.getQueryParameters());
 		});
 	}

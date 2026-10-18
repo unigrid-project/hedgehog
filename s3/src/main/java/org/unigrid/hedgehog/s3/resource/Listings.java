@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.entity.CommonPrefix;
 import org.unigrid.hedgehog.s3.entity.ListBucketResult;
 import org.unigrid.hedgehog.s3.entity.ListBucketResultV2;
+import org.unigrid.hedgehog.s3.entity.ListMultipartUploadsResult;
 import org.unigrid.hedgehog.s3.entity.ObjectSummary;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
@@ -40,6 +41,7 @@ import org.unigrid.hedgehog.s3.index.Listing;
 import org.unigrid.hedgehog.s3.index.Marker;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
+import org.unigrid.hedgehog.s3.index.Upload;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 /* The listings of the keys in a bucket. With encoding-type=url, every key, prefix, delimiter and marker the
@@ -127,6 +129,36 @@ final class Listings {
 			.orElse(null));
 		result.setStartAfter(encode.apply(query.getFirst("start-after")));
 		result.setContents(summaries(listing, Boolean.parseBoolean(query.getFirst("fetch-owner")), encode));
+		result.setCommonPrefixes(prefixes(listing, encode));
+		return result;
+	}
+
+	/* ListMultipartUploads, where the uploads of one key run in the order they were initiated */
+	ListMultipartUploadsResult uploads(final String bucket, final MultivaluedMap<String, String> query)
+		throws IOException, BlobStoreException {
+
+		final UnaryOperator<String> encode = encoding(query.getFirst(ENCODING_TYPE));
+		final String keyMarker = Objects.requireNonNullElse(query.getFirst("key-marker"), "");
+		final String idMarker = Objects.requireNonNullElse(query.getFirst("upload-id-marker"), "");
+		final ListQuery listed = query(query, keyMarker, Requests.limit(query.getFirst("max-uploads"))).toBuilder()
+			.idMarker(idMarker).build();
+		final Listing<Upload> listing = namespace.listUploads(bucket, listed);
+		final ListMultipartUploadsResult result = new ListMultipartUploadsResult();
+
+		result.setBucket(bucket);
+		result.setKeyMarker(encode.apply(keyMarker));
+		result.setUploadIdMarker(idMarker);
+		result.setNextKeyMarker(listing.next().map(Marker::key).map(encode).orElse(null));
+		result.setNextUploadIdMarker(listing.next().map(Marker::id).orElse(null));
+		result.setPrefix(encode.apply(listed.prefix()));
+		result.setDelimiter(encode.apply(query.getFirst(DELIMITER)));
+		result.setMaxUploads(listed.limit());
+		result.setIsTruncated(listing.truncated());
+		result.setEncodingType(query.getFirst(ENCODING_TYPE));
+		result.setUploads(listing.entries().stream().map(upload -> new org.unigrid.hedgehog.s3.entity.Upload(
+			encode.apply(upload.key()), upload.uploadId(), Responses.owner(), Responses.owner(), STANDARD,
+			upload.initiated(), upload.checksumAlgorithm())).toList()
+		);
 		result.setCommonPrefixes(prefixes(listing, encode));
 		return result;
 	}
