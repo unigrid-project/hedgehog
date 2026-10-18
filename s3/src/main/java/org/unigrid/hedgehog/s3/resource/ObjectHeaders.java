@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
 
 /* The headers an object keeps from the request that wrote it and answers every read with */
@@ -92,8 +93,8 @@ final class ObjectHeaders {
 	}
 
 	/* What every read answers with, where a response-* query parameter replaces the content header it names */
-	static Response.ResponseBuilder describe(final Response.ResponseBuilder response, final ObjectVersion version,
-		final MultivaluedMap<String, String> query) {
+	static Response.ResponseBuilder describe(final Response.ResponseBuilder response, final Bucket bucket,
+		final ObjectVersion version, final MultivaluedMap<String, String> query) {
 
 		final Map<String, String> content = new LinkedHashMap<>(version.headers());
 
@@ -110,7 +111,7 @@ final class ObjectHeaders {
 		}
 
 		return Responses.versioned(response.tag(new EntityTag(version.etag()))
-			.lastModified(Date.from(version.lastModified())).header(ACCEPT_RANGES, "bytes"), version
+			.lastModified(Date.from(version.lastModified())).header(ACCEPT_RANGES, "bytes"), bucket, version
 		);
 	}
 }

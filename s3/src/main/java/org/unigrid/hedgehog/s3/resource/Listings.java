@@ -28,10 +28,13 @@ import java.util.Objects;
 import java.util.function.UnaryOperator;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.s3.entity.CommonPrefix;
+import org.unigrid.hedgehog.s3.entity.DeleteMarker;
 import org.unigrid.hedgehog.s3.entity.ListBucketResult;
 import org.unigrid.hedgehog.s3.entity.ListBucketResultV2;
 import org.unigrid.hedgehog.s3.entity.ListMultipartUploadsResult;
+import org.unigrid.hedgehog.s3.entity.ListVersionsResult;
 import org.unigrid.hedgehog.s3.entity.ObjectSummary;
+import org.unigrid.hedgehog.s3.entity.Version;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.Subresource;
@@ -42,6 +45,7 @@ import org.unigrid.hedgehog.s3.index.Marker;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
 import org.unigrid.hedgehog.s3.index.Upload;
+import org.unigrid.hedgehog.s3.index.VersionEntry;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 /* The listings of the keys in a bucket. With encoding-type=url, every key, prefix, delimiter and marker the
@@ -133,6 +137,40 @@ final class Listings {
 		return result;
 	}
 
+	/* ListObjectVersions, where the versions and delete markers of one key run from the newest, and a page may end
+	   inside them */
+	ListVersionsResult versions(final String bucket, final MultivaluedMap<String, String> query)
+		throws IOException, BlobStoreException {
+
+		final UnaryOperator<String> encode = encoding(query.getFirst(ENCODING_TYPE));
+		final String keyMarker = Objects.requireNonNullElse(query.getFirst("key-marker"), "");
+		final String idMarker = Objects.requireNonNullElse(query.getFirst("version-id-marker"), "");
+
+		if (keyMarker.isEmpty() && !idMarker.isEmpty()) {
+			throw new S3Exception(S3ErrorCode.InvalidArgument,
+				"A version-id marker cannot be specified without a key marker.");
+		}
+
+		final ListQuery listed = query(query, keyMarker, Requests.limit(query.getFirst("max-keys"))).toBuilder()
+			.idMarker(idMarker).build();
+		final Listing<VersionEntry> listing = namespace.listVersions(bucket, listed);
+		final ListVersionsResult result = new ListVersionsResult();
+
+		result.setName(bucket);
+		result.setPrefix(encode.apply(listed.prefix()));
+		result.setKeyMarker(encode.apply(keyMarker));
+		result.setVersionIdMarker(idMarker);
+		result.setNextKeyMarker(listing.next().map(Marker::key).map(encode).orElse(null));
+		result.setNextVersionIdMarker(listing.next().map(Marker::id).orElse(null));
+		result.setMaxKeys(listed.limit());
+		result.setDelimiter(encode.apply(query.getFirst(DELIMITER)));
+		result.setIsTruncated(listing.truncated());
+		result.setEncodingType(query.getFirst(ENCODING_TYPE));
+		result.setEntries(listing.entries().stream().map(entry -> describe(entry, encode)).toList());
+		result.setCommonPrefixes(prefixes(listing, encode));
+		return result;
+	}
+
 	/* ListMultipartUploads, where the uploads of one key run in the order they were initiated */
 	ListMultipartUploadsResult uploads(final String bucket, final MultivaluedMap<String, String> query)
 		throws IOException, BlobStoreException {
@@ -167,6 +205,15 @@ final class Listings {
 		return ContinuationToken.decode(token).orElseThrow(() -> new S3Exception(S3ErrorCode.InvalidArgument,
 			"The continuation token provided is incorrect"
 		));
+	}
+
+	private static Object describe(final VersionEntry entry, final UnaryOperator<String> encode) {
+		final ObjectVersion version = entry.version();
+
+		return version.deleteMarker() ? new DeleteMarker(encode.apply(version.key()), version.versionId(),
+			entry.latest(), version.lastModified(), Responses.owner()) : new Version(encode.apply(version.key()),
+			version.versionId(), entry.latest(), version.lastModified(), Responses.quoted(version.etag()),
+			version.size(), STANDARD, Responses.owner(), new ArrayList<>(version.checksums().keySet()));
 	}
 
 	private static List<ObjectSummary> summaries(final Listing<ObjectVersion> listing, final boolean owned,

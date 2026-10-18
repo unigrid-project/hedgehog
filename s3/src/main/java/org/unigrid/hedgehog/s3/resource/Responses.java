@@ -23,7 +23,9 @@ import jakarta.ws.rs.core.Response;
 import java.util.Map;
 import org.unigrid.hedgehog.s3.checksum.ChecksumAlgorithm;
 import org.unigrid.hedgehog.s3.entity.Owner;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
+import org.unigrid.hedgehog.s3.index.Versioning;
 
 final class Responses {
 	static final String VERSION_ID = "x-amz-version-id";
@@ -48,9 +50,13 @@ final class Responses {
 		return "\"" + etag + "\"";
 	}
 
-	/* Only a bucket that ever had versioning enabled hands out version ids other than the null one */
-	static Response.ResponseBuilder versioned(final Response.ResponseBuilder response, final ObjectVersion version) {
-		return version.isNullVersion() ? response : response.header(VERSION_ID, version.versionId());
+	/* A bucket that has had versioning names the version of every answer, the null one as well, and a bucket that
+	   never had it names none */
+	static Response.ResponseBuilder versioned(final Response.ResponseBuilder response, final Bucket bucket,
+		final ObjectVersion version) {
+
+		final boolean named = !version.isNullVersion() || bucket.versioning() != Versioning.UNVERSIONED;
+		return named ? response.header(VERSION_ID, version.versionId()) : response;
 	}
 
 	static Response.ResponseBuilder copied(final Response.ResponseBuilder response, final ObjectVersion source) {

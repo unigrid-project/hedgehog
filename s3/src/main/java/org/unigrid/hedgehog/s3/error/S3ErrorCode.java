@@ -36,6 +36,8 @@ public enum S3ErrorCode {
 	BucketNotEmpty(Status.CONFLICT, "The bucket that you tried to delete is not empty."),
 	EntityTooLarge(Status.BAD_REQUEST, "Your proposed upload exceeds the maximum allowed size."),
 	EntityTooSmall(Status.BAD_REQUEST, "Your proposed upload is smaller than the minimum allowed object size."),
+	IllegalVersioningConfigurationException(Status.BAD_REQUEST, "The versioning configuration specified in the "
+		+ "request is invalid."),
 	IncompleteBody(Status.BAD_REQUEST,
 		"You did not provide the number of bytes specified by the Content-Length HTTP header."),
 	InternalError(Status.INTERNAL_SERVER_ERROR, "We encountered an internal error. Please try again."),

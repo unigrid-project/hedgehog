@@ -18,21 +18,33 @@
 
 package org.unigrid.hedgehog.s3.resource;
 
+import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
+import org.unigrid.hedgehog.s3.entity.VersioningConfiguration;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
+import org.unigrid.hedgehog.s3.index.Versioning;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
 
 final class Versions {
 	static final String VERSION_ID = "versionId";
+
+	private static final String ENABLED = "Enabled";
+	private static final String SUSPENDED = "Suspended";
+	private static final Map<String, Versioning> STATES = Map.of(ENABLED, Versioning.ENABLED, SUSPENDED,
+		Versioning.SUSPENDED);
 
 	/* What a delete did: the version it was asked to remove, or the delete marker it left in place of the key */
 	record Deleted(String versionId, boolean deleteMarker) {
@@ -40,6 +52,36 @@ final class Versions {
 
 	private Versions() {
 		/* Static helpers only */
+	}
+
+	/* A bucket that never had versioning has no status to answer with */
+	static VersioningConfiguration configuration(final Bucket bucket) {
+		final String status = switch (bucket.versioning()) {
+			case ENABLED -> ENABLED;
+			case SUSPENDED -> SUSPENDED;
+			case UNVERSIONED -> null;
+		};
+
+		return new VersioningConfiguration(status, null);
+	}
+
+	/* Versioning can be enabled and suspended, but a bucket never goes back to having had none */
+	static Response configure(final Namespace namespace, final String name, final ContainerRequestContext request)
+		throws IOException, BlobStoreException, NamespaceException, MalformedXmlException {
+
+		Requests.bucket(namespace, name);
+
+		final VersioningConfiguration configuration = Requests.xml(VersioningConfiguration.class, request)
+			.orElseThrow(() -> new S3Exception(S3ErrorCode.MalformedXML));
+		final Versioning state = Optional.ofNullable(configuration.getStatus()).map(STATES::get)
+			.orElseThrow(() -> new S3Exception(S3ErrorCode.IllegalVersioningConfigurationException));
+
+		if (ENABLED.equals(configuration.getMfaDelete())) {
+			throw new S3Exception(S3ErrorCode.NotImplemented, "MFA delete is not implemented.");
+		}
+
+		namespace.updateBucket(name, bucket -> bucket.toBuilder().versioning(state).build());
+		return Response.ok().build();
 	}
 
 	/* Deleting what is not there succeeds, as it does in S3 */

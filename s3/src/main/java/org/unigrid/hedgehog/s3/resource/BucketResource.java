@@ -72,10 +72,13 @@ public class BucketResource {
 		@Context final HttpHeaders headers, @Context final ContainerRequestContext request) throws IOException,
 		BlobStoreException, NamespaceException, MalformedXmlException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
+			Subresource.VERSIONING);
 
 		if (subresource == Subresource.TAGGING) {
 			return Tags.writeBucket(namespace, name, request);
+		} else if (subresource == Subresource.VERSIONING) {
+			return Versions.configure(namespace, name, request);
 		}
 
 		if (!BucketNames.valid(name)) {
@@ -108,16 +111,27 @@ public class BucketResource {
 		BlobStoreException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
-			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS);
+			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS, Subresource.VERSIONING,
+			Subresource.VERSIONS);
 		final Bucket bucket = Requests.bucket(namespace, name);
 
 		return Responses.xml(switch (subresource) {
-			case LOCATION -> new LocationConstraint(bucket.location());
+			case NONE -> listings.objects(name, uri.getQueryParameters());
 			case LIST_TYPE -> listings.objectsV2(name, uri.getQueryParameters());
-			case TAGGING -> Tags.bucket(bucket);
 			case UPLOADS -> listings.uploads(name, uri.getQueryParameters());
-			default -> listings.objects(name, uri.getQueryParameters());
+			case VERSIONS -> listings.versions(name, uri.getQueryParameters());
+			default -> configuration(bucket, subresource);
 		});
+	}
+
+	/* The documents of the subresources that describe a bucket rather than list what it holds */
+	private static Object configuration(final Bucket bucket, final Subresource subresource) {
+		return switch (subresource) {
+			case LOCATION -> new LocationConstraint(bucket.location());
+			case TAGGING -> Tags.bucket(bucket);
+			case VERSIONING -> Versions.configuration(bucket);
+			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
+		};
 	}
 
 	@DELETE

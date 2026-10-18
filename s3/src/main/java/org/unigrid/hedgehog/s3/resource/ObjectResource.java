@@ -45,6 +45,7 @@ import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.Subresource;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
@@ -169,7 +170,9 @@ public class ObjectResource {
 
 		Requests.key(key);
 		ObjectHeaders.refuseUnsupported(headers);
-		Requests.bucket(namespace, bucket);
+
+		final Bucket target = Requests.bucket(namespace, bucket);
+
 		Requests.writable(headers, namespace.latest(bucket, key));
 
 		final Map<String, String> tags = Tags.header(headers);
@@ -182,8 +185,8 @@ public class ObjectResource {
 			latest -> Requests.writable(headers, latest))
 		);
 
-		return Responses.checksums(Responses.versioned(Response.ok().tag(new EntityTag(body.etag())), stored),
-			body.checksums()).build();
+		return Responses.checksums(Responses.versioned(Response.ok().tag(new EntityTag(body.etag())), target,
+			stored), body.checksums()).build();
 	}
 
 	/* The copy refers to the slices of its source instead of copying them, so it costs no more than the index
@@ -193,8 +196,8 @@ public class ObjectResource {
 
 		Requests.key(key);
 		ObjectHeaders.refuseUnsupported(headers);
-		Requests.bucket(namespace, bucket);
 
+		final Bucket target = Requests.bucket(namespace, bucket);
 		final ObjectVersion from = source.read(namespace, headers);
 		final boolean replace = ObjectHeaders.replaced(headers);
 
@@ -213,8 +216,8 @@ public class ObjectResource {
 		result.setETag(Responses.quoted(stored.etag()));
 		result.setLastModified(now);
 
-		return Responses.copied(Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), stored),
-			from).build();
+		return Responses.copied(Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), target,
+			stored), from).build();
 	}
 
 	/* A copy keeps the content of its source, and its headers, metadata and tags unless the request replaces them */
@@ -232,6 +235,7 @@ public class ObjectResource {
 	private Response read(final String bucket, final String key, final MultivaluedMap<String, String> query,
 		final HttpHeaders headers, final boolean withBody) throws IOException, BlobStoreException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final ObjectVersion version = Versions.readable(namespace, bucket, key, query.getFirst(Versions.VERSION_ID));
 		final long size = version.size();
 
@@ -241,7 +245,7 @@ public class ObjectResource {
 		final long offset = range.map(ByteRange::first).orElse(0L);
 		final long length = range.map(ByteRange::length).orElse(size);
 		final Response.ResponseBuilder response = ObjectHeaders.describe(Response.status(range.isPresent()
-			? Response.Status.PARTIAL_CONTENT : Response.Status.OK), version, query)
+			? Response.Status.PARTIAL_CONTENT : Response.Status.OK), found, version, query)
 			.header(HttpHeaders.CONTENT_LENGTH, length);
 
 		range.ifPresent(within -> response.header(CONTENT_RANGE, "bytes " + within.first() + "-" + within.last()

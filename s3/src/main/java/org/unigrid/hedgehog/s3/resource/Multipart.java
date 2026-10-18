@@ -50,6 +50,7 @@ import org.unigrid.hedgehog.s3.entity.ListPartsResult;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Listing;
 import org.unigrid.hedgehog.s3.index.Marker;
 import org.unigrid.hedgehog.s3.index.Namespace;
@@ -146,6 +147,7 @@ final class Multipart {
 		final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
 		MalformedXmlException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final List<org.unigrid.hedgehog.s3.entity.Part> requested = requested(Requests.xml(
 			CompleteMultipartUpload.class, request));
 		final ObjectVersion stored = namespace.completeUpload(bucket, Requests.key(key),
@@ -159,7 +161,7 @@ final class Multipart {
 		result.setBucket(bucket);
 		result.setKey(key);
 		result.setETag(Responses.quoted(stored.etag()));
-		return Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), stored).build();
+		return Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), found, stored).build();
 	}
 
 	Response abort(final String bucket, final String key, final MultivaluedMap<String, String> query)
