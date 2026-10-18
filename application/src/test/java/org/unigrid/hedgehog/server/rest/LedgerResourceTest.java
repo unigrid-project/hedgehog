@@ -39,10 +39,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Invocation;
 import mockit.Mock;
@@ -56,6 +58,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
@@ -295,8 +298,42 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		return submit(hex(transaction.encode()));
 	}
 
+	private void sendWithoutReadingTheAnswer(final Transaction transaction) {
+		try {
+			submit(transaction);
+		} catch (Exception ex) {
+			assertThat(ex.getMessage(), not(startsWith("429 ")));
+		}
+	}
+
 	private static String refusalOf(final Expect.Action submitting) {
-		return assertThrows(ResponseOddityException.class, submitting).getMessage();
+		return refusedBy(submitting).getMessage();
+	}
+
+	private static ResponseOddityException refusedBy(final Expect.Action submitting) {
+		return assertThrows(ResponseOddityException.class, submitting);
+	}
+
+	private static String errorBody(final String message) {
+		return "{\"error\":\"" + message + "\"}";
+	}
+
+	private static Answering failing() {
+		return transaction -> CompletableFuture.failedFuture(new IllegalStateException("The driver failed"));
+	}
+
+	private static Answering interruptedWhileWaiting() {
+		return transaction -> {
+			final CompletableFuture<Optional<String>> future = new CompletableFuture<>() {
+				@Override
+				public Optional<String> get(final long timeout, final TimeUnit unit) throws InterruptedException {
+					throw new InterruptedException();
+				}
+			};
+
+			future.complete(Optional.empty());
+			return future;
+		};
 	}
 
 	private List<String> submittedIds() {
@@ -631,13 +668,64 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	public void shouldAnswerThatTheLedgerIsNotRunningWhenTheLedgerSaysSo() {
 		answering = answeringWith(Optional.of(NO_LEDGER));
 
-		assertThat(refusalOf(() -> submit(transfer(0))), startsWith("503 "));
+		final ResponseOddityException refused = refusedBy(() -> submit(transfer(0)));
+
+		assertThat(refused.getMessage(), startsWith("503 "));
+		assertThat(refused.getBody(), equalTo(errorBody(NO_LEDGER)));
 	}
 
 	@Example
 	public void shouldRefuseAMintBecauseMintsComeOnlyFromTheSporks() {
-		assertThat(refusalOf(() -> submit(new Mint(ALICE, TEN_COINS, reference(9)))), startsWith("400 "));
+		final ResponseOddityException refused = refusedBy(() -> submit(new Mint(ALICE, TEN_COINS, reference(9))));
+
+		assertThat(refused.getMessage(), startsWith("400 "));
+		assertThat(refused.getBody(), equalTo(errorBody("A mint comes only from the sporks, not from a client")));
 		assertThat(submitted, empty());
+	}
+
+	@Example
+	public void shouldSayInTheErrorBodyWhyATransactionWasNotRead() {
+		final String tooLong = "A transaction is at most " + LedgerCodecs.MAX_TRANSACTION_SIZE + " bytes";
+		final ResponseOddityException missing = refusedBy(() -> client.post(SUBMIT, Entity.json("{}")));
+		final ResponseOddityException longer = refusedBy(() -> submit("0".repeat(LONGEST_HEX + 1)));
+		final ResponseOddityException notHex = refusedBy(() -> submit("zz"));
+
+		assertThat(missing.getBody(), equalTo(errorBody("A transaction is sent as the hex of its encoding")));
+		assertThat(longer.getBody(), equalTo(errorBody(tooLong)));
+		assertThat(notHex.getBody(), startsWith("{\"error\":\""));
+		assertThat(Stream.of(missing, longer, notHex).map(ResponseOddityException::getMessage).toList(),
+			everyItem(startsWith("400 ")));
+	}
+
+	@Example
+	public void shouldAnswerThatTheLedgerCouldNotAnswerAndFreeTheWaitOfEverySubmit() {
+		answering = failing();
+
+		for (int n = 0; n <= WAITING_AT_MOST; n++) {
+			final long nonce = n;
+			final ResponseOddityException refused = refusedBy(() -> submit(transfer(nonce)));
+
+			assertThat(refused.getMessage(), startsWith("503 "));
+			assertThat(refused.getBody(), equalTo(errorBody("The ledger could not answer")));
+		}
+
+		answering = answeringWith(Optional.empty());
+		assertThat(submit(transfer(0)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
+	}
+
+	/* The thread of an interrupted wait cannot be counted on to finish writing the answer, so what is watched is that
+	   every submit reached the ledger: one that was turned away for want of a wait would not have */
+	@Example
+	public void shouldFreeTheWaitOfASubmitThatIsInterrupted() {
+		answering = interruptedWhileWaiting();
+
+		for (int n = 0; n <= WAITING_AT_MOST; n++) {
+			sendWithoutReadingTheAnswer(transfer(n));
+		}
+
+		assertThat(submitted.size(), equalTo(WAITING_AT_MOST + 1));
+		answering = answeringWith(Optional.empty());
+		assertThat(submit(transfer(0)).getStatus(), equalTo(Status.ACCEPTED.getStatusCode()));
 	}
 
 	@Example
@@ -692,7 +780,10 @@ public class LedgerResourceTest extends BaseRestClientTest {
 				.mapToObj(n -> callers.submit(() -> submit(transfer(n)))).toList();
 
 			await().atMost(PATIENCE).until(unanswered::size, equalTo(WAITING_AT_MOST));
-			assertThat(refusalOf(() -> submit(transfer(WAITING_AT_MOST))), startsWith("429 "));
+			final ResponseOddityException refused = refusedBy(() -> submit(transfer(WAITING_AT_MOST)));
+
+			assertThat(refused.getMessage(), startsWith("429 "));
+			assertThat(refused.getBody(), equalTo(errorBody("Too many transactions wait for the ledger")));
 			assertThat(submitted.size(), equalTo(WAITING_AT_MOST));
 
 			unanswered.get(0).complete(Optional.empty());
@@ -720,8 +811,11 @@ public class LedgerResourceTest extends BaseRestClientTest {
 
 		for (int n = 0; n <= WAITING_AT_MOST; n++) {
 			final long nonce = n;
+			final ResponseOddityException refused = refusedBy(() -> submit(transfer(nonce)));
 
-			assertThat(refusalOf(() -> submit(transfer(nonce))), startsWith("504 "));
+			assertThat(refused.getMessage(), startsWith("504 "));
+			assertThat(refused.getBody(), equalTo(errorBody(
+				"No answer from the ledger in time, it may still take the transaction")));
 		}
 
 		assertThat(Duration.ofNanos(System.nanoTime() - started), lessThan(PATIENCE));
