@@ -24,6 +24,7 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.net.ServerSocket;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +34,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -47,13 +50,16 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.HedgehogCli;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
+import org.unigrid.hedgehog.server.rest.RestToken;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
 import org.unigrid.hedgehog.server.rest.entity.LedgerBlock;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
@@ -64,6 +70,7 @@ public class LedgerReadCommandsTest {
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 	private static final String ACCOUNT_HEX = "ab".repeat(32);
 	private static final String NO_TOKEN_FILE = "/home/holder/rest.token";
+	private static final String LOCAL_HOST = "127.0.0.1";
 
 	private static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
 		"12.50000000", 0L, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
@@ -262,6 +269,44 @@ public class LedgerReadCommandsTest {
 			ledger("info"));
 
 		assertFailedWith(outcome, "Unreadable");
+	}
+
+	/* Nothing listens on the port, so the connection is refused as it is when the daemon is not running */
+	@Property(tries = 5)
+	public void saysInOneLineThatTheNodeCannotBeReached(@ForAll("readCommands") List<String> command)
+		throws IOException {
+
+		final int port = unusedPort();
+
+		new MockUp<RestOptions>() {
+			@Mock public String getHost() {
+				return LOCAL_HOST;
+			}
+
+			@Mock public int getPort() {
+				return port;
+			}
+		};
+
+		new MockUp<RestToken>() {
+			@Mock public String resolve() {
+				return "token";
+			}
+		};
+
+		final HedgehogCli.Result cli = HedgehogCli.run(ledger(command));
+
+		assertThat(cli.exitCode(), equalTo(1));
+		assertThat(cli.err().lines().toList().size(), equalTo(1));
+		assertThat(cli.err(), startsWith("Could not reach the node at " + LOCAL_HOST + ":" + port + ": "));
+		assertThat(cli.err(), containsString("Connect"));
+		cli.assertNoStackTrace();
+	}
+
+	private static int unusedPort() throws IOException {
+		try (ServerSocket socket = new ServerSocket(0)) {
+			return socket.getLocalPort();
+		}
 	}
 
 	@Example

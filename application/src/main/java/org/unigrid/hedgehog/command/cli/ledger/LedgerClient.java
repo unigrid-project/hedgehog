@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.cli.ledger;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
@@ -29,8 +30,10 @@ import java.util.List;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
@@ -93,9 +96,16 @@ final class LedgerClient implements AutoCloseable {
 		try (LedgerClient ledger = connect()) {
 			return work.run(ledger);
 		} catch (Refused | IOException ex) {
-			System.err.println(RestClientCommand.describe(ex));
-			return 1;
+			return failed(RestClientCommand.describe(ex));
+		} catch (ProcessingException ex) {
+			return failed("Could not reach the node at %s:%d: %s".formatted(RestOptions.getHost(),
+				RestOptions.getPort(), ExceptionUtils.getRootCauseMessage(ex)));
 		}
+	}
+
+	private static int failed(final String reason) {
+		System.err.println(reason);
+		return 1;
 	}
 
 	static int print(final Question<?> question) {
