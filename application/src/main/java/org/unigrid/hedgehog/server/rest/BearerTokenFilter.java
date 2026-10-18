@@ -41,13 +41,14 @@ public class BearerTokenFilter implements ContainerRequestFilter {
 		expected = PREFIX.concat(token).getBytes(StandardCharsets.UTF_8);
 	}
 
+	public boolean isAuthorized(String authorization) {
+		return authorization != null
+			&& MessageDigest.isEqual(expected, authorization.getBytes(StandardCharsets.UTF_8));
+	}
+
 	@Override
 	public void filter(ContainerRequestContext context) {
-		final String authorization = context.getHeaderString(HttpHeaders.AUTHORIZATION);
-
-		if (authorization == null || !MessageDigest.isEqual(expected,
-			authorization.getBytes(StandardCharsets.UTF_8))) {
-
+		if (!isAuthorized(context.getHeaderString(HttpHeaders.AUTHORIZATION))) {
 			context.abortWith(Response.status(Response.Status.UNAUTHORIZED)
 				.header(HttpHeaders.WWW_AUTHENTICATE, SCHEME).build()
 			);

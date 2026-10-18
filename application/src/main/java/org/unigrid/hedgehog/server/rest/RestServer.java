@@ -74,7 +74,7 @@ public class RestServer extends AbstractServer {
 		return generated;
 	}
 
-	private ResourceConfig getResourceConfig() {
+	private ResourceConfig getResourceConfig(BearerTokenFilter authentication) {
 		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
 			BootstrapResource.class,
 			GridnodeResource.class,
@@ -96,7 +96,7 @@ public class RestServer extends AbstractServer {
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
 		config.register(ValidationFeature.class);
-		config.register(new BearerTokenFilter(token));
+		config.register(authentication);
 
 		return config;
 	}
@@ -134,7 +134,7 @@ public class RestServer extends AbstractServer {
 
 	/* The initializer of the container builds the pipeline of a connection, so the limit is set in after its codec,
 	   where a request has been read from the wire and nothing has yet queued it */
-	private static ChannelHandler limited(final ChannelHandler jersey) {
+	private static ChannelHandler limited(final ChannelHandler jersey, final BearerTokenFilter authentication) {
 		final long uploadLimit = Math.max(StorageResource.MAX_UPLOAD_BYTES, RestOptions.getMaxUpload());
 
 		return new ChannelInitializer<SocketChannel>() {
@@ -144,8 +144,8 @@ public class RestServer extends AbstractServer {
 
 				pipeline.addLast(jersey);
 				pipeline.addAfter(pipeline.context(HttpServerCodec.class).name(), null, new RequestBodyLimit(
-					RequestBodyLimit.MAX_REQUEST_BYTES, uploadLimit, RequestBodyLimit.BODY_TIME,
-					RequestBodyLimit.LINGER));
+					authentication, RequestBodyLimit.MAX_REQUEST_BYTES, uploadLimit,
+					RequestBodyLimit.BODY_TIME, RequestBodyLimit.LINGER));
 			}
 		};
 	}
@@ -154,9 +154,12 @@ public class RestServer extends AbstractServer {
 	@PostConstruct
 	public void init() {
 		token = RestToken.getConfigured().orElseGet(this::generateToken);
-		resourceConfig = getResourceConfig();
+
+		final BearerTokenFilter authentication = new BearerTokenFilter(token);
+
+		resourceConfig = getResourceConfig(authentication);
 		container = getContainerInstance();
-		final ChannelHandler initializer = limited(getJerseyInitializerInstance(container));
+		final ChannelHandler initializer = limited(getJerseyInitializerInstance(container), authentication);
 
 		channel = new ServerBootstrap().group(group)
 			.channel(NioServerSocketChannel.class)

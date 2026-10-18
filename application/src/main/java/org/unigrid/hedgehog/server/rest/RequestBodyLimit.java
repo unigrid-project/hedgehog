@@ -42,9 +42,11 @@ import lombok.RequiredArgsConstructor;
 
 /* The container queues every chunk of a request until a resource reads it, and puts no bound on a chunked body, so a
    request is counted here as it arrives, before the container sees it. One that goes past its limit, or does not
-   finish in time, is answered at once and its connection closed. The close waits a little, since a connection
-   closed with unread data is reset, which would take the answer with it, and what the sender goes on sending in the
-   meantime is dropped as it comes. */
+   finish in time, is answered at once and its connection closed. A request without the token may hold nothing at
+   all: the filter of the container would refuse it only once the container has begun to queue its body, so it is
+   refused here, at its head, in the same way. The close waits a little, since a connection closed with unread data
+   is reset, which would take the answer with it, and what the sender goes on sending in the meantime is dropped as
+   it comes. */
 @RequiredArgsConstructor
 final class RequestBodyLimit extends ChannelDuplexHandler {
 	/* The largest body of any resource but the storage uploads is the blacklist of the ledger, 4096 entries of
@@ -58,6 +60,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	private static final String STORAGE = "/storage";
 	private static final String STORAGE_OBJECTS = "/storage-object/";
 
+	private final BearerTokenFilter authentication;
 	private final long limit;
 	private final long uploadLimit;
 	private final Duration bodyTime;
@@ -99,23 +102,33 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	}
 
 	private boolean begin(final ChannelHandlerContext ctx, final HttpRequest request) {
+		answered = false;
+
+		if (!authentication.isAuthorized(request.headers().get(HttpHeaderNames.AUTHORIZATION))) {
+			refuse(ctx, unauthorized());
+			return false;
+		}
+
+		return limitBody(ctx, request);
+	}
+
+	private boolean limitBody(final ChannelHandlerContext ctx, final HttpRequest request) {
 		final boolean upload = isUpload(request);
 		final long declared = HttpUtil.getContentLength(request, 0);
 
 		allowed = upload ? uploadLimit : limit;
 		remaining = allowed;
-		answered = false;
 
 		if (declared > allowed) {
-			refuse(ctx, HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE, tooLarge());
+			refuse(ctx, response(HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE, tooLarge()));
 			return false;
 		}
 
 		unfinished = true;
 
 		if (!upload && (declared > 0 || HttpUtil.isTransferEncodingChunked(request))) {
-			deadline = ctx.executor().schedule(() -> refuse(ctx, HttpResponseStatus.REQUEST_TIMEOUT,
-				"A request has to arrive within " + bodyTime.toSeconds() + " seconds"), bodyTime.toMillis(),
+			deadline = ctx.executor().schedule(() -> refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT,
+				"A request has to arrive within " + bodyTime.toSeconds() + " seconds")), bodyTime.toMillis(),
 				TimeUnit.MILLISECONDS);
 		}
 
@@ -126,7 +139,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		remaining -= content.content().readableBytes();
 
 		if (remaining < 0) {
-			refuse(ctx, HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE, tooLarge());
+			refuse(ctx, response(HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE, tooLarge()));
 			return false;
 		}
 
@@ -142,12 +155,14 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		return "A request is at most " + allowed + " bytes";
 	}
 
-	private void refuse(final ChannelHandlerContext ctx, final HttpResponseStatus status, final String reason) {
+	private void refuse(final ChannelHandlerContext ctx, final HttpResponse response) {
 		refused = true;
 		cancelDeadline();
 
-		if (!answered) {
-			ctx.writeAndFlush(response(status, reason));
+		if (answered) {
+			ReferenceCountUtil.release(response);
+		} else {
+			ctx.writeAndFlush(response);
 		}
 
 		if (unfinished) {
@@ -164,6 +179,18 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 		response.headers().set(HttpHeaderNames.CONTENT_TYPE, HttpHeaderValues.APPLICATION_JSON)
 			.set(HttpHeaderNames.CONTENT_LENGTH, body.length)
+			.set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+
+		return response;
+	}
+
+	/* What the filter of the container answers, so that a sender is refused alike wherever the refusal comes from */
+	private static HttpResponse unauthorized() {
+		final DefaultFullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1,
+			HttpResponseStatus.UNAUTHORIZED);
+
+		response.headers().set(HttpHeaderNames.WWW_AUTHENTICATE, BearerTokenFilter.SCHEME)
+			.set(HttpHeaderNames.CONTENT_LENGTH, 0)
 			.set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
 
 		return response;

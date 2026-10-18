@@ -40,9 +40,13 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -64,6 +68,8 @@ public class RequestBodyLimitTest {
 	private static final Duration BODY_TIME = Duration.ofSeconds(30);
 	private static final Duration LINGER = Duration.ofSeconds(2);
 	private static final String SUBMIT = "/ledger/transaction";
+	private static final String TOKEN = RestToken.generate();
+	private static final String BEARER = BearerTokenFilter.SCHEME + " " + TOKEN;
 
 	/* Stands where the container stands in the pipeline: it takes what the limit lets through and can answer */
 	private static final class Container extends ChannelInboundHandlerAdapter {
@@ -90,7 +96,8 @@ public class RequestBodyLimitTest {
 
 	private static EmbeddedChannel channelTo(final Container container) {
 		final EmbeddedChannel created = new EmbeddedChannel(
-			new RequestBodyLimit(LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER), container);
+			new RequestBodyLimit(new BearerTokenFilter(TOKEN), LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER),
+			container);
 
 		created.freezeTime();
 		return created;
@@ -107,10 +114,27 @@ public class RequestBodyLimitTest {
 		channel.finishAndReleaseAll();
 	}
 
+	private static HttpRequest request(final HttpMethod method, final String path) {
+		final HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, method, path);
+
+		request.headers().set(HttpHeaderNames.AUTHORIZATION, BEARER);
+		return request;
+	}
+
 	private static HttpRequest request(final String path, final String framing, final String value) {
-		final HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, path);
+		final HttpRequest request = request(HttpMethod.POST, path);
 
 		request.headers().set(framing, value);
+		return request;
+	}
+
+	private static HttpRequest authorizedBy(final String authorization, final HttpRequest request) {
+		request.headers().remove(HttpHeaderNames.AUTHORIZATION);
+
+		if (authorization != null) {
+			request.headers().set(HttpHeaderNames.AUTHORIZATION, authorization);
+		}
+
 		return request;
 	}
 
@@ -280,8 +304,7 @@ public class RequestBodyLimitTest {
 
 	@Example
 	public void shouldNotTimeARequestWithoutABody() {
-		channel.writeInbound(new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, "/ledger"),
-			LastHttpContent.EMPTY_LAST_CONTENT);
+		channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
 		passTime(BODY_TIME.multipliedBy(2));
 
 		assertThat(written(), empty());
@@ -331,5 +354,57 @@ public class RequestBodyLimitTest {
 		container.answer(HttpResponseStatus.ACCEPTED);
 
 		assertThat(written().stream().map(FullHttpResponse::status).toList(), contains(HttpResponseStatus.ACCEPTED));
+	}
+
+	@Provide
+	public Arbitrary<String> strangers() {
+		return Arbitraries.oneOf(Arbitraries.of("", BearerTokenFilter.SCHEME, "Basic " + TOKEN, "bearer " + TOKEN,
+			BEARER + " ", BEARER.substring(0, BEARER.length() - 1)),
+			Arbitraries.strings().alpha().ofMaxLength(64).map(token -> BearerTokenFilter.SCHEME + " " + token)
+		).filter(Predicate.not(BEARER::equals)).injectNull(0.2);
+	}
+
+	@Property
+	public void shouldRefuseARequestWithoutTheTokenAtItsHeadAndDropItsBody(
+		@ForAll("strangers") final String authorization,
+		@ForAll @IntRange(min = 1, max = (int) UPLOAD_LIMIT) final int size) {
+
+		final ByteBuf body = Unpooled.buffer().writeZero(size);
+
+		channel.writeInbound(authorizedBy(authorization, chunked("/storage-object/bucket/key")),
+			new DefaultHttpContent(body), LastHttpContent.EMPTY_LAST_CONTENT);
+
+		final List<FullHttpResponse> responses = written();
+
+		assertThat(container.read, empty());
+		assertThat(body.refCnt(), equalTo(0));
+		assertThat(responses, hasSize(1));
+		assertThat(responses.get(0).status(), equalTo(HttpResponseStatus.UNAUTHORIZED));
+		assertThat(responses.get(0).headers().get(HttpHeaderNames.WWW_AUTHENTICATE),
+			equalTo(BearerTokenFilter.SCHEME));
+		assertThat(responses.get(0).headers().get(HttpHeaderNames.CONNECTION), equalTo("close"));
+		assertThat(textOf(responses.get(0)), equalTo(""));
+		assertThat(channel.isActive(), is(true));
+		passTime(LINGER);
+		assertThat(channel.isActive(), is(false));
+	}
+
+	@Example
+	public void shouldRefuseForWantOfTheTokenBeforeLookingAtTheLength() {
+		channel.writeInbound(authorizedBy(null, declaring(SUBMIT, LIMIT + 1)));
+
+		assertThat(written().get(0).status(), equalTo(HttpResponseStatus.UNAUTHORIZED));
+	}
+
+	@Example
+	public void shouldRefuseARequestWithoutTheTokenAfterOneWithItWasAnswered() {
+		channel.writeInbound(declaring(SUBMIT, 0), LastHttpContent.EMPTY_LAST_CONTENT);
+		container.answer(HttpResponseStatus.ACCEPTED);
+		channel.writeInbound(authorizedBy(null, request(HttpMethod.GET, "/ledger")),
+			LastHttpContent.EMPTY_LAST_CONTENT);
+
+		assertThat(written().stream().map(FullHttpResponse::status).toList(),
+			contains(HttpResponseStatus.ACCEPTED, HttpResponseStatus.UNAUTHORIZED));
+		assertThat(container.read, hasSize(2));
 	}
 }

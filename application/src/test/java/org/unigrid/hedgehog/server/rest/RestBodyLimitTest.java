@@ -29,11 +29,20 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import lombok.SneakyThrows;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.GenerationMode;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
@@ -48,8 +57,12 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	private static final int CHUNKS = 64;
 	private static final Duration PATIENCE = Duration.ofSeconds(10);
 	private static final byte[] CRLF = { '\r', '\n' };
+	private static final String SUBMIT = "/ledger/transaction";
+	private static final String UPLOAD = "/storage-object/bucket/key";
+	private static final String CHUNKED = "Transfer-Encoding: chunked";
+	private static final String JSON = "Content-Type: application/json";
 
-	private record Answer(String status, String body, boolean closed) { }
+	private record Answer(String status, Map<String, String> headers, String body, boolean closed) { }
 
 	@SneakyThrows
 	private SSLSocket connect() {
@@ -65,9 +78,15 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 		return socket;
 	}
 
-	private String head(final String path, final String framing) {
-		return "POST " + path + " HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer " + server.getRest().getToken()
-			+ "\r\nContent-Type: application/json\r\n" + framing + "\r\n\r\n";
+	private static byte[] head(final String request, final List<String> headers) {
+		final StringBuilder head = new StringBuilder(request).append(" HTTP/1.1\r\nHost: localhost\r\n");
+
+		headers.forEach(header -> head.append(header).append("\r\n"));
+		return head.append("\r\n").toString().getBytes(StandardCharsets.US_ASCII);
+	}
+
+	private String bearer() {
+		return "Authorization: " + BearerTokenFilter.SCHEME + " " + server.getRest().getToken();
 	}
 
 	/* A server that hangs up on a sender that goes on is what is wanted, so a write that fails ends the sending */
@@ -104,17 +123,18 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	/* Headers up to the blank line, then as many body bytes as they announce, then whether the connection ends */
 	private static Answer answerOf(final InputStream in) throws IOException {
 		final String status = readLine(in);
-		int length = 0;
+		final Map<String, String> headers = new HashMap<>();
 
 		for (String header = readLine(in); !header.isEmpty(); header = readLine(in)) {
-			if (header.toLowerCase().startsWith("content-length:")) {
-				length = Integer.parseInt(header.substring(header.indexOf(':') + 1).trim());
-			}
+			final int colon = header.indexOf(':');
+
+			headers.put(header.substring(0, colon).trim().toLowerCase(), header.substring(colon + 1).trim());
 		}
 
+		final int length = Integer.parseInt(headers.getOrDefault("content-length", "0"));
 		final String body = new String(in.readNBytes(length), StandardCharsets.UTF_8);
 
-		return new Answer(status, body, isClosed(in));
+		return new Answer(status, headers, body, isClosed(in));
 	}
 
 	private static boolean isClosed(final InputStream in) {
@@ -128,22 +148,64 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	private Answer answerTo(final String framing, final Consumer<OutputStream> body) {
+	private Answer answerTo(final String request, final List<String> headers, final Consumer<OutputStream> body) {
 		try (SSLSocket socket = connect()) {
 			final OutputStream out = socket.getOutputStream();
 
-			out.write(head("/ledger/transaction", framing).getBytes(StandardCharsets.US_ASCII));
+			out.write(head(request, headers));
 			out.flush();
 			body.accept(out);
 			return answerOf(socket.getInputStream());
 		} catch (SocketTimeoutException ex) {
-			return new Answer("no answer", "", false);
+			return new Answer("no answer", Map.of(), "", false);
 		}
+	}
+
+	private Answer answerTo(final String framing, final Consumer<OutputStream> body) {
+		return answerTo("POST " + SUBMIT, List.of(bearer(), JSON, framing), body);
+	}
+
+	@Provide
+	public Arbitrary<String> paths() {
+		return Arbitraries.of(SUBMIT, UPLOAD);
+	}
+
+	@Provide
+	public Arbitrary<List<String>> withoutTheToken() {
+		return Arbitraries.of(List.of(JSON, CHUNKED),
+			List.of("Authorization: " + BearerTokenFilter.SCHEME + " " + RestToken.generate(), JSON, CHUNKED));
+	}
+
+	private static void assertRefusedForWantOfTheToken(final Answer answer) {
+		assertThat(answer.status(), startsWith("HTTP/1.1 " + Status.UNAUTHORIZED.getStatusCode()));
+		assertThat(answer.headers().get("www-authenticate"), equalTo(BearerTokenFilter.SCHEME));
+		assertThat(answer.body(), equalTo(""));
+		assertThat(answer.closed(), is(true));
+	}
+
+	/* The answer and the close come while all of the body is still held back, so none of it was waited for */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void shouldRefuseARequestWithoutTheTokenBeforeAnyOfItsBody(@ForAll("paths") final String path,
+		@ForAll("withoutTheToken") final List<String> headers) {
+
+		assertRefusedForWantOfTheToken(answerTo("POST " + path, headers, out -> { }));
+	}
+
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void shouldRefuseALargeBodyWithoutTheTokenAndCloseTheConnection(@ForAll("paths") final String path,
+		@ForAll("withoutTheToken") final List<String> headers) {
+
+		assertRefusedForWantOfTheToken(answerTo("POST " + path, headers, out -> sendChunked(out, CHUNKS)));
+	}
+
+	@Example
+	public void shouldRefuseARequestWithoutTheTokenThatHasNoBody() {
+		assertRefusedForWantOfTheToken(answerTo("GET /version", List.of(), out -> { }));
 	}
 
 	@Example
 	public void shouldRefuseAChunkedBodyPastTheLimitAndCloseTheConnection() {
-		final Answer answer = answerTo("Transfer-Encoding: chunked", out -> sendChunked(out, CHUNKS));
+		final Answer answer = answerTo(CHUNKED, out -> sendChunked(out, CHUNKS));
 
 		assertThat(answer.status(), startsWith("HTTP/1.1 " + Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode()));
 		assertThat(answer.closed(), is(true));
@@ -170,7 +232,7 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	@Example
 	@SneakyThrows
 	public void shouldGoOnAnsweringOthersAfterRefusingOne() {
-		answerTo("Transfer-Encoding: chunked", out -> sendChunked(out, CHUNKS));
+		answerTo(CHUNKED, out -> sendChunked(out, CHUNKS));
 
 		assertThat(client.get("/version").getStatus(), equalTo(Status.OK.getStatusCode()));
 	}
