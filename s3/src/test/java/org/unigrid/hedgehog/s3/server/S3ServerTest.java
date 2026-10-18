@@ -18,13 +18,8 @@
 
 package org.unigrid.hedgehog.s3.server;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.ServerSocket;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Optional;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -34,43 +29,13 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.notNullValue;
-import org.unigrid.hedgehog.s3.spi.MemoryBlobStore;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.profiles.ProfileFile;
-import software.amazon.awssdk.regions.Region;
+import static org.unigrid.hedgehog.s3.server.S3Fixture.client;
+import static org.unigrid.hedgehog.s3.server.S3Fixture.endpoint;
+import static org.unigrid.hedgehog.s3.server.S3Fixture.freePort;
+import static org.unigrid.hedgehog.s3.server.S3Fixture.start;
 import software.amazon.awssdk.services.s3.S3Client;
 
 public class S3ServerTest {
-	private static final String LOCALHOST = "localhost";
-
-	/* Keeps the client from reading the profile files of whoever runs the tests */
-	private static final ProfileFile NO_PROFILES = ProfileFile.builder().content(new ByteArrayInputStream(new byte[0]))
-		.type(ProfileFile.Type.CONFIGURATION).build();
-
-	private static int freePort() throws IOException {
-		try (ServerSocket socket = new ServerSocket(0)) {
-			return socket.getLocalPort();
-		}
-	}
-
-	private static S3Server start(final int port) throws Exception {
-		return S3Server.start(S3ServerConfig.builder().host(LOCALHOST).port(port).tls(false).build(),
-			new MemoryBlobStore(), accessKeyId -> Optional.empty()
-		);
-	}
-
-	private static URI endpoint(final int port) {
-		return URI.create("http://" + LOCALHOST + ":" + port + "/");
-	}
-
-	private static S3Client client(final int port) {
-		return S3Client.builder().endpointOverride(endpoint(port)).region(Region.US_EAST_1).forcePathStyle(true)
-			.credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("access", "secret")))
-			.overrideConfiguration(configuration -> configuration.defaultProfileFile(NO_PROFILES)
-				.defaultProfileName("default"))
-			.build();
-	}
 
 	@Example
 	public void listsNoBucketsToAnSdkClient() throws Exception {

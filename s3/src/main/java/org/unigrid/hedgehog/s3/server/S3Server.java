@@ -41,6 +41,7 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
 import org.unigrid.hedgehog.s3.error.S3ExceptionMapper;
 import org.unigrid.hedgehog.s3.http.RequestIdFilter;
+import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.CredentialStore;
@@ -92,7 +93,7 @@ public final class S3Server implements AutoCloseable {
 		};
 
 		return new ResourceConfig(ServiceResource.class, S3ExceptionMapper.class, RequestIdFilter.class)
-			.register(bindings);
+			.register(new VirtualHostFilter(config.getDomain().orElse(null))).register(bindings);
 	}
 
 	/* Jersey's public Netty factory owns its event loops and hides the container that has to be shut down, so

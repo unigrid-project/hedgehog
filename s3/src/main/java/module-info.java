@@ -19,6 +19,7 @@
 module org.unigrid.hedgehog.s3 {
 	requires static lombok;
 	requires io.netty.handler;
+	requires jakarta.annotation;
 	requires io.netty.transport;
 	requires jakarta.ws.rs;
 	requires jakarta.xml.bind;
