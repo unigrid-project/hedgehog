@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -258,7 +259,7 @@ public class LedgerService {
 	}
 
 	private long committedMinted(final Address recipient) {
-		return read(held -> held.mintedTo(recipient)).orElse(0);
+		return readLong(held -> held.mintedTo(recipient)).orElse(0);
 	}
 
 	/* The halt is the driver's to log as it happens; this is the service saying once that the ledger is gone from
@@ -391,26 +392,29 @@ public class LedgerService {
 	/* Empty until the driver has built its first ledger, and the newest ledger after, also once the node is
 	   halted or stopped */
 	public OptionalLong height() {
-		return read(Ledger::height);
+		return readLong(Ledger::height);
 	}
 
 	public OptionalLong supply() {
-		return read(Ledger::supply);
+		return readLong(Ledger::supply);
 	}
 
 	public OptionalLong balanceOf(final Address address) {
-		return read(held -> held.balanceOf(address));
+		return readLong(held -> held.balanceOf(address));
 	}
 
 	public Optional<byte[]> tipHash() {
-		return ledger().map(Ledger::tipHash);
+		return read(Ledger::tipHash);
 	}
 
-	private Optional<Ledger> ledger() {
-		return Optional.ofNullable(nodes).flatMap(LedgerNodes::ledger);
+	/* For reads only: the function is applied to the newest ledger on the thread of the caller, which is safe for
+	   what the ledger gives out to any thread, and empty while there is none. A transaction goes through submit,
+	   which hands it to the thread of the driver and gossips it; one put into the ledger from here would do neither. */
+	public <T> Optional<T> read(final Function<Ledger, T> reading) {
+		return Optional.ofNullable(nodes).flatMap(LedgerNodes::ledger).map(reading);
 	}
 
-	private OptionalLong read(final ToLongFunction<Ledger> reading) {
-		return ledger().map(held -> OptionalLong.of(reading.applyAsLong(held))).orElseGet(OptionalLong::empty);
+	private OptionalLong readLong(final ToLongFunction<Ledger> reading) {
+		return read(held -> reading.applyAsLong(held)).map(OptionalLong::of).orElseGet(OptionalLong::empty);
 	}
 }

@@ -207,6 +207,22 @@ public final class LedgerState {
 		return minted.contains(reference);
 	}
 
+	/* The account a legacy address was claimed onto, only claims make a redirect and a claim names an account */
+	public Optional<AccountKey> claimedBy(LegacyAddress address) {
+		return Optional.ofNullable(redirects.get(address)).map(AccountKey.class::cast);
+	}
+
+	/* What a claim of the address would move now, by the sum the claim itself applies. 0 where the claim rule
+	   refuses the amount: the address is claimed, holds nothing, or is owed more than the snapshot has left. */
+	public long claimable(LegacyAddress address) {
+		return amountRejection(address).isPresent() ? 0 : movedByClaim(address);
+	}
+
+	/* The snapshot balance and what the ledger holds for the address, which a mint or a transfer to it has made */
+	private long movedByClaim(LegacyAddress address) {
+		return Math.addExact(snapshot.balanceOf(address), accounts.getOrDefault(address, 0L));
+	}
+
 	/* The total that mints have made to this recipient as the mints named it. A mint to a legacy address that was
 	   claimed is paid to the claimer and still counts here under the legacy address. */
 	public long mintedTo(Address recipient) {
@@ -707,13 +723,12 @@ public final class LedgerState {
 	/* The snapshot balance is already in the supply, so a claim moves it and grows nothing */
 	private void apply(Claim claim) {
 		final LegacyAddress address = claim.address();
-		final long owed = snapshot.balanceOf(address);
 
-		accounts.merge(claim.recipient(), Math.addExact(owed, accounts.getOrDefault(address, 0L)), Math::addExact);
+		accounts.merge(claim.recipient(), movedByClaim(address), Math::addExact);
 		accounts.remove(address);
 		redirects.put(address, claim.recipient());
 		minted.add(Reference.ofClaim(genesis.getSnapshotHash(), address));
-		unclaimed -= owed;
+		unclaimed -= snapshot.balanceOf(address);
 	}
 
 	/* The fee leaves the sender for the pool, so nothing is created or lost; a legacy address that was claimed

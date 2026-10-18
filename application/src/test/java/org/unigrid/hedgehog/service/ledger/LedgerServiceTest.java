@@ -72,6 +72,7 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.Block;
 import org.unigrid.hedgehog.ledger.BlockLog;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerDriver;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
@@ -457,6 +458,23 @@ public class LedgerServiceTest {
 			assertThat(service.supply(), equalTo(OptionalLong.of(5_000)));
 			assertThat(submitted(service, rig.vote(1)), equalTo(Optional.empty()));
 			assertThat(service.status().signing(), is(false));
+		}
+	}
+
+	@Example
+	public void shouldApplyAReadToTheNewestLedgerAndGiveNothingBeforeThereIsOne() {
+		try (Rig rig = Rig.ready()) {
+			assertThat(rig.service().read(Ledger::height), equalTo(Optional.empty()));
+		}
+
+		try (Rig rig = Rig.ready()) {
+			final LedgerService service = rig.started(false);
+
+			eventually(() -> service.height().isPresent());
+
+			assertThat(service.read(Ledger::height), equalTo(Optional.of(0L)));
+			assertThat(service.read(Ledger::supply), equalTo(Optional.of(5_000L)));
+			assertThat(service.read(held -> held.nonceOf(Ed25519.publicKey(SEED))), equalTo(Optional.of(0L)));
 		}
 	}
 
@@ -1024,6 +1042,7 @@ public class LedgerServiceTest {
 			assertThat(service.tipHash(), equalTo(Optional.empty()));
 			assertThat(service.supply(), equalTo(OptionalLong.empty()));
 			assertThat(service.balanceOf(Ed25519.publicKey(SEED)), equalTo(OptionalLong.empty()));
+			assertThat(service.read(Ledger::height), equalTo(Optional.empty()));
 
 			for (int n = 0; n < 4; n++) {
 				new Thread(() -> {
@@ -1034,6 +1053,7 @@ public class LedgerServiceTest {
 							service.tipHash();
 							service.supply();
 							service.balanceOf(Ed25519.publicKey(SEED));
+							service.read(Ledger::height);
 						} catch (RuntimeException ex) {
 							failures.add(ex);
 						}

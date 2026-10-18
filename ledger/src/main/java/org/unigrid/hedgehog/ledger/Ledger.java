@@ -206,7 +206,12 @@ public final class Ledger implements ConsensusApp {
 
 	/* Empty at height 0, above the tip and below the first height */
 	public Optional<byte[]> hashAt(long height) {
-		return height < 1 ? Optional.empty() : log.range(height - 1, 1).stream().findFirst().map(Block::hash);
+		return block(height).map(Block::hash);
+	}
+
+	/* Empty where there is no block: below the first height, or above the tip */
+	public Optional<Block> block(long height) {
+		return height < 1 ? Optional.empty() : blocksFrom(height, 1).stream().findFirst();
 	}
 
 	public synchronized Status status() {
@@ -249,6 +254,19 @@ public final class Ledger implements ConsensusApp {
 	/* What mints have made to this recipient so far, as the mints named it */
 	public synchronized long mintedTo(Address recipient) {
 		return state.mintedTo(recipient);
+	}
+
+	/* The nonce the next transfer of the account must carry */
+	public synchronized long nonceOf(AccountKey account) {
+		return state.nonceOf(account);
+	}
+
+	public synchronized Optional<AccountKey> claimedBy(LegacyAddress address) {
+		return state.claimedBy(address);
+	}
+
+	public synchronized long claimable(LegacyAddress address) {
+		return state.claimable(address);
 	}
 
 	public synchronized byte[] stateRoot() {
