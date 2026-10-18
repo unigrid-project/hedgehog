@@ -34,6 +34,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.GeneralSecurityException;
+import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
@@ -97,7 +98,7 @@ public final class S3Server implements AutoCloseable {
 	}
 
 	/* Jersey's public Netty factory owns its event loops and hides the container that has to be shut down, so
-	   its package-private container and initializer are built directly instead */
+	   its package-private container and request handler are built directly instead */
 	private static Constructor<?> constructor(final String name, final Class<?>... parameters)
 		throws ReflectiveOperationException {
 
@@ -107,17 +108,18 @@ public final class S3Server implements AutoCloseable {
 		return constructor;
 	}
 
-	/* Without an SSL context the initializer serves plain HTTP */
 	private static ChannelHandler initializer(final S3ServerConfig config, final Container container,
 		final ResourceConfig resources) throws GeneralSecurityException, IOException, ReflectiveOperationException,
 		URISyntaxException {
 
 		final String scheme = config.isTls() ? "https" : "http";
 		final URI base = new URI(scheme, null, config.getHost(), config.getPort(), "/", null, null);
+		final Constructor<?> handler = constructor("JerseyServerHandler", URI.class, container.getClass(),
+			ResourceConfig.class);
 
-		return (ChannelHandler) constructor("JerseyServerInitializer", URI.class, SslContext.class,
-			container.getClass(), ResourceConfig.class)
-			.newInstance(base, config.isTls() ? ssl() : null, container, resources);
+		return new S3ChannelInitializer(config.isTls() ? Optional.of(ssl()) : Optional.empty(),
+			() -> (ChannelHandler) handler.newInstance(base, container, resources)
+		);
 	}
 
 	private static SslContext ssl() throws GeneralSecurityException, IOException {

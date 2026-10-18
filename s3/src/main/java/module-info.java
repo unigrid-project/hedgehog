@@ -18,6 +18,7 @@
 
 module org.unigrid.hedgehog.s3 {
 	requires static lombok;
+	requires io.netty.codec.http;
 	requires io.netty.handler;
 	requires jakarta.annotation;
 	requires io.netty.transport;
