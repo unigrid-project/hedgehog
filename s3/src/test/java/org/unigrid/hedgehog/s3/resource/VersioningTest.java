@@ -19,17 +19,20 @@
 package org.unigrid.hedgehog.s3.resource;
 
 import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.s3.jqwik.Expect.assertThrows;
 import static org.unigrid.hedgehog.s3.resource.ObjectResourceTest.BUCKET;
 import static org.unigrid.hedgehog.s3.resource.ObjectResourceTest.code;
+import org.unigrid.hedgehog.s3.server.S3Fixture;
 import org.unigrid.hedgehog.s3.server.S3Node;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -91,6 +94,19 @@ public class VersioningTest {
 				.mfaDelete(MFADelete.ENABLED)))), equalTo("NotImplemented"));
 			assertThat(code(() -> client.getBucketVersioning(request -> request.bucket("nowhere"))),
 				equalTo("NoSuchBucket"));
+		}
+	}
+
+	/* Tools such as rclone ask every bucket for its versioning before they purge it */
+	@Example
+	public void answersABucketThatNeverHadVersioningWithAnEmptyConfiguration() throws Exception {
+		try (S3Node node = ObjectResourceTest.node()) {
+			final HttpURLConnection connection = S3Fixture.signed(node.getPort(), "GET", "/" + BUCKET
+				+ "?versioning");
+
+			assertThat(connection.getResponseCode(), equalTo(HttpURLConnection.HTTP_OK));
+			assertThat(new String(connection.getInputStream().readAllBytes(), StandardCharsets.UTF_8),
+				containsString("<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"/>"));
 		}
 	}
 
