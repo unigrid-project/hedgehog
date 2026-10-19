@@ -19,7 +19,10 @@
 package org.unigrid.hedgehog.s3.resource;
 
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.OPTIONS;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
@@ -38,5 +41,10 @@ public class ServiceResource {
 		return Responses.xml(new ListAllMyBucketsResult(namespace.buckets().stream()
 			.map(bucket -> new Bucket(bucket.created(), bucket.name())).toList(), Responses.owner()
 		));
+	}
+
+	@OPTIONS
+	public Response preflight(@Context final HttpHeaders headers) {
+		return Cors.preflight(headers);
 	}
 }

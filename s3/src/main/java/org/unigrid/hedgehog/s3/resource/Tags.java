@@ -23,6 +23,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -30,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
+import org.unigrid.hedgehog.s3.entity.S3Xml;
 import org.unigrid.hedgehog.s3.entity.Tag;
 import org.unigrid.hedgehog.s3.entity.Tagging;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
@@ -126,6 +128,13 @@ final class Tags {
 	/* The tags PutObject, CreateMultipartUpload and a replacing copy keep from x-amz-tagging */
 	static Map<String, String> header(final HttpHeaders headers) {
 		return fromHeader(headers.getHeaderString(HEADER));
+	}
+
+	/* The tags a browser form upload keeps from its tagging field, which holds the document form */
+	static Map<String, String> field(final String document) throws IOException, MalformedXmlException {
+		return validate(collected(S3Xml.read(Tagging.class, new ByteArrayInputStream(document
+			.getBytes(StandardCharsets.UTF_8)))), MAX_OBJECT_TAGS
+		);
 	}
 
 	static boolean replaced(final HttpHeaders headers) {

@@ -22,6 +22,7 @@ import jakarta.ws.rs.core.EntityTag;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,6 +30,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
@@ -57,15 +59,25 @@ final class ObjectHeaders {
 	}
 
 	static Map<String, String> content(final HttpHeaders headers) {
-		return CONTENT.stream().filter(name -> Objects.nonNull(headers.getHeaderString(name)))
-			.collect(Collectors.toMap(name -> name, headers::getHeaderString));
+		return content(headers::getHeaderString);
+	}
+
+	/* From headers, or from the fields of a form, which a browser form upload has in their place */
+	static Map<String, String> content(final Function<String, String> header) {
+		return CONTENT.stream().filter(name -> Objects.nonNull(header.apply(name)))
+			.collect(Collectors.toMap(name -> name, header));
+	}
+
+	static Map<String, String> metadata(final HttpHeaders headers) {
+		return metadata(headers.getRequestHeaders().keySet(), headers::getHeaderString);
 	}
 
 	/* S3 keeps the names of user metadata in lower case */
-	static Map<String, String> metadata(final HttpHeaders headers) {
-		return headers.getRequestHeaders().keySet().stream().filter(name -> name.toLowerCase(Locale.ROOT)
-			.startsWith(METADATA)).collect(Collectors.toMap(name -> name.substring(METADATA.length())
-			.toLowerCase(Locale.ROOT), headers::getHeaderString, (first, second) -> first + "," + second));
+	static Map<String, String> metadata(final Collection<String> names, final Function<String, String> header) {
+		return names.stream().filter(name -> name.toLowerCase(Locale.ROOT).startsWith(METADATA))
+			.collect(Collectors.toMap(name -> name.substring(METADATA.length()).toLowerCase(Locale.ROOT), header,
+				(first, second) -> first + "," + second
+			));
 	}
 
 	/* Whether a copy takes its headers and metadata from the request instead of from its source */
@@ -81,9 +93,13 @@ final class ObjectHeaders {
 
 	/* Encryption is left to the storage layer and every object is stored alike, so asking for more is refused */
 	static void refuseUnsupported(final HttpHeaders headers) {
-		final boolean encryption = headers.getRequestHeaders().keySet().stream()
-			.anyMatch(name -> name.toLowerCase(Locale.ROOT).startsWith(ENCRYPTION));
-		final String storageClass = Objects.requireNonNullElse(headers.getHeaderString(STORAGE_CLASS), STANDARD);
+		refuseUnsupported(headers.getRequestHeaders().keySet(), headers::getHeaderString);
+	}
+
+	static void refuseUnsupported(final Collection<String> names, final Function<String, String> header) {
+		final boolean encryption = names.stream().anyMatch(name -> name.toLowerCase(Locale.ROOT)
+			.startsWith(ENCRYPTION));
+		final String storageClass = Objects.requireNonNullElse(header.apply(STORAGE_CLASS), STANDARD);
 
 		if (encryption || !STANDARD.equals(storageClass)) {
 			throw new S3Exception(S3ErrorCode.NotImplemented, "Server-side encryption and storage classes other "

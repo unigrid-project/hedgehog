@@ -18,6 +18,7 @@
 
 module org.unigrid.hedgehog.s3 {
 	requires static lombok;
+	requires com.fasterxml.jackson.databind;
 	requires io.netty.buffer;
 	requires io.netty.codec;
 	requires io.netty.codec.http;

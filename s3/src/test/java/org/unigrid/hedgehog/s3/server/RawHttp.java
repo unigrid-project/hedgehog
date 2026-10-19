@@ -28,10 +28,12 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -43,18 +45,26 @@ import software.amazon.awssdk.http.auth.aws.signer.AwsV4HttpSigner;
 import software.amazon.awssdk.identity.spi.AwsCredentialsIdentity;
 
 /*
-   HTTP over a plain socket, for what the SDK and HttpURLConnection never do: pipeline, abort and overrun requests.
-   Uploads take this way too, as the HTTP client of the SDK logs every byte it sends at the debug level the tests
-   run with, which makes it slower than the paced resource it should outrun.
+   HTTP over a plain socket, for what the SDK and HttpURLConnection never do: pipeline, abort and overrun requests,
+   and send the headers of a browser, such as Origin. Uploads take this way too, as the HTTP client of the SDK logs
+   every byte it sends at the debug level the tests run with, which makes it slower than the paced resource it
+   should outrun.
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class RawHttp {
 	private static final int MAX_BODY = 1024 * 1024;
 
-	public record Answer(boolean complete, int status, HttpHeaders headers, int length) { }
+	public record Answer(boolean complete, int status, HttpHeaders headers, int length, String body) { }
 
 	/* The head of a request signed like the SDK signs it, with a body that is not signed */
 	public static byte[] signed(final int port, final String method, final String path, final long length) {
+		return signed(port, method, path, length, Map.of());
+	}
+
+	/* Along with headers the signature leaves out, such as the Origin a browser adds */
+	public static byte[] signed(final int port, final String method, final String path, final long length,
+		final Map<String, String> unsigned) {
+
 		final URI uri = S3Fixture.endpoint(port).resolve(path);
 		final SdkHttpRequest request = AwsV4HttpSigner.create().sign(signing -> signing
 			.identity(AwsCredentialsIdentity.create(S3Fixture.ACCESS_KEY, S3Fixture.SECRET_KEY))
@@ -69,14 +79,34 @@ final class RawHttp {
 		request.headers().forEach((name, values) -> head.append(name).append(": ").append(values.getFirst())
 			.append("\r\n")
 		);
+		unsigned.forEach((name, value) -> head.append(name).append(": ").append(value).append("\r\n"));
 
 		return head.append("\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
 	}
 
 	/* The head of a request that authentication refuses before anything of its body is read */
 	public static byte[] unsigned(final String method, final String path, final long length) {
-		return (method + " " + path + " HTTP/1.1\r\nHost: " + S3Fixture.HOST + "\r\nContent-Length: " + length
-			+ "\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1);
+		return unsigned(method, path, length, Map.of());
+	}
+
+	public static byte[] unsigned(final String method, final String path, final long length,
+		final Map<String, String> headers) {
+
+		final StringBuilder head = new StringBuilder(method + " " + path + " HTTP/1.1\r\nHost: " + S3Fixture.HOST
+			+ "\r\nContent-Length: " + length + "\r\n"
+		);
+
+		headers.forEach((name, value) -> head.append(name).append(": ").append(value).append("\r\n"));
+		return head.append("\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
+	}
+
+	/* One request on a connection of its own, and its answer */
+	public static Answer exchange(final int port, final byte[] head, final byte[] body) throws IOException {
+		try (Socket socket = new Socket(S3Fixture.HOST, port)) {
+			socket.getOutputStream().write(head);
+			socket.getOutputStream().write(body);
+			return answers(socket.getInputStream(), 1).getFirst();
+		}
 	}
 
 	public static void send(final OutputStream body, final long length, final AtomicLong sent) throws IOException {
@@ -112,7 +142,8 @@ final class RawHttp {
 					response = decoder.readInbound()) {
 
 					answers.add(new Answer(response.decoderResult().isSuccess(), response.status().code(),
-						response.headers(), response.content().readableBytes()
+						response.headers(), response.content().readableBytes(),
+						response.content().toString(StandardCharsets.UTF_8)
 					));
 					response.release();
 				}

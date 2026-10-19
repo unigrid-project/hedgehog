@@ -42,6 +42,7 @@ import lombok.RequiredArgsConstructor;
 import org.glassfish.jersey.internal.inject.AbstractBinder;
 import org.glassfish.jersey.server.ApplicationHandler;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.server.spi.Container;
 import org.glassfish.jersey.spi.ExecutorServiceProvider;
 import org.unigrid.hedgehog.s3.auth.SignatureFilter;
@@ -50,6 +51,7 @@ import org.unigrid.hedgehog.s3.http.RequestIdFilter;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.resource.BucketResource;
+import org.unigrid.hedgehog.s3.resource.CorsFilter;
 import org.unigrid.hedgehog.s3.resource.ObjectResource;
 import org.unigrid.hedgehog.s3.resource.ServiceResource;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
@@ -93,7 +95,9 @@ public final class S3Server implements AutoCloseable {
 		final CredentialStore credentials, final Clock clock) {
 
 		return resources(config, blobs, credentials, clock).registerInstances(new ServiceResource(namespace),
-			new BucketResource(namespace, clock), new ObjectResource(namespace, blobs, clock)
+			new BucketResource(namespace, blobs, credentials, clock),
+			new ObjectResource(namespace, blobs, clock),
+			new CorsFilter(namespace, config.getDomain().orElse(null))
 		);
 	}
 
@@ -110,8 +114,10 @@ public final class S3Server implements AutoCloseable {
 			}
 		};
 
-		return new ResourceConfig(S3ExceptionMapper.class)
-			.register(new RequestIdFilter(clock)).register(new SignatureFilter(credentials, clock))
+		/* Every route answers for itself, so Jersey describes none of them, not even to a signed request */
+		return new ResourceConfig(S3ExceptionMapper.class).property(ServerProperties.WADL_FEATURE_DISABLE, true)
+			.register(new RequestIdFilter(clock))
+			.register(new SignatureFilter(credentials, clock, config.getDomain().orElse(null)))
 			.register(new VirtualHostFilter(config.getDomain().orElse(null))).register(bindings);
 	}
 

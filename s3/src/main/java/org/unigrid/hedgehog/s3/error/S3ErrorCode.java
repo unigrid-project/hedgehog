@@ -26,12 +26,15 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum S3ErrorCode {
+	AccessControlListNotSupported(Status.BAD_REQUEST, "The bucket does not allow ACLs"),
 	AccessDenied(Status.FORBIDDEN, "Access Denied"),
+	AccessForbidden(Status.FORBIDDEN, "Access Forbidden"),
 	AuthorizationHeaderMalformed(Status.BAD_REQUEST, "The authorization header that you provided is not valid."),
 	AuthorizationQueryParametersError(Status.BAD_REQUEST,
 		"The authorization query parameters that you provided are not valid."),
 	BadDigest(Status.BAD_REQUEST,
 		"The Content-MD5 or checksum value that you specified did not match what the server received."),
+	BadRequest(Status.BAD_REQUEST, "Bad Request"),
 	BucketAlreadyOwnedByYou(Status.CONFLICT, "The bucket that you tried to create already exists, and you own it."),
 	BucketNotEmpty(Status.CONFLICT, "The bucket that you tried to delete is not empty."),
 	EntityTooLarge(Status.BAD_REQUEST, "Your proposed upload exceeds the maximum allowed size."),
@@ -40,6 +43,7 @@ public enum S3ErrorCode {
 		+ "request is invalid."),
 	IncompleteBody(Status.BAD_REQUEST,
 		"You did not provide the number of bytes specified by the Content-Length HTTP header."),
+	IncorrectNumberOfFilesInPostRequest(Status.BAD_REQUEST, "POST requires exactly one file upload per request."),
 	InternalError(Status.INTERNAL_SERVER_ERROR, "We encountered an internal error. Please try again."),
 	InvalidAccessKeyId(Status.FORBIDDEN, "The AWS access key ID that you provided does not exist in our records."),
 	InvalidArgument(Status.BAD_REQUEST, "Invalid Argument"),
@@ -47,6 +51,8 @@ public enum S3ErrorCode {
 	InvalidBucketState(Status.CONFLICT, "The request is not valid for the current state of the bucket."),
 	InvalidDigest(Status.BAD_REQUEST, "The Content-MD5 or checksum value that you specified is not valid."),
 	InvalidPart(Status.BAD_REQUEST, "One or more of the specified parts could not be found."),
+	InvalidPolicyDocument(Status.BAD_REQUEST, "The content of the form does not meet the conditions specified in "
+		+ "the policy document."),
 	InvalidPartOrder(Status.BAD_REQUEST, "The list of parts was not in ascending order."),
 	InvalidRange(Status.REQUESTED_RANGE_NOT_SATISFIABLE, "The requested range cannot be satisfied."),
 	InvalidRequest(Status.BAD_REQUEST, "Invalid Request"),
@@ -54,10 +60,15 @@ public enum S3ErrorCode {
 	KeyTooLongError(Status.BAD_REQUEST, "Your key is too long."),
 	MalformedTrailerError(Status.BAD_REQUEST, "The request contained trailing data that was not well-formed or "
 		+ "did not conform to our published schema."),
+	MalformedPOSTRequest(Status.BAD_REQUEST, "The body of your POST request is not well-formed "
+		+ "multipart/form-data."),
 	MalformedXML(Status.BAD_REQUEST, "The XML that you provided was not well formed or did not validate."),
+	MaxPostPreDataLengthExceededError(Status.BAD_REQUEST, "Your POST request fields preceding the upload file "
+		+ "were too large."),
 	MethodNotAllowed(Status.METHOD_NOT_ALLOWED, "The specified method is not allowed against this resource."),
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
+	NoSuchCORSConfiguration(Status.NOT_FOUND, "The CORS configuration does not exist"),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
 	NoSuchLifecycleConfiguration(Status.NOT_FOUND, "The lifecycle configuration does not exist."),
 	NoSuchObjectLockConfiguration(Status.NOT_FOUND, "The specified object does not have a ObjectLock "

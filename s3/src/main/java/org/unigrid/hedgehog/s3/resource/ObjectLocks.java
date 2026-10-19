@@ -31,6 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
@@ -106,8 +107,15 @@ final class ObjectLocks {
 	static ObjectVersion.ObjectVersionBuilder lock(final ObjectVersion.ObjectVersionBuilder version,
 		final Bucket bucket, final HttpHeaders headers, final Instant now) {
 
-		final Optional<Retention> retention = requested(headers, now);
-		final Optional<Boolean> legalHold = Optional.ofNullable(headers.getHeaderString(LEGAL_HOLD))
+		return lock(version, bucket, headers::getHeaderString, now);
+	}
+
+	/* From headers, or from the fields of a browser form upload, which has them in their place */
+	static ObjectVersion.ObjectVersionBuilder lock(final ObjectVersion.ObjectVersionBuilder version,
+		final Bucket bucket, final Function<String, String> header, final Instant now) {
+
+		final Optional<Retention> retention = requested(header, now);
+		final Optional<Boolean> legalHold = Optional.ofNullable(header.apply(LEGAL_HOLD))
 			.map(status -> status(status, new S3Exception(S3ErrorCode.InvalidArgument,
 			"Legal Hold must be either of 'ON' or 'OFF'")));
 
@@ -260,9 +268,9 @@ final class ObjectLocks {
 			.toInstant() : now.plus(retention.getDays(), ChronoUnit.DAYS);
 	}
 
-	private static Optional<Retention> requested(final HttpHeaders headers, final Instant now) {
-		final String mode = headers.getHeaderString(MODE);
-		final String until = headers.getHeaderString(UNTIL);
+	private static Optional<Retention> requested(final Function<String, String> header, final Instant now) {
+		final String mode = header.apply(MODE);
+		final String until = header.apply(UNTIL);
 
 		if (Objects.isNull(mode) != Objects.isNull(until)) {
 			throw new S3Exception(S3ErrorCode.InvalidArgument, UNTIL + " and " + MODE

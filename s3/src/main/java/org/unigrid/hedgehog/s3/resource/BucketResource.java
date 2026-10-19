@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.s3.resource;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HEAD;
+import jakarta.ws.rs.OPTIONS;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -33,6 +34,7 @@ import jakarta.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.Objects;
+import org.unigrid.hedgehog.s3.auth.SignatureFilter;
 import org.unigrid.hedgehog.s3.entity.CreateBucketConfiguration;
 import org.unigrid.hedgehog.s3.entity.Delete;
 import org.unigrid.hedgehog.s3.entity.DeleteError;
@@ -49,7 +51,9 @@ import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.index.Versioning;
 import org.unigrid.hedgehog.s3.request.BucketNames;
+import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
+import org.unigrid.hedgehog.s3.spi.CredentialStore;
 
 @Path("/{bucket}")
 public class BucketResource {
@@ -62,12 +66,16 @@ public class BucketResource {
 	private final Clock clock;
 	private final Listings listings;
 	private final ObjectLocks locks;
+	private final FormUpload forms;
 
-	public BucketResource(final Namespace namespace, final Clock clock) {
+	public BucketResource(final Namespace namespace, final BlobStore blobs, final CredentialStore credentials,
+		final Clock clock) {
+
 		this.namespace = namespace;
 		this.clock = clock;
 		listings = new Listings(namespace);
 		locks = new ObjectLocks(namespace, clock);
+		forms = new FormUpload(namespace, blobs, credentials, clock);
 	}
 
 	@PUT
@@ -76,7 +84,7 @@ public class BucketResource {
 		BlobStoreException, NamespaceException, MalformedXmlException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.VERSIONING, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE);
+			Subresource.VERSIONING, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE, Subresource.CORS);
 
 		return subresource == Subresource.NONE ? createBucket(name, headers, request) : configure(name, subresource,
 			request);
@@ -111,6 +119,7 @@ public class BucketResource {
 			case VERSIONING -> Versions.configure(namespace, name, request);
 			case OBJECT_LOCK -> locks.configure(name, request);
 			case LIFECYCLE -> Lifecycles.configure(namespace, name, request);
+			case CORS -> Cors.configure(namespace, name, request);
 			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
 		};
 	}
@@ -127,8 +136,13 @@ public class BucketResource {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
 			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS, Subresource.VERSIONING,
-			Subresource.VERSIONS, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE);
+			Subresource.VERSIONS, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE, Subresource.CORS);
 		final Bucket bucket = Requests.bucket(namespace, name);
+
+		/* The rules are answered as the document the client sent, not as one written anew */
+		if (subresource == Subresource.CORS) {
+			return Cors.read(bucket);
+		}
 
 		return Responses.xml(switch (subresource) {
 			case NONE -> listings.objects(name, uri.getQueryParameters());
@@ -156,22 +170,39 @@ public class BucketResource {
 		BlobStoreException, NamespaceException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.LIFECYCLE);
+			Subresource.LIFECYCLE, Subresource.CORS);
 
 		if (subresource == Subresource.TAGGING) {
 			return Tags.deleteBucket(namespace, name);
 		} else if (subresource == Subresource.LIFECYCLE) {
 			return Lifecycles.delete(namespace, name);
+		} else if (subresource == Subresource.CORS) {
+			return Cors.delete(namespace, name);
 		}
 
 		namespace.deleteBucket(name);
 		return Response.noContent().build();
 	}
 
+	@OPTIONS
+	public Response preflight(@PathParam("bucket") final String name, @Context final HttpHeaders headers)
+		throws IOException, BlobStoreException {
+
+		return Cors.preflight(namespace, name, headers);
+	}
+
+	/* Only a browser form upload comes unsigned, and it is checked against its policy instead */
 	@POST
-	public Response deleteObjects(@PathParam("bucket") final String name, @Context final UriInfo uri,
+	public Response post(@PathParam("bucket") final String name, @Context final UriInfo uri,
 		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
 		MalformedXmlException {
+
+		return SignatureFilter.isFormUpload(request) ? forms.store(name, request)
+			: deleteObjects(name, uri, request);
+	}
+
+	private Response deleteObjects(final String name, final UriInfo uri, final ContainerRequestContext request)
+		throws IOException, BlobStoreException, NamespaceException, MalformedXmlException {
 
 		Requests.subresource(uri, Subresource.DELETE);
 		Requests.bucket(namespace, name);
