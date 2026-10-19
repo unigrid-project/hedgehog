@@ -68,6 +68,10 @@ public final class LifecycleSweeper implements AutoCloseable {
 	private volatile boolean closed;
 
 	LifecycleSweeper(final Namespace namespace, final Clock clock, final Duration interval, final int page) {
+		if (interval.isNegative()) {
+			throw new IllegalArgumentException("The interval between lifecycle rounds must not be negative");
+		}
+
 		this.namespace = namespace;
 		this.clock = clock;
 		this.interval = interval;
