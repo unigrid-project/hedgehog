@@ -25,7 +25,13 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import lombok.AccessLevel;
+import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.S3Options;
@@ -51,6 +57,9 @@ public class S3Gateway {
 	private Namespace namespace;
 	private S3Server server;
 	private LifecycleSweeper sweeper;
+	private ScheduledExecutorService retries;
+	private boolean destroyed;
+	@Setter(AccessLevel.PACKAGE) private Duration retry = Duration.ofSeconds(10);
 
 	static S3ServerConfig config() {
 		return S3ServerConfig.builder().host(S3Options.getHost()).port(S3Options.getPort())
@@ -66,8 +75,56 @@ public class S3Gateway {
 			return;
 		}
 
-		final BlobStore blobs = cached(new StorageBlobStore(storage));
+		init(cached(new StorageBlobStore(storage)));
+	}
 
+	/* A namespace on network storage cannot open before the node knows enough gridnodes, which takes a while */
+	synchronized void init(final BlobStore blobs) {
+		destroyed = false;
+		namespace = null;
+		server = null;
+		sweeper = null;
+
+		if (!start(blobs)) {
+			retries = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("s3-start")
+				.factory());
+			retryLater(blobs);
+		}
+	}
+
+	private void retryLater(final BlobStore blobs) {
+		retries.schedule(() -> attempt(blobs), retry.toMillis(), TimeUnit.MILLISECONDS);
+	}
+
+	private synchronized void attempt(final BlobStore blobs) {
+		if (destroyed) {
+			return;
+		}
+
+		try {
+			if (start(blobs)) {
+				retries.shutdown();
+			} else {
+				retryLater(blobs);
+			}
+		} catch (Exception ex) {
+			log.error("The S3 endpoint failed to start and stops retrying", ex);
+			retries.shutdown();
+		}
+	}
+
+	@SneakyThrows
+	private boolean start(final BlobStore blobs) {
+		try {
+			open(blobs);
+			return true;
+		} catch (BlobStoreException ex) {
+			log.warn("The S3 endpoint waits for network storage and retries: {}", ex.getMessage());
+			return false;
+		}
+	}
+
+	private void open(final BlobStore blobs) throws Exception {
 		namespace = namespace(S3Options.getIndexDirectory(), blobs);
 
 		try {
@@ -99,8 +156,14 @@ public class S3Gateway {
 
 	/* Writes a failed flush leaves behind stay in the journal and reach the network on the next start */
 	@PreDestroy
-	public void destroy() throws IOException {
-		/* The server starts last, and init() closes the sweeper and namespace itself on failure */
+	public synchronized void destroy() throws IOException {
+		destroyed = true;
+
+		if (retries != null) {
+			retries.shutdownNow();
+		}
+
+		/* The server starts last, and open() closes the sweeper and namespace itself on failure */
 		if (server == null) {
 			return;
 		}
