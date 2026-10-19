@@ -199,8 +199,8 @@ public class PostPolicyTest {
 	public void allowsWhatStartsWithThePrefixOfACondition(@ForAll @AlphaChars @StringLength(max = 4) final String prefix,
 		@ForAll @AlphaChars @StringLength(max = 6) final String key) {
 
-		final Map<String, String> form = signed(Map.of("key", key), "[\"starts-with\", \"$key\", \"" + prefix
-			+ "\"]"
+		final Map<String, String> form = signed(Map.of("key", key), "{\"bucket\": \"" + BUCKET + "\"}",
+			"[\"starts-with\", \"$key\", \"" + prefix + "\"]"
 		);
 
 		if (key.startsWith(prefix)) {
@@ -217,6 +217,30 @@ public class PostPolicyTest {
 		assertThat(verify(signed(Map.of(), "[\"content-length-range\", " + first + ", 1000]",
 			"[\"content-length-range\", 0, " + second + "]", "[\"eq\", \"$bucket\", \"" + BUCKET + "\"]")),
 			equalTo(new PostPolicy(first, second))
+		);
+	}
+
+	/* Otherwise a policy handed out for one bucket would upload to every other */
+	@Example
+	public void refusesAPolicyThatIsNotForExactlyTheBucket() {
+		final S3Exception unbound = refusal(signed(Map.of()));
+
+		assertThat(unbound.getCode(), equalTo(S3ErrorCode.AccessDenied));
+		assertThat(unbound.getMessage(), equalTo("Invalid according to Policy: Policy Condition failed: "
+			+ "[\"eq\", \"$bucket\", \"" + BUCKET + "\"]")
+		);
+
+		for (String condition : new String[] {"{\"bucket\": \"otherbucket\"}",
+			"[\"eq\", \"$bucket\", \"otherbucket\"]", "[\"starts-with\", \"$bucket\", \"sigv4\"]",
+			"[\"starts-with\", \"$bucket\", \"\"]"}) {
+
+			assertThat(condition, refusal(signed(Map.of(), condition)).getCode(),
+				equalTo(S3ErrorCode.AccessDenied)
+			);
+		}
+
+		assertThat(verify(signed(Map.of(), "[\"eq\", \"$Bucket\", \"" + BUCKET + "\"]")),
+			equalTo(new PostPolicy(0, Long.MAX_VALUE))
 		);
 	}
 

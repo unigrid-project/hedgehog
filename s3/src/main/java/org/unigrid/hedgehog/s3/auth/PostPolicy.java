@@ -152,6 +152,11 @@ public record PostPolicy(long minimumLength, long maximumLength) {
 			}
 		}
 
+		/* A policy handed out for one bucket would otherwise upload to every other */
+		if (!covered.contains(BUCKET)) {
+			throw failed("[\"eq\", \"$" + BUCKET + "\", \"" + bucket + "\"]");
+		}
+
 		refuseUnconditioned(form, covered);
 		return length;
 	}
@@ -193,15 +198,22 @@ public record PostPolicy(long minimumLength, long maximumLength) {
 		return bound.asLong();
 	}
 
-	/* Answers the field the condition names once the field holds what the condition allows */
+	/* Answers the field the condition names once the field holds what the condition allows. The bucket has to be
+	   named exactly, never by a prefix many buckets could share. */
 	private static String check(final JsonNode condition, final Map<String, String> values) {
 		final Condition parsed = parse(condition);
 
-		if (!parsed.holds(Objects.requireNonNullElse(values.get(parsed.field()), ""))) {
-			throw new S3Exception(S3ErrorCode.AccessDenied, REFUSED + "Policy Condition failed: " + condition);
+		if (parsed.prefix() && BUCKET.equalsIgnoreCase(parsed.field())
+			|| !parsed.holds(Objects.requireNonNullElse(values.get(parsed.field()), ""))) {
+
+			throw failed(condition.toString());
 		}
 
 		return parsed.field();
+	}
+
+	private static S3Exception failed(final String condition) {
+		return new S3Exception(S3ErrorCode.AccessDenied, REFUSED + "Policy Condition failed: " + condition);
 	}
 
 	/* Either {"field": "value"}, or [operator, "$field", "value"] with an operator of eq or starts-with */
