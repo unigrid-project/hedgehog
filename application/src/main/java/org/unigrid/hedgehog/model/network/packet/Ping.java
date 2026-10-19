@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.packet;
 
 import io.netty.util.AttributeKey;
 import java.io.Serializable;
+import java.time.Duration;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -32,7 +33,9 @@ import org.unigrid.hedgehog.model.network.Packet;
 @EqualsAndHashCode(callSuper = false)
 public class Ping extends Packet implements Serializable {
 	public static final AttributeKey<Long> PING_TIME_KEY = AttributeKey.valueOf("PING_TIME");
-	public static final int HEARTBEAT_MINUTES = 3;
+
+	/* QUIC keeps the smaller idle timeout of both ends; a ping round trip resets both, so stay well below it */
+	public static final Duration HEARTBEAT = Duration.ofSeconds(20);
 
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();

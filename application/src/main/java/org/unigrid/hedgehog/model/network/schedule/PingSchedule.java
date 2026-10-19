@@ -29,7 +29,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 @EqualsAndHashCode(callSuper = false)
 public class PingSchedule extends AbstractSchedule implements Schedulable {
 	public PingSchedule() {
-		super(Ping.HEARTBEAT_MINUTES, TimeUnit.MINUTES, true);
+		super((int) Ping.HEARTBEAT.toSeconds(), TimeUnit.SECONDS, true);
 	}
 
 	@Override

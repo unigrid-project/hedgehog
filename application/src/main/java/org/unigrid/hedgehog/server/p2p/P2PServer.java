@@ -99,7 +99,7 @@ public class P2PServer extends AbstractServer {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
+			.maxIdleTimeout(Network.IDLE_TIME.toMillis(), TimeUnit.MILLISECONDS)
 			.handler(new ChannelInitializer<QuicChannel>() {
 				@Override
 				protected void initChannel(QuicChannel quicChannel) {

@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model;
 
+import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
@@ -38,7 +39,7 @@ public class Network {
 	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
 
 	public static final int MAX_STREAMS = 512;
-	public static final int IDLE_TIME_MINUTES = 15;
+	public static final Duration IDLE_TIME = Duration.ofMinutes(1);
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
 
 	public static String[] getProtocols() {

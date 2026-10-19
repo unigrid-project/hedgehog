@@ -95,7 +95,7 @@ public class P2PClient extends ConnectionContainer {
 			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
 			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
-			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
+			.maxIdleTimeout(Network.IDLE_TIME.toMillis(), TimeUnit.MILLISECONDS)
 			.sslContext(context)
 			.build();
 
