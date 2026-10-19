@@ -101,6 +101,18 @@ public class S3OptionsTest {
 	}
 
 	@Example
+	public void shouldApplyLifecycleRulesHourlyByDefault() {
+		OptionsCli.parse(DAEMON);
+		assertThat(S3Options.getLifecycleInterval(), equalTo(Duration.ofHours(1)));
+	}
+
+	@Property
+	public void shouldTakeTheLifecycleIntervalItIsGiven(@ForAll @IntRange(min = 0) int seconds) {
+		OptionsCli.parse(DAEMON, "--s3lifecycleinterval", Duration.ofSeconds(seconds).toString());
+		assertThat(S3Options.getLifecycleInterval(), equalTo(Duration.ofSeconds(seconds)));
+	}
+
+	@Example
 	public void shouldKeepTheIndexOfItsOwnNamespaceInTheDataDirectory() {
 		OptionsCli.parse(DAEMON);
 

@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.FileSystem;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,7 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
+import org.unigrid.hedgehog.s3.lifecycle.LifecycleSweeper;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
 import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobId;
@@ -139,6 +141,23 @@ public class S3GatewayTest {
 
 			try (Namespace namespace = S3Gateway.namespace(files.getPath("/recovered"), blobs)) {
 				assertThat(namespace.buckets().stream().map(Bucket::name).toList(), equalTo(List.of("photos")));
+			}
+		}
+	}
+
+	@Example
+	public void shouldApplyLifecycleRulesAtTheIntervalTheOptionsSay() throws Exception {
+		try (FileSystem files = Jimfs.newFileSystem(Configuration.unix().toBuilder().setAttributeViews("basic",
+			"owner", "posix").build())) {
+
+			OptionsCli.parse(List.of("daemon"), "--s3lifecycleinterval", "PT5M");
+
+			try (Namespace namespace = S3Gateway.namespace(files.getPath("/index"), new MapBlobStore());
+				LifecycleSweeper sweeper = S3Gateway.sweeper(namespace)) {
+
+				assertThat(sweeper.getInterval(), equalTo(Duration.ofMinutes(5)));
+				OptionsCli.parse(List.of("daemon"), "--s3lifecycleinterval", "PT-5M");
+				assertThrows(IllegalArgumentException.class, () -> S3Gateway.sweeper(namespace));
 			}
 		}
 	}

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.s3.index;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import lombok.Builder;
@@ -39,5 +40,18 @@ public record Bucket(String name, Instant created, String location, Versioning v
 		versioning = Objects.requireNonNullElse(versioning, Versioning.UNVERSIONED);
 		tags = Immutable.map(tags);
 		configurations = Immutable.map(configurations);
+	}
+
+	/* The bucket keeping the document for the subresource, or none for it when the document is null */
+	public Bucket configured(final String subresource, final String document) {
+		final Map<String, String> changed = new HashMap<>(configurations);
+
+		if (Objects.isNull(document)) {
+			changed.remove(subresource);
+		} else {
+			changed.put(subresource, document);
+		}
+
+		return toBuilder().configurations(changed).build();
 	}
 }

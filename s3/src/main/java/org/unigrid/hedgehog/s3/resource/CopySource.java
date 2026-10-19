@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
+import org.unigrid.hedgehog.s3.index.VersionRef;
 import org.unigrid.hedgehog.s3.request.Outcome;
 import org.unigrid.hedgehog.s3.request.Preconditions;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
@@ -79,10 +80,21 @@ record CopySource(String bucket, String key, String versionId) {
 		return bucket.equals(otherBucket) && key.equals(otherKey) && Objects.isNull(versionId);
 	}
 
-	/* The version to copy, once the copy-source conditions accept it. A delete marker hides its key here as well,
-	   and naming one by its version id is refused. */
+	/* The version to copy as a snapshot shows it, which answers a request that cannot succeed before it writes */
 	ObjectVersion read(final Namespace namespace, final HttpHeaders headers) throws IOException, BlobStoreException {
-		final ObjectVersion version = Versions.find(namespace, bucket, key, versionId);
+		return check(Optional.of(Versions.find(namespace, bucket, key, versionId)), headers);
+	}
+
+	/* The version read names, which the copy reads once more along with its write */
+	VersionRef pinned(final ObjectVersion read) {
+		return new VersionRef(bucket, key, read.versionId());
+	}
+
+	/* The version found, once the copy-source conditions accept it. A delete marker hides its key here as well, and
+	   naming one by its version id is refused. */
+	ObjectVersion check(final Optional<ObjectVersion> found, final HttpHeaders headers) {
+		final ObjectVersion version = found.orElseThrow(() -> new S3Exception(Objects.isNull(versionId)
+			? S3ErrorCode.NoSuchKey : S3ErrorCode.NoSuchVersion));
 
 		if (version.deleteMarker()) {
 			throw Objects.isNull(versionId) ? new S3Exception(S3ErrorCode.NoSuchKey)

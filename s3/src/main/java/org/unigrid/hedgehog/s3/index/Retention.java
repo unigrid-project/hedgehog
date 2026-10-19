@@ -21,9 +21,21 @@ package org.unigrid.hedgehog.s3.index;
 import java.time.Instant;
 import java.util.Objects;
 
+/* How long Object Lock keeps a version. Compliance yields to nothing before its date, and governance to a request
+   that bypasses it. */
 public record Retention(RetentionMode mode, Instant until) {
 	public Retention {
 		Objects.requireNonNull(mode);
 		Objects.requireNonNull(until);
+	}
+
+	public boolean holds(final Instant at, final boolean bypass) {
+		return until.isAfter(at) && (mode == RetentionMode.COMPLIANCE || !bypass);
+	}
+
+	/* Whether the retention may be replaced by the next one, where none lifts it. One that holds only grows, and only
+	   in its own mode. */
+	public boolean yieldsTo(final Retention next, final Instant at, final boolean bypass) {
+		return !holds(at, bypass) || Objects.nonNull(next) && next.mode == mode && !next.until.isBefore(until);
 	}
 }

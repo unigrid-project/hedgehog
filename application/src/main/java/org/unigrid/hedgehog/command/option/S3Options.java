@@ -66,6 +66,12 @@ public class S3Options {
 	)
 	private static Duration cacheHalfLife;
 
+	@Getter @Option(names = "--s3lifecycleinterval", scope = CommandLine.ScopeType.INHERIT,
+		description = "Time between the rounds that apply the lifecycle rules of the S3 buckets, as an ISO-8601 "
+			+ "duration where zero turns them off (defaults to ${DEFAULT-VALUE}).", defaultValue = "PT1H"
+	)
+	private static Duration lifecycleInterval;
+
 	/* The id grants read access to the whole namespace, so whoever passes it keeps it out of shared shell histories,
 	   for instance with picocli's @file arguments */
 	@Option(names = "--s3root", scope = CommandLine.ScopeType.INHERIT,

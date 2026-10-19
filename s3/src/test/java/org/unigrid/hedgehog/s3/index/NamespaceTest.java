@@ -26,9 +26,11 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -263,10 +265,24 @@ public class NamespaceTest {
 		public void run(final Fixture fixture) throws Exception {
 			final Optional<ObjectVersion> found = fixture.model.latest(bucket, source)
 				.filter(version -> !version.deleteMarker());
+			final VersionRef from = new VersionRef(bucket, source, null);
+			final Function<Optional<ObjectVersion>, ObjectVersion> build = latest -> latest
+				.filter(version -> !version.deleteMarker()).orElseThrow().toBuilder().key(target).versionId(null)
+				.build();
 
-			if (found.isPresent()) {
-				new Put(bucket, target, found.get().toBuilder().key(target).versionId(null).build(), false)
-					.run(fixture);
+			if (fixture.bucket(bucket).isEmpty()) {
+				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.copy(from, build,
+					latest -> true));
+			} else if (found.isEmpty()) {
+				assertThrows(NoSuchElementException.class, () -> fixture.namespace.copy(from, build,
+					latest -> true));
+			} else {
+				final ObjectVersion stored = fixture.namespace.copy(from, build, latest -> true);
+
+				assertThat(stored, equalTo(found.get().toBuilder().key(target).versionId(stored.versionId())
+					.build()));
+				assertThat(stored.isNullVersion(), equalTo(!fixture.versioned(bucket)));
+				fixture.model.put(stored);
 			}
 		}
 	}
@@ -275,12 +291,14 @@ public class NamespaceTest {
 		@Override
 		public void run(final Fixture fixture) throws Exception {
 			if (fixture.bucket(bucket).isEmpty()) {
-				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.delete(bucket, key, at));
+				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.delete(bucket, key, at,
+					latest -> true));
 			} else if (fixture.bucket(bucket).orElseThrow().versioning() == Versioning.UNVERSIONED) {
-				assertThat(fixture.namespace.delete(bucket, key, at), equalTo(Optional.empty()));
+				assertThat(fixture.namespace.delete(bucket, key, at, latest -> true), equalTo(Optional.empty()));
 				fixture.model.remove(bucket, key, ObjectVersion.NULL_VERSION);
 			} else {
-				final ObjectVersion marker = fixture.namespace.delete(bucket, key, at).orElseThrow();
+				final ObjectVersion marker = fixture.namespace.delete(bucket, key, at,
+					latest -> latest.equals(fixture.model.latest(bucket, key))).orElseThrow();
 
 				assertThat(marker, equalTo(ObjectVersion.builder().bucket(bucket).key(key).deleteMarker(true)
 					.lastModified(at).versionId(marker.versionId()).build()));

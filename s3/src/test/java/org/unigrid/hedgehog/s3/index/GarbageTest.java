@@ -39,7 +39,7 @@ public class GarbageTest {
 
 		namespace.put(ObjectVersion.builder().bucket(BUCKET).key(KEY).lastModified(at).parts(List.of(part)).build(),
 			latest -> true);
-		namespace.delete(BUCKET, KEY, at);
+		namespace.delete(BUCKET, KEY, at, latest -> true);
 	}
 
 	/* A blob picked as due can be referred to and released again before it is claimed, which starts a new grace
