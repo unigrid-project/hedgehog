@@ -77,6 +77,12 @@ public class S3OptionsTest {
 	}
 
 	@Property
+	public void shouldServeS3UnlessToldNotTo(@ForAll Optional<Boolean> enabled) {
+		OptionsCli.parse(DAEMON, enabled.map(on -> on ? "--s3" : "--no-s3").stream().toArray(String[]::new));
+		assertThat(S3Options.isEnabled(), equalTo(enabled.orElse(true)));
+	}
+
+	@Property
 	public void shouldTakeTheCacheItIsGiven(@ForAll @AlphaChars @StringLength(min = 1, max = 12) String directory,
 		@ForAll @LongRange(min = 0) long size, @ForAll @IntRange(min = 1) int minutes) {
 

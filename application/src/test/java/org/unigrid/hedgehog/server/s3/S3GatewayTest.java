@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.FileSystem;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -46,6 +48,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import org.unigrid.hedgehog.command.option.OptionsCli;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.model.InMemoryDataDirectoryMockUp;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
@@ -112,6 +115,18 @@ public class S3GatewayTest {
 		OptionsCli.parse(List.of("daemon"));
 
 		assertThat(S3Gateway.cached(new StorageBlobStore(null)), instanceOf(CachingBlobStore.class));
+	}
+
+	@Example
+	public void shouldStartNothingWhenS3IsDisabled() throws Exception {
+		final Path data = new InMemoryDataDirectoryMockUp().getUserDataDir();
+		final S3Gateway gateway = new S3Gateway();
+
+		OptionsCli.parse(List.of("daemon"), "--no-s3");
+		gateway.init();
+		gateway.destroy();
+
+		assertThat(Files.exists(data.resolve("s3")), equalTo(false));
 	}
 
 	@Property

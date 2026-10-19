@@ -32,6 +32,11 @@ public class S3Options {
 	private static final String DEFAULT_CACHE_SIZE_STR = "1073741824";
 	public static final long DEFAULT_CACHE_SIZE = Long.parseLong(DEFAULT_CACHE_SIZE_STR);
 
+	@Getter @Option(names = "--no-s3", scope = CommandLine.ScopeType.INHERIT,
+		description = "Enable/disable the S3 endpoint (enabled by default).", negatable = true, defaultValue = "true"
+	)
+	private static boolean enabled;
+
 	@Getter @Option(names = "--s3host", scope = CommandLine.ScopeType.INHERIT,
 		description = "Hostname or IP the S3 endpoint binds to (defaults to '${DEFAULT-VALUE}').",
 		defaultValue = "localhost"

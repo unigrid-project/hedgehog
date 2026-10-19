@@ -61,6 +61,11 @@ public class S3Gateway {
 	@SneakyThrows
 	@PostConstruct
 	public void init() {
+		if (!S3Options.isEnabled()) {
+			log.info("S3 endpoint disabled");
+			return;
+		}
+
 		final BlobStore blobs = cached(new StorageBlobStore(storage));
 
 		namespace = namespace(S3Options.getIndexDirectory(), blobs);
@@ -95,6 +100,11 @@ public class S3Gateway {
 	/* Writes a failed flush leaves behind stay in the journal and reach the network on the next start */
 	@PreDestroy
 	public void destroy() throws IOException {
+		/* The server starts last, and init() closes the sweeper and namespace itself on failure */
+		if (server == null) {
+			return;
+		}
+
 		sweeper.close();
 		server.close();
 
