@@ -46,6 +46,8 @@ public enum S3ErrorCode {
 	InvalidBucketName(Status.BAD_REQUEST, "The specified bucket is not valid."),
 	InvalidDigest(Status.BAD_REQUEST, "The Content-MD5 or checksum value that you specified is not valid."),
 	InvalidPart(Status.BAD_REQUEST, "One or more of the specified parts could not be found."),
+	InvalidPolicyDocument(Status.BAD_REQUEST, "The content of the form does not meet the conditions specified in "
+		+ "the policy document."),
 	InvalidPartOrder(Status.BAD_REQUEST, "The list of parts was not in ascending order."),
 	InvalidRange(Status.REQUESTED_RANGE_NOT_SATISFIABLE, "The requested range cannot be satisfied."),
 	InvalidRequest(Status.BAD_REQUEST, "Invalid Request"),
