@@ -34,6 +34,7 @@ import jakarta.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.Objects;
+import org.unigrid.hedgehog.s3.auth.SignatureFilter;
 import org.unigrid.hedgehog.s3.entity.CreateBucketConfiguration;
 import org.unigrid.hedgehog.s3.entity.Delete;
 import org.unigrid.hedgehog.s3.entity.DeleteError;
@@ -49,7 +50,9 @@ import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.request.BucketNames;
+import org.unigrid.hedgehog.s3.spi.BlobStore;
 import org.unigrid.hedgehog.s3.spi.BlobStoreException;
+import org.unigrid.hedgehog.s3.spi.CredentialStore;
 
 @Path("/{bucket}")
 public class BucketResource {
@@ -61,11 +64,15 @@ public class BucketResource {
 	private final Namespace namespace;
 	private final Clock clock;
 	private final Listings listings;
+	private final FormUpload forms;
 
-	public BucketResource(final Namespace namespace, final Clock clock) {
+	public BucketResource(final Namespace namespace, final BlobStore blobs, final CredentialStore credentials,
+		final Clock clock) {
+
 		this.namespace = namespace;
 		this.clock = clock;
 		listings = new Listings(namespace);
+		forms = new FormUpload(namespace, blobs, credentials, clock);
 	}
 
 	@PUT
@@ -156,10 +163,18 @@ public class BucketResource {
 		return Cors.preflight(namespace, name, headers);
 	}
 
+	/* Only a browser form upload comes unsigned, and it is checked against its policy instead */
 	@POST
-	public Response deleteObjects(@PathParam("bucket") final String name, @Context final UriInfo uri,
+	public Response post(@PathParam("bucket") final String name, @Context final UriInfo uri,
 		@Context final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
 		MalformedXmlException {
+
+		return SignatureFilter.isFormUpload(request) ? forms.store(name, request)
+			: deleteObjects(name, uri, request);
+	}
+
+	private Response deleteObjects(final String name, final UriInfo uri, final ContainerRequestContext request)
+		throws IOException, BlobStoreException, NamespaceException, MalformedXmlException {
 
 		Requests.subresource(uri, Subresource.DELETE);
 		Requests.bucket(namespace, name);

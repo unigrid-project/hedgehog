@@ -180,6 +180,21 @@ public class FormDataTest {
 	}
 
 	@Example
+	public void takesTheBoundaryFromTheTypeOfTheRequest() throws IOException {
+		final String body = form(BOUNDARY, "", List.of(new Field("key", Optional.empty(), Optional.empty(), "a")), "");
+
+		for (String type : List.of("multipart/form-data; boundary=" + BOUNDARY,
+			"Multipart/Form-Data;charset=UTF-8; Boundary=\"" + BOUNDARY + "\"")) {
+
+			assertThat(read(FormData.of(trickle(body, 9), type).next().orElseThrow().body(), 4), equalTo("a"));
+		}
+
+		assertThat(refusal(() -> FormData.of(trickle(body, 9), "multipart/form-data")),
+			equalTo(S3ErrorCode.MalformedPOSTRequest)
+		);
+	}
+
+	@Example
 	public void refusesABoundaryNoFormCouldHave() {
 		for (String boundary : List.of("", "b".repeat(71))) {
 			assertThat(refusal(() -> new FormData(trickle("", 1), boundary)),

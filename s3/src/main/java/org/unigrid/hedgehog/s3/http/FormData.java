@@ -72,6 +72,11 @@ public final class FormData {
 		limit = CRLF.length;
 	}
 
+	/* The boundary is a parameter of the multipart/form-data type of the request */
+	public static FormData of(final InputStream input, final String contentType) {
+		return new FormData(input, parameters(Objects.requireNonNullElse(contentType, "")).get("boundary"));
+	}
+
 	private static S3Exception malformed() {
 		return new S3Exception(S3ErrorCode.MalformedPOSTRequest);
 	}

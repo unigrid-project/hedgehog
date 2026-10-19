@@ -26,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum S3ErrorCode {
+	AccessControlListNotSupported(Status.BAD_REQUEST, "The bucket does not allow ACLs"),
 	AccessDenied(Status.FORBIDDEN, "Access Denied"),
 	AccessForbidden(Status.FORBIDDEN, "Access Forbidden"),
 	AuthorizationHeaderMalformed(Status.BAD_REQUEST, "The authorization header that you provided is not valid."),
@@ -40,6 +41,7 @@ public enum S3ErrorCode {
 	EntityTooSmall(Status.BAD_REQUEST, "Your proposed upload is smaller than the minimum allowed object size."),
 	IncompleteBody(Status.BAD_REQUEST,
 		"You did not provide the number of bytes specified by the Content-Length HTTP header."),
+	IncorrectNumberOfFilesInPostRequest(Status.BAD_REQUEST, "POST requires exactly one file upload per request."),
 	InternalError(Status.INTERNAL_SERVER_ERROR, "We encountered an internal error. Please try again."),
 	InvalidAccessKeyId(Status.FORBIDDEN, "The AWS access key ID that you provided does not exist in our records."),
 	InvalidArgument(Status.BAD_REQUEST, "Invalid Argument"),
@@ -58,6 +60,8 @@ public enum S3ErrorCode {
 	MalformedPOSTRequest(Status.BAD_REQUEST, "The body of your POST request is not well-formed "
 		+ "multipart/form-data."),
 	MalformedXML(Status.BAD_REQUEST, "The XML that you provided was not well formed or did not validate."),
+	MaxPostPreDataLengthExceededError(Status.BAD_REQUEST, "Your POST request fields preceding the upload file "
+		+ "were too large."),
 	MethodNotAllowed(Status.METHOD_NOT_ALLOWED, "The specified method is not allowed against this resource."),
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),

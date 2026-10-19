@@ -95,7 +95,8 @@ public final class S3Server implements AutoCloseable {
 		final CredentialStore credentials, final Clock clock) {
 
 		return resources(config, blobs, credentials, clock).registerInstances(new ServiceResource(namespace),
-			new BucketResource(namespace, clock), new ObjectResource(namespace, blobs, clock),
+			new BucketResource(namespace, blobs, credentials, clock),
+			new ObjectResource(namespace, blobs, clock),
 			new CorsFilter(namespace, config.getDomain().orElse(null))
 		);
 	}

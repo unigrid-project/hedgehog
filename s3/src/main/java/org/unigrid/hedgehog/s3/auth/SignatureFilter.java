@@ -53,27 +53,50 @@ public class SignatureFilter implements ContainerRequestFilter {
 
 	private static final String ORIGIN = "Origin";
 	private static final String REQUEST_METHOD = "Access-Control-Request-Method";
+	private static final String FORM_DATA = "multipart/form-data";
+	private static final String FORM_UPLOAD = SignatureFilter.class.getName() + ".form";
+	private static final String ROOT = "/";
 
 	/* Only names a bucket can have, so no encoded slash makes the path mean more than the bucket and its key */
 	private static final Pattern BUCKET_PATH = Pattern.compile("/[a-z0-9.-]+(/.*)?");
+	private static final Pattern BUCKET_ROOT = Pattern.compile("/[a-z0-9.-]+/?");
 
 	private final CredentialStore credentials;
 	private final Clock clock;
 	private final String domain;
 
-	/* Whether the request names a bucket, in its host or in its path */
-	private boolean namesBucket(final ContainerRequestContext request) {
+	/* Whether the request names its bucket in the host, which leaves the path to name the key */
+	private boolean isVirtualHost(final ContainerRequestContext request) {
 		final String host = request.getHeaderString(HttpHeaders.HOST);
 
 		return Objects.nonNull(domain) && Objects.nonNull(host) && VirtualHostFilter.subdomain(host, domain)
-			.isPresent() || BUCKET_PATH.matcher(request.getUriInfo().getRequestUri().getRawPath()).matches();
+			.isPresent();
+	}
+
+	private static String path(final ContainerRequestContext request) {
+		return request.getUriInfo().getRequestUri().getRawPath();
 	}
 
 	/* A browser sends a CORS preflight without credentials, and the CORS rules of the bucket alone answer it. An
 	   OPTIONS request lacking what makes it a preflight has to be signed like any other. */
 	private boolean isPreflight(final ContainerRequestContext request) {
 		return HttpMethod.OPTIONS.equals(request.getMethod()) && Objects.nonNull(request.getHeaderString(ORIGIN))
-			&& Objects.nonNull(request.getHeaderString(REQUEST_METHOD)) && namesBucket(request);
+			&& Objects.nonNull(request.getHeaderString(REQUEST_METHOD))
+			&& (isVirtualHost(request) || BUCKET_PATH.matcher(path(request)).matches());
+	}
+
+	/* A browser posts a form to the bucket itself, signed by the policy it carries rather than as a request */
+	private boolean isUnsignedForm(final ContainerRequestContext request) {
+		final String type = Objects.requireNonNullElse(request.getHeaderString(HttpHeaders.CONTENT_TYPE), "");
+
+		return HttpMethod.POST.equals(request.getMethod()) && FORM_DATA.equalsIgnoreCase(type.split(";", 2)[0]
+			.strip()) && (isVirtualHost(request) ? ROOT.equals(path(request))
+			: BUCKET_ROOT.matcher(path(request)).matches());
+	}
+
+	/* The upload that takes such a form has to check its policy before it stores anything */
+	public static boolean isFormUpload(final ContainerRequestContext request) {
+		return Boolean.TRUE.equals(request.getProperty(FORM_UPLOAD));
 	}
 
 	private static Authorization authorization(final ContainerRequestContext request) {
@@ -109,6 +132,11 @@ public class SignatureFilter implements ContainerRequestFilter {
 	@Override
 	public void filter(final ContainerRequestContext request) {
 		if (isPreflight(request)) {
+			return;
+		}
+
+		if (isUnsignedForm(request)) {
+			request.setProperty(FORM_UPLOAD, true);
 			return;
 		}
 
