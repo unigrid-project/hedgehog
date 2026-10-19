@@ -48,11 +48,14 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 				.channel((QuicStreamChannel) ctx.channel())
 				.build();
 
-			topology.addNode(Node.builder()
+			final Node node = Node.builder()
 				.address(new InetSocketAddress(address.getAddress(), hello.getPort()))
 				.connection(Optional.of(container))
-				.build()
-			);
+				.build();
+
+			if (!topology.replaceConnection(node)) {
+				topology.addNode(node);
+			}
 		});
 	}
 }

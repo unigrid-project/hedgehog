@@ -131,6 +131,25 @@ public class Topology {
 		return false;
 	}
 
+	/* A restarted peer dials in again while the connection it made before still reports active, so the new one wins.
+	   A connection this node dialed itself stays: when two peers dial each other at once, each would otherwise
+	   close the connection the other keeps. Answers whether the node was known. */
+	@Protected @Lock(LockMode.WRITE)
+	public boolean replaceConnection(Node node) {
+		return nodes.stream().filter(node::equals).findFirst().map(stored -> {
+			if (stored.getConnection().filter(Connection::isDialed).isEmpty()) {
+				stored.getConnection().ifPresent(old -> {
+					old.closeDirty();
+					channels.remove(old.getChannel());
+				});
+
+				stored.setConnection(node.getConnection());
+			}
+
+			return true;
+		}).orElse(false);
+	}
+
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeNode(Node node) {
 		return nodes.remove(node);

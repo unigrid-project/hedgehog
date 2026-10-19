@@ -26,4 +26,9 @@ public interface Connection {
 	ChannelFuture send(Packet packet);
 	void close();
 	void closeDirty();
+
+	/* Whether this node opened the connection, rather than the peer */
+	default boolean isDialed() {
+		return false;
+	}
 }

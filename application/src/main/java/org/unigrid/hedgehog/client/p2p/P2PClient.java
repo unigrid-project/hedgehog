@@ -82,6 +82,11 @@ public class P2PClient extends ConnectionContainer {
 		}
 	}
 
+	@Override
+	public boolean isDialed() {
+		return true;
+	}
+
 	private static QuicStreamChannel connect(EventLoopGroup group, String hostname, int port)
 		throws ExecutionException, InterruptedException, TimeoutException {
 
