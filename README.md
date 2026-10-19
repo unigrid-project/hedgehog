@@ -11,11 +11,12 @@ __What works today:__
 - Peer-to-peer distribution over QUIC
 - Gridnode sporks: network parameters that take effect only when two network keys have signed them
 - Network storage: files encrypted, erasure coded and spread over the gridnodes, which repair lost fragments themselves
-- REST interface with an S3-compatible object store
+- An S3-compatible endpoint over network storage, for the AWS SDKs, rclone, restic and other S3 clients
+- REST interface
 - A signed snapshot of the legacy chain: every address, balance and transaction
 
 __In development or planned:__
-- Access to network storage through the S3 API, [Janus](https://github.com/unigrid-project/janus-java) and virtual desktop drives
+- Access to network storage through [Janus](https://github.com/unigrid-project/janus-java) and virtual desktop drives
 - Built-in SOCKS5 proxy for VPN-like functionality
 - WebAssembly support, compute and GPU workloads
 - Duality consensus
@@ -39,6 +40,17 @@ Hedgehog requires Java 25+ and [Maven](https://maven.apache.org/). From the Hedg
 This creates `application/target/hedgehog-<version>-jar-with-dependencies.jar`. Start it with `java -jar`, and pass `--help` to see every command and option. Depending on the options, Hedgehog acts as a network daemon, a client or a stand-alone application.
 
 The native executable wraps a JVM and the Hedgehog jar. Build it with `mvn package` inside `native-image`, with `GRAALVM_HOME` pointing at a GraalVM 25 installation. The result is `native-image/target/hedgehog.bin`, or `hedgehog.exe` on Windows.
+
+### S3 endpoint
+The daemon serves network storage over the S3 API on port 52885, over TLS with a self-signed certificate. Clients sign their requests with an access key:
+
+> hedgehog s3 key create
+
+The secret is printed only once. `hedgehog s3 key list` and `hedgehog s3 key delete <access key id>` manage the rest. Any region name is accepted. Path-style addressing always works; `--s3domain s3.example.com` adds virtual-host style, as in `bucket.s3.example.com`.
+
+Supported: buckets, objects with metadata, conditional requests and ranges, listings V1 and V2, batch delete, copy, multipart uploads, presigned URLs and browser form uploads, checksums, tagging, CORS, versioning, lifecycle rules and Object Lock. Bucket policies, ACLs and server-side encryption settings are not, since the network already encrypts every object.
+
+Objects read through the endpoint are kept in a local memory-mapped cache (`--s3cachedir`, `--s3cachesize`). The bucket and object index lives in network storage as well; `--s3root` mounts the index of another node, such as one that was lost, from the id in that node's `s3/index/root` file in the data directory. Keep a copy of that id, and keep it as secret as an access key: it gives read access to every object. Other options are `--s3host`, `--s3port` and `--s3plain` for clients that cannot trust a self-signed certificate.
 
 ## Releases
 Every release on the [releases page](https://github.com/unigrid-project/hedgehog/releases) carries the executables for Linux, macOS on Apple Silicon and Windows, the runnable jar, and the signed chain snapshot `bootstrap.dat.gz` that `hedgehog bootstrap fetch` downloads. Intel Macs run the jar.

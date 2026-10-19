@@ -50,6 +50,7 @@ import org.unigrid.hedgehog.s3.entity.ListPartsResult;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Listing;
 import org.unigrid.hedgehog.s3.index.Marker;
 import org.unigrid.hedgehog.s3.index.Namespace;
@@ -85,10 +86,12 @@ final class Multipart {
 
 		ObjectHeaders.refuseUnsupported(headers);
 
-		final Upload upload = namespace.createUpload(Upload.builder().template(ObjectVersion.builder()
-			.bucket(bucket).key(Requests.key(key)).lastModified(Requests.now(clock))
-			.headers(ObjectHeaders.content(headers)).metadata(ObjectHeaders.metadata(headers))
-			.tags(Tags.header(headers)).build())
+		final Instant now = Requests.now(clock);
+		final ObjectVersion template = ObjectLocks.lock(ObjectVersion.builder().bucket(bucket)
+			.key(Requests.key(key)).lastModified(now).headers(ObjectHeaders.content(headers))
+			.metadata(ObjectHeaders.metadata(headers)).tags(Tags.header(headers)), Requests.bucket(namespace,
+			bucket), headers, now).build();
+		final Upload upload = namespace.createUpload(Upload.builder().template(template)
 			.checksumAlgorithm(headers.getHeaderString(CHECKSUM_ALGORITHM))
 			.checksumType(headers.getHeaderString(CHECKSUM_TYPE)).build()
 		);
@@ -121,24 +124,32 @@ final class Multipart {
 		final int number = partNumber(query);
 		final String uploadId = upload(bucket, key, query).uploadId();
 		final ObjectVersion from = source.read(namespace, headers);
-		final ByteRange range = copyRange(headers.getHeaderString(COPY_RANGE), from.size());
-		final boolean whole = range.length() == from.size() && MD5.matcher(from.etag()).matches();
-		final String etag = whole ? from.etag() : md5(from.etag() + " " + range.first() + "-" + range.last());
 		final Instant now = Requests.now(clock);
+		final Part part = namespace.copyPart(bucket, key, uploadId, source.pinned(from), found -> copiedPart(
+			source.check(found, headers), headers.getHeaderString(COPY_RANGE), number, now));
 		final CopyPartResult result = new CopyPartResult();
 
-		namespace.putPart(bucket, key, uploadId, Part.builder().number(number).etag(etag).lastModified(now)
-			.slices(Content.slice(from.parts(), range.first(), range.length())).build()
-		);
-		result.setETag(Responses.quoted(etag));
+		result.setETag(Responses.quoted(part.etag()));
 		result.setLastModified(now);
 		return Responses.copied(Response.ok(result, MediaType.APPLICATION_XML_TYPE), from).build();
+	}
+
+	private static Part copiedPart(final ObjectVersion from, final String rangeHeader, final int number,
+		final Instant now) {
+
+		final ByteRange range = copyRange(rangeHeader, from.size());
+		final boolean whole = range.length() == from.size() && MD5.matcher(from.etag()).matches();
+		final String etag = whole ? from.etag() : md5(from.etag() + " " + range.first() + "-" + range.last());
+
+		return Part.builder().number(number).etag(etag).lastModified(now)
+			.slices(Content.slice(from.parts(), range.first(), range.length())).build();
 	}
 
 	Response complete(final String bucket, final String key, final UriInfo uri, final HttpHeaders headers,
 		final ContainerRequestContext request) throws IOException, BlobStoreException, NamespaceException,
 		MalformedXmlException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final List<org.unigrid.hedgehog.s3.entity.Part> requested = requested(Requests.xml(
 			CompleteMultipartUpload.class, request));
 		final ObjectVersion stored = namespace.completeUpload(bucket, Requests.key(key),
@@ -152,7 +163,7 @@ final class Multipart {
 		result.setBucket(bucket);
 		result.setKey(key);
 		result.setETag(Responses.quoted(stored.etag()));
-		return Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), stored).build();
+		return Responses.versioned(Response.ok(result, MediaType.APPLICATION_XML_TYPE), found, stored).build();
 	}
 
 	Response abort(final String bucket, final String key, final MultivaluedMap<String, String> query)

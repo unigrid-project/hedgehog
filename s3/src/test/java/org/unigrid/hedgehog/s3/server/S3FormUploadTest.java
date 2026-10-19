@@ -40,10 +40,16 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.s3.auth.SigV4;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.ObjectLockEnabled;
+import software.amazon.awssdk.services.s3.model.ObjectLockLegalHoldStatus;
+import software.amazon.awssdk.services.s3.model.ObjectLockRetentionMode;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.Tag;
 
@@ -224,6 +230,35 @@ public class S3FormUploadTest {
 			);
 			assertThat(node.getClient().headObject(request -> request.bucket(BUCKET).key("uploads/photo.jpg"))
 				.contentLength(), equalTo(4L)
+			);
+		}
+	}
+
+	@Example
+	public void locksAndVersionsWhatAFormStoresAsAPutWould() throws Exception {
+		try (S3Node node = S3Node.start()) {
+			final S3Client client = node.getClient();
+			final String version = "x-amz-version-id";
+			final String hold = "x-amz-object-lock-legal-hold";
+
+			client.createBucket(request -> request.bucket(BUCKET).objectLockEnabledForBucket(true));
+			client.putObjectLockConfiguration(request -> request.bucket(BUCKET).objectLockConfiguration(lock ->
+				lock.objectLockEnabled(ObjectLockEnabled.ENABLED).rule(rule -> rule.defaultRetention(
+				retention -> retention.mode(ObjectLockRetentionMode.GOVERNANCE).days(1)))));
+
+			final RawHttp.Answer first = post(node, photo(), PHOTO);
+			final RawHttp.Answer held = post(node, photo("{\"" + hold + "\": \"ON\"}").with(hold, "ON"), PHOTO);
+
+			assertThat(first.status(), equalTo(HttpURLConnection.HTTP_NO_CONTENT));
+			assertThat(held.headers().get(version), not(equalTo(first.headers().get(version))));
+			assertThat(client.listObjectVersions(request -> request.bucket(BUCKET)).versions(), hasSize(2));
+			assertThat(client.getObjectRetention(request -> request.bucket(BUCKET).key("uploads/photo.jpg")
+				.versionId(first.headers().get(version))).retention().mode(),
+				equalTo(ObjectLockRetentionMode.GOVERNANCE)
+			);
+			assertThat(client.getObjectLegalHold(request -> request.bucket(BUCKET).key("uploads/photo.jpg")
+				.versionId(held.headers().get(version))).legalHold().status(),
+				equalTo(ObjectLockLegalHoldStatus.ON)
 			);
 		}
 	}

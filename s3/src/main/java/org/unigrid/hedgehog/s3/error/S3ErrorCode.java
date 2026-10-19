@@ -39,6 +39,8 @@ public enum S3ErrorCode {
 	BucketNotEmpty(Status.CONFLICT, "The bucket that you tried to delete is not empty."),
 	EntityTooLarge(Status.BAD_REQUEST, "Your proposed upload exceeds the maximum allowed size."),
 	EntityTooSmall(Status.BAD_REQUEST, "Your proposed upload is smaller than the minimum allowed object size."),
+	IllegalVersioningConfigurationException(Status.BAD_REQUEST, "The versioning configuration specified in the "
+		+ "request is invalid."),
 	IncompleteBody(Status.BAD_REQUEST,
 		"You did not provide the number of bytes specified by the Content-Length HTTP header."),
 	IncorrectNumberOfFilesInPostRequest(Status.BAD_REQUEST, "POST requires exactly one file upload per request."),
@@ -46,6 +48,7 @@ public enum S3ErrorCode {
 	InvalidAccessKeyId(Status.FORBIDDEN, "The AWS access key ID that you provided does not exist in our records."),
 	InvalidArgument(Status.BAD_REQUEST, "Invalid Argument"),
 	InvalidBucketName(Status.BAD_REQUEST, "The specified bucket is not valid."),
+	InvalidBucketState(Status.CONFLICT, "The request is not valid for the current state of the bucket."),
 	InvalidDigest(Status.BAD_REQUEST, "The Content-MD5 or checksum value that you specified is not valid."),
 	InvalidPart(Status.BAD_REQUEST, "One or more of the specified parts could not be found."),
 	InvalidPolicyDocument(Status.BAD_REQUEST, "The content of the form does not meet the conditions specified in "
@@ -67,12 +70,17 @@ public enum S3ErrorCode {
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
 	NoSuchCORSConfiguration(Status.NOT_FOUND, "The CORS configuration does not exist"),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
+	NoSuchLifecycleConfiguration(Status.NOT_FOUND, "The lifecycle configuration does not exist."),
+	NoSuchObjectLockConfiguration(Status.NOT_FOUND, "The specified object does not have a ObjectLock "
+		+ "configuration."),
 	NoSuchTagSet(Status.NOT_FOUND, "The TagSet does not exist."),
 	NoSuchUpload(Status.NOT_FOUND, "The specified multipart upload does not exist."),
 	NoSuchVersion(Status.NOT_FOUND, "The version ID specified in the request does not match an existing version."),
 	NotImplemented(Status.NOT_IMPLEMENTED, "A header or query you provided implies functionality that is not "
 		+ "implemented."),
 	NotModified(Status.NOT_MODIFIED, "Not Modified"),
+	ObjectLockConfigurationNotFoundError(Status.NOT_FOUND, "Object Lock configuration does not exist for this "
+		+ "bucket."),
 	PreconditionFailed(Status.PRECONDITION_FAILED, "At least one of the preconditions that you specified did not "
 		+ "hold."),
 	RequestTimeTooSkewed(Status.FORBIDDEN, "The difference between the request time and the server's time is too "

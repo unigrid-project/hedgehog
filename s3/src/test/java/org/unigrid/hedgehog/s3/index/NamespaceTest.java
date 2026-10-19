@@ -26,13 +26,16 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -262,10 +265,24 @@ public class NamespaceTest {
 		public void run(final Fixture fixture) throws Exception {
 			final Optional<ObjectVersion> found = fixture.model.latest(bucket, source)
 				.filter(version -> !version.deleteMarker());
+			final VersionRef from = new VersionRef(bucket, source, null);
+			final Function<Optional<ObjectVersion>, ObjectVersion> build = latest -> latest
+				.filter(version -> !version.deleteMarker()).orElseThrow().toBuilder().key(target).versionId(null)
+				.build();
 
-			if (found.isPresent()) {
-				new Put(bucket, target, found.get().toBuilder().key(target).versionId(null).build(), false)
-					.run(fixture);
+			if (fixture.bucket(bucket).isEmpty()) {
+				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.copy(from, build,
+					latest -> true));
+			} else if (found.isEmpty()) {
+				assertThrows(NoSuchElementException.class, () -> fixture.namespace.copy(from, build,
+					latest -> true));
+			} else {
+				final ObjectVersion stored = fixture.namespace.copy(from, build, latest -> true);
+
+				assertThat(stored, equalTo(found.get().toBuilder().key(target).versionId(stored.versionId())
+					.build()));
+				assertThat(stored.isNullVersion(), equalTo(!fixture.versioned(bucket)));
+				fixture.model.put(stored);
 			}
 		}
 	}
@@ -274,12 +291,14 @@ public class NamespaceTest {
 		@Override
 		public void run(final Fixture fixture) throws Exception {
 			if (fixture.bucket(bucket).isEmpty()) {
-				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.delete(bucket, key, at));
+				assertThrows(NoSuchBucketException.class, () -> fixture.namespace.delete(bucket, key, at,
+					latest -> true));
 			} else if (fixture.bucket(bucket).orElseThrow().versioning() == Versioning.UNVERSIONED) {
-				assertThat(fixture.namespace.delete(bucket, key, at), equalTo(Optional.empty()));
+				assertThat(fixture.namespace.delete(bucket, key, at, latest -> true), equalTo(Optional.empty()));
 				fixture.model.remove(bucket, key, ObjectVersion.NULL_VERSION);
 			} else {
-				final ObjectVersion marker = fixture.namespace.delete(bucket, key, at).orElseThrow();
+				final ObjectVersion marker = fixture.namespace.delete(bucket, key, at,
+					latest -> latest.equals(fixture.model.latest(bucket, key))).orElseThrow();
 
 				assertThat(marker, equalTo(ObjectVersion.builder().bucket(bucket).key(key).deleteMarker(true)
 					.lastModified(at).versionId(marker.versionId()).build()));
@@ -583,5 +602,44 @@ public class NamespaceTest {
 		} finally {
 			fixture.namespace.close();
 		}
+	}
+
+	/* A blob released when an unversioned key is written over is deleted once the grace period is over, while the
+	   blobs of a version stored after that stay */
+	@Example
+	public void deletesTheBlobOfAReplacedNullVersionOnceTheGracePeriodIsOver() throws Exception {
+		behavesLikeTheModel(List.of(new CreateBucket("a"),
+			new Put("a", "b/a", content("a", "b/a", "released"), false),
+			new Put("a", "a", content("a", "a").toBuilder().legalHold(true).build(), true),
+			new Put("a", "b/a", content("a", "b/a"), false),
+			new Put("a", "a", content("a", "a").toBuilder().legalHold(true).build(), true),
+			new Copy("b", "a.b", "a/c"),
+			new Maintain(Duration.ofSeconds(24)),
+			new Maintain(Duration.ofMinutes(105).plusSeconds(8)),
+			new Put("a", "ab", content("a", "ab", "stored after the release"), false)));
+	}
+
+	private static ObjectVersion content(final String bucket, final String key, final String... blobs) {
+		final List<BlobRef> slices = Stream.of(blobs).map(blob -> new BlobRef(new BlobId(blob), 0, 1)).toList();
+
+		return ObjectVersion.builder().bucket(bucket).key(key).lastModified(Instant.EPOCH)
+			.parts(List.of(Part.builder().number(1).slices(slices).build())).build();
+	}
+
+	/* The blob store gives every blob it stores an id of its own, so only a copy refers to a blob again. A blob id
+	   generated twice would refer to a blob the namespace may already have deleted, which the model counts as live. */
+	@Property
+	public void generatesEveryBlobIdOnce(@ForAll("operations") final List<Op> operations) {
+		final List<BlobId> generated = operations.stream().flatMap(NamespaceTest::slices).map(BlobRef::id).toList();
+
+		assertThat(Set.copyOf(generated).size(), equalTo(generated.size()));
+	}
+
+	private static Stream<BlobRef> slices(final Op operation) {
+		return switch (operation) {
+			case Put put -> put.content().parts().stream().flatMap(part -> part.slices().stream());
+			case PutPart put -> put.part().slices().stream();
+			default -> Stream.empty();
+		};
 	}
 }

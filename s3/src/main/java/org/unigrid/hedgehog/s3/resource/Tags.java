@@ -64,34 +64,37 @@ final class Tags {
 	static Response readObject(final Namespace namespace, final String bucket, final String key,
 		final MultivaluedMap<String, String> query) throws IOException, BlobStoreException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final ObjectVersion version = Versions.readable(namespace, bucket, key, query.getFirst(Versions.VERSION_ID));
 
-		return Responses.versioned(Response.ok(document(version.tags()), MediaType.APPLICATION_XML_TYPE), version)
-			.build();
+		return Responses.versioned(Response.ok(document(version.tags()), MediaType.APPLICATION_XML_TYPE), found,
+			version).build();
 	}
 
 	static Response writeObject(final Namespace namespace, final String bucket, final String key,
 		final MultivaluedMap<String, String> query, final ContainerRequestContext request) throws IOException,
 		BlobStoreException, MalformedXmlException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final ObjectVersion version = Versions.readable(namespace, bucket, key, query.getFirst(Versions.VERSION_ID));
 		final Map<String, String> tags = read(request, MAX_OBJECT_TAGS);
 		final ObjectVersion stored = namespace.update(bucket, key, version.versionId(),
 			current -> current.toBuilder().tags(tags).build())
 			.orElseThrow(() -> new S3Exception(S3ErrorCode.NoSuchKey));
 
-		return Responses.versioned(Response.ok(), stored).build();
+		return Responses.versioned(Response.ok(), found, stored).build();
 	}
 
 	static Response deleteObject(final Namespace namespace, final String bucket, final String key,
 		final MultivaluedMap<String, String> query) throws IOException, BlobStoreException {
 
+		final Bucket found = Requests.bucket(namespace, bucket);
 		final ObjectVersion version = Versions.readable(namespace, bucket, key, query.getFirst(Versions.VERSION_ID));
 		final ObjectVersion stored = namespace.update(bucket, key, version.versionId(),
 			current -> current.toBuilder().tags(Map.of()).build())
 			.orElseThrow(() -> new S3Exception(S3ErrorCode.NoSuchKey));
 
-		return Responses.versioned(Response.noContent(), stored).build();
+		return Responses.versioned(Response.noContent(), found, stored).build();
 	}
 
 	/* A bucket without tags has no tag set to answer with, which S3 reports as an error of its own */

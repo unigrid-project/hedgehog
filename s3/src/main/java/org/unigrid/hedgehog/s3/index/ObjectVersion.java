@@ -57,6 +57,11 @@ public record ObjectVersion(String bucket, String key, String versionId, boolean
 		return NULL_VERSION.equals(versionId);
 	}
 
+	/* Whether Object Lock keeps the version from being removed at the instant */
+	public boolean locked(final Instant at, final boolean bypassGovernance) {
+		return legalHold || Objects.nonNull(retention) && retention.holds(at, bypassGovernance);
+	}
+
 	Set<BlobId> blobs() {
 		return parts.stream().flatMap(part -> part.blobs().stream()).collect(Collectors.toSet());
 	}

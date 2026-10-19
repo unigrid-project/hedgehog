@@ -23,12 +23,14 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.UriInfo;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.SneakyThrows;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.entity.S3Xml;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
@@ -113,8 +115,44 @@ final class Requests {
 		return subresource;
 	}
 
+	static <T> Optional<T> xml(final Class<T> type, final ContainerRequestContext request) throws IOException,
+		MalformedXmlException {
+
+		final byte[] body = body(request);
+
+		return body.length == 0 ? Optional.empty()
+			: Optional.of(S3Xml.read(type, new ByteArrayInputStream(body)));
+	}
+
+	/* The document of a request S3 has carry a digest of it, such as one that configures a bucket or locks a
+	   version, as the text a bucket keeps */
+	static String digestedXml(final ContainerRequestContext request) throws IOException {
+		if (!digested(request)) {
+			throw new S3Exception(S3ErrorCode.InvalidRequest, "Missing required header for this request: "
+				+ Payload.CONTENT_MD5);
+		}
+
+		return new String(body(request), StandardCharsets.UTF_8);
+	}
+
+	static <T> T parse(final Class<T> type, final String document) throws IOException, MalformedXmlException {
+		return S3Xml.read(type, new ByteArrayInputStream(document.getBytes(StandardCharsets.UTF_8)));
+	}
+
+	/* A configuration a bucket keeps was parsed before it was kept, so it parses again */
+	@SneakyThrows({IOException.class, MalformedXmlException.class})
+	static <T> T kept(final Class<T> type, final String document) {
+		return parse(type, document);
+	}
+
+	/* Whether the body comes with Content-MD5 or a checksum, in a header or a trailer */
+	static boolean digested(final ContainerRequestContext request) {
+		return Objects.nonNull(request.getHeaderString(Payload.CONTENT_MD5))
+			|| Payload.of(request).getAlgorithm().isPresent();
+	}
+
 	/* Request documents are small, so a body past the cap is refused rather than read on */
-	static byte[] document(final ContainerRequestContext request) throws IOException {
+	private static byte[] body(final ContainerRequestContext request) throws IOException {
 		final byte[] body = request.getEntityStream().readNBytes(MAX_XML_BYTES + 1);
 
 		if (body.length > MAX_XML_BYTES) {
@@ -125,14 +163,5 @@ final class Requests {
 
 		Payload.of(request).finish();
 		return body;
-	}
-
-	static <T> Optional<T> xml(final Class<T> type, final ContainerRequestContext request) throws IOException,
-		MalformedXmlException {
-
-		final byte[] body = document(request);
-
-		return body.length == 0 ? Optional.empty()
-			: Optional.of(S3Xml.read(type, new ByteArrayInputStream(body)));
 	}
 }

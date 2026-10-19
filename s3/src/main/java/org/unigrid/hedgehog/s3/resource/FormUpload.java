@@ -48,6 +48,7 @@ import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
 import org.unigrid.hedgehog.s3.http.FormData;
 import org.unigrid.hedgehog.s3.index.BlobRef;
+import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
 import org.unigrid.hedgehog.s3.index.ObjectVersion;
@@ -101,19 +102,21 @@ final class FormUpload {
 		}
 
 		ObjectHeaders.refuseUnsupported(fields.keySet(), fields::get);
-		Requests.bucket(namespace, bucket);
 
+		final Bucket target = Requests.bucket(namespace, bucket);
 		final Map<String, String> tags = fields.containsKey(TAGGING) ? Tags.field(fields.get(TAGGING)) : Map.of();
 		final Instant now = Requests.now(clock);
+		final ObjectVersion.ObjectVersionBuilder version = ObjectLocks.lock(ObjectVersion.builder().bucket(bucket)
+			.key(key).lastModified(now).headers(ObjectHeaders.content(fields::get))
+			.metadata(ObjectHeaders.metadata(fields.keySet(), fields::get)).tags(tags), target, fields::get, now
+		);
 		final Body body = store(file.body(), policy);
-		final ObjectVersion stored = body.commit(blobs, () -> namespace.put(ObjectVersion.builder().bucket(bucket)
-			.key(key).lastModified(now).etag(body.etag()).parts(body.parts(now))
-			.headers(ObjectHeaders.content(fields::get))
-			.metadata(ObjectHeaders.metadata(fields.keySet(), fields::get)).tags(tags).build(), latest -> true)
+		final ObjectVersion stored = body.commit(blobs, () -> namespace.put(version.etag(body.etag())
+			.parts(body.parts(now)).build(), latest -> true)
 		);
 
 		return Responses.versioned(answer(fields, request.getUriInfo().getBaseUri(), stored)
-			.tag(new EntityTag(stored.etag())), stored).build();
+			.tag(new EntityTag(stored.etag())), target, stored).build();
 	}
 
 	/* The fields before the file, of which S3 takes no more than a few and none of them long, and the file itself */

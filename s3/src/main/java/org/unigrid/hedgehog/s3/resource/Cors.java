@@ -23,26 +23,19 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
-import org.unigrid.hedgehog.s3.checksum.ChecksumAlgorithm;
 import org.unigrid.hedgehog.s3.entity.CORSConfiguration;
 import org.unigrid.hedgehog.s3.entity.CORSRule;
 import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
-import org.unigrid.hedgehog.s3.entity.S3Xml;
 import org.unigrid.hedgehog.s3.error.S3ErrorCode;
 import org.unigrid.hedgehog.s3.error.S3Exception;
-import org.unigrid.hedgehog.s3.http.Payload;
 import org.unigrid.hedgehog.s3.index.Bucket;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceException;
@@ -82,7 +75,7 @@ final class Cors {
 
 	/* A browser asks before a request it may not send unasked, without credentials, so the rules alone answer it */
 	static Response preflight(final Namespace namespace, final String name, final HttpHeaders headers)
-		throws IOException, BlobStoreException, MalformedXmlException {
+		throws IOException, BlobStoreException {
 
 		final String origin = origin(headers);
 		final CORSConfiguration rules = rules(namespace, name).orElseThrow(() -> forbidden(NO_RULES));
@@ -122,14 +115,10 @@ final class Cors {
 	/* A bucket that is not there has no rules, unlike what S3 answers, so that nobody learns from a preflight which
 	   buckets there are */
 	static Optional<CORSConfiguration> rules(final Namespace namespace, final String name) throws IOException,
-		BlobStoreException, MalformedXmlException {
+		BlobStoreException {
 
-		final Optional<String> document = namespace.bucket(name).map(bucket -> bucket.configurations()
-			.get(Bucket.CORS));
-
-		return document.isEmpty() ? Optional.empty() : Optional.of(S3Xml.read(CORSConfiguration.class,
-			new ByteArrayInputStream(document.get().getBytes(StandardCharsets.UTF_8))
-		));
+		return namespace.bucket(name).map(bucket -> bucket.configurations().get(Bucket.CORS))
+			.map(document -> Requests.kept(CORSConfiguration.class, document));
 	}
 
 	/* What a preflight and the request it cleared are both answered with. A rule open to every origin is answered
@@ -193,51 +182,23 @@ final class Cors {
 		return Response.ok(document, MediaType.APPLICATION_XML_TYPE).build();
 	}
 
-	static Response write(final Namespace namespace, final String name, final ContainerRequestContext request)
+	static Response configure(final Namespace namespace, final String name, final ContainerRequestContext request)
 		throws IOException, BlobStoreException, NamespaceException, MalformedXmlException {
 
 		Requests.bucket(namespace, name);
-		requireDigest(request);
 
-		final byte[] document = Requests.document(request);
+		final String document = Requests.digestedXml(request);
 
-		validate(S3Xml.read(CORSConfiguration.class, new ByteArrayInputStream(document)));
-		namespace.updateBucket(name, bucket -> configured(bucket, new String(document, StandardCharsets.UTF_8)));
+		validate(Requests.parse(CORSConfiguration.class, document));
+		namespace.updateBucket(name, bucket -> bucket.configured(Bucket.CORS, document));
 		return Response.ok().build();
 	}
 
 	static Response delete(final Namespace namespace, final String name) throws IOException, BlobStoreException,
 		NamespaceException {
 
-		namespace.updateBucket(name, bucket -> configured(bucket, null));
+		namespace.updateBucket(name, bucket -> bucket.configured(Bucket.CORS, null));
 		return Response.noContent().build();
-	}
-
-	/* No document leaves the bucket without rules */
-	private static Bucket configured(final Bucket bucket, final String document) {
-		final Map<String, String> configurations = new HashMap<>(bucket.configurations());
-
-		if (Objects.isNull(document)) {
-			configurations.remove(Bucket.CORS);
-		} else {
-			configurations.put(Bucket.CORS, document);
-		}
-
-		return bucket.toBuilder().configurations(configurations).build();
-	}
-
-	/* S3 insists on an integrity check of the rules, which newer clients send as a checksum instead of an MD5 */
-	private static void requireDigest(final ContainerRequestContext request) {
-		final boolean checksum = Arrays.stream(ChecksumAlgorithm.values())
-			.anyMatch(algorithm -> Objects.nonNull(request.getHeaderString(algorithm.getHeader())));
-
-		if (!checksum && Objects.isNull(request.getHeaderString(Payload.CONTENT_MD5))
-			&& Objects.isNull(request.getHeaderString(Payload.TRAILER))) {
-
-			throw new S3Exception(S3ErrorCode.InvalidRequest, "Missing required header for this request: "
-				+ Payload.CONTENT_MD5
-			);
-		}
 	}
 
 	private static void validate(final CORSConfiguration configuration) {

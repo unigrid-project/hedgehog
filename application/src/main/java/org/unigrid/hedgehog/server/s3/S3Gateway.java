@@ -24,6 +24,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceConfig;
+import org.unigrid.hedgehog.s3.lifecycle.LifecycleSweeper;
 import org.unigrid.hedgehog.s3.server.S3Server;
 import org.unigrid.hedgehog.s3.server.S3ServerConfig;
 import org.unigrid.hedgehog.s3.spi.BlobId;
@@ -48,6 +50,7 @@ public class S3Gateway {
 
 	private Namespace namespace;
 	private S3Server server;
+	private LifecycleSweeper sweeper;
 
 	static S3ServerConfig config() {
 		return S3ServerConfig.builder().host(S3Options.getHost()).port(S3Options.getPort())
@@ -63,11 +66,17 @@ public class S3Gateway {
 		namespace = namespace(S3Options.getIndexDirectory(), blobs);
 
 		try {
+			sweeper = sweeper(namespace);
 			server = S3Server.start(config(), blobs, namespace, new S3Credentials(S3Credentials.getFile()));
 		} catch (Exception ex) {
+			Optional.ofNullable(sweeper).ifPresent(LifecycleSweeper::close);
 			namespace.close();
 			throw ex;
 		}
+	}
+
+	static LifecycleSweeper sweeper(final Namespace namespace) {
+		return LifecycleSweeper.start(namespace, Clock.systemUTC(), S3Options.getLifecycleInterval());
 	}
 
 	static BlobStore cached(final BlobStore store) {
@@ -86,6 +95,7 @@ public class S3Gateway {
 	/* Writes a failed flush leaves behind stay in the journal and reach the network on the next start */
 	@PreDestroy
 	public void destroy() throws IOException {
+		sweeper.close();
 		server.close();
 
 		try {

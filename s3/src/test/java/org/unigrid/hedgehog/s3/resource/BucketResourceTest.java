@@ -140,9 +140,8 @@ public class BucketResourceTest {
 			assertThat(assertThrows(S3Exception.class, () -> node.getClient().getBucketPolicy(request -> request
 				.bucket("photos"))).statusCode(), equalTo(HttpURLConnection.HTTP_NOT_IMPLEMENTED)
 			);
-			assertThat(code(assertThrows(S3Exception.class, () -> node.getClient().putBucketVersioning(request -> request
-				.bucket("photos").versioningConfiguration(versioning -> versioning.status("Enabled"))))),
-				equalTo("NotImplemented")
+			assertThat(code(assertThrows(S3Exception.class, () -> node.getClient().putBucketPolicy(request -> request
+				.bucket("photos").policy("{}")))), equalTo("NotImplemented")
 			);
 		}
 	}

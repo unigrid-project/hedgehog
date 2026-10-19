@@ -30,7 +30,6 @@ import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.s3.entity.MalformedXmlException;
 import org.unigrid.hedgehog.s3.http.VirtualHostFilter;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.request.BucketNames;
@@ -67,7 +66,7 @@ public class CorsFilter implements ContainerResponseFilter {
 		try {
 			Cors.rules(namespace, bucket.get()).flatMap(rules -> Cors.match(rules, origin, request.getMethod(),
 				List.of())).ifPresent(rule -> Cors.allow(rule, origin, response.getHeaders()::putSingle));
-		} catch (IOException | BlobStoreException | MalformedXmlException ex) {
+		} catch (IOException | BlobStoreException ex) {
 			log.warn("Failed to read the CORS rules of bucket {}, so a response to {} goes without them",
 				bucket.get(), origin, ex
 			);

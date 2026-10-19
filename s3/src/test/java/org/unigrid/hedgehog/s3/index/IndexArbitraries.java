@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.s3.index;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Builders;
@@ -32,9 +33,6 @@ public final class IndexArbitraries {
 	private static final int MAX_TEXT = 8;
 	private static final int MAX_ITEMS = 3;
 	private static final long LATEST_SECOND = 4_000_000_000L;
-
-	/* Long enough that two generated blobs never share an id by chance, so only copies share blobs */
-	private static final int BLOB_ID_LENGTH = 16;
 
 	private IndexArbitraries() {
 		/* Static helpers only */
@@ -93,11 +91,14 @@ public final class IndexArbitraries {
 		return Arbitraries.maps(texts(), texts()).ofMaxSize(MAX_ITEMS);
 	}
 
+	/* Every blob gets a random id of its own the way the blob store hands them out, so only copies share blobs.
+	   Edge cases and shrinking would turn the ids of unrelated blobs into the same one. */
 	public static Arbitrary<BlobRef> slices() {
 		final Arbitrary<Long> numbers = Arbitraries.longs().between(0, Long.MAX_VALUE / 2);
+		final Arbitrary<BlobId> ids = Arbitraries.randomValue(random -> new BlobId(new UUID(random.nextLong(),
+			random.nextLong()).toString()));
 
-		return Combinators.combine(Arbitraries.strings().alpha().numeric().ofLength(BLOB_ID_LENGTH), numbers,
-			numbers).as((id, offset, length) -> new BlobRef(new BlobId(id), offset, length));
+		return Combinators.combine(ids, numbers, numbers).as(BlobRef::new);
 	}
 
 	public static Arbitrary<Part> parts() {
