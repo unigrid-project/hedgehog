@@ -125,9 +125,11 @@ The paper makes three contributions:
 \end{itemize}
 
 The storage layer is deliberately low level. It stores opaque files and returns a fingerprint; it knows nothing
-about names, folders or buckets. An object-storage interface in the style of S3 is planned as a separate layer on
-top of it. This paper describes the protocol as implemented in Hedgehog. Every constant in it is the value the
-implementation uses at default settings, and Stiftelsen The Unigrid Foundation can change most of them
+about names, folders or buckets. A separate layer serves it to S3 clients: an endpoint of its own, authenticated
+with AWS Signature Version 4, that stores every object as one or more files of this layer and keeps its bucket and
+key index in the network as well, as immutable files reached from a single secret root fingerprint. This paper
+describes the protocol as implemented in Hedgehog. Every constant in it is the value the implementation uses at
+default settings, and Stiftelsen The Unigrid Foundation can change most of them
 (Section~\ref{sec:governance}).
 
 Hedgehog is written in Java 25, but the format does not depend on the language: its structures are byte layouts,
@@ -2018,7 +2020,8 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 \label{sec:future}
 
 \begin{itemize}
-	\item An object-storage layer with buckets and keys, in the style of S3, built on top of this layer.
+	\item Several nodes writing one namespace of the S3 layer, which today has a single writer.
+	\item Anchoring the root fingerprint of an S3 namespace in the ledger.
 	\item Breaking the linear links between the groups of a stripe, for example by encrypting outer parity chunks
 	      under keys of their own, so that no group can be tied to another by its content.
 	\item Renewing outer redundancy: a node that finds a lost group while reading a file could seal and store it
