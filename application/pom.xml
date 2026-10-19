@@ -293,6 +293,23 @@
 			<version>2.20.0</version>
 			<scope>test</scope>
 		</dependency>
+		<!-- The synchronous client is enough, and the asynchronous one would bring a second Netty -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>apache5-client</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<!-- Great library for analyzing modules
 		<dependency>
 			<groupId>org.burningwave</groupId>
