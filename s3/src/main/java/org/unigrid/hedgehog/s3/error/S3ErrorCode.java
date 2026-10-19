@@ -59,6 +59,7 @@ public enum S3ErrorCode {
 	MissingContentLength(Status.LENGTH_REQUIRED, "You must provide the Content-Length HTTP header."),
 	NoSuchBucket(Status.NOT_FOUND, "The specified bucket does not exist."),
 	NoSuchKey(Status.NOT_FOUND, "The specified key does not exist."),
+	NoSuchLifecycleConfiguration(Status.NOT_FOUND, "The lifecycle configuration does not exist."),
 	NoSuchObjectLockConfiguration(Status.NOT_FOUND, "The specified object does not have a ObjectLock "
 		+ "configuration."),
 	NoSuchTagSet(Status.NOT_FOUND, "The TagSet does not exist."),

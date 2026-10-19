@@ -76,7 +76,7 @@ public class BucketResource {
 		BlobStoreException, NamespaceException, MalformedXmlException {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
-			Subresource.VERSIONING, Subresource.OBJECT_LOCK);
+			Subresource.VERSIONING, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE);
 
 		return subresource == Subresource.NONE ? createBucket(name, headers, request) : configure(name, subresource,
 			request);
@@ -110,6 +110,7 @@ public class BucketResource {
 			case TAGGING -> Tags.writeBucket(namespace, name, request);
 			case VERSIONING -> Versions.configure(namespace, name, request);
 			case OBJECT_LOCK -> locks.configure(name, request);
+			case LIFECYCLE -> Lifecycles.configure(namespace, name, request);
 			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
 		};
 	}
@@ -126,7 +127,7 @@ public class BucketResource {
 
 		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.LIST_TYPE,
 			Subresource.LOCATION, Subresource.TAGGING, Subresource.UPLOADS, Subresource.VERSIONING,
-			Subresource.VERSIONS, Subresource.OBJECT_LOCK);
+			Subresource.VERSIONS, Subresource.OBJECT_LOCK, Subresource.LIFECYCLE);
 		final Bucket bucket = Requests.bucket(namespace, name);
 
 		return Responses.xml(switch (subresource) {
@@ -145,6 +146,7 @@ public class BucketResource {
 			case TAGGING -> Tags.bucket(bucket);
 			case VERSIONING -> Versions.configuration(bucket);
 			case OBJECT_LOCK -> ObjectLocks.configuration(bucket);
+			case LIFECYCLE -> Lifecycles.configuration(bucket);
 			default -> throw new IllegalArgumentException("No bucket configuration is named " + subresource);
 		};
 	}
@@ -153,10 +155,13 @@ public class BucketResource {
 	public Response delete(@PathParam("bucket") final String name, @Context final UriInfo uri) throws IOException,
 		BlobStoreException, NamespaceException {
 
-		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING);
+		final Subresource subresource = Requests.subresource(uri, Subresource.NONE, Subresource.TAGGING,
+			Subresource.LIFECYCLE);
 
 		if (subresource == Subresource.TAGGING) {
 			return Tags.deleteBucket(namespace, name);
+		} else if (subresource == Subresource.LIFECYCLE) {
+			return Lifecycles.delete(namespace, name);
 		}
 
 		namespace.deleteBucket(name);

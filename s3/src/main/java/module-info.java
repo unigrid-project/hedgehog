@@ -44,6 +44,7 @@ module org.unigrid.hedgehog.s3 {
 	exports org.unigrid.hedgehog.s3.error;
 	exports org.unigrid.hedgehog.s3.http;
 	exports org.unigrid.hedgehog.s3.index;
+	exports org.unigrid.hedgehog.s3.lifecycle;
 	exports org.unigrid.hedgehog.s3.server;
 	exports org.unigrid.hedgehog.s3.spi;
 }
