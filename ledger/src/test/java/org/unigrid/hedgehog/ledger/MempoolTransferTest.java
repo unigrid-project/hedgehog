@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.List;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -33,8 +34,105 @@ public class MempoolTransferTest {
 		return state;
 	}
 
+	private static LedgerState fundedBy(int senders) {
+		final LedgerState state = soloState(ANY_MINT);
+		final Transaction[] mints = IntStream.rangeClosed(1, senders).mapToObj(n -> mint(n, 1000))
+			.toArray(Transaction[]::new);
+
+		state.apply(soloBlock(state, mints));
+		return state;
+	}
+
 	private static Transfer send(LedgerState state, int from, long amount, long fee, long nonce) {
 		return transfer(state, from, account(9), amount, fee, nonce);
+	}
+
+	@Example
+	public void shouldHandOutNoTransferBehindAGapInTheNonce() {
+		final LedgerState state = funded();
+		final Mempool mempool = new Mempool();
+		final Transfer zero = send(state, 1, 1, 1, 0);
+		final Transfer one = send(state, 1, 1, 1, 1);
+
+		mempool.admit(send(state, 1, 1, 1, 3), state);
+		mempool.admit(one, state);
+		assertThat(mempool.proposable(10, state), equalTo(List.of()));
+
+		mempool.admit(zero, state);
+		assertThat(mempool.proposable(10, state), equalTo(List.of(zero, one)));
+		assertThat(mempool.peek(10).size(), equalTo(3));
+	}
+
+	@Example
+	public void shouldLetAReadyTransferThroughAFloodOfGappedOnes() {
+		final LedgerState state = fundedBy(6);
+		final Mempool mempool = new Mempool();
+		final Transfer ready = send(state, 6, 1, 1, 0);
+
+		for (int sender = 1; sender <= 5; sender++) {
+			for (int nonce = 1; nonce <= 3; nonce++) {
+				mempool.admit(send(state, sender, 1, 1, nonce), state);
+			}
+		}
+
+		mempool.admit(ready, state);
+		assertThat(mempool.proposable(1, state), equalTo(List.of(ready)));
+	}
+
+	@Example
+	public void shouldMakeRoomForAReadyTransferByDroppingTheNewestGappedOne() {
+		final LedgerState state = fundedBy(3);
+		final Mempool mempool = new Mempool(2);
+		final Transfer gapped = send(state, 1, 1, 1, 1);
+		final Transfer ready = send(state, 3, 1, 1, 0);
+
+		mempool.admit(gapped, state);
+		mempool.admit(send(state, 2, 1, 1, 1), state);
+
+		assertThat(mempool.admit(ready, state), is(true));
+		assertThat(mempool.peek(10), equalTo(List.of(gapped, ready)));
+	}
+
+	@Example
+	public void shouldNotDropAReadyTransferForAGappedOneHoweverHighItsFee() {
+		final LedgerState state = fundedBy(2);
+		final Mempool mempool = new Mempool(1);
+		final Transfer ready = send(state, 1, 1, 1, 0);
+
+		mempool.admit(ready, state);
+
+		assertThat(mempool.admit(send(state, 2, 1, 50, 1), state), is(false));
+		assertThat(mempool.peek(10), equalTo(List.of(ready)));
+	}
+
+	@Example
+	public void shouldDropTheReadyTransferOfTheLowestFeeForOneThatPaysMore() {
+		final LedgerState state = fundedBy(4);
+		final Mempool mempool = new Mempool(2);
+		final Transfer dear = send(state, 2, 1, 5, 0);
+		final Transfer better = send(state, 3, 1, 3, 0);
+
+		mempool.admit(send(state, 1, 1, 1, 0), state);
+		mempool.admit(dear, state);
+
+		assertThat(mempool.admit(better, state), is(true));
+		assertThat(mempool.admit(send(state, 4, 1, 3, 0), state), is(false));
+		assertThat(mempool.peek(10), equalTo(List.of(dear, better)));
+	}
+
+	@Example
+	public void shouldMakeRoomForOtherKindsOfTransactionByDroppingAGappedTransferOnly() {
+		final LedgerState state = fundedBy(2);
+		final Mempool gapped = new Mempool(1);
+		final Mempool ready = new Mempool(1);
+		final Mint mint = mint(5, 7);
+
+		gapped.admit(send(state, 1, 1, 1, 1), state);
+		assertThat(gapped.admit(mint, state), is(true));
+		assertThat(gapped.peek(10), equalTo(List.of(mint)));
+
+		ready.admit(send(state, 2, 1, 1, 0), state);
+		assertThat(ready.admit(mint, state), is(false));
 	}
 
 	@Example

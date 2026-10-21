@@ -150,7 +150,7 @@ public final class Ledger implements ConsensusApp {
 
 		final List<Transaction> candidates = new ArrayList<>(state.dueMints(blockTime));
 
-		candidates.addAll(mempool.peek(Block.MAX_TRANSACTIONS));
+		candidates.addAll(mempool.proposable(Block.MAX_TRANSACTIONS, state));
 		return state.applicable(candidates).stream().limit(Block.MAX_TRANSACTIONS).toList();
 	}
 

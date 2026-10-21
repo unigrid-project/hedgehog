@@ -26,6 +26,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /* Two things wait here. The transactions that are to go into the next blocks, and the heartbeats that show
@@ -80,17 +83,53 @@ public final class Mempool {
 		final Object slot = slotOf(transfer);
 		final Transfer rival = pending.get(slot) instanceof Transfer found ? found : null;
 
-		if (crowdedOut(rival, transfer) || !inWindow(transfer, state)
+		if (rival != null && rival.fee() >= transfer.fee() || !inWindow(transfer, state)
 			|| state.rejectionOfQueued(transfer).isPresent() || !coveredByWaiting(transfer, rival, state)) {
 			return false;
 		}
 
 		pending.put(slot, transfer);
+
+		if (rival == null && pending.size() > maxPending && !makeRoomFor(transfer, state)) {
+			pending.remove(slot);
+			return false;
+		}
+
 		return true;
 	}
 
-	private boolean crowdedOut(Transfer rival, Transfer transfer) {
-		return rival == null ? pending.size() >= maxPending : rival.fee() >= transfer.fee();
+	/* A full pool drops its weakest transfer for a stronger newcomer. One that can be proposed is stronger than
+	   one that waits behind a gap in its nonces, which may never fill and pays no fee, however high it bids;
+	   between two of a kind the higher fee wins. The newest of equals goes, so what has waited longest stays. */
+	private boolean makeRoomFor(Transfer newcomer, LedgerState state) {
+		final Set<Object> ready = proposableSlots(state);
+		final boolean newcomerReady = ready.contains(slotOf(newcomer));
+
+		return weakestTransfer(ready, slotOf(newcomer))
+			.filter(victim -> newcomerReady == ready.contains(slotOf(victim))
+				? newcomer.fee() > victim.fee() : newcomerReady)
+			.map(victim -> pending.remove(slotOf(victim)) != null).orElse(false);
+	}
+
+	/* A claim, a vote or a mint beats only a transfer that waits behind a gap */
+	private boolean makeRoomForOther(LedgerState state) {
+		final Set<Object> ready = proposableSlots(state);
+
+		return weakestTransfer(ready, null).filter(victim -> !ready.contains(slotOf(victim)))
+			.map(victim -> pending.remove(slotOf(victim)) != null).orElse(false);
+	}
+
+	private Optional<Transfer> weakestTransfer(Set<Object> ready, Object except) {
+		final Comparator<Transfer> byStrength = Comparator.<Transfer, Boolean>comparing(
+			transfer -> ready.contains(slotOf(transfer))).thenComparingLong(Transfer::fee);
+
+		return pending.entrySet().stream().filter(entry -> entry.getValue() instanceof Transfer)
+			.filter(entry -> !entry.getKey().equals(except)).map(entry -> (Transfer) entry.getValue())
+			.reduce((first, second) -> byStrength.compare(first, second) < 0 ? first : second);
+	}
+
+	private Set<Object> proposableSlots(LedgerState state) {
+		return proposable(Integer.MAX_VALUE, state).stream().map(Mempool::slotOf).collect(Collectors.toSet());
 	}
 
 	private static boolean inWindow(Transfer transfer, LedgerState state) {
@@ -118,8 +157,8 @@ public final class Mempool {
 	private boolean admitOther(Transaction transaction, LedgerState state) {
 		final Object slot = slotOf(transaction);
 
-		if (pending.containsKey(slot) || pending.size() >= maxPending || exceedsVoteLimit(transaction)
-			|| state.rejectionOf(transaction).isPresent()) {
+		if (pending.containsKey(slot) || exceedsVoteLimit(transaction) || state.rejectionOf(transaction).isPresent()
+			|| pending.size() >= maxPending && !makeRoomForOther(state)) {
 			return false;
 		}
 
@@ -133,21 +172,53 @@ public final class Mempool {
 			>= LedgerState.MAX_VOTES_PER_VALIDATOR;
 	}
 
-	/* Oldest first and left in place: they leave when a block that holds them is committed. The transfers of
-	   one sender are handed out in nonce order, in the places its transfers hold, so a block can take them all. */
+	/* Everything that waits, oldest first and left in place: it leaves when a block that holds it is committed.
+	   The transfers of one sender are handed out in nonce order, in the places its transfers hold. */
 	public synchronized List<Transaction> peek(int max) {
-		final Map<AccountKey, ArrayDeque<Transfer>> byNonce = pending.values().stream()
-			.filter(Transfer.class::isInstance).map(Transfer.class::cast)
-			.sorted(Comparator.comparingLong(Transfer::nonce))
-			.collect(Collectors.groupingBy(Transfer::sender, Collectors.toCollection(ArrayDeque::new)));
+		return handOut(max, (sender, transfers) -> transfers);
+	}
+
+	/* What a block can take: as peek, but a sender's transfers only from its next nonce up to the first gap,
+	   since one behind a gap cannot be applied before the missing one, which may never come. Such transfers would
+	   take places from the rest and cost their sender nothing, as they never make a block. */
+	public synchronized List<Transaction> proposable(int max, LedgerState state) {
+		return handOut(max, (sender, transfers) -> runFrom(state.nonceOf(sender), transfers));
+	}
+
+	private static List<Transfer> runFrom(long next, List<Transfer> byNonce) {
+		final List<Transfer> run = new ArrayList<>();
+
+		for (final Transfer transfer : byNonce) {
+			if (transfer.nonce() != next + run.size()) {
+				break;
+			}
+
+			run.add(transfer);
+		}
+
+		return run;
+	}
+
+	private List<Transaction> handOut(int max, BiFunction<AccountKey, List<Transfer>, List<Transfer>> take) {
+		final Map<AccountKey, ArrayDeque<Transfer>> byNonce = new HashMap<>();
 		final List<Transaction> ordered = new ArrayList<>();
+
+		pending.values().stream().filter(Transfer.class::isInstance).map(Transfer.class::cast)
+			.sorted(Comparator.comparingLong(Transfer::nonce))
+			.collect(Collectors.groupingBy(Transfer::sender))
+			.forEach((sender, transfers) -> byNonce.put(sender, new ArrayDeque<>(take.apply(sender, transfers))));
 
 		for (final Transaction waiting : pending.values()) {
 			if (ordered.size() >= max) {
 				break;
 			}
 
-			ordered.add(waiting instanceof Transfer transfer ? byNonce.get(transfer.sender()).poll() : waiting);
+			final Transaction next = waiting instanceof Transfer transfer ? byNonce.get(transfer.sender()).poll()
+				: waiting;
+
+			if (next != null) {
+				ordered.add(next);
+			}
 		}
 
 		return ordered;
