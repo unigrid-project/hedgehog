@@ -6,8 +6,6 @@
 [![Commit activity](https://img.shields.io/github/commit-activity/w/unigrid-project/hedgehog)](https://github.com/unigrid-project/hedgehog/graphs/commit-activity)
 [![Last commit](https://img.shields.io/github/last-commit/unigrid-project/hedgehog)](https://github.com/unigrid-project/hedgehog/commits/master)
 
-<img width="600px" src="https://raw.githubusercontent.com/unigrid-project/hedgehog/badges/loc-history.svg" alt="Lines of today's code by the month they were written, and the total">
-
 <img align="right" width="300px" height="auto" src="documentation/hedgehog-logo.png" alt="Hedgehog">
 
 Hedgehog is a high-performance, concurrent peer-to-peer treechain (blockchain) network built on top of [Netty](https://netty.io/) and QUIC. One executable is the network daemon, the command-line client that controls it and a stand-alone key utility.
@@ -25,6 +23,10 @@ __In development or planned:__
 - WebAssembly support, compute and GPU workloads
 - Duality consensus
 - Replacing the network and consensus chain of the [legacy daemon](https://github.com/unigrid-project/daemon)
+
+<p align="center">
+  <img width="600px" src="https://raw.githubusercontent.com/unigrid-project/hedgehog/badges/loc-history.svg" alt="Lines of today's code by the month they were written, and the total">
+</p>
 
 ## Documentation
 The [wiki](https://github.com/unigrid-project/hedgehog/wiki) gives a short overview of each part:
