@@ -47,7 +47,7 @@ public class CommandGroupTest {
 			"ledger"
 		),
 		"cli ledger", List.of("info", "balance", "block", "transfer", "claim", "vote"),
-		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate")
+		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate", "ledger-genesis")
 	);
 
 	private static String[] words(String group, String... more) {
