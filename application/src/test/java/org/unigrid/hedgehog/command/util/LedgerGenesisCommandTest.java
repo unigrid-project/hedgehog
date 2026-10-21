@@ -22,6 +22,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.nio.file.FileSystem;
@@ -103,6 +104,14 @@ public class LedgerGenesisCommandTest {
 				"validators: 2",
 				"chainId: " + GenesisFile.chainIdHex(genesis))));
 		}
+	}
+
+	/* Opening a snapshot that is signed asks for the network keys, which only a command that takes the option has */
+	@Example
+	public void shouldTakeTheNetworkKeysToCheckTheSignatureOfASnapshot() {
+		final CommandLine util = new CommandLine(Hedgehog.class).getSubcommands().get("util");
+
+		assertThat(util.getCommandSpec().findOption("--network-keys"), notNullValue());
 	}
 
 	@Example
