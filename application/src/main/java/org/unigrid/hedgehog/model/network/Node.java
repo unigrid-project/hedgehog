@@ -111,7 +111,8 @@ public class Node {
 		}
 	}
 
-	/* A node is identified by its resolved address, so one that cannot be resolved cannot be compared or stored */
+	/* A node made by hand is refused when its host does not resolve, rather than stored under a name that may never
+	   match the address a peer connects from */
 	public static Node fromURI(URI uri) throws UnknownHostException {
 		int port = uri.getPort();
 
@@ -140,8 +141,12 @@ public class Node {
 			: address;
 	}
 
+	/* The address it resolves to, or its host name while it cannot be resolved, so that a node read from JSON during a
+	   failed lookup can still be hashed, compared and listed */
 	public URI getURI() {
-		return UriBuilder.fromPath("/{host}:{port}").build(address.getAddress().getHostAddress(), address.getPort());
+		final String host = address.isUnresolved() ? address.getHostString() : address.getAddress().getHostAddress();
+
+		return UriBuilder.fromPath("/{host}:{port}").build(host, address.getPort());
 	}
 
 	@Override

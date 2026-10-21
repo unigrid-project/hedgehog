@@ -18,9 +18,13 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.List;
+import java.util.Set;
 import lombok.SneakyThrows;
 import mockit.Capturing;
 import mockit.Expectations;
@@ -90,6 +94,35 @@ public class NodeTest extends BaseMockedWeldTest {
 		} catch (UnknownHostException ex) {
 			assertThat(ex.getMessage(), containsString("no-such-host.invalid"));
 		}
+	}
+
+	private static Node unresolved(String host) {
+		return Node.builder().address(InetSocketAddress.createUnresolved(host, 52883)).build();
+	}
+
+	/* The identity of a node that cannot be resolved is its host name, so that it can still be hashed and compared */
+	@Example
+	public void shouldIdentifyANodeThatDoesNotResolveByItsHostName() {
+		final Node node = unresolved("no-such-host.invalid");
+
+		assertThat(node.getURI().toString(), equalTo("/no-such-host.invalid:52883"));
+		assertThat(node.hashCode(), is(unresolved("no-such-host.invalid").hashCode()));
+		assertThat(node, equalTo(unresolved("no-such-host.invalid")));
+		assertThat(node, not(equalTo(unresolved("another-host.invalid"))));
+	}
+
+	/* A host that cannot be resolved while the answer is read, as when a lookup fails once, must not stop the whole
+	   list from being read */
+	@Example
+	@SneakyThrows
+	public void shouldReadAListThatHoldsAHostThatDoesNotResolve() {
+		final ObjectMapper mapper = new JsonConfiguration().getContext(Node.class);
+		final String json = mapper.writeValueAsString(List.of(unresolved("no-such-host.invalid"),
+			Node.fromAddress("127.0.0.1:52883")));
+		final Set<Node> restored = mapper.readValue(json, new TypeReference<Set<Node>>() { });
+
+		assertThat(restored, hasSize(2));
+		assertThat(restored, hasItem(unresolved("no-such-host.invalid")));
 	}
 
 	@Property

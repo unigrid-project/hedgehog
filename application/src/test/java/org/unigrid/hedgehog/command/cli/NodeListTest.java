@@ -39,6 +39,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
@@ -77,6 +78,16 @@ public class NodeListTest {
 
 		assertThat(result.request(), equalTo(Optional.of(LISTING)));
 		assertThat(MAPPER.readTree(result.out()), equalTo(MAPPER.readTree(MAPPER.writeValueAsString(nodes))));
+		assertThat(result.err(), equalTo(""));
+	}
+
+	@Example
+	public void printsANodeThatDoesNotResolveAmongTheOthers() {
+		final Node unresolved = Node.builder().address(InetSocketAddress.createUnresolved("no-such-host.invalid", 52883))
+			.build();
+		final Result result = RestCommandFixture.run(new NodeList(), Response.ok(Set.of(unresolved)).build());
+
+		assertThat(result.out(), containsString("no-such-host.invalid:52883"));
 		assertThat(result.err(), equalTo(""));
 	}
 
