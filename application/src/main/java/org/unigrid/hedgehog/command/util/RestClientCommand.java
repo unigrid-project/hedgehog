@@ -24,6 +24,8 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.NoSuchFileException;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -35,6 +37,9 @@ import org.unigrid.hedgehog.server.rest.RestToken;
 
 @RequiredArgsConstructor
 public class RestClientCommand implements Runnable {
+	/* The private key of a network key travels in this header, to a client that trusts any certificate */
+	private static final String BOARD_KEY_HEADER = "privateKey";
+
 	private final String method;
 	private String location;
 	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
@@ -110,10 +115,29 @@ public class RestClientCommand implements Runnable {
 
 	@Override
 	public void run() {
+		if (carriesBoardKey() && !isLoopback(RestOptions.getHost())) {
+			System.err.println("Refusing to send a private key to " + RestOptions.getHost() + ": the client does not "
+				+ "check who answers, so the key could be taken. Run the command on the machine of the node.");
+			return;
+		}
+
 		try (RestClient rest = connect()) {
 			dispatch(rest);
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(describe(ex));
+		}
+	}
+
+	private boolean carriesBoardKey() {
+		return headers.map(sent -> sent.containsKey(BOARD_KEY_HEADER)).orElse(false);
+	}
+
+	/* A name that cannot be resolved is not known to be on this machine. Nothing named is this machine. */
+	public static boolean isLoopback(String host) {
+		try {
+			return InetAddress.getByName(host).isLoopbackAddress();
+		} catch (UnknownHostException ex) {
+			return false;
 		}
 	}
 

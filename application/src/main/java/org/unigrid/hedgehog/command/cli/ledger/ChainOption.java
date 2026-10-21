@@ -18,11 +18,10 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.HexFormat;
 import java.util.Optional;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.ledger.Digests;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
@@ -63,18 +62,9 @@ final class ChainOption {
 	private static void requireWhenRemote(CommandSpec spec) {
 		final String host = RestOptions.getHost();
 
-		if (!isLoopback(host)) {
+		if (!RestClientCommand.isLoopback(host)) {
 			throw new ParameterException(spec.commandLine(), "Pass --chain: a node at " + host
 				+ " cannot prove which chain it is on; `cli ledger info` on a node you trust shows it");
-		}
-	}
-
-	/* A name that cannot be resolved is not known to be on this machine */
-	private static boolean isLoopback(String host) {
-		try {
-			return InetAddress.getByName(host).isLoopbackAddress();
-		} catch (UnknownHostException ex) {
-			return false;
 		}
 	}
 }

@@ -79,32 +79,36 @@ public final class RestCommandFixture {
 	}
 
 	public static Result run(Runnable command, Response canned) {
+		return runOn(HOST, command, canned);
+	}
+
+	public static Result runOn(String host, Runnable command, Response canned) {
 		readsBackItsEntity(canned);
-		return run(command, () -> TOKEN, () -> canned);
+		return run(host, command, () -> TOKEN, () -> canned);
 	}
 
 	public static Result runWithOddity(Runnable command, ResponseOddityException oddity) {
-		return run(command, () -> TOKEN, () -> {
+		return run(HOST, command, () -> TOKEN, () -> {
 			throw oddity;
 		});
 	}
 
 	public static Result runWithoutToken(Runnable command, IOException unreadable) {
-		return run(command, () -> {
+		return run(HOST, command, () -> {
 			throw unreadable;
 		}, () -> {
 			throw new IllegalStateException("A request went out without a token");
 		});
 	}
 
-	private static Result run(Runnable command, Token token, Answer answer) {
+	private static Result run(String host, Runnable command, Token token, Answer answer) {
 		final FakeClient client = new FakeClient(answer);
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		final ByteArrayOutputStream err = new ByteArrayOutputStream();
 		final PrintStream originalOut = System.out;
 		final PrintStream originalErr = System.err;
 
-		fakeOptions(token);
+		fakeOptions(host, token);
 		System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
 		System.setErr(new PrintStream(err, true, StandardCharsets.UTF_8));
 
@@ -119,10 +123,10 @@ public final class RestCommandFixture {
 			err.toString(StandardCharsets.UTF_8));
 	}
 
-	private static void fakeOptions(Token token) {
+	private static void fakeOptions(String host, Token token) {
 		new MockUp<RestOptions>() {
 			@Mock public String getHost() {
-				return HOST;
+				return host;
 			}
 
 			@Mock public int getPort() {
