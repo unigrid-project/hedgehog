@@ -28,7 +28,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BinaryOperator;
-import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -39,23 +38,23 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * node accepted that spork or not. A stored spork older than that is out of date, and a node that knows it is
 * should wait for the newer one rather than act on a policy the network has already moved past.
 *
-* <p>A spork is remembered only when the signature check that acceptance relies on passes: signed by two
-* different current network keys ({@link GridSpork#isDoublySigned()}), or, as a proposal, signed once by a
-* current network key ({@link GridSpork#isValidSignature()}) while {@link PendingSporks} would still hold it.
-* The checks that compare a spork with the stored one (its log extends the stored log, it is newer) are left
-* out on purpose: a validly signed spork that fails them is a rival version of the history, and the node
-* should wait for that to settle instead of acting on the stored spork. Nothing else is trusted, so a peer
-* without a network key cannot make a node wait. Anyone can send a frame and a check costs a signature
-* verification, so the check is made only for a spork newer than the stored one (an older one cannot make the node
-* behind) and by {@link VerifySlots}: one check a second for each type and sending peer ({@link #VERIFY_GAP}), and
-* no more than {@link VerifySlots#CEILING} a second for a type whoever sends. A flood of forged sporks from one
-* peer takes only the slots of that peer, and the sporks that were turned away are sent again.
+* <p>A spork is remembered only when it is signed by two different current network keys
+* ({@link GridSpork#isDoublySigned()}). A proposal, which one key has signed and is waiting in
+* {@link PendingSporks} for the second, changes nothing: the rules in force stay in force until the spork is
+* co-signed, so a single key cannot hold the ledger back. The checks that compare a spork with the stored one
+* (its log extends the stored log, it is newer) are left out on purpose: a doubly signed spork that fails them
+* is a rival version of the history, and the node should wait for that to settle instead of acting on the
+* stored spork. Nothing else is trusted, so a peer without a network key cannot make a node wait. Anyone can
+* send a frame and a check costs a signature verification, so the check is made only for a spork newer than the
+* stored one (an older one cannot make the node behind) and by {@link VerifySlots}: one check a second for each
+* type and sending peer ({@link #VERIFY_GAP}), and no more than {@link VerifySlots#CEILING} a second for a type
+* whoever sends. A flood of forged sporks from one peer takes only the slots of that peer, and the sporks that
+* were turned away are sent again.
 *
 * <p>What is remembered is bounded: a time stamp more than {@link #FUTURE_ALLOWANCE} ahead of this node's
-* clock is recorded as that far ahead, and a proposal only counts for as long as {@link PendingSporks#LIFETIME}
-* lets the node hold it, so a replayed old proposal cannot hold a node back. A spork signed by two keys stays
-* remembered until the stored spork catches up. The memory is not persisted: a restarted node learns it again
-* from the sporks its peers send on every new stream and every few minutes.
+* clock is recorded as that far ahead. A spork stays remembered until the stored spork catches up. The memory is
+* not persisted: a restarted node learns it again from the sporks its peers send on every new stream and every
+* few minutes.
 *
 * <p>The network threads write and any thread reads, so each map entry changes in one atomic update and no
 * lock is held while a signature is verified.
@@ -74,7 +73,6 @@ public class SporkLag {
 
 	private InstantSource clock = InstantSource.system();
 	private final Map<Type, Instant> agreed = new ConcurrentHashMap<>();
-	private final Map<Type, Instant> proposed = new ConcurrentHashMap<>();
 	private final VerifySlots slots = new VerifySlots(() -> clock.instant());
 
 	/**
@@ -85,20 +83,19 @@ public class SporkLag {
 	* too soon is not recorded: a later one will be, as every peer sends the sporks again and again.
 	*/
 	public void record(GridSpork spork, SporkDatabase db, String source) {
-		if (couldMakeBehind(spork, db)) {
-			final Map<Type, Instant> seen = spork.isPending() ? proposed : agreed;
+		if (!spork.isPending() && couldMakeBehind(spork, db)) {
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
-			if (isLaterThan(seen.get(spork.getType()), stamp) && mayVerify(spork.getType(), source)
-				&& isVouchedFor(spork)) {
+			if (isLaterThan(agreed.get(spork.getType()), stamp) && mayVerify(spork.getType(), source)
+				&& spork.isDoublySigned()) {
 
-				seen.merge(spork.getType(), stamp, LATER);
+				agreed.merge(spork.getType(), stamp, LATER);
 			}
 		}
 	}
 
-	/* What this node proposes itself is not limited: it is asked for by a holder of the REST token and a network key,
-	   not by anyone who can send a frame, and a proposal that is turned away is not sent again by anyone */
+	/* What this node signs itself is not limited: it is asked for by a holder of the REST token and a network key,
+	   not by anyone who can send a frame */
 	private boolean mayVerify(Type type, String source) {
 		return LOCAL.equals(source) || slots.take(type, source);
 	}
@@ -113,14 +110,7 @@ public class SporkLag {
 	* than any spork seen for it: the network has set it and this node has not got it yet, so it is behind.
 	*/
 	public boolean isBehind(Type type, SporkDatabase db) {
-		return newestSeen(type).map(seen -> isLaterThanStored(seen, db.get(type))).orElse(false);
-	}
-
-	private Optional<Instant> newestSeen(Type type) {
-		final Optional<Instant> proposal = Optional.ofNullable(proposed.get(type)).filter(this::isHeld);
-
-		return Stream.of(Optional.ofNullable(agreed.get(type)), proposal).flatMap(Optional::stream)
-			.max(Comparator.naturalOrder());
+		return Optional.ofNullable(agreed.get(type)).map(seen -> isLaterThanStored(seen, db.get(type))).orElse(false);
 	}
 
 	private static boolean isDatedAndKnown(GridSpork spork) {
@@ -135,25 +125,9 @@ public class SporkLag {
 		return Objects.isNull(stored) || isLaterThan(stored.getTimeStamp(), seen);
 	}
 
-	private boolean isVouchedFor(GridSpork spork) {
-		if (spork.isPending()) {
-			return isAlive(spork.getTimeStamp()) && spork.isValidSignature();
-		}
-
-		return spork.isDoublySigned();
-	}
-
 	private Instant cappedAhead(Instant stamp) {
 		final Instant ceiling = clock.instant().plus(FUTURE_ALLOWANCE);
 
 		return stamp.isAfter(ceiling) ? ceiling : stamp;
-	}
-
-	private boolean isAlive(Instant stamp) {
-		return Duration.between(stamp, clock.instant()).abs().compareTo(PendingSporks.LIFETIME) <= 0;
-	}
-
-	private boolean isHeld(Instant stamp) {
-		return !stamp.plus(PendingSporks.LIFETIME).isBefore(clock.instant());
 	}
 }

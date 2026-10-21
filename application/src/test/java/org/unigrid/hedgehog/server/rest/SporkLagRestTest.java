@@ -36,9 +36,8 @@ import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 
-/* The node that a spork is proposed to learns of the proposal as every other node does, from the moment it is held
-   until the co-signature has made it the stored spork: a node that waits for a newer spork it knows of must not judge
-   by the old one, whichever node the foundation happens to propose to */
+/* A proposal, to this node or to another, waits for its co-signature and changes nothing: the node is never behind
+   because of it, so one network key cannot hold back what the ledger does */
 public class SporkLagRestTest extends BaseRestClientTest {
 	@Inject private SporkLag lag;
 	@Inject private SporkDatabase sporkDatabase;
@@ -63,7 +62,7 @@ public class SporkLagRestTest extends BaseRestClientTest {
 	/* One property for both, as the lag of the node is shared by the tries of a class and one try would leave the other
 	   a node that is behind already */
 	@Property(tries = 1)
-	public void shouldWaitForTheCosignatureOfAProposalAndOfARenewalMadeToThisNode(
+	public void shouldNotFallBehindForAProposalOrARenewalMadeToThisNode(
 		@ForAll("provideSignature") final Signature signature) {
 
 		assertThat(isBehind(), is(false));
@@ -71,12 +70,12 @@ public class SporkLagRestTest extends BaseRestClientTest {
 		final Response proposal = propose(signature);
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
-		assertThat(isBehind(), is(true));
+		assertThat(isBehind(), is(false));
 
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
 		assertThat(isBehind(), is(false));
 
 		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.ACCEPTED));
-		assertThat(isBehind(), is(true));
+		assertThat(isBehind(), is(false));
 	}
 }

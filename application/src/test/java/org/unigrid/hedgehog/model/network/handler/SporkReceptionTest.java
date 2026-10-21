@@ -149,14 +149,14 @@ public class SporkReceptionTest {
 	}
 
 	@Example
-	public void shouldBeBehindWhileAProposalIsHeld() {
+	public void shouldNotBeBehindWhileAProposalIsHeld() {
 		receive(proposal(new MintSupply()));
 
-		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(true));
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(false));
 	}
 
 	@Example
-	public void shouldCatchUpWhenTheCosignedSporkIsStored() {
+	public void shouldNotBeBehindOnceTheCosignedSporkIsStored() {
 		final MintSupply spork = proposal(new MintSupply());
 
 		receive(spork);
