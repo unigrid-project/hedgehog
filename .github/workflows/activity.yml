@@ -1,0 +1,54 @@
+name: Activity chart
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: activity
+  cancel-in-progress: true
+
+jobs:
+  loc-history:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      # Only the badges branch is ever written
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Draw the chart of lines changed per month
+        run: |
+          python3 -m pip install --user matplotlib
+          python3 .github/scripts/loc_history.py "$RUNNER_TEMP/loc-history.svg"
+
+      - name: Publish the chart to the badges branch
+        shell: bash
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/badges"
+          cd "$RUNNER_TEMP/badges"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # The coverage job pushes to the same branch, so a rejected push is fetched and tried again
+          for attempt in 1 2 3; do
+            if git fetch -q --depth=1 origin badges; then
+              git checkout -q -f -B badges FETCH_HEAD
+            else
+              git checkout -q --orphan badges
+            fi
+            cp "$RUNNER_TEMP/loc-history.svg" loc-history.svg
+            git add loc-history.svg
+            git diff --cached --quiet && exit 0
+            git commit -q -m "Update the lines of code history"
+            git push -q origin badges && exit 0
+          done
+          exit 1
