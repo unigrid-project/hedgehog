@@ -16,19 +16,48 @@ WRITTEN, TOTAL = "#2da44e", "#0969da"
 
 
 def git(*arguments):
-    return subprocess.run(["git", *arguments], check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["git", *arguments], check=True, capture_output=True, text=True, errors="replace").stdout
 
 
-def months_written(path):
-    blame = git("blame", "--line-porcelain", "HEAD", "--", path)
-    return Counter(
-        datetime.fromtimestamp(int(line.split()[1]), timezone.utc).strftime("%Y-%m")
-        for line in blame.splitlines() if line.startswith("author-time "))
+def blamed_lines(path):
+    lines = []
+    for line in git("blame", "--line-porcelain", "HEAD", "--", path).splitlines():
+        if line.startswith("author-time "):
+            written = int(line.split()[1])
+        elif line.startswith("\t"):
+            lines.append((written, line.strip()))
+    return lines
+
+
+def first_seen_on_any_branch():
+    history = subprocess.Popen(
+        ["git", "log", "--branches", "--remotes", "--full-history", "--no-merges", "-p", "-U0", "--format=date:%at", "--"] + SOURCE_FILES,
+        stdout=subprocess.PIPE, text=True, errors="replace")
+    first_seen, written, in_header = {}, 0, True
+    for line in history.stdout:
+        if line.startswith("date:"):
+            written = int(line[5:])
+        elif line.startswith("diff "):
+            in_header = True
+        elif line.startswith("@@"):
+            in_header = False
+        elif line.startswith("+") and not in_header:
+            text = line[1:].strip()
+            first_seen[text] = min(first_seen.get(text, written), written)
+    return first_seen
 
 
 def lines_per_month():
     with ThreadPoolExecutor() as pool:
-        return sum(pool.map(months_written, git("ls-files", "--", *SOURCE_FILES).splitlines()), Counter())
+        files = pool.map(blamed_lines, git("ls-files", "--", *SOURCE_FILES).splitlines())
+        lines = [line for file in files for line in file]
+    first_seen = first_seen_on_any_branch()
+    occurrences = Counter(text for _, text in lines)
+    # Repeated lines such as license headers count when their own commit wrote them
+    return Counter(
+        datetime.fromtimestamp(min(written, first_seen.get(text, written)) if occurrences[text] == 1 else written,
+                               timezone.utc).strftime("%Y-%m")
+        for written, text in lines)
 
 
 def every_month(first, last):
