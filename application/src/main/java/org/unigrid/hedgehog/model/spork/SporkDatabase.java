@@ -20,10 +20,14 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.Optional;
@@ -62,12 +66,53 @@ public class SporkDatabase implements Serializable {
 		return SerializationUtils.deserialize(stream);
 	}
 
-	public static void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
-		@Cleanup final OutputStream stream = Files.newOutputStream(path,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE
-		);
+	/* The content is written beside the real file and moved over it in one atomic step, so a crash leaves the old
+	   database or the new one, never a truncated mix. Saves take turns, as they share the name of the temporary file. */
+	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
+		final Path file = path.toAbsolutePath();
+		final Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
 
-		SerializationUtils.serialize(sporkDatabase, stream);
+		try {
+			write(temporary, sporkDatabase);
+			Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+			forceDirectory(file);
+
+		} catch (IOException | RuntimeException ex) {
+			removeTemporary(temporary, ex);
+			throw ex;
+		}
+	}
+
+	private static void write(Path temporary, SporkDatabase sporkDatabase) throws IOException {
+		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
+			StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+
+			/* Closing the stream would close the channel before it can be forced to disk */
+			final ObjectOutputStream stream = new ObjectOutputStream(Channels.newOutputStream(channel));
+
+			stream.writeObject(sporkDatabase);
+			stream.flush();
+			channel.force(true);
+		}
+	}
+
+	private static void removeTemporary(Path temporary, Throwable failure) {
+		try {
+			Files.deleteIfExists(temporary);
+		} catch (IOException ex) {
+			failure.addSuppressed(ex);
+		}
+	}
+
+	/* An in-memory file system has no disk to flush to, and Windows does not let a directory be opened */
+	private static void forceDirectory(Path file) throws IOException {
+		if (file.getFileSystem() != FileSystems.getDefault() || System.getProperty("os.name").startsWith("Windows")) {
+			return;
+		}
+
+		try (FileChannel directory = FileChannel.open(file.getParent(), StandardOpenOption.READ)) {
+			directory.force(true);
+		}
 	}
 
 	public GridSpork get(Type gridSporkType) {
