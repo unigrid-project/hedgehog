@@ -31,7 +31,6 @@ import net.jqwik.api.Example;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
@@ -247,8 +246,10 @@ public class LedgerMintOnceAcceptanceTest extends BaseLedgerAcceptanceTest {
 			&& fleet.supplyOn(node) == supply + 10 * COIN));
 	}
 
+	/* A spork that is only proposed waits for its co-signature and changes nothing, so a single network key cannot
+	   hold the minting back: the nodes mint under the spork in force and go on under the new one once it is signed */
 	@Example
-	public void shouldMintNothingWhileASporkIsKnownToBeReplacedAndMintWhenItArrives() {
+	public void shouldKeepMintingWhileASporkIsOnlyProposed() {
 		final LedgerFleet fleet = fleet();
 		final AccountKey recipient = account();
 		final long seconds = secondsAgo(60);
@@ -258,21 +259,15 @@ public class LedgerMintOnceAcceptanceTest extends BaseLedgerAcceptanceTest {
 		final long supply = fleet.supplyOn(0);
 		final GridSpork coming = fleet.proposal(Type.MINT_SUPPLY, ceilingOf(CEILING));
 
-		await().atMost(PATIENCE).until(() -> {
-			IntStream.range(0, fleet.size()).forEach(node -> fleet.deliverSpork(node, coming));
-			return everywhere(node -> fleet.status(node).laggingSporks().contains(Type.MINT_SUPPLY));
-		});
+		IntStream.range(0, fleet.size()).forEach(node -> fleet.deliverSpork(node, coming));
+		staysTrue(() -> everywhere(node -> fleet.status(node).laggingSporks().isEmpty()));
 
 		publishMints(Map.of(entry(recipient, seconds), BigDecimal.TEN));
-		assertThat(fleet.submit(0, mintOf(recipient, 10 * COIN, seconds)), equalTo(REFUSED));
-		staysEmpty(recipient);
-		assertThat(fleet.status(1).laggingSporks(), contains(Type.MINT_SUPPLY));
-		awaitSupply(supply);
+		awaitBalance(recipient, 10 * COIN);
+		awaitSupply(supply + 10 * COIN);
 
 		fleet.publishSpork(Type.MINT_SUPPLY, ceilingOf(CEILING));
-		awaitBalance(recipient, 10 * COIN);
 		assertThat(fleet.status(1).laggingSporks(), empty());
-		awaitSupply(supply + 10 * COIN);
 	}
 
 	@Example

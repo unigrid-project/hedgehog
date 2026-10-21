@@ -43,6 +43,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.service.ledger.FleetContainers.bean;
 import static org.unigrid.hedgehog.service.ledger.LedgerFleet.COIN;
 import org.unigrid.hedgehog.ledger.AccountKey;
@@ -221,10 +222,10 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 		assertThat(balances(owner), everyItem(is(fleet().holding(0))));
 	}
 
-	/* The list is proposed to a validator, which holds back claims from the moment it is proposed as the validators
-	   it reaches do. The older list is empty and would let the address through. */
+	/* A list that is only proposed waits for its co-signature and changes nothing: a single network key cannot hold
+	   the claims back, and the older list stays in force until the second key has signed. */
 	@Example
-	public void shouldHoldBackEveryClaimWhileANewerListIsKnownAndNotHereYet() {
+	public void shouldKeepTheOlderListInForceWhileANewerOneAwaitsItsCosignature() {
 		final int host = 0;
 		final AccountKey owner = account();
 		final AccountKey neighbour = account();
@@ -232,23 +233,19 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 
 		ready();
 		blacklist();
+		awaitGossipSettled();
 
 		final String digest = fleet().proposeByRest(host, BLACKLIST, newer);
 
 		assertThat(bean(containerName(host), PendingSporks.class).proposalOf(Type.LEDGER_BLACKLIST)
 			.isPresent(), is(true));
-		assertThat(fleet().status(host).laggingSporks(), hasItem(Type.LEDGER_BLACKLIST));
-		assertThat(fleet().submit(host, claimOf(2, owner)), equalTo(HELD_BACK));
-		await().atMost(PATIENCE).until(() -> validators().allMatch(node ->
-			fleet().status(node).laggingSporks().contains(Type.LEDGER_BLACKLIST)));
-		validators().forEach(node -> assertThat(fleet().submit(node, claimOf(2, owner)), equalTo(HELD_BACK)));
-		validators().forEach(node -> assertThat(fleet().submit(node, claimOf(3, neighbour)), equalTo(HELD_BACK)));
-		staysAsItIs();
+		assertThat(fleet().status(host).laggingSporks(), not(hasItem(Type.LEDGER_BLACKLIST)));
+		claim(1, 3, neighbour);
+		assertThat(balances(neighbour), everyItem(is(fleet().holding(3))));
 
 		fleet().cosignByRest(host, digest);
 		awaitListed(newer);
 		assertRefusedEverywhere(claimOf(2, owner), HELD_BACK);
-		claim(1, 3, neighbour);
 		assertThat(balances(owner), everyItem(is(0L)));
 	}
 
