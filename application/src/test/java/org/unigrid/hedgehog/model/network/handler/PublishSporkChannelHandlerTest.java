@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.network.handler;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import mockit.Mock;
 import mockit.MockUp;
@@ -34,6 +35,7 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.domains.Domain;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.jqwik.NotNull;
@@ -43,6 +45,8 @@ import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitial
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
@@ -75,7 +79,16 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
 
 		final AtomicInteger invocations = new AtomicInteger();
+		final AtomicInteger recordings = new AtomicInteger();
+		final List<String> sources = new CopyOnWriteArrayList<>();
 		int expectedInvocations = 0;
+
+		new MockUp<SporkLag>() {
+			@Mock public void record(GridSpork spork, SporkDatabase db, String source) {
+				sources.add(source);
+				recordings.incrementAndGet();
+			}
+		};
 
 		setChannelCallback(Optional.of((ctx, spork) -> {
 			/* Only count triggers on the server-side */
@@ -102,5 +115,11 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		}
 
 		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+
+		/* Every spork the handler receives has to reach the lag tracker, accepted or not */
+		await().untilAtomic(recordings, is(greaterThanOrEqualTo(expectedInvocations)));
+
+		/* The lag tracker limits by the peer, so each spork has to come with the name of the one that sent it */
+		assertThat(sources, everyItem(not(emptyOrNullString())));
 	}
 }

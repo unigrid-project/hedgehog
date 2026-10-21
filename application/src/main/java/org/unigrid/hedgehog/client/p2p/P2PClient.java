@@ -47,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
+import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
@@ -63,10 +64,12 @@ import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
+import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
 public class P2PClient extends ConnectionContainer {
 	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, TimeoutException {
@@ -85,9 +88,11 @@ public class P2PClient extends ConnectionContainer {
 	private static QuicStreamChannel connect(EventLoopGroup group, String hostname, int port)
 		throws ExecutionException, InterruptedException, TimeoutException {
 
+		final String[] protocols = Network.getProtocols();
+		final boolean ledger = Network.hasLedger(protocols);
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
-			.applicationProtocols(Network.getProtocols())
+			.applicationProtocols(protocols)
 			.build();
 
 		final ChannelHandler codec = new QuicClientCodecBuilder()
@@ -115,29 +120,47 @@ public class P2PClient extends ConnectionContainer {
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		// TODO: Add support for ChannelCollector
 		return quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-			new RegisterQuicChannelInitializer(() -> {
-				final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
-					new LoggingHandler(LogLevel.DEBUG),
-					new FrameDecoder(),
-					new HelloEncoder(),
-					new GridnodeEncoder(), new GridnodeDecoder(),
-					new PingEncoder(), new PingDecoder(),
-					new PublishSporkEncoder(), new PublishSporkDecoder(),
-					new PublishPeersEncoder(), new PublishPeersDecoder(),
-					new PingChannelHandler(), new PublishSporkChannelHandler(),
-					new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
-				));
-
-				handlers.addAll(StoragePipeline.handlers());
-				return handlers;
-			}, () -> {
-				return Arrays.asList(
-					new PingSchedule(),
-					new PublishPeersSchedule(),
-					new PublishAndSaveSporkSchedule(),
-					new PublishGridnodeSchedule()
-				);
-			}, RegisterQuicChannelInitializer.Type.CLIENT)
+			new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
+				RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();
+	}
+
+	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets */
+	static List<ChannelHandler> handlers(final boolean ledger) {
+		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+			new LoggingHandler(LogLevel.DEBUG),
+			new FrameDecoder(),
+			new HelloEncoder(),
+			new GridnodeEncoder(), new GridnodeDecoder(),
+			new PingEncoder(), new PingDecoder(),
+			new PublishSporkEncoder(), new PublishSporkDecoder(),
+			new PublishPeersEncoder(), new PublishPeersDecoder(),
+			new PingChannelHandler(), new PublishSporkChannelHandler(),
+			new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
+		));
+
+		handlers.addAll(StoragePipeline.handlers());
+
+		if (ledger) {
+			handlers.addAll(LedgerPipeline.handlers());
+		}
+
+		return handlers;
+	}
+
+	static List<Schedulable> schedulers(final boolean ledger) {
+		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
+			new PingSchedule(),
+			new PublishPeersSchedule(),
+			new PublishAndSaveSporkSchedule(),
+			new PublishGridnodeSchedule()
+		));
+
+		if (ledger) {
+			schedulers.add(new LedgerStatusSchedule());
+		}
+
+		return schedulers;
 	}
 }

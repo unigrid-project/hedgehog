@@ -72,6 +72,11 @@
 			<version>0.0.9-SNAPSHOT</version>
 		</dependency>
 		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-ledger</artifactId>
+			<version>0.0.9-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>info.picocli</groupId>
 			<artifactId>picocli</artifactId>
 			<version>${picocli.version}</version>
@@ -188,17 +193,14 @@
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcpkix-jdk18on</artifactId>
-			<version>1.85</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk18on</artifactId>
-			<version>1.85</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcpg-jdk18on</artifactId>
-			<version>1.85</version>
 		</dependency>
 		<dependency>
 			<groupId>io.netty</groupId>
@@ -236,7 +238,7 @@
 		<dependency>
 			<groupId>net.jqwik</groupId>
 			<artifactId>jqwik</artifactId>
-			<version>1.10.1</version>
+			<version>1.10.2</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -370,6 +372,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.bootstrap=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=info.picocli
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.ledger=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.spork=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.option=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.util=info.picocli
@@ -401,6 +404,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service.storage=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service.ledger=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=org.apache.commons.lang3
 						--add-opens java.base/java.lang=ALL-UNNAMED
 						--add-opens java.base/java.math=ALL-UNNAMED

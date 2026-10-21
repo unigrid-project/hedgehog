@@ -247,7 +247,7 @@ dev_release() {
 
 	# The dev version lives only on the tagged commit, which the tag keeps
 	# reachable, so master never carries it.
-	local -a build=(mvn -B -ntp -pl common,application clean verify)
+	local -a build=(mvn -B -ntp -pl application -am clean verify)
 	[ "$tests" = all ] || build+=(-DskipTests)
 	step "Building $dev off master"
 	git switch -q --detach

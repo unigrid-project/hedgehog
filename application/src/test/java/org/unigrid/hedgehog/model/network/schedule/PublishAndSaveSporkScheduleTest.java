@@ -33,9 +33,12 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class PublishAndSaveSporkScheduleTest {
 	private static Signature proposer;
@@ -68,12 +71,49 @@ public class PublishAndSaveSporkScheduleTest {
 
 		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().build(), pendingSporks);
 
+		assertThat(published(channel), hasItem(proposal));
+	}
+
+	@Example
+	public void shouldPublishTheStoredLedgerBlacklist() {
+		final EmbeddedChannel channel = LedgerStreams.stream(true);
+		final LedgerBlacklist blacklist = new LedgerBlacklist();
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
+			new PendingSporks());
+
+		assertThat(published(channel), hasItem(sameInstance(blacklist)));
+	}
+
+	@Example
+	public void shouldPublishTheStoredLedgerFee() {
+		final EmbeddedChannel channel = LedgerStreams.stream(true);
+		final LedgerFee fee = new LedgerFee();
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
+			new PendingSporks());
+
+		assertThat(published(channel), hasItem(sameInstance(fee)));
+	}
+
+	@Example
+	public void shouldKeepTheStoredLedgerSporksFromAStreamThatDidNotSettleOnTheLedgerProtocol() {
+		final EmbeddedChannel channel = LedgerStreams.stream(false);
+
+		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
+			.ledgerBlacklist(new LedgerBlacklist()).mintSupply(new MintSupply()).build(), new PendingSporks());
+
+		assertThat(published(channel).stream().map(GridSpork::getType).toList(),
+			equalTo(List.of(GridSpork.Type.MINT_SUPPLY)));
+	}
+
+	private static List<GridSpork> published(EmbeddedChannel channel) {
 		final List<GridSpork> published = new ArrayList<>();
 
 		for (PublishSpork packet = channel.readOutbound(); Objects.nonNull(packet); packet = channel.readOutbound()) {
 			published.add(packet.getGridSpork());
 		}
 
-		assertThat(published, hasItem(proposal));
+		return published;
 	}
 }

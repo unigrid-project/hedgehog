@@ -18,7 +18,10 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.time.Instant;
 import java.math.BigDecimal;
 import lombok.SneakyThrows;
@@ -45,6 +48,8 @@ import org.unigrid.hedgehog.jqwik.SuiteDomain;
 import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
@@ -133,5 +138,24 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 
 		assertThat(received.canReplace(stored), is(true));
 		assertThat(roundTrip(renewedAgain, context).canReplace(received), is(true));
+	}
+
+	/* A spork of a type this node does not know is left alone, and what follows its type in the frame is not read as
+	   another spork. The bytes after the type begin like a spork of a known type, as they could by chance. */
+	@Example
+	public void shouldSkipASporkOfAnUnknownTypeWholeAndDecodeTheNextPacket() {
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), new PublishSporkDecoder(),
+			new PingDecoder());
+		final EmbeddedChannel encoder = new EmbeddedChannel(new PingEncoder());
+		final ByteBuf spork = Unpooled.buffer().writeShort(FrameDecoder.MAGIC)
+			.writeShort(Packet.Type.PUBLISH_SPORK.getValue()).writeInt(2 * Short.BYTES + 10)
+			.writeShort(Short.MAX_VALUE).writeShort(GridSpork.Type.MINT_STORAGE.getValue()).writeZero(10);
+
+		encoder.writeOutbound(Ping.builder().nanoTime(5).build());
+		channel.writeInbound(spork);
+		channel.writeInbound(encoder.<ByteBuf>readOutbound());
+
+		assertThat(((Ping) channel.readInbound()).getNanoTime(), is(5L));
+		assertThat(channel.<Object>readInbound(), nullValue());
 	}
 }

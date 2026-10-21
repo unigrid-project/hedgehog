@@ -37,6 +37,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -55,6 +56,9 @@ public class MintSupplyResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@Path("/mint-supply") @GET
 	public Response list() {
@@ -76,9 +80,7 @@ public class MintSupplyResource extends CDIBridgeResource {
 			);
 
 			ms.<MintSupply.SporkData>getData().setMaxSupply(maxSupply);
-			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintSupply(), pendingSporks,
-				topology
-			);
+			return ResourceHelper.propose(ms, privateKey, sporkDatabase, pendingSporks, topology, lag);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

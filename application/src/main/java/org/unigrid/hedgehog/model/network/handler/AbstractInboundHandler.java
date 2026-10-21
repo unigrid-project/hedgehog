@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
 import io.netty.util.ReferenceCountUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -54,9 +55,16 @@ public abstract class AbstractInboundHandler<T extends Packet> extends ChannelIn
 		}
 	}
 
+	/* What a peer sent that cannot be decoded is the peer's doing and it can send any amount of it, so it is told in one
+	   line at debug level. A failure of the node itself is told in full. Either way the stream is closed. */
 	@Override
 	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-		log.atWarn().log("{}:{}", cause.getMessage(), ExceptionUtils.getStackTrace(cause));
+		if (cause instanceof DecoderException) {
+			log.atDebug().log("Closed a stream: {}", cause.getMessage());
+		} else {
+			log.atWarn().log("{}:{}", cause.getMessage(), ExceptionUtils.getStackTrace(cause));
+		}
+
 		ctx.close();
 	}
 

@@ -1,0 +1,58 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.model.network.handler;
+
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandler.Sharable;
+import io.netty.channel.ChannelHandlerContext;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.ledger.LedgerPeer;
+import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
+import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
+import org.unigrid.hedgehog.service.ledger.LedgerGateway;
+
+@Slf4j
+@Sharable
+public class LedgerBlockRequestChannelHandler extends AbstractLedgerHandler<LedgerBlockRequest> {
+	public LedgerBlockRequestChannelHandler() {
+		super(LedgerBlockRequest.class);
+	}
+
+	/* The driver answers on its own thread, and the reply is written on the event loop of the stream: there the
+	   encoded replies that were written before are counted, so a stream is writable only while it holds less than
+	   its water mark, and a stream takes at most that and one batch more. Seen from the thread of the driver, a
+	   reply that is not yet written counts as a few bytes and any number of them would be taken. A request that the
+	   driver refuses completes exceptionally and is left without a reply, as is one from a peer that does not read
+	   what it was sent: a batch is megabytes, and a few requests in a row must not pile them up in memory. */
+	@Override
+	protected void deliver(final LedgerGateway gateway, final LedgerPeer from, final ChannelHandlerContext ctx,
+		final LedgerBlockRequest packet) {
+
+		gateway.onBlockRequest(from, packet.getRequest(), sizeOf(ctx)).thenAcceptAsync(batch -> {
+			if (!ctx.channel().isWritable()) {
+				log.atDebug().addArgument(from::id)
+					.log("Left a block request of {} unanswered: its stream is backed up");
+				return;
+			}
+
+			ctx.writeAndFlush(LedgerBlockBatch.builder().requestId(packet.getRequestId()).batch(batch).build())
+				.addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+		}, ctx.executor());
+	}
+}

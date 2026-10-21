@@ -115,15 +115,15 @@ public class RestClient implements AutoCloseable {
 
 	private void throwResponseOddity(Response response) throws ResponseOddityException {
 		if (isTokenRejected(response)) {
-			throw new ResponseOddityException(response.getStatusInfo());
+			throw ResponseOddityException.of(response);
 		}
 
 		final List<Status> status = List.of(Status.ACCEPTED, Status.CREATED, Status.OK,
 			Status.NO_CONTENT, Status.NOT_FOUND, Status.UNAUTHORIZED, Status.CONFLICT
 		);
 
-		if (!status.contains(Status.fromStatusCode(response.getStatus()))) {
-			throw new ResponseOddityException(response.getStatusInfo());
+		if (status.stream().noneMatch(known -> known.getStatusCode() == response.getStatus())) {
+			throw ResponseOddityException.of(response);
 		}
 	}
 
@@ -151,9 +151,13 @@ public class RestClient implements AutoCloseable {
 	}
 
 	public <T> Response post(String location, Entity<T> entity) throws ResponseOddityException {
-		final Response response = client.target(String.format(baseUrl, location)).request().post(entity);
-		throwResponseOddity(response);
-		return response;
+		return post(client.target(String.format(baseUrl, location)).request(), entity);
+	}
+
+	/* A request that the node answers at once, such as a transaction handed to the ledger, waits for the answer no
+	   longer than a read does, unlike a store, which is answered only once every byte is placed */
+	public <T> Response postBounded(String location, Entity<T> entity) throws ResponseOddityException {
+		return post(read(location), entity);
 	}
 
 	public Response postStream(final String location, final InputStream body, final long length)
@@ -162,10 +166,18 @@ public class RestClient implements AutoCloseable {
 		STREAMED_LENGTH.set(length);
 
 		try {
-			return post(location, Entity.entity(body, MediaType.APPLICATION_OCTET_STREAM));
+			return post(client.target(String.format(baseUrl, location)).request(),
+				Entity.entity(body, MediaType.APPLICATION_OCTET_STREAM));
 		} finally {
 			STREAMED_LENGTH.remove();
 		}
+	}
+
+	private <T> Response post(Invocation.Builder request, Entity<T> entity) throws ResponseOddityException {
+		final Response response = request.post(entity);
+
+		throwResponseOddity(response);
+		return response;
 	}
 
 	public <T> Response put(String location, Entity<T> entity) throws ResponseOddityException {

@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -93,6 +94,23 @@ public class PendingRequestsTest {
 	public Arbitrary<List<Reply>> replies() {
 		return Combinators.combine(Arbitraries.integers().between(-1, MAX_REQUESTS),
 			Arbitraries.integers().between(0, CHANNELS - 1), types()).as(Reply::new).list().ofMaxSize(40);
+	}
+
+	@Example
+	public void saysWhatItAwaitsByIdChannelAndType() {
+		final PendingRequests pending = new PendingRequests(NEVER_DURING_A_TRY);
+		final Channel channel = new EmbeddedChannel();
+		final long id = pending.nextRequestId();
+
+		pending.register(id, channel, StorageAck.class);
+
+		assertThat(pending.awaits(channel, id, StorageAck.class), is(true));
+		assertThat(pending.awaits(new EmbeddedChannel(), id, StorageAck.class), is(false));
+		assertThat(pending.awaits(channel, id + 1, StorageAck.class), is(false));
+		assertThat(pending.awaits(channel, id, FragmentReply.class), is(false));
+
+		pending.complete(channel, StorageAck.builder().requestId(id).status(StorageStatus.OK).build());
+		assertThat(pending.awaits(channel, id, StorageAck.class), is(false));
 	}
 
 	@Property

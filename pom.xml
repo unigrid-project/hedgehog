@@ -9,6 +9,7 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.release>25</maven.compiler.release>
 		<lombok.version>1.18.48</lombok.version>
+		<bouncycastle.version>1.85</bouncycastle.version>
 		<picocli.version>4.7.7</picocli.version>
 		<jmockit.version>1.56.0</jmockit.version>
 		<jacoco.version>0.8.15</jacoco.version>
@@ -22,6 +23,7 @@
 	<modules>
 		<module>application</module>
 		<module>common</module>
+		<module>ledger</module>
 		<module>native-image</module>
 	</modules>
 	<dependencyManagement>
@@ -42,6 +44,21 @@
 				<groupId>org.projectlombok</groupId>
 				<artifactId>lombok</artifactId>
 				<version>${lombok.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.bouncycastle</groupId>
+				<artifactId>bcpg-jdk18on</artifactId>
+				<version>${bouncycastle.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.bouncycastle</groupId>
+				<artifactId>bcpkix-jdk18on</artifactId>
+				<version>${bouncycastle.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.bouncycastle</groupId>
+				<artifactId>bcprov-jdk18on</artifactId>
+				<version>${bouncycastle.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>ch.qos.logback</groupId>

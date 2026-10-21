@@ -28,7 +28,9 @@ import java.io.Serializable;
 	@Type(MintStorage.SporkData.class),
 	@Type(MintSupply.SporkData.class),
 	@Type(VestingStorage.SporkData.class),
-	@Type(StorageSpork.SporkData.class)
+	@Type(StorageSpork.SporkData.class),
+	@Type(LedgerBlacklist.SporkData.class),
+	@Type(LedgerFee.SporkData.class)
 })
 public interface ChunkData extends Serializable {
 	/* Empty on purpose */

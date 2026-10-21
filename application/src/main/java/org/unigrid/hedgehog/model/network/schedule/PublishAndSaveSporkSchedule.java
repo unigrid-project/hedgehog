@@ -23,11 +23,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -68,21 +70,12 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 		};
 	}
 
+	/* A spork that is not set is not sent, and the sporks of the ledger only over the ledger protocol */
 	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase, PendingSporks pendingSporks) {
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getMintStorage()).build());
+		Stream.of(sporkDatabase.getMintStorage(), sporkDatabase.getMintSupply(), sporkDatabase.getVestingStorage(),
+			sporkDatabase.getStorageSpork(), sporkDatabase.getLedgerBlacklist(), sporkDatabase.getLedgerFee())
+			.forEach(spork -> SporkRecipients.write(channel, spork));
 
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getMintSupply()).build());
-
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getVestingStorage()).build());
-
-		channel.writeAndFlush(PublishSpork.builder()
-			.gridSpork(sporkDatabase.getStorageSpork()).build());
-
-		pendingSporks.list().forEach(spork -> {
-			channel.writeAndFlush(PublishSpork.builder().gridSpork(spork).build());
-		});
+		pendingSporks.list().forEach(spork -> SporkRecipients.write(channel, spork));
 	}
 }

@@ -37,6 +37,7 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
@@ -57,6 +58,9 @@ public class VestingStorageResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@Path("/vesting-storage") @GET
 	public Response list() {
@@ -98,9 +102,7 @@ public class VestingStorageResource extends CDIBridgeResource {
 
 			data.getVestingAddresses().put(Address.builder().wif(address).build(), vesting);
 
-			return ResourceHelper.propose(vs, privateKey, sporkDatabase.getVestingStorage(), pendingSporks,
-				topology
-			);
+			return ResourceHelper.propose(vs, privateKey, sporkDatabase, pendingSporks, topology, lag);
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();

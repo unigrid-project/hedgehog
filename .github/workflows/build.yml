@@ -31,8 +31,8 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Build and test common and application
-        run: mvn -B -ntp -pl common,application verify
+      - name: Build and test the application and the modules it needs
+        run: mvn -B -ntp -pl application -am verify
 
       - name: Write the badge endpoint
         if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'

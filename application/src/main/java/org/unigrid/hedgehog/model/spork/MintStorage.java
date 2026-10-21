@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -31,6 +32,7 @@ import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -62,11 +64,14 @@ public class MintStorage extends GridSpork implements Serializable {
 
 		@Data @Builder @AllArgsConstructor @NoArgsConstructor
 		public static class Location implements Serializable, Comparable<Location> {
+			public static final long MAXIMUM_NUMBER = 0xFFFF_FFFFL;
 			private static final long serialVersionUID = -727370077924808425L;
 			private static final Comparator<Location> ORDER = Comparator.comparing(Location::getAddress,
 				Comparator.nullsFirst(Comparator.naturalOrder())).thenComparingInt(Location::getHeight);
 
 			private Address address;
+
+			/* Thirty-two bits read unsigned, as a height or a time (see MintEntry) */
 			private int height;
 
 			@Override
@@ -75,13 +80,28 @@ public class MintStorage extends GridSpork implements Serializable {
 			}
 
 			public static class Deserializer extends KeyDeserializer {
+				private static final Pattern NUMBER = Pattern.compile("[0-9]{1,10}");
+				private static final String REASON = "it has to be an address, a slash and a number from 0 "
+					+ "to " + MAXIMUM_NUMBER + " without a sign";
+
 				@Override
 				public Location deserializeKey(String key, DeserializationContext ctxt) throws IOException {
-					final String[] compoundKey = key.split("/");
+					final int slash = key.lastIndexOf('/');
 
-					return new Location(new Address(compoundKey[0]),
-						Integer.parseInt(compoundKey[1])
-					);
+					if (slash < 0 || !NUMBER.matcher(key.substring(slash + 1)).matches()) {
+						throw refused(key, ctxt);
+					}
+
+					try {
+						return new Location(new Address(key.substring(0, slash)),
+							Integer.parseUnsignedInt(key.substring(slash + 1)));
+					} catch (NumberFormatException ex) {
+						throw refused(key, ctxt);
+					}
+				}
+
+				private static JsonMappingException refused(String key, DeserializationContext ctxt) {
+					return ctxt.weirdKeyException(Location.class, key, REASON);
 				}
 			}
 
@@ -91,7 +111,8 @@ public class MintStorage extends GridSpork implements Serializable {
 					throws IOException {
 
 					final Location location = (Location) value;
-					generator.writeFieldName(location.address.getWif() + "/" + location.height);
+					generator.writeFieldName(location.address.getWif() + "/"
+						+ Integer.toUnsignedString(location.height));
 				}
 			}
 		}

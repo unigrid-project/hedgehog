@@ -20,16 +20,17 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.core.Response;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 
 @Slf4j
 public class ResourceHelper {
@@ -49,8 +50,13 @@ public class ResourceHelper {
 		return spork;
 	}
 
-	public static Response propose(GridSpork spork, String privateKey, GridSpork stored, PendingSporks pendingSporks,
-		Topology topology) {
+	/**
+	* Signs a spork and holds it as a proposal. The node that proposes it records the proposal in the lag tracker as
+	* every node that receives it does, so that it too waits for the co-signature before it acts on the stored spork,
+	* and does not rely on a copy coming back from the peers.
+	*/
+	public static Response propose(GridSpork spork, String privateKey, SporkDatabase sporkDatabase,
+		PendingSporks pendingSporks, Topology topology, SporkLag lag) {
 
 		try {
 			spork.sign(privateKey);
@@ -59,11 +65,12 @@ public class ResourceHelper {
 			return Response.status(Response.Status.UNAUTHORIZED).entity(ex).build();
 		}
 
-		if (!pendingSporks.offer(spork, stored)) {
+		if (!pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
 			return Response.status(Response.Status.CONFLICT).build();
 		}
 
-		Topology.sendAll(PublishSpork.builder().gridSpork(spork).build(), topology, Optional.empty());
+		lag.record(spork, sporkDatabase, SporkLag.LOCAL);
+		SporkRecipients.sendAll(spork, topology);
 		return Response.accepted(PendingSporkInfo.of(spork)).build();
 	}
 }

@@ -30,8 +30,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -39,7 +42,9 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.SporkAmount;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 
 @Slf4j
@@ -59,6 +64,9 @@ public class MintStorageResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
 
+	@CDIBridgeInject
+	private SporkLag lag;
+
 	@Path("/mint-storage") @GET
 	public Response list() {
 		final MintStorage ms = sporkDatabase.getMintStorage();
@@ -70,45 +78,80 @@ public class MintStorageResource extends CDIBridgeResource {
 		return Response.ok().entity(sporkDatabase.getMintStorage()).build();
 	}
 
+	/* The number is a height of the old chain or, for a ledger account, a time in seconds that is above the range of an
+	   int, so it is read as a long and bounded by the kind of the address. The time as an ISO-8601 instant is a
+	   convenience of the command line, which sends the seconds. */
+	private Response located(String address, long number, Function<Location, Response> action) {
+		final Location location;
+
+		try {
+			location = Location.builder().address(Address.builder().wif(address).build())
+				.height(MintEntry.heightOf(address, number)).build();
+		} catch (IllegalArgumentException ex) {
+			return Response.status(Response.Status.BAD_REQUEST).entity(ex.getMessage()).build();
+		}
+
+		return action.apply(location);
+	}
+
 	@Path("/mint-storage/{address}/{height}") @GET
-	public Response get(@NotNull @PathParam("address") String address, @NotNull @PathParam("height") int height) {
-		if (Objects.isNull(sporkDatabase.getMintStorage())) {
-			return Response.noContent().build();
-		}
+	public Response get(@NotNull @PathParam("address") String address, @NotNull @PathParam("height") long number) {
+		return located(address, number, location -> {
+			if (Objects.isNull(sporkDatabase.getMintStorage())) {
+				return Response.noContent().build();
+			}
 
-		final Location location = Location.builder()
-			.address(Address.builder().wif(address).build())
-			.height(height).build();
+			final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();
+			final BigDecimal mintAmount = data.getMints().get(location);
 
-		final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();
-		final BigDecimal mintAmount = data.getMints().get(location);
+			if (Objects.isNull(mintAmount)) {
+				return Response.status(Response.Status.NOT_FOUND).build();
+			}
 
-		if (Objects.isNull(mintAmount)) {
-			return Response.status(Response.Status.NOT_FOUND).build();
-		}
-
-		return Response.ok().entity(mintAmount).build();
+			return Response.ok().entity(mintAmount).build();
+		});
 	}
 
 	@Path("/mint-storage/{address}/{height}") @PUT
 	public Response grow(@NotNull BigDecimal mintAmount, @NotNull @PathParam("address") String address,
-		@NotNull @PathParam("height") int height, @NotNull @HeaderParam("privateKey") String privateKey) {
+		@NotNull @PathParam("height") long number, @NotNull @HeaderParam("privateKey") String privateKey) {
 
 		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final MintStorage ms = ResourceHelper.nextVersion(sporkDatabase.getMintStorage(), MintStorage::new,
-				pendingSporks
-			);
+			return located(address, number, location -> {
+				final Optional<String> unmintable = unmintable(location, mintAmount);
 
-			final Location location = Location.builder()
-				.address(Address.builder().wif(address).build())
-				.height(height).build();
+				if (unmintable.isPresent()) {
+					return Response.status(Response.Status.BAD_REQUEST).entity(unmintable.get()).build();
+				}
 
-			ms.<MintStorage.SporkData>getData().getMints().put(location, mintAmount);
-			return ResourceHelper.propose(ms, privateKey, sporkDatabase.getMintStorage(), pendingSporks,
-				topology
-			);
+				final MintStorage ms = ResourceHelper.nextVersion(sporkDatabase.getMintStorage(),
+					MintStorage::new, pendingSporks
+				);
+
+				ms.<MintStorage.SporkData>getData().getMints().put(location, mintAmount);
+				return ResourceHelper.propose(ms, privateKey, sporkDatabase, pendingSporks, topology, lag);
+			});
 		}
 
 		return Response.status(Response.Status.UNAUTHORIZED).build();
+	}
+
+	/* Why no node can make this mint, so that it is refused here and not found out by every node when it is due. The
+	   amount is judged first, by the bounds of the wire: an exponent could write out as gigabytes when it is signed. */
+	private static Optional<String> unmintable(Location location, BigDecimal amount) {
+		if (!SporkAmount.isWithinBounds(amount)) {
+			return Optional.of("An amount has at most " + SporkAmount.MAX_DECIMALS + " decimals and "
+				+ SporkAmount.MAX_INTEGER_DIGITS + " digits before the point");
+		}
+
+		final Optional<MintEntry> entry = MintEntry.of(location, amount);
+
+		if (entry.isEmpty()) {
+			return Optional.of("The address is neither an old-style Unigrid address nor a ledger account of "
+				+ "64 lower-case hexadecimal characters");
+		}
+
+		return entry.get().units().isPresent() ? Optional.empty() : Optional.of("The amount is below one unit "
+			+ "(0.00000001) or above what the ledger counts (92233720368.54775807)");
 	}
 }

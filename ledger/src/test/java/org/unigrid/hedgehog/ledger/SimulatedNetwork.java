@@ -1,0 +1,385 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.ledger;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Random;
+import java.util.Set;
+import java.util.function.LongSupplier;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.stream.IntStream;
+import static org.unigrid.hedgehog.ledger.Action.*;
+
+/* A deterministic world for the processes that take part in an agreement, bare engines or ledger nodes: a virtual
+   clock, an event queue, links that delay, lose and cut messages, and nodes that crash and come back, with their
+   memory or with only the files they last wrote. The same seed gives the same run, so nothing in here reads the wall
+   clock or depends on the order of a hash set. Once a second every node that is up has its tick, and a peer that is
+   behind is given the blocks it lacks, which stands for the sync of the real network. */
+final class SimulatedNetwork {
+	static final long RESEND_MILLIS = 1000;
+	private static final int PROPOSAL_KIND = Ballot.Type.values().length;
+
+	/* The node of an index, in a network of the given validators and with the clock of the network */
+	@FunctionalInterface
+	interface NodeFactory {
+		SimNode node(int index, ValidatorSet validators, LongSupplier clock);
+	}
+
+	/* A delivery carries its message, so that a test can ask what is on its way */
+	private record Event(long time, long order, Runnable task, Message carries) implements Comparable<Event> {
+		@Override
+		public int compareTo(Event other) {
+			final int byTime = Long.compare(time, other.time);
+
+			return byTime != 0 ? byTime : Long.compare(order, other.order);
+		}
+	}
+
+	private record Link(int from, int to) {
+	}
+
+	/* What a node can say once in a view: a prevote, a precommit or a proposal */
+	private record Slot(int node, int kind, long height, int view) {
+	}
+
+	private record Place(int node, long height) {
+	}
+
+	final List<SimNode> nodes = new ArrayList<>();
+	final ValidatorSet validators;
+	private final PriorityQueue<Event> queue = new PriorityQueue<>();
+	private final Set<Link> cutLinks = new HashSet<>();
+	private final Map<Slot, Message> said = new HashMap<>();
+	private final Map<Place, Integer> highestViews = new HashMap<>();
+	private final Random random;
+	private long now;
+	private long counter;
+	private long sent;
+	private int contradictions;
+	private int regressions;
+	private boolean begun;
+	private long minLatency = 5;
+	private long maxLatency = 50;
+	private double dropRate;
+	private Set<Integer> isolated = Set.of();
+
+	SimulatedNetwork(int count, int goal, long seed, Timeouts timeouts) {
+		this(count, seed, (index, validators, clock) -> new SimNode(index, validators, goal, timeouts, clock));
+	}
+
+	SimulatedNetwork(int count, long seed, NodeFactory factory) {
+		this.random = new Random(seed);
+		this.validators = ConsensusFixtures.validators(count);
+
+		for (int i = 0; i < count; i++) {
+			nodes.add(factory.node(i, validators, this::now));
+		}
+	}
+
+	long now() {
+		return now;
+	}
+
+	long sent() {
+		return sent;
+	}
+
+	void latency(long min, long max) {
+		if (min < 1 || max < min) {
+			throw new IllegalArgumentException("Latency needs 1 <= min <= max, found " + min + " and " + max);
+		}
+
+		minLatency = min;
+		maxLatency = max;
+	}
+
+	void dropRate(double rate) {
+		dropRate = rate;
+	}
+
+	/* The nodes of the group can talk to one another and to nobody else */
+	void partition(Set<Integer> group) {
+		isolated = Set.copyOf(group);
+	}
+
+	/* One direction only: what the first node says no longer reaches the second, while it still hears it */
+	void cutLink(int from, int to) {
+		cutLinks.add(new Link(from, to));
+	}
+
+	void heal() {
+		isolated = Set.of();
+		cutLinks.clear();
+	}
+
+	/* The timers of a process die with it, so the ones armed before the crash must not fire after a restart */
+	void crash(int index) {
+		final SimNode node = nodes.get(index);
+
+		node.crashed = true;
+		node.incarnation++;
+	}
+
+	/* A node that was down from the start has not begun a height yet, so it starts instead of going on */
+	void restart(int index) {
+		final SimNode node = nodes.get(index);
+
+		node.crashed = false;
+		handle(node, node.process.started() ? node.process::tick : node.process::start);
+	}
+
+	/* The process dies and starts again with only the files the node last wrote, so what the old one heard is gone and
+	   its timers are dead */
+	void restartFromDisk(int index) {
+		final SimNode node = nodes.get(index);
+
+		node.incarnation++;
+		node.crashed = false;
+		handle(node, node.process::startFromDisk);
+	}
+
+	/* The node is told that it may have something to propose, say because a transaction was handed to it */
+	void work(int index) {
+		final SimNode node = nodes.get(index);
+
+		if (!node.crashed) {
+			handle(node, node.process::onWork);
+		}
+	}
+
+	/* The node dies at the end of its next event that asks for anything, after the sign state of that event reached the
+	   disk and before any of the actions happened: no message leaves, no timer is armed, no block is committed. It
+	   then comes back from the disk, so the peers are told again by the restored node, if at all. Only the next such
+	   event is lost. */
+	void loseNextActionsOf(int index) {
+		loseNextActionsOf(index, actions -> true);
+	}
+
+	/* The same for the next event whose actions the test accepts, say the one that decides */
+	void loseNextActionsOf(int index, Predicate<List<Action>> accepted) {
+		nodes.get(index).loses = actions -> !actions.isEmpty() && accepted.test(actions);
+	}
+
+	/* How many copies of the message are on their way to someone */
+	int inFlight(Message message) {
+		return (int) queue.stream().filter(event -> message.equals(event.carries())).count();
+	}
+
+	/* Messages that left a node before the sign state holding them was written */
+	int unsavedSends() {
+		return nodes.stream().mapToInt(node -> node.sentUnsaved).sum();
+	}
+
+	/* Messages a node signed for a view in which it had signed another one */
+	int contradictions() {
+		return contradictions;
+	}
+
+	/* New messages a node signed for a view below one it had signed in at the same height */
+	int viewRegressions() {
+		return regressions;
+	}
+
+	void begin() {
+		if (begun) {
+			throw new IllegalStateException("The network has begun already");
+		}
+
+		begun = true;
+		nodes.stream().filter(node -> !node.crashed).forEach(node -> handle(node, node.process::start));
+		after(RESEND_MILLIS, this::resend);
+	}
+
+	void run(long untilMillis) {
+		while (!queue.isEmpty() && queue.peek().time() <= untilMillis) {
+			final Event event = queue.poll();
+
+			now = event.time();
+			event.task().run();
+		}
+
+		now = Math.max(now, untilMillis);
+	}
+
+	/* No two nodes decided different blocks at one height */
+	boolean agreement() {
+		final int longest = nodes.stream().mapToInt(node -> node.decided.size()).max().orElse(0);
+
+		return IntStream.range(0, longest).allMatch(this::agreeAt);
+	}
+
+	boolean everyoneReached(int heights, Set<Integer> excluded) {
+		return nodes.stream().filter(node -> !excluded.contains(node.index))
+			.allMatch(node -> node.decided.size() >= heights);
+	}
+
+	/* The process has its sign state on disk when it returns the actions of an event, as nothing it signed may leave it
+	   before that. The blocks it took in are counted as soon as the event ends, whether the actions are performed or
+	   lost, as a block that is committed is on the disk too. */
+	private void handle(SimNode node, Supplier<List<Action>> event) {
+		final List<Action> actions = event.get();
+		final List<Block> committed = node.process.committed();
+
+		node.decided.addAll(committed.subList(node.decided.size(), committed.size()));
+
+		if (node.loses != null && node.loses.test(actions)) {
+			node.loses = null;
+			node.lost = actions;
+			restartFromDisk(node.index);
+		} else {
+			perform(node, actions);
+		}
+	}
+
+	private boolean agreeAt(int index) {
+		return nodes.stream().filter(node -> node.decided.size() > index)
+			.map(node -> ByteBuffer.wrap(node.decided.get(index).hash())).distinct().count() <= 1;
+	}
+
+	void after(long delay, Runnable task) {
+		queue.add(new Event(now + delay, counter++, task, null));
+	}
+
+	/* The links are checked as for any message, but the sender is not: a crashed node can be made to speak, so that
+	   a test can play a validator that lies without an engine of its own getting in the way */
+	void send(int from, int to, Message message) {
+		sent++;
+
+		if (cut(from, to) || random.nextDouble() < dropRate) {
+			return;
+		}
+
+		queue.add(new Event(now + travelTime(), counter++, () -> deliver(to, message), message));
+	}
+
+	private long travelTime() {
+		return Math.min(maxLatency, minLatency + (long) (random.nextDouble() * (maxLatency - minLatency + 1)));
+	}
+
+	private boolean cut(int from, int to) {
+		return cutLinks.contains(new Link(from, to)) || separated(from, to);
+	}
+
+	private boolean separated(int from, int to) {
+		return !isolated.isEmpty() && isolated.contains(from) != isolated.contains(to);
+	}
+
+	private void tellOthers(SimNode from, Message message) {
+		audit(from, message);
+		nodes.stream().filter(other -> other != from).forEach(other -> send(from.index, other.index, message));
+	}
+
+	/* What a node signs has to be on its disk when it leaves, and what it says again has to be the very same message */
+	private void audit(SimNode from, Message message) {
+		if (message instanceof Ballot ballot && ballot.validator().equals(from.process.self())) {
+			note(from, new Slot(from.index, ballot.type().ordinal(), ballot.height(), ballot.view()), ballot,
+				from.process.saved(ballot));
+		} else if (message instanceof Proposal proposal && proposal.sender().equals(from.process.self())) {
+			note(from, new Slot(from.index, PROPOSAL_KIND, proposal.height(), proposal.view()), proposal,
+				from.process.saved(proposal));
+		}
+	}
+
+	private void note(SimNode from, Slot slot, Message message, boolean saved) {
+		if (!saved) {
+			from.sentUnsaved++;
+		}
+
+		final Message first = said.putIfAbsent(slot, message);
+
+		if (first == null) {
+			trackViews(slot);
+		} else if (!first.equals(message)) {
+			contradictions++;
+		}
+	}
+
+	/* A node signs in the view it is in and goes on to later ones, so a message that is new in a view below one the node
+	   has signed in comes from a node that went back */
+	private void trackViews(Slot slot) {
+		final Place place = new Place(slot.node(), slot.height());
+
+		if (slot.view() < highestViews.getOrDefault(place, 0)) {
+			regressions++;
+		}
+
+		highestViews.merge(place, slot.view(), Math::max);
+	}
+
+	private void deliver(int to, Message message) {
+		final SimNode node = nodes.get(to);
+
+		if (!node.crashed) {
+			node.received++;
+			handle(node, () -> node.process.onMessage(message));
+		}
+	}
+
+	private void perform(SimNode node, List<Action> actions) {
+		for (final Action action : actions) {
+			switch (action) {
+				case Broadcast broadcast -> tellOthers(node, broadcast.message());
+				case Schedule schedule -> arm(node, schedule);
+				case Decide decide -> handle(node, () -> node.process.decided(decide.block()));
+			}
+		}
+	}
+
+	private void arm(SimNode node, Schedule schedule) {
+		final int armedIn = node.incarnation;
+
+		node.armed++;
+		after(schedule.delayMillis(), () -> fire(node, armedIn, schedule.timeout()));
+	}
+
+	private void fire(SimNode node, int armedIn, Timeout timeout) {
+		if (node.incarnation == armedIn) {
+			node.fired++;
+			handle(node, () -> node.process.onTimeout(timeout));
+		}
+	}
+
+	/* Messages can be lost, so every node has its tick at a steady pace, and a peer that is behind is told the blocks it
+	   lacks. A resting engine says what it signed again for a while only, which is what lets a chain with nothing to
+	   do go silent, and a peer that is level with the others is told nothing. */
+	private void resend() {
+		nodes.stream().filter(node -> !node.crashed).forEach(node -> {
+			handle(node, node.process::tick);
+			serveThoseBehind(node);
+		});
+
+		after(RESEND_MILLIS, this::resend);
+	}
+
+	private void serveThoseBehind(SimNode server) {
+		for (final SimNode peer : nodes) {
+			if (peer != server && !peer.crashed) {
+				server.decided.stream().filter(block -> block.getHeight() > peer.decided.size())
+					.forEach(block -> send(server.index, peer.index, new Decision(block)));
+			}
+		}
+	}
+}

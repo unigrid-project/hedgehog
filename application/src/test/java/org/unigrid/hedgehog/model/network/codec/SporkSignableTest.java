@@ -28,10 +28,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.IntStream;
@@ -54,6 +58,10 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.LedgerFeeSporkTest;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
@@ -209,6 +217,46 @@ public class SporkSignableTest extends BaseCodecTest<PublishSpork> {
 				return signed(spork);
 			}).toList(), context
 		);
+	}
+
+	@Provide
+	public Arbitrary<Set<String>> provideBlacklists() {
+		return LedgerBlacklistTest.cappedSets();
+	}
+
+	@Property(tries = 10)
+	public void shouldSignEqualBlacklistsAlike(@ForAll("provideBlacklists") Set<String> hashes,
+		@Mocked ChannelHandlerContext context) {
+
+		final List<String> reversed = new ArrayList<>(new TreeSet<>(hashes));
+
+		Collections.reverse(reversed);
+
+		assertSignedAlike(List.of(new HashSet<>(hashes), new TreeSet<>(hashes), new LinkedHashSet<>(reversed))
+			.stream().map(set -> {
+				final LedgerBlacklist spork = new LedgerBlacklist();
+
+				spork.<LedgerBlacklist.SporkData>getData().setLegacyAddresses(set);
+				return signed(spork);
+			}).toList(), context
+		);
+	}
+
+	@Provide
+	public Arbitrary<BigDecimal> provideFees() {
+		return LedgerFeeSporkTest.fees();
+	}
+
+	@Property(tries = 10)
+	public void shouldSignEqualFeesAlikeAtAnyScale(@ForAll("provideFees") BigDecimal fee,
+		@Mocked ChannelHandlerContext context) {
+
+		assertSignedAlike(List.of(fee, fee.stripTrailingZeros(), fee.setScale(12)).stream().map(minimum -> {
+			final LedgerFee spork = new LedgerFee();
+
+			spork.<LedgerFee.SporkData>getData().setMinimumTransferFee(minimum);
+			return signed(spork);
+		}).toList(), context);
 	}
 
 	@Property(tries = 20)

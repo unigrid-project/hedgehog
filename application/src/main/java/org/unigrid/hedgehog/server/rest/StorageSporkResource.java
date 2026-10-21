@@ -34,6 +34,7 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 
 @Path("/gridspork")
@@ -48,6 +49,9 @@ public class StorageSporkResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private PendingSporks pendingSporks;
+
+	@CDIBridgeInject
+	private SporkLag lag;
 
 	@Path("/storage") @GET
 	public Response get() {
@@ -74,6 +78,6 @@ public class StorageSporkResource extends CDIBridgeResource {
 		);
 
 		spork.setData(parameters);
-		return ResourceHelper.propose(spork, privateKey, sporkDatabase.getStorageSpork(), pendingSporks, topology);
+		return ResourceHelper.propose(spork, privateKey, sporkDatabase, pendingSporks, topology, lag);
 	}
 }

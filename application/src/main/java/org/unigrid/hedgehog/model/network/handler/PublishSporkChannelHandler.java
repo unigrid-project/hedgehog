@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
-import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -29,6 +28,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 
 @Slf4j
 @Sharable
@@ -46,24 +46,33 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return;
 		}
 
+		final String source = RemoteAddress.idOf(ctx.channel());
+
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
-				if (receive(spork, db, pendingSporks)) {
-					CDIUtil.resolveAndRun(Topology.class, topology -> {
-						// TODO: Handle errors better rather than sending Optional.empty()
-						Topology.sendAll(publishSpork, topology, Optional.empty());
-					});
-				}
+				CDIUtil.resolveAndRun(SporkLag.class, lag -> {
+					if (receive(spork, db, pendingSporks, lag, source)) {
+						CDIUtil.resolveAndRun(Topology.class, topology -> {
+							SporkRecipients.sendAll(spork, topology);
+						});
+					}
+				});
 			});
 		});
 	}
 
 	/**
 	* Stores a co-signed spork that may replace the stored one, or holds a spork signed once as a proposal.
-	* Returns whether the spork was new to this node, and should therefore travel further.
+	* Returns whether the spork was new to this node, and should therefore travel further. The source is the peer
+	* that sent it, as {@link RemoteAddress#idOf} names it.
 	*/
-	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks) {
+	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
+		String source) {
+
 		final GridSpork stored = db.get(spork.getType());
+
+		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
+		lag.record(spork, db, source);
 
 		if (spork.isPending()) {
 			return pendingSporks.offer(spork, stored);

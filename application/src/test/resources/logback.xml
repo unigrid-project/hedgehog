@@ -2,4 +2,5 @@
 	<contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator">
 		<resetJUL>true</resetJUL>
 	</contextListener>
+	<logger name="io.netty.handler.logging.LoggingHandler" level="INFO"/>
 </configuration>

@@ -1,0 +1,188 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.ledger;
+
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Optional;
+import org.bouncycastle.crypto.ec.CustomNamedCurves;
+import org.bouncycastle.crypto.params.ECDomainParameters;
+import org.bouncycastle.crypto.params.ECPublicKeyParameters;
+import org.bouncycastle.crypto.signers.ECDSASigner;
+import org.bouncycastle.math.ec.ECAlgorithms;
+import org.bouncycastle.math.ec.ECPoint;
+import org.bouncycastle.util.BigIntegers;
+
+/* The signature that the wallet of the legacy chain makes with signmessage: 65 bytes, a header byte that says
+   which encoding of the key it was made for (27 to 30 uncompressed, 31 to 34 compressed), then r and s. The
+   owner of an address is whoever holds the key that hashes to it, so a signature that verifies under a key
+   proves the funds of that key's address are theirs to move. */
+public final class LegacySignature {
+	public static final int SIZE = 65;
+	static final String MAGIC = "DarkNet Signed Message:\n";
+	static final ECDomainParameters CURVE = new ECDomainParameters(CustomNamedCurves.getByName("secp256k1"));
+
+	private static final int FIRST_HEADER = 27;
+	private static final int FIRST_COMPRESSED_HEADER = 31;
+	private static final int LAST_HEADER = 34;
+	private static final int RECOVERY_IDS = 4;
+	static final int COMPRESSED_KEY_SIZE = 33;
+	static final int UNCOMPRESSED_KEY_SIZE = 65;
+	private static final int EVEN_Y_PREFIX = 2;
+	private static final int ODD_Y_PREFIX = 3;
+	private static final int UNCOMPRESSED_PREFIX = 4;
+	private static final int COORDINATE_SIZE = 32;
+	private static final int ONE_BYTE_LENGTH_LIMIT = 252;
+
+	private LegacySignature() {
+		/* Static helpers only */
+	}
+
+	public static LegacyAddress addressOf(byte[] publicKey) {
+		return new LegacyAddress(Digests.hash160(publicKey));
+	}
+
+	/* A low s only, so the s and n - s twins are not both valid. The recovery id in the header is left unchecked
+	   because the key is supplied, so one signature verifies under four header bytes: a claim is identified by
+	   its address, never by its signature bytes. */
+	public static boolean verify(byte[] publicKey, byte[] signature, String message) {
+		if (signature.length != SIZE || !headerFits(publicKey, signature[0])) {
+			return false;
+		}
+
+		final BigInteger s = sOf(signature);
+
+		if (isHigh(s)) {
+			return false;
+		}
+
+		try {
+			final ECDSASigner verifier = new ECDSASigner();
+
+			verifier.init(false, new ECPublicKeyParameters(CURVE.getCurve().decodePoint(publicKey), CURVE));
+			return verifier.verifySignature(messageHash(message), rOf(signature), s);
+		} catch (IllegalArgumentException e) {
+			return false;
+		}
+	}
+
+	/* The key that signed the text, found from the signature alone because the wallet prints no key with it. Four
+	   keys fit one signature and the header says which is meant (SEC 1 section 4.1.6), in the encoding it names, so
+	   verify holds for the key given. Empty for what verify could never take: a size other than 65, a header out of
+	   range, r or s outside 1 to n - 1, a high s, no point for r, or a text the wallet could not have signed. */
+	public static Optional<byte[]> recover(String text, byte[] signature) {
+		if (!isRecoverable(signature)) {
+			return Optional.empty();
+		}
+
+		try {
+			return keyOf(new BigInteger(1, messageHash(text)), signature);
+		} catch (IllegalArgumentException e) {
+			return Optional.empty();
+		}
+	}
+
+	private static boolean isRecoverable(byte[] signature) {
+		return signature.length == SIZE && isHeader(Byte.toUnsignedInt(signature[0])) && isInRange(rOf(signature))
+			&& isLow(sOf(signature));
+	}
+
+	private static BigInteger rOf(byte[] signature) {
+		return new BigInteger(1, Arrays.copyOfRange(signature, 1, 1 + COORDINATE_SIZE));
+	}
+
+	private static BigInteger sOf(byte[] signature) {
+		return new BigInteger(1, Arrays.copyOfRange(signature, 1 + COORDINATE_SIZE, SIZE));
+	}
+
+	private static boolean isHigh(BigInteger s) {
+		return s.compareTo(CURVE.getN().shiftRight(1)) > 0;
+	}
+
+	private static boolean isLow(BigInteger s) {
+		return isInRange(s) && !isHigh(s);
+	}
+
+	private static boolean isInRange(BigInteger value) {
+		return value.signum() > 0 && value.compareTo(CURVE.getN()) < 0;
+	}
+
+	private static boolean isHeader(int header) {
+		return header >= FIRST_HEADER && header <= LAST_HEADER;
+	}
+
+	/* Q = r^-1 (sR - eG), where R is the point the signer's nonce made: its x is r, or r + n when the nonce point
+	   overflowed the order, and its y is odd or even as the recovery id says. The curve has a cofactor of 1, so
+	   every point on it has the order n and R needs no check of that. */
+	private static Optional<byte[]> keyOf(BigInteger hash, byte[] signature) {
+		final int header = Byte.toUnsignedInt(signature[0]);
+		final int recoveryId = (header - FIRST_HEADER) % RECOVERY_IDS;
+		final BigInteger n = CURVE.getN();
+		final BigInteger r = rOf(signature);
+		final BigInteger x = r.add(BigInteger.valueOf(recoveryId >> 1).multiply(n));
+		final byte[] encoded = Bytes.concat(new byte[] { (byte) (EVEN_Y_PREFIX + (recoveryId & 1)) },
+			BigIntegers.asUnsignedByteArray(COORDINATE_SIZE, x));
+		final BigInteger rInverse = r.modInverse(n);
+		final ECPoint key = ECAlgorithms.sumOfTwoMultiplies(CURVE.getG(), hash.negate().multiply(rInverse).mod(n),
+			CURVE.getCurve().decodePoint(encoded), sOf(signature).multiply(rInverse).mod(n)).normalize();
+
+		return key.isInfinity() ? Optional.empty() : Optional.of(key.getEncoded(header >= FIRST_COMPRESSED_HEADER));
+	}
+
+	private static boolean headerFits(byte[] publicKey, byte header) {
+		final int value = Byte.toUnsignedInt(header);
+
+		if (!isHeader(value)) {
+			return false;
+		}
+
+		return value >= FIRST_COMPRESSED_HEADER ? isCompressed(publicKey) : isUncompressed(publicKey);
+	}
+
+	/* Only the two encodings a wallet writes: a hybrid key decodes too, yet hashes to another address */
+	private static boolean isCompressed(byte[] publicKey) {
+		return publicKey.length == COMPRESSED_KEY_SIZE
+			&& (publicKey[0] == EVEN_Y_PREFIX || publicKey[0] == ODD_Y_PREFIX);
+	}
+
+	private static boolean isUncompressed(byte[] publicKey) {
+		return publicKey.length == UNCOMPRESSED_KEY_SIZE && publicKey[0] == UNCOMPRESSED_PREFIX;
+	}
+
+	/* The wallet hashes the magic and the message, each led by its length, twice with SHA-256. A length below 253
+	   is a single byte, and the text of a claim is far shorter than that. Encoding a character outside ASCII would
+	   turn it into a question mark and let two messages hash alike, so it is refused. */
+	static byte[] messageHash(String message) {
+		if (!StandardCharsets.US_ASCII.newEncoder().canEncode(message)) {
+			throw new IllegalArgumentException("A message is plain ASCII");
+		}
+
+		final byte[] magic = MAGIC.getBytes(StandardCharsets.US_ASCII);
+		final byte[] text = message.getBytes(StandardCharsets.US_ASCII);
+
+		if (text.length > ONE_BYTE_LENGTH_LIMIT) {
+			throw new IllegalArgumentException("A message is at most " + ONE_BYTE_LENGTH_LIMIT + " bytes, found "
+				+ text.length);
+		}
+
+		return Digests.sha256(Digests.sha256(new byte[] { (byte) magic.length }, magic,
+			new byte[] { (byte) text.length }, text));
+	}
+}

@@ -25,6 +25,10 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Cleanup;
@@ -43,12 +47,15 @@ public class SporkDatabase implements Serializable {
 
 	public static final String SPORK_DB_FILE = "spork.db";
 
-	private MintStorage mintStorage;
-	private MintSupply mintSupply;
-	private VestingStorage vestingStorage;
-	private StorageSpork storageSpork;
+	/* The network threads store sporks while other threads read them, so a stored spork must be seen at once */
+	private volatile MintStorage mintStorage;
+	private volatile MintSupply mintSupply;
+	private volatile VestingStorage vestingStorage;
+	private volatile StorageSpork storageSpork;
+	private volatile LedgerBlacklist ledgerBlacklist;
+	private volatile LedgerFee ledgerFee;
 
-	private StatisticsPubKey statisticsPubKey;
+	private volatile StatisticsPubKey statisticsPubKey;
 
 	public static SporkDatabase load(Path path) throws IOException {
 		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
@@ -64,40 +71,36 @@ public class SporkDatabase implements Serializable {
 	}
 
 	public GridSpork get(Type gridSporkType) {
-		switch (gridSporkType) {
-			case MINT_STORAGE: return mintStorage;
-			case MINT_SUPPLY: return mintSupply;
-			case VESTING_STORAGE: return vestingStorage;
-			case STORAGE: return storageSpork;
-			case STATISTICS_PUBKEY: return statisticsPubKey;
-			default: throw new IllegalArgumentException("Unsupported spork type requested from database");
-		}
+		return slotOf(gridSporkType).reader().apply(this);
 	}
 
 	public void set(GridSpork gridSpork) {
-		switch (gridSpork.getType()) {
-			case MINT_STORAGE:
-				mintStorage = (MintStorage) gridSpork;
-				break;
-
-			case MINT_SUPPLY:
-				mintSupply = (MintSupply) gridSpork;
-				break;
-
-			case VESTING_STORAGE:
-				vestingStorage = (VestingStorage) gridSpork;
-				break;
-
-			case STORAGE:
-				storageSpork = (StorageSpork) gridSpork;
-				break;
-
-			case STATISTICS_PUBKEY:
-				statisticsPubKey = (StatisticsPubKey) gridSpork;
-				break;
-
-			default:
-				throw new IllegalArgumentException("Unsupported spork type sent to database");
-		}
+		slotOf(gridSpork.getType()).writer().accept(this, gridSpork);
 	}
+
+	private static Slot slotOf(Type gridSporkType) {
+		return Optional.ofNullable(SLOTS.get(gridSporkType)).orElseThrow(
+			() -> new IllegalArgumentException("Unsupported spork type for the database")
+		);
+	}
+
+	/* A switch over every type outgrows the complexity limit of a method, so each type lists its field here instead */
+	private record Slot(Function<SporkDatabase, GridSpork> reader, BiConsumer<SporkDatabase, GridSpork> writer) { }
+
+	private static final Map<Type, Slot> SLOTS = Map.of(
+		Type.MINT_STORAGE, new Slot(db -> db.mintStorage,
+			(db, spork) -> db.mintStorage = (MintStorage) spork),
+		Type.MINT_SUPPLY, new Slot(db -> db.mintSupply,
+			(db, spork) -> db.mintSupply = (MintSupply) spork),
+		Type.VESTING_STORAGE, new Slot(db -> db.vestingStorage,
+			(db, spork) -> db.vestingStorage = (VestingStorage) spork),
+		Type.STORAGE, new Slot(db -> db.storageSpork,
+			(db, spork) -> db.storageSpork = (StorageSpork) spork),
+		Type.LEDGER_BLACKLIST, new Slot(db -> db.ledgerBlacklist,
+			(db, spork) -> db.ledgerBlacklist = (LedgerBlacklist) spork),
+		Type.LEDGER_FEE, new Slot(db -> db.ledgerFee,
+			(db, spork) -> db.ledgerFee = (LedgerFee) spork),
+		Type.STATISTICS_PUBKEY, new Slot(db -> db.statisticsPubKey,
+			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork)
+	);
 }

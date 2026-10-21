@@ -29,9 +29,12 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 
 public class SporkReceptionTest {
 	private static Signature proposer;
@@ -41,6 +44,7 @@ public class SporkReceptionTest {
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private SporkDatabase sporkDatabase;
 	private PendingSporks pendingSporks;
+	private SporkLag lag;
 
 	@SneakyThrows
 	@BeforeProperty
@@ -49,6 +53,7 @@ public class SporkReceptionTest {
 		cosigner = new Signature();
 		sporkDatabase = SporkDatabase.builder().build();
 		pendingSporks = new PendingSporks();
+		lag = new SporkLag();
 
 		new MockUp<NetworkKey>() {
 			@Mock public static String[] getPublicKeys() {
@@ -59,6 +64,10 @@ public class SporkReceptionTest {
 				return new String[0];
 			}
 		};
+	}
+
+	private boolean receive(GridSpork spork) {
+		return handler.receive(spork, sporkDatabase, pendingSporks, lag, "198.51.100.7");
 	}
 
 	@SneakyThrows
@@ -88,7 +97,7 @@ public class SporkReceptionTest {
 	public void shouldHoldAProposalWithoutStoringIt() {
 		final MintSupply spork = proposal(new MintSupply());
 
-		assertThat(handler.receive(spork, sporkDatabase, pendingSporks), is(true));
+		assertThat(receive(spork), is(true));
 		assertThat(pendingSporks.list(), contains(spork));
 		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
 	}
@@ -97,8 +106,8 @@ public class SporkReceptionTest {
 	public void shouldNotPassOnAProposalItAlreadyHolds() {
 		final MintSupply spork = proposal(new MintSupply());
 
-		handler.receive(spork, sporkDatabase, pendingSporks);
-		assertThat(handler.receive(spork, sporkDatabase, pendingSporks), is(false));
+		receive(spork);
+		assertThat(receive(spork), is(false));
 	}
 
 	@Example
@@ -106,9 +115,9 @@ public class SporkReceptionTest {
 		final MintSupply spork = proposal(new MintSupply());
 		final MintSupply cosigned = cosigned(spork);
 
-		handler.receive(spork, sporkDatabase, pendingSporks);
+		receive(spork);
 
-		assertThat(handler.receive(cosigned, sporkDatabase, pendingSporks), is(true));
+		assertThat(receive(cosigned), is(true));
 		assertThat(sporkDatabase.getMintSupply(), equalTo(cosigned));
 		assertThat(pendingSporks.list(), empty());
 	}
@@ -118,8 +127,8 @@ public class SporkReceptionTest {
 		final MintSupply stored = cosigned(proposal(new MintSupply()));
 		final MintSupply spork = proposal(stored);
 
-		handler.receive(spork, sporkDatabase, pendingSporks);
-		handler.receive(stored, sporkDatabase, pendingSporks);
+		receive(spork);
+		receive(stored);
 
 		assertThat(sporkDatabase.getMintSupply(), equalTo(stored));
 		assertThat(pendingSporks.list(), contains(spork));
@@ -132,9 +141,52 @@ public class SporkReceptionTest {
 		final MintSupply stored = cosigned(proposal(new MintSupply()));
 
 		sporkDatabase.set(stored);
-		assertThat(handler.receive(stored, sporkDatabase, pendingSporks), is(false));
-		assertThat(handler.receive(older, sporkDatabase, pendingSporks), is(false));
-		assertThat(handler.receive(olderProposal, sporkDatabase, pendingSporks), is(false));
+		assertThat(receive(stored), is(false));
+		assertThat(receive(older), is(false));
+		assertThat(receive(olderProposal), is(false));
 		assertThat(sporkDatabase.getMintSupply(), equalTo(stored));
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(false));
+	}
+
+	@Example
+	public void shouldBeBehindWhileAProposalIsHeld() {
+		receive(proposal(new MintSupply()));
+
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(true));
+	}
+
+	@Example
+	public void shouldCatchUpWhenTheCosignedSporkIsStored() {
+		final MintSupply spork = proposal(new MintSupply());
+
+		receive(spork);
+		receive(cosigned(spork));
+
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(false));
+	}
+
+	@Example
+	public void shouldBeBehindOnACosignedSporkItRejects() {
+		final MintSupply first = cosigned(proposal(new MintSupply()));
+		final MintSupply second = cosigned(proposal(first));
+		final MintSupply stored = cosigned(proposal(second));
+		final MintSupply rival = cosigned(proposal(first));
+
+		sporkDatabase.set(stored);
+
+		assertThat(receive(rival), is(false));
+		assertThat(sporkDatabase.getMintSupply(), equalTo(stored));
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldNotBeBehindOnAProposalOfAnUnknownKey() {
+		final MintSupply spork = proposal(new MintSupply());
+
+		spork.sign(new Signature().getPrivateKey());
+		receive(spork);
+
+		assertThat(lag.isBehind(Type.MINT_SUPPLY, sporkDatabase), is(false));
 	}
 }

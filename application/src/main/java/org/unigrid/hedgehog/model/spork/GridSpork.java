@@ -28,9 +28,11 @@ import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -81,20 +83,19 @@ public class GridSpork implements Serializable, Signable {
 
 	@AllArgsConstructor
 	public enum Type {
-		UNDEFINED((short) 0), MINT_STORAGE((short) 1000), MINT_SUPPLY((short) 1010), VESTING_STORAGE((short) 1020),
-		STORAGE((short) 1030), STATISTICS_PUBKEY(((short) 2001));
+		UNDEFINED((short) 0, () -> {
+			throw new IllegalArgumentException("Unknown spork type supplied");
+		}),
+		MINT_STORAGE((short) 1000, MintStorage::new), MINT_SUPPLY((short) 1010, MintSupply::new),
+		VESTING_STORAGE((short) 1020, VestingStorage::new), STORAGE((short) 1030, StorageSpork::new),
+		LEDGER_BLACKLIST((short) 1040, LedgerBlacklist::new), LEDGER_FEE((short) 1050, LedgerFee::new),
+		STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
 
 		@Getter private final short value;
+		private final Supplier<GridSpork> factory;
 
 		public static Type get(short value) {
-			switch (value) {
-				case 1000: return MINT_STORAGE;
-				case 1010: return MINT_SUPPLY;
-				case 1020: return VESTING_STORAGE;
-				case 1030: return STORAGE;
-				case 2001: return STATISTICS_PUBKEY;
-				default: return UNDEFINED;
-			}
+			return Arrays.stream(values()).filter(type -> type.value == value).findFirst().orElse(UNDEFINED);
 		}
 	}
 
@@ -121,14 +122,7 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	public static GridSpork create(Type type) {
-		switch (type) {
-			case MINT_STORAGE: return new MintStorage();
-			case MINT_SUPPLY: return new MintSupply();
-			case VESTING_STORAGE: return new VestingStorage();
-			case STORAGE: return new StorageSpork();
-			case STATISTICS_PUBKEY: return new StatisticsPubKey();
-			default: throw new IllegalArgumentException("Unknown spork type supplied");
-		}
+		return type.factory.get();
 	}
 
 	@JsonIgnore

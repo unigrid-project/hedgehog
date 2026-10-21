@@ -18,14 +18,47 @@
 
 package org.unigrid.hedgehog.client.rest;
 
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.StatusType;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import lombok.Getter;
 
 public class ResponseOddityException extends Exception {
+	private static final int MAX_BODY = 8 * 1024;
+
+	/* What the node sent along with the status; a ledger node explains there why it refused a request */
+	@Getter private final String body;
+
+	@Getter private final int statusCode;
+
 	public ResponseOddityException(StatusType status) {
+		this(status, "");
+	}
+
+	public ResponseOddityException(StatusType status, String body) {
 		super(String.format("%d %s (%s)",
 			status.getStatusCode(), Status.fromStatusCode(status.getStatusCode()),
 			status.getReasonPhrase())
 		);
+
+		this.body = body;
+		this.statusCode = status.getStatusCode();
+	}
+
+	public static ResponseOddityException of(Response response) {
+		return new ResponseOddityException(response.getStatusInfo(), response.hasEntity() ? bodyOf(response) : "");
+	}
+
+	/* A refusal is a line or two of text, so no more than that is read of whatever else a node or a proxy sends. A
+	   body that cannot be read is kept as none, since the status line still says what happened. */
+	private static String bodyOf(Response response) {
+		try (InputStream body = response.readEntity(InputStream.class)) {
+			return new String(body.readNBytes(MAX_BODY), StandardCharsets.UTF_8);
+		} catch (IOException ex) {
+			return "";
+		}
 	}
 }

@@ -67,8 +67,8 @@ jobs:
       - name: Test release.sh
         run: bash .github/release-test.sh
 
-      - name: Build and test common and application
-        run: mvn -B -ntp -pl common,application verify -DskipTests=${{ inputs.skip-tests == true }}
+      - name: Build and test the application and the modules it needs
+        run: mvn -B -ntp -pl application -am verify -DskipTests=${{ inputs.skip-tests == true }}
 
       - uses: actions/upload-artifact@v7
         with:
@@ -98,10 +98,9 @@ jobs:
           distribution: temurin
           cache: maven
 
-      # bash on every OS: PowerShell would read the comma in -pl as an array.
-      - name: Test common and application
+      - name: Test the application and the modules it needs
         shell: bash
-        run: mvn -B -ntp -pl common,application test -DskipTests=${{ inputs.skip-tests == true }}
+        run: mvn -B -ntp -pl application -am test -DskipTests=${{ inputs.skip-tests == true }}
 
   native:
     name: Native ${{ matrix.target }}

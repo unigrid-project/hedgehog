@@ -1,0 +1,146 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.ledger;
+
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
+import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
+
+public class TransactionCodecTest {
+	@Property(tries = 200)
+	public void shouldRoundTripAnyTransaction(@ForAll long seed) {
+		final Transaction transaction = CodecFixtures.transaction(new Random(seed));
+		final ByteBuffer in = ByteBuffer.wrap(transaction.encode());
+
+		assertThat(TransactionCodec.decode(in), equalTo(transaction));
+		assertThat(in.hasRemaining(), is(false));
+	}
+
+	@Property(tries = 300)
+	public void shouldRefuseEveryTruncation(@ForAll long seed, @ForAll @IntRange(min = 0, max = 10000) int cutSeed) {
+		final byte[] encoded = CodecFixtures.transaction(new Random(seed)).encode();
+		final ByteBuffer in = ByteBuffer.wrap(encoded, 0, cutSeed % encoded.length);
+
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(in));
+	}
+
+	@Example
+	public void shouldRefuseAnUnknownKind() {
+		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
+
+		encoded[0] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldRefuseAMintToAnUnknownKindOfAddress() {
+		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
+
+		encoded[1] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldRefuseAClaimKeyWithAnUnknownPrefix() {
+		final byte[] encoded = CodecFixtures.claim(new Random(1), true).encode();
+
+		encoded[1] = 5;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldRefuseAVoteWithAnUnknownAction() {
+		final byte[] encoded = CodecFixtures.vote(new Random(1)).encode();
+
+		encoded[1 + 2 * AccountKey.SIZE] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldRefuseAMintOfNothing() {
+		final Mint mint = CodecFixtures.mint(new Random(1));
+		final byte[] encoded = mint.encode();
+
+		ByteBuffer.wrap(encoded).putLong(1 + mint.recipient().encode().length, 0);
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldRefuseATransferWithAnUnknownRecipientType() {
+		final byte[] encoded = CodecFixtures.transfer(new Random(1)).encode();
+
+		encoded[1 + AccountKey.SIZE] = 9;
+		assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+	}
+
+	@Example
+	public void shouldReadTheAmountFeeAndNonceOfATransferAtTheirOffsets() {
+		final Transfer decoded = (Transfer) TransactionCodec.decode(ByteBuffer.wrap(transferWith(7, 8, 9)));
+
+		assertThat(decoded.amount(), equalTo(7L));
+		assertThat(decoded.fee(), equalTo(8L));
+		assertThat(decoded.nonce(), equalTo(9L));
+	}
+
+	@Example
+	public void shouldRefuseATransferWithAnAmountFeeOrNonceOutOfRange() {
+		for (final byte[] encoded : List.of(transferWith(0, 1, 0), transferWith(Long.MIN_VALUE, 1, 0),
+			transferWith(5, -1, 0), transferWith(5, 1, -1))) {
+			assertThrows(IllegalArgumentException.class, () -> TransactionCodec.decode(ByteBuffer.wrap(encoded)));
+		}
+	}
+
+	private static byte[] transferWith(long amount, long fee, long nonce) {
+		final Random random = new Random(1);
+		final byte[] encoded = new Transfer(CodecFixtures.account(random), CodecFixtures.account(random), 5, 1, 0,
+			CodecFixtures.random(random, Ed25519.SIGNATURE_SIZE)).encode();
+		final int amountAt = 1 + AccountKey.SIZE + 1 + AccountKey.SIZE;
+
+		ByteBuffer.wrap(encoded).putLong(amountAt, amount).putLong(amountAt + Long.BYTES, fee)
+			.putLong(amountAt + 2 * Long.BYTES, nonce);
+		return encoded;
+	}
+
+	@Example
+	public void shouldLeaveTheBytesAfterATransactionAlone() {
+		final byte[] encoded = CodecFixtures.mint(new Random(1)).encode();
+		final ByteBuffer in = ByteBuffer.wrap(Arrays.copyOf(encoded, encoded.length + 3));
+
+		TransactionCodec.decode(in);
+		assertThat(in.remaining(), equalTo(3));
+	}
+
+	@Example
+	public void shouldNameAnUnknownKindUnsigned() {
+		final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+			() -> TransactionCodec.decode(ByteBuffer.wrap(new byte[] { (byte) 200 })));
+
+		assertThat(thrown.getMessage(), containsString("200"));
+	}
+}

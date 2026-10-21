@@ -110,19 +110,25 @@ public class RestClientCommand implements Runnable {
 
 	@Override
 	public void run() {
-		try (RestClient rest = new RestClient(RestOptions.getHost(), RestOptions.getPort(), true,
-			RestToken.resolve())) {
-
+		try (RestClient rest = connect()) {
 			dispatch(rest);
-		} catch (ResponseOddityException ex) {
-			System.err.println(ex.getMessage());
-		} catch (NoSuchFileException ex) {
-			System.err.printf("No REST token in %s; is the daemon running? Otherwise pass --resttoken.%n",
-				ex.getFile()
-			);
-		} catch (IOException ex) {
-			System.err.println(ex.getMessage());
+		} catch (ResponseOddityException | IOException ex) {
+			System.err.println(describe(ex));
 		}
+	}
+
+	/* The node that the options name, with the token that the user passed or the daemon left behind */
+	public static RestClient connect() throws IOException {
+		return new RestClient(RestOptions.getHost(), RestOptions.getPort(), true, RestToken.resolve());
+	}
+
+	public static String describe(Exception ex) {
+		if (ex instanceof NoSuchFileException missing) {
+			return "No REST token in %s; is the daemon running? Otherwise pass --resttoken."
+				.formatted(missing.getFile());
+		}
+
+		return ex.getMessage();
 	}
 
 	public void setHeaders(MultivaluedMap<String, Object> headers) {

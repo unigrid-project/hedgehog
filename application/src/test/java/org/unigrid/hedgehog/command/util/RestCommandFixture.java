@@ -26,6 +26,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -47,7 +48,8 @@ import org.unigrid.hedgehog.server.rest.RestToken;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RestCommandFixture {
-	public static final String HOST = "node.test";
+	/* A node on this machine, since the ledger commands ask for the chain of any other */
+	public static final String HOST = "localhost";
 	public static final int PORT = 4321;
 	public static final String TOKEN = "fixture-token";
 
@@ -139,7 +141,10 @@ public final class RestCommandFixture {
 	private static void readsBackItsEntity(Response canned) {
 		new MockUp<Response>(canned.getClass()) {
 			@Mock public Object readEntity(Invocation invocation, Class<?> type) {
-				return invocation.<Response>getInvokedInstance().getEntity();
+				final Object entity = invocation.<Response>getInvokedInstance().getEntity();
+
+				return type == InputStream.class
+					? new ByteArrayInputStream(entity.toString().getBytes(StandardCharsets.UTF_8)) : entity;
 			}
 
 			@Mock public Object readEntity(Invocation invocation, GenericType<?> type) {
@@ -174,6 +179,10 @@ public final class RestCommandFixture {
 		}
 
 		@Mock public Response post(String location, Entity<?> entity) throws ResponseOddityException {
+			return respond(HttpMethod.POST, location, entity, null);
+		}
+
+		@Mock public Response postBounded(String location, Entity<?> entity) throws ResponseOddityException {
 			return respond(HttpMethod.POST, location, entity, null);
 		}
 

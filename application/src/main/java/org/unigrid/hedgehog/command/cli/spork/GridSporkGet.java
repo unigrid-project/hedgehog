@@ -20,7 +20,9 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import picocli.CommandLine.Command;
 
-@Command(name = "gridspork-get", subcommands = { MintSupply.class, MintStorage.class, Storage.class })
+@Command(name = "gridspork-get",
+	subcommands = { MintSupply.class, MintStorage.class, Storage.class, LedgerBlacklist.class, LedgerFee.class }
+)
 public class GridSporkGet {
 	/* Empty on purpose */
 }

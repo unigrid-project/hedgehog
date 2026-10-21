@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.equalTo;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
@@ -35,16 +36,23 @@ import net.jqwik.api.constraints.StringLength;
 import org.unigrid.hedgehog.Hedgehog;
 import picocli.CommandLine;
 
-/* Bootstrap, CLI and Util only group their subcommands, so on their own they have nothing to run */
+/* Bootstrap, CLI and Util only group their subcommands, so on their own they have nothing to run; a group inside a
+   group is named with its parents, like "cli ledger" */
 public class CommandGroupTest {
 	private static final Map<String, List<String>> GROUPS = Map.of(
 		"bootstrap", List.of("import", "info", "balance", "history", "sign", "fetch"),
 		"cli", List.of("gridspork-get", "gridspork-grow", "gridspork-set", "gridspork-list", "gridspork-log",
 			"gridspork-renew", "gridspork-pending", "gridspork-cosign", "node-add", "node-remove", "node-list",
-			"gridnode-start", "gridnode-stop", "gridnode-list", "storage-put", "storage-get", "storage-delete", "stop"
+			"gridnode-start", "gridnode-stop", "gridnode-list", "storage-put", "storage-get", "storage-delete", "stop",
+			"ledger"
 		),
-		"util", List.of("key-generate", "key-sign", "key-validate")
+		"cli ledger", List.of("info", "balance", "block", "transfer", "claim", "vote"),
+		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate")
 	);
+
+	private static String[] words(String group, String... more) {
+		return Stream.concat(Stream.of(group.split(" ")), Stream.of(more)).toArray(String[]::new);
+	}
 
 	@Provide
 	public Arbitrary<String> provideGroup() {
@@ -53,14 +61,18 @@ public class CommandGroupTest {
 
 	@Property
 	public void shouldRegisterExactlyItsSubcommands(@ForAll("provideGroup") String group) {
-		assertThat(new CommandLine(Hedgehog.class).getSubcommands().get(group).getSubcommands().keySet(),
-			equalTo(Set.copyOf(GROUPS.get(group)))
-		);
+		CommandLine line = new CommandLine(Hedgehog.class);
+
+		for (final String name : words(group)) {
+			line = line.getSubcommands().get(name);
+		}
+
+		assertThat(line.getSubcommands().keySet(), equalTo(Set.copyOf(GROUPS.get(group))));
 	}
 
 	@Property
 	public void shouldListEverySubcommandInItsHelp(@ForAll("provideGroup") String group, @ForAll boolean longName) {
-		final HedgehogCli.Result result = HedgehogCli.run(group, longName ? "--help" : "-h");
+		final HedgehogCli.Result result = HedgehogCli.run(words(group, longName ? "--help" : "-h"));
 
 		assertThat(result.exitCode(), equalTo(0));
 		GROUPS.get(group).forEach(subcommand -> assertThat(result.out(), containsString(" " + subcommand)));
@@ -68,7 +80,7 @@ public class CommandGroupTest {
 
 	@Property
 	public void shouldAskForASubcommand(@ForAll("provideGroup") String group) {
-		final HedgehogCli.Result result = HedgehogCli.run(group);
+		final HedgehogCli.Result result = HedgehogCli.run(words(group));
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("Missing required subcommand"));
@@ -81,10 +93,12 @@ public class CommandGroupTest {
 
 		Assume.that(!GROUPS.get(group).contains(name));
 
-		final HedgehogCli.Result result = HedgehogCli.run(group, name);
+		final HedgehogCli.Result result = HedgehogCli.run(words(group, name));
 
 		assertThat(result.exitCode(), equalTo(2));
-		assertThat(result.err(), containsString("Unmatched argument at index 1: '" + name + "'"));
+		assertThat(result.err(), containsString("Unmatched argument at index " + words(group).length + ": '" + name
+			+ "'"));
+
 		result.assertNoStackTrace();
 	}
 }
