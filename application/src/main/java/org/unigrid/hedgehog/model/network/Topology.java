@@ -126,7 +126,7 @@ public class Topology {
 
 	@Protected @Lock(LockMode.WRITE)
 	public boolean addNode(Node node) {
-		if (!nodes.contains(node) && !node.isMe()) {
+		if (!node.getAddress().isUnresolved() && !nodes.contains(node) && !node.isMe()) {
 			return nodes.add(node);
 		}
 

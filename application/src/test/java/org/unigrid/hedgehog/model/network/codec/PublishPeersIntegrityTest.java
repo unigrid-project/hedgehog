@@ -18,12 +18,15 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.net.UnknownHostException;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.ForAll;
@@ -41,6 +44,7 @@ import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 	@Mocked
@@ -69,6 +73,37 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		}
 
 		return Arbitraries.of(publishPeers);
+	}
+
+	/* A peer says what it likes, and a host that does not resolve is no node to keep */
+	@Example
+	@SneakyThrows
+	public void shouldKeepNoNodeThatAPeerNamesByAHostThatDoesNotResolve() {
+		final ByteBuf in = Unpooled.buffer();
+
+		in.writeShort(1);
+		in.writeZero(6 /* 48 bytes */);
+		in.writeShort(52883);
+		in.writeZero(6 /* 48 bytes */);
+		ByteBufUtils.writeNullTerminatedString("no-such-host.invalid", in);
+
+		assertThat(new PublishPeersDecoder().typedDecode(null, in).orElseThrow().getNodes(), empty());
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldLeaveANodeThatDoesNotResolveOutOfWhatItPublishes() {
+		final PublishPeers publishPeers = PublishPeers.builder().build();
+		final Node resolved = Node.builder().address(new InetSocketAddress("127.0.0.1", 52883)).build();
+		final Node unresolved = Node.builder()
+			.address(InetSocketAddress.createUnresolved("no-such-host.invalid", 52883)).build();
+
+		publishPeers.getNodes().add(unresolved);
+		publishPeers.getNodes().add(resolved);
+
+		final ByteBuf out = new PublishPeersEncoder().encode(null, publishPeers).orElseThrow();
+
+		assertThat(new PublishPeersDecoder().typedDecode(null, out).orElseThrow().getNodes(), contains(resolved));
 	}
 
 	@Property

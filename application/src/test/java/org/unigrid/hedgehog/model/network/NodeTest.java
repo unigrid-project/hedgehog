@@ -111,6 +111,15 @@ public class NodeTest extends BaseMockedWeldTest {
 		assertThat(node, not(equalTo(unresolved("another-host.invalid"))));
 	}
 
+	/* Listing a node that does not resolve is allowed, keeping one is not: a peer could fill the topology with names */
+	@Example
+	public void shouldRefuseANodeThatDoesNotResolveInTheTopology() {
+		final int before = topology.cloneNodes().size();
+
+		assertThat(topology.addNode(unresolved("no-such-host.invalid")), is(false));
+		assertThat(topology.cloneNodes().size(), is(before));
+	}
+
 	/* A host that cannot be resolved while the answer is read, as when a lookup fails once, must not stop the whole
 	   list from being read */
 	@Example

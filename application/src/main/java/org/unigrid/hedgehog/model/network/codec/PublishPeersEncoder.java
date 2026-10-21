@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.List;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
@@ -43,11 +44,13 @@ public class PublishPeersEncoder extends AbstractMessageToByteEncoder<PublishPee
 	@Override
 	public Optional<ByteBuf> encode(ChannelHandlerContext ctx, PublishPeers publishPeers) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
+		final List<Node> resolved = publishPeers.getNodes().stream()
+			.filter(n -> !n.getAddress().isUnresolved()).toList();
 
-		out.writeShort(publishPeers.getNodes().size());
+		out.writeShort(resolved.size());
 		out.writeZero(6 /* 48 bytes */);
 
-		for (Node n : publishPeers.getNodes()) {
+		for (Node n : resolved) {
 			out.writeShort(n.getAddress().getPort());
 			out.writeZero(6 /* 48 bytes */);
 			ByteBufUtils.writeNullTerminatedString(n.getAddress().getAddress().getHostAddress(), out);

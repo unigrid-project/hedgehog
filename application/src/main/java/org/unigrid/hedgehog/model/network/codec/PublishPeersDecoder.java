@@ -52,9 +52,11 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 
 			final String hostAddress = ByteBufUtils.readNullTerminatedString(in);
 			final InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
-			final Node node = Node.builder().address(socketAddress).build();
 
-			publishPeers.getNodes().add(node);
+			/* The host is the peer's to name, and one that does not resolve is no node to connect to or keep */
+			if (!socketAddress.isUnresolved()) {
+				publishPeers.getNodes().add(Node.builder().address(socketAddress).build());
+			}
 		}
 
 		return Optional.of(publishPeers);
