@@ -12,7 +12,7 @@ concurrency:
 jobs:
   loc-history:
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       # Only the badges branch is ever written
       contents: write

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Draws the lines of today's code by the month they were written, and their running total, as an SVG."""
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -13,6 +14,8 @@ import matplotlib.pyplot as plt
 
 SOURCE_FILES = ["*.java", "*.xml", "*.yml", "*.yaml", "*.sh", "*.md"]
 WRITTEN, TOTAL = "#2da44e", "#0969da"
+# Blank lines and bare braces exist in every file, so they keep the date of their own commit
+WORD_CHARACTER = re.compile(r"\w")
 
 
 def git(*arguments):
@@ -21,7 +24,8 @@ def git(*arguments):
 
 def blamed_lines(path):
     lines = []
-    for line in git("blame", "--line-porcelain", "HEAD", "--", path).splitlines():
+    # Follows lines moved or copied between files and commits, so relocated code keeps its first date
+    for line in git("blame", "-w", "-M", "-C", "-C", "-C", "--line-porcelain", "HEAD", "--", path).splitlines():
         if line.startswith("author-time "):
             written = int(line.split()[1])
         elif line.startswith("\t"):
@@ -43,7 +47,8 @@ def first_seen_on_any_branch():
             in_header = False
         elif line.startswith("+") and not in_header:
             text = line[1:].strip()
-            first_seen[text] = min(first_seen.get(text, written), written)
+            if WORD_CHARACTER.search(text):
+                first_seen[text] = min(first_seen.get(text, written), written)
     return first_seen
 
 
@@ -52,11 +57,8 @@ def lines_per_month():
         files = pool.map(blamed_lines, git("ls-files", "--", *SOURCE_FILES).splitlines())
         lines = [line for file in files for line in file]
     first_seen = first_seen_on_any_branch()
-    occurrences = Counter(text for _, text in lines)
-    # Repeated lines such as license headers count when their own commit wrote them
     return Counter(
-        datetime.fromtimestamp(min(written, first_seen.get(text, written)) if occurrences[text] == 1 else written,
-                               timezone.utc).strftime("%Y-%m")
+        datetime.fromtimestamp(min(written, first_seen.get(text, written)), timezone.utc).strftime("%Y-%m")
         for written, text in lines)
 
 
