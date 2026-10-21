@@ -6,7 +6,7 @@
 [![Commit activity](https://img.shields.io/github/commit-activity/w/unigrid-project/hedgehog)](https://github.com/unigrid-project/hedgehog/graphs/commit-activity)
 [![Last commit](https://img.shields.io/github/last-commit/unigrid-project/hedgehog)](https://github.com/unigrid-project/hedgehog/commits/master)
 
-<img width="600px" src="https://raw.githubusercontent.com/unigrid-project/hedgehog/badges/loc-history.svg" alt="Lines of code added and removed per month, and the total">
+<img width="600px" src="https://raw.githubusercontent.com/unigrid-project/hedgehog/badges/loc-history.svg" alt="Lines of today's code by the month they were written, and the total">
 
 <img align="right" width="300px" height="auto" src="documentation/hedgehog-logo.png" alt="Hedgehog">
 
