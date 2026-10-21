@@ -110,7 +110,8 @@ public class SporkLag {
 	* than any spork seen for it: the network has set it and this node has not got it yet, so it is behind.
 	*/
 	public boolean isBehind(Type type, SporkDatabase db) {
-		return Optional.ofNullable(agreed.get(type)).map(seen -> isLaterThanStored(seen, db.get(type))).orElse(false);
+		return Optional.ofNullable(agreed.get(type))
+			.map(seen -> isLaterThanStored(seen, db.get(type))).orElse(false);
 	}
 
 	private static boolean isDatedAndKnown(GridSpork spork) {

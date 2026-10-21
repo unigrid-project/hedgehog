@@ -106,7 +106,8 @@ public class SporkDatabase implements Serializable {
 
 	/* An in-memory file system has no disk to flush to, and Windows does not let a directory be opened */
 	private static void forceDirectory(Path file) throws IOException {
-		if (file.getFileSystem() != FileSystems.getDefault() || System.getProperty("os.name").startsWith("Windows")) {
+		if (file.getFileSystem() != FileSystems.getDefault()
+			|| System.getProperty("os.name").startsWith("Windows")) {
 			return;
 		}
 

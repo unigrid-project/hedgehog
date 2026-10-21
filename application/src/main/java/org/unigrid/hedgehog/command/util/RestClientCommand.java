@@ -116,8 +116,9 @@ public class RestClientCommand implements Runnable {
 	@Override
 	public void run() {
 		if (carriesBoardKey() && !isLoopback(RestOptions.getHost())) {
-			System.err.println("Refusing to send a private key to " + RestOptions.getHost() + ": the client does not "
-				+ "check who answers, so the key could be taken. Run the command on the machine of the node.");
+			System.err.println("Refusing to send a private key to " + RestOptions.getHost()
+				+ ": the client does not check who answers, so the key could be taken. "
+				+ "Run the command on the machine of the node.");
 			return;
 		}
 

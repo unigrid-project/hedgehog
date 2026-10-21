@@ -83,8 +83,7 @@ public final class Mempool {
 		final Object slot = slotOf(transfer);
 		final Transfer rival = pending.get(slot) instanceof Transfer found ? found : null;
 
-		if (rival != null && rival.fee() >= transfer.fee() || !inWindow(transfer, state)
-			|| state.rejectionOfQueued(transfer).isPresent() || !coveredByWaiting(transfer, rival, state)) {
+		if (!isQueueable(transfer, rival, state)) {
 			return false;
 		}
 
@@ -96,6 +95,11 @@ public final class Mempool {
 		}
 
 		return true;
+	}
+
+	private boolean isQueueable(Transfer transfer, Transfer rival, LedgerState state) {
+		return (rival == null || rival.fee() < transfer.fee()) && inWindow(transfer, state)
+			&& state.rejectionOfQueued(transfer).isEmpty() && coveredByWaiting(transfer, rival, state);
 	}
 
 	/* A full pool drops its weakest transfer for a stronger newcomer. One that can be proposed is stronger than
@@ -206,7 +210,8 @@ public final class Mempool {
 		pending.values().stream().filter(Transfer.class::isInstance).map(Transfer.class::cast)
 			.sorted(Comparator.comparingLong(Transfer::nonce))
 			.collect(Collectors.groupingBy(Transfer::sender))
-			.forEach((sender, transfers) -> byNonce.put(sender, new ArrayDeque<>(take.apply(sender, transfers))));
+			.forEach((sender, transfers) ->
+				byNonce.put(sender, new ArrayDeque<>(take.apply(sender, transfers))));
 
 		for (final Transaction waiting : pending.values()) {
 			if (ordered.size() >= max) {
