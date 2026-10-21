@@ -203,6 +203,10 @@ public final class LedgerState {
 		return accounts.getOrDefault(key, 0L);
 	}
 
+	int accountCount() {
+		return accounts.size();
+	}
+
 	public boolean hasMinted(Reference reference) {
 		return minted.contains(reference);
 	}
@@ -597,7 +601,11 @@ public final class LedgerState {
 		final long extra = pool % signers.size();
 
 		for (int i = 0; i < signers.size(); i++) {
-			accounts.merge(signers.get(i).signer(), share + (i < extra ? 1 : 0), Math::addExact);
+			final long payment = share + (i < extra ? 1 : 0);
+
+			if (payment > 0) {
+				accounts.merge(signers.get(i).signer(), payment, Math::addExact);
+			}
 		}
 
 		pool = 0;

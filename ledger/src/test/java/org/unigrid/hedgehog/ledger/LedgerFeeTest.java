@@ -117,6 +117,22 @@ public class LedgerFeeTest {
 		assertThat(state.balanceOf(signers.get(2)), equalTo(0L));
 	}
 
+	/* A signer that gets nothing is not given an account, as every account is a leaf of the state root for good */
+	@Example
+	public void shouldOpenNoAccountForASignerThatIsPaidNothing() {
+		final LedgerState state = chain();
+
+		commit(state, mint(1, 1000));
+		commit(state, transfer(state, 1, account(2), 300, 1, 0));
+
+		final AccountKey first = signersOfTheTip(state).get(0);
+
+		commit(state);
+
+		assertThat(state.balanceOf(first), equalTo(1L));
+		assertThat(state.accountCount(), equalTo(3));
+	}
+
 	@Example
 	public void shouldAllowAnEmptyBlockOnlyWhileFeesWait() {
 		final LedgerState state = chain();
