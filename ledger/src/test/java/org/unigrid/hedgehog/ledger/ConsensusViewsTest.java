@@ -1102,14 +1102,16 @@ public class ConsensusViewsTest {
 		assertThat(engine.view(), equalTo(1));
 	}
 
+	/* The half minute is the node's, not each validator's, or every liar more would make the others run views more
+	   often. Validator 1 woke the node at 5 ms. */
 	@Example
-	public void shouldWakeAnIdleNodeForAnotherValidatorAloneThatHasNotWokenItYet() {
+	public void shouldNotWakeAnIdleNodeForAnotherValidatorAloneWithinHalfAMinuteOfTheLastSuchWake() {
 		goIdleAfterViewZero();
 
-		assertThat(engine.onMessage(prevoteBy(1, 1, null), 6000).isEmpty(), is(true));
-		assertThat(engine.onMessage(prevoteBy(3, 1, null), 6001).get(0),
-			equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
-		assertThat(engine.running(), is(true));
+		assertThat(engine.onMessage(prevoteBy(3, 1, null), 6000).isEmpty(), is(true));
+		assertThat(engine.onWork(5 + Consensus.LONE_WAKE_MILLIS - 1).isEmpty(), is(true));
+		assertThat(engine.onWork(5 + Consensus.LONE_WAKE_MILLIS), equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 1,
+			3500))));
 	}
 
 	@Example

@@ -63,7 +63,7 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    heard more than 1/3 of the validators in a later view, it starts no further view: it rests, with no timer, until
    work wakes it, or a message after which it would not have rested, and then begins the first view it has signed
    nothing in. A ballot of one validator alone in that view or later wakes it too, but no more than once in half a
-   minute for each validator, and a proposal further on does not. A peer that is still running may have lost a
+   minute, whichever validators sign them, and a proposal further on does not. A peer that is still running may have lost a
    message of the node that rests, so while it rests resume() says again what the node signed for a window of three
    precommit timeouts of its view, but at least 5 and at most 60 seconds, and after that it is silent. The driver
    therefore ticks about once a second, calling resume() and onWork(), which puts at least a few ticks in every
@@ -128,10 +128,10 @@ public final class Consensus {
 	private final Set<ByteBuffer> refusedBlocks = new HashSet<>();
 	private final Set<Refusal> refusedDecisions = new HashSet<>();
 	private final Map<Integer, Boolean> proofs = new HashMap<>();
-	/* The highest view each other validator was heard in a ballot of, in the order they were first heard, and when
-	   each last woke this node alone */
+	/* The highest view each other validator was heard in a ballot of, in the order they were first heard, and when one
+	   alone last woke this node, null when none has at this height */
 	private final Map<AccountKey, Integer> ballotViews = new LinkedHashMap<>();
-	private final Map<AccountKey, Long> loneWakes = new HashMap<>();
+	private Long lastLoneWake;
 	private final Set<Integer> polkas = new HashSet<>();
 	private final Set<Integer> prevoteTimers = new HashSet<>();
 	private final Set<Integer> precommitTimers = new HashSet<>();
@@ -372,7 +372,7 @@ public final class Consensus {
 		prevoteTimers.clear();
 		precommitTimers.clear();
 		ballotViews.clear();
-		loneWakes.clear();
+		lastLoneWake = null;
 		resendTurn = 0;
 	}
 
@@ -678,22 +678,20 @@ public final class Consensus {
 		return !running && !decided && (peersAreAhead() || loneWakeDue());
 	}
 
-	/* A validator alone that signed a ballot in the view the node would begin, or later, wakes it once its last such
-	   wake is half a minute old (see LONE_WAKE_MILLIS). A proposal does not count, as its proposer can sign one for any
-	   view of its own at any time, while a validator that is really ahead with work has prevoted there. */
+	/* A validator alone that signed a ballot in the view the node would begin, or later, wakes it once the last such
+	   wake, by whichever validator, is half a minute old (see LONE_WAKE_MILLIS): the half minute is the node's, so that
+	   more liars do not wake it more often. A proposal does not count, as its proposer can sign one for any view of its
+	   own at any time, while a validator that is really ahead with work has prevoted there. */
 	private boolean loneWakeDue() {
-		final Optional<AccountKey> due = ballotViews.entrySet().stream()
-			.filter(heard -> heard.getValue() >= nextView && !heard.getKey().equals(self))
-			.map(Map.Entry::getKey).filter(this::mayWakeAlone).findFirst();
+		final boolean someoneAhead = ballotViews.entrySet().stream()
+			.anyMatch(heard -> heard.getValue() >= nextView && !heard.getKey().equals(self));
+		final boolean due = someoneAhead && (lastLoneWake == null || now - lastLoneWake >= LONE_WAKE_MILLIS);
 
-		due.ifPresent(validator -> loneWakes.put(validator, now));
-		return due.isPresent();
-	}
+		if (due) {
+			lastLoneWake = now;
+		}
 
-	private boolean mayWakeAlone(AccountKey validator) {
-		final Long last = loneWakes.get(validator);
-
-		return last == null || now - last >= LONE_WAKE_MILLIS;
+		return due;
 	}
 
 	private boolean accept(Message message) {
