@@ -73,6 +73,34 @@ public class VerifySlotsTest {
 	}
 
 	@Example
+	public void givesASlotThatIsGivenBackAgainAtOnce() {
+		assertThat(slots.take(TYPE, "peer"), is(true));
+
+		slots.giveBack(TYPE, "peer");
+		assertThat(slots.take(TYPE, "peer"), is(true));
+		assertThat(slots.take(TYPE, "peer"), is(false));
+	}
+
+	@Example
+	public void returnsASlotThatIsGivenBackToTheCeiling() {
+		assertThat(taken(TYPE, "peer-", VerifySlots.CEILING), is((long) VerifySlots.CEILING));
+		assertThat(slots.take(TYPE, "another"), is(false));
+
+		slots.giveBack(TYPE, "peer-0");
+		slots.giveBack(TYPE, "peer-0");
+		assertThat(slots.take(TYPE, "another"), is(true));
+		assertThat(slots.take(TYPE, "yet another"), is(false));
+	}
+
+	@Example
+	public void givesBackNothingForASlotThatWasNotGiven() {
+		assertThat(taken(TYPE, "peer-", VerifySlots.CEILING), is((long) VerifySlots.CEILING));
+
+		slots.giveBack(TYPE, "another");
+		assertThat(slots.take(TYPE, "another"), is(false));
+	}
+
+	@Example
 	public void holdsNoMoreSourcesThanTheSlotsOfTwoSeconds() {
 		IntStream.range(0, 30).forEach(second -> {
 			taken(TYPE, "peer-" + second + "-", 1000);

@@ -84,8 +84,8 @@ public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork
 		int expectedInvocations = 0;
 
 		new MockUp<SporkLag>() {
-			@Mock public void record(GridSpork spork, SporkDatabase db, String source) {
-				sources.add(source);
+			@Mock public void record(GridSpork spork, SporkDatabase db, SporkLag.Turn turn) {
+				sources.add(turn.getSource());
 				recordings.incrementAndGet();
 			}
 		};

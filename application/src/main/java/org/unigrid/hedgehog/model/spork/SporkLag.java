@@ -28,9 +28,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BinaryOperator;
+import java.util.function.BooleanSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 /**
@@ -83,10 +86,18 @@ public class SporkLag {
 	* too soon is not recorded: a later one will be, as every peer sends the sporks again and again.
 	*/
 	public void record(GridSpork spork, SporkDatabase db, String source) {
+		record(spork, db, turnOf(spork.getType(), source));
+	}
+
+	/**
+	* Notes what a spork that came in tells of the network, as {@link #record(GridSpork, SporkDatabase, String)} does,
+	* with the turn its source was given for it.
+	*/
+	public void record(GridSpork spork, SporkDatabase db, Turn turn) {
 		if (!spork.isPending() && couldMakeBehind(spork, db)) {
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
-			if (isLaterThan(agreed.get(spork.getType()), stamp) && mayVerify(spork.getType(), source)
+			if (isLaterThan(agreed.get(spork.getType()), stamp) && turn.getAsBoolean()
 				&& spork.isDoublySigned()) {
 
 				agreed.merge(spork.getType(), stamp, LATER);
@@ -94,10 +105,38 @@ public class SporkLag {
 		}
 	}
 
-	/* What this node signs itself is not limited: it is asked for by a holder of the REST token and a network key,
-	   not by anyone who can send a frame */
-	private boolean mayVerify(Type type, String source) {
-		return LOCAL.equals(source) || slots.take(type, source);
+	public Turn turnOf(Type type, String source) {
+		return new Turn(type, source);
+	}
+
+	/**
+	* The right of one spork that came in to have its signatures checked. It is taken from the slots of its source
+	* when the first check is about to be made and is kept for every later check of the same spork, so a spork costs
+	* its source one slot at most, and a spork that fails a cheaper test first costs none.
+	*/
+	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+	public final class Turn implements BooleanSupplier {
+		private final Type type;
+		@Getter private final String source;
+		private Boolean given;
+
+		/* What this node signs itself is not limited: it is asked for by a holder of the REST token and a network
+		   key, not by anyone who can send a frame */
+		@Override
+		public boolean getAsBoolean() {
+			if (Objects.isNull(given)) {
+				given = LOCAL.equals(source) || slots.take(type, source);
+			}
+
+			return given;
+		}
+
+		/* A spork that passed its checks was genuine, so its source keeps its turn for the next one */
+		public void giveBack() {
+			if (Boolean.TRUE.equals(given) && !LOCAL.equals(source)) {
+				slots.giveBack(type, source);
+			}
+		}
 	}
 
 	private static boolean couldMakeBehind(GridSpork spork, SporkDatabase db) {

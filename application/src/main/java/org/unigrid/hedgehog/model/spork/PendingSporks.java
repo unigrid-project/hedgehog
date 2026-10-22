@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -56,9 +57,17 @@ public class PendingSporks {
 	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
 	public synchronized boolean offer(GridSpork spork, GridSpork stored) {
+		return offer(spork, stored, () -> true);
+	}
+
+	/**
+	* Holds the proposal as {@link #offer(GridSpork, GridSpork)} does, asking {@code mayVerify} right before its
+	* signature is checked, as {@link GridSpork#canBeProposedOver(GridSpork, BooleanSupplier)} does.
+	*/
+	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		if (isAlive(spork) && spork.isNewerThan(held) && spork.canBeProposedOver(stored)) {
+		if (isAlive(spork) && spork.isNewerThan(held) && spork.canBeProposedOver(stored, mayVerify)) {
 			proposals.put(spork.getType(), spork);
 			return true;
 		}

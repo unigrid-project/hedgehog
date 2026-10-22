@@ -182,6 +182,16 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 		}
 	}
 
+	/* A node checks the next spork of a type from a peer a second after a forged one failed its check, and a peer
+	   sends a spork again until it is taken */
+	private void sendUntilStored(TestServer server, GridSpork spork) {
+		await().until(() -> {
+			received.remove(identity(spork));
+			send(server, spork);
+			return identity(storedMint()).equals(identity(spork));
+		});
+	}
+
 	/* Few addresses, so mints share Address objects, which once changed the signed bytes on the way */
 	@Provide
 	public Arbitrary<Map<Location, BigDecimal>> provideMints() {
@@ -216,7 +226,7 @@ public class MintStorageAcceptanceTest extends BaseHandlerTest<PublishSpork, Pub
 		final MintStorage cosigned = SerializationUtils.clone(proposal);
 
 		cosigned.cosign(cosigner.getPrivateKey());
-		send(server, cosigned);
+		sendUntilStored(server, cosigned);
 
 		assertThat(identity(storedMint()), equalTo(identity(cosigned)));
 		assertThat(((MintStorage.SporkData) storedMint().getData()).getMints(), equalTo(mints));

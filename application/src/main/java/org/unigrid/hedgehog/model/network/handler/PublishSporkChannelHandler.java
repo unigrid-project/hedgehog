@@ -65,20 +65,36 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	* Stores a co-signed spork that may replace the stored one, or holds a spork signed once as a proposal.
 	* Returns whether the spork was new to this node, and should therefore travel further. The source is the peer
 	* that sent it, as {@link RemoteAddress#idOf} names it.
+	*
+	* <p>Anyone can send a frame and checking a signature is the costly part, so the signatures of a spork are
+	* checked only on a turn of its source ({@link SporkLag.Turn}). A peer that floods forged sporks spends its own
+	* turns and no other peer's, and a genuine spork gives its turn back for the next one.
 	*/
 	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
 		String source) {
 
 		final GridSpork stored = db.get(spork.getType());
+		final SporkLag.Turn turn = lag.turnOf(spork.getType(), source);
 
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
-		lag.record(spork, db, source);
+		lag.record(spork, db, turn);
 
-		if (spork.isPending()) {
-			return pendingSporks.offer(spork, stored);
+		if (isTaken(spork, stored, db, pendingSporks, turn)) {
+			turn.giveBack();
+			return true;
 		}
 
-		if (spork.canReplace(stored)) {
+		return false;
+	}
+
+	private static boolean isTaken(GridSpork spork, GridSpork stored, SporkDatabase db, PendingSporks pendingSporks,
+		SporkLag.Turn turn) {
+
+		if (spork.isPending()) {
+			return pendingSporks.offer(spork, stored, turn);
+		}
+
+		if (spork.canReplace(stored, turn)) {
 			db.set(spork);
 			pendingSporks.retainProposalsOver(spork);
 			return true;

@@ -409,6 +409,38 @@ public class SporkLagTest {
 	}
 
 	@Example
+	public void givesOneSporkOneSlotHoweverManyChecksAskForIt() {
+		final SporkLag.Turn turn = lag.turnOf(Type.MINT_SUPPLY, PEER);
+
+		assertThat(turn.getAsBoolean(), is(true));
+		assertThat(turn.getAsBoolean(), is(true));
+		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(false));
+
+		turn.giveBack();
+		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(true));
+	}
+
+	@Example
+	public void takesNoSlotForATurnThatNoCheckAsksFor() {
+		lag.turnOf(Type.MINT_SUPPLY, PEER).giveBack();
+		lag.turnOf(Type.MINT_SUPPLY, PEER);
+
+		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(true));
+	}
+
+	@Example
+	public void givesBackNoTurnThatWasRefused() {
+		final SporkLag.Turn taken = lag.turnOf(Type.MINT_SUPPLY, PEER);
+		final SporkLag.Turn refused = lag.turnOf(Type.MINT_SUPPLY, PEER);
+
+		assertThat(taken.getAsBoolean(), is(true));
+		assertThat(refused.getAsBoolean(), is(false));
+
+		refused.giveBack();
+		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(false));
+	}
+
+	@Example
 	public void countsTheCeilingForEachTypeApart() {
 		final MintSupply supply = forged(ago(Duration.ofMinutes(9)));
 		final LedgerFee fee = agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer));

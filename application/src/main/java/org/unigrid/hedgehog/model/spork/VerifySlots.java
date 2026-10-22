@@ -73,6 +73,15 @@ final class VerifySlots {
 		return false;
 	}
 
+	/* A right that was used on a genuine spork is given back, so a peer that sends several in a row has each of them
+	   checked, and only a check that fails costs a peer its turn */
+	synchronized void giveBack(final Type type, final String source) {
+		if (Objects.nonNull(held.remove(new Slot(type, source)))) {
+			windows.computeIfPresent(type, (key, window) -> new Window(window.start(),
+				Math.max(0, window.taken() - 1)));
+		}
+	}
+
 	synchronized int tracked() {
 		return held.size();
 	}

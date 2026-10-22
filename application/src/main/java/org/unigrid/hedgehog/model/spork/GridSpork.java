@@ -235,7 +235,17 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
-		return succeeds(stored, this::isDoublySigned);
+		return canReplace(stored, () -> true);
+	}
+
+	/**
+	* Decides as {@link #canReplace(GridSpork)} does, but asks {@code mayVerify} right before the first signature
+	* is checked and refuses the spork if the answer is no. A signature costs far more than the other checks, so a
+	* spork that fails those costs no permission.
+	*/
+	@JsonIgnore
+	public boolean canReplace(GridSpork stored, BooleanSupplier mayVerify) {
+		return succeeds(stored, mayVerify, this::isDoublySigned);
 	}
 
 	/**
@@ -244,14 +254,24 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean canBeProposedOver(GridSpork stored) {
-		return isPending() && succeeds(stored, this::isValidSignature);
+		return canBeProposedOver(stored, () -> true);
 	}
 
-	private boolean succeeds(GridSpork stored, BooleanSupplier isSignedHead) {
+	/**
+	* Decides as {@link #canBeProposedOver(GridSpork)} does, asking {@code mayVerify} as
+	* {@link #canReplace(GridSpork, BooleanSupplier)} does.
+	*/
+	@JsonIgnore
+	public boolean canBeProposedOver(GridSpork stored, BooleanSupplier mayVerify) {
+		return isPending() && succeeds(stored, mayVerify, this::isValidSignature);
+	}
+
+	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {
 		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
 
 		/* Head first, so a forged log costs one verification rather than one per entry */
-		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && isSignedHead.getAsBoolean()
+		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
+			&& isSignedHead.getAsBoolean()
 			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getKnownPublicKeys());
 	}
 
