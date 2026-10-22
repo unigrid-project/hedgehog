@@ -27,10 +27,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -38,15 +42,25 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
 	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
+	private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(task -> {
+		final Thread thread = new Thread(task, "spork-database-saver");
+
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	private Path path() {
 		return Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 	}
 
+	/* The database is saved by one timer of its own, as often as sporks are sent, and not by every stream that sends
+	   them: that would be a write to disk for each peer, on the threads that read the network */
 	@Produces
-	private SporkDatabase produce() {
+	private synchronized SporkDatabase produce() {
 		if (Objects.isNull(sporkDatabase.get())) {
 			sporkDatabase.set(loaded(path()));
+			saver.scheduleWithFixedDelay(this::save, PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES,
+				PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES);
 		}
 
 		return sporkDatabase.get();
@@ -79,8 +93,7 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	@PreDestroy
-	private void destroy() {
+	private void save() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
 			SporkDatabase.persist(path(), sporkDatabase.get());
@@ -88,6 +101,15 @@ public class SporkDatabaseProducer {
 		} catch (Exception ex) {
 			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
 			log.atTrace().log(() -> ex.toString());
+		}
+	}
+
+	@PreDestroy
+	private void destroy() {
+		saver.shutdownNow();
+
+		if (Objects.nonNull(sporkDatabase.get())) {
+			save();
 		}
 	}
 }
