@@ -27,7 +27,6 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
@@ -40,7 +39,10 @@ import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.InvalidParameterSpecException;
 import java.security.spec.KeySpec;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
@@ -53,6 +55,9 @@ public class Signature {
 	public static final int PRIVATE_KEY_HEX_SIZE = 65;
 	public static final int PUBLIC_KEY_SIZE = 1042;
 	public static final int PUBLIC_KEY_HEX_SIZE = 131;
+
+	private static final int MAX_VERIFIED_KEYS = 64;
+	private static final Map<String, ECPublicKey> VERIFIED_KEYS = new ConcurrentHashMap<>();
 
 	private ECPrivateKey privateKey;
 	private ECPublicKey publicKey;
@@ -80,43 +85,22 @@ public class Signature {
 		}
 	}
 
+	/* Only the keys given are made. Generating a key pair takes a dozen tries on average to find one of the sizes
+	   above, which is no cost to pay for a key that is thrown away, so only the constructor without arguments does. */
 	public Signature(Optional<String> privateKeyHex, Optional<String> publicKeyHex)
 		throws InvalidAlgorithmParameterException, InvalidKeySpecException, NoSuchAlgorithmException {
-		this();
-
-		final KeyFactory factory = KeyFactory.getInstance(KEYPAIR_NAME);
-		final ECParameterSpec params = privateKey.getParams();
 
 		if (privateKeyHex.isPresent()) {
-			if (privateKeyHex.get().length() / 2 != PRIVATE_KEY_HEX_SIZE) {
-				throw new IllegalArgumentException(
-					String.format("Private key is required to be %d bytes, but was %d bytes",
-					PRIVATE_KEY_HEX_SIZE, privateKeyHex.get().length() / 2)
-				);
-			}
-
-			final KeySpec privSpec = new ECPrivateKeySpec(new BigInteger(privateKeyHex.get(), 16), params);
-			privateKey = (ECPrivateKey) factory.generatePrivate(privSpec);
+			privateKey = privateKeyOf(privateKeyHex.get());
 		}
 
 		if (publicKeyHex.isPresent()) {
-			final int midpoint = publicKeyHex.get().length() / 2;
-			final BigInteger x = new BigInteger(publicKeyHex.get().substring(0, midpoint), 16);
-			final BigInteger y = new BigInteger(publicKeyHex.get().substring(midpoint), 16);
-			final KeySpec pubSpec = new ECPublicKeySpec(new ECPoint(x, y), params);
-
-			publicKey = (ECPublicKey) factory.generatePublic(pubSpec);
-
-			final int xPubLength = publicKey.getW().getAffineX().bitLength();
-			final int yPubLength = publicKey.getW().getAffineY().bitLength();
-
-			if (publicKeyHex.get().length() / 2 != PUBLIC_KEY_HEX_SIZE) {
-				throw new IllegalArgumentException(
-					String.format("Public key is required to be %d bytes, but was %d bytes",
-					PUBLIC_KEY_HEX_SIZE, publicKeyHex.get().length() / 2)
-				);
-			}
+			publicKey = publicKeyOf(publicKeyHex.get());
 		}
+	}
+
+	private Signature(ECPublicKey publicKey) {
+		this.publicKey = publicKey;
 	}
 
 	public String getPrivateKey() {
@@ -173,7 +157,8 @@ public class Signature {
 		return verifier(key).verifyDigest(digest, signatureData);
 	}
 
-	/* Unlike the instance methods this builds no key pair, so it is cheap enough for every gossiped entry */
+	/* The key is not kept for the next check: the keys of gossiped entries are anyone's to make, and would fill the
+	   cache that holds the few keys the network signs with */
 	public static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData) {
 		try {
 			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
@@ -188,9 +173,21 @@ public class Signature {
 		}
 	}
 
-	private static PublicKey publicKeyOf(String hex) throws GeneralSecurityException {
+	private static ECPrivateKey privateKeyOf(String hex) throws InvalidKeySpecException, NoSuchAlgorithmException {
+		if (hex.length() / 2 != PRIVATE_KEY_HEX_SIZE) {
+			throw new IllegalArgumentException(String.format("Private key is required to be %d bytes, "
+				+ "but was %d bytes", PRIVATE_KEY_HEX_SIZE, hex.length() / 2));
+		}
+
+		final KeySpec spec = new ECPrivateKeySpec(new BigInteger(hex, 16), CURVE);
+
+		return (ECPrivateKey) KeyFactory.getInstance(KEYPAIR_NAME).generatePrivate(spec);
+	}
+
+	private static ECPublicKey publicKeyOf(String hex) throws InvalidKeySpecException, NoSuchAlgorithmException {
 		if (hex.length() != PUBLIC_KEY_HEX_SIZE * 2) {
-			throw new IllegalArgumentException("Wrong public key length");
+			throw new IllegalArgumentException(String.format("Public key is required to be %d bytes, "
+				+ "but was %d bytes", PUBLIC_KEY_HEX_SIZE, hex.length() / 2));
 		}
 
 		final int midpoint = hex.length() / 2;
@@ -198,7 +195,25 @@ public class Signature {
 			new BigInteger(hex.substring(midpoint), 16)
 		);
 
-		return KeyFactory.getInstance(KEYPAIR_NAME).generatePublic(new ECPublicKeySpec(point, CURVE));
+		return (ECPublicKey) KeyFactory.getInstance(KEYPAIR_NAME).generatePublic(new ECPublicKeySpec(point, CURVE));
+	}
+
+	/* Anyone can send a spork, and it is checked against every network key, so the point of each key is worked out
+	   once. Only the keys checked against are kept, which are the few network keys, and never more than the bound. */
+	private static ECPublicKey verifiedKeyOf(String hex) throws InvalidKeySpecException, NoSuchAlgorithmException {
+		final ECPublicKey known = VERIFIED_KEYS.get(hex);
+
+		if (Objects.nonNull(known)) {
+			return known;
+		}
+
+		final ECPublicKey key = publicKeyOf(hex);
+
+		if (VERIFIED_KEYS.size() < MAX_VERIFIED_KEYS) {
+			VERIFIED_KEYS.putIfAbsent(hex, key);
+		}
+
+		return key;
 	}
 
 	private static ECParameterSpec curve() {
@@ -215,9 +230,9 @@ public class Signature {
 
 	private static Signature verifier(String key) throws VerifySignatureException {
 		try {
-			return new Signature(Optional.empty(), Optional.of(key));
+			return new Signature(verifiedKeyOf(key));
 
-		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
+		} catch (InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new VerifySignatureException(String.format("Failed to create signature "
 				+ "with public key '%s'", key), ex
 			);

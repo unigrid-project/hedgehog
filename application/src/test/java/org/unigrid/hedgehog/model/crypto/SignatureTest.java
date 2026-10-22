@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.crypto;
 
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
@@ -26,13 +27,39 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import net.jqwik.api.constraints.NotEmpty;
 import net.jqwik.api.constraints.Size;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.ArrayUtils;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 
 public class SignatureTest extends BaseMockedWeldTest {
+	private static final byte[] DATA = "payload".getBytes(StandardCharsets.UTF_8);
+
+	@SneakyThrows
+	@Example
+	public void shouldSignWithAKeyGivenAsHex() {
+		final Signature keys = new Signature();
+		final Signature signer = new Signature(Optional.of(keys.getPrivateKey()), Optional.empty());
+
+		assertThat(Signature.verifyDigest(DigestUtils.sha512(DATA), signer.sign(DATA), keys.getPublicKey()), is(true));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldVerifyAgainstTheSameKeyManyTimes() {
+		final Signature signer = new Signature();
+		final byte[] digest = DigestUtils.sha512(DATA);
+		final byte[] signature = signer.sign(DATA);
+
+		for (int i = 0; i < 100; i++) {
+			assertThat(Signature.verifyDigest(digest, signature, signer.getPublicKey()), is(true));
+		}
+	}
+
 	@SneakyThrows
 	@Property(tries = 100)
 	public boolean shouldSignAndVerify(@ForAll byte[] data) {
