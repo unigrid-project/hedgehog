@@ -1126,6 +1126,22 @@ public class ConsensusViewsTest {
 		assertThat(engine.running(), is(false));
 	}
 
+	/* The peers that a proposal further on is for are in its view, and once one more of them than the proposer is
+	   heard there the node wakes, goes to that view and answers the proposal it holds. Validator 2 proposes view 5. */
+	@Example
+	public void shouldAnswerAProposalBeyondTheNextViewOnceAnotherValidatorIsHeardInItsView() {
+		final Block ahead = proposed(5, "e");
+
+		goIdleAfterViewZero();
+
+		assertThat(engine.onMessage(proposal(5, -1, ahead), 6000).isEmpty(), is(true));
+
+		final List<Action> woken = engine.onMessage(prevoteBy(3, 5, ahead), 6001);
+
+		assertThat(engine.view(), equalTo(5));
+		assertThat(prevoteOf(woken).blockHash(), equalTo(ahead.hash()));
+	}
+
 	@Example
 	public void shouldNotWakeAnIdleNodeWithAMessageItAlreadyHas() {
 		goIdleAfterViewZero();

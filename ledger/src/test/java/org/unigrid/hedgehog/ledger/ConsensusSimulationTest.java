@@ -84,6 +84,9 @@ public class ConsensusSimulationTest {
 	   would take them through dozens of views in two minutes */
 	private static final long NUDGED_MILLIS = 120_000;
 
+	/* Views that end with nothing decided, enough to put a node that saw none of them several views behind */
+	private static final int FAILED_VIEWS = 4;
+
 	/* No messages can be lost for ever, so every node that is up decides well within this time */
 	private static final long STRANDED_SETTLE_MILLIS = 300_000;
 	private static final int STRANDED_SEEDS = 40;
@@ -520,6 +523,51 @@ public class ConsensusSimulationTest {
 		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
 		assertThat(live.stream().allMatch(node -> node.engine.outbox().isEmpty()), is(true));
 		assertThat(live.stream().mapToInt(node -> node.armed).sum(), equalTo(0));
+	}
+
+	/* A node that was cut off while the others ran views with nothing decided rests far behind them, and one of those
+	   others is down by the time there is work, so a block needs the node that is behind. The proposal of the view
+	   the others begin next does not wake it alone, as nothing further on than its own next view does, but the other
+	   node that the proposal wakes signs ballots in that view, and the two of them, more than a third, wake it: it
+	   skips to their view and the three decide the proposal. */
+	@Example
+	public void shouldBringANodeThatRestsFarBehindIntoTheViewOfAProposalThatNeedsIt() {
+		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
+		final SimNode behind = net.nodes.get(3);
+		final List<SimNode> others = net.nodes.stream().filter(node -> node != behind).toList();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.partition(Set.of(behind.index));
+		setWork(others, 1, true);
+		net.begin();
+		runUntil(net, () -> others.stream().allMatch(node -> node.engine.view() >= FAILED_VIEWS));
+		setWork(others, 0, false);
+		runFor(net, QUIET_AFTER_MILLIS);
+
+		final int rested = others.get(0).engine.view();
+		final SimNode proposer = net.nodes.get(net.validators.keys().indexOf(net.validators.proposerAt(1, rested + 1)));
+		final SimNode down = others.stream().filter(node -> node != proposer).findFirst().orElseThrow();
+
+		assertThat(others.stream().noneMatch(node -> node.engine.running() || node.engine.view() != rested), is(true));
+		assertThat(behind.engine.running(), is(false));
+		assertThat(behind.engine.view(), equalTo(0));
+		assertThat(proposer != behind, is(true));
+
+		net.crash(down.index);
+		net.heal();
+		proposer.app.goal = 1;
+		net.work(proposer.index);
+		runAgreeingUntil(net, SETTLE_MILLIS, () -> net.everyoneReached(1, Set.of(down.index)));
+
+		assertThat(net.everyoneReached(1, Set.of(down.index)), is(true));
+		assertThat(behind.decided.get(0).getView(), equalTo(rested + 1));
+	}
+
+	private static void setWork(List<SimNode> nodes, int goal, boolean refused) {
+		nodes.forEach(node -> {
+			node.app.goal = goal;
+			node.app.refuse = refused;
+		});
 	}
 
 	private static void nudgeAheadEverySecond(SimulatedNetwork net, Liar liar, List<SimNode> live) {
