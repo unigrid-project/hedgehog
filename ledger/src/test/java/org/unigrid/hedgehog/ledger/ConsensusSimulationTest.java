@@ -80,8 +80,8 @@ public class ConsensusSimulationTest {
 	private static final long QUIET_PRECOMMIT_MILLIS = 600;
 	private static final int QUIET_SEEDS = 5;
 
-	/* A view with nothing in it lasts under three seconds here, so a validator that could keep the nodes running
-	   would take them through dozens of views in two minutes */
+	/* A view with nothing in it lasts under three seconds here, so a validator that could wake the nodes whenever it
+	   liked would take them through dozens of views in two minutes */
 	private static final long NUDGED_MILLIS = 120_000;
 
 	/* Views that end with nothing decided, enough to put a node that saw none of them several views behind */
@@ -506,23 +506,24 @@ public class ConsensusSimulationTest {
 		}
 	}
 
-	/* A validator that signs ballots in the view after the one the nodes are in, over and over, is a single voice: it
-	   must neither wake nodes that have nothing to do nor keep them running from one view to the next */
+	/* A validator that signs ballots in the view after the one the nodes are in, every second, is a single voice: it
+	   wakes nodes that have nothing to do no more than once in half a minute, so in two minutes they run a view in
+	   each half minute at most, where they ran dozens when any ballot woke them */
 	@Example
-	public void shouldNotLetOneValidatorKeepTheNodesRunningViewsWhenNobodyHasWork() {
+	public void shouldLetOneValidatorWakeTheNodesNoMoreThanOnceInHalfAMinuteWhenNobodyHasWork() {
 		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
 		final Liar liar = liar(net, 1);
 		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+		final int mostViews = (int) (NUDGED_MILLIS / Consensus.LONE_WAKE_MILLIS);
 
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
 		nudgeAheadEverySecond(net, liar, live);
 		net.run(NUDGED_MILLIS);
 
-		assertThat(live.stream().map(node -> node.engine.view()).toList(), equalTo(List.of(0, 0, 0)));
-		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
-		assertThat(live.stream().allMatch(node -> node.engine.outbox().isEmpty()), is(true));
-		assertThat(live.stream().mapToInt(node -> node.armed).sum(), equalTo(0));
+		assertThat(live.stream().allMatch(node -> node.engine.view() > 0), is(true));
+		assertThat(live.stream().allMatch(node -> node.engine.view() <= mostViews), is(true));
+		assertThat(nobodyDecided(net), is(true));
 	}
 
 	/* A node that was cut off while the others ran views with nothing decided rests far behind them, and one of those
@@ -587,21 +588,17 @@ public class ConsensusSimulationTest {
 		});
 	}
 
-	/* Only two nodes have work, more than a third of the four, so the third node that is up rests after every view
-	   that has nothing for it and wakes when both are in a later view. When three in ten messages are lost, the nodes
-	   that work must still get what the resting node signed in the view they wait in, or they would wait for ever.
-	   One node is down all along. */
+	/* Only one node has work, so the others rest after every view that has nothing for them and wake to its messages,
+	   at most once in half a minute each. When three in ten messages are lost, the node that works must still get what
+	   the resting nodes signed in the view it waits in, or it would wait for ever. One node is down all along. */
 	@Example
-	public void shouldNotLeaveTheNodesWithWorkWaitingForAMessageTheRestingNodeLost() {
+	public void shouldNotLeaveTheNodeWithWorkWaitingForAMessageTheRestingNodesLost() {
 		for (long seed = 1; seed <= STRANDED_SEEDS; seed++) {
 			final int down = (int) (seed % 4);
 			final int working = (int) ((down + 1 + seed % 3) % 4);
-			final int alsoWorking = IntStream.range(0, 4).filter(index -> index != down && index != working)
-				.findFirst().orElseThrow();
 			final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, seed);
 
 			net.nodes.get(working).app.goal = 1;
-			net.nodes.get(alsoWorking).app.goal = 1;
 			net.dropRate(0.3);
 			net.crash(down);
 			net.begin();

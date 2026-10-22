@@ -472,8 +472,7 @@ public class ConsensusViewTest {
 		assertThat(proposer.onMessage(forged, 5).isEmpty(), is(true));
 		assertThat(proposer.onMessage(forgedAhead, 5).isEmpty(), is(true));
 		assertThat(proposer.onMessage(strangerAhead, 5).isEmpty(), is(true));
-		assertThat(proposer.onMessage(ballot(Ballot.Type.PREVOTE, 3, 1001, null), 6).isEmpty(), is(true));
-		assertThat(proposalsSent(proposer.onMessage(ballot(Ballot.Type.PREVOTE, 2, 1001, null), 7)).size(),
+		assertThat(proposalsSent(proposer.onMessage(ballot(Ballot.Type.PREVOTE, 2, 1000, null), 6)).size(),
 			equalTo(1));
 	}
 }

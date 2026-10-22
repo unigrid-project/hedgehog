@@ -1069,10 +1069,12 @@ public class ConsensusViewsTest {
 		assertThat(engine.running(), is(false));
 	}
 
-	/* What one validator signs proves nothing about the others, so however many views it goes on to, it is a single
-	   voice and wakes nobody, or one validator could keep a chain with nothing to do running views for ever */
+	/* One validator alone ahead wakes a node at rest, as a validator that holds a transaction the others lack has to
+	   pull them on to its turn to propose, but no more than once in half a minute: one that lies can make the others
+	   run a view that often and no more, whatever it signs meanwhile. Validator 1 woke the node at 5 ms. A ballot that
+	   came too early is not lost: the tick of the driver, which comes with onWork(), wakes the node once it may. */
 	@Example
-	public void shouldNotWakeAnIdleNodeOnTheBallotsOfOneValidatorInEveryLaterView() {
+	public void shouldWakeAnIdleNodeForOneValidatorAloneAtMostOnceInHalfAMinute() {
 		goIdleAfterViewZero();
 
 		for (int view = 1; view <= Consensus.MAX_VIEW_AHEAD + 3; view++) {
@@ -1081,24 +1083,40 @@ public class ConsensusViewsTest {
 				is(true));
 		}
 
+		assertThat(engine.onWork(5 + Consensus.LONE_WAKE_MILLIS - 1).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
-		assertThat(engine.nextView(), equalTo(1));
+		assertThat(engine.onWork(5 + Consensus.LONE_WAKE_MILLIS), equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 1,
+			3500))));
+		assertThat(engine.view(), equalTo(1));
 	}
 
 	@Example
-	public void shouldNotStartAHeightOnTheBallotsOfOneValidator() {
+	public void shouldWakeAnIdleNodeForAnotherValidatorAloneThatHasNotWokenItYet() {
+		goIdleAfterViewZero();
+
+		assertThat(engine.onMessage(prevoteBy(1, 1, null), 6000).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(3, 1, null), 6001).get(0),
+			equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
+		assertThat(engine.running(), is(true));
+	}
+
+	@Example
+	public void shouldStartAHeightOnTheBallotOfOneValidator() {
 		app.goal = 0;
 		engine.start(1, validators, 0);
 
-		assertThat(engine.onMessage(prevoteBy(1, 0, null), 5).isEmpty(), is(true));
-		assertThat(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 6).isEmpty(), is(true));
-		assertThat(engine.onMessage(prevoteBy(1, 5, null), 7).isEmpty(), is(true));
-		assertThat(engine.running(), is(false));
-
-		engine.onMessage(prevoteBy(2, 3, null), 8);
-
+		assertThat(engine.onMessage(prevoteBy(1, 0, null), 5), equalTo(List.of(schedule(Timeout.Kind.PROPOSE, 0,
+			3000))));
 		assertThat(engine.running(), is(true));
-		assertThat(engine.view(), equalTo(3));
+	}
+
+	@Example
+	public void shouldNotWakeAnIdleNodeForAProposalOfAValidatorAloneBeyondTheNextViewOnATick() {
+		goIdleAfterViewZero();
+		engine.onMessage(proposal(2, -1, proposed(2, "c")), 6000);
+
+		assertThat(engine.onWork(6000 + Consensus.LONE_WAKE_MILLIS).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
 	}
 
 	/* The proposer of the next view, who has work, is ahead of the node, which is how an honest peer wakes the chain */

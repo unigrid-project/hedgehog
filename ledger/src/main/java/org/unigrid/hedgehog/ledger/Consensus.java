@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,11 +62,12 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and has not
    heard more than 1/3 of the validators in a later view, it starts no further view: it rests, with no timer, until
    work wakes it, or a message after which it would not have rested, and then begins the first view it has signed
-   nothing in. The ballots of one validator alone never wake it, nor does a proposal further on. A peer that is still
-   running may have lost a message of the node that rests, so while it rests resume() says again what the node signed
-   for a window of three precommit timeouts of its view, but at least 5 and at most 60 seconds, and after that it is
-   silent. The driver therefore ticks about once a second, which puts at least a few ticks in every window; that is
-   the contract of the driver. What the node signed stays in outbox(). */
+   nothing in. A ballot of one validator alone in that view or later wakes it too, but no more than once in half a
+   minute for each validator, and a proposal further on does not. A peer that is still running may have lost a
+   message of the node that rests, so while it rests resume() says again what the node signed for a window of three
+   precommit timeouts of its view, but at least 5 and at most 60 seconds, and after that it is silent. The driver
+   therefore ticks about once a second, calling resume() and onWork(), which puts at least a few ticks in every
+   window; that is the contract of the driver. What the node signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;
@@ -74,6 +76,12 @@ public final class Consensus {
 	   are, and the longest keeps a rest in a view with a very long timeout from sending again for minutes */
 	private static final long MIN_RESEND_MILLIS = 5_000;
 	private static final long MAX_RESEND_MILLIS = 60_000;
+
+	/* One validator alone wakes a node at rest no more often than this, the longest a step of the defaults waits, so
+	   that a view it starts is about over before it may start another: one that lies makes the others run a view in
+	   half a minute at most, while one that holds work the others lack, say a transaction that reached it alone,
+	   still pulls them on view by view to its own turn to propose */
+	static final long LONE_WAKE_MILLIS = Timeouts.GROWS_TO_MILLIS;
 
 	public enum Step {
 		PROPOSE, PREVOTE, PRECOMMIT
@@ -115,6 +123,10 @@ public final class Consensus {
 	private final Set<ByteBuffer> refusedBlocks = new HashSet<>();
 	private final Set<Refusal> refusedDecisions = new HashSet<>();
 	private final Map<Integer, Boolean> proofs = new HashMap<>();
+	/* The highest view each other validator was heard in a ballot of, in the order they were first heard, and when
+	   each last woke this node alone */
+	private final Map<AccountKey, Integer> ballotViews = new LinkedHashMap<>();
+	private final Map<AccountKey, Long> loneWakes = new HashMap<>();
 	private final Set<Integer> polkas = new HashSet<>();
 	private final Set<Integer> prevoteTimers = new HashSet<>();
 	private final Set<Integer> precommitTimers = new HashSet<>();
@@ -147,11 +159,18 @@ public final class Consensus {
 	}
 
 	/* There is work now: a quiet node starts the first view it has not signed in, and a proposer that had nothing to
-	   propose does it */
+	   propose does it. The driver also calls it on every tick, which is when a quiet node wakes for a validator alone
+	   ahead of it whose ballot came while that validator could not wake it yet. */
 	public List<Action> onWork(long at) {
 		return run(at, () -> {
-			if (height != 0 && !decided && app.hasWork(at)) {
+			if (height == 0 || decided) {
+				return;
+			}
+
+			if (app.hasWork(at)) {
 				beginOrPropose();
+			} else if (wakes()) {
+				begin();
 			}
 		});
 	}
@@ -326,6 +345,8 @@ public final class Consensus {
 		polkas.clear();
 		prevoteTimers.clear();
 		precommitTimers.clear();
+		ballotViews.clear();
+		loneWakes.clear();
 	}
 
 	private void requireRestorable(SignState state, ValidatorSet newValidators) {
@@ -616,7 +637,25 @@ public final class Consensus {
 
 	/* A decision ends the height, so it must not start a view */
 	private boolean wakes() {
-		return !running && !decided && peersAreAhead();
+		return !running && !decided && (peersAreAhead() || loneWakeDue());
+	}
+
+	/* A validator alone that signed a ballot in the view the node would begin, or later, wakes it once its last such
+	   wake is half a minute old (see LONE_WAKE_MILLIS). A proposal does not count, as its proposer can sign one for any
+	   view of its own at any time, while a validator that is really ahead with work has prevoted there. */
+	private boolean loneWakeDue() {
+		final Optional<AccountKey> due = ballotViews.entrySet().stream()
+			.filter(heard -> heard.getValue() >= nextView && !heard.getKey().equals(self))
+			.map(Map.Entry::getKey).filter(this::mayWakeAlone).findFirst();
+
+		due.ifPresent(validator -> loneWakes.put(validator, now));
+		return due.isPresent();
+	}
+
+	private boolean mayWakeAlone(AccountKey validator) {
+		final Long last = loneWakes.get(validator);
+
+		return last == null || now - last >= LONE_WAKE_MILLIS;
 	}
 
 	private boolean accept(Message message) {
@@ -634,7 +673,14 @@ public final class Consensus {
 			return false;
 		}
 
-		return tooFarAhead(ballot.view()) ? noteFarAhead(ballot) : box.add(ballot) == BallotBox.Result.ADDED;
+		final boolean fresh = tooFarAhead(ballot.view()) ? noteFarAhead(ballot)
+			: box.add(ballot) == BallotBox.Result.ADDED;
+
+		if (fresh) {
+			ballotViews.merge(ballot.validator(), ballot.view(), Math::max);
+		}
+
+		return fresh;
 	}
 
 	/* Not kept, but the validator is known to have reached the view; the ballot is news only if that is a view it was

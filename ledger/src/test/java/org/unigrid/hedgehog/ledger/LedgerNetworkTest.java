@@ -514,22 +514,17 @@ public class LedgerNetworkTest {
 		}
 	}
 
-	/* The transaction reaches two of the four validators, more than a third, and neither of them proposes the first
-	   view of the height. The nodes that have nothing to do wake to what the two say, rest through the views that pass
-	   before the turn of a node that has the transaction comes, and rest again when its block is in. One validator
-	   alone that holds it would not do: what it says is a single voice, which wakes nobody. */
+	/* The nodes that have nothing to do rest through the views that pass before the turn of the node that has the
+	   transaction comes, wake to what it says, at most once in half a minute each, and rest again when its block is
+	   in */
 	@Example
-	public void shouldGetATransactionThatMoreThanAThirdHoldIntoABlockAndGoQuiet() throws IOException {
+	public void shouldGetATransactionThatOnlyOneNodeHoldsIntoABlockAndGoQuiet() throws IOException {
 		try (Cluster cluster = new Cluster(9, chainOf(ANY_MINT))) {
 			final Transfer transfer = cluster.transfer(1, 2, 100, 0);
-			final int alsoHolding = 2;
 
 			cluster.fund();
 			cluster.begin();
-			cluster.net.after(0, () -> {
-				cluster.handTo(FIRST, transfer);
-				cluster.handTo(alsoHolding, transfer);
-			});
+			cluster.net.after(0, () -> cluster.handTo(FIRST, transfer));
 			cluster.runChecking(RECOVERY_MILLIS, () -> cluster.everyHeightIs(2));
 
 			cluster.assertSameChain();

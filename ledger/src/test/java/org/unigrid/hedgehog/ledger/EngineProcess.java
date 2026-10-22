@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongSupplier;
 
@@ -65,9 +66,15 @@ final class EngineProcess implements SimProcess {
 		return kept(node.engine.onWork(clock.getAsLong()));
 	}
 
+	/* As LedgerNode ticks: what the engine says again, and then whatever the time brings, such as a node at rest that
+	   a validator alone may wake again */
 	@Override
 	public List<Action> tick() {
-		return kept(node.engine.resume(clock.getAsLong()));
+		final long at = clock.getAsLong();
+		final List<Action> actions = new ArrayList<>(node.engine.resume(at));
+
+		actions.addAll(node.engine.onWork(at));
+		return kept(actions);
 	}
 
 	@Override
