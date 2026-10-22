@@ -59,6 +59,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
 
 /* The limit is exercised on its own, with the time of the channel held still, so that a body that stalls and the
    wait before a connection closes are exact and the server does not have to be waited for */
@@ -68,6 +69,7 @@ public class RequestBodyLimitTest {
 	private static final Duration BODY_TIME = Duration.ofSeconds(30);
 	private static final Duration LINGER = Duration.ofSeconds(2);
 	private static final String SUBMIT = "/ledger/transaction";
+	private static final String SPORK = "/gridspork/wire";
 	private static final String TOKEN = RestToken.generate();
 	private static final String BEARER = BearerTokenFilter.SCHEME + " " + TOKEN;
 
@@ -332,6 +334,31 @@ public class RequestBodyLimitTest {
 
 		assertThat(written().get(0).status(), equalTo(HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE));
 		assertThat(container.read, empty());
+	}
+
+	@Example
+	public void shouldTakeASporkAsLargeAsAPeerMaySendWithinTheTimeOfARequest() {
+		channel.writeInbound(declaring(SPORK, SporkWire.MAX_SIZE), chunk(Math.toIntExact(UPLOAD_LIMIT)));
+
+		assertThat(written(), empty());
+		assertThat(container.read, hasSize(2));
+
+		passTime(BODY_TIME);
+		assertThat(written().get(0).status(), equalTo(HttpResponseStatus.REQUEST_TIMEOUT));
+	}
+
+	@Example
+	public void shouldRefuseASporkLargerThanAPeerMaySend() {
+		for (final String path : List.of(SPORK, SPORK + "?x=1")) {
+			final EmbeddedChannel other = channelTo(new Container());
+
+			other.writeInbound(declaring(path, SporkWire.MAX_SIZE + 1L));
+
+			final FullHttpResponse refusal = other.readOutbound();
+
+			assertThat(refusal.status(), equalTo(HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE));
+			other.finishAndReleaseAll();
+		}
 	}
 
 	@Example

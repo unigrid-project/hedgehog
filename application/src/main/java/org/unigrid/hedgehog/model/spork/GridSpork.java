@@ -29,10 +29,12 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -123,6 +125,25 @@ public class GridSpork implements Serializable, Signable {
 
 	public static GridSpork create(Type type) {
 		return type.factory.get();
+	}
+
+	/**
+	* Starts the next version of a spork from the stored one. The data of a proposal still awaiting its
+	* co-signature is carried over, so several changes can be proposed in a row and co-signed once. The version
+	* is newer than both, even when it is made within the millisecond of one of them.
+	*/
+	public static GridSpork nextVersion(Type type, GridSpork stored, Optional<? extends GridSpork> proposal) {
+		final GridSpork spork = Objects.isNull(stored) ? create(type) : SerializationUtils.clone(stored);
+
+		spork.archive();
+		proposal.ifPresent(held -> spork.setData(SerializationUtils.clone(held.<ChunkData>getData())));
+
+		Stream.concat(Stream.ofNullable(stored), proposal.stream()).map(GridSpork::getTimeStamp)
+			.filter(Objects::nonNull).max(Comparator.naturalOrder())
+			.filter(latest -> !spork.timeStamp.isAfter(latest))
+			.ifPresent(latest -> spork.timeStamp = latest.plusMillis(1));
+
+		return spork;
 	}
 
 	@JsonIgnore

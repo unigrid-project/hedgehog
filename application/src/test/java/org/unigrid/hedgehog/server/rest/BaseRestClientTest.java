@@ -72,7 +72,7 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	private static final List<String> RETIRED_KEYS = new ArrayList<>();
 
 	@SneakyThrows
-	private static Signature keyPair() {
+	protected static Signature keyPair() {
 		return new Signature();
 	}
 

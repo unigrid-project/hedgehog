@@ -39,6 +39,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
 
 /* The container queues every chunk of a request until a resource reads it, and puts no bound on a chunked body, so a
    request is counted here as it arrives, before the container sees it. One that goes past its limit, or does not
@@ -49,8 +50,8 @@ import lombok.RequiredArgsConstructor;
    it comes. */
 @RequiredArgsConstructor
 final class RequestBodyLimit extends ChannelDuplexHandler {
-	/* The largest body of any resource but the storage uploads is the blacklist of the ledger, 4096 entries of
-	   about 45 bytes, so a megabyte holds every one of them with room to spare */
+	/* The largest body of any resource but the storage uploads and a signed spork is the blacklist of the ledger,
+	   4096 entries of about 45 bytes, so a megabyte holds every one of them with room to spare */
 	public static final long MAX_REQUEST_BYTES = 1L << 20;
 
 	/* A sender that trickles holds a thread of the container in its read for as long as the body is open */
@@ -59,6 +60,9 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private static final String STORAGE = "/storage";
 	private static final String STORAGE_OBJECTS = "/storage-object/";
+
+	/* A signed spork is taken up to the size of the largest one a peer may send, as it reaches the peers whole */
+	private static final String SPORK = "/gridspork/wire";
 
 	private final BearerTokenFilter authentication;
 	private final long limit;
@@ -75,10 +79,16 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	/* A store takes a body that is far larger than anything else, and a store is not bound by time either, since
 	   it takes as long as the sender needs */
-	private static boolean isUpload(final HttpRequest request) {
-		final String path = new QueryStringDecoder(request.uri()).path();
-
+	private static boolean isUpload(final String path) {
 		return STORAGE.equals(path) || path.startsWith(STORAGE_OBJECTS);
+	}
+
+	private long limitOf(final String path) {
+		if (isUpload(path)) {
+			return uploadLimit;
+		}
+
+		return SPORK.equals(path) ? Math.max(limit, SporkWire.MAX_SIZE) : limit;
 	}
 
 	@Override
@@ -113,10 +123,11 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	}
 
 	private boolean limitBody(final ChannelHandlerContext ctx, final HttpRequest request) {
-		final boolean upload = isUpload(request);
+		final String path = new QueryStringDecoder(request.uri()).path();
+		final boolean upload = isUpload(path);
 		final long declared = HttpUtil.getContentLength(request, 0);
 
-		allowed = upload ? uploadLimit : limit;
+		allowed = limitOf(path);
 		remaining = allowed;
 
 		if (declared > allowed) {

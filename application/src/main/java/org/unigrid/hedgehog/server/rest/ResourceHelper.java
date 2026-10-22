@@ -19,10 +19,8 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.ws.rs.core.Response;
-import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
@@ -34,20 +32,11 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 
 @Slf4j
 public class ResourceHelper {
-	/**
-	* Starts the next version of a spork from the stored one. The data of a proposal still awaiting its
-	* co-signature is carried over, so several changes can be proposed in a row and co-signed once.
-	*/
+	@SuppressWarnings("unchecked")
 	public static <S extends GridSpork> S nextVersion(S stored, Supplier<S> newSupplier, PendingSporks pendingSporks) {
-		final S spork = Objects.isNull(stored) ? newSupplier.get() : SerializationUtils.clone(stored);
+		final GridSpork.Type type = newSupplier.get().getType();
 
-		spork.archive();
-
-		pendingSporks.proposalOf(spork.getType()).ifPresent(proposal -> {
-			spork.setData(SerializationUtils.clone(proposal).getData());
-		});
-
-		return spork;
+		return (S) GridSpork.nextVersion(type, stored, pendingSporks.proposalOf(type));
 	}
 
 	/**
