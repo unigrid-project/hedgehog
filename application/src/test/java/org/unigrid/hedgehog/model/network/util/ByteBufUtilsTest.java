@@ -43,7 +43,7 @@ public class ByteBufUtilsTest {
 		final ByteBuf buffer = Unpooled.buffer();
 		ByteBufUtils.writeNullTerminatedString(string, buffer);
 
-		final String stringAfterWrite = ByteBufUtils.readNullTerminatedString(buffer);
+		final String stringAfterWrite = ByteBufUtils.readNullTerminatedString(buffer, string.length());
 		assertThat(stringAfterWrite, is(string));
 	}
 
@@ -90,8 +90,19 @@ public class ByteBufUtilsTest {
 
 		final String[] stringsAfterWrite = ByteBufUtils.readNullTerminatedStringArray(buffer, b -> {
 			return b.readMedium();
-		});
+		}, Arrays.stream(strings).mapToInt(String::length).max().orElse(0));
 
 		assertThat(Arrays.deepEquals(stringsAfterWrite, strings), is(true));
+	}
+
+	@Example
+	public void shouldRefuseAnArrayWithATextLongerThanItsBound() {
+		final ByteBuf buffer = Unpooled.buffer();
+
+		ByteBufUtils.writeNullTerminatedStringArray(new String[] { "a", "a".repeat(MAX_LENGTH + 1) }, buffer,
+			b -> b.writeMedium(2));
+
+		assertThrows(CorruptedFrameException.class, () -> ByteBufUtils.readNullTerminatedStringArray(buffer,
+			ByteBuf::readMedium, MAX_LENGTH));
 	}
 }

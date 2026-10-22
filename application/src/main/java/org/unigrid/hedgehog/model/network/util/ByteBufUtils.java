@@ -27,15 +27,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class ByteBufUtils {
-	public static String readNullTerminatedString(ByteBuf src) {
-		final byte[] result = new byte[src.bytesBefore((byte) 0)];
-
-		src.readBytes(result);
-		src.skipBytes(1); /* Skip the null terminator */
-
-		return new String(result, CharsetUtil.UTF_8);
-	}
-
 	/* The text comes from a peer, so it is refused unless it ends within the bound, before anything is allocated */
 	public static String readNullTerminatedString(ByteBuf src, int maxLength) {
 		final int length = src.bytesBefore(Math.min(src.readableBytes(), maxLength + 1), (byte) 0);
@@ -56,12 +47,12 @@ public class ByteBufUtils {
 		dest.writeZero(1); /* Null terminate */
 	}
 
-	public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader) {
+	public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader, int maxLength) {
 		final T length = reader.apply(src);
 		final List<String> strings = new ArrayList<>();
 
 		for (int i = 0; i < (int) length; i++) {
-			strings.add(readNullTerminatedString(src));
+			strings.add(readNullTerminatedString(src, maxLength));
 		}
 
 		return strings.toArray(new String[0]);

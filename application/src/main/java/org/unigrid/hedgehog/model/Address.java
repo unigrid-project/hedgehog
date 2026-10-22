@@ -28,6 +28,9 @@ import lombok.NoArgsConstructor;
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class Address implements Serializable, Comparable<Address> {
 	private static final long serialVersionUID = 3920093802621861005L;
+
+	/* What an address read from a peer may hold: twice the hex of a ledger account key, the longest a spork names */
+	public static final int MAX_LENGTH = 128;
 	private static final Comparator<Address> ORDER = Comparator.comparing(Address::getWif,
 		Comparator.nullsFirst(Comparator.naturalOrder())
 	);

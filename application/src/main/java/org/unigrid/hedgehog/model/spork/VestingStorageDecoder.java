@@ -56,7 +56,7 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 		in.skipBytes(5 /* 40 bits */);
 
 		while (in.readableBytes() > 0 && vests.size() < entries) {
-			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in));
+			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in, Address.MAX_LENGTH));
 			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
 
 			vesting.setStart(Instant.ofEpochSecond(in.readLong(), in.readInt()));
