@@ -326,6 +326,29 @@ public class LedgerDriverNetworkTest {
 		}
 	}
 
+	/* The node that takes the transfer passes it on while it is cut off, so the others never get it, and its own turn
+	   to propose is the fourth view of the height, which views woken by it alone reach only half a minute apart. It
+	   offers what waits again once the height has stood for a while, and the others put it in a block soon after the
+	   network heals. */
+	@Example
+	public void shouldBuildABlockOfATransferWhosePassingOnWasLostOnceItsHolderOffersItAgain() throws IOException {
+		try (MemoryNetwork network = started(1, VALIDATORS)) {
+			final Station origin = network.station(0);
+
+			assertThat(origin.ledger().validators().proposerAt(2, 3), equalTo(key(1)));
+
+			network.partition(Set.of(0));
+			assertThat(origin.driver().submit(new Payer(network).pay(1, 2, 100)).join(),
+				equalTo(Optional.empty()));
+			network.run(network.now() + SECOND);
+			network.heal();
+
+			assertThat(network.runUntil(() -> everyHeightIs(network, 2),
+				network.now() + LedgerDriver.REOFFER_MILLIS + TEN_SECONDS), is(true));
+			assertSameChain(network);
+		}
+	}
+
 	@Example
 	public void shouldSyncALateJoiner() throws IOException {
 		try (MemoryNetwork network = cluster(2, VALIDATORS)) {
