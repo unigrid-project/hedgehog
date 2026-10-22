@@ -23,6 +23,8 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -89,6 +91,9 @@ public class LedgerService {
 	private static final long TICK_MILLIS = 1_000;
 	private static final long GRACE_MILLIS = 30_000;
 	private static final int TRANSACTIONS_PER_SECOND = 50;
+	private static final int MAX_RESTARTS = 3;
+	private static final long RESTART_POLLS = 12;
+	private static final long RESTART_WINDOW_MILLIS = 6 * 60 * 60 * 1_000;
 
 	/* Where the service finds its files and how it runs, read from the options of the daemon by setup(), which is
 	   what a test of it replaces. `pollMillis` is how often it looks for the snapshot, and for a halt of the driver. */
@@ -98,9 +103,10 @@ public class LedgerService {
 
 	/* What an operator wants to know of the ledger of the node. Before there is a ledger the height is 0 and the tip
 	   hash empty; the reason is empty unless the driver has halted. A driver that has halted serves the blocks it has,
-	   and the node goes on. While the ledger runs, `unsetSporks` and `laggingSporks` name the sporks that it depends
-	   on and that are not set here, or of which a newer version is known and is not here yet. Nothing that depends on
-	   such a spork is minted, claimed or paid for, which is why a chain on a running node may stand still. */
+	   the node goes on, and the ledger starts again a few times before it stays halted. While the ledger runs,
+	   `unsetSporks` and `laggingSporks` name the sporks that it depends on and that are not set here, or of which a
+	   newer version is known and is not here yet. Nothing that depends on such a spork is minted, claimed or paid for,
+	   which is why a chain on a running node may stand still. */
 	public record Report(boolean running, boolean halted, String haltReason, boolean signing, long height,
 		String tipHash, long droppedInbound, List<Type> unsetSporks, List<Type> laggingSporks) {
 	}
@@ -116,6 +122,9 @@ public class LedgerService {
 	private volatile LedgerDriver driver;
 	private volatile boolean stopped;
 	private volatile Optional<AccountKey> key = Optional.empty();
+	private final Deque<Long> restarts = new ArrayDeque<>();
+	private LongSupplier clock;
+	private Runnable reattach;
 	private long pollMillis;
 	private long waits;
 
@@ -236,6 +245,8 @@ public class LedgerService {
 		final byte[] seed = setup.keyFile().map(LedgerKeyFile::load).orElse(null);
 
 		key = Optional.ofNullable(seed).map(Ed25519::publicKey);
+		clock = setup.clock();
+		reattach = () -> attach(setup, genesis, reader);
 
 		final LedgerSnapshot ledgerSnapshot = new LedgerSnapshot(reader);
 		final LedgerAuthority authority = new SporkLedgerAuthority(() -> sporks, lag,
@@ -262,15 +273,48 @@ public class LedgerService {
 		return readLong(held -> held.mintedTo(recipient)).orElse(0);
 	}
 
-	/* The halt is the driver's to log as it happens; this is the service saying once that the ledger is gone from
-	   the node, however long after */
+	/* The halt is the driver's to log as it happens; this is the service saying what becomes of the ledger, however
+	   long after */
 	private void watch() {
 		attempt(() -> {
 			if (driver.halted()) {
-				log.atError().log("The ledger halted and serves the blocks it has, the node goes on: {}",
-					driver.haltReason().orElse(""));
+				halted(driver.haltReason().orElse(""));
 			} else {
 				later(pollMillis, this::watch);
+			}
+		});
+	}
+
+	/* What halted a driver may be gone a while later, a peer that sent something the node could not take or a disk
+	   that was full, so the ledger starts again over its files, each time after twice the wait of the time before.
+	   A ledger that halts again and again in a few hours has something wrong that a start does not mend: it stays
+	   halted, serves the blocks it has, and the operator is told. */
+	private void halted(final String reason) {
+		final long now = clock.getAsLong();
+
+		restarts.removeIf(time -> now - time > RESTART_WINDOW_MILLIS);
+
+		if (restarts.size() >= MAX_RESTARTS) {
+			log.atError().addArgument(restarts.size()).addArgument(reason)
+				.log("The ledger halted after {} starts again, it stays halted and serves the blocks it "
+					+ "has, the node goes on: {}");
+			return;
+		}
+
+		final long delayMillis = pollMillis * RESTART_POLLS << restarts.size();
+
+		restarts.add(now);
+		log.atError().addArgument(delayMillis).addArgument(reason)
+			.log("The ledger halted, it starts again in {} ms: {}");
+		later(delayMillis, this::restart);
+	}
+
+	private synchronized void restart() {
+		attempt(() -> {
+			if (!stopped) {
+				closeDriver(driver);
+				nodes.close();
+				reattach.run();
 			}
 		});
 	}

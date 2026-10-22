@@ -57,9 +57,11 @@ import org.awaitility.Awaitility;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInRelativeOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -990,8 +992,9 @@ public class LedgerServiceTest {
 		}
 	}
 
+	/* A checkpoint the chain contradicts stays contradicted, so the starts again run out and the ledger stays halted */
 	@Example
-	public void shouldHaltOnATrustedCheckpointTheChainDoesNotMatchAndSayItOnceAtErrorLevel() {
+	public void shouldHaltOnATrustedCheckpointTheChainDoesNotMatchStartAgainAndThenStayHalted() {
 		try (Rig rig = Rig.ready()) {
 			final LedgerService first = rig.started(true);
 
@@ -1006,19 +1009,52 @@ public class LedgerServiceTest {
 
 			final LedgerService second = rig.started(true, Optional.of(new Checkpoint(1, wrong)));
 
-			eventually(() -> second.status().halted());
-			eventually(() -> !ours(rig).isEmpty());
-			Awaitility.await().during(Duration.ofMillis(500)).atMost(PATIENCE).until(() -> ours(rig).size() == 1);
+			eventually(() -> ours(rig).size() == 4);
+			Awaitility.await().during(Duration.ofMillis(500)).atMost(PATIENCE).until(() -> ours(rig).size() == 4);
 
 			final Report report = second.status();
+			final List<String> said = ours(rig);
 
 			assertThat(report.running(), is(false));
+			assertThat(report.halted(), is(true));
 			assertThat(report.signing(), is(false));
 			assertThat(report.haltReason(), containsString("differs from the trusted checkpoint"));
 			assertThat(report.height(), is(1L));
-			assertThat(ours(rig), contains(containsString(report.haltReason())));
+			assertThat(said, everyItem(containsString(report.haltReason())));
+			assertThat(said.subList(0, 3), everyItem(containsString("starts again")));
+			assertThat(said.get(3), containsString("stays halted"));
 			assertThat(second.height(), equalTo(OptionalLong.of(1)));
 			assertThat(submitted(second, rig.vote(2)), equalTo(Optional.of("The ledger is not running")));
+		}
+	}
+
+	/* The first driver says it halted and the ones after it do not, and so do the drivers of the tests after this one,
+	   which the fake outlives */
+	@Example
+	public void shouldStartAgainOverItsFilesOnceWhatHaltedItIsGone() {
+		final Set<LedgerDriver> halting = ConcurrentHashMap.newKeySet();
+
+		new MockUp<LedgerDriver>() {
+			@Mock
+			public boolean halted(final Invocation invocation) {
+				final LedgerDriver driver = invocation.getInvokedInstance();
+
+				return halting.isEmpty() && halting.add(driver) || halting.contains(driver)
+					|| invocation.<Boolean>proceed();
+			}
+		};
+
+		try (Rig rig = Rig.ready()) {
+			final LedgerService service = rig.started(true);
+
+			eventually(() -> ours(rig).size() == 1);
+			eventually(() -> service.status().signing());
+			assertThat(submitted(service, rig.vote(1)), equalTo(Optional.empty()));
+			eventually(() -> service.height().equals(OptionalLong.of(1)));
+
+			assertThat(ours(rig), contains(containsString("starts again")));
+			assertThat(service.status().halted(), is(false));
+			assertThat(rig.events, containsInRelativeOrder("attach", "detach", "driver.close", "attach"));
 		}
 	}
 
