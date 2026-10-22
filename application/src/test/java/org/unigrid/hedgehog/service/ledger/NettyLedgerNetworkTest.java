@@ -393,14 +393,18 @@ public class NettyLedgerNetworkTest {
 		assertThat(networkOf().peerOf(new EmbeddedChannel(), remote(FIRST)).id(), equalTo(FIRST));
 	}
 
+	/* A site is given a /48 and can number 65536 subnets of /64 in it, so the 16 bits after the first 48 are the
+	   suffix as well */
 	@Property(tries = 50)
-	public void namesAnIPv6PeerByItsPrefix(@ForAll long prefix, @ForAll long suffix, @ForAll long otherSuffix,
-		@ForAll @IntRange(min = 0, max = 55) int bit) {
+	public void namesAnIPv6PeerByItsSlash48Prefix(@ForAll long prefix, @ForAll long suffix, @ForAll long otherSuffix,
+		@ForAll @IntRange(min = 0, max = 15) int subnetBit, @ForAll @IntRange(min = 16, max = 55) int bit) {
 
 		final NettyLedgerNetwork network = networkOf();
 		final String id = network.peerOf(new EmbeddedChannel(), address(prefix, suffix)).id();
 
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix, otherSuffix)).id(), equalTo(id));
+		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << subnetBit), suffix)).id(),
+			equalTo(id));
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(),
 			not(equalTo(id)));
 	}

@@ -57,17 +57,18 @@ import org.unigrid.hedgehog.model.network.packet.LedgerHeartbeat;
 import org.unigrid.hedgehog.model.network.packet.LedgerStatus;
 import org.unigrid.hedgehog.model.network.packet.LedgerTransaction;
 
-/* The other end of one stream. It is named by the remote address, and by the /64 prefix for IPv6, as an attacker
-   with a /64 holds 2^64 addresses and must still share one limit. A node on this host is named by the port it
-   listens on as well, as the nodes of one host share an address and none of them is an attacker that changes it.
-   The address is read when it is asked for, as it can be learned only after the stream exists: a stream that a peer
-   opened is first named by the port it came from, and by the port it listens on once its Hello has been read, which
-   is the first thing it sends. The limit protects this node and authenticates no one. */
+/* The other end of one stream. It is named by the remote address, and by the /48 prefix for IPv6: a /48 is what a
+   site is given, and its holder can number 2^16 subnets of /64 in it, so it must share one limit with all of them,
+   as an attacker with a /64 alone holds 2^64 addresses. A node on this host is named by the port it listens on as
+   well, as the nodes of one host share an address and none of them is an attacker that changes it. The address is
+   read when it is asked for, as it can be learned only after the stream exists: a stream that a peer opened is first
+   named by the port it came from, and by the port it listens on once its Hello has been read, which is the first
+   thing it sends. The limit protects this node and authenticates no one. */
 @Slf4j
 @RequiredArgsConstructor
 public final class NettyLedgerPeer implements LedgerPeer {
 	private static final int IPV6_LENGTH = 16;
-	private static final int IPV6_PREFIX_LENGTH = 8;
+	private static final int IPV6_PREFIX_LENGTH = 6;
 	private static final int IPV4_LENGTH = 4;
 	private static final int IPV4_MAPPED_ZEROS = 10;
 
@@ -90,7 +91,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 	private boolean watching;
 
 	/* An IPv4 address that comes as an IPv6 one, ::ffff:a.b.c.d, is the IPv4 address: read as IPv6 every such peer would
-	   have the zeros of the same /64 prefix, and share one limit */
+	   have the zeros of the same /48 prefix, and share one limit */
 	@SneakyThrows
 	public static InetAddress plain(final InetAddress address) {
 		final byte[] bytes = address.getAddress();
@@ -113,7 +114,7 @@ public final class NettyLedgerPeer implements LedgerPeer {
 		}
 
 		if (bytes.length == IPV6_LENGTH) {
-			return HexFormat.of().formatHex(bytes, 0, IPV6_PREFIX_LENGTH) + "/64";
+			return HexFormat.of().formatHex(bytes, 0, IPV6_PREFIX_LENGTH) + "/48";
 		}
 
 		return address.getHostAddress();
