@@ -18,9 +18,11 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.Objects;
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters;
 import org.bouncycastle.crypto.signers.Ed25519Signer;
+import org.bouncycastle.math.ec.rfc8032.Ed25519.PublicPoint;
 
 public final class Ed25519 {
 	public static final int SEED_SIZE = Ed25519PrivateKeyParameters.KEY_SIZE;
@@ -42,16 +44,27 @@ public final class Ed25519 {
 		return signer.generateSignature();
 	}
 
+	/* Bytes the curve has no point for verify nothing, so a key that came in with a typo is a refusal and not an
+	   exception in the middle of a check */
 	public static boolean verify(AccountKey key, byte[] message, byte[] signature) {
-		if (signature.length != SIGNATURE_SIZE) {
+		final PublicPoint point = org.bouncycastle.math.ec.rfc8032.Ed25519
+			.validatePublicKeyPartialExport(key.bytes(), 0);
+
+		if (signature.length != SIGNATURE_SIZE || Objects.isNull(point)) {
 			return false;
 		}
 
 		final Ed25519Signer signer = new Ed25519Signer();
 
-		signer.init(false, new Ed25519PublicKeyParameters(key.bytes(), 0));
+		signer.init(false, new Ed25519PublicKeyParameters(point));
 		signer.update(message, 0, message.length);
 		return signer.verifySignature(signature);
+	}
+
+	/* A point of the group that keys are made in, as every key from a seed is; one that only lies on the curve has
+	   a part of small order that no seed gives */
+	public static boolean isPublicKey(AccountKey key) {
+		return org.bouncycastle.math.ec.rfc8032.Ed25519.validatePublicKeyFull(key.bytes(), 0);
 	}
 
 	private static Ed25519PrivateKeyParameters privateKey(byte[] seed) {

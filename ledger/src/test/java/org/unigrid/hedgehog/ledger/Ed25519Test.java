@@ -68,6 +68,25 @@ public class Ed25519Test {
 		assertThat(Ed25519.verify(Ed25519.publicKey(other), message, Ed25519.sign(seed, message)), is(false));
 	}
 
+	/* A key that is no point can reach a check through a typo in a genesis or a vote, and a check of it is a refusal
+	   like any other rather than an exception */
+	@Property(tries = 50)
+	public void shouldRefuseEverySignatureOfAKeyThatIsNoPoint(@ForAll byte[] message,
+		@ForAll @Size(Ed25519.SIGNATURE_SIZE) byte[] signature) {
+		assertThat(Ed25519.verify(LedgerFixtures.noPoint(), message, signature), is(false));
+	}
+
+	@Property(tries = 50)
+	public void shouldTakeEveryKeyMadeFromASeedAsAPublicKey(@ForAll @Size(32) byte[] seed) {
+		assertThat(Ed25519.isPublicKey(Ed25519.publicKey(seed)), is(true));
+	}
+
+	@Example
+	public void shouldNotTakeBytesOffTheGroupAsAPublicKey() {
+		assertThat(Ed25519.isPublicKey(LedgerFixtures.noPoint()), is(false));
+		assertThat(Ed25519.isPublicKey(LedgerFixtures.mixedOrderPoint()), is(false));
+	}
+
 	@Property(tries = 50)
 	public void shouldRefuseASignatureOfTheWrongLength(@ForAll @Size(32) byte[] seed, @ForAll byte[] junk) {
 		Assume.that(junk.length != Ed25519.SIGNATURE_SIZE);

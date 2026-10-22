@@ -85,6 +85,16 @@ final class LedgerFixtures {
 		return Ed25519.publicKey(seed(n));
 	}
 
+	/* Bytes of the size of a key for which the curve has no point */
+	static AccountKey noPoint() {
+		return AccountKey.fromHex("02" + "00".repeat(AccountKey.SIZE - 1));
+	}
+
+	/* A point on the curve outside the group that keys are made in */
+	static AccountKey mixedOrderPoint() {
+		return AccountKey.fromHex("03" + "00".repeat(AccountKey.SIZE - 1));
+	}
+
 	/* Accounts that hold balances, kept apart from the validator keys of the same small numbers */
 	static AccountKey account(int n) {
 		return key(1000 + n);
