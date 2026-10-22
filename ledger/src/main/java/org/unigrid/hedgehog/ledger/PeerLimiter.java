@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
 import java.util.function.ToLongFunction;
+import java.util.stream.Stream;
 
 /* What one peer may ask of this node. A peer has a bucket of tokens for each kind of message and a score that
    its misbehaviour raises and time lowers. One that runs dry too often, or reaches the score limit, is ignored
@@ -53,10 +54,12 @@ import java.util.function.ToLongFunction;
    order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most; at
    that cap a newcomer takes the place of the head once it went thirty seconds without a vouch (see vouch).
 
-   The peers of one quota, such as the addresses of one IPv6 site, also share a bucket of each kind, four times that
-   of one peer, as a site may hold a few honest nodes: the addresses one holder has do not multiply what it may send.
-   A refusal for it costs no one score, as it is shared, and a peer is penalised for its own refusals alone. The
-   quotas are a fourth map, in the order of their last use, and as many as the active peers.
+   The peers of one quota, such as the addresses of one IPv6 site, take together no more of what all peers share
+   than four times what one peer may take, as a site may hold a few honest nodes: the addresses one holder has do
+   not multiply its part of it. A refusal for it costs no one score, as it is shared, and a peer is penalised for its
+   own refusals alone. The quota bounds neither copies nor the reserve, so that the peers of a site that keep its
+   quota empty cannot silence a relay among them. The quotas are a fourth map, in the order of their last use, and
+   as many as the active peers.
 
    Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
    back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,
@@ -239,6 +242,10 @@ public final class PeerLimiter {
 			this.millitokens = millitokens;
 			this.stamp = stamp;
 		}
+
+		private void take() {
+			millitokens -= TOKEN;
+		}
 	}
 
 	private static final class Peer {
@@ -253,14 +260,6 @@ public final class PeerLimiter {
 
 	/* When a peer was last vouched for, and how many tokens of the reserve it may still take */
 	private record Vouch(long at, long credit) {
-	}
-
-	/* The bucket of a peer and that of its quota, each holding a token */
-	private record Tokens(Bucket own, Bucket quota) {
-		private void take() {
-			own.millitokens -= TOKEN;
-			quota.millitokens -= TOKEN;
-		}
 	}
 
 	private final LongSupplier clock;
@@ -307,34 +306,51 @@ public final class PeerLimiter {
 	public boolean allow(String id, String quota, Kind kind, boolean plausible) {
 		final long now = advance();
 
-		return ownTokens(id, quota, kind, now).map(own -> take(id, kind, plausible, own, now)).orElse(false);
+		return ownToken(id, kind, now).map(own -> plausible ? takePlausible(id, quota, kind, own, now)
+			: takeJunk(own, now)).orElse(false);
 	}
 
-	private boolean take(String id, Kind kind, boolean plausible, Tokens own, long now) {
-		if (spend(own, everyone(kind, plausible, now), plausible)) {
+	/* A token of what all peers share and of the quota of the peer, or else one of the reserve, which the quota does
+	   not bound: the peers of a site that keep its quota empty must not silence a relay among them */
+	private boolean takePlausible(String id, String quota, Kind kind, Bucket own, long now) {
+		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
+		final Bucket everyone = refilled(shared, kind, policy.global().get(kind), now);
+
+		if (site.millitokens >= TOKEN && everyone.millitokens >= TOKEN) {
+			Stream.of(own, site, everyone).forEach(Bucket::take);
 			return true;
 		}
 
-		return plausible && fromReserve(id, kind, own, now);
+		return fromReserve(id, kind, own, now);
 	}
 
-	private boolean fromReserve(String id, Kind kind, Tokens own, long now) {
-		expire(vouched, PeerLimiter::endOf, now);
+	private boolean takeJunk(Bucket own, long now) {
+		final Bucket everyone = refilled(junk, JUNK, policy.junk(), now);
 
-		final Vouch vouch = vouched.get(id);
-		final boolean earned = vouch != null && vouch.credit() > 0;
+		own.take();
 
-		if (!earned || !spend(own, refilled(reserve, kind, policy.reserve(kind), now), true)) {
+		if (everyone.millitokens < TOKEN) {
 			return false;
 		}
 
-		vouched.put(id, new Vouch(vouch.at(), vouch.credit() - 1));
+		everyone.take();
 		return true;
 	}
 
-	private Bucket everyone(Kind kind, boolean plausible, long now) {
-		return plausible ? refilled(shared, kind, policy.global().get(kind), now)
-			: refilled(junk, JUNK, policy.junk(), now);
+	private boolean fromReserve(String id, Kind kind, Bucket own, long now) {
+		expire(vouched, PeerLimiter::endOf, now);
+
+		final Vouch vouch = vouched.get(id);
+		final Bucket kept = refilled(reserve, kind, policy.reserve(kind), now);
+
+		if (vouch == null || vouch.credit() < 1 || kept.millitokens < TOKEN) {
+			return false;
+		}
+
+		own.take();
+		kept.take();
+		vouched.put(id, new Vouch(vouch.at(), vouch.credit() - 1));
+		return true;
 	}
 
 	/* A copy of an item that the node holds already costs its sender a token of its own bucket, and a refusal for it
@@ -344,16 +360,16 @@ public final class PeerLimiter {
 		return allowCopy(id, id, kind);
 	}
 
+	/* A copy takes nothing that all peers share, so nothing of the quota either */
 	public boolean allowCopy(String id, String quota, Kind kind) {
-		return ownTokens(id, quota, kind, advance()).map(own -> {
+		return ownToken(id, kind, advance()).map(own -> {
 			own.take();
 			return true;
 		}).orElse(false);
 	}
 
-	/* The buckets of a peer that is not penalised and of its quota, when both hold a token. Running dry costs the peer
-	   score; a quota that ran dry costs it nothing, as other peers may have emptied it. */
-	private Optional<Tokens> ownTokens(String id, String quota, Kind kind, long now) {
+	/* The bucket of a peer that is not penalised, when it holds a token; running dry costs the peer score */
+	private Optional<Bucket> ownToken(String id, Kind kind, long now) {
 		if (penalised(id, now)) {
 			return Optional.empty();
 		}
@@ -366,9 +382,7 @@ public final class PeerLimiter {
 			return Optional.empty();
 		}
 
-		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
-
-		return site.millitokens < TOKEN ? Optional.empty() : Optional.of(new Tokens(own, site));
+		return Optional.of(own);
 	}
 
 	private Map<Kind, Bucket> quotaOf(String quota) {
@@ -382,20 +396,6 @@ public final class PeerLimiter {
 
 		quotas.put(quota, buckets);
 		return buckets;
-	}
-
-	private static boolean spend(Tokens own, Bucket everyone, boolean plausible) {
-		final boolean room = everyone.millitokens >= TOKEN;
-
-		if (room || !plausible) {
-			own.take();
-		}
-
-		if (room) {
-			everyone.millitokens -= TOKEN;
-		}
-
-		return room;
 	}
 
 	/* The peer brought something new that a validator signed, which earns it tokens of the reserve. A peer that is

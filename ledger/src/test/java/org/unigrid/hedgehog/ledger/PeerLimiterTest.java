@@ -683,27 +683,43 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
 	}
 
-	/* Two peers of one quota, such as two nodes in one IPv6 site, take together four times what one may take: each
-	   is refused once the quota is gone, without a score, and is penalised for its own refusals alone */
+	/* Peers of one quota, such as nodes in one IPv6 site, take together four times what one may take of what all peers
+	   share: each is refused once the quota is gone, without a score, and is penalised for its own refusals alone.
+	   A copy takes nothing of what all peers share, so nothing of the quota either. */
 	@Example
 	public void shouldLetThePeersOfOneQuotaShareFourTimesTheBucketOfOne() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(3, 1, 2, 60_000, 100));
 
-		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allow("a", "site", Kind.CONSENSUS, true)), is(true));
-		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allow("b", "site", Kind.CONSENSUS, true)), is(true));
 		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", "site", Kind.CONSENSUS)), is(true));
-		assertThat(IntStream.range(0, 3).filter(n -> limiter.allow("d", "site", Kind.CONSENSUS, true)).count(),
-			equalTo(3L));
+		assertThat(IntStream.range(0, 4).allMatch(peer -> IntStream.range(0, 3)
+			.allMatch(n -> limiter.allow("p" + peer, "site", Kind.CONSENSUS, true))), is(true));
 		assertThat(IntStream.range(0, 50).filter(n -> limiter.allow("e", "site", Kind.CONSENSUS, true)).count(),
 			equalTo(0L));
 		assertThat(limiter.isPenalised("e"), is(false));
 		assertThat(limiter.allow("f", "elsewhere", Kind.CONSENSUS, true), is(true));
 
-		limiter.allow("a", "site", Kind.CONSENSUS, true);
-		limiter.allow("a", "site", Kind.CONSENSUS, true);
+		limiter.allow("p0", "site", Kind.CONSENSUS, true);
+		limiter.allow("p0", "site", Kind.CONSENSUS, true);
 
-		assertThat(limiter.isPenalised("a"), is(true));
-		assertThat(limiter.isPenalised("b"), is(false));
+		assertThat(limiter.isPenalised("p0"), is(true));
+		assertThat(limiter.isPenalised("p1"), is(false));
+	}
+
+	/* Four peers of a site keep its quota empty: a relay in the same site that brings new items still has its
+	   reserve, which the quota does not bound */
+	@Example
+	public void shouldLeaveAVouchedPeerItsReserveWhenOthersOfItsQuotaKeepTheQuotaEmpty() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(3, 1)), same(new Rate(400, 1)), 100, 0, 60_000, 100));
+
+		limiter.vouch("relay");
+		IntStream.range(0, 4).forEach(peer -> IntStream.range(0, 3)
+			.forEach(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, true)));
+
+		assertThat(limiter.allow("stranger", "site", Kind.CONSENSUS, true), is(false));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(true));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(true));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(false));
 	}
 
 	/* A copy of what the node holds already is dropped without any work, so it is no one's cost but its sender's */
