@@ -26,6 +26,8 @@ import net.jqwik.api.constraints.LongRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 
 public class TimeoutsTest {
@@ -65,23 +67,41 @@ public class TimeoutsTest {
 		assertThat(timeouts.precommit(view + 1), greaterThan(timeouts.precommit(view)));
 	}
 
-	@Property(tries = 100)
-	public void shouldWaitAsLongAsTheLastGrowingViewInEveryViewAfterIt(
+	/* A step stops growing at the last growing view, or once it waits half a minute if that comes later */
+	@Property(tries = 200)
+	public void shouldStopGrowingAtTheLastGrowingViewOrAtHalfAMinuteWhicheverComesLater(
 		@ForAll @LongRange(min = 1, max = 100_000) long base, @ForAll @LongRange(min = 1, max = 100_000) long step,
 		@ForAll @IntRange(min = Timeouts.LAST_GROWING_VIEW) int view) {
 		final Timeouts timeouts = new Timeouts(base, step, base, step, base, step);
-		final int last = Timeouts.LAST_GROWING_VIEW;
+		final long last = timeouts.propose(Timeouts.LAST_GROWING_VIEW);
+		final long longest = timeouts.propose(Integer.MAX_VALUE);
+		final long halfAMinute = Timeouts.GROWS_TO_MILLIS;
+		final int next = view == Integer.MAX_VALUE ? view : view + 1;
 
-		assertThat(timeouts.propose(view), equalTo(timeouts.propose(last)));
-		assertThat(timeouts.prevote(view), equalTo(timeouts.prevote(last)));
-		assertThat(timeouts.precommit(view), equalTo(timeouts.precommit(last)));
+		assertThat(longest == last || longest >= halfAMinute && longest - step < halfAMinute, is(true));
+		assertThat(timeouts.propose(view), lessThanOrEqualTo(timeouts.propose(next)));
+		assertThat(timeouts.propose(view), lessThanOrEqualTo(longest));
+		assertThat(timeouts.prevote(view), equalTo(timeouts.propose(view)));
+		assertThat(timeouts.precommit(view), equalTo(timeouts.propose(view)));
+	}
+
+	@Example
+	public void shouldLetShortTimeoutsGrowUntilTheyWaitHalfAMinute() {
+		final Timeouts quick = new Timeouts(10, 1, 20, 2, 30, 3);
+
+		assertThat(quick.propose(1000), equalTo(1010L));
+		assertThat(quick.propose(29_990), equalTo(30_000L));
+		assertThat(quick.propose(Integer.MAX_VALUE), equalTo(30_000L));
+		assertThat(quick.prevote(Integer.MAX_VALUE), equalTo(30_000L));
+		assertThat(quick.precommit(Integer.MAX_VALUE), equalTo(30_000L));
 	}
 
 	@Example
 	public void shouldWaitHalfAMinuteAtMostForAStepOfTheDefaults() {
-		assertThat(Timeouts.DEFAULT.propose(Integer.MAX_VALUE), equalTo(28_000L));
-		assertThat(Timeouts.DEFAULT.prevote(Integer.MAX_VALUE), equalTo(26_000L));
-		assertThat(Timeouts.DEFAULT.precommit(Integer.MAX_VALUE), equalTo(26_000L));
+		assertThat(Timeouts.DEFAULT.propose(Timeouts.LAST_GROWING_VIEW), equalTo(28_000L));
+		assertThat(Timeouts.DEFAULT.propose(Integer.MAX_VALUE), equalTo(30_000L));
+		assertThat(Timeouts.DEFAULT.prevote(Integer.MAX_VALUE), equalTo(30_000L));
+		assertThat(Timeouts.DEFAULT.precommit(Integer.MAX_VALUE), equalTo(30_000L));
 	}
 
 	@Example

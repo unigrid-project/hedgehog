@@ -21,15 +21,17 @@ package org.unigrid.hedgehog.ledger;
 import java.util.stream.LongStream;
 
 /* How long a step waits, in milliseconds. Every view waits a little longer than the one before, so that once the
-   network is well behaved a view eventually lasts long enough to finish, up to the last view that grows: the views
-   after it wait as long as it does. */
+   network is well behaved a view eventually lasts long enough to finish. A step stops growing at the last growing
+   view, or once it waits half a minute if that comes later, and the views after wait as long. */
 public record Timeouts(long proposeBase, long proposeStep, long prevoteBase, long prevoteStep, long precommitBase,
 	long precommitStep) {
 	public static final Timeouts DEFAULT = new Timeouts(3000, 500, 1000, 500, 1000, 500);
 
-	/* By this view the steps of the defaults wait 26 to 28 seconds, many times what a full block needs to cross a
-	   network that works, even over slow links. Growing further would only make a transaction that turns up after a
-	   long run of failed views wait minutes for the view in progress to end. */
+	/* Half a minute is many times what a full block needs to cross a network that works, even over slow links, so
+	   timeouts that start short still grow to a delay that is real; growing further would only make a transaction
+	   that turns up after a long run of failed views wait minutes for the view in progress to end. A step that waits
+	   longer than that by the last growing view, set so by its operator, stops there. */
+	public static final long GROWS_TO_MILLIS = 30_000;
 	public static final int LAST_GROWING_VIEW = 50;
 
 	public Timeouts {
@@ -40,18 +42,20 @@ public record Timeouts(long proposeBase, long proposeStep, long prevoteBase, lon
 	}
 
 	public long propose(int view) {
-		return proposeBase + proposeStep * grown(view);
+		return grown(proposeBase, proposeStep, view);
 	}
 
 	public long prevote(int view) {
-		return prevoteBase + prevoteStep * grown(view);
+		return grown(prevoteBase, prevoteStep, view);
 	}
 
 	public long precommit(int view) {
-		return precommitBase + precommitStep * grown(view);
+		return grown(precommitBase, precommitStep, view);
 	}
 
-	private static int grown(int view) {
-		return Math.min(view, LAST_GROWING_VIEW);
+	private static long grown(long base, long step, int view) {
+		final long toHalfAMinute = base >= GROWS_TO_MILLIS ? 0 : Math.ceilDiv(GROWS_TO_MILLIS - base, step);
+
+		return base + step * Math.min(view, Math.max(LAST_GROWING_VIEW, toHalfAMinute));
 	}
 }
