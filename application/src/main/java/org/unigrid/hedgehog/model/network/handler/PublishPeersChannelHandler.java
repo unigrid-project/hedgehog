@@ -20,6 +20,10 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.util.List;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Node;
@@ -29,20 +33,42 @@ import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 @Slf4j
 @Sharable
 public class PublishPeersChannelHandler extends AbstractInboundHandler<PublishPeers> {
+	private static final List<Predicate<InetAddress>> NOT_PUBLIC = List.of(InetAddress::isLoopbackAddress,
+		InetAddress::isSiteLocalAddress, InetAddress::isLinkLocalAddress, InetAddress::isAnyLocalAddress,
+		InetAddress::isMulticastAddress, PublishPeersChannelHandler::isUniqueLocal);
+
 	public PublishPeersChannelHandler() {
 		super(PublishPeers.class);
 	}
 
 	@Override
 	public void typedChannelRead(ChannelHandlerContext context, PublishPeers publishPeers) throws Exception {
+		final boolean fromPublicPeer = RemoteAddress.of(context.channel())
+			.map(sender -> isPublic(sender.getAddress())).orElse(true);
+
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			log.atTrace().log("Received {} peers from {}",
 				publishPeers.getNodes().size(), context.channel().remoteAddress()
 			);
 
 			for (Node newNode : publishPeers.getNodes()) {
-				topology.addNode(newNode);
+				if (!fromPublicPeer || !newNode.getAddress().isUnresolved()
+					&& isPublic(newNode.getAddress().getAddress())) {
+					topology.addNode(newNode);
+				}
 			}
 		});
+	}
+
+	/* A peer on the internet that tells of an address on this host or on a private network is either wrong or would
+	   have the node connect to what lies behind its own firewall. The peers of a private network, on one host or
+	   one LAN, tell each other of such addresses, and are heard. */
+	static boolean isPublic(InetAddress address) {
+		return NOT_PUBLIC.stream().noneMatch(kind -> kind.test(address));
+	}
+
+	/* IPv6 fc00::/7, which Java has no test of its own for */
+	private static boolean isUniqueLocal(InetAddress address) {
+		return address instanceof Inet6Address && (address.getAddress()[0] & 0xfe) == 0xfc;
 	}
 }
