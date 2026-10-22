@@ -98,6 +98,20 @@ public class PendingSporksTest {
 	}
 
 	@Example
+	public void shouldHoldAProposalOfAClockThatIsALittleAhead() {
+		assertThat(pendingSporks.offer(proposal(PendingSporks.LEEWAY.negated()), null), is(true));
+	}
+
+	/* A key that stamped its proposals far ahead would have them win over every honest one until their time came */
+	@Example
+	public void shouldRefuseAProposalStampedFurtherAheadThanClocksDrift() {
+		final MintSupply ahead = proposal(PendingSporks.LEEWAY.plusSeconds(1).negated());
+
+		assertThat(pendingSporks.offer(ahead, null), is(false));
+		assertThat(pendingSporks.offer(proposal(Duration.ZERO, cosigner), null), is(true));
+	}
+
+	@Example
 	public void shouldDropAProposalOnceItsLifetimeEnds() {
 		final MintSupply spork = proposal(Duration.ofMinutes(30));
 
