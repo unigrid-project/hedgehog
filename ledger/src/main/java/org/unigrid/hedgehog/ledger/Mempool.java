@@ -71,6 +71,11 @@ public final class Mempool {
 		};
 	}
 
+	/* Whether this very transaction waits, as against another one for its slot */
+	public synchronized boolean holds(Transaction transaction) {
+		return transaction.equals(pending.get(slotOf(transaction)));
+	}
+
 	public synchronized boolean admit(Transaction transaction, LedgerState state) {
 		return transaction instanceof Transfer transfer ? admitTransfer(transfer, state)
 			: admitOther(transaction, state);

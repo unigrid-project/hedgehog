@@ -330,7 +330,13 @@ public final class LedgerDriver implements Closeable {
 	public void onTransaction(LedgerPeer from, Transaction transaction, int bytes) {
 		final Item item = new Item(from, Kind.TRANSACTION, transaction);
 
-		inbound(item, bytes, () -> takeIn(item, transaction));
+		inbound(item, bytes, () -> waitsAlready(transaction), () -> takeIn(item, transaction), () -> { });
+	}
+
+	/* A transaction that waits here already comes again from every peer that offers what waits for a block, so a copy
+	   is told apart before it takes a token that all peers share */
+	private boolean waitsAlready(Transaction transaction) {
+		return supervisor.ready() && supervisor.ledger().holds(transaction);
 	}
 
 	public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat, int bytes) {

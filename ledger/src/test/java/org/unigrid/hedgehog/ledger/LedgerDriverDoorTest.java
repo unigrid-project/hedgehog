@@ -140,6 +140,33 @@ public class LedgerDriverDoorTest {
 		}
 	}
 
+	/* A transaction that waits in the pool comes again from every peer that offers what waits, and played back by enough
+	   peers it would empty what all peers share for transactions. A copy takes the tokens of its sender only. */
+	@Example
+	public void shouldKeepTenFloodersOfCopiesOfAWaitingTransactionFromStarvingNewTransactions() throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = stalled(serial, options(ITEMS, 3_000, 64 * MIB, 8 * MIB), Policy.DEFAULT)) {
+			final Mint waiting = mint(1, 500);
+			final int copies = Policy.DEFAULT.rates().get(Kind.TRANSACTION).capacity();
+
+			rig.driver.onTransaction(rig.network.connect("first"), waiting, DriverRig.FRAME);
+			serial.drain();
+
+			for (int flooder = 0; flooder < FLOODERS; flooder++) {
+				final RecordingPeer peer = rig.network.connect("C" + flooder);
+
+				IntStream.range(0, copies).forEach(n -> rig.driver.onTransaction(peer, waiting, DriverRig.FRAME));
+				serial.drain();
+			}
+
+			rig.driver.onTransaction(rig.network.connect("honest"), mint(2, 500), DriverRig.FRAME);
+			serial.drain();
+
+			assertThat(rig.ledger().pending(), equalTo(2));
+		}
+	}
+
 	/* Ballots of the height after the next are plausible and not held, so they take what all peers share for the
 	   messages of the engine. The peer that brought a new ballot of a validator has a reserve the flood cannot touch,
 	   while a peer that brought nothing yet is refused with the flooders. */

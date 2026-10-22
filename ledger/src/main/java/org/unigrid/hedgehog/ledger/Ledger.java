@@ -282,6 +282,11 @@ public final class Ledger implements ConsensusApp {
 		return mempool.peek(Integer.MAX_VALUE);
 	}
 
+	/* Whether the transaction waits for a block here already */
+	synchronized boolean holds(Transaction transaction) {
+		return mempool.holds(transaction);
+	}
+
 	/* What of that a block could take now, oldest first, at most `max` of it */
 	synchronized List<Transaction> waitingForABlock(int max) {
 		return mempool.proposable(max, state);

@@ -53,6 +53,21 @@ public class MempoolTest {
 		assertThat(mempool.size(), equalTo(1));
 	}
 
+	@Example
+	public void shouldHoldTheVeryTransactionThatWaitsAndNotAnotherOfItsSlot() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+		final Mint waiting = new Mint(account(1), 5, reference(1));
+
+		assertThat(mempool.holds(waiting), is(false));
+
+		mempool.admit(waiting, state);
+
+		assertThat(mempool.holds(new Mint(account(1), 5, reference(1))), is(true));
+		assertThat(mempool.holds(new Mint(account(2), 9, reference(1))), is(false));
+		assertThat(mempool.holds(mint(2, 5)), is(false));
+	}
+
 	/* A second mint of the same reference has other fields but could never be applied after the first */
 	@Example
 	public void shouldDedupeMintsOnTheirReference() {
