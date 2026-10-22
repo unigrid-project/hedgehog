@@ -83,6 +83,7 @@ public class ConsensusSimulationTest {
 	/* A view with nothing in it lasts under three seconds here, so a validator that could wake the nodes whenever it
 	   liked would take them through dozens of views in two minutes */
 	private static final long NUDGED_MILLIS = 120_000;
+	private static final long LONG_NUDGED_MILLIS = 1_800_000;
 
 	/* Views that end with nothing decided, enough to put a node that saw none of them several views behind */
 	private static final int FAILED_VIEWS = 4;
@@ -562,6 +563,34 @@ public class ConsensusSimulationTest {
 
 		assertThat(net.everyoneReached(1, Set.of(down.index)), is(true));
 		assertThat(behind.decided.get(0).getView(), equalTo(rested + 1));
+	}
+
+	/* Half an hour of a liar that wakes the nodes whenever it may takes them through dozens of views. What a node says
+	   again on a tick is its last two views, three messages each at most, and a few older ones in turn, to each of
+	   the three others, so what the honest nodes send in the last minute stays within that, however many views the
+	   height has. */
+	@Example
+	public void shouldKeepWhatTheNodesSayAgainBoundedWhileALiarWakesThemForHalfAnHour() {
+		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
+		final Liar liar = liar(net, 1);
+		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+		final long perTick = (long) live.size() * (net.nodes.size() - 1) * (6 + Consensus.OLDER_PER_RESEND);
+		final long nudgesPerMinute = 60L * 2 * live.size();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		nudgeAheadEverySecond(net, liar, live);
+		net.run(LONG_NUDGED_MILLIS - 60_000);
+
+		final long before = net.sent();
+
+		net.run(LONG_NUDGED_MILLIS);
+
+		assertThat(live.stream().allMatch(node -> node.engine.outbox().size() > 6 + Consensus.OLDER_PER_RESEND),
+			is(true));
+		assertThat(net.sent() - before - nudgesPerMinute, lessThan(60 * perTick));
+		assertThat(live.stream().allMatch(node -> node.engine.view() <= LONG_NUDGED_MILLIS / Consensus.LONE_WAKE_MILLIS),
+			is(true));
 	}
 
 	private static void setWork(List<SimNode> nodes, int goal, boolean refused) {
@@ -1119,6 +1148,17 @@ public class ConsensusSimulationTest {
 
 		assertThat(run.net().agreement(), is(true));
 		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
+	}
+
+	/* A proposer that came back from its disk holds its valid block but not the prevotes that prove it, and only its
+	   peers saying their old prevotes again give them back: this run stalled for good when they said again no more
+	   than their last two views */
+	@Example
+	public void shouldDecideWhenAProposerThatCameBackNeedsOldPrevotesOfItsPeers() {
+		final Run run = faultyRun(55, true);
+
+		assertThat(run.net().everyoneReached(FAULTY_GOAL, run.crashed()), is(true));
+		assertNoEquivocation(run.net());
 	}
 
 	@Property(tries = 40)

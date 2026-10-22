@@ -83,6 +83,10 @@ public final class Consensus {
 	   still pulls them on view by view to its own turn to propose */
 	static final long LONE_WAKE_MILLIS = Timeouts.GROWS_TO_MILLIS;
 
+	/* How many of the messages of earlier views than the last two are said again at a time: with the at most six of
+	   those two views it keeps a resend far within what a peer takes, and every message still comes round in turn */
+	static final int OLDER_PER_RESEND = 4;
+
 	public enum Step {
 		PROPOSE, PREVOTE, PRECOMMIT
 	}
@@ -109,8 +113,9 @@ public final class Consensus {
 	   view as that view starts, before anything is signed in it, so it is above every view signed in; only the last
 	   view has none after it, and a node never rests there. */
 	private int nextView;
-	/* Until when a node that rests says again what it signed */
+	/* Until when a node that rests says again what it signed, and where the turn of its older messages stands */
 	private long resendUntil = Long.MIN_VALUE;
+	private long resendTurn;
 	private Step step = Step.PROPOSE;
 	private Block lockedBlock;
 	private int lockedView = -1;
@@ -202,8 +207,29 @@ public final class Consensus {
 		}
 	}
 
+	/* What it signed in its view and the one before, and the next few of the rest in turn: all that a node signed in
+	   the views of a height that a liar keeps waking would grow without end, every tick, past what a peer takes, while
+	   an old ballot can still be wanted, such as a prevote of the quorum that a proposer which came back from its disk
+	   needs to put its valid block forward again */
 	private void sayAgain() {
-		outbox().forEach(message -> out.add(new Broadcast(message)));
+		final List<Message> own = outbox();
+		final List<Message> older = own.stream().filter(message -> !ofLastTwoViews(message)).toList();
+
+		own.stream().filter(this::ofLastTwoViews).forEach(message -> out.add(new Broadcast(message)));
+		IntStream.range(0, Math.min(OLDER_PER_RESEND, older.size()))
+			.mapToObj(turn -> older.get((int) ((resendTurn + turn) % older.size())))
+			.forEach(message -> out.add(new Broadcast(message)));
+		resendTurn += OLDER_PER_RESEND;
+	}
+
+	private boolean ofLastTwoViews(Message message) {
+		final int signedIn = switch (message) {
+			case Proposal proposal -> proposal.view();
+			case Ballot ballot -> ballot.view();
+			case Decision other -> view;
+		};
+
+		return (long) signedIn >= (long) view - 1;
 	}
 
 	/* What this node has signed at this height and where it stands, as a value that the caller keeps. A message of a
@@ -347,6 +373,7 @@ public final class Consensus {
 		precommitTimers.clear();
 		ballotViews.clear();
 		loneWakes.clear();
+		resendTurn = 0;
 	}
 
 	private void requireRestorable(SignState state, ValidatorSet newValidators) {

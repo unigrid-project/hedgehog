@@ -20,10 +20,13 @@ package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
@@ -1418,6 +1421,48 @@ public class ConsensusViewsTest {
 
 		assertThat(observer.running(), is(false));
 		assertThat(observer.resume(3008).isEmpty(), is(true));
+	}
+
+	private static int viewOf(Message message) {
+		return switch (message) {
+			case Proposal proposal -> proposal.view();
+			case Ballot ballot -> ballot.view();
+			case Decision decision -> decision.block().getView();
+		};
+	}
+
+	private List<Message> saidAgain(long at) {
+		return engine.resume(at).stream().filter(Broadcast.class::isInstance)
+			.map(action -> ((Broadcast) action).message()).toList();
+	}
+
+	/* A height that a liar keeps waking runs view after view, and a node that said all it signed in them on every tick
+	   would say more than a peer takes. What it signed in its view and the one before is said every time, and of the
+	   rest a few at a time in turn, as an old ballot may still be wanted, so each comes round. */
+	@Example
+	public void shouldSayAgainItsLastTwoViewsEveryTimeAndTheRestAFewAtATimeInTurn() {
+		engine.start(1, validators, 0);
+
+		for (int view = 0; view < 10; view++) {
+			quorumOfNoBlock(view, 4000L * (view + 1));
+			engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, view), 4000L * (view + 1) + 2);
+		}
+
+		final List<Message> own = engine.outbox();
+		final List<Message> recent = own.stream().filter(message -> viewOf(message) >= 9).toList();
+		final Set<Message> heard = new HashSet<>();
+
+		for (int turn = 0; turn * Consensus.OLDER_PER_RESEND < own.size(); turn++) {
+			final List<Message> again = saidAgain(50_000 + turn);
+
+			assertThat(again.containsAll(recent), is(true));
+			assertThat(again.size(), equalTo(recent.size() + Consensus.OLDER_PER_RESEND));
+			heard.addAll(again);
+		}
+
+		assertThat(engine.view(), equalTo(10));
+		assertThat(own.size(), greaterThan(recent.size() + Consensus.OLDER_PER_RESEND));
+		assertThat(heard, equalTo(Set.copyOf(own)));
 	}
 
 	@Example
