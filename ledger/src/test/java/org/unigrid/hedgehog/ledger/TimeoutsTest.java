@@ -55,13 +55,33 @@ public class TimeoutsTest {
 	}
 
 	@Property(tries = 100)
-	public void shouldGrowWithEveryViewWhenTheStepIsPositive(@ForAll @LongRange(min = 1, max = 100_000) long base,
-		@ForAll @LongRange(min = 1, max = 100_000) long step, @ForAll @IntRange(min = 0, max = 1000) int view) {
+	public void shouldGrowWithEveryViewUpToTheLastGrowingView(@ForAll @LongRange(min = 1, max = 100_000) long base,
+		@ForAll @LongRange(min = 1, max = 100_000) long step,
+		@ForAll @IntRange(min = 0, max = Timeouts.LAST_GROWING_VIEW - 1) int view) {
 		final Timeouts timeouts = new Timeouts(base, step, base, step, base, step);
 
 		assertThat(timeouts.propose(view + 1), greaterThan(timeouts.propose(view)));
 		assertThat(timeouts.prevote(view + 1), greaterThan(timeouts.prevote(view)));
 		assertThat(timeouts.precommit(view + 1), greaterThan(timeouts.precommit(view)));
+	}
+
+	@Property(tries = 100)
+	public void shouldWaitAsLongAsTheLastGrowingViewInEveryViewAfterIt(
+		@ForAll @LongRange(min = 1, max = 100_000) long base, @ForAll @LongRange(min = 1, max = 100_000) long step,
+		@ForAll @IntRange(min = Timeouts.LAST_GROWING_VIEW) int view) {
+		final Timeouts timeouts = new Timeouts(base, step, base, step, base, step);
+		final int last = Timeouts.LAST_GROWING_VIEW;
+
+		assertThat(timeouts.propose(view), equalTo(timeouts.propose(last)));
+		assertThat(timeouts.prevote(view), equalTo(timeouts.prevote(last)));
+		assertThat(timeouts.precommit(view), equalTo(timeouts.precommit(last)));
+	}
+
+	@Example
+	public void shouldWaitHalfAMinuteAtMostForAStepOfTheDefaults() {
+		assertThat(Timeouts.DEFAULT.propose(Integer.MAX_VALUE), equalTo(28_000L));
+		assertThat(Timeouts.DEFAULT.prevote(Integer.MAX_VALUE), equalTo(26_000L));
+		assertThat(Timeouts.DEFAULT.precommit(Integer.MAX_VALUE), equalTo(26_000L));
 	}
 
 	@Example
