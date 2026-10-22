@@ -752,6 +752,45 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
 	}
 
+	/* A peer that relays what others signed can be the first to bring it, so a vouch is no proof of honesty: what it
+	   takes of the reserve is bounded by what it brought new, two tokens for each item */
+	@Example
+	public void shouldLetAVouchedPeerTakeNoMoreOfTheReserveThanTwiceWhatItBroughtNew() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(40, 1));
+
+		limiter.vouch("v");
+
+		assertThat(granted(limiter, "v", Kind.CONSENSUS, 100), equalTo(42));
+
+		limiter.vouch("v");
+
+		assertThat(granted(limiter, "v", Kind.CONSENSUS, 100), equalTo(2));
+		assertThat(limiter.allow("w", Kind.CONSENSUS), is(false));
+	}
+
+	@Example
+	public void shouldRefuseANewVouchWhileTheVouchedPeersFillTheirMapAndKeepTheOnesItHolds() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get,
+			new Policy(same(UNLIMITED), same(new Rate(4, 1)), 100, 0, 60_000, 4));
+
+		limiter.vouch("a");
+		limiter.vouch("b");
+		limiter.vouch("c");
+		clock.addAndGet(30_000);
+		limiter.vouch("a");
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("x" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.allow("c", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("b", Kind.CONSENSUS), is(true));
+
+		clock.addAndGet(30_000);
+		limiter.vouch("c");
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("y" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.allow("c", Kind.CONSENSUS), is(true));
+	}
+
 	@Example
 	public void shouldForgetTheVouchOfAPeerThatIsPenalised() {
 		final AtomicLong clock = new AtomicLong(START);

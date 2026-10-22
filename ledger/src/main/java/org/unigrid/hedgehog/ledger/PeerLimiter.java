@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import java.util.function.ToLongFunction;
 
 /* What one peer may ask of this node. A peer has a bucket of tokens for each kind of message and a score that
    its misbehaviour raises and time lowers. One that runs dry too often, or reaches the score limit, is ignored
@@ -47,8 +48,9 @@ import java.util.function.LongSupplier;
 
    A peer that brought something new that a validator signed is vouched for, for a minute after the last such item,
    and may draw on a reserve of each kind once what all peers share of it is gone, which nobody else can empty: a
-   flood from peers that bring nothing new cannot starve the traffic of the validators. The vouched peers are a third
-   map, in the order of their last vouch, which is the order the vouches end in, and as many as the penalised ones.
+   flood from peers that bring nothing new cannot starve the traffic of the validators. A copy never draws on it, and
+   a vouched peer takes of it no more than it earned by what it brought new. The vouched peers are a third map, in the
+   order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most.
 
    Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
    back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,
@@ -66,6 +68,12 @@ public final class PeerLimiter {
 	/* A validator sends a heartbeat every ten seconds and ballots whenever the chain runs, so a peer that relays what
 	   the validators sign is vouched for again well within this, and one that stops loses the reserve soon after */
 	private static final long VOUCH_MILLIS = 60_000;
+
+	/* Each new item that a peer brought earns it two tokens of the reserve, so an honest relay, whose items that are
+	   not copies are new, earns more than it takes, while a peer that was first with a few items it overheard takes
+	   no more than twice as many of anything else. A few heights of a busy network may be saved up, and no more. */
+	private static final long CREDIT_PER_ITEM = 2;
+	private static final long MAX_CREDIT = 100;
 
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
@@ -222,6 +230,10 @@ public final class PeerLimiter {
 		}
 	}
 
+	/* Until when a peer is vouched for, and how many tokens of the reserve it may still take */
+	private record Vouch(long until, long credit) {
+	}
+
 	private final LongSupplier clock;
 	private final Policy policy;
 	private final Map<String, Peer> active = new LinkedHashMap<>();
@@ -229,7 +241,7 @@ public final class PeerLimiter {
 	private final Map<Kind, Bucket> shared = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> reserve = new EnumMap<>(Kind.class);
-	private final Map<String, Long> vouched = new LinkedHashMap<>();
+	private final Map<String, Vouch> vouched = new LinkedHashMap<>();
 	private long epoch;
 	private long lastReading;
 	private long time;
@@ -268,7 +280,21 @@ public final class PeerLimiter {
 			return true;
 		}
 
-		return plausible && vouched(id, now) && spend(own, refilled(reserve, kind, policy.reserve(kind), now), true);
+		return plausible && fromReserve(id, kind, own, now);
+	}
+
+	private boolean fromReserve(String id, Kind kind, Bucket own, long now) {
+		expire(vouched, Vouch::until, now);
+
+		final Vouch vouch = vouched.get(id);
+		final boolean earned = vouch != null && vouch.credit() > 0;
+
+		if (!earned || !spend(own, refilled(reserve, kind, policy.reserve(kind), now), true)) {
+			return false;
+		}
+
+		vouched.put(id, new Vouch(vouch.until(), vouch.credit() - 1));
+		return true;
 	}
 
 	private Bucket everyone(Kind kind, boolean plausible, long now) {
@@ -317,7 +343,9 @@ public final class PeerLimiter {
 		return room;
 	}
 
-	/* The peer brought something new that a validator signed. A peer that is penalised is not vouched for. */
+	/* The peer brought something new that a validator signed, which earns it tokens of the reserve. A peer that is
+	   penalised is not vouched for, and while as many peers are vouched for as may be, a new one is not: a newcomer
+	   must not push out the peers that keep bringing what is new. */
 	public void vouch(String id) {
 		final long now = advance();
 
@@ -325,18 +353,15 @@ public final class PeerLimiter {
 			return;
 		}
 
-		expire(vouched, now);
+		expire(vouched, Vouch::until, now);
 
-		if (vouched.remove(id) == null && vouched.size() >= policy.maxPeers() / 2) {
-			dropEldest(vouched);
+		final Vouch before = vouched.remove(id);
+
+		if (before != null || vouched.size() < policy.maxPeers() / 2) {
+			final long credit = Math.min(MAX_CREDIT, (before == null ? 0 : before.credit()) + CREDIT_PER_ITEM);
+
+			vouched.put(id, new Vouch(saturatedSum(now, VOUCH_MILLIS), credit));
 		}
-
-		vouched.put(id, saturatedSum(now, VOUCH_MILLIS));
-	}
-
-	private boolean vouched(String id, long now) {
-		expire(vouched, now);
-		return vouched.containsKey(id);
 	}
 
 	public void misbehaved(String id, int weight) {
@@ -369,14 +394,14 @@ public final class PeerLimiter {
 
 	/* The ids that are penalised now, at most half of the peers that are kept, as a copy that the caller may keep */
 	public Set<String> penalisedIds() {
-		epoch += expire(penalised, advance());
+		expirePenalties(advance());
 		return Set.copyOf(penalised.keySet());
 	}
 
 	/* A number that changes whenever a peer is penalised or a penalty ends, so that a caller that keeps the ids can
 	   tell when to ask for them again */
 	public long penaltyEpoch() {
-		epoch += expire(penalised, advance());
+		expirePenalties(advance());
 		return epoch;
 	}
 
@@ -397,18 +422,22 @@ public final class PeerLimiter {
 	}
 
 	private boolean penalised(String id, long now) {
-		epoch += expire(penalised, now);
+		expirePenalties(now);
 		return penalised.containsKey(id);
+	}
+
+	private void expirePenalties(long now) {
+		epoch += expire(penalised, Long::longValue, now);
 	}
 
 	/* Penalties last the same time, and so do vouches, and time never runs back, so the first one is the first to
 	   end. How many ended. */
-	private static int expire(Map<String, Long> endings, long now) {
-		final Iterator<Long> ends = endings.values().iterator();
+	private static <T> int expire(Map<String, T> endings, ToLongFunction<T> end, long now) {
+		final Iterator<T> ends = endings.values().iterator();
 		int ended = 0;
 
 		while (ends.hasNext()) {
-			if (ends.next() > now) {
+			if (end.applyAsLong(ends.next()) > now) {
 				return ended;
 			}
 

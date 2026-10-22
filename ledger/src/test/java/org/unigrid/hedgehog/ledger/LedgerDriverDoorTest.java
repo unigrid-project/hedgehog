@@ -176,6 +176,56 @@ public class LedgerDriverDoorTest {
 		}
 	}
 
+	/* Peers that validate nothing can still be the first to relay a ballot of a validator they overheard, and so be
+	   vouched for. They then play back what they relayed and flood ballots of the height after the next, more than
+	   the reserve holds, behind flooders that emptied what all peers share. What they took in new buys them two
+	   tokens of the reserve each, and the rest is left to the peer that keeps bringing new ballots. */
+	@Example
+	public void shouldNotLetPeersThatRelayedOneBallotEachEmptyTheReserveOfThePeersThatKeepBringingNewOnes()
+		throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = stalled(serial, options(ITEMS, 3_000, 64 * MIB, 8 * MIB), Policy.DEFAULT)) {
+			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 2, 0, null);
+			final RecordingPeer relay = rig.network.connect("relay");
+			final int floods = Policy.DEFAULT.rates().get(Kind.CONSENSUS).capacity();
+			final int replays = floods / 4;
+			final LedgerNode node = rig.nodes.get(rig.nodes.size() - 1);
+
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 2), DriverRig.FRAME);
+
+			for (int validator = 1; validator <= 4; validator++) {
+				rig.driver.onMessage(rig.network.connect("A" + validator), rig.ballot(Ballot.Type.PRECOMMIT, validator),
+					DriverRig.FRAME);
+			}
+
+			serial.drain();
+
+			for (int flooder = 0; flooder < FLOODERS; flooder++) {
+				final RecordingPeer peer = rig.network.connect("F" + flooder);
+
+				IntStream.range(0, floods).forEach(n -> rig.driver.onMessage(peer, ahead, DriverRig.FRAME));
+				serial.drain();
+			}
+
+			for (int validator = 1; validator <= 4; validator++) {
+				final RecordingPeer peer = rig.network.connect("A" + validator);
+				final Ballot relayed = rig.ballot(Ballot.Type.PRECOMMIT, validator);
+
+				IntStream.range(0, replays).forEach(n -> rig.driver.onMessage(peer, relayed, DriverRig.FRAME));
+				IntStream.range(replays, floods).forEach(n -> rig.driver.onMessage(peer, ahead, DriverRig.FRAME));
+				serial.drain();
+			}
+
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 3), DriverRig.FRAME);
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 4), DriverRig.FRAME);
+			serial.drain();
+
+			assertThat(node.holds(rig.ballot(Ballot.Type.PREVOTE, 3)), is(true));
+			assertThat(node.holds(rig.ballot(Ballot.Type.PREVOTE, 4)), is(true));
+		}
+	}
+
 	@Example
 	public void shouldLetJunkTakeNoMoreThanATenthOfTheSlotsAndLeaveTheRestToWhatIsPlausible() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();
