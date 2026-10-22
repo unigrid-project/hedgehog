@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
@@ -45,26 +46,37 @@ public class SporkDatabaseProducer {
 	@Produces
 	private SporkDatabase produce() {
 		if (Objects.isNull(sporkDatabase.get())) {
-			try {
-				Files.createDirectories(applicationDirectory.getUserDataDir());
-				sporkDatabase.set(SporkDatabase.load(path()));
-
-			} catch (IOException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
-				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
-				log.atTrace().log(() -> ex.toString());
-			} catch (ClassCastException | SerializationException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
-
-				log.atWarn().log("Database serialization incompatibility, defaulting to fresh"
-					+ " spork database: {}", ex.getMessage()
-				);
-
-				log.atTrace().log(() -> ex.toString());
-			}
+			sporkDatabase.set(loaded(path()));
 		}
 
 		return sporkDatabase.get();
+	}
+
+	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
+	   would write over it, and what it held is the operator's to look at and the network's to send again */
+	private SporkDatabase loaded(Path path) {
+		try {
+			Files.createDirectories(applicationDirectory.getUserDataDir());
+			return Files.exists(path) ? SporkDatabase.load(path) : SporkDatabase.builder().build();
+
+		} catch (IOException | ClassCastException | SerializationException ex) {
+			log.atWarn().addArgument(path).addArgument(movedAside(path)).addArgument(ex.getMessage())
+				.log("The spork database {} cannot be read, it is kept as {} and the node starts with an "
+					+ "empty one: {}");
+			log.atTrace().log(() -> ex.toString());
+			return SporkDatabase.builder().build();
+		}
+	}
+
+	private static String movedAside(Path path) {
+		final Path aside = path.resolveSibling(path.getFileName() + ".unreadable-" + Instant.now().getEpochSecond());
+
+		try {
+			return Files.move(path, aside).toString();
+		} catch (IOException ex) {
+			log.atWarn().addArgument(path).addArgument(ex.getMessage()).log("Could not move {} aside: {}");
+			return path.toString();
+		}
 	}
 
 	@PreDestroy
