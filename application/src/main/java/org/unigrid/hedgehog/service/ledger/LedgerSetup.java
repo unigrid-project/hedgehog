@@ -84,7 +84,8 @@ public final class LedgerSetup {
 	private static void warnUnlessValidator(byte[] seed, LedgerGenesis genesis) {
 		if (!genesis.getValidators().contains(Ed25519.publicKey(seed))) {
 			log.atWarn().addArgument(LedgerKeyFile.publicKeyHex(seed))
-				.log("The key {} is not a validator of this genesis, this node will not sign");
+				.log("The key {} is not a validator of this genesis, this node signs once the validators "
+					+ "vote it in");
 		}
 	}
 

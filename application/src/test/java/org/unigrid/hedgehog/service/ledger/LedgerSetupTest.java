@@ -269,7 +269,7 @@ public class LedgerSetupTest {
 			LedgerSetup.validate();
 
 			assertThat(warnings.messages(), contains("The key " + LedgerKeyFile.publicKeyHex(seed)
-				+ " is not a validator of this genesis, this node will not sign"));
+				+ " is not a validator of this genesis, this node signs once the validators vote it in"));
 			assertThat(warnings.messages().toString(), not(containsString(HexFormat.of().formatHex(seed))));
 		}
 	}

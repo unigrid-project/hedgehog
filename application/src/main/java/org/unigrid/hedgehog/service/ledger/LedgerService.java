@@ -41,6 +41,7 @@ import java.util.function.ToLongFunction;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Ledger;
@@ -114,7 +115,7 @@ public class LedgerService {
 	private volatile LedgerNodes nodes;
 	private volatile LedgerDriver driver;
 	private volatile boolean stopped;
-	private volatile boolean validator;
+	private volatile Optional<AccountKey> key = Optional.empty();
 	private long pollMillis;
 	private long waits;
 
@@ -234,7 +235,7 @@ public class LedgerService {
 
 		final byte[] seed = setup.keyFile().map(LedgerKeyFile::load).orElse(null);
 
-		validator = Objects.nonNull(seed) && genesis.getValidators().contains(Ed25519.publicKey(seed));
+		key = Optional.ofNullable(seed).map(Ed25519::publicKey);
 
 		final LedgerSnapshot ledgerSnapshot = new LedgerSnapshot(reader);
 		final LedgerAuthority authority = new SporkLedgerAuthority(() -> sporks, lag,
@@ -372,10 +373,11 @@ public class LedgerService {
 			sporksThat(running, type -> lag.isBehind(type, sporks)));
 	}
 
-	/* A node signs when it holds a key and the key is one of the validators of the genesis: another key gives a node
-	   that follows the chain and is heard by no one */
+	/* A node signs when it holds a key and the key is one of the validators now, of the genesis or voted in since:
+	   another key gives a node that follows the chain and is heard by no one */
 	private boolean signs() {
-		return validator && nodes.signing();
+		return nodes.signing() && key.flatMap(held -> nodes.ledger()
+			.map(ledger -> ledger.validators().contains(held))).orElse(false);
 	}
 
 	private boolean isUnset(final Type type) {
