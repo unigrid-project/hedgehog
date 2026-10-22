@@ -23,19 +23,22 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
 import jakarta.ws.rs.core.UriBuilder;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.SneakyThrows;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -66,36 +69,50 @@ public class Node {
 		private int version;
 	}
 
-	@SneakyThrows
+	/* Whether the node is this one: on the port it listens on, at an address of one of its interfaces or the one it
+	   is configured to listen at */
 	public boolean isMe() {
-		final AtomicBoolean found = new AtomicBoolean();
+		return !address.isUnresolved() && address.getPort() == NetOptions.getPort()
+			&& LocalAddresses.current().contains(address.getAddress());
+	}
 
-		try {
-			NetworkInterface.getNetworkInterfaces().asIterator().forEachRemaining(ni -> {
-				ni.inetAddresses().forEach(a -> {
-					final InetSocketAddress socketAddress = new InetSocketAddress(a.getHostAddress(),
-						NetOptions.getPort()
-					);
+	/* Every node a peer tells of is asked whether it is this one, under the lock of the topology, so the addresses of
+	   the host are listed once a minute and not for each node: they seldom change, and listing the interfaces, or
+	   resolving the configured host, takes long enough for a list of peers to hold the lock for seconds */
+	private record LocalAddresses(Set<InetAddress> addresses, long listedAt) {
+		private static final long LIFETIME_MILLIS = 60_000;
+		private static volatile LocalAddresses held;
 
-					if (equals(Node.builder().address(socketAddress).build())) {
-						found.set(true);
-					}
-				});
-			});
+		static Set<InetAddress> current() {
+			final LocalAddresses known = held;
+			final long now = System.currentTimeMillis();
 
-			if (!found.get()) {
-				final Node me = Node.fromAddress(NetOptions.getHost());
-				final String address = String.format("%s:%s", NetOptions.getHost(), NetOptions.getPort());
-
-				return equals(Node.fromAddress(address));
+			if (known != null && now - known.listedAt() < LIFETIME_MILLIS) {
+				return known.addresses();
 			}
 
-		} catch (URISyntaxException | UnknownHostException ex) {
-			log.atTrace().log("Invalid host/address format {}", ex.getMessage());
-			return false;
+			held = new LocalAddresses(listed(), now);
+			return held.addresses();
 		}
 
-		return found.get();
+		private static Set<InetAddress> listed() {
+			final Set<InetAddress> found = new HashSet<>();
+
+			try {
+				NetworkInterface.getNetworkInterfaces().asIterator()
+					.forEachRemaining(network -> network.inetAddresses().forEach(found::add));
+			} catch (SocketException ex) {
+				log.atWarn().log("Cannot list the network interfaces: {}", ex.getMessage());
+			}
+
+			try {
+				found.addAll(Arrays.asList(InetAddress.getAllByName(NetOptions.getHost())));
+			} catch (UnknownHostException ex) {
+				log.atTrace().log("The host {} does not resolve: {}", NetOptions.getHost(), ex.getMessage());
+			}
+
+			return Set.copyOf(found);
+		}
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
