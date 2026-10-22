@@ -21,8 +21,6 @@ package org.unigrid.hedgehog.ledger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -50,13 +48,6 @@ import java.util.Optional;
    it, at the first load or save, and holds it until close(); another file over the same path, in this process or in
    another, is refused with a FileLockedException. The lock covers this file alone, not the block log. */
 public final class SignStateFile implements SignStore {
-	/* How the lock is taken, which a test can replace, as the in-memory file system gives everyone a lock. Null means
-	   that another process holds it; a lock held in this process is an OverlappingFileLockException. */
-	@FunctionalInterface
-	interface Locker {
-		FileLock tryLock(Path lockFile, FileChannel channel) throws IOException;
-	}
-
 	/* The highest view that a file is sized for, which fends off a file that is garbage. The timeouts grow with
 	   the view, so a validator that reaches it has been stalled for more than a month on one height. A state of a
 	   later view is still read if its entries fit the size. */
@@ -71,19 +62,18 @@ public final class SignStateFile implements SignStore {
 	private final Path temporary;
 	private final Path lockFile;
 	private final int maxView;
-	private final Locker locker;
-	private FileChannel lockChannel;
-	private FileLock held;
+	private final ExclusiveLock.Locker locker;
+	private ExclusiveLock held;
 
 	public SignStateFile(Path file) {
 		this(file, MAX_VIEW);
 	}
 
 	SignStateFile(Path file, int maxView) {
-		this(file, maxView, (path, channel) -> channel.tryLock());
+		this(file, maxView, ExclusiveLock.SYSTEM);
 	}
 
-	SignStateFile(Path file, int maxView, Locker locker) {
+	SignStateFile(Path file, int maxView, ExclusiveLock.Locker locker) {
 		this.file = file.toAbsolutePath();
 		this.temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
 		this.lockFile = this.file.resolveSibling(this.file.getFileName() + ".lock");
@@ -148,57 +138,20 @@ public final class SignStateFile implements SignStore {
 	   takes the lock again. */
 	@Override
 	public synchronized void close() throws IOException {
-		if (lockChannel == null) {
-			return;
-		}
+		final ExclusiveLock lock = held;
 
-		final FileChannel channel = lockChannel;
-		final FileLock lock = held;
-
-		lockChannel = null;
 		held = null;
 
-		try (channel) {
-			lock.release();
+		if (lock != null) {
+			lock.close();
 		}
 	}
 
 	private void lock() throws IOException {
-		if (lockChannel != null) {
-			return;
+		if (held == null) {
+			held = ExclusiveLock.take(lockFile, locker, "The sign state file " + file
+				+ " is locked: another process or node holds the data directory");
 		}
-
-		Files.createDirectories(file.getParent());
-
-		final FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
-			StandardOpenOption.WRITE);
-
-		try {
-			held = acquire(channel);
-			lockChannel = channel;
-		} catch (IOException | RuntimeException e) {
-			channel.close();
-			throw e;
-		}
-	}
-
-	private FileLock acquire(FileChannel channel) throws IOException {
-		try {
-			final FileLock acquired = locker.tryLock(lockFile, channel);
-
-			if (acquired != null) {
-				return acquired;
-			}
-		} catch (OverlappingFileLockException e) {
-			throw locked(e);
-		}
-
-		throw locked(null);
-	}
-
-	private FileLockedException locked(Throwable cause) {
-		return new FileLockedException("The sign state file " + file + " is locked: another process or node holds "
-			+ "the data directory", cause);
 	}
 
 	private static boolean isSetSize(int validators) {
