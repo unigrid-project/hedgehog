@@ -791,6 +791,31 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("w", Kind.CONSENSUS), is(false));
 	}
 
+	/* Two peers took every place and brought nothing new after, while a relay keeps bringing new items every five
+	   seconds and so does a stream of newcomers. Within the minute that a vouch lasts, a place that went ten seconds
+	   without one is given up, and the relay, which is never that idle, is never pushed out. */
+	@Example
+	public void shouldGiveThePlaceOfAPeerThatBroughtNothingNewForTenSecondsToANewcomer() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get,
+			new Policy(same(UNLIMITED), same(new Rate(4, 1)), 100, 0, 60_000, 4));
+
+		limiter.vouch("x");
+		limiter.vouch("y");
+
+		for (int step = 1; step <= 8; step++) {
+			clock.addAndGet(5_000);
+			limiter.vouch("relay");
+			limiter.vouch("newcomer" + step);
+		}
+
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("drain" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.allow("x", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("y", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("relay", Kind.CONSENSUS), is(true));
+	}
+
 	@Example
 	public void shouldRefuseANewVouchWhileTheVouchedPeersFillTheirMapAndKeepTheOnesItHolds() {
 		final AtomicLong clock = new AtomicLong(START);

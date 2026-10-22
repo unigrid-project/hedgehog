@@ -50,7 +50,8 @@ import java.util.function.ToLongFunction;
    and may draw on a reserve of each kind once what all peers share of it is gone, which nobody else can empty: a
    flood from peers that bring nothing new cannot starve the traffic of the validators. A copy never draws on it, and
    a vouched peer takes of it no more than it earned by what it brought new. The vouched peers are a third map, in the
-   order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most.
+   order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most; at
+   that cap a newcomer takes the place of the head once it went ten seconds without a vouch (see vouch).
 
    The peers of one quota, such as the addresses of one IPv6 site, also share a bucket of each kind, four times that
    of one peer, as a site may hold a few honest nodes: the addresses one holder has do not multiply what it may send.
@@ -73,6 +74,7 @@ public final class PeerLimiter {
 	/* A validator sends a heartbeat every ten seconds and ballots whenever the chain runs, so a peer that relays what
 	   the validators sign is vouched for again well within this, and one that stops loses the reserve soon after */
 	private static final long VOUCH_MILLIS = 60_000;
+	private static final long IDLE_MILLIS = 10_000;
 
 	/* Each new item that a peer brought earns it two tokens of the reserve, so an honest relay, whose items that are
 	   not copies are new, earns more than it takes, while a peer that was first with a few items it overheard takes
@@ -247,8 +249,8 @@ public final class PeerLimiter {
 		}
 	}
 
-	/* Until when a peer is vouched for, and how many tokens of the reserve it may still take */
-	private record Vouch(long until, long credit) {
+	/* When a peer was last vouched for, and how many tokens of the reserve it may still take */
+	private record Vouch(long at, long credit) {
 	}
 
 	/* The bucket of a peer and that of its quota, each holding a token */
@@ -315,7 +317,7 @@ public final class PeerLimiter {
 	}
 
 	private boolean fromReserve(String id, Kind kind, Tokens own, long now) {
-		expire(vouched, Vouch::until, now);
+		expire(vouched, PeerLimiter::endOf, now);
 
 		final Vouch vouch = vouched.get(id);
 		final boolean earned = vouch != null && vouch.credit() > 0;
@@ -324,7 +326,7 @@ public final class PeerLimiter {
 			return false;
 		}
 
-		vouched.put(id, new Vouch(vouch.until(), vouch.credit() - 1));
+		vouched.put(id, new Vouch(vouch.at(), vouch.credit() - 1));
 		return true;
 	}
 
@@ -395,8 +397,10 @@ public final class PeerLimiter {
 	}
 
 	/* The peer brought something new that a validator signed, which earns it tokens of the reserve. A peer that is
-	   penalised is not vouched for, and while as many peers are vouched for as may be, a new one is not: a newcomer
-	   must not push out the peers that keep bringing what is new. */
+	   penalised is not vouched for. While as many peers are vouched for as may be, a newcomer takes the place of the
+	   one that went longest without bringing anything new, once that is ten seconds, and is refused otherwise: a
+	   place is held by using it, so that peers that took every place and then went quiet cannot keep the relays that
+	   bring what is new out, and a newcomer cannot push out a relay that keeps bringing it. */
 	public void vouch(String id) {
 		final long now = advance();
 
@@ -404,15 +408,30 @@ public final class PeerLimiter {
 			return;
 		}
 
-		expire(vouched, Vouch::until, now);
+		expire(vouched, PeerLimiter::endOf, now);
 
 		final Vouch before = vouched.remove(id);
 
-		if (before != null || vouched.size() < policy.maxPeers() / 2) {
+		if (before != null || vouched.size() < policy.maxPeers() / 2 || displacedIdle(now)) {
 			final long credit = Math.min(MAX_CREDIT, (before == null ? 0 : before.credit()) + CREDIT_PER_ITEM);
 
-			vouched.put(id, new Vouch(saturatedSum(now, VOUCH_MILLIS), credit));
+			vouched.put(id, new Vouch(now, credit));
 		}
+	}
+
+	private boolean displacedIdle(long now) {
+		final Iterator<Vouch> eldest = vouched.values().iterator();
+
+		if (now - eldest.next().at() < IDLE_MILLIS) {
+			return false;
+		}
+
+		eldest.remove();
+		return true;
+	}
+
+	private static long endOf(Vouch vouch) {
+		return saturatedSum(vouch.at(), VOUCH_MILLIS);
 	}
 
 	public void misbehaved(String id, int weight) {
