@@ -483,8 +483,20 @@ public final class LedgerState {
 	}
 
 	private Optional<String> authorityRejection(Transfer transfer) {
-		return vouched || authority.authorizes(transfer) ? Optional.empty()
-			: Optional.of("Fee is below what this node demands");
+		if (vouched) {
+			return Optional.empty();
+		}
+
+		if (!authority.authorizes(transfer)) {
+			return Optional.of("Fee is below what this node demands");
+		}
+
+		return opensAccount(transfer) && transfer.amount() < authority.leastNewAccountAmount()
+			? Optional.of("Amount to a new account is below what this node demands") : Optional.empty();
+	}
+
+	private boolean opensAccount(Transfer transfer) {
+		return !accounts.containsKey(redirects.getOrDefault(transfer.recipient(), transfer.recipient()));
 	}
 
 	private Optional<String> rejectionOf(Claim claim) {
