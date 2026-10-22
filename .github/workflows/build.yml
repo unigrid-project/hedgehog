@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       # Only the badges branch is ever written
       contents: write
