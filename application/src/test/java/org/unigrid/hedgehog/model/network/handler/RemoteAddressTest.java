@@ -210,7 +210,7 @@ public class RemoteAddressTest {
 		assertThat(RemoteAddress.idOf(streamOf(connectionOf("127.0.0.1", "127.0.0.1"))),
 			equalTo("127.0.0.1:" + CONNECTION_PORT));
 		assertThat(RemoteAddress.idOf(streamOf(connectionOf("2001:db8:1:2:3:4:5:6", "2001:db8:1:2:3:4:5:6"))),
-			equalTo("20010db80001/48"));
+			equalTo("20010db800010002/64"));
 	}
 
 	@Example

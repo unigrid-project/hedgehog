@@ -393,20 +393,62 @@ public class NettyLedgerNetworkTest {
 		assertThat(networkOf().peerOf(new EmbeddedChannel(), remote(FIRST)).id(), equalTo(FIRST));
 	}
 
-	/* A site is given a /48 and can number 65536 subnets of /64 in it, so the 16 bits after the first 48 are the
-	   suffix as well */
 	@Property(tries = 50)
-	public void namesAnIPv6PeerByItsSlash48Prefix(@ForAll long prefix, @ForAll long suffix, @ForAll long otherSuffix,
-		@ForAll @IntRange(min = 0, max = 15) int subnetBit, @ForAll @IntRange(min = 16, max = 55) int bit) {
+	public void namesAnIPv6PeerByItsPrefix(@ForAll long prefix, @ForAll long suffix, @ForAll long otherSuffix,
+		@ForAll @IntRange(min = 0, max = 55) int bit) {
 
 		final NettyLedgerNetwork network = networkOf();
 		final String id = network.peerOf(new EmbeddedChannel(), address(prefix, suffix)).id();
 
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix, otherSuffix)).id(), equalTo(id));
-		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << subnetBit), suffix)).id(),
-			equalTo(id));
 		assertThat(network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix)).id(),
 			not(equalTo(id)));
+	}
+
+	/* A site is given a /48 and can number 65536 subnets of /64 in it, so the 16 bits after the first 48 make no
+	   quota of their own */
+	@Property(tries = 50)
+	public void countsTheIPv6PeersOfOneSiteUnderOneQuota(@ForAll long prefix, @ForAll long suffix,
+		@ForAll @IntRange(min = 0, max = 15) int subnetBit, @ForAll @IntRange(min = 16, max = 55) int bit) {
+
+		final NettyLedgerNetwork network = networkOf();
+		final LedgerPeer peer = network.peerOf(new EmbeddedChannel(), address(prefix, suffix));
+		final LedgerPeer neighbour = network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << subnetBit), suffix));
+		final LedgerPeer stranger = network.peerOf(new EmbeddedChannel(), address(prefix ^ (1L << bit), suffix));
+
+		assertThat(neighbour.quota(), equalTo(peer.quota()));
+		assertThat(neighbour.id(), not(equalTo(peer.id())));
+		assertThat(stranger.quota(), not(equalTo(peer.quota())));
+	}
+
+	@Example
+	public void countsAnIPv4PeerUnderAQuotaOfItsOwnAddress() {
+		final NettyLedgerNetwork network = networkOf();
+
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(FIRST)).quota(), equalTo(FIRST));
+		assertThat(network.peerOf(new EmbeddedChannel(), remote(SECOND)).quota(), equalTo(SECOND));
+	}
+
+	/* Two nodes in one site share their limits and nothing else: each is a peer of its own, and cutting one off leaves
+	   the other connected */
+	@Example
+	public void keepsTwoNodesOfOneSiteApartAsPeersAndClosesOnlyTheOneThatIsCutOff() {
+		final EmbeddedChannel first = new EmbeddedChannel();
+		final EmbeddedChannel second = new EmbeddedChannel();
+		final NettyLedgerNetwork network = networkOf();
+
+		network.speakerOf(first, address(0x20010db800010001L, 1));
+		network.speakerOf(second, address(0x20010db800010002L, 1));
+
+		final List<LedgerPeer> peers = network.peers();
+
+		assertThat(peers, hasSize(2));
+		assertThat(peers.get(0).quota(), equalTo(peers.get(1).quota()));
+
+		network.disconnect(peers.get(0).id());
+
+		assertThat(first.isOpen() != second.isOpen(), is(true));
+		assertThat(network.peers(), hasSize(1));
 	}
 
 	private static Supplier<Optional<InetSocketAddress>> mapped(final int a, final int b, final int c, final int d,

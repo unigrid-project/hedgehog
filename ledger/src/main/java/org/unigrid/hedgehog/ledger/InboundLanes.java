@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.ledger;
 
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -38,6 +39,9 @@ import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
    its kind before anything is done for it. Any thread may add; only the serial executor takes. */
 final class InboundLanes {
 	private static final int INBOUND_PER_RUN = 64;
+
+	private record Sender(String id, String quota) {
+	}
 
 	private final Serial serial;
 	private final PeerLimiter limiter;
@@ -88,9 +92,9 @@ final class InboundLanes {
 	   and `refused` is what is done when it gets none, or when there is no node to give it to. The token is the first
 	   thing asked: the work of an item, such as the check of a signature, is bounded by the buckets. An item of a
 	   peer that is penalised, or of one that cannot say who it is, gets no place. The place is as large as the frame
-	   the item came in. `known` says, on the serial executor, whether the node holds the item already: such a copy
-	   takes a token of its sender only, and none that all peers share, and is refused. This runs on the thread of the
-	   caller and holds nothing up. */
+	   the item came in. The token is one of the peer and one of its quota (see LedgerPeer.quota). `known` says, on the
+	   serial executor, whether the node holds the item already: such a copy takes a token of its sender only, and none
+	   that all peers share, and is refused. This runs on the thread of the caller and holds nothing up. */
 	void inbound(LedgerPeer from, Kind kind, int bytes, Admission admission, BooleanSupplier known, Runnable handler,
 		Runnable refused) {
 		final String peer = idOf(from);
@@ -103,7 +107,8 @@ final class InboundLanes {
 			return;
 		}
 
-		final Runnable task = () -> serve(peer, kind, size, junk, known, handler, refused);
+		final Sender sender = new Sender(peer, quotaOf(from, peer));
+		final Runnable task = () -> serve(sender, kind, size, junk, known, handler, refused);
 
 		inboundLane.add(task);
 
@@ -127,26 +132,35 @@ final class InboundLanes {
 		}
 	}
 
-	private void serve(String peer, Kind kind, long size, boolean junk, BooleanSupplier known, Runnable handler,
+	/* A peer that cannot say what it shares its limits with has them to itself */
+	private static String quotaOf(LedgerPeer peer, String id) {
+		try {
+			return Objects.requireNonNullElse(peer.quota(), id);
+		} catch (RuntimeException e) {
+			return id;
+		}
+	}
+
+	private void serve(Sender sender, Kind kind, long size, boolean junk, BooleanSupplier known, Runnable handler,
 		Runnable refused) {
 		try {
-			if (accepting.test(kind) && admitted(peer, kind, junk, known)) {
+			if (accepting.test(kind) && admitted(sender, kind, junk, known)) {
 				handler.run();
 			} else {
 				refused.run();
 			}
 		} finally {
-			budget.giveBack(peer, size, junk);
+			budget.giveBack(sender.id(), size, junk);
 		}
 	}
 
-	private boolean admitted(String peer, Kind kind, boolean junk, BooleanSupplier known) {
+	private boolean admitted(Sender sender, Kind kind, boolean junk, BooleanSupplier known) {
 		if (known.getAsBoolean()) {
-			limiter.allowCopy(peer, kind);
+			limiter.allowCopy(sender.id(), sender.quota(), kind);
 			return false;
 		}
 
-		return limiter.allow(peer, kind, !junk);
+		return limiter.allow(sender.id(), sender.quota(), kind, !junk);
 	}
 
 	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer

@@ -52,6 +52,11 @@ import java.util.function.ToLongFunction;
    a vouched peer takes of it no more than it earned by what it brought new. The vouched peers are a third map, in the
    order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most.
 
+   The peers of one quota, such as the addresses of one IPv6 site, also share a bucket of each kind, four times that
+   of one peer, as a site may hold a few honest nodes: the addresses one holder has do not multiply what it may send.
+   A refusal for it costs no one score, as it is shared, and a peer is penalised for its own refusals alone. The
+   quotas are a fourth map, in the order of their last use, and as many as the active peers.
+
    Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
    back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,
    up to the end of the range of a long. Tokens are counted in thousandths and the score in sixty-thousandths of
@@ -102,6 +107,7 @@ public final class PeerLimiter {
 		private static final int COPIES = 9;
 		private static final int JUNK_PERCENT = 5;
 		private static final int RESERVE_DIVISOR = 4;
+		private static final int QUOTA_PEERS = 4;
 
 		public static final Policy DEFAULT = new Policy(
 			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
@@ -184,6 +190,17 @@ public final class PeerLimiter {
 				Math.max(1, engine.refillPerSecond() * JUNK_PERCENT / 100));
 		}
 
+		/* What the peers of one quota may take of a kind together */
+		public Rate quota(Kind kind) {
+			final Rate one = rates.get(kind);
+
+			return new Rate(timesQuotaPeers(one.capacity()), timesQuotaPeers(one.refillPerSecond()));
+		}
+
+		private static int timesQuotaPeers(int amount) {
+			return (int) Math.min(Integer.MAX_VALUE, (long) amount * QUOTA_PEERS);
+		}
+
 		/* What the peers that are vouched for may still take of a kind once all that the peers share of it is gone:
 		   a quarter of that more. The shared rate is made for nine copies of every item, twice over, and the new
 		   items of the engine alone take an eighteenth of it, so a quarter is several times what they need. */
@@ -234,6 +251,14 @@ public final class PeerLimiter {
 	private record Vouch(long until, long credit) {
 	}
 
+	/* The bucket of a peer and that of its quota, each holding a token */
+	private record Tokens(Bucket own, Bucket quota) {
+		private void take() {
+			own.millitokens -= TOKEN;
+			quota.millitokens -= TOKEN;
+		}
+	}
+
 	private final LongSupplier clock;
 	private final Policy policy;
 	private final Map<String, Peer> active = new LinkedHashMap<>();
@@ -242,6 +267,7 @@ public final class PeerLimiter {
 	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> reserve = new EnumMap<>(Kind.class);
 	private final Map<String, Vouch> vouched = new LinkedHashMap<>();
+	private final Map<String, Map<Kind, Bucket>> quotas = new LinkedHashMap<>();
 	private long epoch;
 	private long lastReading;
 	private long time;
@@ -270,12 +296,17 @@ public final class PeerLimiter {
 	   that outruns its own rate is refused for it and scored, and the peers that send junk at a rate of their own
 	   are only refused. */
 	public boolean allow(String id, Kind kind, boolean plausible) {
-		final long now = advance();
-
-		return ownToken(id, kind, now).map(own -> take(id, kind, plausible, own, now)).orElse(false);
+		return allow(id, id, kind, plausible);
 	}
 
-	private boolean take(String id, Kind kind, boolean plausible, Bucket own, long now) {
+	/* `quota` is what the peer shares its limits with besides its own (see LedgerPeer.quota) */
+	public boolean allow(String id, String quota, Kind kind, boolean plausible) {
+		final long now = advance();
+
+		return ownTokens(id, quota, kind, now).map(own -> take(id, kind, plausible, own, now)).orElse(false);
+	}
+
+	private boolean take(String id, Kind kind, boolean plausible, Tokens own, long now) {
 		if (spend(own, everyone(kind, plausible, now), plausible)) {
 			return true;
 		}
@@ -283,7 +314,7 @@ public final class PeerLimiter {
 		return plausible && fromReserve(id, kind, own, now);
 	}
 
-	private boolean fromReserve(String id, Kind kind, Bucket own, long now) {
+	private boolean fromReserve(String id, Kind kind, Tokens own, long now) {
 		expire(vouched, Vouch::until, now);
 
 		final Vouch vouch = vouched.get(id);
@@ -306,14 +337,19 @@ public final class PeerLimiter {
 	   is scored as any other, but it takes nothing that all peers share: the node does no work for it, and the copies
 	   that every neighbour relays of one item must not empty what the new items need */
 	public boolean allowCopy(String id, Kind kind) {
-		return ownToken(id, kind, advance()).map(own -> {
-			own.millitokens -= TOKEN;
+		return allowCopy(id, id, kind);
+	}
+
+	public boolean allowCopy(String id, String quota, Kind kind) {
+		return ownTokens(id, quota, kind, advance()).map(own -> {
+			own.take();
 			return true;
 		}).orElse(false);
 	}
 
-	/* The bucket of a peer that is not penalised, when it holds a token; running dry costs the peer score */
-	private Optional<Bucket> ownToken(String id, Kind kind, long now) {
+	/* The buckets of a peer that is not penalised and of its quota, when both hold a token. Running dry costs the peer
+	   score; a quota that ran dry costs it nothing, as other peers may have emptied it. */
+	private Optional<Tokens> ownTokens(String id, String quota, Kind kind, long now) {
 		if (penalised(id, now)) {
 			return Optional.empty();
 		}
@@ -326,14 +362,29 @@ public final class PeerLimiter {
 			return Optional.empty();
 		}
 
-		return Optional.of(own);
+		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
+
+		return site.millitokens < TOKEN ? Optional.empty() : Optional.of(new Tokens(own, site));
 	}
 
-	private static boolean spend(Bucket own, Bucket everyone, boolean plausible) {
+	private Map<Kind, Bucket> quotaOf(String quota) {
+		final Map<Kind, Bucket> known = quotas.remove(quota);
+
+		if (known == null && quotas.size() >= policy.maxPeers()) {
+			dropEldest(quotas);
+		}
+
+		final Map<Kind, Bucket> buckets = Objects.requireNonNullElseGet(known, () -> new EnumMap<>(Kind.class));
+
+		quotas.put(quota, buckets);
+		return buckets;
+	}
+
+	private static boolean spend(Tokens own, Bucket everyone, boolean plausible) {
 		final boolean room = everyone.millitokens >= TOKEN;
 
 		if (room || !plausible) {
-			own.millitokens -= TOKEN;
+			own.take();
 		}
 
 		if (room) {

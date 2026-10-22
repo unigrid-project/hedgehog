@@ -683,6 +683,29 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
 	}
 
+	/* Two peers of one quota, such as two nodes in one IPv6 site, take together four times what one may take: each
+	   is refused once the quota is gone, without a score, and is penalised for its own refusals alone */
+	@Example
+	public void shouldLetThePeersOfOneQuotaShareFourTimesTheBucketOfOne() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(3, 1, 2, 60_000, 100));
+
+		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allow("a", "site", Kind.CONSENSUS, true)), is(true));
+		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allow("b", "site", Kind.CONSENSUS, true)), is(true));
+		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", "site", Kind.CONSENSUS)), is(true));
+		assertThat(IntStream.range(0, 3).filter(n -> limiter.allow("d", "site", Kind.CONSENSUS, true)).count(),
+			equalTo(3L));
+		assertThat(IntStream.range(0, 50).filter(n -> limiter.allow("e", "site", Kind.CONSENSUS, true)).count(),
+			equalTo(0L));
+		assertThat(limiter.isPenalised("e"), is(false));
+		assertThat(limiter.allow("f", "elsewhere", Kind.CONSENSUS, true), is(true));
+
+		limiter.allow("a", "site", Kind.CONSENSUS, true);
+		limiter.allow("a", "site", Kind.CONSENSUS, true);
+
+		assertThat(limiter.isPenalised("a"), is(true));
+		assertThat(limiter.isPenalised("b"), is(false));
+	}
+
 	/* A copy of what the node holds already is dropped without any work, so it is no one's cost but its sender's */
 	@Example
 	public void shouldTakeACopyFromTheBucketOfItsSenderAndNothingFromTheLimitForAllPeers() {

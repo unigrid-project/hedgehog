@@ -25,6 +25,13 @@ import java.util.concurrent.CompletableFuture;
 public interface LedgerPeer {
 	String id();
 
+	/* What the limits of the peer count under together with those of other peers, such as the IPv6 site whose holder
+	   can have as many addresses as it likes, while each address is a peer of its own; the peer alone unless the
+	   network knows better */
+	default String quota() {
+		return id();
+	}
+
 	/* The wire object is a Transaction, a Heartbeat, a Message or a Status; a send that cannot be made loses the
 	   object, as the protocol is made to cope with. */
 	void send(Object wire);

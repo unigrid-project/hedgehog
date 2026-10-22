@@ -19,7 +19,10 @@
 package org.unigrid.hedgehog.ledger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -27,8 +30,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
+import org.unigrid.hedgehog.ledger.Door.Admission;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Policy;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Rate;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
@@ -110,6 +119,44 @@ public class InboundLanesTest {
 		first.shutdown();
 
 		assertThat(ran, equalTo(List.of("second")));
+	}
+
+	/* A peer whose limits count with those of the other peers of its site */
+	private record SitePeer(String id, String quota) implements LedgerPeer {
+		@Override
+		public void send(final Object wire) {
+		}
+
+		@Override
+		public CompletableFuture<BlockBatch> request(final BlockRequest request) {
+			return new CompletableFuture<>();
+		}
+	}
+
+	/* Each peer may take two tokens and the peers of one quota eight together */
+	@Example
+	public void shouldTakeTheTokenOfAPeerFromTheBucketOfItsQuotaAsWell() {
+		final Map<Kind, Rate> two = Arrays.stream(Kind.values()).collect(Collectors.toMap(Function.identity(),
+			kind -> new Rate(2, 1)));
+		final Map<Kind, Rate> unlimited = Arrays.stream(Kind.values()).collect(Collectors.toMap(Function.identity(),
+			kind -> new Rate(Integer.MAX_VALUE, Integer.MAX_VALUE)));
+		final InboundLanes strict = new InboundLanes(this::serial, new PeerLimiter(() -> 0,
+			new Policy(two, unlimited, 100, 0, 60_000, 100)), new QueueBudget(100, 100, 100_000, 100_000),
+			kind -> true, Runnable::run, () -> { });
+
+		for (int peer = 0; peer < 5; peer++) {
+			final SitePeer node = new SitePeer("node" + peer, "site");
+
+			IntStream.range(0, 2).forEach(n -> strict.inbound(node, Kind.TRANSACTION, 1, Admission.PLAUSIBLE,
+				() -> false, () -> ran.add(node.id()), () -> ran.add("refused")));
+		}
+
+		strict.inbound(new SitePeer("away", "elsewhere"), Kind.TRANSACTION, 1, Admission.PLAUSIBLE, () -> false,
+			() -> ran.add("away"), () -> ran.add("refused"));
+		queue.drain();
+
+		assertThat(ran.stream().filter("refused"::equals).count(), equalTo(2L));
+		assertThat(ran.contains("away"), equalTo(true));
 	}
 
 	private static void awaitUninterruptibly(final CountDownLatch latch) {
