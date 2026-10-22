@@ -18,8 +18,13 @@
 
 package org.unigrid.hedgehog.server.p2p;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
@@ -36,6 +41,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 public class TopologyThread extends Thread {
 	public static final int BASE_SECONDS_BETWEEN_RECONNECTS = 30;
 	public static final int ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE = 3;
+	public static final int MAX_OUTBOUND = 32;
 
 	private Object lock = new Object();
 	private boolean run = true;
@@ -88,6 +94,21 @@ public class TopologyThread extends Thread {
 			* 1000;
 	}
 
+	/* The connected nodes are looked after first, so a closed connection is dropped, and then new connections are made
+	   to the seeds and to other nodes in a random order until the node holds MAX_OUTBOUND: peers choose what the
+	   topology holds, and a node that connected to all of it would hand them its sockets and threads */
+	static List<Node> inTurn(Set<Node> nodes, Set<Node> seeds) {
+		final List<Node> connected = nodes.stream().filter(node -> node.getConnection().isPresent()).toList();
+		final List<Node> others = new ArrayList<>(nodes.stream().filter(node -> node.getConnection().isEmpty())
+			.toList());
+
+		Collections.shuffle(others);
+		others.sort(Comparator.comparing(node -> !seeds.contains(node)));
+
+		return Stream.concat(connected.stream(), others.stream().limit(Math.max(0, MAX_OUTBOUND - connected.size())))
+			.toList();
+	}
+
 	@Override
 	public void run() {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
@@ -97,10 +118,12 @@ public class TopologyThread extends Thread {
 					topology.repopulate();
 				}
 
+				final Set<Node> seeds = topology.addSeeds();
+
 				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
 
 				final Set<Node> nodes = topology.cloneNodes();
-				nodes.forEach(new NodeConnectionHandler(topology));
+				inTurn(nodes, seeds).forEach(new NodeConnectionHandler(topology));
 
 				synchronized (lock) {
 					try {

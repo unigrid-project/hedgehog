@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -44,6 +45,10 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 public class PendingSporks {
 	public static final Duration LIFETIME = Duration.ofMinutes(60);
 
+	/* The newest proposal of a type wins, so one stamped far ahead would hold off every honest proposal until its
+	   time came; a proposal is taken no further ahead than clocks that are set right drift apart */
+	public static final Duration LEEWAY = Duration.ofMinutes(2);
+
 	private InstantSource clock = InstantSource.system();
 	private final Map<Type, GridSpork> proposals = new EnumMap<>(Type.class);
 
@@ -56,9 +61,18 @@ public class PendingSporks {
 	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
 	public synchronized boolean offer(GridSpork spork, GridSpork stored) {
+		return offer(spork, stored, () -> true);
+	}
+
+	/**
+	* Holds the proposal as {@link #offer(GridSpork, GridSpork)} does, asking {@code mayVerify} right before its
+	* signature is checked, as {@link GridSpork#canBeProposedOver(GridSpork, BooleanSupplier)} does.
+	*/
+	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		if (isAlive(spork) && spork.isNewerThan(held) && spork.canBeProposedOver(stored)) {
+		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held)
+			&& spork.canBeProposedOver(stored, mayVerify)) {
 			proposals.put(spork.getType(), spork);
 			return true;
 		}
@@ -89,6 +103,10 @@ public class PendingSporks {
 		if (Objects.nonNull(held) && !held.canBeProposedOver(stored)) {
 			proposals.remove(stored.getType());
 		}
+	}
+
+	private boolean isAheadOfTime(GridSpork spork) {
+		return spork.getTimeStamp().isAfter(clock.instant().plus(LEEWAY));
 	}
 
 	private boolean isAlive(GridSpork spork) {

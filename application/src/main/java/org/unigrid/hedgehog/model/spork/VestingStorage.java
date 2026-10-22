@@ -25,12 +25,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.Address;
 
 @Data @ToString(callSuper = true)
@@ -49,6 +51,10 @@ public class VestingStorage extends GridSpork implements Serializable {
 	@Data
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = 5831251856818111926L;
+
+		/* Far above the addresses that vest on the network, and far below what the three-byte count on the wire
+		   allows, so a peer cannot make a node hold millions of entries before a signature is checked */
+		public static final int MAX_ENTRIES = 4096;
 
 		private Map<Address, Vesting> vestingAddresses;
 
@@ -78,6 +84,15 @@ public class VestingStorage extends GridSpork implements Serializable {
 
 			data.setVestingAddresses(new HashMap<>());
 			return data;
+		}
+
+		public void validate() {
+			Validate.isTrue(Objects.nonNull(vestingAddresses), "vestingAddresses is required");
+			Validate.isTrue(vestingAddresses.size() <= MAX_ENTRIES, "vestingAddresses holds at most %d entries",
+				MAX_ENTRIES);
+
+			Validate.isTrue(vestingAddresses.keySet().stream().allMatch(Address::isWithinBounds),
+				"Every address of vestingAddresses has to be at most %d bytes", Address.MAX_LENGTH);
 		}
 	}
 }

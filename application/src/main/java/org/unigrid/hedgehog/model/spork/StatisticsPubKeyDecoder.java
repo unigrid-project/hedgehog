@@ -41,7 +41,8 @@ public class StatisticsPubKeyDecoder implements TypedCodec<GridSpork.Type>, Chun
 		final StatisticsPubKey.SporkData data = new StatisticsPubKey.SporkData();
 
 		in.skipBytes(8 /* 64 bits */);
-		data.setPublicKey(ByteBufUtils.readNullTerminatedString(in));
+		data.setPublicKey(ByteBufUtils.readNullTerminatedString(in,
+			StatisticsPubKey.SporkData.MAX_PUBLIC_KEY_LENGTH));
 
 		return Optional.of(data);
 	}

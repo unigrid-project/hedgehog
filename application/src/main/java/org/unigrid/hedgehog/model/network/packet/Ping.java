@@ -32,7 +32,9 @@ import org.unigrid.hedgehog.model.network.Packet;
 @EqualsAndHashCode(callSuper = false)
 public class Ping extends Packet implements Serializable {
 	public static final AttributeKey<Long> PING_TIME_KEY = AttributeKey.valueOf("PING_TIME");
-	public static final int HEARTBEAT_MINUTES = 3;
+	/* Below the 30 seconds after which a NAT, Docker's among them, may forget a UDP flow that is quiet: a node behind
+	   one would otherwise answer from another port once the connection had gone quiet, and its peers lose it */
+	public static final int HEARTBEAT_SECONDS = 20;
 
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();

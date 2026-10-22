@@ -46,6 +46,9 @@ public class VestingStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkE
 	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, VestingStorage.SporkData data, ByteBuf out) throws Exception {
+		/* The signatures cover these bytes, so what cannot be decoded again must not be signed */
+		data.validate();
+
 		out.writeMedium(data.getVestingAddresses().size());
 		out.writeZero(5 /* 40 bits */);
 

@@ -275,4 +275,27 @@ public class LedgerAuthorityTest {
 
 		assertThat(picky.balanceOf(account(2)), equalTo(10L));
 	}
+
+	/* Accounts stay for good and go into every root, so making them costs an amount and not only the fee; topping up
+	   one that holds something costs nothing more */
+	@Example
+	public void shouldDemandTheLeastAmountOfATransferThatOpensAnAccountButNotOfACertifiedBlock() {
+		final LedgerState maker = soloState(ANY_MINT);
+		final LedgerState picky = soloState(TestAuthority.open().withLeastNewAccountAmount(100));
+
+		maker.apply(soloBlock(maker, mint(1, 1000)));
+		picky.apply(soloBlock(picky, mint(1, 1000)));
+
+		final Transfer dust = transfer(picky, 1, account(2), 99, 1, 0);
+
+		assertThat(reasonOf(picky.rejectionOfQueued(dust)), containsString("new account"));
+		assertThat(reasonOf(picky.rejectionOf(dust)), containsString("new account"));
+		assertThat(picky.rejectionOf(transfer(picky, 1, account(2), 100, 1, 0)).isPresent(), is(false));
+
+		picky.apply(block(maker, seeds(1, 1), 1, 2000, List.of(transfer(maker, 1, account(3), 1, 1, 0))));
+
+		assertThat(picky.balanceOf(account(3)), equalTo(1L));
+		assertThat(picky.rejectionOf(transfer(picky, 1, account(3), 1, 1, 1)).isPresent(), is(false));
+		assertThat(picky.rejectionOf(transfer(picky, 1, account(1), 1, 1, 1)).isPresent(), is(false));
+	}
 }

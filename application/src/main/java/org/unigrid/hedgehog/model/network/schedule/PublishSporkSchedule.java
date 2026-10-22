@@ -19,15 +19,11 @@
 package org.unigrid.hedgehog.model.network.schedule;
 
 import io.netty.channel.Channel;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -35,26 +31,10 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Data
-@Slf4j
 @EqualsAndHashCode(callSuper = false)
-public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Schedulable {
-	public PublishAndSaveSporkSchedule() {
+public class PublishSporkSchedule extends AbstractSchedule implements Schedulable {
+	public PublishSporkSchedule() {
 		super(PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
-	}
-
-	private void save(SporkDatabase sporkDatabase) {
-		CDIUtil.resolveAndRun(ApplicationDirectory.class, dir -> {
-			final Path path = Path.of(dir.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
-
-			try {
-				Files.createDirectories(dir.getUserDataDir());
-				SporkDatabase.persist(path, sporkDatabase);
-
-			} catch (Exception ex) {
-				log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
-				log.atTrace().log(() -> ex.toString());
-			}
-		});
 	}
 
 	@Override
@@ -64,8 +44,6 @@ public class PublishAndSaveSporkSchedule extends AbstractSchedule implements Sch
 				CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
 					writeAndFlush(channel, db, pendingSporks);
 				});
-
-				save(db);
 			});
 		};
 	}

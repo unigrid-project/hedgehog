@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network.handler;
 
 import java.math.BigDecimal;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -37,9 +38,20 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 
 public class SporkReceptionTest {
+	private static final String PEER = "198.51.100.7";
+	private static final String ANOTHER_PEER = "203.0.113.9";
+
+	/* A flood comes within the second of one turn, or two when it happens to cross into the next */
+	private static final int MOST_TURNS = 2;
+
+	/* How often the current network keys were asked for, which is once for each signature that is checked: twice
+	   for the lag and twice for the stored spork when a received spork is signed twice */
+	private static final int LOOKUPS_PER_TURN = 4;
+
 	private static Signature proposer;
 	private static Signature cosigner;
 	private static long versions;
+	private static int keyLookups;
 
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private SporkDatabase sporkDatabase;
@@ -57,6 +69,7 @@ public class SporkReceptionTest {
 
 		new MockUp<NetworkKey>() {
 			@Mock public static String[] getPublicKeys() {
+				keyLookups++;
 				return new String[] { proposer.getPublicKey(), cosigner.getPublicKey() };
 			}
 
@@ -67,7 +80,62 @@ public class SporkReceptionTest {
 	}
 
 	private boolean receive(GridSpork spork) {
-		return handler.receive(spork, sporkDatabase, pendingSporks, lag, "198.51.100.7");
+		return handler.receive(spork, sporkDatabase, pendingSporks, lag, PEER);
+	}
+
+	@SneakyThrows
+	private static MintSupply forged(MintSupply spork) {
+		spork.sign(new Signature().getPrivateKey());
+		return spork;
+	}
+
+	private int lookupsOfAFlood(MintSupply forged) {
+		keyLookups = 0;
+		IntStream.range(0, 1000).forEach(n -> receive(forged));
+		return keyLookups;
+	}
+
+	@Example
+	public void shouldCheckAFloodOfForgedProposalsFromOnePeerNoMoreThanItsTurnsAllow() {
+		final MintSupply forged = forged(proposal(new MintSupply()));
+
+		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_TURNS * LOOKUPS_PER_TURN));
+		assertThat(pendingSporks.list(), empty());
+	}
+
+	@Example
+	public void shouldCheckAFloodOfForgedSporksFromOnePeerNoMoreThanItsTurnsAllow() {
+		final MintSupply forged = forged(proposal(new MintSupply()));
+
+		forged.setCosignature(forged.getSignature());
+
+		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_TURNS * LOOKUPS_PER_TURN));
+		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
+	}
+
+	@Example
+	public void shouldTakeAGenuineSporkFromAnotherPeerDuringAFloodFromOne() {
+		final MintSupply forged = forged(proposal(new MintSupply()));
+		final MintSupply genuine = cosigned(proposal(new MintSupply()));
+
+		forged.setCosignature(forged.getSignature());
+		lookupsOfAFlood(forged);
+
+		assertThat(handler.receive(genuine, sporkDatabase, pendingSporks, lag, ANOTHER_PEER), is(true));
+		assertThat(sporkDatabase.getMintSupply(), equalTo(genuine));
+	}
+
+	@Example
+	public void shouldTakeTheGenuineSporksOfOnePeerOneAfterAnother() {
+		final MintSupply first = cosigned(proposal(new MintSupply()));
+		final MintSupply second = cosigned(proposal(first));
+		final MintSupply third = proposal(second);
+
+		assertThat(receive(first), is(true));
+		assertThat(receive(second), is(true));
+		assertThat(receive(third), is(true));
+		assertThat(sporkDatabase.getMintSupply(), equalTo(second));
+		assertThat(pendingSporks.list(), contains(third));
 	}
 
 	@SneakyThrows

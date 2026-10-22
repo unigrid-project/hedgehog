@@ -40,7 +40,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
-public class PublishAndSaveSporkScheduleTest {
+public class PublishSporkScheduleTest {
 	private static Signature proposer;
 
 	@SneakyThrows
@@ -69,7 +69,7 @@ public class PublishAndSaveSporkScheduleTest {
 		proposal.sign(proposer.getPrivateKey());
 		pendingSporks.offer(proposal, null);
 
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().build(), pendingSporks);
+		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().build(), pendingSporks);
 
 		assertThat(published(channel), hasItem(proposal));
 	}
@@ -79,7 +79,7 @@ public class PublishAndSaveSporkScheduleTest {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerBlacklist blacklist = new LedgerBlacklist();
 
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
+		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
 			new PendingSporks());
 
 		assertThat(published(channel), hasItem(sameInstance(blacklist)));
@@ -90,7 +90,7 @@ public class PublishAndSaveSporkScheduleTest {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerFee fee = new LedgerFee();
 
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
+		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
 			new PendingSporks());
 
 		assertThat(published(channel), hasItem(sameInstance(fee)));
@@ -100,7 +100,7 @@ public class PublishAndSaveSporkScheduleTest {
 	public void shouldKeepTheStoredLedgerSporksFromAStreamThatDidNotSettleOnTheLedgerProtocol() {
 		final EmbeddedChannel channel = LedgerStreams.stream(false);
 
-		PublishAndSaveSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
+		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
 			.ledgerBlacklist(new LedgerBlacklist()).mintSupply(new MintSupply()).build(), new PendingSporks());
 
 		assertThat(published(channel).stream().map(GridSpork::getType).toList(),

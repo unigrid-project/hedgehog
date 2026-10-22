@@ -41,6 +41,9 @@ public class StatisticsPubKey extends GridSpork implements Serializable {
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = -5135025483333997339L;
 
+		/* Far above the hex of any public key, so a peer cannot make a node hold a text of any length */
+		public static final int MAX_PUBLIC_KEY_LENGTH = 4096;
+
 		private String publicKey;
 
 		public SporkData empty() {

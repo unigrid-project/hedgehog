@@ -25,11 +25,16 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -37,38 +42,58 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
 	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
+	private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(task -> {
+		final Thread thread = new Thread(task, "spork-database-saver");
+
+		thread.setDaemon(true);
+		return thread;
+	});
 
 	private Path path() {
 		return Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
 	}
 
+	/* The database is saved by one timer of its own, as often as sporks are sent, and not by every stream that sends
+	   them: that would be a write to disk for each peer, on the threads that read the network */
 	@Produces
-	private SporkDatabase produce() {
+	private synchronized SporkDatabase produce() {
 		if (Objects.isNull(sporkDatabase.get())) {
-			try {
-				Files.createDirectories(applicationDirectory.getUserDataDir());
-				sporkDatabase.set(SporkDatabase.load(path()));
-
-			} catch (IOException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
-				log.atWarn().log("Creating fresh spork database: {}", ex.getMessage());
-				log.atTrace().log(() -> ex.toString());
-			} catch (ClassCastException | SerializationException ex) {
-				sporkDatabase.set(SporkDatabase.builder().build());
-
-				log.atWarn().log("Database serialization incompatibility, defaulting to fresh"
-					+ " spork database: {}", ex.getMessage()
-				);
-
-				log.atTrace().log(() -> ex.toString());
-			}
+			sporkDatabase.set(loaded(path()));
+			saver.scheduleWithFixedDelay(this::save, PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES,
+				PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES);
 		}
 
 		return sporkDatabase.get();
 	}
 
-	@PreDestroy
-	private void destroy() {
+	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
+	   would write over it, and what it held is the operator's to look at and the network's to send again */
+	private SporkDatabase loaded(Path path) {
+		try {
+			Files.createDirectories(applicationDirectory.getUserDataDir());
+			return Files.exists(path) ? SporkDatabase.load(path) : SporkDatabase.builder().build();
+
+		} catch (IOException | ClassCastException | SerializationException ex) {
+			log.atWarn().addArgument(path).addArgument(movedAside(path)).addArgument(ex.getMessage())
+				.log("The spork database {} cannot be read, it is kept as {} and the node starts with an "
+					+ "empty one: {}");
+			log.atTrace().log(() -> ex.toString());
+			return SporkDatabase.builder().build();
+		}
+	}
+
+	private static String movedAside(Path path) {
+		final Path aside = path.resolveSibling(path.getFileName() + ".unreadable-" + Instant.now().getEpochSecond());
+
+		try {
+			return Files.move(path, aside).toString();
+		} catch (IOException ex) {
+			log.atWarn().addArgument(path).addArgument(ex.getMessage()).log("Could not move {} aside: {}");
+			return path.toString();
+		}
+	}
+
+	private void save() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
 			SporkDatabase.persist(path(), sporkDatabase.get());
@@ -76,6 +101,15 @@ public class SporkDatabaseProducer {
 		} catch (Exception ex) {
 			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
 			log.atTrace().log(() -> ex.toString());
+		}
+	}
+
+	@PreDestroy
+	private void destroy() {
+		saver.shutdownNow();
+
+		if (Objects.nonNull(sporkDatabase.get())) {
+			save();
 		}
 	}
 }

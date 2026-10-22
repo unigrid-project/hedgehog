@@ -39,6 +39,9 @@ public class MintStorageEncoder implements TypedCodec<GridSpork.Type>, ChunkEnco
 	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, MintStorage.SporkData data, ByteBuf out) throws Exception {
+		/* The signatures cover these bytes, so what cannot be decoded again must not be signed */
+		data.validate();
+
 		out.writeMedium(data.getMints().size());
 		out.writeZero(5 /* 40 bits */);
 

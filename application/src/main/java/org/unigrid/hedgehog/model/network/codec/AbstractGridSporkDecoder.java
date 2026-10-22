@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -87,20 +88,29 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 
 			gridSpork.setSignature(readSized(in));
 			gridSpork.setCosignature(emptyAsNull(readSized(in)));
-
-			final int logSize = in.readInt();
-			final List<SignatureLogEntry> entries = new ArrayList<>();
-
-			for (int i = 0; i < logSize; i++) {
-				entries.add(decodeLogEntry(in));
-			}
-
-			gridSpork.setSignatureLog(new SignatureLog(entries));
+			gridSpork.setSignatureLog(decodeLog(in));
 			return Optional.of(gridSpork);
 		}
 
 		log.atError().log("Unable to handle spork chunk of type {}", type);
 		return Optional.empty();
+	}
+
+	private SignatureLog decodeLog(ByteBuf in) {
+		final int size = in.readInt();
+
+		if (size < 0 || size > SignatureLog.MAX_ENTRIES) {
+			throw new CorruptedFrameException("A signature log of " + size + " entries is not one of 0 to "
+				+ SignatureLog.MAX_ENTRIES);
+		}
+
+		final List<SignatureLogEntry> entries = new ArrayList<>();
+
+		for (int i = 0; i < size; i++) {
+			entries.add(decodeLogEntry(in));
+		}
+
+		return new SignatureLog(entries);
 	}
 
 	private SignatureLogEntry decodeLogEntry(ByteBuf in) {

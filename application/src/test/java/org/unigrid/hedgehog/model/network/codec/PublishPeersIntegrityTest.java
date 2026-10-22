@@ -21,7 +21,10 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.CorruptedFrameException;
+import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mocked;
 import net.jqwik.api.Arbitraries;
@@ -45,8 +48,11 @@ import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
+	private static final int PORT = 52883;
+
 	@Mocked
 	private Connection emptyConnection;
 
@@ -75,19 +81,93 @@ public class PublishPeersIntegrityTest extends BaseCodecTest<PublishPeers> {
 		return Arbitraries.of(publishPeers);
 	}
 
+	private static ByteBuf peers(int count) {
+		return Unpooled.buffer().writeShort(count).writeZero(6 /* 48 bytes */);
+	}
+
+	private static ByteBuf peers(String... hosts) {
+		final ByteBuf in = peers(hosts.length);
+
+		for (String host : hosts) {
+			in.writeShort(PORT);
+			in.writeZero(6 /* 48 bytes */);
+			ByteBufUtils.writeNullTerminatedString(host, in);
+		}
+
+		return in;
+	}
+
+	@SneakyThrows
+	private static PublishPeers decoded(ByteBuf in) {
+		final PublishPeers publishPeers = new PublishPeersDecoder().typedDecode(null, in).orElseThrow();
+
+		assertThat("The decoder leaves bytes of the frame", in.isReadable(), is(false));
+		return publishPeers;
+	}
+
+	private static Node node(String address) {
+		return Node.builder().address(new InetSocketAddress(InetAddress.ofLiteral(address), PORT)).build();
+	}
+
 	/* A peer says what it likes, and a host that does not resolve is no node to keep */
 	@Example
-	@SneakyThrows
 	public void shouldKeepNoNodeThatAPeerNamesByAHostThatDoesNotResolve() {
-		final ByteBuf in = Unpooled.buffer();
+		assertThat(decoded(peers("no-such-host.invalid")).getNodes(), empty());
+	}
 
-		in.writeShort(1);
-		in.writeZero(6 /* 48 bytes */);
-		in.writeShort(52883);
-		in.writeZero(6 /* 48 bytes */);
-		ByteBufUtils.writeNullTerminatedString("no-such-host.invalid", in);
+	/* Looking up a name a peer sends would hold up the streams of the node for as long as a name server likes, so
+	   even a name that resolves at once is dropped */
+	@Example
+	public void shouldDropAHostNameThatResolves() {
+		assertThat(decoded(peers("localhost", "198.51.100.7")).getNodes(), contains(node("198.51.100.7")));
+	}
 
-		assertThat(new PublishPeersDecoder().typedDecode(null, in).orElseThrow().getNodes(), empty());
+	@Example
+	public void shouldTakeTheAddressesOfBothFamilies() {
+		final PublishPeers publishPeers = decoded(peers("198.51.100.7", "2001:db8:0:0:0:0:0:7", "2001:db8::8"));
+
+		assertThat(publishPeers.getNodes(), containsInAnyOrder(node("198.51.100.7"), node("2001:db8::7"),
+			node("2001:db8::8")));
+		assertThat(publishPeers.getNodes().stream().noneMatch(n -> n.getAddress().isUnresolved()), is(true));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldMatchANodeOfEachFamily() {
+		final PublishPeers publishPeers = PublishPeers.builder().build();
+
+		publishPeers.getNodes().add(node("198.51.100.7"));
+		publishPeers.getNodes().add(node("2001:db8::7"));
+
+		final ByteBuf out = new PublishPeersEncoder().encode(null, publishPeers).orElseThrow();
+
+		assertThat(decoded(out), equalTo(publishPeers));
+	}
+
+	@Property(tries = 10)
+	public void shouldTakeNoMoreThanTheCapOfAListAndReadPastTheRest(
+		@ForAll @IntRange(min = PublishPeersDecoder.MAX_PEERS + 1, max = Short.MAX_VALUE) int count) {
+
+		final String[] hosts = IntStream.range(0, count)
+			.mapToObj(n -> "10." + (n >> 16) + "." + (n >> 8 & 0xff) + "." + (n & 0xff)).toArray(String[]::new);
+
+		assertThat(decoded(peers(hosts)).getNodes(), hasSize(PublishPeersDecoder.MAX_PEERS));
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseAHostLongerThanAnAddressIsWritten(
+		@ForAll @IntRange(min = PublishPeersDecoder.MAX_HOST_ADDRESS + 1, max = 4096) int length) {
+
+		final ByteBuf in = peers("1".repeat(length));
+
+		assertThrows(CorruptedFrameException.class, () -> new PublishPeersDecoder().typedDecode(null, in));
+	}
+
+	@Example
+	public void shouldRefuseAHostThatDoesNotEnd() {
+		final ByteBuf in = peers(1).writeShort(PORT).writeZero(6 /* 48 bytes */).writeBytes("198.51.100.7".getBytes());
+
+		assertThrows(CorruptedFrameException.class, () -> new PublishPeersDecoder().typedDecode(null, in));
 	}
 
 	@Example

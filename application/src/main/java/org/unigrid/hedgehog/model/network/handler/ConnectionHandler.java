@@ -28,23 +28,57 @@ import jakarta.enterprise.inject.spi.CDI;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Objects;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 
 @Slf4j
 @Sharable
+@RequiredArgsConstructor
 public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 	public static final AttributeKey<InetSocketAddress> SOCKET_ADDRESS_KEY = AttributeKey.valueOf("SOCKET_ADDRESS");
+	private static final AttributeKey<InetAddress> ADMITTED_KEY = AttributeKey.valueOf("ADMITTED");
+
+	private final ConnectionLimiter limiter;
 
 	private int getPort(ChannelHandlerContext ctx) {
 		final InetSocketAddress oldAddress = ctx.channel().attr(SOCKET_ADDRESS_KEY).get();
 		return Objects.isNull(oldAddress) ? NetOptions.getPort() : oldAddress.getPort();
 	}
 
+	/* A connection counts against the address it first came from, for as long as it is open */
+	private boolean admitted(ChannelHandlerContext ctx, InetAddress address) {
+		if (ctx.channel().hasAttr(ADMITTED_KEY)) {
+			return true;
+		}
+
+		if (limiter.admit(address)) {
+			ctx.channel().attr(ADMITTED_KEY).set(address);
+			return true;
+		}
+
+		log.atDebug().addArgument(address).log("Too many connections from {}, one more is closed");
+		ctx.close();
+		return false;
+	}
+
+	@Override
+	public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+		Optional.ofNullable(ctx.channel().attr(ADMITTED_KEY).getAndSet(null)).ifPresent(limiter::release);
+		super.channelInactive(ctx);
+	}
+
 	@Override
 	public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+		if (evt instanceof QuicConnectionEvent event
+			&& !admitted(ctx, ((InetSocketAddress) event.newAddress()).getAddress())) {
+			return;
+		}
+
 		final Instance<Topology> topology = CDI.current().select(Topology.class);
 
 		if (topology.isResolvable() && evt instanceof QuicConnectionEvent event) {

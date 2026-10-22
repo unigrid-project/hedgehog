@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network.util;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.util.CharsetUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,12 +27,18 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class ByteBufUtils {
-	public static String readNullTerminatedString(ByteBuf src) {
-		final byte[] result = new byte[src.bytesBefore((byte) 0)];
+	/* The text comes from a peer, so it is refused unless it ends within the bound, before anything is allocated */
+	public static String readNullTerminatedString(ByteBuf src, int maxLength) {
+		final int length = src.bytesBefore(Math.min(src.readableBytes(), maxLength + 1), (byte) 0);
+
+		if (length < 0) {
+			throw new CorruptedFrameException("A text does not end within " + maxLength + " bytes");
+		}
+
+		final byte[] result = new byte[length];
 
 		src.readBytes(result);
-		src.skipBytes(1); /* Skip the null terminator */
-
+		src.skipBytes(1 /* The zero that ends the text */);
 		return new String(result, CharsetUtil.UTF_8);
 	}
 
@@ -40,12 +47,12 @@ public class ByteBufUtils {
 		dest.writeZero(1); /* Null terminate */
 	}
 
-	public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader) {
+	public static <T> String[] readNullTerminatedStringArray(ByteBuf src, Function<ByteBuf, T> reader, int maxLength) {
 		final T length = reader.apply(src);
 		final List<String> strings = new ArrayList<>();
 
 		for (int i = 0; i < (int) length; i++) {
-			strings.add(readNullTerminatedString(src));
+			strings.add(readNullTerminatedString(src, maxLength));
 		}
 
 		return strings.toArray(new String[0]);

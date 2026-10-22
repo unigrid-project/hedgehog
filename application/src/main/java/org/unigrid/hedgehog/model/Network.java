@@ -50,7 +50,12 @@ public class Network {
 	public static final int COMMUNICATION_THREADS = 4;
 	public static final int MAX_DATA_SIZE = 1024 * 1024 * 256; /* 256 MB */
 
-	public static final int MAX_STREAMS = 512;
+	/* What a peer may have in flight to this node before it waits for it to read, on a connection and on a stream.
+	   A frame larger than this still arrives, as the node hands out more as it reads. */
+	public static final int MAX_WINDOW_SIZE = 1024 * 1024 * 16; /* 16 MB */
+
+	/* A node opens one stream on each connection, so a peer that opens more has no use for them */
+	public static final int MAX_STREAMS = 16;
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
 

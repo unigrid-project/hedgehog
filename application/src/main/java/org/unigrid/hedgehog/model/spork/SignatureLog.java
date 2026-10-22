@@ -37,6 +37,10 @@ import org.apache.commons.codec.digest.DigestUtils;
 public class SignatureLog implements Serializable {
 	private static final long serialVersionUID = 1L;
 
+	/* An entry for each version a spork has had, which is years of versions signed every day, and a peer cannot make
+	   a node read more of them than this before a signature is checked */
+	public static final int MAX_ENTRIES = 4096;
+
 	private final List<SignatureLogEntry> entries = new ArrayList<>();
 
 	public SignatureLog(List<SignatureLogEntry> entries) {

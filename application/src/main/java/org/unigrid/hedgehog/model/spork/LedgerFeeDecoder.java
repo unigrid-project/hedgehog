@@ -35,21 +35,26 @@ public class LedgerFeeDecoder implements TypedCodec<GridSpork.Type>, ChunkDecode
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
 	    [        minimum fee in units of 1e-8 coins (u64, big-endian)  ]
+	    [ minimum amount to a new account in units of 1e-8 coins (u64) ]
 	*/
 	@Override
 	public Optional<LedgerFee.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-		final long units = in.readLong();
-
-		/* Unsigned, as a signed reading would take every value with the high bit set for a small fee */
-		if (Long.compareUnsigned(units, LedgerFee.SporkData.MAX_UNITS) > 0) {
-			throw new CorruptedFrameException("A minimum fee of " + Long.toUnsignedString(units)
-				+ " units exceeds the cap of " + LedgerFee.SporkData.MAX_UNITS);
-		}
-
 		final LedgerFee.SporkData data = new LedgerFee.SporkData();
 
-		data.setMinimumTransferFee(BigDecimal.valueOf(units, LedgerFee.SporkData.DECIMALS));
+		data.setMinimumTransferFee(amount(in.readLong(), LedgerFee.SporkData.MAX_UNITS, "minimum fee"));
+		data.setMinimumNewAccountAmount(amount(in.readLong(), LedgerFee.SporkData.MAX_NEW_ACCOUNT_UNITS,
+			"minimum amount to a new account"));
 		return Optional.of(data);
+	}
+
+	/* Unsigned, as a signed reading would take every value with the high bit set for a small amount */
+	private static BigDecimal amount(long units, long cap, String name) {
+		if (Long.compareUnsigned(units, cap) > 0) {
+			throw new CorruptedFrameException("A " + name + " of " + Long.toUnsignedString(units)
+				+ " units exceeds the cap of " + cap);
+		}
+
+		return BigDecimal.valueOf(units, LedgerFee.SporkData.DECIMALS);
 	}
 
 	@Override

@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.service.ledger;
 
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.IntFunction;
 import java.util.function.IntSupplier;
@@ -50,7 +51,7 @@ import static org.unigrid.hedgehog.service.ledger.FleetContainers.within;
 final class FleetSporks {
 	private static final Signature PROPOSER = networkKey();
 	private static final Signature COSIGNER = networkKey();
-	private static final Duration TAKEN_WITHIN = Duration.ofSeconds(2);
+	private static final Duration TAKEN_WITHIN = Duration.ofSeconds(2).plus(SporkLag.VERIFY_GAP);
 
 	private final IntFunction<String> containerOf;
 	private final IntSupplier nodes;
@@ -125,12 +126,18 @@ final class FleetSporks {
 			bean(container, SporkLag.class), "fleet"));
 	}
 
-	/* To every node, and then until each of them holds it, or an error saying that one did not take it. The nodes
-	   take it side by side: checking the signatures of a spork is most of what a node does with it. */
+	/* To every node, and again to each node that does not hold it yet, as peers send a spork again and again, until
+	   each of them holds it or an error says that one did not take it. A node that has just turned a forged spork of
+	   the type away from the fleet checks the next one from it a second later. The nodes take it side by side:
+	   checking the signatures of a spork is most of what a node does with it. */
 	void publish(final GridSpork spork) {
-		IntStream.range(0, nodes.getAsInt()).parallel().forEach(node -> deliver(node, spork));
-		await("every node holds the spork").atMost(TAKEN_WITHIN).until(() -> IntStream.range(0, nodes.getAsInt())
-			.allMatch(node -> holds(node, spork)));
+		await("every node holds the spork").atMost(TAKEN_WITHIN).until(() -> {
+			final List<Integer> missing = IntStream.range(0, nodes.getAsInt()).filter(node -> !holds(node, spork))
+				.boxed().toList();
+
+			missing.parallelStream().forEach(node -> deliver(node, spork));
+			return missing.isEmpty();
+		});
 	}
 
 	private boolean holds(final int node, final GridSpork spork) {

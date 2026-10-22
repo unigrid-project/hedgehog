@@ -47,28 +47,48 @@ public class LedgerFee extends GridSpork implements Serializable {
 		/* One coin, so a mistyped fee cannot price every transfer out of the ledger */
 		public static final long MAX_UNITS = 100_000_000L;
 
+		/* A hundred coins, so a mistyped amount cannot keep everyone without an account out of the ledger */
+		public static final long MAX_NEW_ACCOUNT_UNITS = 100 * MAX_UNITS;
+
 		private BigDecimal minimumTransferFee = BigDecimal.ZERO;
+
+		/* The least amount of a transfer to an address that holds nothing in the ledger yet */
+		private BigDecimal minimumNewAccountAmount = BigDecimal.ZERO;
 
 		@Override
 		public SporkData empty() {
 			return new SporkData();
 		}
 
-		/* Cheapest checks first: a fee with an absurd exponent is refused before anything is rescaled */
 		public void validate() {
-			Validate.isTrue(Objects.nonNull(minimumTransferFee), "minimumTransferFee is required");
-			Validate.isTrue(minimumTransferFee.signum() >= 0, "minimumTransferFee cannot be negative");
-			Validate.isTrue(minimumTransferFee.compareTo(BigDecimal.valueOf(MAX_UNITS, DECIMALS)) <= 0,
-				"minimumTransferFee is at most 1 coin");
+			validate("minimumTransferFee", minimumTransferFee, MAX_UNITS);
+			validate("minimumNewAccountAmount", minimumNewAccountAmount, MAX_NEW_ACCOUNT_UNITS);
+		}
 
-			Validate.isTrue(minimumTransferFee.stripTrailingZeros().scale() <= DECIMALS,
-				"minimumTransferFee has at most %d decimals", DECIMALS);
+		/* Cheapest checks first: an amount with an absurd exponent is refused before anything is rescaled */
+		private static void validate(String name, BigDecimal amount, long maxUnits) {
+			Validate.isTrue(Objects.nonNull(amount), "%s is required", name);
+			Validate.isTrue(amount.signum() >= 0, "%s cannot be negative", name);
+			final BigDecimal max = BigDecimal.valueOf(maxUnits, DECIMALS);
+
+			Validate.isTrue(amount.compareTo(max) <= 0, "%s is at most %s coins", name,
+				max.stripTrailingZeros().toPlainString());
+			Validate.isTrue(amount.stripTrailingZeros().scale() <= DECIMALS, "%s has at most %d decimals", name,
+				DECIMALS);
 		}
 
 		public long units() {
 			validate();
-			return minimumTransferFee.setScale(DECIMALS, RoundingMode.UNNECESSARY).unscaledValue()
-				.longValueExact();
+			return unitsOf(minimumTransferFee);
+		}
+
+		public long newAccountUnits() {
+			validate();
+			return unitsOf(minimumNewAccountAmount);
+		}
+
+		private static long unitsOf(BigDecimal amount) {
+			return amount.setScale(DECIMALS, RoundingMode.UNNECESSARY).unscaledValue().longValueExact();
 		}
 	}
 }

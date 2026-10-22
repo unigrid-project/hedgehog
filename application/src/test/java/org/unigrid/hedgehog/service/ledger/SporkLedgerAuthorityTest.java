@@ -127,6 +127,10 @@ public class SporkLedgerAuthorityTest {
 			boolean authorizes(Transfer transfer) {
 				return real.authorizes(transfer);
 			}
+
+			long leastNewAccountAmount() {
+				return real.leastNewAccountAmount();
+			}
 		}
 
 		/* Every spork is set, none is behind, and the one entry of the mint spork is due at 100 seconds */
@@ -459,24 +463,33 @@ public class SporkLedgerAuthorityTest {
 	}
 
 	/* The ledger judges every due mint once for each tick of the node and once for each block it checks, so a
-	   judgement that looks through all the entries makes thousands of them take seconds and the node falls behind */
+	   judgement that looks through all the entries makes thousands of them take seconds and the node falls behind.
+	   Four times the entries may take about four times as long, never the sixteen times of a scan per judgement; the
+	   two are timed side by side, so a busy machine slows both and no bound in milliseconds is needed. */
 	@Example
 	public void shouldJudgeThousandsOfDueMintsInTimeThatDoesNotGrowWithTheSquareOfTheirNumber() {
+		final long few = fastestJudgementOfAll(2_000);
+		final long many = fastestJudgementOfAll(8_000);
+
+		assertThat(many, lessThan(10 * few + Duration.ofMillis(20).toNanos()));
+	}
+
+	private static long fastestJudgementOfAll(int entries) {
 		final Rig rig = Rig.open();
 
-		rig.store(entriesOf(LongStream.rangeClosed(1, 8_000).boxed().toList()));
+		rig.store(entriesOf(LongStream.rangeClosed(1, entries).boxed().toList()));
 
 		final List<Mint> due = rig.authority.due(FAR_FUTURE);
-		final long nanos = LongStream.range(0, 3).map(round -> {
+
+		assertThat(due, hasSize(entries));
+
+		return LongStream.range(0, 5).map(round -> {
 			final long start = System.nanoTime();
 			final long judged = due.stream().filter(mint -> rig.authority.authorizes(mint, FAR_FUTURE)).count();
 
 			assertThat(judged, is((long) due.size()));
 			return System.nanoTime() - start;
 		}).min().orElseThrow();
-
-		assertThat(due, hasSize(8_000));
-		assertThat(nanos, lessThan(Duration.ofMillis(400).toNanos()));
 	}
 
 	@Property(tries = 200)
@@ -705,6 +718,21 @@ public class SporkLedgerAuthorityTest {
 		final Rig rig = Rig.open();
 
 		assertThat(rig.authority.authorizes(transferWithFee(0)), is(true));
+	}
+
+	@Example
+	public void shouldDemandTheAmountToANewAccountThatTheFeeSporkNames() {
+		final Rig rig = Rig.open();
+		final LedgerFee spork = feeSpork(BigDecimal.ZERO);
+
+		assertThat(rig.authority.leastNewAccountAmount(), is(0L));
+
+		spork.<LedgerFee.SporkData>getData().setMinimumNewAccountAmount(new BigDecimal("1.5"));
+		rig.database.setLedgerFee(spork);
+		assertThat(rig.authority.leastNewAccountAmount(), is(150_000_000L));
+
+		rig.database.setLedgerFee(null);
+		assertThat(rig.authority.leastNewAccountAmount(), is(0L));
 	}
 
 	@Example
