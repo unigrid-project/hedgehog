@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -39,6 +40,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.Address;
 
 @Data @ToString(callSuper = true)
@@ -57,6 +59,10 @@ public class MintStorage extends GridSpork implements Serializable {
 	@Data
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = 4256094579914357173L;
+
+		/* Far above the few hundred mints of the network, and far below what the three-byte count on the wire
+		   allows, so a peer cannot make a node hold millions of entries before a signature is checked */
+		public static final int MAX_ENTRIES = 16384;
 
 		@JsonSerialize(keyUsing = Location.Serializer.class)
 		@JsonDeserialize(keyUsing = Location.Deserializer.class)
@@ -122,6 +128,14 @@ public class MintStorage extends GridSpork implements Serializable {
 
 			data.setMints(new HashMap<>());
 			return data;
+		}
+
+		public void validate() {
+			Validate.isTrue(Objects.nonNull(mints), "mints is required");
+			Validate.isTrue(mints.size() <= MAX_ENTRIES, "mints holds at most %d entries", MAX_ENTRIES);
+
+			Validate.isTrue(mints.keySet().stream().map(Location::getAddress).allMatch(Address::isWithinBounds),
+				"Every address of mints has to be at most %d bytes", Address.MAX_LENGTH);
 		}
 	}
 }

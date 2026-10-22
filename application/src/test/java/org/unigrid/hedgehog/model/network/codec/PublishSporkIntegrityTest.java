@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.time.Instant;
 import java.math.BigDecimal;
 import lombok.SneakyThrows;
@@ -34,6 +35,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.ShortRange;
 import net.jqwik.api.domains.Domain;
@@ -54,8 +56,11 @@ import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSporkProvider;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.SignatureLog;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
+	private static final int FRAME_HEADER = 8;
 	private static String[] networkKeys;
 
 	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
@@ -138,6 +143,49 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 
 		assertThat(received.canReplace(stored), is(true));
 		assertThat(roundTrip(renewedAgain, context).canReplace(received), is(true));
+	}
+
+	/* The body of a frame of a spork with no log, its count of log entries changed to the one given */
+	private static ByteBuf withLogOf(int entries) {
+		final EmbeddedChannel encoder = new EmbeddedChannel(new PublishSporkEncoder());
+		final MintSupply spork = new MintSupply();
+
+		spork.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.TEN);
+		spork.setPreviousData(spork.getData());
+		spork.setSignature(new byte[60]);
+		encoder.writeOutbound(PublishSpork.builder().gridSpork(spork).build());
+
+		final ByteBuf frame = encoder.readOutbound();
+
+		return frame.setInt(frame.writerIndex() - Integer.BYTES, entries).skipBytes(FRAME_HEADER);
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseASignatureLogOfANegativeSize(@ForAll @IntRange(min = Integer.MIN_VALUE, max = -1)
+		int entries) {
+
+		assertThrows(CorruptedFrameException.class, () -> new PublishSporkDecoder().typedDecode(null,
+			withLogOf(entries)));
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseASignatureLogAboveTheCapBeforeReadingAnEntry(
+		@ForAll @IntRange(min = SignatureLog.MAX_ENTRIES + 1) int entries) {
+
+		final ByteBuf body = withLogOf(entries);
+
+		assertThrows(CorruptedFrameException.class, () -> new PublishSporkDecoder().typedDecode(null, body));
+		assertThat(body.readableBytes(), equalTo(0));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldTakeAnEmptySignatureLog() {
+		final ByteBuf body = withLogOf(0);
+
+		assertThat(new PublishSporkDecoder().typedDecode(null, body).orElseThrow().getGridSpork().getSignatureLog()
+			.isEmpty(), is(true));
+		assertThat(body.readableBytes(), equalTo(0));
 	}
 
 	/* A spork of a type this node does not know is left alone, and what follows its type in the frame is not read as

@@ -19,7 +19,9 @@
 package org.unigrid.hedgehog.model;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
+import java.util.Objects;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -40,5 +42,10 @@ public class Address implements Serializable, Comparable<Address> {
 	@Override
 	public int compareTo(Address other) {
 		return ORDER.compare(this, other);
+	}
+
+	public static boolean isWithinBounds(Address address) {
+		return Objects.nonNull(address) && Objects.nonNull(address.wif)
+			&& address.wif.getBytes(StandardCharsets.UTF_8).length <= MAX_LENGTH;
 	}
 }

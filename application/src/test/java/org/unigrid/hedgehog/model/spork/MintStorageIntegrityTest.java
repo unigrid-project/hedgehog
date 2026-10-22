@@ -25,6 +25,8 @@ import io.netty.handler.codec.CorruptedFrameException;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -36,6 +38,7 @@ import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class MintStorageIntegrityTest {
@@ -51,6 +54,11 @@ public class MintStorageIntegrityTest {
 
 	private static SporkData with(String address, int number) {
 		return with(new HashMap<>(Map.of(new Location(new Address(address), number), BigDecimal.TEN)));
+	}
+
+	private static SporkData withMints(int count) {
+		return with(IntStream.range(0, count).boxed().collect(Collectors.toMap(
+			number -> new Location(new Address(ACCOUNT), number), number -> BigDecimal.ONE)));
 	}
 
 	@SneakyThrows
@@ -120,6 +128,40 @@ public class MintStorageIntegrityTest {
 			.writeBytes(ACCOUNT.getBytes());
 
 		assertThrows(CorruptedFrameException.class, () -> decoded(buffer));
+	}
+
+	@Example
+	public void survivesARoundTripAtTheCap() {
+		final SporkData data = withMints(SporkData.MAX_ENTRIES);
+		final ByteBuf buffer = encoded(data);
+
+		assertThat(decoded(buffer), equalTo(data));
+		assertThat(buffer.readableBytes(), equalTo(0));
+	}
+
+	@Property(tries = 50)
+	public void refusesACountAboveTheCapBeforeReadingAnyMint(
+		@ForAll @IntRange(min = SporkData.MAX_ENTRIES + 1, max = 0xFF_FFFF) int count) {
+
+		final ByteBuf buffer = Unpooled.buffer().writeMedium(count);
+
+		assertThrows(CorruptedFrameException.class, () -> decoded(buffer));
+		assertThat(buffer.readableBytes(), equalTo(0));
+	}
+
+	@Example
+	public void refusesAClaimOfMillionsOfMintsInATinyBodyAtOnce() {
+		final ByteBuf buffer = mintTo(ACCOUNT).setMedium(0, 1 << 23);
+
+		assertThat(assertThrows(CorruptedFrameException.class, () -> decoded(buffer)).getMessage(),
+			startsWith("A mint storage of " + (1 << 23)));
+		assertThat(buffer.readerIndex(), equalTo(3));
+	}
+
+	@Example
+	public void refusesToWriteWhatItsPeersWouldNotAccept() {
+		assertThrows(IllegalArgumentException.class, () -> encoded(withMints(SporkData.MAX_ENTRIES + 1)));
+		assertThrows(IllegalArgumentException.class, () -> encoded(with("a".repeat(Address.MAX_LENGTH + 1), 1)));
 	}
 
 	@Example

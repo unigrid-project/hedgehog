@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Optional;
@@ -42,9 +43,15 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 	*/
 	@Override
 	public Optional<MintStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final int entries = in.readUnsignedMedium();
+
+		if (entries > MintStorage.SporkData.MAX_ENTRIES) {
+			throw new CorruptedFrameException("A mint storage of " + entries + " mints exceeds the cap of "
+				+ MintStorage.SporkData.MAX_ENTRIES);
+		}
+
 		final MintStorage.SporkData data = new MintStorage.SporkData();
 		final HashMap<MintStorage.SporkData.Location, BigDecimal> mints = new HashMap<>();
-		final int entries = in.readMedium();
 
 		in.skipBytes(5 /* 40 bits */);
 

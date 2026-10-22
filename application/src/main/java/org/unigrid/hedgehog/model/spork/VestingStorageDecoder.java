@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.model.spork;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.CorruptedFrameException;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -33,6 +35,10 @@ import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 @Chunk(type = ChunkType.DECODER, group = ChunkGroup.GRIDSPORK)
 public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDecoder<VestingStorage.SporkData> {
+	private interface Time<T> {
+		T of(long seconds, long nanos);
+	}
+
 	/*
 	    Chunk format:
 	    0..............................................................63
@@ -49,9 +55,15 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 	*/
 	@Override
 	public Optional<VestingStorage.SporkData> decodeChunk(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		final int entries = in.readUnsignedMedium();
+
+		if (entries > VestingStorage.SporkData.MAX_ENTRIES) {
+			throw new CorruptedFrameException("A vesting storage of " + entries + " vestings exceeds the cap of "
+				+ VestingStorage.SporkData.MAX_ENTRIES);
+		}
+
 		final VestingStorage.SporkData data = new VestingStorage.SporkData();
 		final HashMap<Address, VestingStorage.SporkData.Vesting> vests = new HashMap<>();
-		final int entries = in.readMedium();
 
 		in.skipBytes(5 /* 40 bits */);
 
@@ -59,8 +71,8 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in, Address.MAX_LENGTH));
 			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
 
-			vesting.setStart(Instant.ofEpochSecond(in.readLong(), in.readInt()));
-			vesting.setDuration(Duration.ofSeconds(in.readLong(), in.readInt()));
+			vesting.setStart(timeOf("start", in.readLong(), in.readInt(), Instant::ofEpochSecond));
+			vesting.setDuration(timeOf("duration", in.readLong(), in.readInt(), Duration::ofSeconds));
 			vesting.setParts(in.readInt());
 			vesting.setCliff(in.readInt());
 			vesting.setPercent(in.readInt());
@@ -77,6 +89,17 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 		}
 
 		return Optional.empty();
+	}
+
+	/* A peer may send any number of seconds, and one past the range of time would fail the stream with an error that
+	   says nothing of the frame */
+	private static <T> T timeOf(String what, long seconds, int nanos, Time<T> time) {
+		try {
+			return time.of(seconds, nanos);
+		} catch (DateTimeException | ArithmeticException ex) {
+			throw new CorruptedFrameException("A vesting " + what + " of " + seconds + " seconds and " + nanos
+				+ " nanoseconds is out of the range of time");
+		}
 	}
 
 	@Override
