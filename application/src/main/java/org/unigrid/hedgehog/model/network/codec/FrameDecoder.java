@@ -30,6 +30,8 @@ import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.storage.GroupId;
+import org.unigrid.hedgehog.model.storage.GroupKey;
 
 @ChannelCodec(priority = -10)
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
@@ -43,19 +45,47 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		}
 	}
 
-	/* A ledger frame is bounded by its type, and a frame of a type nobody knows holds nothing, so a header says at once
-	   whether any of the body is worth buffering. The other types keep the cap of the stream. */
-	private static final BodySize ANY = new BodySize(0, Network.MAX_DATA_SIZE);
-	private static final Map<Packet.Type, BodySize> BODY_SIZES = Map.of(
-		Packet.Type.UNDEFINED, BodySize.exactly(0),
-		Packet.Type.LEDGER_TRANSACTION,
-			new BodySize(Integer.BYTES, Integer.BYTES + LedgerCodecs.MAX_TRANSACTION_SIZE),
-		Packet.Type.LEDGER_CONSENSUS, new BodySize(Integer.BYTES, Integer.BYTES + WireCodec.MAX_MESSAGE_SIZE),
-		Packet.Type.LEDGER_HEARTBEAT, BodySize.exactly(WireCodec.HEARTBEAT_SIZE),
-		Packet.Type.LEDGER_STATUS, BodySize.exactly(WireCodec.STATUS_SIZE),
-		Packet.Type.LEDGER_BLOCK_REQUEST, BodySize.exactly(Long.BYTES + WireCodec.REQUEST_SIZE),
-		Packet.Type.LEDGER_BLOCK_BATCH, new BodySize(Long.BYTES + Integer.BYTES,
-			Long.BYTES + Integer.BYTES + LedgerCodecs.MAX_BATCH_SIZE));
+	/* The largest spork an honest node sends is a mint storage at its cap, its data and its previous data both, with
+	   two signatures and a signature log at its cap. That is under ten megabytes, and the bound leaves room above. */
+	private static final int MAX_SPORK_SIZE = 16 * 1024 * 1024;
+
+	private static final int PEER_SIZE = Long.BYTES + PublishPeersDecoder.MAX_HOST_ADDRESS + 1;
+	private static final int GRIDNODE_SIZE = 1 + Long.BYTES + 3 * Short.BYTES + GridnodeDecoder.ID_LENGTH;
+	private static final int GROUPS_SIZE = Long.BYTES + Short.BYTES;
+	private static final int TOMBSTONE_SIZE = GroupKey.PUBLIC_KEY_SIZE + Long.BYTES + GroupKey.SIGNATURE_SIZE;
+	private static final int MAX_GROUPS = StorageCodecs.MAX_GROUPS_PER_PACKET;
+
+	/* Every frame is bounded by its type, so a header says at once whether any of the body is worth buffering, and a
+	   frame of a type that no codec reads holds nothing. A fragment is as large as the storage spork makes it, so
+	   the two types that carry one keep the cap of the stream. */
+	private static final BodySize NOTHING = BodySize.exactly(0);
+	private static final Map<Packet.Type, BodySize> BODY_SIZES = Map.ofEntries(
+		Map.entry(Packet.Type.HELLO, BodySize.exactly(2 * Long.BYTES)),
+		Map.entry(Packet.Type.PING, BodySize.exactly(2 * Long.BYTES)),
+		Map.entry(Packet.Type.ASK_PEERS, BodySize.exactly(Long.BYTES)),
+		Map.entry(Packet.Type.PUBLISH_PEERS, new BodySize(Long.BYTES, Long.BYTES + Short.MAX_VALUE * PEER_SIZE)),
+		Map.entry(Packet.Type.ASK_NODE_DETAILS, BodySize.exactly(Long.BYTES)),
+		Map.entry(Packet.Type.PUBLISH_SPORK, new BodySize(Short.BYTES, MAX_SPORK_SIZE)),
+		Map.entry(Packet.Type.GRIDNODE, new BodySize(GRIDNODE_SIZE,
+			GRIDNODE_SIZE + GridnodeDecoder.MAX_HOST_LENGTH + GridnodeDecoder.MAX_SIGNATURE_LENGTH)),
+		Map.entry(Packet.Type.STORE_FRAGMENT, new BodySize(Long.BYTES + Integer.BYTES, Network.MAX_DATA_SIZE)),
+		Map.entry(Packet.Type.FETCH_FRAGMENT, BodySize.exactly(Long.BYTES + GroupId.SIZE)),
+		Map.entry(Packet.Type.FRAGMENT_REPLY, new BodySize(Long.BYTES + 1 + Integer.BYTES, Network.MAX_DATA_SIZE)),
+		Map.entry(Packet.Type.HAS_FRAGMENT, new BodySize(GROUPS_SIZE, GROUPS_SIZE + MAX_GROUPS * GroupId.SIZE)),
+		Map.entry(Packet.Type.FRAGMENT_STATUS, new BodySize(GROUPS_SIZE,
+			GROUPS_SIZE + MAX_GROUPS * (GroupId.SIZE + 2 + TOMBSTONE_SIZE))),
+		Map.entry(Packet.Type.DELETE_GROUP, BodySize.exactly(Long.BYTES + GroupId.SIZE + Integer.BYTES
+			+ TOMBSTONE_SIZE + Integer.BYTES)),
+		Map.entry(Packet.Type.STORAGE_ACK, BodySize.exactly(Long.BYTES + 1)),
+		Map.entry(Packet.Type.LEDGER_TRANSACTION,
+			new BodySize(Integer.BYTES, Integer.BYTES + LedgerCodecs.MAX_TRANSACTION_SIZE)),
+		Map.entry(Packet.Type.LEDGER_CONSENSUS,
+			new BodySize(Integer.BYTES, Integer.BYTES + WireCodec.MAX_MESSAGE_SIZE)),
+		Map.entry(Packet.Type.LEDGER_HEARTBEAT, BodySize.exactly(WireCodec.HEARTBEAT_SIZE)),
+		Map.entry(Packet.Type.LEDGER_STATUS, BodySize.exactly(WireCodec.STATUS_SIZE)),
+		Map.entry(Packet.Type.LEDGER_BLOCK_REQUEST, BodySize.exactly(Long.BYTES + WireCodec.REQUEST_SIZE)),
+		Map.entry(Packet.Type.LEDGER_BLOCK_BATCH, new BodySize(Long.BYTES + Integer.BYTES,
+			Long.BYTES + Integer.BYTES + LedgerCodecs.MAX_BATCH_SIZE)));
 
 	/*
 	    Packet format:
@@ -95,7 +125,7 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	}
 
 	private static void requireAllowed(final ByteBuf in, final Packet.Type type, final int size) {
-		final BodySize allowed = BODY_SIZES.getOrDefault(type, ANY);
+		final BodySize allowed = BODY_SIZES.getOrDefault(type, NOTHING);
 
 		if (size > allowed.most()) {
 			throw refused(in, new TooLongFrameException("A " + type + " frame holds at most " + allowed.most()
