@@ -51,7 +51,7 @@ import java.util.function.ToLongFunction;
    flood from peers that bring nothing new cannot starve the traffic of the validators. A copy never draws on it, and
    a vouched peer takes of it no more than it earned by what it brought new. The vouched peers are a third map, in the
    order of their last vouch, which is the order the vouches end in, and as many as the penalised ones at most; at
-   that cap a newcomer takes the place of the head once it went ten seconds without a vouch (see vouch).
+   that cap a newcomer takes the place of the head once it went thirty seconds without a vouch (see vouch).
 
    The peers of one quota, such as the addresses of one IPv6 site, also share a bucket of each kind, four times that
    of one peer, as a site may hold a few honest nodes: the addresses one holder has do not multiply what it may send.
@@ -74,7 +74,9 @@ public final class PeerLimiter {
 	/* A validator sends a heartbeat every ten seconds and ballots whenever the chain runs, so a peer that relays what
 	   the validators sign is vouched for again well within this, and one that stops loses the reserve soon after */
 	private static final long VOUCH_MILLIS = 60_000;
-	private static final long IDLE_MILLIS = 10_000;
+
+	/* Three heartbeats of a validator, so that a relay is not taken for idle between two of them */
+	private static final long IDLE_MILLIS = 30_000;
 
 	/* Each new item that a peer brought earns it two tokens of the reserve, so an honest relay, whose items that are
 	   not copies are new, earns more than it takes, while a peer that was first with a few items it overheard takes
@@ -398,7 +400,7 @@ public final class PeerLimiter {
 
 	/* The peer brought something new that a validator signed, which earns it tokens of the reserve. A peer that is
 	   penalised is not vouched for. While as many peers are vouched for as may be, a newcomer takes the place of the
-	   one that went longest without bringing anything new, once that is ten seconds, and is refused otherwise: a
+	   one that went longest without bringing anything new, once that is thirty seconds, and is refused otherwise: a
 	   place is held by using it, so that peers that took every place and then went quiet cannot keep the relays that
 	   bring what is new out, and a newcomer cannot push out a relay that keeps bringing it. */
 	public void vouch(String id) {
