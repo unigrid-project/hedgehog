@@ -307,7 +307,7 @@ public final class PeerLimiter {
 		final long now = advance();
 
 		return ownToken(id, kind, now).map(own -> plausible ? takePlausible(id, quota, kind, own, now)
-			: takeJunk(own, now)).orElse(false);
+			: takeJunk(quota, kind, own, now)).orElse(false);
 	}
 
 	/* A token of what all peers share and of the quota of the peer, or else one of the reserve, which the quota does
@@ -324,15 +324,19 @@ public final class PeerLimiter {
 		return fromReserve(id, kind, own, now);
 	}
 
-	private boolean takeJunk(Bucket own, long now) {
+	/* Junk is bounded by the quota as well, or the addresses of one site would multiply its part of what all junk
+	   shares */
+	private boolean takeJunk(String quota, Kind kind, Bucket own, long now) {
+		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
 		final Bucket everyone = refilled(junk, JUNK, policy.junk(), now);
 
 		own.take();
 
-		if (everyone.millitokens < TOKEN) {
+		if (site.millitokens < TOKEN || everyone.millitokens < TOKEN) {
 			return false;
 		}
 
+		site.take();
 		everyone.take();
 		return true;
 	}

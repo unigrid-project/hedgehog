@@ -705,6 +705,21 @@ public class PeerLimiterTest {
 		assertThat(limiter.isPenalised("p1"), is(false));
 	}
 
+	/* Junk takes a token of the quota as well, so the addresses of one site do not multiply its part of the bucket
+	   that all junk shares, and a refusal for the quota costs them no score */
+	@Example
+	public void shouldLetThePeersOfOneQuotaSendNoMoreJunkThanFourTimesWhatOneMay() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(3, 1)), same(new Rate(100_000, 1)), 2, 0, 60_000, 100));
+
+		final long granted = IntStream.range(0, 10).mapToLong(peer -> IntStream.range(0, 3)
+			.filter(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, false)).count()).sum();
+
+		assertThat(granted, equalTo(12L));
+		assertThat(IntStream.range(0, 10).noneMatch(peer -> limiter.isPenalised("vm" + peer)), is(true));
+		assertThat(limiter.allow("other", "elsewhere", Kind.CONSENSUS, false), is(true));
+	}
+
 	/* Four peers of a site keep its quota empty: a relay in the same site that brings new items still has its
 	   reserve, which the quota does not bound */
 	@Example
