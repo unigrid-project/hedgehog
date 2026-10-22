@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network.util;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.util.CharsetUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +33,21 @@ public class ByteBufUtils {
 		src.readBytes(result);
 		src.skipBytes(1); /* Skip the null terminator */
 
+		return new String(result, CharsetUtil.UTF_8);
+	}
+
+	/* The text comes from a peer, so it is refused unless it ends within the bound, before anything is allocated */
+	public static String readNullTerminatedString(ByteBuf src, int maxLength) {
+		final int length = src.bytesBefore(Math.min(src.readableBytes(), maxLength + 1), (byte) 0);
+
+		if (length < 0) {
+			throw new CorruptedFrameException("A text does not end within " + maxLength + " bytes");
+		}
+
+		final byte[] result = new byte[length];
+
+		src.readBytes(result);
+		src.skipBytes(1 /* The zero that ends the text */);
 		return new String(result, CharsetUtil.UTF_8);
 	}
 

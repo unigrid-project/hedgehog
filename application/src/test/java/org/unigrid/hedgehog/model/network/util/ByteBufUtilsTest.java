@@ -20,18 +20,24 @@ package org.unigrid.hedgehog.model.network.util;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.CorruptedFrameException;
 import java.util.Arrays;
 import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.NotBlank;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class ByteBufUtilsTest {
+	private static final int MAX_LENGTH = 16;
+
 	@Property
 	public void shouldRetainIntegrityDuringPlainReadsAndWrites(@ForAll @NotBlank @AlphaChars String string) {
 		final ByteBuf buffer = Unpooled.buffer();
@@ -39,6 +45,34 @@ public class ByteBufUtilsTest {
 
 		final String stringAfterWrite = ByteBufUtils.readNullTerminatedString(buffer);
 		assertThat(stringAfterWrite, is(string));
+	}
+
+	@Property
+	public void shouldReadATextUpToItsBound(@ForAll @IntRange(max = MAX_LENGTH) int length) {
+		final ByteBuf buffer = Unpooled.buffer();
+
+		ByteBufUtils.writeNullTerminatedString("a".repeat(length), buffer);
+		buffer.writeByte('b');
+
+		assertThat(ByteBufUtils.readNullTerminatedString(buffer, MAX_LENGTH), is("a".repeat(length)));
+		assertThat(buffer.readableBytes(), is(1));
+	}
+
+	@Property
+	public void shouldRefuseATextLongerThanItsBound(@ForAll @IntRange(min = MAX_LENGTH + 1, max = 4096) int length) {
+		final ByteBuf buffer = Unpooled.buffer();
+
+		ByteBufUtils.writeNullTerminatedString("a".repeat(length), buffer);
+		assertThrows(CorruptedFrameException.class, () -> ByteBufUtils.readNullTerminatedString(buffer, MAX_LENGTH));
+	}
+
+	@Example
+	public void shouldRefuseATextThatDoesNotEnd() {
+		final ByteBuf buffer = Unpooled.buffer().writeBytes("abc".getBytes());
+
+		assertThrows(CorruptedFrameException.class, () -> ByteBufUtils.readNullTerminatedString(buffer, MAX_LENGTH));
+		assertThrows(CorruptedFrameException.class, () -> ByteBufUtils.readNullTerminatedString(Unpooled.buffer(),
+			MAX_LENGTH));
 	}
 
 	@Provide

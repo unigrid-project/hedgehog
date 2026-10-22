@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.Node;
@@ -29,6 +30,12 @@ import org.unigrid.hedgehog.model.network.packet.PublishPeers;
 import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 
 public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> implements PacketDecoder<PublishPeers> {
+	/* An honest peer sends its whole topology, so the entries past the cap are read past rather than refused */
+	public static final int MAX_PEERS = 1024;
+
+	/* An IPv6 address written out in full with the name of its scope, the longest an honest peer writes */
+	public static final int MAX_HOST_ADDRESS = 64;
+
 	/*
 	    Packet format:
 	    0..............................................................63
@@ -50,16 +57,26 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 
 			in.skipBytes(6 /* 48 bytes */);
 
-			final String hostAddress = ByteBufUtils.readNullTerminatedString(in);
-			final InetSocketAddress socketAddress = new InetSocketAddress(hostAddress, port);
+			final String hostAddress = ByteBufUtils.readNullTerminatedString(in, MAX_HOST_ADDRESS);
 
-			/* The host is the peer's to name, and one that does not resolve is no node to connect to or keep */
-			if (!socketAddress.isUnresolved()) {
-				publishPeers.getNodes().add(Node.builder().address(socketAddress).build());
+			if (i < MAX_PEERS) {
+				literalOf(hostAddress).ifPresent(address -> publishPeers.getNodes().add(Node.builder()
+					.address(new InetSocketAddress(address, port)).build()));
 			}
 		}
 
 		return Optional.of(publishPeers);
+	}
+
+	/* The host is the peer's to name, and looking a name up would hold this stream and every other one served by the
+	   same thread for as long as a name server cares to take. An honest peer writes an address, so only an address
+	   is taken, and a name is dropped without a lookup. */
+	private static Optional<InetAddress> literalOf(String hostAddress) {
+		try {
+			return Optional.of(InetAddress.ofLiteral(hostAddress));
+		} catch (IllegalArgumentException ex) {
+			return Optional.empty();
+		}
 	}
 
 	@Override
