@@ -30,7 +30,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
-import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -106,8 +106,8 @@ public class SporkRecipientsTest {
 		final EmbeddedChannel ledger = stream(true);
 		final EmbeddedChannel earlier = stream(false);
 
-		PublishAndSaveSporkSchedule.writeAndFlush(ledger, database, new PendingSporks());
-		PublishAndSaveSporkSchedule.writeAndFlush(earlier, database, new PendingSporks());
+		PublishSporkSchedule.writeAndFlush(ledger, database, new PendingSporks());
+		PublishSporkSchedule.writeAndFlush(earlier, database, new PendingSporks());
 
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE,
 			Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
@@ -121,7 +121,7 @@ public class SporkRecipientsTest {
 		final SporkDatabase database = SporkDatabase.builder().build();
 
 		database.set(spork(Type.MINT_SUPPLY));
-		PublishAndSaveSporkSchedule.writeAndFlush(ledger, database, new PendingSporks());
+		PublishSporkSchedule.writeAndFlush(ledger, database, new PendingSporks());
 
 		assertThat(sporkTypesWrittenTo(ledger), equalTo(List.of(Type.MINT_SUPPLY)));
 	}

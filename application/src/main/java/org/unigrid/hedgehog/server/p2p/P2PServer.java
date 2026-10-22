@@ -46,6 +46,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -69,7 +70,7 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
@@ -79,6 +80,7 @@ import org.unigrid.hedgehog.server.AbstractServer;
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
+	private final ConnectionLimiter limiter = new ConnectionLimiter();
 	private TopologyThread topologyThread;
 	private Channel channel;
 
@@ -100,16 +102,16 @@ public class P2PServer extends AbstractServer {
 		final ChannelHandler codec = new QuicServerCodecBuilder()
 			.sslContext(context)
 			.tokenHandler(encryptedTokenHandler)
-			.initialMaxData(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
+			.initialMaxData(Network.MAX_WINDOW_SIZE)
+			.initialMaxStreamDataBidirectionalLocal(Network.MAX_WINDOW_SIZE)
+			.initialMaxStreamDataBidirectionalRemote(Network.MAX_WINDOW_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
 			.handler(new ChannelInitializer<QuicChannel>() {
 				@Override
 				protected void initChannel(QuicChannel quicChannel) {
 					quicChannel.pipeline().addLast(new ProtocolMismatchHandler());
-					quicChannel.pipeline().addLast(new ConnectionHandler());
+					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
 				}
 			})
 			.streamHandler(new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
@@ -154,7 +156,7 @@ public class P2PServer extends AbstractServer {
 		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
-			new PublishAndSaveSporkSchedule(),
+			new PublishSporkSchedule(),
 			new PublishGridnodeSchedule()
 		));
 

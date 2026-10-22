@@ -21,10 +21,13 @@ package org.unigrid.hedgehog.service.ledger;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
+import java.nio.channels.FileLock;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
@@ -43,6 +46,7 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.Block;
 import org.unigrid.hedgehog.ledger.BlockLog;
 import org.unigrid.hedgehog.ledger.BlockLogBehindException;
+import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerNode;
 import org.unigrid.hedgehog.ledger.SignState;
@@ -53,6 +57,7 @@ public class LedgerNodesTest {
 	private static final int VALIDATORS = LedgerTestChain.SEEDS.size();
 	private static final byte[] SEED = LedgerTestChain.SEEDS.get(0);
 	private static final List<Block> CHAIN = LedgerTestChain.blocks(BLOCKS);
+	private static final Set<Path> STRICTLY_HELD = ConcurrentHashMap.newKeySet();
 
 	private static FileSystem files() {
 		return Jimfs.newFileSystem(Configuration.unix());
@@ -273,5 +278,58 @@ public class LedgerNodesTest {
 			assertThat(refusal.getMessage(), containsString(log.toString()));
 			assertThat(nodes.ledger().orElseThrow(), sameInstance(before));
 		}
+	}
+
+	/* An observer has no sign state to lock, and a restored copy started beside the original would append to the
+	   same block log */
+	@Example
+	@SneakyThrows
+	public void shouldBuildNoObserverOverADirectoryAnotherProcessHolds() {
+		try (FileSystem files = files(); LedgerNodes nodes = new LedgerNodes(directory(files), LedgerTestChain::state,
+			null, () -> LedgerTestChain.CLOCK_START, (lockFile, channel) -> null)) {
+
+			final FileLockedException refusal = assertThrows(FileLockedException.class, () -> nodes.create(false));
+
+			assertThat(refusal.getMessage(), containsString(directory(files).toString()));
+			assertThat(Files.exists(directory(files).resolve(LedgerNodes.BLOCK_LOG)), is(false));
+			assertThat(nodes.ledger().isPresent(), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldHoldTheDirectoryFromTheFirstNodeUntilClosed() {
+		try (FileSystem files = files()) {
+			final LedgerNodes first = strictNodes(files);
+			final LedgerNodes second = strictNodes(files);
+
+			first.create(false);
+			first.create(true);
+			assertThrows(FileLockedException.class, () -> second.create(false));
+
+			first.close();
+			assertThat(second.create(false).signs(), is(false));
+			second.close();
+		}
+	}
+
+	/* The in-memory file system hands everyone a lock, so a lock here is refused while another holds it, as on disk */
+	private static LedgerNodes strictNodes(final FileSystem files) {
+		return new LedgerNodes(directory(files), LedgerTestChain::state, SEED, () -> LedgerTestChain.CLOCK_START,
+			(lockFile, channel) -> STRICTLY_HELD.add(lockFile) ? new FileLock(channel, 0, Long.MAX_VALUE, false) {
+				private boolean valid = true;
+
+				@Override
+				public boolean isValid() {
+					return valid;
+				}
+
+				@Override
+				public void release() {
+					valid = false;
+					STRICTLY_HELD.remove(lockFile);
+				}
+			} : null
+		);
 	}
 }

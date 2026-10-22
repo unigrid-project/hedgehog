@@ -26,7 +26,7 @@ import java.util.function.Predicate;
 /* An authority for tests with one answer per question; everything is allowed and nothing is due until a test
    says otherwise */
 record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicate<Claim> claims,
-	Predicate<Transfer> transfers) implements LedgerAuthority {
+	Predicate<Transfer> transfers, long leastNewAccountAmount) implements LedgerAuthority {
 	/* The question a mint is asked, with the supply of the state it would be made on and what has been minted to the
 	   recipient of the mint on that state */
 	interface MintRule {
@@ -39,11 +39,11 @@ record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicat
 
 	static TestAuthority open() {
 		return new TestAuthority(time -> List.of(), (mint, time, supply, minted) -> true, claim -> true,
-			transfer -> true);
+			transfer -> true, 0);
 	}
 
 	TestAuthority withSchedule(LongFunction<List<Mint>> other) {
-		return new TestAuthority(other, mints, claims, transfers);
+		return new TestAuthority(other, mints, claims, transfers, leastNewAccountAmount);
 	}
 
 	TestAuthority withMints(BiPredicate<Mint, Long> other) {
@@ -55,15 +55,19 @@ record TestAuthority(LongFunction<List<Mint>> schedule, MintRule mints, Predicat
 	}
 
 	TestAuthority withMintsOnTotals(MintRule other) {
-		return new TestAuthority(schedule, other, claims, transfers);
+		return new TestAuthority(schedule, other, claims, transfers, leastNewAccountAmount);
 	}
 
 	TestAuthority withClaims(Predicate<Claim> other) {
-		return new TestAuthority(schedule, mints, other, transfers);
+		return new TestAuthority(schedule, mints, other, transfers, leastNewAccountAmount);
 	}
 
 	TestAuthority withTransfers(Predicate<Transfer> other) {
-		return new TestAuthority(schedule, mints, claims, other);
+		return new TestAuthority(schedule, mints, claims, other, leastNewAccountAmount);
+	}
+
+	TestAuthority withLeastNewAccountAmount(long other) {
+		return new TestAuthority(schedule, mints, claims, transfers, other);
 	}
 
 	@Override

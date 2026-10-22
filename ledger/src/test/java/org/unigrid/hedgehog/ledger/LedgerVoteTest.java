@@ -105,6 +105,16 @@ public class LedgerVoteTest {
 		assertThat(reasonOf(state.rejectionOf(add(state, 1, key(2)))), containsString("already a validator"));
 	}
 
+	/* A validator whose key is no public key could never sign, and checking a signature against it must not be
+	   asked of every node for good */
+	@Example
+	public void shouldRefuseToAddBytesThatAreNoPublicKey() {
+		final LedgerState state = freshState();
+
+		assertThat(reasonOf(state.rejectionOf(add(state, 1, noPoint()))), containsString("not a public key"));
+		assertThat(reasonOf(state.rejectionOf(add(state, 1, mixedOrderPoint()))), containsString("not a public key"));
+	}
+
 	@Example
 	public void shouldRefuseToRemoveAKeyThatIsNotInTheSet() {
 		final LedgerState state = freshState();

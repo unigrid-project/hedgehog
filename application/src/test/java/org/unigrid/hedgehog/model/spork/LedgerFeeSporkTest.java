@@ -181,7 +181,8 @@ public class LedgerFeeSporkTest {
 		final JsonNode written = mapper.valueToTree(with(new BigDecimal("0.001")));
 
 		assertThat(written.fieldNames().next(), equalTo("minimumTransferFee"));
-		assertThat(written.size(), is(1));
+		assertThat(written.has("minimumNewAccountAmount"), is(true));
+		assertThat(written.size(), is(2));
 	}
 
 	@SneakyThrows

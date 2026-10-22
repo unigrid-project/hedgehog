@@ -26,6 +26,7 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.BlockLog;
+import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerDriver.NodeFactory;
 import org.unigrid.hedgehog.ledger.LedgerNode;
@@ -39,26 +40,44 @@ import org.unigrid.hedgehog.ledger.Timeouts;
    replays the log again into a state of its own: the replay is the cost of a node, and happens on the thread that
    asks for it, which is the driver's own. The newest ledger is kept for the readers of the application, who may be on
    any thread; a ledger stays readable after its node is gone. A key is the seed of a validator, and is held no
-   longer than the nodes are. */
+   longer than the nodes are.
+
+   The sign state locks only itself, and an observer has none, so the directory as a whole is locked from the first
+   node until close(): a restored copy of the node started beside the original would otherwise append to the same
+   block log and break it. */
 @Slf4j
 @RequiredArgsConstructor
 final class LedgerNodes implements NodeFactory, AutoCloseable {
 	static final String BLOCK_LOG = "blocks.log";
 	static final String SIGN_STATE = "sign.state";
+	static final String LOCK = "ledger.lock";
 
 	private final Path directory;
 	private final Supplier<LedgerState> states;
 	private final byte[] seed;
 	private final LongSupplier clock;
+	private final ExclusiveLock.Locker locker;
+	private ExclusiveLock lock;
 	private BlockLog blockLog;
 	private boolean closed;
 	private volatile Ledger ledger;
 	private volatile boolean signs;
 
+	LedgerNodes(final Path directory, final Supplier<LedgerState> states, final byte[] seed,
+		final LongSupplier clock) {
+
+		this(directory, states, seed, clock, ExclusiveLock.SYSTEM);
+	}
+
 	@Override
 	public synchronized LedgerNode create(final boolean signing) throws IOException {
 		if (closed) {
 			throw new IOException("The nodes of the ledger are closed");
+		}
+
+		if (lock == null) {
+			lock = ExclusiveLock.take(directory.resolve(LOCK), locker, "The ledger directory " + directory
+				+ " is locked: another process uses it");
 		}
 
 		closeBlockLog();
@@ -96,6 +115,23 @@ final class LedgerNodes implements NodeFactory, AutoCloseable {
 		} catch (IOException ex) {
 			log.atWarn().addArgument(directory.resolve(BLOCK_LOG)).addArgument(ex.getMessage())
 				.log("Could not close the block log {}: {}");
+		}
+
+		releaseLock();
+	}
+
+	private void releaseLock() {
+		final ExclusiveLock held = lock;
+
+		lock = null;
+
+		try {
+			if (held != null) {
+				held.close();
+			}
+		} catch (IOException ex) {
+			log.atWarn().addArgument(directory.resolve(LOCK)).addArgument(ex.getMessage())
+				.log("Could not release the lock {}: {}");
 		}
 	}
 

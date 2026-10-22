@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.network.handler;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.Objects;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Ping;
@@ -37,12 +38,14 @@ public class PingChannelHandler extends AbstractInboundHandler<Ping> {
 			ping.setResponse(true);
 			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 		} else {
-			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				topology.getChannels().get(ctx.channel()).ifPresent(n -> {
-					final long previousTime = ctx.channel().attr(Ping.PING_TIME_KEY).get();
-					n.setNsPing(System.nanoTime() - previousTime);
-				});
-			});
+			/* Only an answer to the ping this node sent counts, and only once: a peer may answer what was never
+			   asked, or answer twice */
+			final Long sentAt = ctx.channel().attr(Ping.PING_TIME_KEY).getAndSet(null);
+
+			if (Objects.nonNull(sentAt)) {
+				CDIUtil.resolveAndRun(Topology.class, topology -> topology.getChannels().get(ctx.channel())
+					.ifPresent(node -> node.setNsPing(System.nanoTime() - sentAt)));
+			}
 		}
 	}
 }

@@ -26,6 +26,7 @@ import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -49,6 +50,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Digests;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.ValidatorSet;
 
@@ -58,8 +60,11 @@ public class GenesisFileTest {
 	private static final String MALFORMED_RESOURCE = "/ledger-genesis-malformed-test.json";
 	private static final int MEBIBYTE = 1 << 20;
 	private static final HexFormat HEX = HexFormat.of();
-	private static final String FIRST_KEY = "11".repeat(AccountKey.SIZE);
-	private static final String SECOND_KEY = "22".repeat(AccountKey.SIZE);
+	/* The public keys of the seeds 1 and 2, as `ledger-genesis-test.json` holds them */
+	private static final String FIRST_KEY = "b1f804dabc68274c1233995c5a9119b56935bcdd83b7de07ec726dcedc4e9ce7";
+	private static final String SECOND_KEY = "6a0f6a283a8e4e86d2a3d60ef9e37ec33f2ab6071a30e0a477735128e7571eb0";
+	private static final String NO_POINT = "02" + "00".repeat(AccountKey.SIZE - 1);
+	private static final String MIXED_ORDER_POINT = "03" + "00".repeat(AccountKey.SIZE - 1);
 	private static final String HASH = "ab".repeat(Digests.HASH_SIZE);
 
 	private record Damage(String label, String field, String value) {
@@ -70,14 +75,14 @@ public class GenesisFileTest {
 
 	@Provide
 	public Arbitrary<LedgerGenesis> provideGenesis() {
-		final Arbitrary<List<String>> keys = Arbitraries.strings().withChars("0123456789abcdef").ofLength(
-			AccountKey.SIZE * 2).list().ofMinSize(1).ofMaxSize(20).uniqueElements();
+		final Arbitrary<List<AccountKey>> keys = Arbitraries.integers().map(GenesisFileTest::keyOf).list()
+			.ofMinSize(1).ofMaxSize(20).uniqueElements();
 
 		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.integers().greaterOrEqual(1),
 			keys, Arbitraries.bytes().array(byte[].class).ofSize(Digests.HASH_SIZE),
 			Arbitraries.longs().greaterOrEqual(0)
-		).as((time, round, hexKeys, hash, total) -> new LedgerGenesis(time, round,
-			new ValidatorSet(hexKeys.stream().map(AccountKey::fromHex).toList()), hash, total)
+		).as((time, round, validators, hash, total) -> new LedgerGenesis(time, round, new ValidatorSet(validators),
+			hash, total)
 		);
 	}
 
@@ -129,7 +134,9 @@ public class GenesisFileTest {
 			new Damage("validators[0]", "validators", list("0x" + FIRST_KEY.substring(2))),
 			new Damage("validators[0]", "validators", list("")),
 			new Damage("validators[2]", "validators", list(FIRST_KEY, SECOND_KEY, FIRST_KEY)),
-			new Damage("validators[1]", "validators", list("ab".repeat(AccountKey.SIZE), "AB".repeat(AccountKey.SIZE))),
+			new Damage("validators[1]", "validators", list(FIRST_KEY, FIRST_KEY.toUpperCase())),
+			new Damage("validators[1]", "validators", list(FIRST_KEY, NO_POINT)),
+			new Damage("validators[0]", "validators", list(MIXED_ORDER_POINT, SECOND_KEY)),
 			new Damage("snapshotHash", "null"), new Damage("snapshotHash", "5"), new Damage("snapshotHash", "[]"),
 			new Damage("snapshotHash", quoted("")), new Damage("snapshotHash", quoted(HASH.substring(1))),
 			new Damage("snapshotHash", quoted(HASH + "a")), new Damage("snapshotHash", quoted(HASH + "ab")),
@@ -181,8 +188,12 @@ public class GenesisFileTest {
 
 	private static String documentOfKeys(int count) {
 		return documentWith("validators",
-			list(IntStream.range(0, count).mapToObj("%064x"::formatted).toArray(String[]::new))
+			list(IntStream.range(0, count).mapToObj(n -> keyOf(n).toString()).toArray(String[]::new))
 		);
+	}
+
+	private static AccountKey keyOf(int n) {
+		return Ed25519.publicKey(ByteBuffer.allocate(Ed25519.SEED_SIZE).putInt(n).array());
 	}
 
 	private static LedgerGenesis bundled() {

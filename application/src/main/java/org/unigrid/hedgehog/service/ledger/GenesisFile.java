@@ -48,6 +48,7 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Digests;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.ValidatorSet;
 
@@ -224,12 +225,24 @@ public final class GenesisFile {
 			for (int index = 0; index < list.size(); index++) {
 				final String label = VALIDATORS + "[" + index + "]";
 
-				if (!keys.add(new AccountKey(bytes(label, list.get(index), AccountKey.SIZE)))) {
+				if (!keys.add(validator(label, list.get(index)))) {
 					throw refused("'" + label + "' repeats an earlier key");
 				}
 			}
 
 			return new ValidatorSet(List.copyOf(keys));
+		}
+
+		/* A validator stays for good, and a key that is no public key would have every node check signatures against
+		   it for as long as the chain runs */
+		private AccountKey validator(String label, JsonNode node) {
+			final AccountKey key = new AccountKey(bytes(label, node, AccountKey.SIZE));
+
+			if (!Ed25519.isPublicKey(key)) {
+				throw refused("'" + label + "' is not an Ed25519 public key");
+			}
+
+			return key;
 		}
 
 		private byte[] bytes(String label, JsonNode node, int size) {

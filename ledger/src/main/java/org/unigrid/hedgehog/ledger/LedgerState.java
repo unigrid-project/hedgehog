@@ -399,22 +399,29 @@ public final class LedgerState {
 	/* A key is added only when it is not in the set and removed only when it is, and a foundation validator
 	   from the genesis is never removed: they stay on as the backup */
 	private Optional<String> candidateRejection(Vote vote) {
-		final boolean member = validators.contains(vote.candidate());
+		return vote.action() == Vote.Action.ADD ? additionRejection(vote.candidate())
+			: removalRejection(vote.candidate());
+	}
 
-		if (vote.action() == Vote.Action.ADD) {
-			if (member) {
-				return Optional.of("Candidate is already a validator");
-			}
-
-			return validators.size() >= ValidatorSet.MAX_SIZE ? Optional.of("The validator set is full")
-				: Optional.empty();
+	private Optional<String> additionRejection(AccountKey candidate) {
+		if (!Ed25519.isPublicKey(candidate)) {
+			return Optional.of("Candidate is not a public key");
 		}
 
-		if (!member) {
+		if (validators.contains(candidate)) {
+			return Optional.of("Candidate is already a validator");
+		}
+
+		return validators.size() >= ValidatorSet.MAX_SIZE ? Optional.of("The validator set is full")
+			: Optional.empty();
+	}
+
+	private Optional<String> removalRejection(AccountKey candidate) {
+		if (!validators.contains(candidate)) {
 			return Optional.of("Candidate is not a validator");
 		}
 
-		return genesis.getValidators().contains(vote.candidate())
+		return genesis.getValidators().contains(candidate)
 			? Optional.of("Genesis validators cannot be removed") : Optional.empty();
 	}
 
@@ -476,8 +483,20 @@ public final class LedgerState {
 	}
 
 	private Optional<String> authorityRejection(Transfer transfer) {
-		return vouched || authority.authorizes(transfer) ? Optional.empty()
-			: Optional.of("Fee is below what this node demands");
+		if (vouched) {
+			return Optional.empty();
+		}
+
+		if (!authority.authorizes(transfer)) {
+			return Optional.of("Fee is below what this node demands");
+		}
+
+		return opensAccount(transfer) && transfer.amount() < authority.leastNewAccountAmount()
+			? Optional.of("Amount to a new account is below what this node demands") : Optional.empty();
+	}
+
+	private boolean opensAccount(Transfer transfer) {
+		return !accounts.containsKey(redirects.getOrDefault(transfer.recipient(), transfer.recipient()));
 	}
 
 	private Optional<String> rejectionOf(Claim claim) {

@@ -190,11 +190,21 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 	}
 
 	private boolean transferAllowed(Transfer transfer) {
+		return fee().map(LedgerFee.SporkData::units).filter(minimum -> transfer.fee() >= minimum).isPresent();
+	}
+
+	/* Without a fee spork no transfer is taken at all, so nothing more is asked of one to a new account */
+	@Override
+	public long leastNewAccountAmount() {
+		return guarded("reading the least amount to a new account", 0L,
+			() -> fee().map(LedgerFee.SporkData::newAccountUnits).orElse(0L));
+	}
+
+	private Optional<LedgerFee.SporkData> fee() {
 		final SporkDatabase database = sporks.get();
 
-		return Objects.nonNull(database) && known(database, Type.LEDGER_FEE)
-			.map(spork -> spork.<LedgerFee.SporkData>getData()).map(LedgerFee.SporkData::units)
-			.filter(minimum -> transfer.fee() >= minimum).isPresent();
+		return Objects.isNull(database) ? Optional.empty() : known(database, Type.LEDGER_FEE)
+			.map(spork -> spork.<LedgerFee.SporkData>getData());
 	}
 
 	/* The spork, or nothing when it is not set or a newer one is known. The lag is asked first: a spork stored

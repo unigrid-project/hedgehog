@@ -73,17 +73,31 @@ public class LedgerFeeSporkIntegrityTest {
 		return new LedgerFeeDecoder().decodeChunk(null, buffer).orElseThrow();
 	}
 
-	private static ByteBuf unitsOf(long units) {
-		return Unpooled.buffer().writeLong(units);
+	private static ByteBuf unitsOf(long fee, long newAccount) {
+		return Unpooled.buffer().writeLong(fee).writeLong(newAccount);
+	}
+
+	private static SporkData withBoth(BigDecimal fee, BigDecimal newAccount) {
+		final SporkData data = with(fee);
+
+		data.setMinimumNewAccountAmount(newAccount);
+		return data;
 	}
 
 	@Property
-	public void survivesARoundTripAsEightBytesOfUnits(@ForAll("unitsWithinACoin") long units) {
-		final ByteBuf buffer = encoded(with(BigDecimal.valueOf(units, 8)));
+	public void survivesARoundTripAsEightBytesOfUnitsEach(@ForAll("unitsWithinACoin") long fee,
+		@ForAll("unitsWithinACoin") long newAccount) {
 
-		assertThat(buffer.readableBytes(), equalTo(UNIT_BYTES));
-		assertThat(buffer.getLong(0), equalTo(units));
-		assertThat(decoded(buffer).getMinimumTransferFee(), equalTo(BigDecimal.valueOf(units, 8)));
+		final ByteBuf buffer = encoded(withBoth(BigDecimal.valueOf(fee, 8), BigDecimal.valueOf(newAccount, 8)));
+
+		assertThat(buffer.readableBytes(), equalTo(2 * UNIT_BYTES));
+		assertThat(buffer.getLong(0), equalTo(fee));
+		assertThat(buffer.getLong(UNIT_BYTES), equalTo(newAccount));
+
+		final SporkData decoded = decoded(buffer);
+
+		assertThat(decoded.getMinimumTransferFee(), equalTo(BigDecimal.valueOf(fee, 8)));
+		assertThat(decoded.getMinimumNewAccountAmount(), equalTo(BigDecimal.valueOf(newAccount, 8)));
 		assertThat(buffer.readableBytes(), equalTo(0));
 	}
 
@@ -95,7 +109,9 @@ public class LedgerFeeSporkIntegrityTest {
 		);
 
 		expected.forEach((fee, bytes) -> assertThat(fee, ByteBufUtil.hexDump(encoded(with(new BigDecimal(fee)))),
-			equalTo(bytes)));
+			equalTo(bytes + "0000000000000000")));
+		assertThat(ByteBufUtil.hexDump(encoded(withBoth(BigDecimal.ZERO, new BigDecimal("100")))),
+			equalTo("0000000000000000" + "00000002540be400"));
 	}
 
 	@Property
@@ -115,16 +131,27 @@ public class LedgerFeeSporkIntegrityTest {
 	}
 
 	@Example
-	public void acceptsExactlyACoinOnTheWire() {
-		assertThat(decoded(unitsOf(COIN_UNITS)).getMinimumTransferFee(), equalTo(new BigDecimal("1.00000000")));
+	public void acceptsExactlyACoinOfFeeAndAHundredToANewAccountOnTheWire() {
+		final SporkData decoded = decoded(unitsOf(COIN_UNITS, 100 * COIN_UNITS));
+
+		assertThat(decoded.getMinimumTransferFee(), equalTo(new BigDecimal("1.00000000")));
+		assertThat(decoded.getMinimumNewAccountAmount(), equalTo(new BigDecimal("100.00000000")));
 	}
 
 	@Property
-	public void refusesAnythingAboveACoinOnTheWire(@ForAll("unitsAboveACoin") long units) {
-		final ByteBuf buffer = unitsOf(units);
+	public void refusesAFeeAboveACoinOnTheWire(@ForAll("unitsAboveACoin") long units) {
+		final ByteBuf buffer = unitsOf(units, 0);
 
 		assertThat(assertThrows(CorruptedFrameException.class, () -> decoded(buffer)).getMessage(),
 			startsWith("A minimum fee of " + Long.toUnsignedString(units) + " units"));
+	}
+
+	@Example
+	public void refusesAnAmountToANewAccountAboveAHundredCoinsOnTheWire() {
+		for (final long units : new long[] { 100 * COIN_UNITS + 1, Long.MIN_VALUE, -1L }) {
+			assertThat(assertThrows(CorruptedFrameException.class, () -> decoded(unitsOf(0, units))).getMessage(),
+				startsWith("A minimum amount to a new account of " + Long.toUnsignedString(units) + " units"));
+		}
 	}
 
 	@Example
@@ -133,5 +160,10 @@ public class LedgerFeeSporkIntegrityTest {
 		assertThrows(IllegalArgumentException.class, () -> encoded(with(new BigDecimal("1.00000001"))));
 		assertThrows(IllegalArgumentException.class, () -> encoded(with(new BigDecimal("0.000000001"))));
 		assertThrows(IllegalArgumentException.class, () -> encoded(with(null)));
+		assertThrows(IllegalArgumentException.class, () -> encoded(withBoth(BigDecimal.ZERO,
+			new BigDecimal("-0.00000001"))));
+		assertThrows(IllegalArgumentException.class, () -> encoded(withBoth(BigDecimal.ZERO,
+			new BigDecimal("100.00000001"))));
+		assertThrows(IllegalArgumentException.class, () -> encoded(withBoth(BigDecimal.ZERO, null)));
 	}
 }

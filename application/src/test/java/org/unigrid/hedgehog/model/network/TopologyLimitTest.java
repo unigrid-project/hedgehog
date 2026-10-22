@@ -19,7 +19,10 @@
 package org.unigrid.hedgehog.model.network;
 
 import jakarta.inject.Inject;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.Optional;
+import java.util.Set;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -82,5 +85,28 @@ public class TopologyLimitTest extends BaseMockedWeldTest {
 
 		assertThat(topology.cloneGridnode().isEmpty(), is(true));
 		assertThat(topology.offerGridnode(entry("late-comer", later), later), is(true));
+	}
+
+	private static Node node(int n) {
+		return Node.builder().address(new InetSocketAddress(InetAddress.ofLiteral("10.1." + n / 256 + "." + n % 256),
+			1)).build();
+	}
+
+	/* Peers choose what they tell of, so a full topology takes no more of them, but still takes the seeds */
+	@Example
+	public void shouldRefuseNodesAtTheLimitAndStillTakeTheSeeds() {
+		topology.clear();
+
+		for (int n = 0; n < Topology.MAX_NODES; n++) {
+			assertThat(topology.addNode(node(n)), is(true));
+		}
+
+		assertThat(topology.addNode(node(Topology.MAX_NODES)), is(false));
+
+		final Set<Node> seeds = topology.addSeeds();
+
+		assertThat(seeds.size(), is(Network.getSeeds().length));
+		assertThat(topology.cloneNodes().size(), is(Topology.MAX_NODES + seeds.size()));
+		assertThat(topology.cloneNodes().containsAll(seeds), is(true));
 	}
 }

@@ -49,8 +49,10 @@ import picocli.CommandLine;
 public class LedgerGenesisCommandTest {
 	private static final String SNAPSHOT = "/snapshot.dat";
 	private static final String OUTPUT = "/ledger-genesis.json";
-	private static final String VALIDATOR = "11".repeat(AccountKey.SIZE);
-	private static final String OTHER_VALIDATOR = "22".repeat(AccountKey.SIZE);
+	/* The public keys of the seeds 1 and 2 */
+	private static final String VALIDATOR = "b1f804dabc68274c1233995c5a9119b56935bcdd83b7de07ec726dcedc4e9ce7";
+	private static final String OTHER_VALIDATOR = "6a0f6a283a8e4e86d2a3d60ef9e37ec33f2ab6071a30e0a477735128e7571eb0";
+	private static final String NO_POINT = "02" + "00".repeat(AccountKey.SIZE - 1);
 	private static final long TIME = 1_700_000_000_000L;
 	private static final int ROUND_LENGTH = 100;
 	private static final long UNITS = 5_000L;
@@ -136,6 +138,20 @@ public class LedgerGenesisCommandTest {
 
 			assertThat(result.exitCode(), equalTo(2));
 			assertThat(result.err(), containsString("--validator must be 64 hexadecimal characters"));
+			result.assertNoStackTrace();
+			assertThat(result.out(), emptyString());
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAValidatorThatIsNoPublicKey() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH,
+				"--validator", VALIDATOR, "--validator", NO_POINT);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("--validator " + NO_POINT + " is not an Ed25519 public key"));
 			result.assertNoStackTrace();
 			assertThat(result.out(), emptyString());
 		}

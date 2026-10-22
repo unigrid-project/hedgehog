@@ -55,7 +55,8 @@ import org.unigrid.hedgehog.ledger.Action.Decide;
    One process per key and per set of files is enforced, not assumed: the sign state file holds an exclusive lock from
    its first load or save until the node is closed, and a node over files that another holds does not start, but
    fails with a FileLockedException. The lock covers the sign state file only, so the driver opens exactly one node
-   per data directory, and closes it before it starts another over the same files, the block log included.
+   per data directory, and closes it before it starts another over the same files, the block log included. An
+   observer has no sign state, so whoever builds the nodes over a data directory locks the directory as a whole too.
 
    A sign state of a height above the next one means that the block log lost its tail, and the start is refused with
    a BlockLogBehindException: the operator restores the tail of the block log from a peer and never deletes the sign

@@ -41,4 +41,11 @@ public interface LedgerAuthority {
 
 	/* Does this transfer pay the minimum fee this node demands? */
 	boolean authorizes(Transfer transfer);
+
+	/* The least amount a transfer to an address that holds nothing in the ledger may carry. The ledger keeps every
+	   account for good and hashes each into every root, so accounts made by the million at the minimum fee would
+	   slow every block. Zero takes any amount, which is what an authority that says nothing of it means. */
+	default long leastNewAccountAmount() {
+		return 0;
+	}
 }

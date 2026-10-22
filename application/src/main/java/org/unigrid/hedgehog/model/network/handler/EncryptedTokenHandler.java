@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import io.netty.buffer.Unpooled;
 import io.netty.incubator.codec.quic.Quic;
 import io.netty.incubator.codec.quic.QuicTokenHandler;
 import io.netty.util.CharsetUtil;
@@ -28,108 +27,102 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.util.UUID;
-import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import lombok.Cleanup;
-import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 
+/* A retry token is a byte with the length of what follows, the server name and the address of the client encrypted
+   under the key of this node, and the connection id the client first used. Whoever sends a token is unknown, as the
+   token is how the server learns that the address is real, so a token of any bytes is refused and never throws. */
+@Slf4j
 @ApplicationScoped
 public class EncryptedTokenHandler implements QuicTokenHandler {
 	/* Part of the token wire format, so it must not follow a rename of the main class */
 	private static final String SERVER_NAME = "Hedgehog";
 	private static final int IPV6_LENGTH = 16;
 	private static final int QUICHE_MAX_CONN_ID_LEN = 18;
+	private static final int AES_BLOCK = 16;
+	private static final int INVALID = -1;
 
 	@Inject
 	private UUID uuId;
+
+	public EncryptedTokenHandler() {
+		/* For the container, which fills in what is injected */
+	}
+
+	EncryptedTokenHandler(UUID uuId) {
+		this.uuId = uuId;
+	}
 
 	@PostConstruct
 	private void init() {
 		Quic.ensureAvailability();
 	}
 
-	@SneakyThrows
 	private SecretKey getUniqueKey() {
 		return new SecretKeySpec(uuId.toString().replace("-", "")
 			.getBytes(CharsetUtil.ISO_8859_1), "AES");
 	}
 
+	private Cipher cipher(int mode) throws GeneralSecurityException {
+		final Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+
+		cipher.init(mode, getUniqueKey(), new IvParameterSpec(new byte[AES_BLOCK]));
+		return cipher;
+	}
+
+	private static byte[] plainTokenOf(InetSocketAddress address) {
+		return ArrayUtils.addAll(SERVER_NAME.getBytes(CharsetUtil.ISO_8859_1), address.getAddress().getAddress());
+	}
+
 	@Override
 	public boolean writeToken(ByteBuf out, ByteBuf dcid, InetSocketAddress address) {
-		@Cleanup("release") final ByteBuf tmp = Unpooled.buffer();
-
-		tmp.writeBytes(SERVER_NAME.getBytes(CharsetUtil.ISO_8859_1))
-			.writeBytes(address.getAddress().getAddress());
 		try {
-			final Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-			cipher.init(Cipher.ENCRYPT_MODE, getUniqueKey(), new IvParameterSpec(new byte[16]));
-
-			final byte[] encoded = cipher.doFinal(tmp.array(), 0, tmp.writerIndex());
+			final byte[] encoded = cipher(Cipher.ENCRYPT_MODE).doFinal(plainTokenOf(address));
 
 			out.writeByte(encoded.length).writeBytes(encoded)
 				.writeBytes(dcid, dcid.readerIndex(), dcid.readableBytes());
 
-		} catch (BadPaddingException | IllegalBlockSizeException | InvalidAlgorithmParameterException
-			| InvalidKeyException | NoSuchAlgorithmException | NoSuchPaddingException ex) {
-
-			System.err.println(ex);
+		} catch (GeneralSecurityException ex) {
+			log.atWarn().setCause(ex).log("Could not write a retry token");
 			return false;
 		}
 
 		return true;
 	}
 
+	/* The offset of the connection id in a token made here for this address, else -1 */
 	@Override
 	public int validateToken(ByteBuf token, InetSocketAddress address) {
-		byte[] tmp = ByteBufUtil.getBytes(token);
-		final int length = tmp[0];
+		final byte[] bytes = ByteBufUtil.getBytes(token);
+		final int length = bytes.length == 0 ? 0 : Byte.toUnsignedInt(bytes[0]);
+
+		if (length == 0 || length > bytes.length - 1) {
+			return INVALID;
+		}
 
 		try {
-			final Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+			final byte[] plain = cipher(Cipher.DECRYPT_MODE).doFinal(bytes, 1, length);
 
-			cipher.init(Cipher.DECRYPT_MODE, getUniqueKey(), new IvParameterSpec(new byte[16]));
-			tmp = cipher.doFinal(tmp, 1, length);
-
-		} catch (BadPaddingException | IllegalBlockSizeException | InvalidAlgorithmParameterException
-			| InvalidKeyException | NoSuchAlgorithmException | NoSuchPaddingException ex) {
-
-			System.err.println(ex);
-			return -1;
+			return MessageDigest.isEqual(plain, plainTokenOf(address)) ? length + 1 : INVALID;
+		} catch (GeneralSecurityException ex) {
+			log.atDebug().addArgument(address).log("A retry token from {} that does not decrypt");
+			return INVALID;
 		}
-
-		final String tokenServer = new String(tmp, 0, SERVER_NAME.length(), CharsetUtil.ISO_8859_1);
-		final int tokenAddressLength = tmp.length - SERVER_NAME.length();
-
-		final byte[] tokenAddress = Arrays.copyOfRange(tmp, SERVER_NAME.length(),
-			SERVER_NAME.length() + tokenAddressLength
-		);
-
-		if (tmp.length < SERVER_NAME.length() + address.getAddress().getAddress().length) {
-			return -1;
-		} else if (!SERVER_NAME.equals(tokenServer)) {
-			return -1;
-		} else if (!Arrays.equals(address.getAddress().getAddress(), tokenAddress)) {
-			return -1;
-		}
-
-		return length + 1; /* One extra byte stores the length */
 	}
 
+	/* The length byte, the server name and an IPv6 address padded to whole AES blocks, and the longest connection id */
 	@Override
 	public int maxTokenLength() {
 		final int length = SERVER_NAME.length() + IPV6_LENGTH;
 
-		/* AES-encoded (PKCS5) data grows in 16-byte increments */
-		return length + (16 - (length % 16)) +  QUICHE_MAX_CONN_ID_LEN;
+		return 1 + length + (AES_BLOCK - length % AES_BLOCK) + QUICHE_MAX_CONN_ID_LEN;
 	}
 }

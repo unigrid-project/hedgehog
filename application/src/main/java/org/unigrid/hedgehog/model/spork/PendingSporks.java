@@ -45,6 +45,10 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 public class PendingSporks {
 	public static final Duration LIFETIME = Duration.ofMinutes(60);
 
+	/* The newest proposal of a type wins, so one stamped far ahead would hold off every honest proposal until its
+	   time came; a proposal is taken no further ahead than clocks that are set right drift apart */
+	public static final Duration LEEWAY = Duration.ofMinutes(2);
+
 	private InstantSource clock = InstantSource.system();
 	private final Map<Type, GridSpork> proposals = new EnumMap<>(Type.class);
 
@@ -67,7 +71,8 @@ public class PendingSporks {
 	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		if (isAlive(spork) && spork.isNewerThan(held) && spork.canBeProposedOver(stored, mayVerify)) {
+		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held)
+			&& spork.canBeProposedOver(stored, mayVerify)) {
 			proposals.put(spork.getType(), spork);
 			return true;
 		}
@@ -98,6 +103,10 @@ public class PendingSporks {
 		if (Objects.nonNull(held) && !held.canBeProposedOver(stored)) {
 			proposals.remove(stored.getType());
 		}
+	}
+
+	private boolean isAheadOfTime(GridSpork spork) {
+		return spork.getTimeStamp().isAfter(clock.instant().plus(LEEWAY));
 	}
 
 	private boolean isAlive(GridSpork spork) {

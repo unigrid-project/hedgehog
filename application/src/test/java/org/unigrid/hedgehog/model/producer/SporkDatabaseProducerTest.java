@@ -25,6 +25,8 @@ import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
+import java.util.stream.Stream;
 import lombok.Cleanup;
 import lombok.Data;
 import lombok.SneakyThrows;
@@ -64,18 +66,24 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		final BrokenSporkDatabase brokenSporkDatabase = new BrokenSporkDatabase();
 
 		persist(path, brokenSporkDatabase);
-		final long originalFileSize = Files.size(path);
+		final byte[] original = Files.readAllBytes(path);
 
 		final SporkDatabaseProducer producer = new SporkDatabaseProducer();
 		FieldUtils.writeField(producer, "applicationDirectory", applicationDirectory, true);
 		final SporkDatabase db = Reflection.invoke(producer, "produce");
 
-		persist(path, db);
-		final long newFileSize = Files.size(path);
-
 		/* When a problem is detected during deserialization, the spork database producer
-		   should create a fresh (correct) instance of the database. This new instance will be different,
-		   which means the size should no longer match */
-		assertThat(originalFileSize, not(equalTo(newFileSize)));
+		   should create a fresh (correct) instance of the database, and keep the file it could not read */
+		assertThat(db, equalTo(SporkDatabase.builder().build()));
+		assertThat(Files.exists(path), is(false));
+
+		try (Stream<Path> files = Files.list(path.getParent())) {
+			final List<Path> aside = files.filter(file -> file.getFileName().toString()
+				.startsWith(SporkDatabase.SPORK_DB_FILE + ".unreadable-")).toList();
+
+			assertThat(aside, hasSize(1));
+			assertThat(Files.readAllBytes(aside.get(0)), equalTo(original));
+			Files.delete(aside.get(0));
+		}
 	}
 }

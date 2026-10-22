@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.unigrid.hedgehog.ledger.AccountKey;
+import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.ValidatorSet;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
@@ -114,6 +115,11 @@ public class LedgerGenesisCommand implements Runnable {
 			if (!KEY.matcher(key).matches()) {
 				throw new ParameterException(spec.commandLine(), "--validator must be " + AccountKey.SIZE * 2
 					+ " hexadecimal characters");
+			}
+
+			if (!Ed25519.isPublicKey(AccountKey.fromHex(key))) {
+				throw new ParameterException(spec.commandLine(), "--validator " + key
+					+ " is not an Ed25519 public key");
 			}
 
 			if (!keys.add(AccountKey.fromHex(key))) {
