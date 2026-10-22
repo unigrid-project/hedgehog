@@ -2,8 +2,8 @@
   "time": 1700000000000,
   "roundLength": 100,
   "validators": [
-    "1111111111111111111111111111111111111111111111111111111111111111",
-    "2222222222222222222222222222222222222222222222222222222222222222"
+    "b1f804dabc68274c1233995c5a9119b56935bcdd83b7de07ec726dcedc4e9ce7",
+    "6a0f6a283a8e4e86d2a3d60ef9e37ec33f2ab6071a30e0a477735128e7571eb0"
   ],
   "snapshotHash": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
   "snapshotTotal": 12345678900000000
