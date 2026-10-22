@@ -48,6 +48,10 @@ public class Topology {
 	/* Far above any real network, but low enough that a flood of made-up keys cannot exhaust the memory of a node */
 	public static final int MAX_GRIDNODES = 10_000;
 
+	/* Many more peers than a node connects to, but low enough that a flood of addresses cannot fill its memory. The
+	   seeds are let in past it, so a topology that others filled still holds a way back to the network. */
+	public static final int MAX_NODES = 1_000;
+
 	private HashSet<Node> nodes;
 	private HashMap<String, Gridnode> gridnodes;
 
@@ -69,13 +73,22 @@ public class Topology {
 	public void repopulate() {
 		nodes = new HashSet<>();
 		channels.clear();
+		addSeeds();
+	}
+
+	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
+	   nothing but what they chose to tell it. Gives the seeds that resolve. */
+	@Protected @Lock(LockMode.WRITE)
+	public Set<Node> addSeeds() {
+		final Set<Node> seeds = new HashSet<>();
 
 		for (String address : Network.getSeeds()) {
 			try {
 				final Node node = Node.fromAddress(address);
 
 				if (!node.isMe()) {
-					addNode(node);
+					seeds.add(node);
+					nodes.add(node);
 				}
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
@@ -83,6 +96,8 @@ public class Topology {
 				log.atWarn().log("Seed node {} does not resolve: {}", address, ex.getMessage());
 			}
 		}
+
+		return seeds;
 	}
 
 	@Protected @Lock(LockMode.READ)
@@ -126,7 +141,7 @@ public class Topology {
 
 	@Protected @Lock(LockMode.WRITE)
 	public boolean addNode(Node node) {
-		if (!node.getAddress().isUnresolved() && !nodes.contains(node) && !node.isMe()) {
+		if (nodes.size() < MAX_NODES && !node.getAddress().isUnresolved() && !nodes.contains(node) && !node.isMe()) {
 			return nodes.add(node);
 		}
 

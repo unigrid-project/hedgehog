@@ -75,7 +75,8 @@ public class P2PClient extends ConnectionContainer {
 	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, TimeoutException {
 		super();
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
-		group = Optional.of(new NioEventLoopGroup(Network.COMMUNICATION_THREADS));
+		/* A client has one socket, which one thread serves, and a node holds a client for each peer it reaches */
+		group = Optional.of(new NioEventLoopGroup(1));
 
 		try {
 			channel = connect(group.get(), hostname, port);

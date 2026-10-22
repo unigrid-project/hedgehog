@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -124,5 +125,31 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 
 		topologyThread.new NodeConnectionHandler(topology).accept(Node.fromAddress("127.0.0.1:52883"));
 		assertThat(hosts, contains("127.0.0.1"));
+	}
+
+	private static Node node(int n, Optional<Connection> connection) {
+		return Node.builder().address(new InetSocketAddress("10.2." + n / 256 + "." + n % 256, 1))
+			.connection(connection).build();
+	}
+
+	/* Peers choose what the topology holds, so the node looks after what it is connected to, then tries the seeds,
+	   and opens no more connections than it may hold */
+	@Example
+	public void shouldTurnToTheConnectedThenTheSeedsAndNoMoreThanItMayHold(@Mocked Connection connection) {
+		final List<Node> connected = List.of(node(0, Optional.of(connection)), node(1, Optional.of(connection)));
+		final Set<Node> seeds = Set.of(node(2, Optional.empty()), node(3, Optional.empty()));
+		final Set<Node> nodes = new HashSet<>(connected);
+
+		nodes.addAll(seeds);
+
+		for (int n = 4; n < 200; n++) {
+			nodes.add(node(n, Optional.empty()));
+		}
+
+		final List<Node> turns = TopologyThread.inTurn(nodes, seeds);
+
+		assertThat(turns, hasSize(TopologyThread.MAX_OUTBOUND));
+		assertThat(turns.subList(0, 2), containsInAnyOrder(connected.toArray()));
+		assertThat(turns.subList(2, 4), containsInAnyOrder(seeds.toArray()));
 	}
 }
