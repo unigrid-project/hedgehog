@@ -279,13 +279,6 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>org.jacoco</groupId>
-			<artifactId>org.jacoco.agent</artifactId>
-			<classifier>runtime</classifier>
-			<version>${jacoco.version}</version>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
 			<version>2.20.0</version>
@@ -341,6 +334,19 @@
 						<configuration>
 							<dataFile>${project.basedir}/target/jacoco.exec</dataFile>
 							<outputDirectory>${project.basedir}/target/jacoco-results/</outputDirectory>
+						</configuration>
+					</execution>
+					<!-- The tests of the application run much of the ledger and common, which its own report
+					     leaves out; this one counts the classes of all three with the runs of all three -->
+					<execution>
+						<id>aggregate-report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report-aggregate</goal>
+						</goals>
+						<configuration>
+							<includeCurrentProject>true</includeCurrentProject>
+							<outputDirectory>${project.basedir}/target/jacoco-aggregate/</outputDirectory>
 						</configuration>
 					</execution>
 				</executions>
