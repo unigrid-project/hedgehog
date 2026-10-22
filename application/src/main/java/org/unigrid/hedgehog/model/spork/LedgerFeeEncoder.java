@@ -32,11 +32,13 @@ public class LedgerFeeEncoder implements TypedCodec<GridSpork.Type>, ChunkEncode
 	    0..............................................................63
 	    [         << Spork Header (AbstractGridSporkDecoder) >>        ]
 	    [        minimum fee in units of 1e-8 coins (u64, big-endian)  ]
+	    [ minimum amount to a new account in units of 1e-8 coins (u64) ]
 	*/
 	@Override
 	public void encodeChunk(ChannelHandlerContext ctx, LedgerFee.SporkData data, ByteBuf out) throws Exception {
-		/* units() validates: the signatures cover these bytes, so what cannot be decoded must not be signed */
+		/* The units validate: the signatures cover these bytes, so what cannot be decoded must not be signed */
 		out.writeLong(data.units());
+		out.writeLong(data.newAccountUnits());
 	}
 
 	@Override

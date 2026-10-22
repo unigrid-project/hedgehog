@@ -151,6 +151,24 @@ public class LedgerFeeSporkCommandTest {
 	}
 
 	@Example
+	public void readsTheFeeAndTheAmountToANewAccount() {
+		final Result result = RestCommandFixture.run(set("0".repeat(64), "0.001: 1.5"), Response.ok().build());
+		final var expected = LedgerFeeSporkTest.with(new BigDecimal("0.001"));
+
+		expected.setMinimumNewAccountAmount(new BigDecimal("1.5"));
+		assertThat((Object) result.request().orElseThrow().entity().orElseThrow().getEntity(), equalTo(expected));
+	}
+
+	@Example
+	public void refusesMoreThanTheFeeAndTheAmountToANewAccount() {
+		final HedgehogCli.Result result = setThroughTheTree("0.001:1:2");
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("give the fee, or the fee and the amount to a new account"));
+		result.assertNoStackTrace();
+	}
+
+	@Example
 	public void saysWhyAFeeOfNineDecimalsIsRefused() {
 		final HedgehogCli.Result result = setThroughTheTree("0.000000001");
 

@@ -24,7 +24,8 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
 
 @Command(name = "ledger-fee",
-	description = "The minimum fee of a transfer; to set it, the data is the fee in coins, like 0.001."
+	description = "The minimum fee of a transfer and the minimum amount of a transfer that opens an account; to set "
+		+ "them, the data is the fee in coins, like 0.001, or the fee and the amount, like 0.001:1."
 )
 public class LedgerFee extends SporkCommand<SporkData> {
 	@Override
@@ -37,8 +38,19 @@ public class LedgerFee extends SporkCommand<SporkData> {
 	protected SporkData read(final String text) {
 		try {
 			final SporkData data = new SporkData();
+			final String[] amounts = text.split(":", -1);
 
-			data.setMinimumTransferFee(new BigDecimal(text));
+			if (amounts.length > 2) {
+				throw new IllegalArgumentException(
+					"give the fee, or the fee and the amount to a new account");
+			}
+
+			data.setMinimumTransferFee(new BigDecimal(amounts[0].strip()));
+
+			if (amounts.length == 2) {
+				data.setMinimumNewAccountAmount(new BigDecimal(amounts[1].strip()));
+			}
+
 			data.validate();
 			return data;
 		} catch (IllegalArgumentException ex) {

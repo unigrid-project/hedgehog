@@ -127,6 +127,10 @@ public class SporkLedgerAuthorityTest {
 			boolean authorizes(Transfer transfer) {
 				return real.authorizes(transfer);
 			}
+
+			long leastNewAccountAmount() {
+				return real.leastNewAccountAmount();
+			}
 		}
 
 		/* Every spork is set, none is behind, and the one entry of the mint spork is due at 100 seconds */
@@ -714,6 +718,21 @@ public class SporkLedgerAuthorityTest {
 		final Rig rig = Rig.open();
 
 		assertThat(rig.authority.authorizes(transferWithFee(0)), is(true));
+	}
+
+	@Example
+	public void shouldDemandTheAmountToANewAccountThatTheFeeSporkNames() {
+		final Rig rig = Rig.open();
+		final LedgerFee spork = feeSpork(BigDecimal.ZERO);
+
+		assertThat(rig.authority.leastNewAccountAmount(), is(0L));
+
+		spork.<LedgerFee.SporkData>getData().setMinimumNewAccountAmount(new BigDecimal("1.5"));
+		rig.database.setLedgerFee(spork);
+		assertThat(rig.authority.leastNewAccountAmount(), is(150_000_000L));
+
+		rig.database.setLedgerFee(null);
+		assertThat(rig.authority.leastNewAccountAmount(), is(0L));
 	}
 
 	@Example
