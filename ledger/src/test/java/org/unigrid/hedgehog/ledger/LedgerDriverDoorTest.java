@@ -106,6 +106,40 @@ public class LedgerDriverDoorTest {
 		}
 	}
 
+	/* A ballot that the node holds is plausible, and played back by enough peers it would empty the bucket that all
+	   peers share for the messages of the engine. A copy takes the tokens of its sender only. */
+	@Example
+	public void shouldKeepTenFloodersOfCopiesOfAHeldBallotFromStarvingTheBallotsOfHonestValidators()
+		throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = stalled(serial, options(ITEMS, 3_000, 64 * MIB, 8 * MIB), Policy.DEFAULT)) {
+			final Ballot held = rig.ballot(Ballot.Type.PREVOTE, 2);
+			final List<Ballot> honest = List.of(rig.ballot(Ballot.Type.PREVOTE, 1),
+				rig.ballot(Ballot.Type.PREVOTE, 3), rig.ballot(Ballot.Type.PREVOTE, 4));
+			final int copies = Policy.DEFAULT.rates().get(Kind.CONSENSUS).capacity();
+
+			rig.driver.onMessage(rig.network.connect("first"), held, DriverRig.FRAME);
+			serial.drain();
+
+			for (int flooder = 0; flooder < FLOODERS; flooder++) {
+				final RecordingPeer peer = rig.network.connect("C" + flooder);
+
+				IntStream.range(0, copies).forEach(n -> rig.driver.onMessage(peer, held, DriverRig.FRAME));
+				serial.drain();
+			}
+
+			for (int n = 0; n < honest.size(); n++) {
+				rig.driver.onMessage(rig.network.connect("H" + n), honest.get(n), DriverRig.FRAME);
+			}
+
+			serial.drain();
+
+			assertThat(honest.stream().allMatch(ballot -> rig.nodes.get(rig.nodes.size() - 1).holds(ballot)),
+				is(true));
+		}
+	}
+
 	@Example
 	public void shouldLetJunkTakeNoMoreThanATenthOfTheSlotsAndLeaveTheRestToWhatIsPlausible() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();

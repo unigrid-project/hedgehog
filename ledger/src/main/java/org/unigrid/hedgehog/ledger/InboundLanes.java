@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import org.unigrid.hedgehog.ledger.Door.Admission;
@@ -87,8 +88,11 @@ final class InboundLanes {
 	   and `refused` is what is done when it gets none, or when there is no node to give it to. The token is the first
 	   thing asked: the work of an item, such as the check of a signature, is bounded by the buckets. An item of a
 	   peer that is penalised, or of one that cannot say who it is, gets no place. The place is as large as the frame
-	   the item came in. This runs on the thread of the caller and holds nothing up. */
-	void inbound(LedgerPeer from, Kind kind, int bytes, Admission admission, Runnable handler, Runnable refused) {
+	   the item came in. `known` says, on the serial executor, whether the node holds the item already: such a copy
+	   takes a token of its sender only, and none that all peers share, and is refused. This runs on the thread of the
+	   caller and holds nothing up. */
+	void inbound(LedgerPeer from, Kind kind, int bytes, Admission admission, BooleanSupplier known, Runnable handler,
+		Runnable refused) {
 		final String peer = idOf(from);
 		final long size = Math.max(1, bytes);
 		final boolean junk = admission == Admission.JUNK;
@@ -99,7 +103,7 @@ final class InboundLanes {
 			return;
 		}
 
-		final Runnable task = () -> serve(peer, kind, size, junk, handler, refused);
+		final Runnable task = () -> serve(peer, kind, size, junk, known, handler, refused);
 
 		inboundLane.add(task);
 
@@ -123,9 +127,10 @@ final class InboundLanes {
 		}
 	}
 
-	private void serve(String peer, Kind kind, long size, boolean junk, Runnable handler, Runnable refused) {
+	private void serve(String peer, Kind kind, long size, boolean junk, BooleanSupplier known, Runnable handler,
+		Runnable refused) {
 		try {
-			if (accepting.test(kind) && limiter.allow(peer, kind, !junk)) {
+			if (accepting.test(kind) && admitted(peer, kind, junk, known)) {
 				handler.run();
 			} else {
 				refused.run();
@@ -133,6 +138,15 @@ final class InboundLanes {
 		} finally {
 			budget.giveBack(peer, size, junk);
 		}
+	}
+
+	private boolean admitted(String peer, Kind kind, boolean junk, BooleanSupplier known) {
+		if (known.getAsBoolean()) {
+			limiter.allowCopy(peer, kind);
+			return false;
+		}
+
+		return limiter.allow(peer, kind, !junk);
 	}
 
 	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer

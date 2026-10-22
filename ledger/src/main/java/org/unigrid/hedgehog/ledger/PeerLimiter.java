@@ -25,6 +25,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
 
@@ -127,7 +128,9 @@ public final class PeerLimiter {
 		     and its limit is the default, as it is for a block request.
 		   The limits shared by all peers are for what the node hears of an item from every peer that relays it. A
 		   node relays to at most eight others, so an item reaches it in nine copies at most, and the shared rate
-		   is nine times the rate of the items, twice. A status is heard from each of the other validators. */
+		   is nine times the rate of the items, twice. A copy of a message of the engine that the node holds takes
+		   nothing of it (see allowCopy), which leaves that rate to spare. A status is heard from each of the other
+		   validators. */
 		public static Policy forNetwork(int validators, int transactionsPerSecond) {
 			if (validators < 1 || transactionsPerSecond < 1) {
 				throw new IllegalArgumentException("A network has a validator and a transaction a second,"
@@ -235,21 +238,40 @@ public final class PeerLimiter {
 	public boolean allow(String id, Kind kind, boolean plausible) {
 		final long now = advance();
 
+		return ownToken(id, kind, now).map(own -> spend(own, everyone(kind, plausible, now), plausible))
+			.orElse(false);
+	}
+
+	private Bucket everyone(Kind kind, boolean plausible, long now) {
+		return plausible ? refilled(shared, kind, policy.global().get(kind), now)
+			: refilled(junk, JUNK, policy.junk(), now);
+	}
+
+	/* A copy of an item that the node holds already costs its sender a token of its own bucket, and a refusal for it
+	   is scored as any other, but it takes nothing that all peers share: the node does no work for it, and the copies
+	   that every neighbour relays of one item must not empty what the new items need */
+	public boolean allowCopy(String id, Kind kind) {
+		return ownToken(id, kind, advance()).map(own -> {
+			own.millitokens -= TOKEN;
+			return true;
+		}).orElse(false);
+	}
+
+	/* The bucket of a peer that is not penalised, when it holds a token; running dry costs the peer score */
+	private Optional<Bucket> ownToken(String id, Kind kind, long now) {
 		if (penalised(id, now)) {
-			return false;
+			return Optional.empty();
 		}
 
 		final Peer peer = track(id, now);
 		final Bucket own = refilled(peer.buckets, kind, policy.rates().get(kind), now);
-		final Bucket everyone = plausible ? refilled(shared, kind, policy.global().get(kind), now)
-			: refilled(junk, JUNK, policy.junk(), now);
 
 		if (own.millitokens < TOKEN) {
 			raise(id, peer, policy.refusalCostMillipoints() * (POINT / MILLIPOINT_PER_POINT), now);
-			return false;
+			return Optional.empty();
 		}
 
-		return spend(own, everyone, plausible);
+		return Optional.of(own);
 	}
 
 	private static boolean spend(Bucket own, Bucket everyone, boolean plausible) {

@@ -683,6 +683,32 @@ public class PeerLimiterTest {
 		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
 	}
 
+	/* A copy of what the node holds already is dropped without any work, so it is no one's cost but its sender's */
+	@Example
+	public void shouldTakeACopyFromTheBucketOfItsSenderAndNothingFromTheLimitForAllPeers() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START,
+			new Policy(same(new Rate(3, 1)), same(new Rate(1, 1)), 100, 0, 60_000, 100));
+
+		assertThat(IntStream.range(0, 3).allMatch(copy -> limiter.allowCopy("a", Kind.CONSENSUS)), is(true));
+		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("a", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("b", Kind.CONSENSUS), is(true));
+		assertThat(limiter.allowCopy("c", Kind.CONSENSUS), is(true));
+	}
+
+	@Example
+	public void shouldPenaliseAPeerWhoseCopiesRunOutOfItsTokensOneHundredTimes() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(1, 1, 100, 60_000, 100));
+
+		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(true));
+		IntStream.range(0, 99).forEach(copy -> limiter.allowCopy("a", Kind.CONSENSUS));
+
+		assertThat(limiter.isPenalised("a"), is(false));
+		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
+		assertThat(limiter.isPenalised("a"), is(true));
+		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
+	}
+
 	@Example
 	public void shouldKeepTheTokenOfAPeerThatTheLimitForAllPeersRefused() {
 		final AtomicLong clock = new AtomicLong(START);

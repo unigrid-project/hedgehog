@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -166,6 +167,9 @@ public final class LedgerDriver implements Closeable {
 
 	/* What the driver does itself: nothing came from a peer, and what it says goes to every peer */
 	private static final Item OWN = new Item(null, null, null);
+
+	/* An item that cannot be told for a copy without the work it takes to judge it */
+	private static final BooleanSupplier NOT_HELD = () -> false;
 
 	private final Scheduler scheduler;
 	private final PeerLimiter limiter;
@@ -327,7 +331,18 @@ public final class LedgerDriver implements Closeable {
 	public void onMessage(LedgerPeer from, Message message, int bytes) {
 		final Item item = new Item(from, Kind.CONSENSUS, message);
 
-		inbound(item, bytes, () -> deliver(item, message));
+		inbound(item, bytes, () -> holdsAlready(message), () -> deliver(item, message), () -> { });
+	}
+
+	/* Every neighbour that relays a message sends a copy of it, and taking in one the node holds does nothing, so a
+	   copy is told apart before it takes a token that all peers share. A node that cannot answer is asked again when
+	   the message is delivered, where a failure is dealt with. */
+	private boolean holdsAlready(Message message) {
+		try {
+			return supervisor.ready() && supervisor.node().holds(message);
+		} catch (RuntimeException e) {
+			return false;
+		}
 	}
 
 	private void deliver(Item item, Message message) {
@@ -362,7 +377,7 @@ public final class LedgerDriver implements Closeable {
 	public CompletableFuture<BlockBatch> onBlockRequest(LedgerPeer from, BlockRequest request, int bytes) {
 		final CompletableFuture<BlockBatch> reply = new CompletableFuture<>();
 
-		inbound(new Item(from, Kind.BLOCK_REQUEST, request), bytes,
+		inbound(new Item(from, Kind.BLOCK_REQUEST, request), bytes, NOT_HELD,
 			() -> reply.complete(new BlockBatch(supervisor.ledger().blocksFrom(request.from(), request.max()))),
 			() -> reply.completeExceptionally(new RejectedExecutionException("The request is refused")));
 		return reply;
@@ -370,7 +385,7 @@ public final class LedgerDriver implements Closeable {
 
 	/* A peer that connects is told where this chain stands, and that is a status, which has its limit */
 	public void onPeerConnected(LedgerPeer from) {
-		inbound(new Item(from, Kind.STATUS, null), 1, door.sortConnection(PeerView.idOf(from)), () -> {
+		inbound(new Item(from, Kind.STATUS, null), 1, door.sortConnection(PeerView.idOf(from)), NOT_HELD, () -> {
 			keeper.connectedMayHaveChanged();
 			Gossip.send(from, supervisor.ledger().status());
 		}, () -> { });
@@ -406,15 +421,17 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void inbound(Item item, int bytes, Runnable handler) {
-		inbound(item, bytes, handler, () -> { });
+		inbound(item, bytes, NOT_HELD, handler, () -> { });
 	}
 
-	private void inbound(Item item, int bytes, Runnable handler, Runnable refused) {
-		inbound(item, bytes, door.sort(PeerView.idOf(item.from()), item.kind(), item.wire()), handler, refused);
+	private void inbound(Item item, int bytes, BooleanSupplier known, Runnable handler, Runnable refused) {
+		inbound(item, bytes, door.sort(PeerView.idOf(item.from()), item.kind(), item.wire()), known, handler,
+			refused);
 	}
 
-	private void inbound(Item item, int bytes, Admission admission, Runnable handler, Runnable refused) {
-		lanes.inbound(item.from(), item.kind(), bytes, admission, handler, refused);
+	private void inbound(Item item, int bytes, Admission admission, BooleanSupplier known, Runnable handler,
+		Runnable refused) {
+		lanes.inbound(item.from(), item.kind(), bytes, admission, known, handler, refused);
 	}
 
 	/* The blocks are read from the ledger, which a driver that has halted still has, so a halt does not stop the
