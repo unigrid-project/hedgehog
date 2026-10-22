@@ -143,8 +143,10 @@ final class BallotBox {
 			? OptionalInt.of(views.get(needed - 1)) : OptionalInt.empty();
 	}
 
-	boolean holdsAnyIn(int view) {
-		return countAny(Ballot.Type.PREVOTE, view) + countAny(Ballot.Type.PRECOMMIT, view) > 0;
+	/* Whether more than 1/3 of the validators have been heard in this view or a later one, so at least one of them that
+	   is honest */
+	boolean oneThirdFrom(int view) {
+		return highest.values().stream().filter(reached -> reached >= view).count() >= validators.oneThird();
 	}
 
 	List<Ballot> ballotsBy(AccountKey validator) {

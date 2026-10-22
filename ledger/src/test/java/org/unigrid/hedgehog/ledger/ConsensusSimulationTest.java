@@ -71,14 +71,18 @@ public class ConsensusSimulationTest {
 
 	private static final int FAULTY_GOAL = 3;
 
-	/* With the precommit timeout of a second, the view with nothing in it ends at about 1.4 seconds on links of 40 ms
-	   and the nodes then say again what they signed for the five seconds of the shortest window, so by ten seconds
-	   they are silent for good, and the 20 that follow are the quiet that is looked for */
-	private static final long RESTED_BY_MILLIS = 1_500;
+	/* With the precommit timeout of a second, the two views with nothing decided in them end at about 2.7 seconds on
+	   links of 40 ms and the nodes then say again what they signed for the five seconds of the shortest window, so by
+	   ten seconds they are silent for good, and the 20 that follow are the quiet that is looked for */
+	private static final long RESTED_BY_MILLIS = 3_000;
 	private static final long QUIET_AFTER_MILLIS = 10_000;
 	private static final long QUIET_WINDOW_MILLIS = 20_000;
 	private static final long QUIET_PRECOMMIT_MILLIS = 600;
 	private static final int QUIET_SEEDS = 5;
+
+	/* A view with nothing in it lasts under three seconds here, so a validator that could keep the nodes running
+	   would take them through dozens of views in two minutes */
+	private static final long NUDGED_MILLIS = 120_000;
 
 	/* No messages can be lost for ever, so every node that is up decides well within this time */
 	private static final long STRANDED_SETTLE_MILLIS = 300_000;
@@ -431,19 +435,19 @@ public class ConsensusSimulationTest {
 			new Timeouts(PROPOSE_MILLIS, 100, 100, 50, SimulatedNetwork.RESEND_MILLIS, 50));
 	}
 
-	/* One ballot is enough to wake the nodes, and the one view they run ends with nothing proposed and nothing to
-	   wait for. The nodes say again what they signed while they rest, and after that nobody talks, nobody sets a
-	   timer and no engine runs, though the nodes still hold what they signed. */
+	/* The proposer of the first view wakes the nodes with a block that every one of them refuses. The view of the
+	   proposal and the next one end with nothing decided and nothing to wait for. The nodes say again what they signed
+	   while they rest, and after that nobody talks, nobody sets a timer and no engine runs, though the nodes still hold
+	   what they signed. */
 	@Example
 	public void shouldGoQuietAgainWhenNobodyHasWork() {
 		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
-		final Liar liar = liar(net, 1);
-		final Ballot nudge = liar.vote(PREVOTE, 0, null);
+		final Liar liar = liar(net, 0);
 		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
 
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
-		live.forEach(node -> liar.tell(node.index, nudge));
+		nudgeWithRefusedProposal(liar, live);
 		net.run(RESTED_BY_MILLIS);
 
 		final long sentOnceRested = net.sent();
@@ -477,13 +481,12 @@ public class ConsensusSimulationTest {
 		for (long seed = 1; seed <= QUIET_SEEDS; seed++) {
 			final SimulatedNetwork net = new SimulatedNetwork(4, 0, seed,
 				new Timeouts(PROPOSE_MILLIS, 100, 100, 50, QUIET_PRECOMMIT_MILLIS, 50));
-			final Liar liar = liar(net, 1);
-			final Ballot nudge = liar.vote(PREVOTE, 0, null);
+			final Liar liar = liar(net, 0);
 			final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
 
 			net.latency(5, QUIET_PRECOMMIT_MILLIS - 100);
 			net.begin();
-			live.forEach(node -> liar.tell(node.index, nudge));
+			nudgeWithRefusedProposal(liar, live);
 			net.run(QUIET_AFTER_MILLIS);
 
 			final long sent = net.sent();
@@ -500,17 +503,57 @@ public class ConsensusSimulationTest {
 		}
 	}
 
-	/* Only one node has work, so the others rest after every view that has nothing for them and wake to its messages.
-	   When three in ten messages are lost, the node that works must still get what the resting nodes signed in the
-	   view it waits in, or it would wait for ever. One node is down all along. */
+	/* A validator that signs ballots in the view after the one the nodes are in, over and over, is a single voice: it
+	   must neither wake nodes that have nothing to do nor keep them running from one view to the next */
 	@Example
-	public void shouldNotLeaveTheNodeWithWorkWaitingForAMessageTheRestingNodesLost() {
+	public void shouldNotLetOneValidatorKeepTheNodesRunningViewsWhenNobodyHasWork() {
+		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
+		final Liar liar = liar(net, 1);
+		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
+
+		net.latency(LINK_MILLIS, LINK_MILLIS);
+		net.begin();
+		nudgeAheadEverySecond(net, liar, live);
+		net.run(NUDGED_MILLIS);
+
+		assertThat(live.stream().map(node -> node.engine.view()).toList(), equalTo(List.of(0, 0, 0)));
+		assertThat(live.stream().noneMatch(node -> node.engine.running()), is(true));
+		assertThat(live.stream().allMatch(node -> node.engine.outbox().isEmpty()), is(true));
+		assertThat(live.stream().mapToInt(node -> node.armed).sum(), equalTo(0));
+	}
+
+	private static void nudgeAheadEverySecond(SimulatedNetwork net, Liar liar, List<SimNode> live) {
+		final int ahead = live.stream().mapToInt(node -> node.engine.view()).max().orElseThrow() + 1;
+
+		live.forEach(node -> liar.tell(node.index, liar.vote(PREVOTE, ahead, null), liar.vote(PRECOMMIT, ahead, null)));
+		net.after(SimulatedNetwork.RESEND_MILLIS, () -> nudgeAheadEverySecond(net, liar, live));
+	}
+
+	/* The liar is the proposer of the first view and every node that is up refuses its block */
+	private static void nudgeWithRefusedProposal(Liar liar, List<SimNode> live) {
+		final Proposal nudge = liar.proposal(0, -1, liar.block(0, "refused"));
+
+		live.forEach(node -> {
+			node.app.refuse = true;
+			liar.tell(node.index, nudge);
+		});
+	}
+
+	/* Only two nodes have work, more than a third of the four, so the third node that is up rests after every view
+	   that has nothing for it and wakes when both are in a later view. When three in ten messages are lost, the nodes
+	   that work must still get what the resting node signed in the view they wait in, or they would wait for ever.
+	   One node is down all along. */
+	@Example
+	public void shouldNotLeaveTheNodesWithWorkWaitingForAMessageTheRestingNodeLost() {
 		for (long seed = 1; seed <= STRANDED_SEEDS; seed++) {
 			final int down = (int) (seed % 4);
 			final int working = (int) ((down + 1 + seed % 3) % 4);
+			final int alsoWorking = IntStream.range(0, 4).filter(index -> index != down && index != working)
+				.findFirst().orElseThrow();
 			final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, seed);
 
 			net.nodes.get(working).app.goal = 1;
+			net.nodes.get(alsoWorking).app.goal = 1;
 			net.dropRate(0.3);
 			net.crash(down);
 			net.begin();
@@ -1215,13 +1258,12 @@ public class ConsensusSimulationTest {
 	@Example
 	public void shouldGoQuietAgainAfterRestartsFromDisk() {
 		final SimulatedNetwork net = networkWithSlowPrecommits(4, 0, 1);
-		final Liar liar = liar(net, 1);
-		final Ballot nudge = liar.vote(PREVOTE, 0, null);
+		final Liar liar = liar(net, 0);
 		final List<SimNode> live = net.nodes.stream().filter(node -> !node.crashed).toList();
 
 		net.latency(LINK_MILLIS, LINK_MILLIS);
 		net.begin();
-		live.forEach(node -> liar.tell(node.index, nudge));
+		nudgeWithRefusedProposal(liar, live);
 		net.run(QUIET_AFTER_MILLIS);
 
 		final long sentWhileQuiet = net.sent();

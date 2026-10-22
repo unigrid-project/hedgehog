@@ -58,13 +58,14 @@ import static org.unigrid.hedgehog.ledger.Action.*;
    running and not decided, and its peers tell it the decision again.
 
    A chain with nothing to do stays quiet. When the precommit timeout of a view runs out and the node has no work,
-   no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and no ballot
-   of the next view, it starts no further view: it rests, with no timer, until work or a message of the height
-   wakes it in the first view it has signed nothing in. A peer that is still running may have lost a message of the
-   node that rests, so while it rests resume() says again what the node signed for a window of three precommit
-   timeouts of its view, but at least 5 and at most 60 seconds, and after that it is silent. The driver therefore
-   ticks about once a second, which puts at least a few ticks in every window; that is the contract of the driver.
-   What the node signed stays in outbox(). */
+   no lock, no valid block, no decision it refused, holds no proposal of the view or of the next one and has not
+   heard more than 1/3 of the validators in a later view, it starts no further view: it rests, with no timer, until
+   work wakes it, or a message after which it would not have rested, and then begins the first view it has signed
+   nothing in. The ballots of one validator alone never wake it, nor does a proposal further on. A peer that is still
+   running may have lost a message of the node that rests, so while it rests resume() says again what the node signed
+   for a window of three precommit timeouts of its view, but at least 5 and at most 60 seconds, and after that it is
+   silent. The driver therefore ticks about once a second, which puts at least a few ticks in every window; that is
+   the contract of the driver. What the node signed stays in outbox(). */
 public final class Consensus {
 	public static final int MAX_VIEW_AHEAD = 32;
 	private static final int RESEND_PRECOMMIT_TIMEOUTS = 3;
@@ -554,16 +555,17 @@ public final class Consensus {
 	   asked for again by the rules that follow. */
 	private boolean goesQuiet() {
 		return !app.hasWork(now) && lockedBlock == null && validBlock == null && refusedDecisions.isEmpty()
-			&& holdsNothingOfThisViewOrAhead();
+			&& !peersAreAhead();
 	}
 
-	/* A proposal of this view may still be wanted decided. A peer that is in the next view, with a proposal of it or
-	   a ballot, has got ahead and has work, and a node that rested would never be woken to answer what it holds
-	   already. Only the next view counts: anything further on can be signed by any validator, or by the proposer of one
-	   view in the window, and must not be able to keep the chain awake for many views, while a peer that really is
-	   further on has signed in the next view as well. */
-	private boolean holdsNothingOfThisViewOrAhead() {
-		return !proposals.containsKey(view) && !proposals.containsKey(view + 1) && !box.holdsAnyIn(view + 1);
+	/* A proposal of this view may still be wanted decided, and the proposer of the next view who proposed has work and
+	   got ahead. More than 1/3 of the validators in the view the node would begin, or later, hold at least one honest
+	   peer that is there. The same tells a node at rest to wake, so that what would have kept it running wakes it when
+	   it arrives late. Nothing less counts: the proposer of a view further on can sign for it at any time, and one
+	   validator can sign ballots of every view, and neither must keep a chain with nothing to do running views. While
+	   the node runs it skips to a view that more than 1/3 have reached, so that last part only ever wakes it. */
+	private boolean peersAreAhead() {
+		return proposals.containsKey(view) || proposals.containsKey(view + 1) || box.oneThirdFrom(nextView);
 	}
 
 	private boolean isValidator() {
@@ -607,10 +609,14 @@ public final class Consensus {
 			return;
 		}
 
-		/* A decision ends the height, so it must not start a view */
-		if (accept(message) && !running && !decided) {
+		if (accept(message) && wakes()) {
 			begin();
 		}
+	}
+
+	/* A decision ends the height, so it must not start a view */
+	private boolean wakes() {
+		return !running && !decided && peersAreAhead();
 	}
 
 	private boolean accept(Message message) {

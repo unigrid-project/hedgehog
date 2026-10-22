@@ -373,18 +373,26 @@ public class BallotBoxTest {
 	}
 
 	@Example
-	public void shouldHoldAnythingInAViewWhenAnyBallotOfAnyTypeIsStoredInIt() {
+	public void shouldFindMoreThanOneThirdFromAViewOnlyWhenThatManyValidatorsWereHeardInItOrLater() {
 		final BallotBox box = box();
 
 		box.add(ballot(PREVOTE, 1, 1, A));
-		box.add(ballot(PRECOMMIT, 2, 2, null));
-		box.add(forged(PREVOTE, 3, 3, A));
+		box.add(ballot(PRECOMMIT, 1, 7, null));
+		box.add(forged(PREVOTE, 3, 9, A));
 
-		assertThat(box.holdsAnyIn(0), is(false));
-		assertThat(box.holdsAnyIn(1), is(true));
-		assertThat(box.holdsAnyIn(2), is(true));
-		assertThat(box.holdsAnyIn(3), is(false));
-		assertThat(box.holdsAnyIn(1_000_000), is(false));
+		assertThat(box.oneThirdFrom(0), is(false));
+
+		box.add(ballot(PRECOMMIT, 2, 2, null));
+
+		assertThat(box.oneThirdFrom(0), is(true));
+		assertThat(box.oneThirdFrom(2), is(true));
+		assertThat(box.oneThirdFrom(3), is(false));
+
+		box.seen(key(4), 8);
+		box.seen(key(9), 9);
+
+		assertThat(box.oneThirdFrom(7), is(true));
+		assertThat(box.oneThirdFrom(8), is(false));
 	}
 
 	@Example

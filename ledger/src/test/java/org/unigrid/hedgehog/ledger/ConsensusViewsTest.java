@@ -968,11 +968,24 @@ public class ConsensusViewsTest {
 		return actions;
 	}
 
-	/* A node without work that a message of the height has started, in the view that ends with nothing */
+	/* A node without work that two validators, more than a third, have started, in the view that ends with nothing.
+	   The ballots of one view are a prevote and a precommit, so that its prevotes make no quorum. */
 	private void startQuietNodeInViewZero() {
 		app.goal = 0;
 		engine.start(1, validators, 0);
-		engine.onMessage(prevoteBy(1, 0, null), 5);
+		wakeInView(0, 5);
+	}
+
+	private List<Action> wakeInView(int view, long at) {
+		final List<Action> actions = new ArrayList<>(engine.onMessage(prevoteBy(1, view, null), at));
+
+		actions.addAll(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, view, null), at));
+		return actions;
+	}
+
+	private void restAgainIn(int view, long at) {
+		quorumOfNoBlock(view, at);
+		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, view), at + 2);
 	}
 
 	private void goIdleAfterViewZero() {
@@ -1002,7 +1015,7 @@ public class ConsensusViewsTest {
 
 		assertThat(engine.nextView(), equalTo(0));
 
-		engine.onMessage(prevoteBy(1, 0, null), 5);
+		wakeInView(0, 5);
 
 		assertThat(engine.nextView(), equalTo(1));
 	}
@@ -1028,10 +1041,13 @@ public class ConsensusViewsTest {
 	}
 
 	@Example
-	public void shouldStartTheViewAfterTheOnesItSignedInWhenAMessageWakesAnIdleNode() {
+	public void shouldStartTheViewAfterTheOnesItSignedInWhenMoreThanOneThirdInItWakeAnIdleNode() {
 		goIdleAfterViewZero();
 
-		final List<Action> woken = engine.onMessage(prevoteBy(1, 1, null), 6000);
+		assertThat(engine.onMessage(prevoteBy(1, 1, null), 6000).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+
+		final List<Action> woken = engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 1, null), 6000);
 
 		assertThat(woken.get(0), equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
 		assertThat(engine.running(), is(true));
@@ -1043,13 +1059,71 @@ public class ConsensusViewsTest {
 		assertThat(signed.get(0).view(), equalTo(1));
 	}
 
+	/* The peers that are still in the view the node rested in are no further on than it is */
 	@Example
-	public void shouldStartTheViewAfterTheOnesItSignedInWhenALateBallotOfAnEarlierViewWakesAnIdleNode() {
+	public void shouldNotWakeAnIdleNodeWithLateBallotsOfTheViewItRestedIn() {
 		goIdleAfterViewZero();
 
-		assertThat(engine.onMessage(prevoteBy(2, 0, null), 6000).get(0),
-			equalTo(schedule(Timeout.Kind.PROPOSE, 1, 3500)));
+		assertThat(engine.onMessage(prevoteBy(2, 0, null), 6000).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(3, 0, null), 6001).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+	}
+
+	/* What one validator signs proves nothing about the others, so however many views it goes on to, it is a single
+	   voice and wakes nobody, or one validator could keep a chain with nothing to do running views for ever */
+	@Example
+	public void shouldNotWakeAnIdleNodeOnTheBallotsOfOneValidatorInEveryLaterView() {
+		goIdleAfterViewZero();
+
+		for (int view = 1; view <= Consensus.MAX_VIEW_AHEAD + 3; view++) {
+			assertThat(engine.onMessage(prevoteBy(1, view, null), 6000 + view).isEmpty(), is(true));
+			assertThat(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, view, null), 6000 + view).isEmpty(),
+				is(true));
+		}
+
+		assertThat(engine.running(), is(false));
+		assertThat(engine.nextView(), equalTo(1));
+	}
+
+	@Example
+	public void shouldNotStartAHeightOnTheBallotsOfOneValidator() {
+		app.goal = 0;
+		engine.start(1, validators, 0);
+
+		assertThat(engine.onMessage(prevoteBy(1, 0, null), 5).isEmpty(), is(true));
+		assertThat(engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 1, 0, null), 6).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(1, 5, null), 7).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+
+		engine.onMessage(prevoteBy(2, 3, null), 8);
+
+		assertThat(engine.running(), is(true));
+		assertThat(engine.view(), equalTo(3));
+	}
+
+	/* The proposer of the next view, who has work, is ahead of the node, which is how an honest peer wakes the chain */
+	@Example
+	public void shouldWakeAnIdleNodeForTheProposalOfTheNextView() {
+		final Block next = proposed(1, "b");
+
+		goIdleAfterViewZero();
+
+		final List<Action> woken = engine.onMessage(proposal(1, -1, next), 6000);
+
+		assertThat(engine.running(), is(true));
 		assertThat(engine.view(), equalTo(1));
+		assertThat(prevoteOf(woken).blockHash(), equalTo(next.hash()));
+	}
+
+	/* The proposer of a view further on may sign a proposal for it at any time, but nobody else need be in that view,
+	   so waking for it would only run a view for nothing. Validator 3 proposes the views 2 and 42. */
+	@Example
+	public void shouldNotWakeAnIdleNodeForAProposalBeyondTheNextView() {
+		goIdleAfterViewZero();
+
+		assertThat(engine.onMessage(proposal(2, -1, proposed(2, "c")), 6000).isEmpty(), is(true));
+		assertThat(engine.onMessage(proposal(42, -1, proposed(42, "far")), 6001).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
 	}
 
 	@Example
@@ -1103,6 +1177,7 @@ public class ConsensusViewsTest {
 		app.goal = 0;
 		quick.start(1, validators, 0);
 		quick.onMessage(prevoteBy(1, 0, null), 5);
+		quick.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 0, null), 5);
 		quorumOfNoBlock(quick, 0, 3005);
 		quick.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
 
@@ -1133,9 +1208,8 @@ public class ConsensusViewsTest {
 	@Example
 	public void shouldSendAgainFromTheTimeItRestsAndForAsLongAsTheViewItRestedInWaits() {
 		goIdleAfterViewZero();
-		engine.onMessage(prevoteBy(1, 1, null), 6000);
-		quorumOfNoBlock(1, 9500);
-		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 1), 9502);
+		wakeInView(1, 6000);
+		restAgainIn(1, 9500);
 
 		assertThat(engine.running(), is(false));
 		assertThat(engine.resume(9600).size(), equalTo(2));
@@ -1163,30 +1237,27 @@ public class ConsensusViewsTest {
 		assertThat(prevoteOf(actions).view(), equalTo(1));
 	}
 
-	/* One validator that is not the proposer of the next view is already in it, so there is no proposal to answer, but
-	   the node will be in that view in a moment and would never be woken for what it holds already */
+	/* One validator in the next view is a single voice, which would not wake the node either: it takes more than a
+	   third of the validators, and the node skips to their view as soon as they are in it */
 	@Example
-	public void shouldNotRestWhenAPrevoteOfTheNextViewIsAlreadyHeld() {
+	public void shouldRestWhenOnlyOneValidatorHasAPrevoteOfTheNextView() {
 		startQuietNodeInViewZero();
 		engine.onMessage(prevoteBy(2, 1, null), 10);
 		quorumOfNoBlock(0, 3005);
 
-		final List<Action> actions = engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
-
-		assertThat(engine.running(), is(true));
-		assertThat(engine.view(), equalTo(1));
-		assertThat(schedules(actions, Timeout.Kind.PROPOSE), is(true));
+		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
 	}
 
 	@Example
-	public void shouldNotRestWhenAPrecommitOfTheNextViewIsAlreadyHeld() {
+	public void shouldRestWhenOnlyOneValidatorHasAPrecommitOfTheNextView() {
 		startQuietNodeInViewZero();
 		engine.onMessage(ballot(Ballot.Type.PRECOMMIT, 2, 1, null), 10);
 		quorumOfNoBlock(0, 3005);
 		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
 
-		assertThat(engine.running(), is(true));
-		assertThat(engine.view(), equalTo(1));
+		assertThat(engine.running(), is(false));
+		assertThat(engine.view(), equalTo(0));
 	}
 
 	@Example
@@ -1246,54 +1317,38 @@ public class ConsensusViewsTest {
 		assertThat(engine.running(), is(false));
 	}
 
-	/* A ballot or proposal beyond the window is checked and noted but not kept, so anyone could play the same one back
-	   again and again; only a view that is further on than any this validator has been seen in is news */
+	/* Ballots beyond the window are checked and noted but not kept, so anyone could play the same ones back again and
+	   again; once the node has been in their view they are behind it and wake it no more */
 	@Example
-	public void shouldWakeARestingNodeOnceForTheSameBallotFarAhead() {
-		final Ballot far = prevoteBy(1, 500, null);
+	public void shouldWakeARestingNodeOnceForTheSameBallotsFarAhead() {
+		final Ballot farOne = prevoteBy(1, 500, null);
+		final Ballot farTwo = prevoteBy(2, 500, null);
 
 		goIdleAfterViewZero();
 
-		assertThat(schedules(engine.onMessage(far, 6000), Timeout.Kind.PROPOSE), is(true));
+		assertThat(engine.onMessage(farOne, 6000).isEmpty(), is(true));
+		assertThat(schedules(engine.onMessage(farTwo, 6001), Timeout.Kind.PROPOSE), is(true));
+		assertThat(engine.view(), equalTo(500));
 
-		quorumOfNoBlock(engine.view(), 9500);
-		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
+		restAgainIn(500, 9500);
 
 		assertThat(engine.running(), is(false));
-		assertThat(engine.onMessage(far, 20_000).isEmpty(), is(true));
+		assertThat(engine.onMessage(farOne, 20_000).isEmpty(), is(true));
+		assertThat(engine.onMessage(farTwo, 20_001).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
 	}
 
 	@Example
-	public void shouldWakeARestingNodeForALaterViewOfTheSameValidatorOrTheSameViewOfAnother() {
+	public void shouldWakeARestingNodeAgainOnlyWhenMoreThanOneThirdAreBeyondTheViewItRestedIn() {
 		goIdleAfterViewZero();
 		engine.onMessage(prevoteBy(1, 500, null), 6000);
-		quorumOfNoBlock(engine.view(), 9500);
-		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
+		engine.onMessage(prevoteBy(2, 500, null), 6001);
+		restAgainIn(500, 9500);
 
-		assertThat(schedules(engine.onMessage(prevoteBy(1, 600, null), 20_000), Timeout.Kind.PROPOSE), is(true));
-
-		quorumOfNoBlock(engine.view(), 25_000);
-		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 25_002);
-
-		assertThat(engine.running(), is(false));
-		assertThat(schedules(engine.onMessage(prevoteBy(2, 500, null), 30_000), Timeout.Kind.PROPOSE), is(true));
-	}
-
-	@Example
-	public void shouldWakeARestingNodeOnceForTheSameProposalFarAhead() {
-		final Proposal far = proposal(40, -1, proposed(40, "far"));
-
-		goIdleAfterViewZero();
-
-		assertThat(schedules(engine.onMessage(far, 6000), Timeout.Kind.PROPOSE), is(true));
-
-		quorumOfNoBlock(engine.view(), 9500);
-		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502);
-
-		assertThat(engine.running(), is(false));
-		assertThat(engine.onMessage(far, 20_000).isEmpty(), is(true));
-		assertThat(engine.running(), is(false));
+		assertThat(engine.onMessage(prevoteBy(1, 600, null), 20_000).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(3, 500, null), 20_001).isEmpty(), is(true));
+		assertThat(schedules(engine.onMessage(prevoteBy(2, 501, null), 20_002), Timeout.Kind.PROPOSE), is(true));
+		assertThat(engine.view(), equalTo(501));
 	}
 
 	@Example
@@ -1392,10 +1447,10 @@ public class ConsensusViewsTest {
 
 		app.goal = 0;
 		run.addAll(engine.start(1, validators, 0));
-		run.addAll(engine.onMessage(prevoteBy(1, 0, null), 5));
+		run.addAll(wakeInView(0, 5));
 		run.addAll(quorumOfNoBlock(0, 3005));
 		run.addAll(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007));
-		run.addAll(engine.onMessage(prevoteBy(1, 1, null), 6000));
+		run.addAll(wakeInView(1, 6000));
 		run.addAll(quorumOfNoBlock(engine.view(), 9500));
 		run.addAll(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, engine.view()), 9502));
 
@@ -1470,7 +1525,7 @@ public class ConsensusViewsTest {
 		assertThat(engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, before), 10).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
 
-		engine.onMessage(prevoteBy(3, before, null), 11);
+		wakeInView(Integer.MAX_VALUE, 11);
 
 		assertThat(engine.view(), equalTo(Integer.MAX_VALUE));
 		assertThat(engine.running(), is(true));
@@ -1627,6 +1682,7 @@ public class ConsensusViewsTest {
 
 		app.goal = 0;
 		engine.start(1, validators, 0);
+		engine.onMessage(prevoteBy(2, Consensus.MAX_VIEW_AHEAD + 8, null), 9);
 
 		assertThat(asked(far), is(false));
 		assertThat(engine.onMessage(far, 10).isEmpty(), is(false));

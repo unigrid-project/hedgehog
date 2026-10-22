@@ -128,11 +128,13 @@ public class ConsensusRestoreTest {
 		engine.onMessage(prevoteBy(2, 0, block), 12);
 	}
 
-	/* No work, one message of the height that starts view 0, and a view that ends with nothing in it */
+	/* No work, ballots of two validators, more than a third, that start view 0, and a view that ends with nothing in
+	   it. The prevotes make no quorum, so the node signs its prevote alone. */
 	private void goIdle() {
 		app.goal = 0;
 		engine.start(1, validators, 0);
 		engine.onMessage(prevoteBy(1, 0, null), 5);
+		engine.onMessage(ballot(PRECOMMIT, 2, 0, null), 5);
 		noBlockQuorum(engine, 0, 3005);
 		engine.onTimeout(timeout(Timeout.Kind.PRECOMMIT, 0), 3007);
 	}
@@ -371,6 +373,7 @@ public class ConsensusRestoreTest {
 		proposerApp.goal = 0;
 		proposer.start(1, validators, 0);
 		proposer.onMessage(prevoteBy(2, 0, null), 5);
+		proposer.onMessage(prevoteBy(3, 0, null), 5);
 
 		final SignState waiting = proposer.snapshot();
 
