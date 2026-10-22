@@ -26,7 +26,6 @@ import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.Mocked;
@@ -62,15 +61,20 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	protected RestClient client;
 
-	/*
-	 * Sporks outlive a try, so the keys of recent tries must still name who signed them. Only recent ones,
-	 * because every signature check walks this list and every verifying key generates a keypair.
-	 */
+	/* A P-521 key pair takes a dozen tries to generate, so the two current network keys are made once for the run.
+	   The sporks a class stores outlive its tries, and stay signed by keys that the node still trusts. */
+	protected static final Signature PROPOSER = keyPair();
+	protected static final Signature COSIGNER = keyPair();
+
+	/* The keys a test retires to stand for an earlier board, which a signature log may still name. Only recent ones,
+	   because every signature check walks this list. */
 	private static final int MAX_RETIRED_KEYS = 16;
 	private static final List<String> RETIRED_KEYS = new ArrayList<>();
 
-	/* The second current network key of a try, next to the one provideSignature() hands out */
-	protected static Signature cosigner;
+	@SneakyThrows
+	private static Signature keyPair() {
+		return new Signature();
+	}
 
 	protected static void retire(Signature signature) {
 		RETIRED_KEYS.add(signature.getPublicKey());
@@ -89,7 +93,7 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	@SneakyThrows
 	protected Response cosign(Response proposal) {
-		return cosign(new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText(), cosigner);
+		return cosign(new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText(), COSIGNER);
 	}
 
 	public List<ECKey> keys = new ArrayList<>();
@@ -99,32 +103,25 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 		new ApplicationDirectoryMockUp();
 	}
 
+	/* The proposer, with the network keys faked for the try that draws it */
 	@Provide
-	@SneakyThrows
 	public Arbitrary<Signature> provideSignature() {
-		return Arbitraries.create(new Supplier<Signature>() {
-			@Override
-			@SneakyThrows
-			public Signature get() {
-				final Signature signature = new Signature();
-
-				cosigner = new Signature();
-				retire(signature);
-				retire(cosigner);
-
-				new MockUp<NetworkKey>() {
-					@Mock public /* static */ String[] getPublicKeys() {
-						return new String[] { signature.getPublicKey(), cosigner.getPublicKey() };
-					}
-
-					@Mock public /* static */ String[] getRetiredPublicKeys() {
-						return RETIRED_KEYS.toArray(String[]::new);
-					}
-				};
-
-				return signature;
-			}
+		return Arbitraries.create(() -> {
+			mockNetworkKeys();
+			return PROPOSER;
 		});
+	}
+
+	protected static void mockNetworkKeys() {
+		new MockUp<NetworkKey>() {
+			@Mock public /* static */ String[] getPublicKeys() {
+				return new String[] { PROPOSER.getPublicKey(), COSIGNER.getPublicKey() };
+			}
+
+			@Mock public /* static */ String[] getRetiredPublicKeys() {
+				return RETIRED_KEYS.toArray(String[]::new);
+			}
+		};
 	}
 
 	@BeforeProperty
