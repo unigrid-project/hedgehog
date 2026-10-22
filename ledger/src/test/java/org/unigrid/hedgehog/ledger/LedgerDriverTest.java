@@ -163,6 +163,67 @@ public class LedgerDriverTest {
 		}
 	}
 
+	/* A transaction is passed on once, when it is taken in, so a peer that lost it would leave it with this node alone:
+	   while the height does not move, what waits is offered to every peer again, once in a while. The first tick sees
+	   the height, which none of the other three validators help to move. */
+	@Example
+	public void shouldOfferWhatWaitsAgainWhileTheHeightDoesNotMove() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer b = rig.network.connect("B");
+			final Mint mint = mint(1, 500);
+
+			assertThat(rig.driver.submit(mint).join(), equalTo(Optional.empty()));
+			rig.tick(DriverRig.TICK);
+			rig.tick(LedgerDriver.REOFFER_MILLIS - 1);
+
+			assertThat(b.sent(Transaction.class), equalTo(List.of(mint)));
+
+			rig.tick(1);
+
+			assertThat(b.sent(Transaction.class), equalTo(List.of(mint, mint)));
+
+			rig.tick(LedgerDriver.REOFFER_MILLIS - 1);
+
+			assertThat(b.sent(Transaction.class), equalTo(List.of(mint, mint)));
+
+			rig.tick(1);
+
+			assertThat(b.sent(Transaction.class), equalTo(List.of(mint, mint, mint)));
+		}
+	}
+
+	@Example
+	public void shouldOfferNoMoreThanItsShareOfWhatWaitsAtATime() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final RecordingPeer b = rig.network.connect("B");
+
+			IntStream.range(0, LedgerDriver.REOFFERED + 10).forEach(n -> rig.driver.submit(mint(n + 1, 500)).join());
+
+			final int first = b.sent(Transaction.class).size();
+
+			rig.tick(DriverRig.TICK);
+			rig.tick(LedgerDriver.REOFFER_MILLIS);
+
+			assertThat(first, equalTo(LedgerDriver.REOFFERED + 10));
+			assertThat(b.sent(Transaction.class).size() - first, equalTo(LedgerDriver.REOFFERED));
+		}
+	}
+
+	@Example
+	public void shouldOfferWhatWaitsToAPeerThatConnects() throws IOException {
+		try (DriverRig rig = DriverRig.four()) {
+			final Mint mint = mint(1, 500);
+
+			rig.driver.submit(mint).join();
+
+			final RecordingPeer late = rig.network.connect("late");
+
+			rig.driver.onPeerConnected(late);
+
+			assertThat(late.sent(Transaction.class), equalTo(List.of(mint)));
+		}
+	}
+
 	private static long receivers(List<RecordingPeer> peers) {
 		return peers.stream().filter(peer -> !peer.sent(Transaction.class).isEmpty()).count();
 	}

@@ -282,6 +282,11 @@ public final class Ledger implements ConsensusApp {
 		return mempool.peek(Integer.MAX_VALUE);
 	}
 
+	/* What of that a block could take now, oldest first, at most `max` of it */
+	synchronized List<Transaction> waitingForABlock(int max) {
+		return mempool.proposable(max, state);
+	}
+
 	/* The ledger that replaces this one takes in again what waited in the other, and what it now refuses is left out.
 	   The pool is not on disk, so it is handed over, or the transactions that nodes took are lost with the node. */
 	synchronized void takeWaitingFrom(Ledger replaced) {

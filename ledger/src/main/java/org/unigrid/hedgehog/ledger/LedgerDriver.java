@@ -171,6 +171,14 @@ public final class LedgerDriver implements Closeable {
 	/* An item that cannot be told for a copy without the work it takes to judge it */
 	private static final BooleanSupplier NOT_HELD = () -> false;
 
+	/* A transaction is passed on once, when it is taken in, so one that a peer lost, or turned away while its pool was
+	   full, waits in this node alone, and only this node's turn to propose would get it into a block. While what waits
+	   could go into a block and the height has not moved for about a view of the defaults, the node offers it to
+	   every peer again, the oldest REOFFERED of it and no more often than that: a peer takes fifty transactions a
+	   second from one peer at least, far more. A peer that connects is offered it at once. */
+	static final long REOFFER_MILLIS = 5_000;
+	static final int REOFFERED = 64;
+
 	private final Scheduler scheduler;
 	private final PeerLimiter limiter;
 	private final LongSupplier clock;
@@ -191,6 +199,9 @@ public final class LedgerDriver implements Closeable {
 	private Cancellable graceTimer = () -> { };
 	private long lastHeartbeat;
 	private long lastStatus;
+	private long seenHeight = -1;
+	private long heightSince;
+	private long lastOffer;
 	private long lastSent;
 
 	/* A null seed is an observer: its node never signs and the driver never signs a heartbeat. With a seed the driver
@@ -383,11 +394,15 @@ public final class LedgerDriver implements Closeable {
 		return reply;
 	}
 
-	/* A peer that connects is told where this chain stands, and that is a status, which has its limit */
+	/* A peer that connects is told where this chain stands, and that is a status, which has its limit, and is offered
+	   what waits for a block (see REOFFER_MILLIS) */
 	public void onPeerConnected(LedgerPeer from) {
 		inbound(new Item(from, Kind.STATUS, null), 1, door.sortConnection(PeerView.idOf(from)), NOT_HELD, () -> {
+			final Ledger ledger = supervisor.ledger();
+
 			keeper.connectedMayHaveChanged();
-			Gossip.send(from, supervisor.ledger().status());
+			Gossip.send(from, ledger.status());
+			ledger.waitingForABlock(REOFFERED).forEach(transaction -> Gossip.send(from, transaction));
 		}, () -> { });
 	}
 
@@ -631,7 +646,21 @@ public final class LedgerDriver implements Closeable {
 				supervisor.run(LedgerNode::tick);
 				signHeartbeat();
 				reportStatus();
+				offerWaitingAgain();
 			}
+		}
+	}
+
+	private void offerWaitingAgain() {
+		final Ledger ledger = supervisor.ledger();
+		final long now = clock.getAsLong();
+
+		if (ledger.height() != seenHeight) {
+			seenHeight = ledger.height();
+			heightSince = now;
+		} else if (due(heightSince, now, REOFFER_MILLIS) && due(lastOffer, now, REOFFER_MILLIS)) {
+			lastOffer = now;
+			ledger.waitingForABlock(REOFFERED).forEach(gossip::toAll);
 		}
 	}
 
