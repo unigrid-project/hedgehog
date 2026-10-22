@@ -66,7 +66,7 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishAndSaveSporkSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
@@ -96,9 +96,9 @@ public class P2PClient extends ConnectionContainer {
 			.build();
 
 		final ChannelHandler codec = new QuicClientCodecBuilder()
-			.initialMaxData(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalLocal(Network.MAX_DATA_SIZE)
-			.initialMaxStreamDataBidirectionalRemote(Network.MAX_DATA_SIZE)
+			.initialMaxData(Network.MAX_WINDOW_SIZE)
+			.initialMaxStreamDataBidirectionalLocal(Network.MAX_WINDOW_SIZE)
+			.initialMaxStreamDataBidirectionalRemote(Network.MAX_WINDOW_SIZE)
 			.initialMaxStreamsBidirectional(Network.MAX_STREAMS)
 			.maxIdleTimeout(Network.IDLE_TIME_MINUTES, TimeUnit.MINUTES)
 			.sslContext(context)
@@ -153,7 +153,7 @@ public class P2PClient extends ConnectionContainer {
 		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
-			new PublishAndSaveSporkSchedule(),
+			new PublishSporkSchedule(),
 			new PublishGridnodeSchedule()
 		));
 
