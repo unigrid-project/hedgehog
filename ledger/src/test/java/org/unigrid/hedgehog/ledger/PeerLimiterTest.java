@@ -709,6 +709,75 @@ public class PeerLimiterTest {
 		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
 	}
 
+	/* The reserve is a quarter of what all peers share, here one token of four */
+	@Example
+	public void shouldLeaveAPeerThatWasVouchedForAReserveThatTheOthersCannotEmpty() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(4, 1));
+
+		limiter.vouch("v");
+		IntStream.range(0, 4).forEach(peer -> assertThat(limiter.allow("peer" + peer, Kind.CONSENSUS), is(true)));
+
+		assertThat(limiter.allow("other", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("v", Kind.CONSENSUS), is(true));
+		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allow("other", Kind.CONSENSUS), is(false));
+	}
+
+	@Example
+	public void shouldDrawOnTheReserveOnlyOnceWhatAllPeersShareIsGone() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(4, 1));
+
+		limiter.vouch("v");
+
+		assertThat(granted(limiter, "v", Kind.TRANSACTION, 10), equalTo(5));
+		assertThat(limiter.allow("other", Kind.TRANSACTION), is(false));
+	}
+
+	@Example
+	public void shouldEndAVouchAMinuteAfterTheLastOne() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get, shared(4, 1));
+
+		limiter.vouch("v");
+		clock.addAndGet(30_000);
+		limiter.vouch("v");
+		clock.addAndGet(59_999);
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("a" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.allow("v", Kind.CONSENSUS), is(true));
+
+		clock.addAndGet(10_000);
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("b" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
+	}
+
+	@Example
+	public void shouldForgetTheVouchOfAPeerThatIsPenalised() {
+		final AtomicLong clock = new AtomicLong(START);
+		final PeerLimiter limiter = new PeerLimiter(clock::get,
+			new Policy(same(UNLIMITED), same(new Rate(4, 1)), 100, 0, 1000, 100));
+
+		limiter.vouch("v");
+		limiter.ban("v");
+		limiter.vouch("v");
+		clock.addAndGet(1000);
+		IntStream.range(0, 4).forEach(peer -> limiter.allow("peer" + peer, Kind.CONSENSUS));
+
+		assertThat(limiter.isPenalised("v"), is(false));
+		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
+	}
+
+	@Example
+	public void shouldLeaveTheReserveToWhatIsPlausible() {
+		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(4, 1));
+
+		limiter.vouch("v");
+
+		assertThat(limiter.allow("v", Kind.CONSENSUS, false), is(true));
+		assertThat(limiter.allow("v", Kind.CONSENSUS, false), is(false));
+	}
+
 	@Example
 	public void shouldKeepTheTokenOfAPeerThatTheLimitForAllPeersRefused() {
 		final AtomicLong clock = new AtomicLong(START);

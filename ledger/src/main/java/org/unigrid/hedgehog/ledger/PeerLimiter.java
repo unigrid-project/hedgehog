@@ -45,6 +45,11 @@ import java.util.function.LongSupplier;
    At the cap of penalised peers, `maxPeers / 2`, a new penalty frees the oldest one before its time. That is the
    price of a bounded map: to free one penalised address an attacker needs that many penalised ones at once.
 
+   A peer that brought something new that a validator signed is vouched for, for a minute after the last such item,
+   and may draw on a reserve of each kind once what all peers share of it is gone, which nobody else can empty: a
+   flood from peers that bring nothing new cannot starve the traffic of the validators. The vouched peers are a third
+   map, in the order of their last vouch, which is the order the vouches end in, and as many as the penalised ones.
+
    Time is what the limiter has seen the clock add. A reading at or before the last one adds nothing, so a jump
    back creates no tokens, lowers no score and does not make a penalty longer; a jump forward is counted in full,
    up to the end of the range of a long. Tokens are counted in thousandths and the score in sixty-thousandths of
@@ -57,6 +62,10 @@ public final class PeerLimiter {
 
 	/* The one bucket that junk shares is kept under this kind, for it is the same for all */
 	private static final Kind JUNK = Kind.CONSENSUS;
+
+	/* A validator sends a heartbeat every ten seconds and ballots whenever the chain runs, so a peer that relays what
+	   the validators sign is vouched for again well within this, and one that stops loses the reserve soon after */
+	private static final long VOUCH_MILLIS = 60_000;
 
 	public enum Kind {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
@@ -84,6 +93,7 @@ public final class PeerLimiter {
 		private static final int BLOCKS_PER_SECOND = 5;
 		private static final int COPIES = 9;
 		private static final int JUNK_PERCENT = 5;
+		private static final int RESERVE_DIVISOR = 4;
 
 		public static final Policy DEFAULT = new Policy(
 			Map.of(Kind.TRANSACTION, new Rate(200, 50), Kind.HEARTBEAT, new Rate(20, 2),
@@ -166,6 +176,16 @@ public final class PeerLimiter {
 				Math.max(1, engine.refillPerSecond() * JUNK_PERCENT / 100));
 		}
 
+		/* What the peers that are vouched for may still take of a kind once all that the peers share of it is gone:
+		   a quarter of that more. The shared rate is made for nine copies of every item, twice over, and the new
+		   items of the engine alone take an eighteenth of it, so a quarter is several times what they need. */
+		public Rate reserve(Kind kind) {
+			final Rate everyone = global.get(kind);
+
+			return new Rate(Math.max(1, everyone.capacity() / RESERVE_DIVISOR),
+				Math.max(1, everyone.refillPerSecond() / RESERVE_DIVISOR));
+		}
+
 		/* The refill asked for, or the one of the floor if that is more, and room for four seconds of it */
 		private static Rate burstable(Rate floor, long refill) {
 			final int rate = Math.toIntExact(Math.max(floor.refillPerSecond(), refill));
@@ -208,6 +228,8 @@ public final class PeerLimiter {
 	private final Map<String, Long> penalised;
 	private final Map<Kind, Bucket> shared = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
+	private final Map<Kind, Bucket> reserve = new EnumMap<>(Kind.class);
+	private final Map<String, Long> vouched = new LinkedHashMap<>();
 	private long epoch;
 	private long lastReading;
 	private long time;
@@ -238,8 +260,15 @@ public final class PeerLimiter {
 	public boolean allow(String id, Kind kind, boolean plausible) {
 		final long now = advance();
 
-		return ownToken(id, kind, now).map(own -> spend(own, everyone(kind, plausible, now), plausible))
-			.orElse(false);
+		return ownToken(id, kind, now).map(own -> take(id, kind, plausible, own, now)).orElse(false);
+	}
+
+	private boolean take(String id, Kind kind, boolean plausible, Bucket own, long now) {
+		if (spend(own, everyone(kind, plausible, now), plausible)) {
+			return true;
+		}
+
+		return plausible && vouched(id, now) && spend(own, refilled(reserve, kind, policy.reserve(kind), now), true);
 	}
 
 	private Bucket everyone(Kind kind, boolean plausible, long now) {
@@ -288,6 +317,28 @@ public final class PeerLimiter {
 		return room;
 	}
 
+	/* The peer brought something new that a validator signed. A peer that is penalised is not vouched for. */
+	public void vouch(String id) {
+		final long now = advance();
+
+		if (penalised(id, now)) {
+			return;
+		}
+
+		expire(vouched, now);
+
+		if (vouched.remove(id) == null && vouched.size() >= policy.maxPeers() / 2) {
+			dropEldest(vouched);
+		}
+
+		vouched.put(id, saturatedSum(now, VOUCH_MILLIS));
+	}
+
+	private boolean vouched(String id, long now) {
+		expire(vouched, now);
+		return vouched.containsKey(id);
+	}
+
 	public void misbehaved(String id, int weight) {
 		if (weight < 1) {
 			throw new IllegalArgumentException("A weight is at least 1, found " + weight);
@@ -318,14 +369,14 @@ public final class PeerLimiter {
 
 	/* The ids that are penalised now, at most half of the peers that are kept, as a copy that the caller may keep */
 	public Set<String> penalisedIds() {
-		expire(advance());
+		epoch += expire(penalised, advance());
 		return Set.copyOf(penalised.keySet());
 	}
 
 	/* A number that changes whenever a peer is penalised or a penalty ends, so that a caller that keeps the ids can
 	   tell when to ask for them again */
 	public long penaltyEpoch() {
-		expire(advance());
+		epoch += expire(penalised, advance());
 		return epoch;
 	}
 
@@ -346,22 +397,26 @@ public final class PeerLimiter {
 	}
 
 	private boolean penalised(String id, long now) {
-		expire(now);
+		epoch += expire(penalised, now);
 		return penalised.containsKey(id);
 	}
 
-	/* Penalties last the same time and time never runs back, so the first one is the first to end */
-	private void expire(long now) {
-		final Iterator<Long> ends = penalised.values().iterator();
+	/* Penalties last the same time, and so do vouches, and time never runs back, so the first one is the first to
+	   end. How many ended. */
+	private static int expire(Map<String, Long> endings, long now) {
+		final Iterator<Long> ends = endings.values().iterator();
+		int ended = 0;
 
 		while (ends.hasNext()) {
 			if (ends.next() > now) {
-				return;
+				return ended;
 			}
 
 			ends.remove();
-			epoch++;
+			ended++;
 		}
+
+		return ended;
 	}
 
 	private Peer track(String id, long now) {
@@ -398,6 +453,7 @@ public final class PeerLimiter {
 	   does, so nothing of it is kept: nothing changes while the penalty lasts. */
 	private void penalise(String id, long now) {
 		active.remove(id);
+		vouched.remove(id);
 
 		if (penalised.size() >= policy.maxPeers() / 2) {
 			dropEldest(penalised);

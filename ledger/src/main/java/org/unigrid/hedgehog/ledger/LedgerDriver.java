@@ -494,11 +494,23 @@ public final class LedgerDriver implements Closeable {
 			gossip.toOthers(item.from(), item.wire());
 		}
 
-		if (item.from() != null && receipt.cost() > 0) {
-			limiter.misbehaved(item.from().id(), receipt.cost());
+		if (item.from() != null) {
+			account(item.from().id(), item.kind(), receipt);
 		}
 
 		perform(receipt.actions(), item);
+	}
+
+	/* A message of the engine or a heartbeat that the node took in as new is one that a validator signed, as the node
+	   checked, so the peer that brought it first is vouched for. Anyone can sign a transaction. */
+	private void account(String peer, Kind kind, Receipt receipt) {
+		if (receipt.cost() > 0) {
+			limiter.misbehaved(peer, receipt.cost());
+		}
+
+		if (receipt.relay() && (kind == Kind.CONSENSUS || kind == Kind.HEARTBEAT)) {
+			limiter.vouch(peer);
+		}
 	}
 
 	/* The engine broadcasts a decision it took from a peer as it does its own. The peer has it already, and a decision

@@ -140,6 +140,42 @@ public class LedgerDriverDoorTest {
 		}
 	}
 
+	/* Ballots of the height after the next are plausible and not held, so they take what all peers share for the
+	   messages of the engine. The peer that brought a new ballot of a validator has a reserve the flood cannot touch,
+	   while a peer that brought nothing yet is refused with the flooders. */
+	@Example
+	public void shouldKeepTakingTheBallotsOfAPeerThatBroughtNewOnesWhenFloodersEmptyWhatAllPeersShare()
+		throws IOException {
+		final QueuedSerial serial = new QueuedSerial();
+
+		try (DriverRig rig = stalled(serial, options(ITEMS, 3_000, 64 * MIB, 8 * MIB), Policy.DEFAULT)) {
+			final Ballot ahead = Ballot.signed(Ballot.Type.PREVOTE, seed(3), rig.chainId(), 2, 0, null);
+			final RecordingPeer relay = rig.network.connect("relay");
+			final int floods = Policy.DEFAULT.rates().get(Kind.CONSENSUS).capacity();
+			final LedgerNode node = rig.nodes.get(rig.nodes.size() - 1);
+
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 2), DriverRig.FRAME);
+			serial.drain();
+
+			for (int flooder = 0; flooder < FLOODERS; flooder++) {
+				final RecordingPeer peer = rig.network.connect("F" + flooder);
+
+				IntStream.range(0, floods).forEach(n -> rig.driver.onMessage(peer, ahead, DriverRig.FRAME));
+				serial.drain();
+			}
+
+			rig.driver.onMessage(rig.network.connect("stranger"), rig.ballot(Ballot.Type.PREVOTE, 1),
+				DriverRig.FRAME);
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 3), DriverRig.FRAME);
+			rig.driver.onMessage(relay, rig.ballot(Ballot.Type.PREVOTE, 4), DriverRig.FRAME);
+			serial.drain();
+
+			assertThat(node.holds(rig.ballot(Ballot.Type.PREVOTE, 1)), is(false));
+			assertThat(node.holds(rig.ballot(Ballot.Type.PREVOTE, 3)), is(true));
+			assertThat(node.holds(rig.ballot(Ballot.Type.PREVOTE, 4)), is(true));
+		}
+	}
+
 	@Example
 	public void shouldLetJunkTakeNoMoreThanATenthOfTheSlotsAndLeaveTheRestToWhatIsPlausible() throws IOException {
 		final QueuedSerial serial = new QueuedSerial();
