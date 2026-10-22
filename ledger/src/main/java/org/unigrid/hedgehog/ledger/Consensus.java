@@ -630,8 +630,19 @@ public final class Consensus {
 			return;
 		}
 
-		if (accept(message) && wakes()) {
+		if (accept(message)) {
+			wakeOrSayAgain(message);
+		}
+	}
+
+	/* A new ballot of a view the node has left comes from a peer that is behind, which may have lost what this node
+	   signed there, long after the node stopped saying it: a node at rest says it again for a fresh window, and starts
+	   no view for it. A validator signs one ballot of each type in a view, so this cannot be had over and over. */
+	private void wakeOrSayAgain(Message message) {
+		if (wakes()) {
 			begin();
+		} else if (!running && !decided && message instanceof Ballot ballot && ballot.view() < nextView) {
+			resendUntil = now + resendWindow();
 		}
 	}
 

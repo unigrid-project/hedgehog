@@ -1059,13 +1059,22 @@ public class ConsensusViewsTest {
 		assertThat(signed.get(0).view(), equalTo(1));
 	}
 
-	/* The peers that are still in the view the node rested in are no further on than it is */
+	/* A peer that is still in the view the node rested in is no further on than it is, so it starts no view, but it may
+	   have lost what the node signed there while it was away, long after the node stopped saying it: a new ballot of
+	   such a peer opens the window of saying it again, and a copy does not. The node rested at 3007 ms and its window
+	   closed at 8007 ms. */
 	@Example
-	public void shouldNotWakeAnIdleNodeWithLateBallotsOfTheViewItRestedIn() {
+	public void shouldSayAgainWhatItSignedButNotWakeForANewLateBallotOfTheViewItRestedIn() {
 		goIdleAfterViewZero();
 
-		assertThat(engine.onMessage(prevoteBy(2, 0, null), 6000).isEmpty(), is(true));
-		assertThat(engine.onMessage(prevoteBy(3, 0, null), 6001).isEmpty(), is(true));
+		assertThat(engine.resume(20_000).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(2, 0, null), 20_000).isEmpty(), is(true));
+		assertThat(engine.running(), is(false));
+		assertThat(engine.resume(20_001), equalTo(List.of(new Broadcast(engine.outbox().get(0)))));
+		assertThat(engine.resume(20_000 + 5_000).size(), equalTo(1));
+		assertThat(engine.resume(20_000 + 5_001).isEmpty(), is(true));
+		assertThat(engine.onMessage(prevoteBy(2, 0, null), 30_000).isEmpty(), is(true));
+		assertThat(engine.resume(30_001).isEmpty(), is(true));
 		assertThat(engine.running(), is(false));
 	}
 
