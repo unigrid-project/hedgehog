@@ -220,6 +220,42 @@ public class ForgedHeadReceptionTest {
 		}
 	}
 
+	/* A node can as well hand out the version before the head, which the network did take. A version over it is a
+	   sibling of the head, newer and over the same log, which would undo the change of the head. */
+	@Example
+	public void shouldRefuseASiblingThatChangesWhatTheStoredSporkHolds() {
+		final List<GridSpork> versions = versions(3);
+		final GridSpork proposal = proposalOver(versions.get(1), 99);
+		final GridSpork overNothing = proposalOver(null, 99);
+		final Node node = new Node(versions.getLast());
+
+		assertThat(node.receive(proposal), is(false));
+		assertThat(node.receive(cosigned(proposal)), is(false));
+		assertThat(node.stored().getSignable(), equalTo(versions.getLast().getSignable()));
+		assertThat(new Node(versions.getFirst()).receive(cosigned(overNothing)), is(false));
+	}
+
+	@SneakyThrows
+	private static GridSpork renewalOf(GridSpork stored, Instant at) {
+		final GridSpork renewal = SerializationUtils.clone(stored);
+
+		renewal.renew();
+		renewal.setTimeStamp(at);
+		renewal.sign(FIRST.getPrivateKey());
+		return cosigned(renewal);
+	}
+
+	/* Two versions that make the same change over the same version, as two renewals of it do, settle by time */
+	@Example
+	public void shouldSettleSiblingsThatMakeTheSameChangeByTheirTimeStamps() {
+		final GridSpork head = versions(2).getLast();
+		final GridSpork older = renewalOf(head, head.getTimeStamp().plusMillis(1));
+		final GridSpork newer = renewalOf(head, head.getTimeStamp().plusMillis(2));
+
+		assertThat(new Node(older).receive(newer), is(true));
+		assertThat(new Node(newer).receive(older), is(false));
+	}
+
 	@Example
 	public void shouldTakeTheFirstVersionWhenNothingIsStored() {
 		final Node node = new Node();

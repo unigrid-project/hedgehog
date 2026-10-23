@@ -252,7 +252,7 @@ public class GridSpork implements Serializable, Signable {
 	* Decides whether this spork, received from the network, may replace the stored one. It must be signed
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
 	* known keys, and either extend the log, with the stored spork as the first entry it adds, or win against
-	* a sibling signed on top of the same log by being newer.
+	* a sibling signed on top of the same log that makes the same change by being newer.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -353,10 +353,21 @@ public class GridSpork implements Serializable, Signable {
 
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
-		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored);
+		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
+			&& makesTheChangeOf(stored);
 		final boolean isLater = log.size() > storedLog.size() && goesOnWithTheHeadOf(stored, storedLog.size());
 
 		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
+	}
+
+	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data would undo
+	   its change unseen: a node that hands out the version before the stored one would have a board member sign over
+	   it a sibling that every node takes. Two versions that make the same change, as two renewals do, still settle by
+	   time, and so does the first version, which follows nothing. */
+	private boolean makesTheChangeOf(GridSpork stored) {
+		return Objects.isNull(stored) || Objects.equals(data, stored.data)
+			&& Objects.equals(previousData, stored.previousData)
+			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
 	}
 
 	/* Known keys signed every entry, retired ones among them, so a version that no board made could follow the stored
