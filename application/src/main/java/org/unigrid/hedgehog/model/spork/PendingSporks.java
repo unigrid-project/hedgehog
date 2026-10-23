@@ -105,6 +105,11 @@ public class PendingSporks {
 		}
 	}
 
+	/* A proposal that a key signed which the board switched off can no longer be co-signed into a spork that counts */
+	public synchronized void retainProposalsOfActiveKeys() {
+		proposals.values().removeIf(spork -> !spork.isValidSignature());
+	}
+
 	private boolean isAheadOfTime(GridSpork spork) {
 		return spork.getTimeStamp().isAfter(clock.instant().plus(LEEWAY));
 	}

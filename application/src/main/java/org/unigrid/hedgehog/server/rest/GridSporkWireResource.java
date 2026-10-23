@@ -34,6 +34,8 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -121,14 +123,26 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response store(GridSpork spork) {
-		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+		if (!isStored(spork)) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
+		}
+
+		SporkRecipients.sendAll(spork, topology);
+		return Response.ok().build();
+	}
+
+	private boolean isStored(GridSpork spork) {
+		if (spork instanceof BoardKeys boardKeys) {
+			return BoardKeysAuthority.accept(boardKeys, sporkDatabase, pendingSporks, () -> true);
+		}
+
+		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+			return false;
 		}
 
 		sporkDatabase.set(spork);
 		pendingSporks.retainProposalsOver(spork);
-		SporkRecipients.sendAll(spork, topology);
-		return Response.ok().build();
+		return true;
 	}
 
 	/* A held proposal is answered with JSON, while a reason is plain text, which the command line shows as it is */

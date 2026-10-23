@@ -117,6 +117,17 @@ public final class BoardKeysFixture {
 		return spork;
 	}
 
+	/* A first version of the spork with this chain, signed by the two keys given whether or not the chain holds or
+	   makes them active, as anyone who holds them can */
+	@SneakyThrows
+	public static BoardKeys signedAnyway(BoardKeys.SporkData chain, Signature signer, Signature cosigner) {
+		final BoardKeys spork = (BoardKeys) GridSpork.firstVersionOf(withChain(chain));
+
+		spork.sign(signer.getPrivateKey());
+		spork.setCosignature(cosigner.sign(spork.getSignable()));
+		return spork;
+	}
+
 	private static BoardKeys withChain(BoardKeys.SporkData chain) {
 		final BoardKeys spork = new BoardKeys();
 

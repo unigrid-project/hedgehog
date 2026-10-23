@@ -24,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -92,6 +94,10 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 		if (spork.isPending()) {
 			return pendingSporks.offer(spork, stored, turn);
+		}
+
+		if (spork instanceof BoardKeys boardKeys) {
+			return BoardKeysAuthority.accept(boardKeys, db, pendingSporks, turn);
 		}
 
 		if (spork.canReplace(stored, turn)) {

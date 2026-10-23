@@ -78,15 +78,25 @@ public class BoardKeys extends GridSpork implements Serializable {
 	*/
 	@Override
 	protected boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
-		if (Objects.isNull(stored)) {
-			return true;
-		}
+		return followsOn(stored);
+	}
 
-		final List<KeyChange> held = stored.<SporkData>getData().getChanges();
+	/* As isSuccessorOf() decides, which costs no signature */
+	public boolean followsOn(GridSpork stored) {
+		return Objects.isNull(stored) || holdsTheChainOf(stored) && (lengthOf(this) > lengthOf(stored)
+			|| isNewerThan(stored));
+	}
+
+	/* Whether the chain of this spork begins with the whole chain of the other */
+	public boolean holdsTheChainOf(GridSpork other) {
+		final List<KeyChange> held = other.<SporkData>getData().getChanges();
 		final List<KeyChange> changes = this.<SporkData>getData().getChanges();
 
-		return changes.size() >= held.size() && decideAlike(changes, held)
-			&& (changes.size() > held.size() || isNewerThan(stored));
+		return changes.size() >= held.size() && decideAlike(changes, held);
+	}
+
+	private static int lengthOf(GridSpork spork) {
+		return spork.<SporkData>getData().getChanges().size();
 	}
 
 	/* The last change of the stored chain is enough to compare, as each change follows on what the one before it

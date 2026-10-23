@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -86,15 +89,20 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	/* A node hands out what it holds as what the network took, so of its own file it keeps only what the current
-	   board signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers
-	   as first versions. The next save writes only what the node keeps, so the file as it was is copied aside first,
-	   as it is what the board signs again with util spork-db sign. */
+	/* A node hands out what it holds as what the network took, so of its own file it keeps only what board keys
+	   signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers as first
+	   versions. The board keys of the file come first, as the other sporks are judged by the keys they make active,
+	   and a spork that keys signed which they switched off is kept, counting for nothing. The next save writes only
+	   what the node keeps, so the file as it was is copied aside first, as it is what the board signs again with util
+	   spork-db sign. */
 	private static SporkDatabase signedByTheBoard(SporkDatabase database, Path path) {
+		Optional.ofNullable(database.getBoardKeys()).filter(GridSpork::isTakenByTheNetwork)
+			.ifPresent(BoardKeysAuthority::install);
+
 		final List<GridSpork.Type> leftOut = Arrays.stream(GridSpork.Type.values())
 			.filter(type -> type != GridSpork.Type.UNDEFINED)
 			.filter(type -> database.holdsAnotherSporkIn(type) || Objects.nonNull(database.get(type))
-				&& !database.get(type).isTakenByTheNetwork()).toList();
+				&& !database.get(type).wasTakenByTheNetwork()).toList();
 
 		if (!leftOut.isEmpty()) {
 			final String copy = keptAside(path);
@@ -131,9 +139,14 @@ public class SporkDatabaseProducer {
 			return "it holds an amount beyond the bounds of the wire";
 		}
 
+		return spork instanceof BoardKeys boardKeys && boardKeys.chainKeys().isEmpty()
+			? "its chain of board keys does not hold from the root of this node" : signingOf(spork);
+	}
+
+	private static String signingOf(GridSpork spork) {
 		try {
-			return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
-				: "two different current network keys did not sign it";
+			return spork.isDoublySigned() ? "its signature log is not one that board keys signed"
+				: "two different board keys did not sign it";
 		} catch (RuntimeException ex) {
 			return "it cannot be encoded to check its signatures: " + ex.getMessage();
 		}
