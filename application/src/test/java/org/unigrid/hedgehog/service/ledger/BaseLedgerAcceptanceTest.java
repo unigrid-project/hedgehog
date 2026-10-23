@@ -36,9 +36,12 @@ import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.Ledger;
+import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.Mint;
 import org.unigrid.hedgehog.ledger.Reference;
 import org.unigrid.hedgehog.ledger.Transaction;
+import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
@@ -103,6 +106,27 @@ public abstract class BaseLedgerAcceptanceTest extends BaseLedgerFleetTest {
 
 	protected long secondsAgo(final long seconds) {
 		return fleet().clock().now() / 1000 - seconds;
+	}
+
+	/* The validator round of the clock of the node, the one a vote is signed for */
+	protected long roundOn(final int node) {
+		return fleet().readOn(node, Ledger::round);
+	}
+
+	/* The clock of the fleet moves to the first millisecond of the next round */
+	protected void endTheRound() {
+		final LedgerGenesis genesis = fleet().genesis();
+		final long next = genesis.getTime() + (roundOn(0) + 1) * genesis.getRoundMillis();
+
+		fleet().clock().advance(Duration.ofMillis(next - fleet().clock().now()));
+	}
+
+	protected Vote vote(final int validator, final AccountKey candidate, final long round) {
+		return Vote.signed(fleet().seed(validator), candidate, Vote.Action.ADD, round, fleet().chainId());
+	}
+
+	protected void awaitNothingWaiting() {
+		await().atMost(PATIENCE).until(() -> everywhere(node -> fleet().readOn(node, Ledger::pending) == 0));
 	}
 
 	/* Every spork that a node needs before it acts on a mint, a claim or a transfer is set, an unset one meaning no */
