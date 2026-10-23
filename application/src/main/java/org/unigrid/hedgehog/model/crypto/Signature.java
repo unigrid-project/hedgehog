@@ -31,6 +31,7 @@ import java.security.SecureRandom;
 import java.security.SignatureException;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
+import java.security.spec.ECFieldFp;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
@@ -43,6 +44,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
@@ -58,6 +60,7 @@ public class Signature {
 
 	private static final int MAX_VERIFIED_KEYS = 64;
 	private static final Map<String, ECPublicKey> VERIFIED_KEYS = new ConcurrentHashMap<>();
+	private static final Pattern PUBLIC_KEY = Pattern.compile("[0-9a-f]{" + 2 * PUBLIC_KEY_HEX_SIZE + "}");
 
 	private ECPrivateKey privateKey;
 	private ECPublicKey publicKey;
@@ -171,6 +174,22 @@ public class Signature {
 			/* Whatever the provider objects to in a hostile key or signature, the answer is: not signed */
 			return false;
 		}
+	}
+
+	/* A point of the curve, in lower-case hex of the length that getPublicKey() gives, so that a key has one spelling
+	   in a list that is compared as text. The provider makes a key of any point it is given, and a point off the
+	   curve is no key that anyone holds the private part of. */
+	public static boolean isPublicKey(String hex) {
+		if (Objects.isNull(hex) || !PUBLIC_KEY.matcher(hex).matches()) {
+			return false;
+		}
+
+		final BigInteger p = ((ECFieldFp) CURVE.getCurve().getField()).getP();
+		final BigInteger x = new BigInteger(hex.substring(0, PUBLIC_KEY_HEX_SIZE), 16);
+		final BigInteger y = new BigInteger(hex.substring(PUBLIC_KEY_HEX_SIZE), 16);
+		final BigInteger curve = x.pow(3).add(CURVE.getCurve().getA().multiply(x)).add(CURVE.getCurve().getB());
+
+		return x.compareTo(p) < 0 && y.compareTo(p) < 0 && y.pow(2).mod(p).equals(curve.mod(p));
 	}
 
 	private static ECPrivateKey privateKeyOf(String hex) throws InvalidKeySpecException, NoSuchAlgorithmException {

@@ -59,6 +59,19 @@ public class SignaturePublicKeyTest {
 	}
 
 	@Example
+	public void shouldKnowAPublicKeyAsAPointOfTheCurveInLowerCaseHex() throws Exception {
+		final String key = new Signature().getPublicKey();
+		final String offTheCurve = key.substring(0, key.length() - 1) + (key.endsWith("0") ? "1" : "0");
+
+		assertThat(Signature.isPublicKey(key), is(true));
+		assertThat(Signature.isPublicKey(key.toUpperCase()), is(false));
+		assertThat(Signature.isPublicKey(offTheCurve), is(false));
+		assertThat(Signature.isPublicKey(key.substring(1)), is(false));
+		assertThat(Signature.isPublicKey("f".repeat(key.length())), is(false));
+		assertThat(Signature.isPublicKey(null), is(false));
+	}
+
+	@Example
 	public void shouldRejectGarbageSignatures() throws Exception {
 		assertThat(Signature.isSignedBy(new Signature().getPublicKey(), DATA, new byte[] { 1, 2, 3 }), is(false));
 	}
