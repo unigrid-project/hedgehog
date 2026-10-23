@@ -384,10 +384,17 @@ public class GridSpork implements Serializable, Signable {
 		/* Head first, so a forged log costs one verification rather than one per entry */
 		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
 			&& isSignedHead.getAsBoolean()
-			&& getSignatureLog().isValidFrom(storedLog.size(), logKeys());
+			&& getSignatureLog().isValidFrom(firstUncheckedEntry(storedLog), logKeys());
 	}
 
-	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
+	/* The entries of the stored log were checked when the stored spork was taken; a log that does not carry it on is
+	   checked whole */
+	private int firstUncheckedEntry(SignatureLog storedLog) {
+		return storedLog.isPrefixOf(getSignatureLog()) ? storedLog.size() : 0;
+	}
+
+	/* Whether this spork may follow on the stored one, judged by what costs no signature */
+	protected boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
 		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
 			&& mayTakeThePlaceOf(stored);

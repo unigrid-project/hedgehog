@@ -20,7 +20,9 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.Data;
@@ -57,6 +59,39 @@ public class BoardKeys extends GridSpork implements Serializable {
 	@Override
 	protected Set<String> logKeys() {
 		return chainKeys().map(ActiveKeys::known).orElse(Set.of());
+	}
+
+	/**
+	* A chain of board keys only grows: a version holds the chain of the stored one and adds to it, or holds the same
+	* chain and is newer, as a renewal does. No version with another chain takes the place of the stored one, however
+	* new it is, so neither a sibling nor a first version undoes a change. A change is known by what it decides
+	* ({@link BoardKeyChain#digestOf}), as whoever holds it can drop an approval beyond the quorum or sign it again,
+	* and the chain of this version is verified as a whole before its head is. Its log need not carry the stored one
+	* on: the chain is the history that counts, and a version that board members signed on their own machines is a
+	* first version.
+	*/
+	@Override
+	protected boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
+		if (Objects.isNull(stored)) {
+			return true;
+		}
+
+		final List<KeyChange> held = stored.<SporkData>getData().getChanges();
+		final List<KeyChange> changes = this.<SporkData>getData().getChanges();
+
+		return changes.size() >= held.size() && decideAlike(changes, held)
+			&& (changes.size() > held.size() || isNewerThan(stored));
+	}
+
+	/* The last change of the stored chain is enough to compare, as each change follows on what the one before it
+	   decided; a change that cannot be written is no change of either */
+	private static boolean decideAlike(List<KeyChange> changes, List<KeyChange> held) {
+		try {
+			return held.isEmpty() || Arrays.equals(BoardKeyChain.digestOf(changes.get(held.size() - 1)),
+				BoardKeyChain.digestOf(held.getLast()));
+		} catch (IllegalArgumentException ex) {
+			return false;
+		}
 	}
 
 	@Data
