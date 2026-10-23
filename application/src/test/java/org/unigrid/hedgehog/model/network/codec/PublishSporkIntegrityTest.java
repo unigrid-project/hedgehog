@@ -116,10 +116,6 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 			@Mock public static String[] getPublicKeys() {
 				return networkKeys;
 			}
-
-			@Mock public static String[] getRetiredPublicKeys() {
-				return new String[0];
-			}
 		};
 
 		data.setMaxSupply(BigDecimal.TEN);

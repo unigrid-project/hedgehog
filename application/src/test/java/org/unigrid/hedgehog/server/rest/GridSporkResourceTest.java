@@ -75,9 +75,9 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	private static final Instant SIGNED_AT = Instant.parse("2026-01-01T00:00:00Z");
 	private static final Instant PREVIOUSLY_SIGNED_AT = Instant.parse("2025-01-01T00:00:00Z");
 
-	/* As a node of release 0.0.7 holds it: signed once, over its Java serialization, by a board since replaced */
+	/* A version the board signed and co-signed */
 	@SneakyThrows
-	private MintSupply seedMintSupplySignedBy(Signature signature) {
+	private MintSupply seedMintSupply() {
 		final MintSupply mintSupply = new MintSupply();
 		final MintSupply.SporkData data = mintSupply.getData();
 
@@ -85,7 +85,8 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		mintSupply.setTimeStamp(SIGNED_AT);
 		mintSupply.setPreviousTimeStamp(PREVIOUSLY_SIGNED_AT);
 		mintSupply.setPreviousData(data.empty());
-		mintSupply.setSignature(signature.sign(mintSupply.getSignable()));
+		mintSupply.sign(PROPOSER.getPrivateKey());
+		mintSupply.cosign(COSIGNER.getPrivateKey());
 
 		sporkDatabase.setMintStorage(null);
 		sporkDatabase.setVestingStorage(null);
@@ -102,17 +103,13 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
 	}
 
-	/* The version signed by a board that has since been replaced enters the log when the current board signs it again */
+	/* The stored version enters the log when the board signs it again */
 	@SneakyThrows
 	@Property(tries = 3)
 	public void shouldResignStoredSporksWithoutChangingTheirData(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = keyPair();
+		final MintSupply original = seedMintSupply();
 
-		retire(retiredSignature);
-
-		final MintSupply original = seedMintSupplySignedBy(retiredSignature);
-
-		assertThat(original.isValidSignature(), is(false));
+		assertThat(original.isTakenByTheNetwork(), is(true));
 
 		final Response proposal = renew(GridSpork.Type.MINT_SUPPLY, signature);
 
@@ -125,7 +122,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		final SignatureLogEntry replaced = renewed.getSignatureLog().getEntries().getLast();
 
 		assertThat(renewed.isDoublySigned(), is(true));
-		assertThat(replaced.getSigner(), equalTo(retiredSignature.getPublicKey()));
+		assertThat(replaced.getSigners(), contains(PROPOSER.getPublicKey(), COSIGNER.getPublicKey()));
 		assertThat(replaced.getTimeStamp(), equalTo(SIGNED_AT));
 		assertThat(replaced.getSignature(), equalTo(original.getSignature()));
 		assertThat(renewed.getTimeStamp(), greaterThan(SIGNED_AT));
@@ -138,10 +135,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 2)
 	public void shouldShowWhoSignedEachVersion(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = keyPair();
-
-		retire(retiredSignature);
-		seedMintSupplySignedBy(retiredSignature);
+		seedMintSupply();
 		renewAndCosign(signature);
 
 		final JsonNode log = new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
@@ -149,7 +143,8 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		final JsonNode entry = log.get("entries").get(0);
 
 		assertThat(log.get("entries").size(), is(1));
-		assertThat(entry.get("signer").asText(), equalTo(retiredSignature.getPublicKey()));
+		assertThat(entry.get("signer").asText(), equalTo(PROPOSER.getPublicKey()));
+		assertThat(entry.get("cosigner").asText(), equalTo(COSIGNER.getPublicKey()));
 		assertThat(entry.get("timeStamp").asText(), equalTo(SIGNED_AT.toString()));
 		assertThat(log.get("head").get("signer").asText(), equalTo(signature.getPublicKey()));
 	}
@@ -157,7 +152,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldHaveNoSignatureLogWhenDatabaseIsEmpty(@ForAll("provideSignature") Signature signature) {
-		seedMintSupplySignedBy(signature);
+		seedMintSupply();
 		sporkDatabase.setMintSupply(null);
 		sporkDatabase.setStorageSpork(null);
 		sporkDatabase.setLedgerFee(null);
@@ -215,10 +210,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldShowTheDigestOfTheHead(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = keyPair();
-
-		retire(retiredSignature);
-		seedMintSupplySignedBy(retiredSignature);
+		seedMintSupply();
 		renewAndCosign(signature);
 
 		final String head = mintSupplyLog().get("head").get("digest").asText();
@@ -231,10 +223,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 2)
 	public void shouldShowBothSignersOfEachVersion(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = keyPair();
-
-		retire(retiredSignature);
-		seedMintSupplySignedBy(retiredSignature);
+		seedMintSupply();
 		renewAndCosign(signature);
 		renewAndCosign(signature);
 
@@ -242,7 +231,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 			.get(GridSpork.Type.MINT_SUPPLY.name());
 		final JsonNode entry = log.get("entries").get(1);
 
-		assertThat(log.get("entries").get(0).get("cosigner").isNull(), is(true));
+		assertThat(log.get("entries").size(), is(2));
 		assertThat(entry.get("signer").asText(), equalTo(signature.getPublicKey()));
 		assertThat(entry.get("cosigner").asText(), equalTo(COSIGNER.getPublicKey()));
 		assertThat(log.get("head").get("signer").asText(), equalTo(signature.getPublicKey()));

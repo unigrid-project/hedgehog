@@ -70,17 +70,12 @@ final class FleetSporks {
 		return COSIGNER.getPrivateKey();
 	}
 
-	/* The two keys of the fleet are the network keys, with none retired */
+	/* The two keys of the fleet are the network keys */
 	static void mockNetworkKeys() {
 		new MockUp<NetworkKey>() {
 			@Mock
 			public String[] getPublicKeys() {
 				return new String[] { PROPOSER.getPublicKey(), COSIGNER.getPublicKey() };
-			}
-
-			@Mock
-			public String[] getRetiredPublicKeys() {
-				return new String[0];
 			}
 		};
 	}

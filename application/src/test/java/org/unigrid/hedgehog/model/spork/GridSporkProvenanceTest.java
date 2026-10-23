@@ -50,21 +50,17 @@ public class GridSporkProvenanceTest {
 		return new Signature();
 	}
 
-	private static void board(List<Signature> current, List<Signature> retired) {
+	private static void board(List<Signature> current) {
 		new MockUp<NetworkKey>() {
 			@Mock public String[] getPublicKeys() {
 				return current.stream().map(Signature::getPublicKey).toArray(String[]::new);
-			}
-
-			@Mock public String[] getRetiredPublicKeys() {
-				return retired.stream().map(Signature::getPublicKey).toArray(String[]::new);
 			}
 		};
 	}
 
 	@BeforeTry
 	public void fakeTheBoard() {
-		board(List.of(FIRST, SECOND), List.of());
+		board(List.of(FIRST, SECOND));
 	}
 
 	private static MintSupply.SporkData supplyOf(long maxSupply) {
@@ -104,24 +100,25 @@ public class GridSporkProvenanceTest {
 		assertThat(stored(first, 20).isTakenByTheNetwork(), is(true));
 	}
 
+	/* A key the board no longer holds could sign anything, so the current board signs the spork again */
 	@Example
-	public void shouldTakeASporkOfABoardThatHasSinceBeenReplaced() {
+	public void shouldRefuseASporkOfABoardThatHasSinceBeenReplaced() {
 		final GridSpork spork = stored(null, 10);
 
-		board(List.of(STRANGER), List.of(FIRST, SECOND));
-		assertThat(spork.isTakenByTheNetwork(), is(true));
+		board(List.of(STRANGER));
+		assertThat(spork.isTakenByTheNetwork(), is(false));
 	}
 
-	/* What an earlier build stored was signed once, over its Java serialization */
+	/* What an earlier build stored was signed once, over its Java serialization, which one key alone can make */
 	@Example
-	public void shouldTakeASporkThatAnEarlierBuildSignedOnce() {
+	public void shouldRefuseASporkThatAnEarlierBuildSignedOnce() {
 		final GridSpork spork = GridSpork.create(GridSpork.Type.MINT_SUPPLY);
 
 		spork.setData(supplyOf(10));
 		spork.setTimeStamp(Instant.parse("2025-01-01T00:00:00Z"));
 		spork.setSignature(signatureOf(FIRST, spork));
 
-		assertThat(spork.isTakenByTheNetwork(), is(true));
+		assertThat(spork.isTakenByTheNetwork(), is(false));
 	}
 
 	@Example

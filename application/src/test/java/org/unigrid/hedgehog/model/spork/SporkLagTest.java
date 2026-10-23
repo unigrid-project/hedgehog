@@ -74,10 +74,6 @@ public class SporkLagTest {
 				keyLookups++;
 				return new String[] { proposer.getPublicKey(), cosigner.getPublicKey() };
 			}
-
-			@Mock public static String[] getRetiredPublicKeys() {
-				return new String[0];
-			}
 		};
 	}
 

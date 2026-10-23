@@ -22,7 +22,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
-/* The signer is null when no known network key signed the proposal */
+/* The signer is null when no current network key signed the proposal */
 public record PendingSporkInfo(GridSpork.Type type, @JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp,
 	@JsonFormat(shape = JsonFormat.Shape.STRING) Instant expires, String signer, String digest, ChunkData data) {
 

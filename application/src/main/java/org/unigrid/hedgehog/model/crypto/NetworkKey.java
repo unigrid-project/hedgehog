@@ -22,13 +22,9 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -44,29 +40,18 @@ public class NetworkKey {
 		return NetOptions.getNetworkKeys();
 	}
 
-	public static String[] getRetiredPublicKeys() {
-		return NetOptions.getRetiredNetworkKeys();
+	/* The keys a signature log may name. A log is checked against a set of its own, so that it can differ from the
+	   keys that sign a head. */
+	public static Set<String> getLogKeys() {
+		return new LinkedHashSet<>(Arrays.asList(getPublicKeys()));
 	}
 
 	public static Optional<String> signerOf(Signable signable) {
 		return signerOf(DigestUtils.sha512(signable.getSignable()), signable.getSignature());
 	}
 
-	public static Set<String> getKnownPublicKeys() {
-		return Stream.of(getPublicKeys(), getRetiredPublicKeys()).flatMap(Arrays::stream)
-			.collect(Collectors.toCollection(LinkedHashSet::new));
-	}
-
 	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
-		return signerAmong(getKnownPublicKeys(), digest, signature);
-	}
-
-	public static Optional<String> currentSignerOf(byte[] digest, byte[] signature) {
-		return signerAmong(List.of(getPublicKeys()), digest, signature);
-	}
-
-	private static Optional<String> signerAmong(Collection<String> keys, byte[] digest, byte[] signature) {
-		return keys.stream().filter(key -> verifies(digest, signature, key)).findFirst();
+		return Arrays.stream(getPublicKeys()).filter(key -> verifies(digest, signature, key)).findFirst();
 	}
 
 	private static boolean verifies(byte[] digest, byte[] signature, String key) {

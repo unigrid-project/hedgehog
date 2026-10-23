@@ -31,7 +31,7 @@ public record SignatureLogInfo(List<Entry> entries, Head head) {
 		String digest, String signature, String cosignature) {
 	}
 
-	/* A signer is null when no known network key made that signature, or when there is no such signature. The digest
+	/* A signer is null when no current network key made that signature, or when there is no such signature. The digest
 	   is the one the signing commands print the start of, so that a head one node shows can be held against another */
 	public record Head(@JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp, String signer, String cosigner,
 		String digest) {

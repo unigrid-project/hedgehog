@@ -73,22 +73,9 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	protected static final Signature COSIGNER = keyPair();
 	protected static final Signature STRANGER = keyPair();
 
-	/* The keys a test retires to stand for an earlier board, which a signature log may still name. Only recent ones,
-	   because every signature check walks this list. */
-	private static final int MAX_RETIRED_KEYS = 16;
-	private static final List<String> RETIRED_KEYS = new ArrayList<>();
-
 	@SneakyThrows
 	protected static Signature keyPair() {
 		return new Signature();
-	}
-
-	protected static void retire(Signature signature) {
-		RETIRED_KEYS.add(signature.getPublicKey());
-
-		if (RETIRED_KEYS.size() > MAX_RETIRED_KEYS) {
-			RETIRED_KEYS.removeFirst();
-		}
 	}
 
 	@SneakyThrows
@@ -168,10 +155,6 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 		new MockUp<NetworkKey>() {
 			@Mock public /* static */ String[] getPublicKeys() {
 				return new String[] { PROPOSER.getPublicKey(), COSIGNER.getPublicKey() };
-			}
-
-			@Mock public /* static */ String[] getRetiredPublicKeys() {
-				return RETIRED_KEYS.toArray(String[]::new);
 			}
 		};
 	}

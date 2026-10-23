@@ -97,10 +97,6 @@ public class SporkGateTest extends BaseMockedWeldTest {
 			@Mock public String[] getPublicKeys() {
 				return new String[] { proposer.getPublicKey(), cosigner };
 			}
-
-			@Mock public String[] getRetiredPublicKeys() {
-				return new String[0];
-			}
 		};
 	}
 

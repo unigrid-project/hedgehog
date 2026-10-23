@@ -27,8 +27,6 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.matchesPattern;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -86,9 +84,7 @@ public class NetOptionsTest {
 		assertThat(NetOptions.getPort(), equalTo(NetOptions.DEFAULT_PORT));
 		assertThat(NetOptions.isSeeds(), equalTo(true));
 		assertThat(NetOptions.getNetworkKeys(), arrayWithSize(greaterThan(0)));
-		assertThat(Stream.of(NetOptions.getNetworkKeys(), NetOptions.getRetiredNetworkKeys()).flatMap(Stream::of)
-			.toList(), everyItem(matchesPattern(PUBLIC_KEY))
-		);
+		assertThat(List.of(NetOptions.getNetworkKeys()), everyItem(matchesPattern(PUBLIC_KEY)));
 	}
 
 	@Property
@@ -100,19 +96,20 @@ public class NetOptionsTest {
 	}
 
 	@Property
-	public void shouldReplaceOnlyTheKeysItIsGiven(@ForAll("provideCommand") List<String> command,
-		@ForAll("provideKeys") List<String> keys, @ForAll boolean retired) {
+	public void shouldReplaceTheKeysItIsGiven(@ForAll("provideCommand") List<String> command,
+		@ForAll("provideKeys") List<String> keys) {
 
-		final Supplier<String[]> replaced = retired ? NetOptions::getRetiredNetworkKeys : NetOptions::getNetworkKeys;
-		final Supplier<String[]> other = retired ? NetOptions::getNetworkKeys : NetOptions::getRetiredNetworkKeys;
+		OptionsCli.parse(command, "--network-keys=" + String.join(",", keys));
+		assertThat(List.of(NetOptions.getNetworkKeys()), equalTo(keys));
+	}
 
-		OptionsCli.parse(command);
+	/* A key that the board no longer holds signs nothing the network trusts, so there is no option to name one */
+	@Property(tries = 10)
+	public void shouldRefuseRetiredNetworkKeys(@ForAll("provideCommand") List<String> command,
+		@ForAll("provideKeys") List<String> keys) {
 
-		final List<String> untouched = List.of(other.get());
-
-		OptionsCli.parse(command, (retired ? "--retired-network-keys=" : "--network-keys=") + String.join(",", keys));
-		assertThat(List.of(replaced.get()), equalTo(keys));
-		assertThat(List.of(other.get()), equalTo(untouched));
+		assertThat(OptionsCli.refusal(command, "--retired-network-keys=" + String.join(",", keys)).getMessage(),
+			containsString("--retired-network-keys"));
 	}
 
 	@Property

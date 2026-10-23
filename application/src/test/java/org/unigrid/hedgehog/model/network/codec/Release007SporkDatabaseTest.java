@@ -21,23 +21,23 @@ package org.unigrid.hedgehog.model.network.codec;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.notNullValue;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import io.netty.channel.ChannelHandlerContext;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
 import net.jqwik.api.Example;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
@@ -49,7 +49,7 @@ import org.unigrid.hedgehog.model.spork.VestingStorage;
 /*
  * The fixture was written by the 0.0.7 release itself: every spork type, signed once with the key below, with
  * mints sharing an Address object and vesting times carrying nanoseconds. Nodes upgrading from 0.0.7 have to
- * load it, keep its signatures valid and be able to re-sign it for the whole network to accept.
+ * load it and keep its signatures valid, so that the current board can read its data and sign it again.
  */
 public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 	private static final String FIXTURE = "/spork/spork-0.0.7.db";
@@ -73,7 +73,7 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 		return SporkDatabase.load(Path.of(getClass().getResource(FIXTURE).toURI()));
 	}
 
-	/* The 0.0.7 signer has since been retired; two fresh keys stand in for the current board */
+	/* The 0.0.7 signer is no board key any more; two fresh keys stand in for the current board */
 	@SneakyThrows
 	private static List<Signature> currentBoard() {
 		final List<Signature> board = List.of(new Signature(), new Signature());
@@ -83,10 +83,6 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 		new MockUp<NetworkKey>() {
 			@Mock public /* static */ String[] getPublicKeys() {
 				return networkKeys;
-			}
-
-			@Mock public /* static */ String[] getRetiredPublicKeys() {
-				return new String[] { FIXTURE_PUBLIC_KEY };
 			}
 		};
 
@@ -128,31 +124,25 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 		}
 	}
 
+	/* One key signed them, and one the board no longer holds, so they count as unsigned and cannot be renewed: the
+	   current board signs their data again as first versions */
 	@SneakyThrows
 	@Example
-	public void shouldAcceptTheirRenewalOnEveryNode(@Mocked ChannelHandlerContext context) {
+	public void shouldLoadThemAsUnsigned() {
 		final SporkDatabase database = fixture();
 		final List<Signature> board = currentBoard();
 
-		for (GridSpork.Type type : TYPES) {
-			final GridSpork stored = database.get(type);
-			final GridSpork renewed = SerializationUtils.clone(stored);
+		for (GridSpork.Type type : GridSpork.Type.values()) {
+			final GridSpork stored = type == GridSpork.Type.UNDEFINED ? null : database.get(type);
 
-			renewed.renew();
-			renewed.sign(board.get(0).getPrivateKey());
-			renewed.cosign(board.get(1).getPrivateKey());
+			if (Objects.nonNull(stored)) {
+				final GridSpork renewed = SerializationUtils.clone(stored);
 
-			final GridSpork received = encodeDecode(PublishSpork.builder().gridSpork(renewed).build(),
-				new PublishSporkEncoder(), new PublishSporkDecoder(), context
-			).getGridSpork();
-
-			assertThat(type.name(), stored, is(notNullValue()));
-			assertThat(type.name(), stored.isTakenByTheNetwork(), is(true));
-			assertThat(type.name(), renewed.getSignatureLog().last().getSigner(), equalTo(FIXTURE_PUBLIC_KEY));
-			assertThat(type.name(), renewed.canReplace(stored), is(true));
-			assertThat(type.name(), received.canReplace(stored), is(true));
-			assertThat(type.name(), received.canReplace(SerializationUtils.clone(stored)), is(true));
-			assertThat(type.name(), received.getData(), equalTo(stored.getData()));
+				renewed.renew();
+				assertThat(type.name(), stored.isTakenByTheNetwork(), is(false));
+				assertThat(type.name(), stored.isValidSignature(), is(false));
+				assertThrows(SigningException.class, () -> renewed.sign(board.get(0).getPrivateKey()));
+			}
 		}
 	}
 }
