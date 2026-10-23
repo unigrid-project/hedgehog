@@ -38,8 +38,8 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkContent;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
 
 /* A node as the commands that sign sporks see it: it hands out what it holds and the proposals it waits on in their
    wire form, and takes a signed spork back by the rules the daemon takes one by, which the model judges */

@@ -37,7 +37,7 @@ import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.SporkContent;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
 import picocli.CommandLine;
 import picocli.CommandLine.ParameterException;
 

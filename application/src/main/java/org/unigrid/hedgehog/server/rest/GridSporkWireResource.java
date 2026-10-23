@@ -37,9 +37,9 @@ import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkContent;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
 
 /* The sporks as a board member signs them on their own machine: the command line reads the stored spork and the
    proposal it builds on in the form peers exchange, so that what it signs covers the bytes every node reads, and it
