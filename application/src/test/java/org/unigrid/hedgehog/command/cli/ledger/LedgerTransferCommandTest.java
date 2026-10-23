@@ -106,7 +106,8 @@ public class LedgerTransferCommandTest {
 
 	private static Response info(String minimumFee) {
 		return Response.ok(new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000", 0L,
-			LedgerCommandFixtures.ROUND_ENDS, List.of("33".repeat(32)), minimumFee, 0, List.of(), List.of())).build();
+			LedgerCommandFixtures.ROUND_ENDS, List.of("33".repeat(32)), List.of("33".repeat(32)), minimumFee, 0,
+			List.of(), List.of())).build();
 	}
 
 	private static Response account(long nonce) {

@@ -260,7 +260,7 @@ public class LedgerClientTest {
 	@Property(tries = 50)
 	public void refusesAChainIdThatIsNoHexOfAChainId(@ForAll("notChainIds") String chainId) {
 		final LedgerInfo odd = new LedgerInfo(true, false, "", true, chainId, 3, "22".repeat(64), "12.50000000", 0L,
-			ROUND_ENDS, List.of(), "0.00100000", 0, List.of(), List.of());
+			ROUND_ENDS, List.of(), List.of(), "0.00100000", 0, List.of(), List.of());
 
 		assertThat(assertThrows(LedgerClient.Refused.class,
 			() -> LedgerClient.chainId(odd, Optional.empty())).getMessage(),
@@ -270,11 +270,11 @@ public class LedgerClientTest {
 	@Example
 	public void refusesAnAnswerThatLacksWhatTheCommandNeeds() {
 		final LedgerInfo noRound = new LedgerInfo(true, false, "", true, "11".repeat(64), 3, "22".repeat(64),
-			"12.50000000", null, ROUND_ENDS, List.of(), "0.00100000", 0, List.of(), List.of());
+			"12.50000000", null, ROUND_ENDS, List.of(), List.of(), "0.00100000", 0, List.of(), List.of());
 		final LedgerInfo noRoundEnd = new LedgerInfo(true, false, "", true, "11".repeat(64), 3, "22".repeat(64),
-			"12.50000000", 0L, null, List.of(), "0.00100000", 0, List.of(), List.of());
-		final LedgerInfo noValidators = new LedgerInfo(true, false, "", true, "11".repeat(64), 3, "22".repeat(64),
-			"12.50000000", 0L, ROUND_ENDS, null, "0.00100000", 0, List.of(), List.of());
+			"12.50000000", 0L, null, List.of(), List.of(), "0.00100000", 0, List.of(), List.of());
+		final LedgerInfo noRoundValidators = new LedgerInfo(true, false, "", true, "11".repeat(64), 3,
+			"22".repeat(64), "12.50000000", 0L, ROUND_ENDS, List.of(), null, "0.00100000", 0, List.of(), List.of());
 		final LedgerAccount noNonce = new LedgerAccount("ab".repeat(32), "account", "6.99900000", null,
 			"10.00000000", null, null);
 
@@ -283,7 +283,8 @@ public class LedgerClientTest {
 		assertThat(assertThrows(LedgerClient.Refused.class, () -> LedgerClient.roundEnds(noRoundEnd)).getMessage(),
 			equalTo(UNREADABLE + "no roundEnds"));
 		assertThat(assertThrows(LedgerClient.Refused.class,
-			() -> LedgerClient.validators(noValidators)).getMessage(), equalTo(UNREADABLE + "no validators"));
+			() -> LedgerClient.roundValidators(noRoundValidators)).getMessage(),
+			equalTo(UNREADABLE + "no roundValidators"));
 		assertThat(assertThrows(LedgerClient.Refused.class, () -> LedgerClient.nonce(noNonce)).getMessage(),
 			equalTo(UNREADABLE + "no nonce"));
 	}
@@ -292,7 +293,7 @@ public class LedgerClientTest {
 	public void takesWhatTheNodeSaysWhenItIsThere() throws LedgerClient.Refused {
 		assertThat(LedgerClient.round(INFO), equalTo(0L));
 		assertThat(LedgerClient.roundEnds(INFO), equalTo(ROUND_ENDS));
-		assertThat(LedgerClient.validators(INFO), equalTo(INFO.validators()));
+		assertThat(LedgerClient.roundValidators(INFO), equalTo(INFO.roundValidators()));
 		assertThat(LedgerClient.nonce(ACCOUNT), equalTo(1L));
 	}
 }

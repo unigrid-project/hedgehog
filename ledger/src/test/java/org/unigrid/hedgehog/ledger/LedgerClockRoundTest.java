@@ -125,6 +125,21 @@ public class LedgerClockRoundTest {
 		}
 	}
 
+	/* Between the end of a round and the block that closes it, the set a vote is judged by is the one that block leaves,
+	   while the set that signs blocks is still the one before it */
+	@Example
+	public void shouldNameTheSetThatVotesOfTheRoundOfItsClockAreJudgedBy() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = withVotesInRoundZero(fileSystem, clock);
+
+			assertThat(ledger.roundValidators(), equalTo(ledger.validators()));
+			clock.set(startOf(1));
+			assertThat(ledger.validators().contains(Ed25519.publicKey(GRIDNODE)), is(false));
+			assertThat(ledger.roundValidators().contains(Ed25519.publicKey(GRIDNODE)), is(true));
+		}
+	}
+
 	@Example
 	public void shouldNeverProposeAVoteWhoseRoundHasPassed() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {

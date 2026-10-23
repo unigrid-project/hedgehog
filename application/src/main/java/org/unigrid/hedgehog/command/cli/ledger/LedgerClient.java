@@ -170,8 +170,8 @@ final class LedgerClient implements AutoCloseable {
 		return required(info.roundEnds(), "roundEnds");
 	}
 
-	static List<String> validators(final LedgerInfo info) throws Refused {
-		return required(info.validators(), "validators");
+	static List<String> roundValidators(final LedgerInfo info) throws Refused {
+		return required(info.roundValidators(), "roundValidators");
 	}
 
 	static long nonce(final LedgerAccount account) throws Refused {

@@ -294,6 +294,12 @@ public final class Ledger implements ConsensusApp {
 		return state.validators();
 	}
 
+	/* The set a vote of the round of this node's clock is judged by: the set the next block leaves once it has closed
+	   the round of the tip, which is not yet the set that signs blocks while that block has not come */
+	public synchronized ValidatorSet roundValidators() {
+		return judgedAt(clock.getAsLong(), true).validators();
+	}
+
 	public synchronized long height() {
 		return state.height();
 	}

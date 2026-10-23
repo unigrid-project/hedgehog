@@ -442,7 +442,7 @@ public class LedgerResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	public void shouldTellThatNoLedgerRunsWhileThereIsNone() {
 		assertThat(info(), equalTo(new LedgerInfo(false, false, "", false, null, 0, "", null, null, null, null, null,
-			0, List.of(), List.of())));
+			null, 0, List.of(), List.of())));
 		assertThat(client.getEntity("/ledger", Map.class).keySet(), equalTo(Set.of("running", "halted", "haltReason",
 			"signing", "height", "tipHash", "droppedInbound", "unsetSporks", "laggingSporks")));
 	}
@@ -465,6 +465,8 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		assertThat(shown.round(), equalTo(ledger.round()));
 		assertThat(shown.roundEnds(), equalTo(ledger.roundEnds()));
 		assertThat(shown.validators(), equalTo(LedgerTestChain.SEEDS.stream().map(Ed25519::publicKey)
+			.map(AccountKey::toString).toList()));
+		assertThat(shown.roundValidators(), equalTo(ledger.roundValidators().keys().stream()
 			.map(AccountKey::toString).toList()));
 		assertThat(shown.minimumFee(), equalTo("0.00100000"));
 	}

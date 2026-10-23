@@ -99,10 +99,20 @@ public class LedgerVoteCommandTest {
 	}
 
 	private static Response infoEnding(long roundEnds, long round, String... validators) {
+		return info(roundEnds, round, List.of(validators), List.of(validators));
+	}
+
+	private static Response info(long roundEnds, long round, List<String> validators, List<String> roundValidators) {
 		final LedgerInfo info = new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000",
-			round, roundEnds, List.of(validators), "0.00100000", 0, List.of(), List.of());
+			round, roundEnds, validators, roundValidators, "0.00100000", 0, List.of(), List.of());
 
 		return Response.ok(info).build();
+	}
+
+	/* The set that signs blocks, and the one the round of the node has left once the block that closes the round of the
+	   tip comes, which a vote is judged by */
+	private static Response changingSet(List<String> validators, List<String> roundValidators) {
+		return info(LedgerCommandFixtures.ROUND_ENDS, ROUND, validators, roundValidators);
 	}
 
 	private static Vote voteIn(Outcome outcome) {
@@ -264,6 +274,37 @@ public class LedgerVoteCommandTest {
 
 			assertThat(outcome.cli().exitCode(), equalTo(0));
 			assertThat(voteIn(outcome).round(), equalTo(ROUND));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void letsAKeyThatTheRoundThatPassedElectedVote() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final String voter = Ed25519.publicKey(SEED).toString();
+
+			final Outcome outcome = sendOn(fs, changingSet(List.of(OTHER_VALIDATOR), List.of(OTHER_VALIDATOR, voter)),
+				accepted(), KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE, ADD_OPTION);
+
+			assertThat(outcome.cli().exitCode(), equalTo(0));
+			assertThat(voteIn(outcome).voter().toString(), equalTo(voter));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAKeyThatTheRoundThatPassedRemoved() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final String voter = Ed25519.publicKey(SEED).toString();
+
+			final Outcome outcome = sendOn(fs, changingSet(List.of(OTHER_VALIDATOR, voter), List.of(OTHER_VALIDATOR)),
+				accepted(), KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE, ADD_OPTION);
+
+			assertThat(outcome.cli().exitCode(), equalTo(2));
+			assertThat(outcome.cli().err(), containsString("This key is not a validator of the chain"));
+			assertNothingPosted(outcome);
 		}
 	}
 

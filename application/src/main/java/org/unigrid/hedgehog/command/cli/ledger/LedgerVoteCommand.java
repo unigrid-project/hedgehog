@@ -86,7 +86,7 @@ public class LedgerVoteCommand implements Callable<Integer> {
 		final long round = LedgerClient.round(info);
 
 		refuseNearTheEndOf(round, LedgerClient.roundEnds(info));
-		refuseWhenNotAllowed(draft, LedgerClient.validators(info));
+		refuseWhenNotAllowed(draft, LedgerClient.roundValidators(info));
 		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), round, chainId);
 
 		LedgerClient.announce(chainId, "vote to %s %s in round %d".formatted(

@@ -60,7 +60,8 @@ final class LedgerCommandFixtures {
 	static final long ROUND_ENDS = Long.MAX_VALUE;
 
 	static final LedgerInfo INFO = new LedgerInfo(true, false, "", true, "11".repeat(32), 3, "22".repeat(64),
-		"12.50000000", 0L, ROUND_ENDS, List.of("33".repeat(32)), "0.00100000", 0, List.of(), List.of());
+		"12.50000000", 0L, ROUND_ENDS, List.of("33".repeat(32)), List.of("33".repeat(32)), "0.00100000", 0,
+		List.of(), List.of());
 
 	static final LedgerAccount ACCOUNT = new LedgerAccount("ab".repeat(32), "account", "6.99900000", 1L,
 		"10.00000000", null, null);
@@ -118,7 +119,7 @@ final class LedgerCommandFixtures {
 
 	static Response noLedger() {
 		final LedgerInfo info = new LedgerInfo(false, false, null, false, null, 0, null, null, null, null, null,
-			null, 0, List.of(), List.of());
+			null, null, 0, List.of(), List.of());
 
 		return Response.ok(info).build();
 	}

@@ -100,7 +100,7 @@ public class LedgerClaimCommandTest {
 
 	private static Response info() {
 		final LedgerInfo info = new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000",
-			7L, LedgerCommandFixtures.ROUND_ENDS, List.of(), "0.00100000", 0, List.of(), List.of());
+			7L, LedgerCommandFixtures.ROUND_ENDS, List.of(), List.of(), "0.00100000", 0, List.of(), List.of());
 
 		return Response.ok(info).build();
 	}
