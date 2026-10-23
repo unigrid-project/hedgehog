@@ -83,15 +83,32 @@ final class SporkDatabaseFile {
 	/* What a database holds is what the network carried, and signing it again changes none of it, so it is judged as a
 	   version that changes nothing: the entries are history, a mint storage entry at a height of the old chain was
 	   paid by that chain, and the ledger leaves out any entry it cannot make. The bounds of the wire are those a node
-	   reads a spork within, so what does not travel cannot be signed. */
+	   reads a spork within, so what does not travel cannot be signed. A file can also hold what the wire cannot say,
+	   as a set read from a file takes its entries as they come, the same one twice among them, so a spork has to read
+	   back from its wire form as the same bytes: a node would otherwise read another spork than the one signed. */
 	static Optional<String> contentProblem(GridSpork spork) {
 		try {
 			SporkContent.validate(spork, spork);
-			SporkWire.decode(SporkWire.encode(spork));
-			return Optional.empty();
+
+			final byte[] wire = SporkWire.encode(spork);
+
+			return Arrays.equals(SporkWire.encode(SporkWire.decode(wire)), wire) ? Optional.empty()
+				: Optional.of("it does not read back the same from its wire form");
 		} catch (Exception ex) {
 			return Optional.of(TerminalText.printable(String.valueOf(ex.getMessage())));
 		}
+	}
+
+	/* The sporks as a node reads them from the wire, which is what is signed and installed */
+	static SporkDatabase readBack(SporkDatabase database) {
+		final SporkDatabase copy = SporkDatabase.builder().build();
+
+		sporksOf(database).forEach(spork -> copy.set(readBack(spork)));
+		return copy;
+	}
+
+	static GridSpork readBack(GridSpork spork) {
+		return SporkWire.decode(SporkWire.encode(spork));
 	}
 
 	static boolean isValid(GridSpork spork) {

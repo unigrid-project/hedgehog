@@ -130,7 +130,7 @@ public class SporkDbSign implements Runnable {
 					+ " spork does not hold: " + problem);
 			});
 
-			versions.add(versionToSign(spork));
+			versions.add(versionToSign(SporkDatabaseFile.readBack(spork)));
 		}
 
 		for (GridSpork version : versions) {

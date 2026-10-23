@@ -83,7 +83,7 @@ public class SporkDbImport implements Callable<Integer> {
 		try (ExclusiveLock lock = SporkDatabaseLock.take(dataDirectory.get(), locker)) {
 			System.out.println("backup: " + backup(target).map(Path::toString)
 				.orElse("none, the node holds no spork database"));
-			SporkDatabase.persist(target, database);
+			SporkDatabase.persist(target, SporkDatabaseFile.readBack(database));
 		} catch (FileLockedException ex) {
 			throw new ParameterException(spec.commandLine(), "Nothing was imported: " + ex.getMessage()
 				+ "; stop the node of this machine first", ex);

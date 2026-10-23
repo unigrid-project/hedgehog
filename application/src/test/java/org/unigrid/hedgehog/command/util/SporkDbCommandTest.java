@@ -26,17 +26,20 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -46,10 +49,13 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
@@ -73,11 +79,13 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
 import picocli.CommandLine;
 
 /* The commands that check a spork database, sign it with board keys and install it as the database of a node. The
@@ -358,6 +366,98 @@ public class SporkDbCommandTest {
 		}
 	}
 
+	@SneakyThrows
+	private static GridSpork blacklist(Set<String> hashes) {
+		final GridSpork spork = GridSpork.nextVersion(Type.LEDGER_BLACKLIST, null, Optional.empty());
+
+		spork.<LedgerBlacklist.SporkData>getData().setLegacyAddresses(hashes);
+		spork.sign(FIRST.getPrivateKey());
+		spork.cosign(SECOND.getPrivateKey());
+		return spork;
+	}
+
+	/* A file of the database as it was written, with every occurrence of one text in it replaced by another */
+	@SneakyThrows
+	private static Path writtenWith(FileSystem fs, SporkDatabase database, String text, String replacement) {
+		final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+
+		try (ObjectOutputStream stream = new ObjectOutputStream(bytes)) {
+			stream.writeObject(database);
+		}
+
+		final String latin = bytes.toString(StandardCharsets.ISO_8859_1).replace(text, replacement);
+		final Path file = fs.getPath("/crafted.db");
+
+		Files.write(file, latin.getBytes(StandardCharsets.ISO_8859_1));
+		return file;
+	}
+
+	/* A set read from a file takes its entries as they come, the same one twice among them, which the wire form
+	   cannot hold: a node would read back another spork than the one signed */
+	@Example
+	@SneakyThrows
+	public void refusesASporkThatDoesNotReadBackTheSameFromItsWireForm() {
+		final String first = "a".repeat(2 * LedgerBlacklist.SporkData.HASH_BYTES);
+		final String second = "b".repeat(2 * LedgerBlacklist.SporkData.HASH_BYTES);
+		final SporkDatabase database = SporkDatabase.builder().build();
+
+		database.set(blacklist(new TreeSet<>(Set.of(first, second))));
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = writtenWith(fs, database, second, first);
+			final HedgehogCli.Result validate = run(fs, "validate", file.toString());
+			final HedgehogCli.Result signing = sign(fs, file, "/out.db", FIRST);
+			final HedgehogCli.Result importing = run(fs, "import", file.toString());
+
+			assertThat(validate.exitCode(), equalTo(1));
+			assertThat(lineOf(validate, Type.LEDGER_BLACKLIST), containsString("content not valid: it does not"
+				+ " read back the same from its wire form"));
+			assertThat(signing.exitCode(), equalTo(2));
+			assertThat(signing.err(), containsString("does not read back the same"));
+			assertThat(importing.exitCode(), equalTo(1));
+			assertThat(Files.exists(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAStatisticsKeyThatHoldsAZero() {
+		final GridSpork spork = GridSpork.nextVersion(Type.STATISTICS_PUBKEY, null, Optional.empty());
+
+		spork.<StatisticsPubKey.SporkData>getData().setPublicKey("ab\u0000cd");
+		spork.sign(FIRST.getPrivateKey());
+		spork.cosign(SECOND.getPrivateKey());
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result validate = run(fs, "validate", written(fs, "zero.db", spork).toString());
+
+			assertThat(validate.exitCode(), equalTo(1));
+			assertThat(lineOf(validate, Type.STATISTICS_PUBKEY), containsString("content not valid"));
+		}
+	}
+
+	/* What is installed is what a node reads from the wire, in the form its decoders give it */
+	@Example
+	@SneakyThrows
+	public void importsTheSporksAsTheyReadBackFromTheWire() {
+		final SporkDatabase database = SporkDatabase.builder().build();
+
+		database.set(blacklist(new HashSet<>(Set.of("c".repeat(2 * LedgerBlacklist.SporkData.HASH_BYTES)))));
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = fs.getPath("/hashed.db");
+
+			SporkDatabase.persist(file, database);
+
+			final HedgehogCli.Result result = run(fs, "import", file.toString());
+			final GridSpork installed = load(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)).getLedgerBlacklist();
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(installed.<LedgerBlacklist.SporkData>getData().getLegacyAddresses(), instanceOf(TreeSet.class));
+			assertThat(installed.isTakenByTheNetwork(), is(true));
+		}
+	}
+
 	/* Signed by the board as a fee, but held where the mints are, so a node would read it as mints */
 	@Example
 	@SneakyThrows
@@ -587,8 +687,8 @@ public class SporkDbCommandTest {
 		unsigned.sign(keyPair().getPrivateKey());
 
 		final Map<String, GridSpork> stampedAhead = Map.of("no board key signed", unsigned,
-			"a first version to co-sign", firstVersionMadeAt(Instant.now().plus(PendingSporks.LEEWAY)
-				.plusSeconds(60)));
+			"a first version to co-sign", firstVersionMadeAt(Instant.now().truncatedTo(ChronoUnit.MILLIS)
+				.plus(PendingSporks.LEEWAY).plusSeconds(60)));
 
 		stampedAhead.forEach((how, spork) -> {
 			try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
