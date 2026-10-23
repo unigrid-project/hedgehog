@@ -20,8 +20,10 @@ package org.unigrid.hedgehog.command.cli;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
@@ -35,14 +37,19 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
 
 @Command(name = "gridspork-renew",
 	description = "Propose every spork the node holds again, signed on this machine with a board key and with the "
-		+ "spork data unchanged. A second board key accepts the proposals with gridspork-cosign."
+		+ "spork data unchanged. A second board key accepts the proposals with gridspork-cosign. A spork that a "
+		+ "board key signed which the board switched off since is renewed only when --switched-off names its type."
 )
 public class GridSporkRenew implements Runnable {
 	@Mixin
 	private BoardKeyOptions boardKey;
+
+	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
+	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
 
 	/* The key is judged once the board keys of the node are known, as a key that the board added since the release is
 	   one of them */
@@ -74,19 +81,26 @@ public class GridSporkRenew implements Runnable {
 	}
 
 	/* Every spork is known to be what the network took and is shown before anything is signed, and everything is
-	   signed before anything is proposed, so a spork that fails proposes nothing */
-	private static List<GridSpork> renewed(SporkClient sporks, String key) throws ResponseOddityException,
+	   signed before anything is proposed, so a spork that fails proposes nothing. One that a key signed which the board
+	   switched off since is renewed only by name, so that renewing every spork never signs one again unseen. */
+	private List<GridSpork> renewed(SporkClient sporks, String key) throws ResponseOddityException,
 		UntrustedSporkException, SigningException, IOException {
 
 		final List<GridSpork> stored = new ArrayList<>();
 
 		for (GridSpork.Type type : GridSpork.Type.values()) {
 			if (type != GridSpork.Type.UNDEFINED) {
-				sporks.stored(type).ifPresent(stored::add);
+				sporks.held(type).ifPresent(stored::add);
 			}
 		}
 
+		requireNamed(stored);
+
 		for (GridSpork spork : stored) {
+			if (!spork.isTakenByTheNetwork()) {
+				SporkProposal.showSwitchedOff(spork);
+			}
+
 			SporkProposal.showHead(Optional.of(spork));
 			SporkProposal.show("Renewing " + spork.getType() + " with its data unchanged, signed now:",
 				Optional.of(spork));
@@ -98,5 +112,16 @@ public class GridSporkRenew implements Runnable {
 		}
 
 		return stored;
+	}
+
+	private void requireNamed(List<GridSpork> stored) throws UntrustedSporkException {
+		final List<String> unnamed = stored.stream().filter(spork -> !spork.isTakenByTheNetwork())
+			.filter(spork -> !switchedOff.contains(spork.getType()))
+			.map(spork -> "the " + spork.getType() + " spork is " + SporkClient.signingOf(spork) + "; give"
+				+ " --switched-off " + spork.getType() + " to renew it").toList();
+
+		if (!unnamed.isEmpty()) {
+			throw new UntrustedSporkException(String.join("; ", unnamed));
+		}
 	}
 }

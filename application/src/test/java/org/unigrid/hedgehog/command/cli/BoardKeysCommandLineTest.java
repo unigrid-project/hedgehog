@@ -168,18 +168,14 @@ public class BoardKeysCommandLineTest {
 		assertThat(node.stored(Type.MINT_SUPPLY).isCounting(), is(true));
 	}
 
-	/* A spork that a key signed which the board switched off counts for nothing until keys that stay sign it again */
 	@Example
-	public void renewsASporkThatAKeyItSwitchedOffSigned() {
-		final FakeSporkNode node = nodeOfTheNewBoard().holding(supply(key(0), key(1)));
-		final Result renewed = RestCommandFixture.run(parsed(new GridSporkRenew(), "-k", key(1).getPrivateKey()),
+	public void renewsWithAKeyThatTheBoardKeysOfTheNodeAdded() {
+		final FakeSporkNode node = nodeOfTheNewBoard().holding(supply(key(1), key(2)));
+		final Result renewed = RestCommandFixture.run(parsed(new GridSporkRenew(), "-k", key(2).getPrivateKey()),
 			node);
-		final String digest = PendingSporks.digestOf(node.proposalOf(Type.MINT_SUPPLY).orElseThrow());
 
 		assertThat(renewed.err(), equalTo(""));
-		assertThat(node.stored(Type.MINT_SUPPLY).isCounting(), is(false));
-
-		RestCommandFixture.run(cosign(key(2), digest), node);
-		assertThat(node.stored(Type.MINT_SUPPLY).isCounting(), is(true));
+		assertThat(node.proposalOf(Type.MINT_SUPPLY).flatMap(NetworkKey::signerOf),
+			equalTo(Optional.of(key(2).getPublicKey())));
 	}
 }

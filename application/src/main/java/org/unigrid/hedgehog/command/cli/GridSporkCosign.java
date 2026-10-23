@@ -22,6 +22,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -43,6 +44,7 @@ import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
@@ -59,6 +61,9 @@ public class GridSporkCosign implements Runnable {
 
 	@Parameters(arity = "1..*", description = "Digests of the sporks to co-sign.")
 	private List<String> digests;
+
+	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
+	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
 
 	@Spec
 	private CommandSpec spec;
@@ -111,7 +116,7 @@ public class GridSporkCosign implements Runnable {
 	}
 
 	/* Each digest is tried on its own, so one that fails leaves the others to be co-signed */
-	private static void cosign(SporkClient sporks, String digest, String key) {
+	private void cosign(SporkClient sporks, String digest, String key) {
 		try {
 			final Optional<GridSpork> proposal = sporks.proposal(digest);
 
@@ -131,13 +136,27 @@ public class GridSporkCosign implements Runnable {
 	}
 
 	/* The proposal is co-signed only once it is known to be what a current board key made from the stored spork,
-	   which in turn is known to be what the network took */
-	private static String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
+	   which in turn is known to be what the network took. A stored spork that a key signed which the board switched
+	   off since is signed again only by name, by the second board member as by the first. */
+	private String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
 		throws ResponseOddityException, UntrustedSporkException, SigningException, IOException {
 
-		final Optional<GridSpork> stored = sporks.stored(proposal.getType());
+		final GridSpork.Type type = proposal.getType();
+		final Optional<GridSpork> stored = sporks.held(type);
+		final boolean isSwitchedOff = stored.isPresent() && !stored.get().isTakenByTheNetwork();
 
-		SporkClient.requireProposalOver(proposal, proposal.getType(), stored.orElse(null));
+		if (isSwitchedOff && !switchedOff.contains(type)) {
+			throw new UntrustedSporkException("the " + type + " spork that the node holds is "
+				+ SporkClient.signingOf(stored.get()) + "; give --switched-off " + type
+				+ " to co-sign a renewal of it");
+		}
+
+		SporkClient.requireProposalOver(proposal, type, stored.orElse(null));
+
+		if (isSwitchedOff) {
+			SporkProposal.showSwitchedOff(stored.get());
+		}
+
 		show(proposal, digest, stored);
 		proposal.cosign(key);
 

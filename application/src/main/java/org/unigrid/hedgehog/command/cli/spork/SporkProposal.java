@@ -130,6 +130,18 @@ public final class SporkProposal {
 			+ keyOf(spork, spork.getSignature()) + " and " + keyOf(spork, spork.getCosignature())));
 	}
 
+	/* A spork that a key signed which the board switched off since counts for nothing, and the node may hand out one
+	   that two stolen keys forged, so whoever signs it again sees who signed it and when */
+	public static void showSwitchedOff(GridSpork stored) {
+		System.out.println("Stored " + stored.getType() + " is " + SporkClient.signingOf(stored) + ", made at "
+			+ stored.getTimeStamp() + ", and counts for nothing until it is signed again");
+	}
+
+	/* The help of the option that a command names such a spork with */
+	public static final String SWITCHED_OFF = "The type of a stored spork that a board key signed which the board"
+		+ " switched off since, like MINT_SUPPLY, to sign again: it counts for nothing until then. Give it once for"
+		+ " each such type.";
+
 	private static String keyOf(GridSpork spork, byte[] signature) {
 		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, SHOWN_HEX)).orElse("no board key");
 	}
