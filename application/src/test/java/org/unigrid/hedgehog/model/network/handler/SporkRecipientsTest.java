@@ -22,7 +22,10 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -40,6 +43,16 @@ public class SporkRecipientsTest {
 	/* The types that release 0.0.8 knows: it cannot read any other, and a frame of one wrecks its stream */
 	private static final Set<Type> KNOWN_TO_RELEASE_0_0_8 = Set.of(Type.UNDEFINED, Type.MINT_STORAGE, Type.MINT_SUPPLY,
 		Type.VESTING_STORAGE, Type.STORAGE, Type.STATISTICS_PUBKEY);
+
+	/* The sporks of these tests are signed by no one, and stand for sporks that count */
+	@BeforeTry
+	public void countEverySpork() {
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return true;
+			}
+		};
+	}
 
 	private static GridSpork spork(final Type type) {
 		return GridSpork.create(type);

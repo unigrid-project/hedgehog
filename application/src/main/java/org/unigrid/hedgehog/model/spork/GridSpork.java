@@ -41,6 +41,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import lombok.experimental.Tolerate;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
@@ -74,6 +75,14 @@ public class GridSpork implements Serializable, Signable {
 
 	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE)
 	private transient SignatureLogEntry retiringHead;
+
+	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE) @ToString.Exclude
+	private transient volatile Standing standing;
+
+	/* Which of the keys active now signed the head, worked out once for each set of them: the policy of a spork is
+	   read every second, and a spork that a node holds is replaced whole and never changed in place */
+	private record Standing(Set<String> keys, boolean counting, boolean anchoring) {
+	}
 
 	@AllArgsConstructor
 	public enum Flag {
@@ -261,10 +270,14 @@ public class GridSpork implements Serializable, Signable {
 
 	@JsonIgnore
 	public boolean isDoublySigned() {
-		final Set<String> keys = headKeys();
-		final Optional<String> signer = signerOfHead(signature, keys);
-		final Optional<String> cosigner = signerOfHead(cosignature, keys);
+		return isDoublySignedBy(headKeys());
+	}
 
+	private boolean isDoublySignedBy(Set<String> keys) {
+		return isPair(signerOfHead(signature, keys), signerOfHead(cosignature, keys));
+	}
+
+	private static boolean isPair(Optional<String> signer, Optional<String> cosigner) {
 		return signer.isPresent() && cosigner.isPresent() && !signer.equals(cosigner);
 	}
 
@@ -339,12 +352,66 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean isTakenByTheNetwork() {
+		return isTakenBy(headKeys());
+	}
+
+	/**
+	* Decides as {@link #isTakenByTheNetwork()} does, but takes two keys that were ever active for the head: a spork
+	* that keys signed which the board switched off since is still one the network carried. A node keeps it where it
+	* is, and it counts for nothing ({@link #isCounting()}) until the board signs it again.
+	*/
+	@JsonIgnore
+	public boolean wasTakenByTheNetwork() {
+		return isTakenBy(logKeys());
+	}
+
+	private boolean isTakenBy(Set<String> keys) {
 		try {
-			return isWithinBounds() && isDoublySigned() && isNewerThanLog()
+			return isWithinBounds() && isDoublySignedBy(keys) && isNewerThanLog()
 				&& getSignatureLog().isValidFrom(0, logKeys());
 		} catch (RuntimeException ex) {
 			return false;
 		}
+	}
+
+	/**
+	* Whether the policy of this spork holds: two different keys that are active now signed it. A spork whose signer
+	* the board switched off since stays where it is, but decides nothing and is not sent on until the board signs it
+	* again.
+	*/
+	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
+	public boolean isCounting() {
+		return standing().counting();
+	}
+
+	/* Whether a new version has to follow on this one. One that no active key signed holds nothing back, so the version
+	   that the board signs again takes its place, while one that an active key signed still keeps older versions out. */
+	@JsonIgnore
+	public boolean isAnchoring() {
+		return standing().anchoring();
+	}
+
+	/* A spork that cannot be encoded to check its signatures over has no signer */
+	private Standing standing() {
+		final Standing known = standing;
+
+		try {
+			final Set<String> keys = headKeys();
+
+			return Objects.nonNull(known) && known.keys().equals(keys) ? known : judgedBy(keys);
+		} catch (RuntimeException ex) {
+			return new Standing(Set.of(), false, false);
+		}
+	}
+
+	private Standing judgedBy(Set<String> keys) {
+		final Optional<String> signer = signerOfHead(signature, keys);
+		final Optional<String> cosigner = signerOfHead(cosignature, keys);
+		final Standing judged = new Standing(keys, isPair(signer, cosigner),
+			signer.isPresent() || cosigner.isPresent());
+
+		standing = judged;
+		return judged;
 	}
 
 	/* An amount beyond the bounds of the wire writes out as up to gigabytes, so it is judged before the spork is

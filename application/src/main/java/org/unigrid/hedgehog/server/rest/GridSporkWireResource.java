@@ -112,7 +112,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response hold(GridSpork spork) {
-		if (!pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
+		if (!pendingSporks.offer(spork, sporkDatabase.anchorOf(spork.getType()))) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 
@@ -121,7 +121,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response store(GridSpork spork) {
-		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+		if (!spork.canReplace(sporkDatabase.anchorOf(spork.getType()))) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 

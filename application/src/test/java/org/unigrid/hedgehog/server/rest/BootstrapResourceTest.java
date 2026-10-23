@@ -30,6 +30,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -50,6 +52,7 @@ import org.unigrid.hedgehog.model.bootstrap.Ledger;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotWriter;
 import org.unigrid.hedgehog.model.bootstrap.TransactionIdTable;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -65,9 +68,16 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 	@Inject
 	private SporkDatabase sporkDatabase;
 
+	/* The mint sporks of these tests are signed by no one, and stand for sporks that count */
 	@BeforeTry
 	public void forgetMints() {
 		sporkDatabase.setMintStorage(null);
+
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return true;
+			}
+		};
 	}
 
 	private void mint(byte[] addressHash, int height, String amount) {

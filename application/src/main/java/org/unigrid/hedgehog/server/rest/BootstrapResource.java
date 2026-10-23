@@ -39,6 +39,8 @@ import org.unigrid.hedgehog.model.bootstrap.PendingMints;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -77,7 +79,8 @@ public class BootstrapResource extends CDIBridgeResource {
 
 		try {
 			final Optional<AddressBalance> balance = reader.get().balanceOf(address);
-			final BigDecimal pending = PendingMints.amountFor(address, sporkDatabase.getMintStorage(),
+			final BigDecimal pending = PendingMints.amountFor(address,
+				(MintStorage) sporkDatabase.counting(GridSpork.Type.MINT_STORAGE),
 				chainHeight.current().orElseThrow()
 			);
 

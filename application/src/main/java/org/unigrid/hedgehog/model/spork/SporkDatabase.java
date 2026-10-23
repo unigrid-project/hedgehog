@@ -161,6 +161,17 @@ public class SporkDatabase implements Serializable {
 		slotOf(gridSporkType).writer().accept(this, null);
 	}
 
+	/* The spork of a type as what acts on a spork reads it: only while two active keys vouch for it (isCounting) */
+	public GridSpork counting(Type gridSporkType) {
+		return Optional.ofNullable(get(gridSporkType)).filter(GridSpork::isCounting).orElse(null);
+	}
+
+	/* The spork that a new version of a type has to follow on: none when no active key signed the stored one, so the
+	   version that the board signs again takes its place (isAnchoring) */
+	public GridSpork anchorOf(Type gridSporkType) {
+		return Optional.ofNullable(get(gridSporkType)).filter(GridSpork::isAnchoring).orElse(null);
+	}
+
 	/* A file ties nothing in a slot to its type: a spork there can carry another type, and data of another type, which
 	   a node would then hand out and read as what it is not */
 	public boolean holdsAnotherSporkIn(Type gridSporkType) {

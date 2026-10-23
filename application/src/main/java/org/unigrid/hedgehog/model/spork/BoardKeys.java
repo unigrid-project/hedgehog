@@ -61,6 +61,12 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return chainKeys().map(ActiveKeys::known).orElse(Set.of());
 	}
 
+	/* The keys that sign the board keys are those of their own chain, so a version of them is taken or nothing */
+	@Override
+	public boolean wasTakenByTheNetwork() {
+		return isTakenByTheNetwork();
+	}
+
 	/**
 	* A chain of board keys only grows: a version holds the chain of the stored one and adds to it, or holds the same
 	* chain and is newer, as a renewal does. No version with another chain takes the place of the stored one, however
