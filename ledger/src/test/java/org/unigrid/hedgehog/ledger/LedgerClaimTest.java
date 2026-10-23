@@ -83,7 +83,7 @@ public class LedgerClaimTest {
 		final LedgerState state = claimState(ANY_MINT);
 		final List<Transaction> both = List.of(claim(state, account(1)), claim(state, account(2)));
 		final IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
-			() -> state.rootAfter(1, both));
+			() -> state.rootAfter(1, state.tipTime(), both));
 
 		assertThat(refused.getMessage(), containsString("already claimed"));
 	}
@@ -324,7 +324,7 @@ public class LedgerClaimTest {
 		final LedgerState state = claimState(ANY_MINT);
 		final Claim claim = claim(state, account(1));
 		final Mint mint = new Mint(LEGACY, 20, reference(1));
-		final byte[] expected = state.rootAfter(1, List.of(claim, mint));
+		final byte[] expected = state.rootAfter(1, state.tipTime(), List.of(claim, mint));
 
 		state.apply(soloBlock(state, claim, mint));
 

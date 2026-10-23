@@ -54,14 +54,14 @@ import org.unigrid.hedgehog.ledger.ValidatorSet;
 
 /* The genesis of the chain as the foundation publishes it, one JSON object with exactly these fields:
 
-   {"time": 1700000000000, "roundLength": 100, "validators": ["<64 hex>", ...], "snapshotHash": "<128 hex>",
+   {"time": 1700000000000, "roundMillis": 3600000, "validators": ["<64 hex>", ...], "snapshotHash": "<128 hex>",
     "snapshotTotal": 12345678900000000}
 
-   time is Unix milliseconds, roundLength counts blocks, validators are the Ed25519 public keys in the order that
-   decides who proposes, snapshotHash is the SHA-512 of the bootstrap snapshot and snapshotTotal the sum of its
-   balances in units of 1e-8 coins. A field that is missing, repeated or not in the list is refused, so that a typo
-   cannot pass. It is read from the file given with --ledger-genesis, else from the bundled resource
-   /ledger-genesis.json when the build holds one.
+   time is Unix milliseconds and starts the first validator round, roundMillis the length of a round in milliseconds,
+   validators are the Ed25519 public keys in the order that decides who proposes, snapshotHash is the SHA-512 of the
+   bootstrap snapshot and snapshotTotal the sum of its balances in units of 1e-8 coins. A field that is missing,
+   repeated or not in the list is refused, so that a typo cannot pass. It is read from the file given with
+   --ledger-genesis, else from the bundled resource /ledger-genesis.json when the build holds one.
 
    Messages name the file and the field and never copy the content: the file is public, but an operator can point
    the option at the wrong file, such as a key file. */
@@ -72,11 +72,11 @@ public final class GenesisFile {
 	private static final int MAX_BYTES = 1 << 20;
 	private static final int MAX_SHOWN = 40;
 	private static final String TIME = "time";
-	private static final String ROUND_LENGTH = "roundLength";
+	private static final String ROUND_MILLIS = "roundMillis";
 	private static final String VALIDATORS = "validators";
 	private static final String SNAPSHOT_HASH = "snapshotHash";
 	private static final String SNAPSHOT_TOTAL = "snapshotTotal";
-	private static final Set<String> FIELDS = Set.of(TIME, ROUND_LENGTH, VALIDATORS, SNAPSHOT_HASH, SNAPSHOT_TOTAL);
+	private static final Set<String> FIELDS = Set.of(TIME, ROUND_MILLIS, VALIDATORS, SNAPSHOT_HASH, SNAPSHOT_TOTAL);
 	private static final HexFormat HEX = HexFormat.of();
 	private static final Pattern CONTROL = Pattern.compile("\\p{Cntrl}");
 	private static final ObjectMapper JSON = JsonMapper.builder()
@@ -98,7 +98,7 @@ public final class GenesisFile {
 
 	public static void write(Path file, LedgerGenesis genesis) throws IOException {
 		final ObjectNode root = JSON.createObjectNode().put(TIME, genesis.getTime())
-			.put(ROUND_LENGTH, genesis.getRoundLength());
+			.put(ROUND_MILLIS, genesis.getRoundMillis());
 		final ArrayNode validators = root.putArray(VALIDATORS);
 
 		genesis.getValidators().keys().forEach(key -> validators.add(HEX.formatHex(key.bytes())));
@@ -178,8 +178,8 @@ public final class GenesisFile {
 		LedgerGenesis genesis() {
 			requireKnownFields();
 
-			return new LedgerGenesis(whole(TIME, 0, Long.MAX_VALUE),
-				(int) whole(ROUND_LENGTH, 1, Integer.MAX_VALUE), validators(),
+			return new LedgerGenesis(whole(TIME, 0, Long.MAX_VALUE), whole(ROUND_MILLIS, 1, Long.MAX_VALUE),
+				validators(),
 				bytes(SNAPSHOT_HASH, field(SNAPSHOT_HASH), Digests.HASH_SIZE),
 				whole(SNAPSHOT_TOTAL, 0, Long.MAX_VALUE)
 			);

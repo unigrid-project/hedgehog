@@ -73,7 +73,7 @@ public final class LedgerKeyFixtures {
 		final Path file = fs.getPath(name);
 
 		Files.createDirectories(file.getParent());
-		GenesisFile.write(file, new LedgerGenesis(1_000, 100,
+		GenesisFile.write(file, new LedgerGenesis(1_000, 3_600_000,
 			new ValidatorSet(Stream.of(validatorSeeds).map(Ed25519::publicKey).toList())));
 		return file;
 	}

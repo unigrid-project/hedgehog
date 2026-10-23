@@ -86,7 +86,7 @@ for n in $(seq "$NODES"); do
 	VALIDATORS+=(--validator "$(cat "v$n.pub")")
 done
 hedgehog util ledger-genesis "$WORK/snapshot.dat" --network-keys "$NETWORK_KEYS" "${VALIDATORS[@]}" \
-	--time "$(date +%s%3N)" --round-length 20 --output genesis.json | tee genesis.txt
+	--time "$(date +%s%3N)" --round-millis 3600000 --output genesis.json | tee genesis.txt
 
 log "starting the nodes"
 for n in $(seq "$NODES"); do

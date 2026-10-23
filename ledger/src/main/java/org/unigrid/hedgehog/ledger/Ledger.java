@@ -117,7 +117,7 @@ public final class Ledger implements ConsensusApp {
 		}
 
 		return Optional.of(Block.builder().height(height).view(view).previousHash(state.tipHash())
-			.time(blockTime).stateRoot(state.rootAfter(height, transactions))
+			.time(blockTime).stateRoot(state.rootAfter(height, blockTime, transactions))
 			.transactionRoot(Block.transactionRootOf(transactions)).transactions(transactions)
 			.proposer(proposer).lastCommit(state.tipCertificate()).build());
 	}
@@ -151,7 +151,7 @@ public final class Ledger implements ConsensusApp {
 		final List<Transaction> candidates = new ArrayList<>(state.dueMints(blockTime));
 
 		candidates.addAll(mempool.proposable(Block.MAX_TRANSACTIONS, state));
-		return state.applicable(candidates).stream().limit(Block.MAX_TRANSACTIONS).toList();
+		return state.applicable(blockTime, candidates).stream().limit(Block.MAX_TRANSACTIONS).toList();
 	}
 
 	/* What a validator checks before it votes for a block, a vote being a promise that the block is right: the

@@ -27,6 +27,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -39,6 +41,7 @@ public class LedgerLastCommitTest {
 	private static final List<byte[]> FOUR = seeds(1, 4);
 	private static final List<byte[]> THREE = seeds(1, 3);
 	private static final List<byte[]> FIVE = Stream.concat(FOUR.stream(), Stream.of(seed(200))).toList();
+	private static final long ROUND = 60_000;
 
 	private static String reasonOf(Optional<String> rejection) {
 		return rejection.orElse("");
@@ -165,10 +168,10 @@ public class LedgerLastCommitTest {
 		assertThat(changed.hash(), org.hamcrest.Matchers.not(equalTo(block.hash())));
 	}
 
-	/* Rounds of one block and four validators, three of whom vote a gridnode in: the block that ends the round has
+	/* Four validators, three of whom vote a gridnode in, and the block of the next round that closes theirs: it has
 	   a certificate of 3 and leaves a set of 5 behind */
 	private static LedgerState afterTheSetGrows() {
-		final LedgerState state = state(1, ANY_MINT, FOUR);
+		final LedgerState state = state(ROUND, ANY_MINT, FOUR);
 		final AccountKey gridnode = key(200);
 		final List<Transaction> votes = List.of(
 			Vote.signed(seed(1), gridnode, Vote.Action.ADD, state.round(), state.chainId()),
@@ -176,11 +179,13 @@ public class LedgerLastCommitTest {
 			Vote.signed(seed(3), gridnode, Vote.Action.ADD, state.round(), state.chainId()));
 
 		state.apply(block(state, FOUR, 3, state.tipTime(), votes));
+		state.apply(block(state, FOUR, 3, GENESIS_TIME + ROUND, List.of(mint(1, 5))));
 		return state;
 	}
 
-	private static Ledger ledgerOf(FileSystem fileSystem, int roundLength, List<byte[]> seeds) throws IOException {
-		return new Ledger(state(roundLength, ANY_MINT, seeds), BlockLog.open(fileSystem.getPath("/data/blocks.log")));
+	private static Ledger ledgerOf(FileSystem fileSystem, LongSupplier clock) throws IOException {
+		return new Ledger(state(ROUND, ANY_MINT, FOUR), BlockLog.open(fileSystem.getPath("/data/blocks.log")),
+			clock);
 	}
 
 	@Example
@@ -215,16 +220,20 @@ public class LedgerLastCommitTest {
 	@Example
 	public void shouldValidateWithTheLastCommitOfTheSetBeforeTheChange() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = ledgerOf(fileSystem, 1, FOUR);
+			final AtomicLong clock = new AtomicLong(2000);
+			final Ledger ledger = ledgerOf(fileSystem, clock::get);
 
 			for (int voter = 1; voter <= 3; voter++) {
 				ledger.submit(Vote.signed(seed(voter), key(200), Vote.Action.ADD, 0, ledger.chainId()));
 			}
 
 			ledger.commit(nextBlock(ledger, THREE, 2000));
+			clock.set(GENESIS_TIME + ROUND);
+			ledger.submit(mint(1, 5));
+			ledger.commit(nextBlock(ledger, THREE, clock.get()));
 			ledger.submit(mint(2, 5));
 
-			final Block second = proposed(ledger, 2001);
+			final Block second = proposed(ledger, clock.get());
 
 			assertThat(ledger.validators().size(), equalTo(5));
 			assertThat(second.getLastCommit().endorsements().size(), equalTo(3));
@@ -249,13 +258,15 @@ public class LedgerLastCommitTest {
 		assertThat(state.rejectionOf(second).isPresent(), is(false));
 	}
 
-	/* The gridnode joins in the first round and the second round's block, which it signs, votes it out again */
+	/* The gridnode joins after the first round, the second round votes it out again, and the block that closes that
+	   round is one the gridnode signs */
 	private static LedgerState afterTheGridnodeIsVotedOut() {
 		final LedgerState state = afterTheSetGrows();
 		final List<Transaction> removals = FOUR.stream().<Transaction>map(voter -> Vote.signed(voter, key(200),
 			Vote.Action.REMOVE, state.round(), state.chainId())).toList();
 
 		state.apply(block(state, FIVE, removals));
+		state.apply(block(state, FIVE, FIVE.size(), GENESIS_TIME + 2 * ROUND, List.of(mint(3, 5))));
 		return state;
 	}
 

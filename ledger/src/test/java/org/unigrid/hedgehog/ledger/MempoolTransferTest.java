@@ -221,7 +221,7 @@ public class MempoolTransferTest {
 		final List<Transaction> taken = mempool.peek(10);
 
 		assertThat(taken, equalTo(List.of(zero, mint, one, two)));
-		assertThat(state.applicable(taken).size(), equalTo(4));
+		assertThat(state.applicable(state.tipTime(), taken).size(), equalTo(4));
 		assertThat(mempool.peek(2), equalTo(List.of(zero, mint)));
 	}
 
@@ -242,7 +242,7 @@ public class MempoolTransferTest {
 		final List<Transaction> taken = mempool.peek(10);
 
 		assertThat(taken, equalTo(List.of(firstEarlier, secondEarlier, secondLater, firstLater)));
-		assertThat(state.applicable(taken).size(), equalTo(4));
+		assertThat(state.applicable(state.tipTime(), taken).size(), equalTo(4));
 	}
 
 	@Example

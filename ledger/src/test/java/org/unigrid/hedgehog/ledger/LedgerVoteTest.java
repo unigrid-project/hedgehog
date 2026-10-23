@@ -76,8 +76,8 @@ public class LedgerVoteTest {
 	@Example
 	public void shouldCommitTheRootToTheVotes() {
 		final LedgerState state = freshState();
-		final byte[] one = state.rootAfter(1, List.of(add(state, 1, GRIDNODE)));
-		final byte[] other = state.rootAfter(1, List.of(add(state, 2, GRIDNODE)));
+		final byte[] one = state.rootAfter(1, state.tipTime(), List.of(add(state, 1, GRIDNODE)));
+		final byte[] other = state.rootAfter(1, state.tipTime(), List.of(add(state, 2, GRIDNODE)));
 
 		assertThat(one, not(equalTo(state.stateRoot())));
 		assertThat(one, not(equalTo(other)));
@@ -148,7 +148,7 @@ public class LedgerVoteTest {
 		final LedgerState state = freshState();
 		final List<Transaction> twice = List.of(add(state, 1, GRIDNODE), add(state, 1, GRIDNODE));
 
-		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, twice));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, state.tipTime(), twice));
 	}
 
 	/* Every vote stays in the state, and in the state root, until the round ends, so one validator must not be
@@ -172,7 +172,8 @@ public class LedgerVoteTest {
 		final List<Transaction> tooMany = IntStream.range(0, LedgerState.MAX_VOTES_PER_VALIDATOR + 5)
 			.mapToObj(i -> (Transaction) add(state, 1, key(300 + i))).toList();
 
-		assertThat(state.applicable(tooMany), equalTo(tooMany.subList(0, LedgerState.MAX_VOTES_PER_VALIDATOR)));
+		assertThat(state.applicable(state.tipTime(), tooMany),
+			equalTo(tooMany.subList(0, LedgerState.MAX_VOTES_PER_VALIDATOR)));
 		assertThat(state.votesFor(key(300), Vote.Action.ADD), equalTo(0));
 	}
 

@@ -63,10 +63,10 @@ public class LedgerGenesisCommand implements Runnable {
 	)
 	private long time;
 
-	@Option(names = "--round-length", paramLabel = "<blocks>", required = true,
-		description = "The length of a round in blocks, at least 1."
+	@Option(names = "--round-millis", paramLabel = "<ms>", required = true,
+		description = "The length of a validator round in milliseconds, at least 1; the first starts at --time."
 	)
-	private int roundLength;
+	private long roundMillis;
 
 	@Option(names = "--output", paramLabel = "<file>", required = true,
 		description = "Where to write the genesis; the file must not exist."
@@ -83,9 +83,9 @@ public class LedgerGenesisCommand implements Runnable {
 			throw new ParameterException(spec.commandLine(), "--time is 0 or more, found " + time);
 		}
 
-		if (roundLength < 1) {
-			throw new ParameterException(spec.commandLine(), "--round-length is at least 1 block, found "
-				+ roundLength);
+		if (roundMillis < 1) {
+			throw new ParameterException(spec.commandLine(), "--round-millis is at least 1 millisecond, found "
+				+ roundMillis);
 		}
 
 		if (Files.exists(output)) {
@@ -134,7 +134,7 @@ public class LedgerGenesisCommand implements Runnable {
 		try {
 			final SnapshotReader reader = SnapshotReader.open(snapshot);
 
-			return new LedgerGenesis(time, roundLength, set, SnapshotDigest.of(snapshot),
+			return new LedgerGenesis(time, roundMillis, set, SnapshotDigest.of(snapshot),
 				reader.totalBalance());
 		} catch (IOException | IllegalArgumentException ex) {
 			throw new ParameterException(spec.commandLine(), "Cannot read the snapshot " + snapshot + ": "

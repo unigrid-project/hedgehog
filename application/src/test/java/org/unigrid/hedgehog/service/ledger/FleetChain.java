@@ -42,7 +42,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
    tip for each height. */
 record FleetChain(List<LegacyWallet> wallets, Path snapshot, long tipTimeMillis, LedgerGenesis genesis) {
 	private static final long GENESIS_AGE_MILLIS = 60_000;
-	private static final int ROUND_LENGTH = 100;
+	private static final long ROUND_MILLIS = 3_600_000;
 	private static final int FIRST_SECRET = 1_000;
 
 	/* Alternate keys of both encodings, as wallets of the old chain have both */
@@ -58,7 +58,7 @@ record FleetChain(List<LegacyWallet> wallets, Path snapshot, long tipTimeMillis,
 
 		final Path snapshot = installed(AddressSnapshots.write(holdings, settings.getTipHeight(), (int) tipSeconds));
 		final ValidatorSet validators = new ValidatorSet(seeds.stream().map(Ed25519::publicKey).toList());
-		final LedgerGenesis genesis = new LedgerGenesis(clock.now() - GENESIS_AGE_MILLIS, ROUND_LENGTH, validators,
+		final LedgerGenesis genesis = new LedgerGenesis(clock.now() - GENESIS_AGE_MILLIS, ROUND_MILLIS, validators,
 			SnapshotDigest.of(snapshot), SnapshotReader.open(snapshot).totalBalance());
 
 		return new FleetChain(wallets, snapshot, tipSeconds * 1000, genesis);

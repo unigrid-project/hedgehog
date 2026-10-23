@@ -160,7 +160,7 @@ public class LedgerFeeTest {
 		final AccountKey first = signersOfTheTip(state).get(0);
 		final Transfer spend = Transfer.signed(seedOf(first), account(3), 3, 0, 0, state.chainId());
 
-		assertThat(state.applicable(List.of(spend)), equalTo(List.of(spend)));
+		assertThat(state.applicable(state.tipTime(), List.of(spend)), equalTo(List.of(spend)));
 
 		commit(state, spend);
 

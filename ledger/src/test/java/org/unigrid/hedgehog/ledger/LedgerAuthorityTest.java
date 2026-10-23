@@ -65,13 +65,13 @@ public class LedgerAuthorityTest {
 		maker.apply(soloBlock(maker, mint(1, 5)));
 		state.askAuthorityAt(4999);
 
-		assertThat(state.applicable(List.of(mint(1, 5))), equalTo(List.of()));
-		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 5))));
+		assertThat(state.applicable(state.tipTime(), List.of(mint(1, 5))), equalTo(List.of()));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, state.tipTime(), List.of(mint(1, 5))));
 
 		state.askAuthorityAt(5000);
 
-		assertThat(state.applicable(List.of(mint(1, 5))), equalTo(List.of(mint(1, 5))));
-		assertThat(state.rootAfter(1, List.of(mint(1, 5))), equalTo(maker.stateRoot()));
+		assertThat(state.applicable(state.tipTime(), List.of(mint(1, 5))), equalTo(List.of(mint(1, 5))));
+		assertThat(state.rootAfter(1, state.tipTime(), List.of(mint(1, 5))), equalTo(maker.stateRoot()));
 	}
 
 	@Example
@@ -151,10 +151,12 @@ public class LedgerAuthorityTest {
 	public void shouldKeepOnlyTheMintsThatFitTheCapOneAfterAnotherWhenPickingTheTransactionsOfABlock() {
 		final LedgerState state = soloState(cappedAt(10));
 
-		assertThat(state.applicable(List.of(mint(1, 5), mint(2, 6))), equalTo(List.of(mint(1, 5))));
-		assertThat(state.applicable(List.of(mint(2, 6), mint(1, 5))), equalTo(List.of(mint(2, 6))));
-		assertThat(state.applicable(List.of(mint(1, 5), mint(2, 5))), equalTo(List.of(mint(1, 5), mint(2, 5))));
-		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 5), mint(2, 6))));
+		assertThat(state.applicable(state.tipTime(), List.of(mint(1, 5), mint(2, 6))), equalTo(List.of(mint(1, 5))));
+		assertThat(state.applicable(state.tipTime(), List.of(mint(2, 6), mint(1, 5))), equalTo(List.of(mint(2, 6))));
+		assertThat(state.applicable(state.tipTime(), List.of(mint(1, 5), mint(2, 5))),
+			equalTo(List.of(mint(1, 5), mint(2, 5))));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, state.tipTime(),
+			List.of(mint(1, 5), mint(2, 6))));
 	}
 
 	@Example
@@ -223,10 +225,11 @@ public class LedgerAuthorityTest {
 	public void shouldKeepOnlyTheMintsThatFitWhatTheRecipientMayHaveWhenPickingTheTransactionsOfABlock() {
 		final LedgerState state = soloState(grantingEach(10));
 
-		assertThat(state.applicable(List.of(mint(1, 6), another(1, 5), mint(2, 10))),
+		assertThat(state.applicable(state.tipTime(), List.of(mint(1, 6), another(1, 5), mint(2, 10))),
 			equalTo(List.of(mint(1, 6), mint(2, 10))));
-		assertThat(state.applicable(List.of(another(1, 5), mint(1, 6))), equalTo(List.of(another(1, 5))));
-		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, List.of(mint(1, 6), another(1, 5))));
+		assertThat(state.applicable(state.tipTime(), List.of(another(1, 5), mint(1, 6))), equalTo(List.of(another(1, 5))));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, state.tipTime(),
+			List.of(mint(1, 6), another(1, 5))));
 	}
 
 	@Example

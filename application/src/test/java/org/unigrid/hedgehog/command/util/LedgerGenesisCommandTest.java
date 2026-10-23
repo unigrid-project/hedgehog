@@ -54,19 +54,19 @@ public class LedgerGenesisCommandTest {
 	private static final String OTHER_VALIDATOR = "6a0f6a283a8e4e86d2a3d60ef9e37ec33f2ab6071a30e0a477735128e7571eb0";
 	private static final String NO_POINT = "02" + "00".repeat(AccountKey.SIZE - 1);
 	private static final long TIME = 1_700_000_000_000L;
-	private static final int ROUND_LENGTH = 100;
+	private static final long ROUND_MILLIS = 3_600_000L;
 	private static final long UNITS = 5_000L;
 	private static final HexFormat HEX = HexFormat.of();
 
-	private static HedgehogCli.Result run(FileSystem fs, Path snapshot, int roundLength, String... options) {
-		return run(fs, snapshot, TIME, roundLength, options);
+	private static HedgehogCli.Result run(FileSystem fs, Path snapshot, long roundMillis, String... options) {
+		return run(fs, snapshot, TIME, roundMillis, options);
 	}
 
-	private static HedgehogCli.Result run(FileSystem fs, Path snapshot, long time, int roundLength,
+	private static HedgehogCli.Result run(FileSystem fs, Path snapshot, long time, long roundMillis,
 		String... options) {
 
 		final List<String> args = new ArrayList<>(List.of("util", "ledger-genesis", snapshot.toString(),
-			"--time", String.valueOf(time), "--round-length", String.valueOf(roundLength), "--output",
+			"--time", String.valueOf(time), "--round-millis", String.valueOf(roundMillis), "--output",
 			OUTPUT));
 
 		args.addAll(List.of(options));
@@ -83,7 +83,7 @@ public class LedgerGenesisCommandTest {
 		final Path snapshot = AddressSnapshots.write(Map.of("11".repeat(20), UNITS));
 
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, snapshot, ROUND_LENGTH, "--validator", VALIDATOR,
+			final HedgehogCli.Result result = run(fs, snapshot, ROUND_MILLIS, "--validator", VALIDATOR,
 				"--validator", OTHER_VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(0));
@@ -94,7 +94,7 @@ public class LedgerGenesisCommandTest {
 			final byte[] hash = SnapshotDigest.of(snapshot);
 
 			assertThat(genesis.getTime(), equalTo(TIME));
-			assertThat(genesis.getRoundLength(), equalTo(ROUND_LENGTH));
+			assertThat(genesis.getRoundMillis(), equalTo(ROUND_MILLIS));
 			assertThat(genesis.getValidators().keys(), equalTo(List.of(AccountKey.fromHex(VALIDATOR),
 				AccountKey.fromHex(OTHER_VALIDATOR))));
 			assertThat(genesis.getSnapshotHash(), equalTo(hash));
@@ -120,7 +120,7 @@ public class LedgerGenesisCommandTest {
 	@SneakyThrows
 	public void shouldAskForAValidator() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH);
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_MILLIS);
 
 			assertThat(result.exitCode(), equalTo(2));
 			assertThat(result.err(), containsString("Missing required option: '--validator"));
@@ -133,7 +133,7 @@ public class LedgerGenesisCommandTest {
 	@SneakyThrows
 	public void shouldRefuseAValidatorThatIsNot64HexCharacters() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH,
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_MILLIS,
 				"--validator", "xyz");
 
 			assertThat(result.exitCode(), equalTo(2));
@@ -147,7 +147,7 @@ public class LedgerGenesisCommandTest {
 	@SneakyThrows
 	public void shouldRefuseAValidatorThatIsNoPublicKey() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH,
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_MILLIS,
 				"--validator", VALIDATOR, "--validator", NO_POINT);
 
 			assertThat(result.exitCode(), equalTo(2));
@@ -161,7 +161,7 @@ public class LedgerGenesisCommandTest {
 	@SneakyThrows
 	public void shouldRefuseARepeatedValidator() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH,
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_MILLIS,
 				"--validator", VALIDATOR, "--validator", VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(2));
@@ -177,7 +177,7 @@ public class LedgerGenesisCommandTest {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
 			Files.writeString(fs.getPath(OUTPUT), "the genesis of another chain");
 
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_LENGTH,
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), ROUND_MILLIS,
 				"--validator", VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(2));
@@ -192,7 +192,7 @@ public class LedgerGenesisCommandTest {
 	@SneakyThrows
 	public void shouldRefuseATimeBeforeTheEpoch() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), -1L, ROUND_LENGTH,
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), -1L, ROUND_MILLIS,
 				"--validator", VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(2));
@@ -204,12 +204,12 @@ public class LedgerGenesisCommandTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldRefuseARoundOfNoBlocks() {
+	public void shouldRefuseARoundOfNoTime() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
 			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), 0, "--validator", VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(2));
-			assertThat(result.err(), containsString("--round-length is at least 1 block"));
+			assertThat(result.err(), containsString("--round-millis is at least 1 millisecond"));
 			result.assertNoStackTrace();
 			assertThat(result.out(), emptyString());
 		}

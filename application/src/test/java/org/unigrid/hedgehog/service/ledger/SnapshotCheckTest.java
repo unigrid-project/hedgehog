@@ -134,7 +134,7 @@ public class SnapshotCheckTest {
 	}
 
 	private static LedgerGenesis genesis(byte[] hash, long total) {
-		return new LedgerGenesis(1_700_000_000_000L, 10,
+		return new LedgerGenesis(1_700_000_000_000L, 3_600_000,
 			new ValidatorSet(List.of(AccountKey.fromHex("11".repeat(AccountKey.SIZE)))), hash, total);
 	}
 }

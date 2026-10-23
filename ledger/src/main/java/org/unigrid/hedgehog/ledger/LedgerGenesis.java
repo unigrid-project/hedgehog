@@ -24,23 +24,23 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Value;
 
-/* The foundation validators the chain starts with, the length of a round in blocks, a start time, and the
-   snapshot of the earlier chain that claims are made against: its hash, all zeros when there is none, and the
-   sum of its balances */
+/* The foundation validators the chain starts with, a start time, the length of a validator round in milliseconds,
+   and the snapshot of the earlier chain that claims are made against: its hash, all zeros when there is none, and
+   the sum of its balances. The rounds follow each other from the start time on, the first being round 0. */
 @Value
 public class LedgerGenesis {
-	private static final byte[] MAGIC = "UGLEDGR3".getBytes(StandardCharsets.US_ASCII);
+	private static final byte[] MAGIC = "UGLEDGR4".getBytes(StandardCharsets.US_ASCII);
 
 	private final long time;
-	private final int roundLength;
+	private final long roundMillis;
 	private final ValidatorSet validators;
 	@Getter(AccessLevel.NONE) private final byte[] snapshotHash;
 	private final long snapshotTotal;
 
-	public LedgerGenesis(long time, int roundLength, ValidatorSet validators, byte[] snapshotHash,
+	public LedgerGenesis(long time, long roundMillis, ValidatorSet validators, byte[] snapshotHash,
 		long snapshotTotal) {
-		if (roundLength < 1) {
-			throw new IllegalArgumentException("A round is at least 1 block, found " + roundLength);
+		if (roundMillis < 1) {
+			throw new IllegalArgumentException("A round is at least 1 millisecond, found " + roundMillis);
 		}
 
 		if (snapshotTotal < 0) {
@@ -48,14 +48,14 @@ public class LedgerGenesis {
 		}
 
 		this.time = time;
-		this.roundLength = roundLength;
+		this.roundMillis = roundMillis;
 		this.validators = validators;
 		this.snapshotHash = Bytes.requireSize(snapshotHash, Digests.HASH_SIZE, "A snapshot hash");
 		this.snapshotTotal = snapshotTotal;
 	}
 
-	public LedgerGenesis(long time, int roundLength, ValidatorSet validators) {
-		this(time, roundLength, validators, new byte[Digests.HASH_SIZE], 0);
+	public LedgerGenesis(long time, long roundMillis, ValidatorSet validators) {
+		this(time, roundMillis, validators, new byte[Digests.HASH_SIZE], 0);
 	}
 
 	public byte[] getSnapshotHash() {
@@ -63,10 +63,10 @@ public class LedgerGenesis {
 	}
 
 	public byte[] encode() {
-		final ByteBuffer out = ByteBuffer.allocate(MAGIC.length + Long.BYTES + Integer.BYTES + Short.BYTES
+		final ByteBuffer out = ByteBuffer.allocate(MAGIC.length + Long.BYTES + Long.BYTES + Short.BYTES
 			+ AccountKey.SIZE * validators.size() + Digests.HASH_SIZE + Long.BYTES);
 
-		out.put(MAGIC).putLong(time).putInt(roundLength).putShort((short) validators.size());
+		out.put(MAGIC).putLong(time).putLong(roundMillis).putShort((short) validators.size());
 		validators.keys().forEach(key -> out.put(key.bytes()));
 		out.put(snapshotHash).putLong(snapshotTotal);
 		return out.array();

@@ -52,7 +52,7 @@ public final class LedgerTestChain {
 	public static final List<byte[]> SEEDS = IntStream.rangeClosed(1, 4).mapToObj(LedgerTestChain::seed).toList();
 
 	private static final long GENESIS_TIME = 1000;
-	private static final int ROUND_LENGTH = 1000;
+	private static final long ROUND_MILLIS = 3_600_000;
 	private static final long MINT_AMOUNT = 100;
 
 	/* Anything is allowed and nothing is due */
@@ -87,7 +87,7 @@ public final class LedgerTestChain {
 	}
 
 	public static LedgerState state() {
-		return new LedgerState(new LedgerGenesis(GENESIS_TIME, ROUND_LENGTH,
+		return new LedgerState(new LedgerGenesis(GENESIS_TIME, ROUND_MILLIS,
 			new ValidatorSet(SEEDS.stream().map(Ed25519::publicKey).toList())), OPEN);
 	}
 

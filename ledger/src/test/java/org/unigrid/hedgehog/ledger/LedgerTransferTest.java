@@ -124,7 +124,7 @@ public class LedgerTransferTest {
 		final List<Transaction> both = List.of(transfer(state, 1, account(2), 100, 1, 0),
 			transfer(state, 1, account(3), 100, 1, 0));
 
-		assertThat(state.applicable(both).size(), equalTo(1));
+		assertThat(state.applicable(state.tipTime(), both).size(), equalTo(1));
 	}
 
 	@Example

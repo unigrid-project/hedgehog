@@ -23,8 +23,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Objects;
 
-/* A validator's vote to add a key to the validator set or to remove one from it. The set changes at the
-   end of the round, when more than 2/3 of the set voted for the same change. */
+/* A validator's vote to add a key to the validator set or to remove one from it, in the round of the time of the
+   block that holds it. The set changes when the first block of a later round closes that round, if more than 2/3
+   of the set voted for the same change. */
 public record Vote(AccountKey voter, AccountKey candidate, Action action, long round, byte[] signature)
 	implements Transaction {
 	public static final byte KIND = 2;

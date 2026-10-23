@@ -37,6 +37,10 @@ final class LedgerFixtures {
 	static final LedgerAuthority ANY_MINT = TestAuthority.open();
 	static final LedgerAuthority NO_MINT = TestAuthority.open().withMints((mint, time) -> false);
 	static final byte[] SNAPSHOT_HASH = Digests.sha512("snapshot".getBytes(StandardCharsets.US_ASCII));
+	static final long GENESIS_TIME = 1000;
+
+	/* A round that outlasts the times of the tests that do not care about rounds */
+	static final long HOUR = 3_600_000;
 
 	private LedgerFixtures() {
 		/* Static helpers only */
@@ -126,25 +130,25 @@ final class LedgerFixtures {
 		return seeds;
 	}
 
-	static LedgerGenesis genesis(int roundLength, List<byte[]> validatorSeeds) {
-		return new LedgerGenesis(1000, roundLength,
+	static LedgerGenesis genesis(long roundMillis, List<byte[]> validatorSeeds) {
+		return new LedgerGenesis(GENESIS_TIME, roundMillis,
 			new ValidatorSet(validatorSeeds.stream().map(Ed25519::publicKey).toList()));
 	}
 
-	static LedgerState state(int roundLength, LedgerAuthority authority, List<byte[]> validatorSeeds) {
-		return new LedgerState(genesis(roundLength, validatorSeeds), authority);
+	static LedgerState state(long roundMillis, LedgerAuthority authority, List<byte[]> validatorSeeds) {
+		return new LedgerState(genesis(roundMillis, validatorSeeds), authority);
 	}
 
 	/* A single foundation validator, which is quorum on its own */
 	static LedgerState soloState(LedgerAuthority authority) {
-		return state(1000, authority, seeds(1, 1));
+		return state(HOUR, authority, seeds(1, 1));
 	}
 
 	static LedgerState stateWithSnapshot(LedgerAuthority authority, List<byte[]> validatorSeeds, long total,
 		Map<LegacyAddress, Long> balances) {
 		final ValidatorSet validators = new ValidatorSet(validatorSeeds.stream().map(Ed25519::publicKey).toList());
 
-		return new LedgerState(new LedgerGenesis(1000, 1000, validators, SNAPSHOT_HASH, total), authority,
+		return new LedgerState(new LedgerGenesis(GENESIS_TIME, HOUR, validators, SNAPSHOT_HASH, total), authority,
 			address -> balances.getOrDefault(address, 0L));
 	}
 
@@ -165,7 +169,8 @@ final class LedgerFixtures {
 		final ValidatorSet set = state.validators();
 		final AccountKey proposer = set.proposerAt(height);
 		Block block = Block.builder().height(height).previousHash(state.tipHash()).time(time)
-			.stateRoot(state.rootAfter(height, transactions)).transactionRoot(Block.transactionRootOf(transactions))
+			.stateRoot(state.rootAfter(height, time, transactions))
+			.transactionRoot(Block.transactionRootOf(transactions))
 			.transactions(transactions).proposer(proposer).endorsements(List.of())
 			.lastCommit(state.tipCertificate()).build();
 		int endorsed = 0;

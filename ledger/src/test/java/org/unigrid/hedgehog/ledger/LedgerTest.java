@@ -26,6 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -36,21 +38,28 @@ import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerTest {
 	private static final List<byte[]> FOUNDATION = seeds(1, 3);
+	private static final long MINUTE = 60_000;
 
 	private static Ledger open(FileSystem fileSystem, LedgerState state) throws IOException {
 		return new Ledger(state, BlockLog.open(fileSystem.getPath("/data/blocks.log")));
 	}
 
-	private static Ledger open(FileSystem fileSystem, int roundLength, LedgerAuthority authority) throws IOException {
-		return open(fileSystem, state(roundLength, authority, FOUNDATION));
+	private static Ledger open(FileSystem fileSystem, LedgerAuthority authority) throws IOException {
+		return open(fileSystem, state(HOUR, authority, FOUNDATION));
 	}
 
 	private static Ledger open(FileSystem fileSystem) throws IOException {
-		return open(fileSystem, 1000, ANY_MINT);
+		return open(fileSystem, ANY_MINT);
+	}
+
+	/* A ledger whose clock the test sets, for what is a matter of the round the node is in */
+	private static Ledger open(FileSystem fileSystem, long roundMillis, LongSupplier clock) throws IOException {
+		return new Ledger(state(roundMillis, ANY_MINT, FOUNDATION), BlockLog.open(fileSystem.getPath("/data/blocks.log")),
+			clock);
 	}
 
 	private static byte[] chainId() {
-		return state(1000, ANY_MINT, FOUNDATION).chainId();
+		return state(HOUR, ANY_MINT, FOUNDATION).chainId();
 	}
 
 	/* What the engine will do over the network, done in one place: whoever is due proposes, every validator of the
@@ -256,7 +265,7 @@ public class LedgerTest {
 	@Example
 	public void shouldRefuseWhatItCannotUse() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem, 1000, NO_MINT);
+			final Ledger ledger = open(fileSystem, NO_MINT);
 
 			assertThat(ledger.submit(mint(1, 500)).isPresent(), is(true));
 			assertThat(ledger.pending(), equalTo(0));
@@ -399,6 +408,31 @@ public class LedgerTest {
 		}
 	}
 
+	/* The round a block closes is a matter of its time and its tip's, both in the log, so a replay closes it as well */
+	@Example
+	public void shouldRestoreTheSetThatAClosedRoundChangedFromTheLog() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final AtomicLong clock = new AtomicLong(2000);
+			final Ledger first = open(fileSystem, MINUTE, clock::get);
+
+			for (int voter = 1; voter <= 3; voter++) {
+				first.submit(voteAdd(first, voter, seed(201), 0));
+			}
+
+			seal(first, FOUNDATION, 2000);
+			clock.set(GENESIS_TIME + 3 * MINUTE);
+			first.submit(mint(1, 5));
+			seal(first, FOUNDATION, clock.get());
+
+			final Ledger second = open(fileSystem, MINUTE, clock::get);
+
+			assertThat(second.validators(), equalTo(first.validators()));
+			assertThat(second.validators().contains(key(201)), is(true));
+			assertThat(second.round(), equalTo(3L));
+			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
+		}
+	}
+
 	@Example
 	public void shouldRestoreALegacyMintFromTheLog() throws IOException {
 		final LegacyAddress legacy = new LegacyAddress(new byte[LegacyAddress.SIZE]);
@@ -494,7 +528,7 @@ public class LedgerTest {
 			first.submit(mint(1, 500));
 			seal(first, FOUNDATION, 2000);
 
-			final Ledger restarted = open(fileSystem, 1000, NO_MINT);
+			final Ledger restarted = open(fileSystem, NO_MINT);
 
 			assertThat(restarted.height(), equalTo(1L));
 			assertThat(restarted.balanceOf(account(1)), equalTo(500L));
@@ -585,12 +619,13 @@ public class LedgerTest {
 		}
 	}
 
-	/* Round of two blocks: the three foundation validators vote a gridnode in, the round runs out, and the
-	   next block needs four of the four, one of which is the new one */
+	/* Rounds of a minute: the three foundation validators vote a gridnode in, the minute runs out, and the block
+	   after the one that closes the round needs four of the four, one of which is the new one */
 	@Example
 	public void shouldPassARoundAndGrowTheSetByVote() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem, 2, ANY_MINT);
+			final AtomicLong clock = new AtomicLong(2000);
+			final Ledger ledger = open(fileSystem, MINUTE, clock::get);
 			final List<byte[]> everyone = new ArrayList<>(FOUNDATION);
 			final byte[] gridnode = seed(201);
 
@@ -601,15 +636,16 @@ public class LedgerTest {
 			}
 
 			seal(ledger, everyone, 2000);
+			clock.set(GENESIS_TIME + MINUTE);
 			ledger.submit(mint(1, 5));
-			seal(ledger, everyone, 2001);
+			seal(ledger, everyone, clock.get());
 
 			assertThat(ledger.validators().size(), equalTo(4));
 			assertThat(ledger.validators().contains(Ed25519.publicKey(gridnode)), is(true));
 			assertThat(ledger.round(), equalTo(1L));
 
 			ledger.submit(mint(2, 5));
-			seal(ledger, everyone, 2002);
+			seal(ledger, everyone, clock.get());
 			assertThat(ledger.height(), equalTo(3L));
 			assertThat(ledger.balanceOf(account(2)), equalTo(5L));
 		}

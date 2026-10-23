@@ -82,6 +82,10 @@ public final class LedgerState {
 	private Certificate tipCertificate = Certificate.EMPTY;
 	private long authorityTime;
 
+	/* The round of the time of the tip, or of the block being applied once it has opened, which the votes held are
+	   for. The genesis time is in round 0 and no block is older than its tip, so it never goes back. */
+	private long round;
+
 	/* Set only on the scratch copy a certified block is checked against. More than 2/3 of the validators signed
 	   that block after asking their authorities, so this node's own authority, which may not know the mint yet
 	   or any longer, is not asked again and cannot make it disagree with the others. */
@@ -128,6 +132,7 @@ public final class LedgerState {
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
 		authorityTime = other.authorityTime;
+		round = other.round;
 	}
 
 	public LedgerState copy() {
@@ -185,9 +190,14 @@ public final class LedgerState {
 		return tipCertificate;
 	}
 
-	/* The round the next block belongs to; a round is roundLength blocks, counted from 0 */
+	/* The round of the tip: the one the votes held are for, and the one a vote must name to be taken now */
 	public long round() {
-		return height / genesis.getRoundLength();
+		return round;
+	}
+
+	/* Rounds are roundMillis long and follow each other from the genesis time, which starts round 0 */
+	public long roundAt(long time) {
+		return Math.floorDiv(time - genesis.getTime(), genesis.getRoundMillis());
 	}
 
 	public ValidatorSet validators() {
@@ -274,15 +284,16 @@ public final class LedgerState {
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
 		tipCertificate = next.tipCertificate;
+		round = next.round;
 	}
 
-	/* The candidates that can go in one block, in order: each is kept if it is still valid after the ones kept
-	   before it. The state itself is not touched. */
-	public List<Transaction> applicable(List<Transaction> candidates) {
+	/* The candidates that can go in one block of this time, in order: each is kept if it is still valid after the
+	   ones kept before it. The state itself is not touched. */
+	public List<Transaction> applicable(long blockTime, List<Transaction> candidates) {
 		final LedgerState scratch = copy();
 		final List<Transaction> kept = new ArrayList<>();
 
-		scratch.payFees(tipCertificate);
+		scratch.openBlock(blockTime, tipCertificate);
 
 		for (final Transaction candidate : candidates) {
 			if (scratch.rejectionOf(candidate).isEmpty()) {
@@ -294,12 +305,12 @@ public final class LedgerState {
 		return kept;
 	}
 
-	/* What the root would be if these transactions made the block at blockHeight, for a proposer to commit to. A
-	   proposer carries the tip certificate as last commit, so that is what is paid. */
-	public byte[] rootAfter(long blockHeight, List<Transaction> transactions) {
+	/* What the root would be if these transactions made the block at blockHeight and blockTime, for a proposer to
+	   commit to. A proposer carries the tip certificate as last commit, so that is what is paid. */
+	public byte[] rootAfter(long blockHeight, long blockTime, List<Transaction> transactions) {
 		final LedgerState next = copy();
 
-		next.payFees(tipCertificate);
+		next.openBlock(blockTime, tipCertificate);
 
 		for (final Transaction transaction : transactions) {
 			final Optional<String> rejection = next.rejectionOf(transaction);
@@ -315,15 +326,29 @@ public final class LedgerState {
 		return next.stateRoot();
 	}
 
-	/* The last block of a round closes it: the changes more than 2/3 of the set voted for take effect for the
-	   next round, and the votes start over */
+	/* What comes before the transactions of a block. The set that signs the block is the one of its parent, which
+	   is kept for the check of the next block's last commit; a round the block closes changes the set only for the
+	   blocks after it. */
+	private void openBlock(long blockTime, Certificate lastCommit) {
+		previousValidators = validators;
+		enterRoundOf(blockTime);
+		payFees(lastCommit);
+	}
+
+	/* A block of a later round than the tip's closes the tip's round before its own transactions apply: the changes
+	   more than 2/3 of the set voted for take effect, and the votes start over. Rounds that passed without a block
+	   hold no votes, so however many there were, they change nothing more. */
+	private void enterRoundOf(long blockTime) {
+		final long next = roundAt(blockTime);
+
+		if (next > round) {
+			endRound();
+			round = next;
+		}
+	}
+
 	private void finishBlock(long blockHeight) {
 		height = blockHeight;
-		previousValidators = validators;
-
-		if (blockHeight % genesis.getRoundLength() == 0) {
-			endRound();
-		}
 	}
 
 	private void endRound() {
@@ -379,7 +404,7 @@ public final class LedgerState {
 			return Optional.of("Voter is not a validator");
 		}
 
-		if (vote.round() != round()) {
+		if (vote.round() != round) {
 			return Optional.of("Vote is for another round");
 		}
 
@@ -592,7 +617,7 @@ public final class LedgerState {
 	}
 
 	private Optional<String> applyTransactions(Block block) {
-		payFees(block.getLastCommit());
+		openBlock(block.getTime(), block.getLastCommit());
 
 		for (final Transaction transaction : block.getTransactions()) {
 			final Optional<String> rejection = rejectionOf(transaction);
@@ -655,7 +680,7 @@ public final class LedgerState {
 	}
 
 	/* The block before this one was committed by the validators of its time, which are not always today's: the
-	   block that ended a round may have changed the set. The first block has nothing to carry. */
+	   block that closed a round may have changed the set. The first block has nothing to carry. */
 	private Optional<String> lastCommitRejection(Block block) {
 		if (height == 0) {
 			return block.getLastCommit().equals(Certificate.EMPTY) ? Optional.empty()
