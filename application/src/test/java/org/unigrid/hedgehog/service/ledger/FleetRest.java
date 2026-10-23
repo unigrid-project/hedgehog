@@ -19,21 +19,22 @@
 package org.unigrid.hedgehog.service.ledger;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import java.util.Map;
 import java.util.function.IntFunction;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.client.rest.SporkClient;
+import org.unigrid.hedgehog.model.spork.ChunkData;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.SporkContent;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
-/* A spork as the foundation puts it out: proposed with the first network key and co-signed with the second, both to
-   the REST server of one node, which is the real one of its container. The resource, its checks, the signing and the
-   spreading to the peers are the daemon's own. */
+/* A spork as the foundation puts it out: built and signed with the first network key where the command line runs,
+   handed to the REST server of one node in its wire form, and co-signed with the second key the same way. The
+   server is the real one of the container, so its checks and the spreading to the peers are the daemon's own. */
 @RequiredArgsConstructor
 final class FleetRest {
 	private static final ObjectMapper JSON = new ObjectMapper();
@@ -42,10 +43,17 @@ final class FleetRest {
 
 	/* The digest by which the node knows the proposal */
 	@SneakyThrows
-	String propose(final int node, final String location, final Object data) {
+	String propose(final int node, final GridSpork.Type type, final ChunkData data) {
 		try (RestClient client = clientOf(node)) {
-			final Response response = client.putWithHeaders(location, Entity.json(data),
-				keyed(FleetSporks.proposerKey()));
+			final SporkClient sporks = new SporkClient(client);
+			final GridSpork stored = sporks.stored(type).orElse(null);
+			final GridSpork spork = GridSpork.nextVersion(type, stored, sporks.proposalOf(type));
+
+			spork.setData(data);
+			SporkContent.validate(spork, stored);
+			spork.sign(FleetSporks.proposerKey());
+
+			final Response response = sporks.submit(spork);
 
 			require(response, Status.ACCEPTED, node);
 			return JSON.readTree(response.readEntity(String.class)).get("digest").asText();
@@ -55,8 +63,11 @@ final class FleetRest {
 	@SneakyThrows
 	void cosign(final int node, final String digest) {
 		try (RestClient client = clientOf(node)) {
-			require(client.putWithHeaders("/gridspork/pending/" + digest, Entity.text(""),
-				keyed(FleetSporks.cosignerKey())), Status.OK, node);
+			final SporkClient sporks = new SporkClient(client);
+			final GridSpork proposal = sporks.proposal(digest).orElseThrow();
+
+			proposal.cosign(FleetSporks.cosignerKey());
+			require(sporks.submit(proposal), Status.OK, node);
 		}
 	}
 
@@ -64,10 +75,6 @@ final class FleetRest {
 		final RestServer server = serverOf.apply(node);
 
 		return new RestClient(server.getHostName(), server.getPort(), true, server.getToken());
-	}
-
-	private static MultivaluedHashMap<String, Object> keyed(final String privateKey) {
-		return new MultivaluedHashMap<>(Map.of("privateKey", privateKey));
 	}
 
 	private static void require(final Response response, final Status expected, final int node) {

@@ -57,14 +57,13 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.server.TestServer;
-import org.unigrid.hedgehog.server.rest.ResourceHelper;
 
 /* A node of an earlier release cannot read the sporks of the ledger, so no way that a spork leaves this node may reach
-   a stream that did not settle on the ledger protocol: the relay of a spork that came in, and the proposal that the
-   REST resources send. The streams here are those of two nodes of the topology. */
+   a stream that did not settle on the ledger protocol: here the relay of a spork that came in, and in
+   LedgerSporkGateRestTest a spork handed to the node over REST. The streams here are those of two nodes of the
+   topology. */
 @WeldSetup(value = { Topology.class, ChannelMap.class, ProtectedInterceptor.class, PendingSporks.class,
 	SporkLag.class, SporkDatabaseProducer.class, ApplicationDirectoryProducer.class }, scan = false)
 public class SporkGateTest extends BaseMockedWeldTest {
@@ -75,8 +74,6 @@ public class SporkGateTest extends BaseMockedWeldTest {
 
 	@Inject private Topology topology;
 	@Inject private PendingSporks pendingSporks;
-	@Inject private SporkDatabase sporkDatabase;
-	@Inject private SporkLag lag;
 
 	private final EmbeddedChannel ledger = stream(true);
 	private final EmbeddedChannel earlier = stream(false);
@@ -173,17 +170,5 @@ public class SporkGateTest extends BaseMockedWeldTest {
 
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.MINT_SUPPLY));
 		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_SUPPLY));
-	}
-
-	@Example
-	@SneakyThrows
-	public void shouldSendAProposalOfARestResourceToTheNodesOnTheLedgerProtocolOnly() {
-		final LedgerFee spork = ledgerFee();
-
-		spork.archive();
-		ResourceHelper.propose(spork, proposer.getPrivateKey(), sporkDatabase, pendingSporks, topology, lag);
-
-		assertThat(sporkTypesWrittenTo(ledger), contains(Type.LEDGER_FEE));
-		assertThat(sporkTypesWrittenTo(earlier), empty());
 	}
 }

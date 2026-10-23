@@ -19,12 +19,8 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import java.util.Map;
-import lombok.SneakyThrows;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -32,6 +28,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
@@ -46,19 +43,6 @@ public class SporkLagRestTest extends BaseRestClientTest {
 		return lag.isBehind(Type.LEDGER_BLACKLIST, sporkDatabase);
 	}
 
-	@SneakyThrows
-	private Response propose(final Signature signature) {
-		return client.putWithHeaders("/gridspork/ledger-blacklist", Entity.json(LedgerBlacklistTest.with(
-			LedgerBlacklistTest.distinctHashes(2))), new MultivaluedHashMap<>(Map.of("privateKey",
-			signature.getPrivateKey())));
-	}
-
-	@SneakyThrows
-	private Response renew(final Signature signature) {
-		return client.putWithHeaders("/gridspork/renew", Entity.text(""),
-			new MultivaluedHashMap<>(Map.of("privateKey", signature.getPrivateKey())));
-	}
-
 	/* One property for both, as the lag of the node is shared by the tries of a class and one try would leave the other
 	   a node that is behind already */
 	@Property(tries = 1)
@@ -67,7 +51,8 @@ public class SporkLagRestTest extends BaseRestClientTest {
 
 		assertThat(isBehind(), is(false));
 
-		final Response proposal = propose(signature);
+		final Response proposal = propose(Type.LEDGER_BLACKLIST, (LedgerBlacklist.SporkData data) ->
+			data.setLegacyAddresses(LedgerBlacklistTest.distinctHashes(2)));
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(isBehind(), is(false));
@@ -75,7 +60,8 @@ public class SporkLagRestTest extends BaseRestClientTest {
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
 		assertThat(isBehind(), is(false));
 
-		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(renew(Type.LEDGER_BLACKLIST, signature).getStatus()),
+			equalTo(Status.ACCEPTED));
 		assertThat(isBehind(), is(false));
 	}
 }

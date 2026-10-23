@@ -18,51 +18,24 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.math.BigDecimal;
 import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.MintSupply;
-import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkAmount;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.model.spork.SporkLag;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
-@Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class MintSupplyResource extends CDIBridgeResource {
-	private static final String UNREPRESENTABLE = "A maximum supply is not negative and has at most "
-		+ SporkAmount.MAX_DECIMALS + " decimals and " + SporkAmount.MAX_INTEGER_DIGITS + " digits before the point";
-
-	@CDIBridgeInject
-	private P2PServer p2pServer;
-
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
-
-	@CDIBridgeInject
-	private Topology topology;
-
-	@CDIBridgeInject
-	private PendingSporks pendingSporks;
-
-	@CDIBridgeInject
-	private SporkLag lag;
 
 	@Path("/mint-supply") @GET
 	public Response list() {
@@ -73,29 +46,5 @@ public class MintSupplyResource extends CDIBridgeResource {
 		}
 
 		return Response.ok().entity(sporkDatabase.getMintSupply()).build();
-	}
-
-	@Path("/mint-supply") @PUT
-	public Response set(@NotNull BigDecimal maxSupply, @NotNull @HeaderParam("privateKey") String privateKey) {
-
-		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			if (!representable(maxSupply)) {
-				return Response.status(Response.Status.BAD_REQUEST).entity(UNREPRESENTABLE).build();
-			}
-
-			final MintSupply ms = ResourceHelper.nextVersion(sporkDatabase.getMintSupply(), MintSupply::new,
-				pendingSporks
-			);
-
-			ms.<MintSupply.SporkData>getData().setMaxSupply(maxSupply);
-			return ResourceHelper.propose(ms, privateKey, sporkDatabase, pendingSporks, topology, lag);
-		}
-
-		return Response.status(Response.Status.UNAUTHORIZED).build();
-	}
-
-	/* Checked before signing, which writes the amount out: an exponent could write out as gigabytes. */
-	private static boolean representable(BigDecimal maxSupply) {
-		return maxSupply.signum() >= 0 && SporkAmount.isWithinBounds(maxSupply);
 	}
 }

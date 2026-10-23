@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Entity;
@@ -76,7 +75,6 @@ import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
 /* The sporks as the command line reads them and hands them back signed: in the form peers exchange. A signed spork
    is taken as a node takes one from a peer. */
 public class GridSporkWireResourceTest extends BaseRestClientTest {
-	private static final Signature STRANGER = keyPair();
 	private static final AtomicInteger PEERS = new AtomicInteger();
 
 	/* Where the data of a spork begins: after its type, its flags, its two time stamps and the reserved bytes */
@@ -169,23 +167,9 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 		return stream;
 	}
 
-	/* The next version over what the node holds, changed and signed once, as the command line makes it */
-	@SneakyThrows
-	private <D extends ChunkData> GridSpork next(Type type, Consumer<D> change, Signature signer) {
-		final GridSpork spork = GridSpork.nextVersion(type, sporkDatabase.get(type), pendingSporks.proposalOf(type));
-
-		change.accept(spork.getData());
-		spork.sign(signer.getPrivateKey());
-		return spork;
-	}
-
 	@SneakyThrows
 	private Response submit(byte[] wire) {
 		return client.post("/gridspork/wire", Entity.entity(wire, MediaType.APPLICATION_OCTET_STREAM));
-	}
-
-	private Response submit(GridSpork spork) {
-		return submit(SporkWire.encode(spork));
 	}
 
 	private static Status statusOf(Response response) {
@@ -195,11 +179,6 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 	/* The client takes a 400 for an oddity of the node */
 	private ResponseOddityException refusalOf(byte[] wire) {
 		return assertThrows(ResponseOddityException.class, () -> submit(wire));
-	}
-
-	@SneakyThrows
-	private static String digestIn(Response response) {
-		return new ObjectMapper().readTree(response.readEntity(String.class)).get("digest").asText();
 	}
 
 	@SneakyThrows

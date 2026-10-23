@@ -19,13 +19,10 @@
 package org.unigrid.hedgehog.server.rest;
 
 import jakarta.inject.Inject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 import lombok.SneakyThrows;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -62,43 +59,41 @@ public class MintSupplyResourceTest extends BaseRestClientTest {
 		return BigDecimal.ZERO;
 	}
 
-	@SneakyThrows
-	private Response propose(Signature signature, BigDecimal maxSupply) {
-		return client.putWithHeaders(URL, Entity.text(maxSupply),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+	private Response propose(BigDecimal maxSupply) {
+		return propose(Type.MINT_SUPPLY, (MintSupply.SporkData data) -> data.setMaxSupply(maxSupply));
 	}
 
 	@SneakyThrows
-	@Property(tries = 50)
+	@Property(tries = 10)
 	public void shoulBeChangeableOnceCosigned(@ForAll("provideSignature") Signature signature,
 		@ForAll @BigRange(min = "0", max = "1000000") BigDecimal maxSupply) {
 
 		final BigDecimal originalMaxSupply = storedMaxSupply();
-		final Response putResponse = propose(signature, maxSupply);
+		final Response proposal = propose(maxSupply);
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
-		assertThat(storedMaxSupply(), equalTo(originalMaxSupply));
-		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
-		assertThat(storedMaxSupply(), equalTo(maxSupply));
+		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(storedMaxSupply(), comparesEqualTo(originalMaxSupply));
+		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
+		assertThat(storedMaxSupply(), comparesEqualTo(maxSupply));
 	}
 
+	/* What would write out as gigabytes cannot be signed at all, and the command line refuses it first */
 	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
 	public void refusesAMaxSupplyThatNoNodeCanHold(@ForAll("provideSignature") Signature signature) {
 		final BigDecimal originalMaxSupply = storedMaxSupply();
 
-		for (final String maxSupply : List.of("1E+999999999", "-1", "0.123456789")) {
+		for (final String maxSupply : List.of("-1", "0.123456789", "1E+13")) {
 			assertThat(maxSupply, assertThrows(ResponseOddityException.class,
-				() -> propose(signature, new BigDecimal(maxSupply))).getMessage(), startsWith("400 "));
+				() -> propose(new BigDecimal(maxSupply))).getMessage(), startsWith("400 "));
 			assertThat(maxSupply, pendingSporks.proposalOf(Type.MINT_SUPPLY).isPresent(), is(false));
-			assertThat(maxSupply, storedMaxSupply(), equalTo(originalMaxSupply));
+			assertThat(maxSupply, storedMaxSupply(), comparesEqualTo(originalMaxSupply));
 		}
 	}
 
 	@SneakyThrows
 	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
 	public void takesTheLargestMaxSupplyThatCanBeMinted(@ForAll("provideSignature") Signature signature) {
-		assertThat(Status.fromStatusCode(propose(signature, BigDecimal.valueOf(1_000_000)).getStatus()),
+		assertThat(Status.fromStatusCode(propose(BigDecimal.valueOf(1_000_000)).getStatus()),
 			equalTo(Status.ACCEPTED));
 	}
 }

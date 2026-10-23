@@ -50,8 +50,8 @@ import org.unigrid.hedgehog.model.network.codec.SporkWire;
    it comes. */
 @RequiredArgsConstructor
 final class RequestBodyLimit extends ChannelDuplexHandler {
-	/* The largest body of any resource but the storage uploads and a signed spork is the blacklist of the ledger,
-	   4096 entries of about 45 bytes, so a megabyte holds every one of them with room to spare */
+	/* The body of any resource but the storage uploads and a signed spork is a few kilobytes at most, a transaction
+	   of the ledger among them, so a megabyte holds every one of them with room to spare */
 	public static final long MAX_REQUEST_BYTES = 1L << 20;
 
 	/* A sender that trickles holds a thread of the container in its read for as long as the body is open */

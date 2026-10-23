@@ -18,11 +18,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
@@ -30,12 +27,8 @@ import jakarta.ws.rs.core.Response;
 import java.util.Objects;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
@@ -44,40 +37,9 @@ public class StorageSporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
 
-	@CDIBridgeInject
-	private Topology topology;
-
-	@CDIBridgeInject
-	private PendingSporks pendingSporks;
-
-	@CDIBridgeInject
-	private SporkLag lag;
-
 	@Path("/storage") @GET
 	public Response get() {
 		final StorageSpork spork = sporkDatabase.getStorageSpork();
 		return Objects.isNull(spork) ? Response.noContent().build() : Response.ok().entity(spork).build();
-	}
-
-	@Path("/storage") @PUT
-	public Response set(@NotNull final StorageSpork.SporkData parameters,
-		@NotNull @HeaderParam("privateKey") final String privateKey) {
-
-		if (!NetworkKey.isTrusted(privateKey)) {
-			return Response.status(Response.Status.UNAUTHORIZED).build();
-		}
-
-		try {
-			parameters.validate();
-		} catch (IllegalArgumentException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).entity(ex.getMessage()).build();
-		}
-
-		final StorageSpork spork = ResourceHelper.nextVersion(sporkDatabase.getStorageSpork(), StorageSpork::new,
-			pendingSporks
-		);
-
-		spork.setData(parameters);
-		return ResourceHelper.propose(spork, privateKey, sporkDatabase, pendingSporks, topology, lag);
 	}
 }
