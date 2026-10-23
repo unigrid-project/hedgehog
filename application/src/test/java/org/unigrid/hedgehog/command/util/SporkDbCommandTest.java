@@ -31,6 +31,8 @@ import static org.hamcrest.Matchers.startsWith;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.InputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -40,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.regex.Pattern;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -258,6 +261,26 @@ public class SporkDbCommandTest {
 			garbage.assertNoStackTrace();
 			assertThat(missing.exitCode(), equalTo(2));
 			assertThat(missing.err(), containsString("Cannot read the spork database /missing.db"));
+		}
+	}
+
+	/* A crafted file can name a class whose readObject runs code on the machine that holds the board key */
+	@Example
+	@SneakyThrows
+	public void refusesAFileThatHoldsAClassThatNoSporkDatabaseHolds() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			try (OutputStream out = Files.newOutputStream(fs.getPath("/queue.db"));
+				ObjectOutputStream stream = new ObjectOutputStream(out)) {
+
+				stream.writeObject(new PriorityQueue<>(List.of(1, 2)));
+			}
+
+			final HedgehogCli.Result result = run(fs, "validate", "/queue.db");
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Cannot read the spork database /queue.db: java.util.PriorityQueue"
+				+ " is no class of a spork database"));
+			result.assertNoStackTrace();
 		}
 	}
 

@@ -18,8 +18,10 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InvalidClassException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.channels.Channels;
@@ -35,11 +37,10 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Cleanup;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 @Slf4j
@@ -61,9 +62,32 @@ public class SporkDatabase implements Serializable {
 
 	private volatile StatisticsPubKey statisticsPubKey;
 
+	/* Read through a filter of the classes a spork database holds, as the file may come from anyone */
 	public static SporkDatabase load(Path path) throws IOException {
-		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
-		return SerializationUtils.deserialize(stream);
+		final SporkDatabaseFilter filter = new SporkDatabaseFilter();
+
+		try (ObjectInputStream stream = new ObjectInputStream(new BufferedInputStream(Files.newInputStream(path,
+			StandardOpenOption.READ)))) {
+
+			stream.setObjectInputFilter(filter);
+
+			if (stream.readObject() instanceof SporkDatabase database) {
+				return database;
+			}
+
+			throw new InvalidClassException("The file holds no spork database");
+		} catch (InvalidClassException ex) {
+			throw filter.refusal().map(reason -> refused(reason, ex)).orElse(ex);
+		} catch (ClassNotFoundException ex) {
+			throw new SerializationException(ex);
+		}
+	}
+
+	private static InvalidClassException refused(String reason, InvalidClassException cause) {
+		final InvalidClassException refused = new InvalidClassException(reason);
+
+		refused.initCause(cause);
+		return refused;
 	}
 
 	/* The content is written beside the real file and moved over it in one atomic step, so a crash leaves the old
