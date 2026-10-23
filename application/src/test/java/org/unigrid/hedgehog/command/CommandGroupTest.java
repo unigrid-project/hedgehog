@@ -49,7 +49,7 @@ public class CommandGroupTest {
 		"cli ledger", List.of("info", "balance", "block", "transfer", "claim", "vote"),
 		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate", "ledger-genesis",
 			"spork-db"),
-		"util spork-db", List.of("validate", "sign")
+		"util spork-db", List.of("validate", "sign", "import")
 	);
 
 	private static String[] words(String group, String... more) {

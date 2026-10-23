@@ -50,6 +50,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -86,6 +87,9 @@ public class SporkDbCommandTest {
 	private static final String RELEASE_007 = "spork-0.0.7.db";
 	private static final String LEGACY = "legacy-spork.db";
 	private static final int SHOWN_HEX = 16;
+	private static final String NODE = "/node";
+	private static final String STOP_FIRST = "note: stop the node of this machine before the import, as it keeps its"
+		+ " sporks in memory and writes them over the file when it saves";
 	private static final Pattern LOGBACK_STATUS = Pattern.compile("\\d{2}:\\d{2}:\\d{2},\\d{3} \\|-");
 
 	@SneakyThrows
@@ -105,13 +109,25 @@ public class SporkDbCommandTest {
 		OptionsCli.parse(List.of("util"), BOARD);
 	}
 
+	/* The import installs into the data directory of a node in memory */
+	private static CommandLine.IFactory factory(FileSystem fs) {
+		return new CommandLine.IFactory() {
+			@Override
+			public <K> K create(Class<K> type) throws Exception {
+				return type == SporkDbImport.class ? type.cast(new SporkDbImport(() -> fs.getPath(NODE)))
+					: CommandLine.defaultFactory().create(type);
+			}
+		};
+	}
+
 	private static HedgehogCli.Result run(FileSystem fs, String... args) {
 		final List<String> arguments = new ArrayList<>(List.of("util", "spork-db"));
 
 		arguments.addAll(Arrays.asList(args));
 		arguments.add(BOARD);
 
-		return HedgehogCli.run(() -> new CommandLine(Hedgehog.class).registerConverter(Path.class, fs::getPath)
+		return HedgehogCli.run(() -> new CommandLine(Hedgehog.class, factory(fs))
+			.registerConverter(Path.class, fs::getPath)
 			.setParameterExceptionHandler(BoardKeyOptions::reportWithoutKeys), arguments.toArray(String[]::new));
 	}
 
@@ -541,6 +557,121 @@ public class SporkDbCommandTest {
 				+ " not hold: The mint of "));
 			assertThat(result.out(), not(containsString("data:")));
 			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
+		}
+	}
+
+	/* The database a node starts with, as an earlier build left it */
+	@SneakyThrows
+	private static byte[] nodeHolding(FileSystem fs, Path database) {
+		final byte[] held = Files.readAllBytes(database);
+
+		Files.createDirectories(fs.getPath(NODE));
+		Files.write(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE), held);
+		return held;
+	}
+
+	@SneakyThrows
+	private static List<Path> backupsIn(FileSystem fs) {
+		try (Stream<Path> files = Files.list(fs.getPath(NODE))) {
+			return files.filter(file -> file.getFileName().toString().matches("spork\\.db\\.\\d+")).toList();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void importsADatabaseThatTheBoardSignedAndKeepsTheOneItReplaces() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] held = nodeHolding(fs, fixture(fs, LEGACY));
+			final GridSpork spork = supply(supplyOf(10), FIRST, SECOND);
+			final HedgehogCli.Result result = run(fs, "import", written(fs, "signed.db", spork).toString());
+			final List<Path> backups = backupsIn(fs);
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(load(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)).getMintSupply().getSignature(),
+				equalTo(spork.getSignature()));
+			assertThat(backups, hasSize(1));
+			assertThat(Files.readAllBytes(backups.getFirst()), equalTo(held));
+			assertThat(linesOf(result), hasItems(STOP_FIRST, "valid: yes", "backup: " + backups.getFirst(),
+				"imported: /node/spork.db"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void importsADatabaseIntoANodeThatHoldsNoneYet() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = run(fs, "import", written(fs, "signed.db",
+				supply(supplyOf(10), FIRST, SECOND)).toString());
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(Files.exists(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)), is(true));
+			assertThat(backupsIn(fs), hasSize(0));
+			assertThat(linesOf(result), hasItem("backup: none, the node holds no spork database"));
+		}
+	}
+
+	/* A node would drop such a spork on start, so it is not installed at all */
+	@Example
+	@SneakyThrows
+	public void importsNothingThatTheBoardDidNotSign() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] held = nodeHolding(fs, fixture(fs, RELEASE_007));
+			final HedgehogCli.Result once = run(fs, "import", written(fs, "once.db",
+				supply(supplyOf(10), FIRST)).toString());
+			final HedgehogCli.Result negative = run(fs, "import", written(fs, "negative.db",
+				supply(supplyOf(-1), FIRST, SECOND)).toString());
+
+			for (HedgehogCli.Result result : List.of(once, negative)) {
+				assertThat(result.exitCode(), equalTo(1));
+				assertThat(linesOf(result), hasItem("valid: no"));
+				assertThat(result.err(), containsString("Nothing was imported"));
+			}
+
+			assertThat(Files.readAllBytes(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)), equalTo(held));
+			assertThat(backupsIn(fs), hasSize(0));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void importsNothingFromAFileThatCannotBeRead() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = run(fs, "import", "/missing.db");
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Cannot read the spork database /missing.db"));
+			assertThat(Files.exists(fs.getPath(NODE)), is(false));
+		}
+	}
+
+	/* The step of the launch: the database of the node that holds the sporks of 2023 and 2024 is checked, signed by
+	   two board members one after the other, checked again and installed */
+	@Example
+	@SneakyThrows
+	public void takesTheSporksOfAnEarlierBuildThroughTheLaunch() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path earlier = fixture(fs, LEGACY);
+			final byte[] held = nodeHolding(fs, earlier);
+			final HedgehogCli.Result before = run(fs, "validate", earlier.toString());
+			final HedgehogCli.Result first = sign(fs, earlier, "/spork.db.once", FIRST);
+			final HedgehogCli.Result second = sign(fs, fs.getPath("/spork.db.once"), "/spork.db.signed", SECOND);
+			final HedgehogCli.Result after = run(fs, "validate", "/spork.db.signed");
+			final HedgehogCli.Result imported = run(fs, "import", "/spork.db.signed");
+			final SporkDatabase installed = load(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE));
+
+			assertThat(before.exitCode(), equalTo(1));
+			assertThat(lineOf(before, Type.MINT_STORAGE), containsString("not signed by the board"));
+			assertThat(lineOf(before, Type.MINT_SUPPLY), containsString("not signed by the board"));
+			assertThat(first.err(), first.exitCode(), equalTo(0));
+			assertThat(second.err(), second.exitCode(), equalTo(0));
+			assertThat(after.err(), after.exitCode(), equalTo(0));
+			assertThat(imported.err(), imported.exitCode(), equalTo(0));
+			assertThat(Files.readAllBytes(backupsIn(fs).getFirst()), equalTo(held));
+
+			for (GridSpork spork : mintsOf(installed)) {
+				assertThat(spork.isTakenByTheNetwork(), is(true));
+				assertThat(spork.getData(), equalTo(load(earlier).get(spork.getType()).getData()));
+			}
 		}
 	}
 }
