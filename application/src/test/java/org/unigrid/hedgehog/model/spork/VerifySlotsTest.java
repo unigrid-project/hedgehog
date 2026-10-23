@@ -93,18 +93,17 @@ public class VerifySlotsTest {
 	}
 
 	/* A spork that costs more than one check, as one of the board keys does, is charged as many, but never more than
-	   the ceiling, so that one which costs that much is checked in a second of its own */
+	   the share of a source, so that one peer leaves the rest of a second to the others */
 	@Example
-	public void chargesASporkForTheChecksItCostsAndNeverMoreThanTheCeiling() {
-		assertThat(slots.take(TYPE, "peer", 10), is(true));
-		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - 10));
+	public void chargesASporkForTheChecksItCostsAndNeverMoreThanTheShareOfASource() {
+		assertThat(slots.take(TYPE, "peer", 5), is(true));
+		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - 5));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
 		assertThat(slots.take(TYPE, "costly", 1000), is(true));
-		assertThat(slots.take(TYPE, "another"), is(false));
-
 		slots.giveBack(TYPE, "costly");
-		assertThat(slots.take(TYPE, "another"), is(true));
+		assertThat(slots.take(TYPE, "costly", 1000), is(true));
+		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - VerifySlots.SHARE));
 	}
 
 	@Example

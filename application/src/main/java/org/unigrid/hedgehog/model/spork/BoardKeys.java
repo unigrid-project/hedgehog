@@ -114,9 +114,9 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return lengthOf(this);
 	}
 
-	/* What checking the chain can cost: a signature for each approval of a change that is not remembered */
-	public int uncheckedApprovals() {
-		return changesOf(this).map(BoardKeyChain::uncheckedApprovals).orElse(0);
+	/* What checking the chain costs, as far as the checks that cost no signature tell (BoardKeyChain.checksToVerify) */
+	public int checksToVerify() {
+		return changesOf(this).map(BoardKeyChain::checksToVerify).orElse(0);
 	}
 
 	@Data

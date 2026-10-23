@@ -22,6 +22,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -77,6 +78,7 @@ public final class BoardKeyChain {
 	static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
 	private static final float LOAD_FACTOR = 0.75f;
 	private static final Map<String, String> REJECTED = remembering(MAX_REMEMBERED);
+	private static final Map<String, String> REJECTED_CHAINS = remembering(MAX_REMEMBERED);
 
 	/* The checkpoint that the release vouches for, and the board keys built into it */
 	record Release(Optional<Network.Checkpoint> checkpoint, Set<String> builtInKeys) {
@@ -197,6 +199,34 @@ public final class BoardKeyChain {
 	* says which change does not hold and why.
 	*/
 	public static ActiveKeys verify(byte[] root, Collection<String> builtInKeys, List<KeyChange> changes) {
+		final Optional<String> id = idOf(root, changes);
+		final String rejected = id.map(REJECTED_CHAINS::get).orElse(null);
+
+		Validate.isTrue(Objects.isNull(rejected), "%s", rejected);
+
+		try {
+			return verifiedFrom(root, builtInKeys, changes);
+		} catch (IllegalArgumentException ex) {
+			id.ifPresent(chain -> REJECTED_CHAINS.put(chain, ex.getMessage()));
+			throw ex;
+		}
+	}
+
+	/* A chain that did not hold from a root never will, whatever it failed on, so it is known by the digest of the
+	   root and of all of its bytes; one that cannot be written has none */
+	private static Optional<String> idOf(byte[] root, List<KeyChange> changes) {
+		try {
+			final MessageDigest digest = DigestUtils.getSha512Digest();
+
+			digest.update(root);
+			changes.forEach(change -> digest.update(change.toBytes()));
+			return Optional.of(Hex.encodeHexString(digest.digest()));
+		} catch (IllegalArgumentException | NullPointerException ex) {
+			return Optional.empty();
+		}
+	}
+
+	private static ActiveKeys verifiedFrom(byte[] root, Collection<String> builtInKeys, List<KeyChange> changes) {
 		Validate.isTrue(changes.size() <= MAX_CHANGES, "A chain of board keys holds at most %d changes; a longer"
 			+ " one takes a release with a new root", MAX_CHANGES);
 
@@ -274,6 +304,18 @@ public final class BoardKeyChain {
 
 	/* Every count is made before any signature is checked, so a change that cannot hold costs none */
 	private static void requireApprovals(KeyChange change, Set<String> before) {
+		final Set<String> added = requireApprovers(change, before);
+		final byte[] signable = change.getSignable();
+
+		/* The approvals of the keys before it first, as a change that a quorum of them did not make fails on the
+		   first one that does not verify, before any approval of a key it adds is checked */
+		Validate.isTrue(change.getApprovals().stream().sorted(Comparator.comparing(approval -> added.contains(
+			approval.getKey()))).allMatch(approval -> Signature.isSignedBy(approval.getKey(), signable,
+			approval.getSignature())), "an approval does not verify");
+	}
+
+	/* Who approved the change, by the rules that cost no signature; the keys it adds, which approve it too */
+	private static Set<String> requireApprovers(KeyChange change, Set<String> before) {
 		final List<String> approvers = change.getApprovals().stream().map(Approval::getKey).toList();
 		final Set<String> added = new TreeSet<>(change.getActive());
 		final int quorum = quorumOf(before.size());
@@ -288,29 +330,46 @@ public final class BoardKeyChain {
 		Validate.isTrue(approved >= quorum, "%d of the %d keys before it approved it, %d have to", approved,
 			before.size(), quorum);
 		Validate.isTrue(approvers.containsAll(added), "a key that it adds did not approve it");
-
-		final byte[] signable = change.getSignable();
-
-		/* The approvals of the keys before it first, as a change that a quorum of them did not make fails on the
-		   first one that does not verify, before any approval of a key it adds is checked */
-		Validate.isTrue(change.getApprovals().stream().sorted(Comparator.comparing(approval -> added.contains(
-			approval.getKey()))).allMatch(approval -> Signature.isSignedBy(approval.getKey(), signable,
-			approval.getSignature())), "an approval does not verify");
+		return added;
 	}
 
-	/* The approvals of the changes that are remembered neither as holding nor as not, which is what checking the chain
-	   can cost; a change that cannot be written costs none, as it fails before any signature is checked */
-	public static int uncheckedApprovals(List<KeyChange> changes) {
-		return changes.stream().filter(Objects::nonNull).mapToInt(BoardKeyChain::uncheckedApprovalsOf).sum();
+	private record Step(int checks, ActiveKeys after, byte[] head) {
 	}
 
-	private static int uncheckedApprovalsOf(KeyChange change) {
+	/**
+	* The signatures that verifying the chain from the root of this node would check, by the checks that cost none: the
+	* approvals of each change, in order, that is not remembered and holds its link, its keys and its approvers, up to
+	* the first change that is remembered as not holding or fails one of those, where verifying would stop.
+	*/
+	public static int checksToVerify(List<KeyChange> changes) {
+		Step step = new Step(0, ActiveKeys.of(builtInKeys()), root());
+		int checks = 0;
+
+		for (int i = 0; i < Math.min(changes.size(), MAX_CHANGES) && Objects.nonNull(step.after()); i++) {
+			step = stepOf(changes.get(i), i, step);
+			checks += step.checks();
+		}
+
+		return checks;
+	}
+
+	private static Step stepOf(KeyChange change, int index, Step before) {
 		try {
-			final String id = DigestUtils.sha512Hex(change.toBytes());
+			requireLink(change, index, before.head());
 
-			return VERIFIED.containsKey(id) || REJECTED.containsKey(id) ? 0 : change.getApprovals().size();
+			final String id = DigestUtils.sha512Hex(change.toBytes());
+			final ActiveKeys remembered = VERIFIED.get(id);
+
+			if (Objects.nonNull(remembered) || REJECTED.containsKey(id)) {
+				return new Step(0, remembered, digestOf(change));
+			}
+
+			requireKeys(change.getActive(), before.after().active());
+			requireApprovers(change, before.after().active());
+			return new Step(change.getApprovals().size(), before.after().after(change.getActive()),
+				digestOf(change));
 		} catch (IllegalArgumentException | NullPointerException ex) {
-			return 0;
+			return new Step(0, null, null);
 		}
 	}
 

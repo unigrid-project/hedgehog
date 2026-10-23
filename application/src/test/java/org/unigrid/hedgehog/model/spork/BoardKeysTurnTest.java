@@ -75,6 +75,19 @@ public class BoardKeysTurnTest {
 		assertThat(turnsOfOthers(), is((long) VerifySlots.CEILING));
 	}
 
+	/* Verifying stops at a change that does not follow on the one before it, before any signature is checked */
+	@Example
+	public void shouldChargeForNoApprovalOfAChangeThatFollowsOnNothing() {
+		final KeyChange adding = change(rootOf(keys(0, 1)), List.of(), keys(0, 1, 2), keys(0, 1, 2));
+		final KeyChange elsewhere = change(rootOf(keys(4, 5)), List.of(), keys(4, 5, 6), keys(4, 5, 6));
+		final BoardKeys spork = signedAnyway(chainOf(elsewhere, adding), key(0), key(1));
+
+		assertThat(spork.checksToVerify(), is(0));
+		assertThat(lag.turnOf(spork, "peer").getAsBoolean(), is(true));
+		assertThat(IntStream.range(0, VerifySlots.CEILING).filter(n -> lag.turnOf(Type.BOARD_KEYS, "peer-" + n)
+			.getAsBoolean()).count(), is((long) VerifySlots.CEILING - 1));
+	}
+
 	@Example
 	public void shouldChargeOneTurnForAChainThatIsRemembered() {
 		final KeyChange adding = change(rootOf(keys(0, 1)), List.of(), keys(0, 1, 2), keys(0, 1, 2));

@@ -41,6 +41,10 @@ final class VerifySlots {
 	   get a turn. */
 	static final int CEILING = 32;
 
+	/* What one source is charged at most in a second of a type, so that one peer leaves three quarters of the
+	   second to the others, whatever it sends */
+	static final int SHARE = CEILING / 4;
+
 	private record Slot(Type type, String source) {
 	}
 
@@ -64,13 +68,12 @@ final class VerifySlots {
 	}
 
 	/* The lock is held for the decision only, never while a signature is checked. A spork that costs more than one
-	   check, as one of the board keys does, is charged as many, but never more than the ceiling, so that one which
-	   costs that much is checked in a second of its own. */
+	   check, as one of the board keys does, is charged as many, but never more than the share of a source. */
 	synchronized boolean take(final Type type, final String source, final int checks) {
 		final Instant now = clock.get();
 		final Slot slot = new Slot(type, source);
 		final Window window = windowOf(type, now);
-		final int charged = Math.clamp(checks, 1, CEILING);
+		final int charged = Math.clamp(checks, 1, SHARE);
 
 		sweep(now);
 

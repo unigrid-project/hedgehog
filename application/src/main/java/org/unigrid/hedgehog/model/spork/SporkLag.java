@@ -95,7 +95,7 @@ public class SporkLag {
 	* with the turn its source was given for it.
 	*/
 	public void record(GridSpork spork, SporkDatabase db, Turn turn) {
-		if (!spork.isPending() && couldMakeBehind(spork, db)) {
+		if (couldMakeBehind(spork, db)) {
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
 			if (isLaterThan(agreed.get(spork.getType()), stamp) && turn.getAsBoolean()
@@ -110,11 +110,11 @@ public class SporkLag {
 		return new Turn(type, source, () -> 1);
 	}
 
-	/* A spork of the board keys costs a check for each approval of the changes of its chain that are not remembered,
-	   and the head one more, as any other spork does */
+	/* A spork of the board keys costs a check for each approval that verifying its chain would check, and the head one
+	   more, as any other spork does */
 	public Turn turnOf(GridSpork spork, String source) {
 		return new Turn(spork.getType(), source, () -> spork instanceof BoardKeys boardKeys
-			? 1 + boardKeys.uncheckedApprovals() : 1);
+			? 1 + boardKeys.checksToVerify() : 1);
 	}
 
 	/**
@@ -150,7 +150,14 @@ public class SporkLag {
 	}
 
 	private static boolean couldMakeBehind(GridSpork spork, SporkDatabase db) {
-		return isDatedAndKnown(spork) && spork.isNewerThan(db.get(spork.getType()));
+		return !spork.isPending() && isDatedAndKnown(spork) && spork.isNewerThan(db.get(spork.getType()))
+			&& followsOnTheStoredChain(spork, db);
+	}
+
+	/* A chain of board keys that does not hold the stored one is no version the node could take, and judging that
+	   costs no signature */
+	private static boolean followsOnTheStoredChain(GridSpork spork, SporkDatabase db) {
+		return !(spork instanceof BoardKeys boardKeys) || boardKeys.followsOn(db.get(Type.BOARD_KEYS));
 	}
 
 	/**
