@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -260,16 +261,31 @@ public class GridSpork implements Serializable, Signable {
 
 	@JsonIgnore
 	public boolean isDoublySigned() {
-		final Optional<String> signer = signerOfHead(signature);
-		final Optional<String> cosigner = signerOfHead(cosignature);
+		final Set<String> keys = headKeys();
+		final Optional<String> signer = signerOfHead(signature, keys);
+		final Optional<String> cosigner = signerOfHead(cosignature, keys);
 
 		return signer.isPresent() && cosigner.isPresent() && !signer.equals(cosigner);
 	}
 
 	/* The current network key that made a signature of this spork, if any did */
 	public Optional<String> signerOfHead(byte[] headSignature) {
+		return signerOfHead(headSignature, headKeys());
+	}
+
+	private Optional<String> signerOfHead(byte[] headSignature, Set<String> keys) {
 		return Objects.isNull(headSignature) ? Optional.empty()
-			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature);
+			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature, keys);
+	}
+
+	/* The keys that sign the head of the spork: the board keys that are active now */
+	protected Set<String> headKeys() {
+		return Set.copyOf(Arrays.asList(NetworkKey.getPublicKeys()));
+	}
+
+	/* The keys that its signature log may name */
+	protected Set<String> logKeys() {
+		return NetworkKey.getLogKeys();
 	}
 
 	/**
@@ -325,7 +341,7 @@ public class GridSpork implements Serializable, Signable {
 	public boolean isTakenByTheNetwork() {
 		try {
 			return isWithinBounds() && isDoublySigned() && isNewerThanLog()
-				&& getSignatureLog().isValidFrom(0, NetworkKey.getLogKeys());
+				&& getSignatureLog().isValidFrom(0, logKeys());
 		} catch (RuntimeException ex) {
 			return false;
 		}
@@ -368,7 +384,7 @@ public class GridSpork implements Serializable, Signable {
 		/* Head first, so a forged log costs one verification rather than one per entry */
 		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
 			&& isSignedHead.getAsBoolean()
-			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getLogKeys());
+			&& getSignatureLog().isValidFrom(storedLog.size(), logKeys());
 	}
 
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
@@ -450,10 +466,12 @@ public class GridSpork implements Serializable, Signable {
 		}
 	}
 
+	/* By any key that the log may name, so that a version that a key signed before it was switched off is signed again
+	   with its history */
 	private String retiringSignerOf(byte[] headSignature) throws SigningException {
-		return NetworkKey.signerOf(retiringHead.getDigest(), headSignature).orElseThrow(() -> new SigningException(
-			"No current network key signed the version being replaced"
-		));
+		return NetworkKey.signerOf(retiringHead.getDigest(), headSignature, logKeys()).orElseThrow(
+			() -> new SigningException("No board key signed the version being replaced")
+		);
 	}
 
 	/**

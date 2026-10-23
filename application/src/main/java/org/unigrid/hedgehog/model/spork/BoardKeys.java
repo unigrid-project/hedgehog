@@ -21,9 +21,12 @@ package org.unigrid.hedgehog.model.spork;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
+import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 
 /* The board keys that sign sporks, as a chain of changes from the keys built into the release (BoardKeyChain). An
    empty chain leaves the built-in keys active. */
@@ -36,6 +39,24 @@ public class BoardKeys extends GridSpork implements Serializable {
 		setType(Type.BOARD_KEYS);
 		setFlags((short) (getFlags() | Flag.GOVERNED.getValue()));
 		setData(new SporkData());
+	}
+
+	/* What the chain makes of the board keys, from the root of this node, or nothing when it does not hold */
+	public Optional<ActiveKeys> chainKeys() {
+		return Optional.ofNullable(this.<SporkData>getData()).map(SporkData::getChanges)
+			.flatMap(BoardKeyChain::verified);
+	}
+
+	/* Two keys that the chain makes active sign it, so a change takes effect with a head that the new board signed,
+	   whatever keys the node goes by until then */
+	@Override
+	protected Set<String> headKeys() {
+		return chainKeys().map(ActiveKeys::active).orElse(Set.of());
+	}
+
+	@Override
+	protected Set<String> logKeys() {
+		return chainKeys().map(ActiveKeys::known).orElse(Set.of());
 	}
 
 	@Data

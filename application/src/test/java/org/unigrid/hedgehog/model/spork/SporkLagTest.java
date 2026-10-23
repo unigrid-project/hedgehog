@@ -49,9 +49,9 @@ public class SporkLagTest {
 	private static Signature proposer;
 	private static Signature cosigner;
 
-	/* How often the current network keys were asked for: once for each signature the lag has to check, so
-	   twice for a spork that is signed twice */
-	private static final int LOOKUPS_PER_CHECK = 2;
+	/* How often the current network keys were asked for: once for each spork the lag has to check, as both of its
+	   signatures are checked against one reading of the keys */
+	private static final int LOOKUPS_PER_CHECK = 1;
 	private static int keyLookups;
 
 	private Instant now;
