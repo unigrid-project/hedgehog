@@ -25,11 +25,14 @@ import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -54,13 +57,17 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.ExclusiveLock;
+import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
@@ -72,8 +79,11 @@ public class DaemonTest {
 	private static final int DIGEST_SIZE = 64;
 	private static final AtomicInteger CONTAINERS = new AtomicInteger();
 
+	private static final List<Path> LOCKED = new CopyOnWriteArrayList<>();
+
 	private static volatile String refusal;
 	private static volatile String runningVersion;
+	private static volatile String lockedBy;
 
 	/*
 	   A fake that proceeds must be the only one on its class, so these are installed once and steered by
@@ -102,13 +112,48 @@ public class DaemonTest {
 				return runningVersion == null ? invocation.proceed() : runningVersion;
 			}
 		};
+
+		/* No test takes the lock in the data directory of this machine */
+		new MockUp<SporkDatabaseLock>() {
+			@Mock public /* static */ void holdWhileRunning(Path dataDirectory, ExclusiveLock.Locker locker)
+				throws IOException {
+
+				LOCKED.add(dataDirectory);
+
+				if (lockedBy != null) {
+					throw new FileLockedException(lockedBy);
+				}
+			}
+		};
 	}
 
 	@BeforeTry
 	public void beforeTry() {
 		CONTAINERS.set(0);
+		LOCKED.clear();
 		refusal = null;
 		runningVersion = null;
+		lockedBy = null;
+	}
+
+	/* A node writes its spork database over the file as it saves, so it holds a lock on it while it runs, and does not
+	   start while another node or an import holds it */
+	@Example
+	public void shouldHoldTheLockOfItsSporkDatabaseWhileItRunsAndRefuseToStartWhileItIsHeld() {
+		final HedgehogCli.Result started = HedgehogCli.run("daemon");
+
+		assertThat(started.err(), started.exitCode(), equalTo(0));
+		assertThat(LOCKED, equalTo(List.of(ApplicationDirectory.create().getUserDataDir())));
+
+		lockedBy = "The spork database in /data is in use";
+		CONTAINERS.set(0);
+
+		final HedgehogCli.Result refused = HedgehogCli.run("daemon");
+
+		assertThat(refused.exitCode(), equalTo(2));
+		assertThat(refused.err(), containsString("The spork database in /data is in use"));
+		refused.assertNoStackTrace();
+		assertThat(CONTAINERS.get(), equalTo(0));
 	}
 
 	@Provide

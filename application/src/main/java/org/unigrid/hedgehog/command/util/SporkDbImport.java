@@ -26,7 +26,10 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.ledger.ExclusiveLock;
+import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
@@ -34,9 +37,9 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
 /* A node takes nothing of its own database that the board did not sign, so only a database that holds no such spork
-   is installed. The node takes no lock on its database, which it holds in memory and writes over the file as it
-   saves, so the command can only say that it has to be stopped. The database it replaces is copied aside first, and
-   the new one moved over it in one step. */
+   is installed. A running node holds its database in memory and writes it over the file as it saves, so the import
+   refuses while the node holds the lock of its database; a node of an earlier release takes none, and has to be
+   stopped all the same. The database it replaces is copied aside first, and the new one moved over it in one step. */
 @Command(name = "import",
 	description = "Installs a spork database that two current board keys signed as the spork database of the node"
 		+ " of this machine, and keeps the one it replaces beside it as spork.db.<epoch seconds>. Stop the node"
@@ -51,13 +54,15 @@ public class SporkDbImport implements Callable<Integer> {
 	@Spec private CommandSpec spec;
 
 	private final Supplier<Path> dataDirectory;
+	private final ExclusiveLock.Locker locker;
 
 	public SporkDbImport() {
-		this(() -> ApplicationDirectory.create().getUserDataDir());
+		this(() -> ApplicationDirectory.create().getUserDataDir(), ExclusiveLock.SYSTEM);
 	}
 
-	SporkDbImport(Supplier<Path> dataDirectory) {
+	SporkDbImport(Supplier<Path> dataDirectory, ExclusiveLock.Locker locker) {
 		this.dataDirectory = dataDirectory;
+		this.locker = locker;
 	}
 
 	@Override
@@ -75,11 +80,13 @@ public class SporkDbImport implements Callable<Integer> {
 
 		final Path target = dataDirectory.get().resolve(SporkDatabase.SPORK_DB_FILE);
 
-		try {
-			Files.createDirectories(target.getParent());
+		try (ExclusiveLock lock = SporkDatabaseLock.take(dataDirectory.get(), locker)) {
 			System.out.println("backup: " + backup(target).map(Path::toString)
 				.orElse("none, the node holds no spork database"));
 			SporkDatabase.persist(target, database);
+		} catch (FileLockedException ex) {
+			throw new ParameterException(spec.commandLine(), "Nothing was imported: " + ex.getMessage()
+				+ "; stop the node of this machine first", ex);
 		} catch (IOException ex) {
 			throw new ParameterException(spec.commandLine(), "Cannot install the spork database as " + target
 				+ ": " + ex, ex);

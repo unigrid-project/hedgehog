@@ -21,18 +21,23 @@ package org.unigrid.hedgehog.command;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import java.io.IOException;
 import java.net.URL;
 import lombok.SneakyThrows;
+import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
+import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 import org.unigrid.hedgehog.service.ledger.LedgerSetup;
@@ -63,6 +68,13 @@ public class Daemon extends CDIContext implements Runnable {
 			LedgerSetup.validate();
 		} catch (IllegalArgumentException ex) {
 			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
+		}
+
+		try {
+			SporkDatabaseLock.holdWhileRunning(ApplicationDirectory.create().getUserDataDir(),
+				ExclusiveLock.SYSTEM);
+		} catch (IOException ex) {
+			throw new ParameterException(spec.commandLine(), StringUtils.capitalize(ex.getMessage()), ex);
 		}
 
 		super.run();

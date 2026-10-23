@@ -67,6 +67,7 @@ import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -99,9 +100,14 @@ public class SporkDbCommandTest {
 		return new Signature();
 	}
 
+	private static final ExclusiveLock.Locker FREE = (file, channel) -> channel.tryLock();
+	private static volatile ExclusiveLock.Locker locker = FREE;
+
 	/* The environment gives no key, and the network keys are those of the board of the run */
 	@BeforeTry
 	public void fakeTheBoard() {
+		locker = FREE;
+
 		new MockUp<BoardKeyOptions>() {
 			@Mock String environmentKey() {
 				return null;
@@ -111,12 +117,13 @@ public class SporkDbCommandTest {
 		OptionsCli.parse(List.of("util"), BOARD);
 	}
 
-	/* The import installs into the data directory of a node in memory */
+	/* The import installs into the data directory of a node in memory, whose file system gives everyone a lock, so
+	   whether the node holds it is said here */
 	private static CommandLine.IFactory factory(FileSystem fs) {
 		return new CommandLine.IFactory() {
 			@Override
 			public <K> K create(Class<K> type) throws Exception {
-				return type == SporkDbImport.class ? type.cast(new SporkDbImport(() -> fs.getPath(NODE)))
+				return type == SporkDbImport.class ? type.cast(new SporkDbImport(() -> fs.getPath(NODE), locker))
 					: CommandLine.defaultFactory().create(type);
 			}
 		};
@@ -695,6 +702,26 @@ public class SporkDbCommandTest {
 				assertThat(result.err(), containsString("Nothing was imported"));
 			}
 
+			assertThat(Files.readAllBytes(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)), equalTo(held));
+			assertThat(backupsIn(fs), hasSize(0));
+		}
+	}
+
+	/* A running node writes its own database over the one installed when it saves */
+	@Example
+	@SneakyThrows
+	public void importsNothingWhileANodeHoldsItsSporkDatabase() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] held = nodeHolding(fs, fixture(fs, LEGACY));
+
+			locker = (file, channel) -> null;
+
+			final HedgehogCli.Result result = run(fs, "import", written(fs, "signed.db",
+				supply(supplyOf(10), FIRST, SECOND)).toString());
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Nothing was imported: the spork database in /node is in use"));
+			result.assertNoStackTrace();
 			assertThat(Files.readAllBytes(fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE)), equalTo(held));
 			assertThat(backupsIn(fs), hasSize(0));
 		}

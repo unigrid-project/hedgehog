@@ -93,10 +93,11 @@ public class SporkDatabase implements Serializable {
 	}
 
 	/* The content is written beside the real file and moved over it in one atomic step, so a crash leaves the old
-	   database or the new one, never a truncated mix. Saves take turns, as they share the name of the temporary file. */
+	   database or the new one, never a truncated mix. Each save writes a file of its own, made new, so that a node and
+	   an import never write into each other's, and saves of one process take turns, so the last one stays. */
 	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
 		final Path file = path.toAbsolutePath();
-		final Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", ".tmp");
 
 		try {
 			write(temporary, sporkDatabase);
