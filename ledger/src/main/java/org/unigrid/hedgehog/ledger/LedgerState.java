@@ -751,12 +751,12 @@ public final class LedgerState {
 		return block.getTime() < tipTime ? Optional.of("Block is older than the tip") : Optional.empty();
 	}
 
-	/* A block with nothing in it exists to pay out fees that wait, so a quiet chain never holds them back */
 	private Optional<String> contentRejection(Block block) {
 		final int count = block.getTransactions().size();
+		final boolean mayBeEmpty = mayBeEmpty(block);
 
-		if (count > Block.MAX_TRANSACTIONS || (count == 0 && pool == 0)) {
-			return Optional.of("A block holds " + (pool > 0 ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
+		if (count > Block.MAX_TRANSACTIONS || (count == 0 && !mayBeEmpty)) {
+			return Optional.of("A block holds " + (mayBeEmpty ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
 				+ " transactions");
 		}
 
@@ -765,6 +765,18 @@ public final class LedgerState {
 		}
 
 		return Optional.empty();
+	}
+
+	/* A block with nothing in it exists to pay out fees that wait, or to close a round that holds votes once its time
+	   is over, so a quiet chain holds back neither. The votes leave with the round, so that makes at most one empty
+	   block a round, and none on a quiet chain where nobody votes. */
+	private boolean mayBeEmpty(Block block) {
+		return pool > 0 || closesRoundWithVotes(block.getTime());
+	}
+
+	/* Whether a block of this time would close the round of the tip while it holds votes */
+	public boolean closesRoundWithVotes(long blockTime) {
+		return !votes.isEmpty() && roundAt(blockTime) > round;
 	}
 
 	private void apply(Transaction transaction) {

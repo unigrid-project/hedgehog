@@ -191,6 +191,56 @@ public class LedgerRoundTest {
 		assertThat(state.votesFor(Ed25519.publicKey(GRIDNODE_ONE), Vote.Action.ADD), equalTo(0));
 	}
 
+	/* A quiet chain makes no blocks, so a round that holds votes is closed by a block with nothing in it once its time
+	   is over */
+	@Example
+	public void shouldTakeAnEmptyBlockThatClosesARoundThatHoldsVotes() {
+		final LedgerState state = chain();
+
+		applyAt(state, startOf(0), allFoundationVotes(state, 0, GRIDNODE_ONE, Vote.Action.ADD));
+
+		final Block closing = blockAt(state, startOf(1), List.of());
+
+		assertThat(state.rejectionOf(closing).isPresent(), is(false));
+		assertThat(state.proposalRejection(closing).isPresent(), is(false));
+		state.apply(closing);
+		assertThat(state.validators().contains(Ed25519.publicKey(GRIDNODE_ONE)), is(true));
+	}
+
+	@Example
+	public void shouldRefuseAnEmptyBlockBeforeTheTimeOfTheRoundIsOver() {
+		final LedgerState state = chain();
+
+		applyAt(state, startOf(0), allFoundationVotes(state, 0, GRIDNODE_ONE, Vote.Action.ADD));
+
+		assertThat(reasonOf(state.rejectionOf(blockAt(state, startOf(1) - 1, List.of()))),
+			containsString("1 to " + Block.MAX_TRANSACTIONS));
+	}
+
+	@Example
+	public void shouldRefuseAnEmptyBlockThatClosesARoundWithoutVotes() {
+		final LedgerState state = chain();
+
+		applyAt(state, startOf(0), mint(1, 1));
+
+		assertThat(reasonOf(state.rejectionOf(blockAt(state, startOf(1), List.of()))),
+			containsString("1 to " + Block.MAX_TRANSACTIONS));
+	}
+
+	/* The block that closes the round takes its votes with it, so it is the one empty block the round gets */
+	@Example
+	public void shouldTakeOneEmptyBlockToCloseARoundAndNoMore() {
+		final LedgerState state = chain();
+
+		applyAt(state, startOf(0), allFoundationVotes(state, 0, GRIDNODE_ONE, Vote.Action.ADD));
+		applyAt(state, startOf(1), List.of());
+
+		assertThat(reasonOf(state.rejectionOf(blockAt(state, startOf(1) + 1, List.of()))),
+			containsString("1 to " + Block.MAX_TRANSACTIONS));
+		assertThat(reasonOf(state.rejectionOf(blockAt(state, startOf(5), List.of()))),
+			containsString("1 to " + Block.MAX_TRANSACTIONS));
+	}
+
 	/* Whether a vote fits its block is a matter of the time of the block, which every node reads the same */
 	@Example
 	public void shouldTakeAVoteOnlyInABlockOfItsRound() {
