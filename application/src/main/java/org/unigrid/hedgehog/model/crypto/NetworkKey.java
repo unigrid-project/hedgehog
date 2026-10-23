@@ -36,8 +36,14 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Slf4j
 public class NetworkKey {
-	public static String[] getPublicKeys() {
+	/* The board keys of the release, or of a private network that gives its own, which the chain of changes to the
+	   board keys is rooted in */
+	public static String[] getBuiltInKeys() {
 		return NetOptions.getNetworkKeys();
+	}
+
+	public static String[] getPublicKeys() {
+		return getBuiltInKeys();
 	}
 
 	/* The keys a signature log may name. A log is checked against a set of its own, so that it can differ from the

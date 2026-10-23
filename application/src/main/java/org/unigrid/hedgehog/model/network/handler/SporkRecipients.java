@@ -33,15 +33,15 @@ import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 /* Where a spork may be sent. A node of release 0.0.8 reads the two bytes of the type of a spork, and for a type it
    does not know it logs an error and leaves the rest of the frame unread, which it then reads on as more types:
    hundreds of error lines for one spork, a chance of taking garbage for a spork, and with an odd frame length the next
-   frame is read out of step. The sporks of the ledger, the blacklist and the fee, are therefore sent only over a
-   stream whose connection settled on the ledger protocol (LedgerProtocol), which a node of an earlier release never
-   does. This holds for everything that writes a spork to a stream: the schedule and the new streams, the relay of a
-   spork that came in, and the REST resources. A node that runs without --ledger does not offer the protocol either,
-   so it neither sends nor relays these two sporks; it may still store one that a peer sent it. A spork that is not set
-   is not sent at all. */
+   frame is read out of step. The sporks of the ledger, the blacklist and the fee, and the board keys are therefore
+   sent only over a stream whose connection settled on the ledger protocol (LedgerProtocol), which a node of an earlier
+   release never does. This holds for everything that writes a spork to a stream: the schedule and the new streams,
+   the relay of a spork that came in, and the REST resources. A node that runs without --ledger does not offer the
+   protocol either, so it neither sends nor relays these sporks; it may still store one that a peer sent it. A spork
+   that is not set is not sent at all. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkRecipients {
-	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE);
+	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE, Type.BOARD_KEYS);
 
 	public static boolean needsLedgerProtocol(final Type type) {
 		return LEDGER_ONLY.contains(type);

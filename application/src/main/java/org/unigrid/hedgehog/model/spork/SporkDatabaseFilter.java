@@ -45,7 +45,8 @@ final class SporkDatabaseFilter implements ObjectInputFilter {
 		StorageSpork.class, StorageSpork.SporkData.class,
 		LedgerBlacklist.class, LedgerBlacklist.SporkData.class,
 		LedgerFee.class, LedgerFee.SporkData.class,
-		StatisticsPubKey.class, StatisticsPubKey.SporkData.class
+		StatisticsPubKey.class, StatisticsPubKey.SporkData.class,
+		BoardKeys.class, BoardKeys.SporkData.class, KeyChange.class, KeyChange.Approval.class
 	);
 
 	/* By name, as the form a time travels in is not public */

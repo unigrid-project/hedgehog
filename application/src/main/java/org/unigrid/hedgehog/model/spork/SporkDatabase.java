@@ -63,6 +63,7 @@ public class SporkDatabase implements Serializable {
 	private volatile LedgerFee ledgerFee;
 
 	private volatile StatisticsPubKey statisticsPubKey;
+	private volatile BoardKeys boardKeys;
 
 	/* Read through a filter of the classes a spork database holds, as the file may come from anyone */
 	public static SporkDatabase load(Path path) throws IOException {
@@ -200,6 +201,8 @@ public class SporkDatabase implements Serializable {
 		Type.LEDGER_FEE, new Slot(db -> db.ledgerFee,
 			(db, spork) -> db.ledgerFee = (LedgerFee) spork),
 		Type.STATISTICS_PUBKEY, new Slot(db -> db.statisticsPubKey,
-			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork)
+			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork),
+		Type.BOARD_KEYS, new Slot(db -> db.boardKeys,
+			(db, spork) -> db.boardKeys = (BoardKeys) spork)
 	);
 }

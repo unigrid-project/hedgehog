@@ -36,7 +36,9 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.Validate;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 
@@ -90,6 +92,24 @@ public final class BoardKeyChain {
 		} finally {
 			out.release();
 		}
+	}
+
+	/* The root of this node: the epoch of the release and the board keys it was started with */
+	public static byte[] root() {
+		return root(Network.BOARD_KEYS_EPOCH, builtInKeys());
+	}
+
+	private static List<String> builtInKeys() {
+		return Arrays.asList(NetworkKey.getBuiltInKeys());
+	}
+
+	/* As verify() answers, from the root of this node */
+	public static ActiveKeys verify(List<KeyChange> changes) {
+		return verify(root(), builtInKeys(), changes);
+	}
+
+	public static Optional<ActiveKeys> verified(List<KeyChange> changes) {
+		return verified(root(), builtInKeys(), changes);
 	}
 
 	public static int quorumOf(int keys) {

@@ -34,6 +34,10 @@ public class Network {
 	   it, or on the ledger protocol, tells a node that the other end reads every spork type of this release */
 	public static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
 
+	/* With the board keys built into the release, the root of the chain of changes to them (BoardKeyChain). A release
+	   that counts it up starts from its own keys again, and every change made before it is void. */
+	public static final long BOARD_KEYS_EPOCH = 1;
+
 	private static final String[] EARLIER_PROTOCOLS = {
 		"hedgehog/0.0.4",
 		"gridspork/0.0.4"
