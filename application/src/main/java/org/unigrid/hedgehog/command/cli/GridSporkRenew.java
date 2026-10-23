@@ -44,12 +44,18 @@ public class GridSporkRenew implements Runnable {
 	@Mixin
 	private BoardKeyOptions boardKey;
 
+	/* The key is judged once the board keys of the node are known, as a key that the board added since the release is
+	   one of them */
 	@Override
 	public void run() {
-		final String key = boardKey.resolve(NetworkKey::isTrusted);
+		final String given = boardKey.resolve();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
+
+			sporks.installBoardKeys();
+
+			final String key = boardKey.requireBoardKey(given, NetworkKey::isTrusted);
 			final List<GridSpork> renewed = renewed(sporks, key);
 
 			if (renewed.isEmpty()) {

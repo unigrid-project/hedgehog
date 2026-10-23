@@ -88,6 +88,14 @@ public class BoardKeyOptions {
 	* ParameterException, which the command line reports with its usage.
 	*/
 	public String resolve(Predicate<String> isBoardKey) {
+		return requireBoardKey(resolve(), isBoardKey);
+	}
+
+	/**
+	* The board key from the one source that gives it, which a command that judges it by the board keys of a node
+	* judges once it knows them ({@link #requireBoardKey(String, Predicate)}).
+	*/
+	public String resolve() {
 		final String environment = environmentKey();
 		final List<String> sources = sourcesOf(environment);
 
@@ -100,8 +108,10 @@ public class BoardKeyOptions {
 				+ "; give it in one way only");
 		}
 
-		final String hex = keyOf(environment);
+		return keyOf(environment);
+	}
 
+	public String requireBoardKey(String hex, Predicate<String> isBoardKey) {
 		if (!isBoardKey.test(hex)) {
 			throw refused("The board key is not one of the current board keys of the network "
 				+ "(see --network-keys)");

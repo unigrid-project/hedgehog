@@ -36,11 +36,13 @@ import net.jqwik.api.Arbitrary;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -48,6 +50,7 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine;
 
@@ -154,7 +157,8 @@ public final class SporkCommands {
 		final String digest = PendingSporks.digestOf(proposal);
 
 		assertThat(result.err(), equalTo(""));
-		assertThat(result.requests().getFirst().location(), equalTo(FakeSporkNode.WIRE + "/" + type));
+		assertThat(result.requests().get(0).location(), equalTo(FakeSporkNode.WIRE + "/" + Type.BOARD_KEYS));
+		assertThat(result.requests().get(1).location(), equalTo(FakeSporkNode.WIRE + "/" + type));
 		assertThat(proposal.getType(), equalTo(type));
 		assertThat(proposal.isPending(), is(true));
 		assertThat(NetworkKey.signerOf(proposal), equalTo(Optional.of(PROPOSER.getPublicKey())));
@@ -162,6 +166,30 @@ public final class SporkCommands {
 		assertThat(result.out(), containsString(Status.ACCEPTED.getReasonPhrase()));
 		assertThat(result.out(), containsString(digest));
 		return proposal;
+	}
+
+	/* A node that holds no board keys, and answers everything else as the answer given does */
+	public static Answer withoutBoardKeys(Answer answer) {
+		return request -> request.location().equals(FakeSporkNode.WIRE + "/" + Type.BOARD_KEYS)
+			? Response.noContent().build() : answer.respond(request);
+	}
+
+	/* The usage error of a command that asked the node for its board keys first and handed it nothing: a key is
+	   judged by them */
+	public static String refusalOnceAsked(Runnable command, Answer node) {
+		final AtomicReference<String> message = new AtomicReference<>();
+		final Result result = RestCommandFixture.run(() -> {
+			try {
+				command.run();
+			} catch (CommandLine.ParameterException ex) {
+				message.set(ex.getMessage());
+			}
+		}, node);
+
+		assertThat(result.requests().getFirst().location(), equalTo(FakeSporkNode.WIRE + "/" + Type.BOARD_KEYS));
+		assertThat(result.requests().stream().map(Request::method).toList(), everyItem(equalTo(HttpMethod.GET)));
+		assertThat(message.get(), notNullValue());
+		return message.get();
 	}
 
 	/* The usage error of a command that refused before it asked the node anything */

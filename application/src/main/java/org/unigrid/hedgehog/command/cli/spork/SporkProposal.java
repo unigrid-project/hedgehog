@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -32,9 +33,11 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -58,13 +61,26 @@ public final class SporkProposal {
 	static final String FIRST_VERSION = "Make the first version of the spork when the node holds none. A first version"
 		+ " takes the place of the one the network holds, so give this only for a spork the network has none of.";
 
+	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+		BoardKeyOptions boardKey, boolean firstVersion) {
+
+		propose(commandLine, type, change, boardKey, NetworkKey::isTrusted, firstVersion);
+	}
+
 	/* A node can answer that it holds no spork of a type when the network holds one, and a first version takes the place
-	   of any other first version however old, so one is made only when the operator says so */
-	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change, String key,
-		boolean firstVersion) {
+	   of any other first version however old, so one is made only when the operator says so. The key is judged once the
+	   board keys of the node are known, as a key that the board added since the release is one of them. */
+	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+		BoardKeyOptions boardKey, Predicate<String> isSigner, boolean firstVersion) {
+
+		final String given = boardKey.resolve();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
+
+			sporks.installBoardKeys();
+
+			final String key = boardKey.requireBoardKey(given, isSigner);
 			final Optional<GridSpork> stored = sporks.stored(type);
 
 			if (stored.isEmpty()) {

@@ -32,7 +32,6 @@ import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
@@ -100,7 +99,7 @@ public class MintStorage implements Runnable {
 
 		SporkProposal.propose(spec.commandLine(), GridSpork.Type.MINT_STORAGE,
 			spork -> spork.<SporkData>getData().getMints().put(location, amount),
-			grow.getBoardKey().resolve(NetworkKey::isTrusted), grow.isFirstVersion()
+			grow.getBoardKey(), grow.isFirstVersion()
 		);
 	}
 

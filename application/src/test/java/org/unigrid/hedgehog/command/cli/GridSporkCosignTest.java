@@ -119,7 +119,8 @@ public class GridSporkCosignTest {
 		final Result result = RestCommandFixture.run(cosign(COSIGNER.getPrivateKey(), List.of(digest)), node);
 
 		assertThat(result.requests().stream().map(Request::location).toList(), equalTo(List.of(
-			FakeSporkNode.PENDING + "/" + digest, FakeSporkNode.WIRE + "/" + Type.MINT_SUPPLY, FakeSporkNode.WIRE)));
+			FakeSporkNode.WIRE + "/" + Type.BOARD_KEYS, FakeSporkNode.PENDING + "/" + digest,
+			FakeSporkNode.WIRE + "/" + Type.MINT_SUPPLY, FakeSporkNode.WIRE)));
 		assertThat(node.stored(Type.MINT_SUPPLY).isDoublySigned(), is(true));
 		assertThat(node.stored(Type.MINT_SUPPLY).getSignable(), equalTo(proposal.getSignable()));
 		assertThat(node.proposalOf(Type.MINT_SUPPLY).isPresent(), is(false));
@@ -183,16 +184,20 @@ public class GridSporkCosignTest {
 		final GridSpork other = proposal(Type.MINT_SUPPLY, null, supplyOf(5), PROPOSER);
 		final String digest = "ab".repeat(DIGEST_LENGTH / 2);
 		final Result result = RestCommandFixture.run(cosign(COSIGNER.getPrivateKey(), List.of(digest)),
-			request -> Response.ok(SporkWire.encode(other)).build());
+			SporkCommands.withoutBoardKeys(request -> Response.ok(SporkWire.encode(other)).build()));
 
 		assertThat(result.out(), containsString("another spork"));
-		assertThat(result.requests().stream().map(Request::method).toList(), equalTo(List.of(HttpMethod.GET)));
+		assertThat(result.requests().stream().map(Request::method).toList(), equalTo(List.of(HttpMethod.GET,
+			HttpMethod.GET)));
 	}
 
 	@Property(tries = 5)
 	public void triesEveryDigestEvenAfterAnOddAnswer(@ForAll("digests") List<String> digests, @ForAll Status status) {
 		final ResponseOddityException oddity = new ResponseOddityException(status);
-		final Result result = RestCommandFixture.runWithOddity(cosign(COSIGNER.getPrivateKey(), digests), oddity);
+		final Result result = RestCommandFixture.run(cosign(COSIGNER.getPrivateKey(), digests),
+			SporkCommands.withoutBoardKeys(request -> {
+				throw oddity;
+			}));
 
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(Collections.nCopies(digests.size(), oddity.getMessage())));
@@ -204,7 +209,13 @@ public class GridSporkCosignTest {
 
 		new CommandLine(command).parseArgs("ab");
 		assertThat(SporkCommands.refusal(command), containsString("A board key is needed"));
-		assertThat(SporkCommands.refusal(cosign(SporkCommands.STRANGER.getPrivateKey(), List.of("ab"))),
+	}
+
+	/* A key that the board added since the release is one of them, so a key is judged by the board keys of the node */
+	@Example
+	public void refusesAKeyThatIsNoBoardKeyOnceItKnowsTheBoardKeysOfTheNode() {
+		assertThat(SporkCommands.refusalOnceAsked(cosign(SporkCommands.STRANGER.getPrivateKey(),
+			List.of("ab".repeat(DIGEST_LENGTH / 2))), new FakeSporkNode()),
 			containsString("not one of the current board keys"));
 	}
 

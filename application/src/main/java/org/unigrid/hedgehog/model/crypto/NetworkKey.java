@@ -119,6 +119,19 @@ public class NetworkKey {
 		return false;
 	}
 
+	/* Whether the private key is that of one of the public keys given */
+	public static boolean isOneOf(String privateKey, Collection<String> publicKeys) {
+		try {
+			final RandomSignableData signed = RandomSignableData.create(privateKey);
+			final byte[] digest = DigestUtils.sha512(signed.getSignable());
+
+			return signerOf(digest, signed.getSignature(), publicKeys).isPresent();
+		} catch (SigningException ex) {
+			log.atTrace().log(ex.getMessage());
+			return false;
+		}
+	}
+
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 	private static final class RandomSignableData implements Signable {
 		private static final int SIZE = 32;

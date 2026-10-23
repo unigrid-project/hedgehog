@@ -22,7 +22,6 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -59,8 +58,8 @@ abstract class SporkCommand<D> implements Runnable {
 		} else if (spec.parent().userObject() instanceof GridSporkSet set) {
 			final D data = read(GridSporkSet.getData());
 
-			SporkProposal.propose(spec.commandLine(), type(), spork -> apply(data, spork),
-				set.getBoardKey().resolve(NetworkKey::isTrusted), set.isFirstVersion());
+			SporkProposal.propose(spec.commandLine(), type(), spork -> apply(data, spork), set.getBoardKey(),
+				set.isFirstVersion());
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();

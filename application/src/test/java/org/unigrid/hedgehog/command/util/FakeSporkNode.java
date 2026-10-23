@@ -34,6 +34,8 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
@@ -150,6 +152,11 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 
 		if (spork.isPending()) {
 			return Response.accepted(JSON.writeValueAsString(PendingSporkInfo.of(spork))).build();
+		}
+
+		if (spork instanceof BoardKeys boardKeys) {
+			BoardKeysAuthority.accept(boardKeys, database, pending, () -> true);
+			return Response.ok().build();
 		}
 
 		database.set(spork);

@@ -31,6 +31,8 @@ import java.time.Instant;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 
@@ -46,17 +48,39 @@ public class SporkClient {
 
 	private static final ObjectMapper JSON = new ObjectMapper();
 	private static final String AHEAD = "stamped ahead of the clock of this machine";
+	private static final String UNROOTED = "The board keys that the node holds do not hold from the root of this"
+		+ " machine, or two of their keys did not sign them (see --network-keys)";
 
 	private final RestClient rest;
 
-	/* The stored spork of a type, once it is known to be one the network took. One stamped further ahead than clocks
-	   drift apart would make the next version as far ahead, which no node takes. */
+	/**
+	* Goes by the board keys that the node holds, once they hold from the root of this machine: the keys that sign a
+	* spork are those that the chain of the board makes active, and a key that the board added since the release is
+	* one of them. A node that holds none leaves the keys built into the release. Board keys that do not hold, or that
+	* two of their own keys did not sign, sign nothing on this machine.
+	*/
+	public void installBoardKeys() throws ResponseOddityException, UntrustedSporkException, IOException {
+		final Optional<GridSpork> held = sporkIn(rest.get(WIRE + "/" + GridSpork.Type.BOARD_KEYS.name()));
+
+		if (held.isPresent()) {
+			if (!(held.get() instanceof BoardKeys boardKeys) || !boardKeys.isTakenByTheNetwork()) {
+				throw new UntrustedSporkException(UNROOTED);
+			}
+
+			BoardKeysAuthority.install(boardKeys);
+		}
+	}
+
+	/* The stored spork of a type, once it is known to be one the network took, by keys that are active or were. One
+	   that a key signed which the board switched off since is still built on, as it is the version that the board
+	   renews. One stamped further ahead than clocks drift apart would make the next version as far ahead, which no
+	   node takes. */
 	public Optional<GridSpork> stored(GridSpork.Type type) throws ResponseOddityException, UntrustedSporkException,
 		IOException {
 
 		final Optional<GridSpork> stored = sporkIn(rest.get(WIRE + "/" + type.name()));
 
-		if (stored.isPresent() && (stored.get().getType() != type || !stored.get().isTakenByTheNetwork())) {
+		if (stored.isPresent() && (stored.get().getType() != type || !stored.get().wasTakenByTheNetwork())) {
 			throw new UntrustedSporkException("The " + type + " spork that the node holds is not one that board "
 				+ "keys signed, so nothing is signed on top of it");
 		}

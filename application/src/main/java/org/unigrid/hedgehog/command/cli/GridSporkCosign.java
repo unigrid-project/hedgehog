@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
@@ -32,8 +33,10 @@ import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.util.TerminalText;
@@ -60,18 +63,41 @@ public class GridSporkCosign implements Runnable {
 	@Spec
 	private CommandSpec spec;
 
+	/* The key is judged once the board keys of the node are known, and by those that a change of the board keys which
+	   waits on the node makes active: a key that the change adds co-signs it */
 	@Override
 	public void run() {
-		final String key = boardKey.resolve(NetworkKey::isTrusted);
+		final String given = boardKey.resolve();
 
 		requireDigests();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
 
+			sporks.installBoardKeys();
+
+			final String key = boardKey.requireBoardKey(given, candidate -> NetworkKey.isTrusted(candidate)
+				|| NetworkKey.isOneOf(candidate, proposedBoardKeys(sporks)));
+
 			digests.forEach(digest -> cosign(sporks, digest, key));
-		} catch (IOException ex) {
+		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
+		} catch (UntrustedSporkException ex) {
+			System.err.println("Nothing was co-signed: " + TerminalText.printable(ex.getMessage()));
+		}
+	}
+
+	/* A change that is not what a current board key proposed adds no key; nor does one that the node cannot hand out,
+	   which leaves the node to say what is wrong for each digest */
+	private static Set<String> proposedBoardKeys(SporkClient sporks) {
+		try {
+			final Optional<GridSpork> stored = sporks.stored(GridSpork.Type.BOARD_KEYS);
+
+			return sporks.proposalOf(GridSpork.Type.BOARD_KEYS, stored.orElse(null))
+				.flatMap(proposal -> ((BoardKeys) proposal).chainKeys()).map(ActiveKeys::active)
+				.orElse(Set.of());
+		} catch (ResponseOddityException | UntrustedSporkException | IOException | IllegalArgumentException ex) {
+			return Set.of();
 		}
 	}
 
