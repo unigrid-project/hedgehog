@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
@@ -38,22 +39,32 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
+import picocli.CommandLine.Spec;
 
 @Command(name = "gridspork-cosign",
 	description = "Co-sign sporks awaiting a second board key, naming each by its digest from gridspork-pending. "
 		+ "What each one sets is shown beside what the node holds before it is signed on this machine."
 )
 public class GridSporkCosign implements Runnable {
+	private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{128}");
+
 	@Mixin
 	private BoardKeyOptions boardKey;
 
 	@Parameters(arity = "1..*", description = "Digests of the sporks to co-sign.")
 	private List<String> digests;
 
+	@Spec
+	private CommandSpec spec;
+
 	@Override
 	public void run() {
 		final String key = boardKey.resolve(NetworkKey::isTrusted);
+
+		requireDigests();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
@@ -61,6 +72,15 @@ public class GridSporkCosign implements Runnable {
 			digests.forEach(digest -> cosign(sporks, digest, key));
 		} catch (IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
+		}
+	}
+
+	/* A digest goes to the node in a request and is printed with what it answers, so anything else, a key typed in the
+	   wrong place among them, is refused before the node is asked and is not repeated */
+	private void requireDigests() {
+		if (!digests.stream().allMatch(digest -> DIGEST.matcher(digest).matches())) {
+			throw new ParameterException(spec.commandLine(), "Every digest is the 128 lower-case hex characters "
+				+ "that gridspork-pending lists for a proposal; nothing was co-signed");
 		}
 	}
 

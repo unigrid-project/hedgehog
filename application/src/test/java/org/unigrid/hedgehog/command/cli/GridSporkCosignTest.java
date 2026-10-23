@@ -208,6 +208,20 @@ public class GridSporkCosignTest {
 			containsString("not one of the current board keys"));
 	}
 
+	/* A key typed where a digest belongs would go to the node in a request and be printed back */
+	@Example
+	public void asksTheNodeForNothingButADigestAndRepeatsNothingElse() {
+		final String key = SporkCommands.STRANGER.getPrivateKey();
+
+		for (String notADigest : List.of(key, "ab", "AB".repeat(DIGEST_LENGTH / 2), "ab".repeat(DIGEST_LENGTH / 2) + "/x")) {
+			final String refusal = SporkCommands.refusal(cosign(COSIGNER.getPrivateKey(),
+				List.of("ab".repeat(DIGEST_LENGTH / 2), notADigest)));
+
+			assertThat(refusal, containsString("digest"));
+			assertThat(refusal, not(containsString(notADigest)));
+		}
+	}
+
 	@Example
 	public void endsWithAUsageErrorAndNoStackTraceWithoutAKey() {
 		final HedgehogCli.Result result = HedgehogCli.run("cli", "gridspork-cosign", "ab");
