@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.option;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.util.OwnerOnlyFile;
 import picocli.CommandLine;
@@ -37,6 +39,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
+import picocli.CommandLine.UnmatchedArgumentException;
 
 /* The private board key that signs a spork on this machine and never leaves it. The operator gives it in one of three
    ways: on the command line, where other users of the machine can read it in the list of processes, in the
@@ -47,6 +50,8 @@ public class BoardKeyOptions {
 
 	/* The hex of a key, a line ending and room for stray blanks: a bigger file holds no key */
 	private static final int MAX_FILE_BYTES = 260;
+
+	private static final Pattern KEY = Pattern.compile("(?<![0-9a-fA-F])[0-9a-fA-F]{130,132}(?![0-9a-fA-F])");
 
 	@Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT, paramLabel = "<hex>",
 		description = "The private board key in hex. Other users of this machine can read it in the list of "
@@ -128,7 +133,17 @@ public class BoardKeyOptions {
 			return key;
 		}
 
-		return Objects.isNull(keyFile) ? environment : read(keyFile);
+		return Objects.isNull(keyFile) ? environment : read(pathOf(keyFile));
+	}
+
+	/* Every answer about the file names it, so a key given as its name by mistake is refused before any of them */
+	private String pathOf(String name) {
+		if (KEY.matcher(name).matches()) {
+			throw refused("--key-file takes the path of a file that holds the board key, not the key; give "
+				+ "a key with -k or $" + ENVIRONMENT);
+		}
+
+		return name;
 	}
 
 	/* A file that is there and is no regular file, a pipe or a device, could be read for ever; one that is not there
@@ -167,5 +182,24 @@ public class BoardKeyOptions {
 
 	private ParameterException refused(String reason) {
 		return new ParameterException(mixee.commandLine(), reason);
+	}
+
+	/**
+	* Reports a mistake on the command line as picocli does, with every argument that looks like a key left out of
+	* it: picocli repeats an argument it cannot place, and a key given in the wrong place would end up on the
+	* terminal and in its scrollback.
+	*/
+	public static int reportWithoutKeys(ParameterException ex, String[] arguments) {
+		final CommandLine command = ex.getCommandLine();
+		final PrintWriter err = command.getErr();
+
+		err.println(command.getColorScheme().errorText(KEY.matcher(String.valueOf(ex.getMessage()))
+			.replaceAll("<key>")));
+
+		if (!UnmatchedArgumentException.printSuggestions(ex, err)) {
+			command.usage(err, command.getColorScheme());
+		}
+
+		return command.getCommandSpec().exitCodeOnInvalidInput();
 	}
 }

@@ -34,6 +34,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -94,7 +95,8 @@ public class BoardKeyOptionsTest {
 	private static Outcome run(FileSystem fileSystem, String... arguments) {
 		final Signing signing = new Signing(fileSystem);
 		final StringWriter err = new StringWriter();
-		final CommandLine command = new CommandLine(signing).setErr(new PrintWriter(err));
+		final CommandLine command = new CommandLine(signing).setErr(new PrintWriter(err))
+			.setParameterExceptionHandler(BoardKeyOptions::reportWithoutKeys);
 
 		return new Outcome(command.execute(arguments), signing.resolved, err.toString());
 	}
@@ -180,6 +182,31 @@ public class BoardKeyOptionsTest {
 			assertRefused(run(fs, "--key-file", "/keys/missing"), "/keys/missing");
 			assertRefused(run(fs, "--key-file", "/keys/directory"), "regular file");
 			assertRefused(run(fs, "--key-file", "/keys/large"), "more than a board key");
+		}
+	}
+
+	/* A key given where a path or nothing belongs would end up on the terminal and in its scrollback if a message
+	   repeated it */
+	@Example
+	public void shouldRepeatNoKeyGivenInTheWrongPlace() {
+		final String key = STRANGER.getPrivateKey();
+
+		for (List<String> arguments : List.of(List.of("--key-file", key), List.of("--key-file", key.toUpperCase()),
+			List.of("-k", BOARD.getPrivateKey(), key), List.of(key), List.of("--kye", key))) {
+
+			final Outcome outcome = run(arguments.toArray(String[]::new));
+
+			assertRefused(outcome, "");
+			assertThat(outcome.err(), not(containsString(key.toUpperCase())));
+		}
+
+		for (String[] arguments : List.of(new String[] { "cli", "gridspork-renew", key },
+			new String[] { "cli", "gridspork-cosign", "--key-file", key, "00" })) {
+
+			final HedgehogCli.Result cli = HedgehogCli.run(arguments);
+
+			assertThat(cli.err(), cli.exitCode(), equalTo(CommandLine.ExitCode.USAGE));
+			assertThat(cli.err(), not(containsString(key)));
 		}
 	}
 
