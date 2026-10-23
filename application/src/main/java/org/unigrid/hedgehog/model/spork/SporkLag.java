@@ -69,7 +69,7 @@ public class SporkLag {
 	public static final Duration FUTURE_ALLOWANCE = Duration.ofMinutes(10);
 	public static final Duration VERIFY_GAP = Duration.ofSeconds(1);
 
-	/* The source of what this node proposes itself. No peer is named so: a peer is its address or its stream. */
+	/* The source of what is handed to this node over REST. No peer is named so: a peer is its address or its stream. */
 	public static final String LOCAL = "local";
 
 	private static final BinaryOperator<Instant> LATER = BinaryOperator.maxBy(Comparator.naturalOrder());
@@ -120,8 +120,8 @@ public class SporkLag {
 		@Getter private final String source;
 		private Boolean given;
 
-		/* What this node signs itself is not limited: it is asked for by a holder of the REST token and a network
-		   key, not by anyone who can send a frame */
+		/* What is handed to this node over REST is not limited: it comes from a holder of the REST token, not from
+		   anyone who can send a frame */
 		@Override
 		public boolean getAsBoolean() {
 			if (Objects.isNull(given)) {

@@ -76,6 +76,7 @@ public class RestServer extends AbstractServer {
 
 	private ResourceConfig getResourceConfig(BearerTokenFilter authentication) {
 		final ResourceConfig config = new ResourceConfig(GridSporkResource.class,
+			GridSporkWireResource.class,
 			BootstrapResource.class,
 			GridnodeResource.class,
 			LedgerBlacklistResource.class,

@@ -107,7 +107,7 @@ public class RestClient implements AutoCloseable {
 		return connection;
 	}
 
-	/* A bearer challenge means the node refused the token itself, not a key sent with the request */
+	/* A bearer challenge means the node refused the token itself, not the signatures of a spork it was sent */
 	private boolean isTokenRejected(Response response) {
 		return response.getStatus() == Status.UNAUTHORIZED.getStatusCode()
 			&& BearerTokenFilter.SCHEME.equals(response.getHeaderString(HttpHeaders.WWW_AUTHENTICATE));

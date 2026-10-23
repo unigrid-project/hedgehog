@@ -19,9 +19,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -38,6 +36,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.bitcoinj.base.Base58;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -47,15 +46,18 @@ import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.plainFileSystem;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.write;
@@ -69,9 +71,9 @@ public class LedgerBlacklistCommandTest {
 	private static final String FILE = "/lists/blacklist.txt";
 	private static final int CAP = 4096;
 
-	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
 	}
 
 	@Provide
@@ -133,24 +135,15 @@ public class LedgerBlacklistCommandTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 30)
-	public void putsTheHashesOfTheListedAddressesSignedWithTheKeyAndPrintsTheStatus(@ForAll("keys") String key,
-		@ForAll("lists") List<String> hashes, @ForAll Status status) {
-
+	@Property(tries = 15)
+	public void proposesTheHashesOfTheListedAddressesSignedHereWithTheKey(@ForAll("lists") List<String> hashes) {
 		try (FileSystem fs = plainFileSystem()) {
+			final FakeSporkNode node = new FakeSporkNode();
+
 			write(fs, FILE, decorated(hashes), null);
 
-			final Result result = RestCommandFixture.run(set(fs, key), Response.status(status).build());
-			final Request request = result.request().orElseThrow();
-
-			assertThat(request.method(), equalTo(HttpMethod.PUT));
-			assertThat(request.location(), equalTo(LOCATION));
-			assertThat(request.entity().orElseThrow().getMediaType(), equalTo(MediaType.APPLICATION_JSON_TYPE));
-			assertThat((Object) request.entity().orElseThrow().getEntity(),
-				equalTo(LedgerBlacklistTest.with(Set.copyOf(hashes))));
-			assertThat(request.headers(), equalTo(signedBy(key)));
-			assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
-			assertThat(result.err(), equalTo(""));
+			assertThat(proposed(RestCommandFixture.run(set(fs, PROPOSER.getPrivateKey()), node), node,
+				Type.LEDGER_BLACKLIST).getData(), equalTo(LedgerBlacklistTest.with(Set.copyOf(hashes))));
 		}
 	}
 

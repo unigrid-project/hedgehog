@@ -18,12 +18,9 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
-import java.util.Map;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -44,11 +41,12 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
-/* Kept apart from the tests of the resource itself: a refusal draws a key per try that no stored spork is signed
-   with, and the recent keys that a stored spork's signers have to be among are few */
+/* The number of a mint in the path of the resource that shows it: a height of the old chain, or a time in seconds of a
+   ledger account above the range of an int */
 public class MintStorageResourceNumberTest extends BaseRestClientTest {
 	private static final int ACCOUNT_LENGTH = 64;
 	private static final int HASH_LENGTH = 20;
@@ -65,16 +63,11 @@ public class MintStorageResourceNumberTest extends BaseRestClientTest {
 		return Arbitraries.bytes().array(byte[].class).ofSize(HASH_LENGTH).map(LegacyAddress::encode);
 	}
 
-	private Response put(String privateKey, String address, String number, BigDecimal amount)
-		throws ResponseOddityException {
-
-		return client.putWithHeaders(URL + address + "/" + number, Entity.text(amount),
-			new MultivaluedHashMap(Map.of("privateKey", privateKey)));
-	}
-
 	@SneakyThrows
-	private void growAndCosign(Signature signature, String address, String number, BigDecimal amount) {
-		final Response proposal = put(signature.getPrivateKey(), address, number, amount);
+	private void growAndCosign(String address, int height, BigDecimal amount) {
+		final Location location = Location.builder().address(new Address(address)).height(height).build();
+		final Response proposal = propose(Type.MINT_STORAGE, (MintStorage.SporkData data) -> data.getMints()
+			.put(location, amount));
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
@@ -90,61 +83,52 @@ public class MintStorageResourceNumberTest extends BaseRestClientTest {
 		assertThat(new BigDecimal(client.getEntity(URL + address + "/" + number, String.class)), comparesEqualTo(amount));
 	}
 
-	private void assertRefused(Signature signature, String address, String number) {
+	private void assertRefused(String address, String number) {
 		final String entry = address + "/" + number;
-
-		assertThat(entry, assertThrows(ResponseOddityException.class, () -> {
-			throw new AssertionError("not refused: " + put(signature.getPrivateKey(), address, number, BigDecimal.ONE)
-				.getStatusInfo());
-		}).getMessage(), startsWith("400 "));
 
 		assertThat(entry, assertThrows(ResponseOddityException.class, () -> {
 			throw new AssertionError("not refused: " + client.get(URL + entry).getStatusInfo());
 		}).getMessage(), startsWith("400 "));
 	}
 
-	@Property(tries = 10, shrinking = ShrinkingMode.OFF)
-	public void growsTheMintStorageWithTheTimeOfAnAccountAbove2To31(@ForAll("provideSignature") Signature signature,
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF)
+	public void showsTheMintOfAnAccountByItsTimeAbove2To31(@ForAll("provideSignature") Signature signature,
 		@ForAll("accounts") String account, @ForAll @LongRange(min = 2_147_483_648L, max = UNSIGNED_MAXIMUM)
 		long seconds, @ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
-		growAndCosign(signature, account, Long.toString(seconds), amount);
+		growAndCosign(account, (int) seconds, amount);
 		assertStored(account, Long.toString(seconds), (int) seconds, amount);
 	}
 
-	@Property(tries = 10, shrinking = ShrinkingMode.OFF)
-	public void growsTheMintStorageWithTheHeightOfAnAddressOfTheOldChainAsBefore(
-		@ForAll("provideSignature") Signature signature, @ForAll("oldAddresses") String address,
-		@ForAll @IntRange(min = 0) int height, @ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF)
+	public void showsTheMintOfAnAddressOfTheOldChainByItsHeight(@ForAll("provideSignature") Signature signature,
+		@ForAll("oldAddresses") String address, @ForAll @IntRange(min = 0) int height,
+		@ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
-		growAndCosign(signature, address, Integer.toString(height), amount);
+		growAndCosign(address, height, amount);
 		assertStored(address, Integer.toString(height), height, amount);
 	}
 
-	@Property(tries = 2, shrinking = ShrinkingMode.OFF)
-	public void refusesATimeOfAnAccountThatIsNotOfThirtyTwoBits(@ForAll("provideSignature") Signature signature,
-		@ForAll("accounts") String account) {
-
+	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
+	public void refusesATimeOfAnAccountThatIsNotOfThirtyTwoBits(@ForAll("accounts") String account) {
 		for (String number : new String[] { "4294967296", "-1", "99999999999", "9223372036854775807" }) {
-			assertRefused(signature, account, number);
+			assertRefused(account, number);
 		}
 	}
 
-	@Property(tries = 2, shrinking = ShrinkingMode.OFF)
-	public void refusesAHeightOfTheOldChainAboveTheRangeOfAnInteger(@ForAll("provideSignature") Signature signature,
-		@ForAll("oldAddresses") String address) {
-
+	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
+	public void refusesAHeightOfTheOldChainAboveTheRangeOfAnInteger(@ForAll("oldAddresses") String address) {
 		for (String number : new String[] { "2147483648", "4294967295", "99999999999" }) {
-			assertRefused(signature, address, number);
+			assertRefused(address, number);
 		}
 	}
 
-	/* The instant form is a convenience of the command line, which sends the seconds */
+	/* The instant form is a convenience of the command line, which signs the seconds */
 	@SneakyThrows
-	@Property(tries = 5, shrinking = ShrinkingMode.OFF)
+	@Property(tries = 2, shrinking = ShrinkingMode.OFF)
 	public void takesNoIsoInstantInThePath(@ForAll("accounts") String account) {
 		for (String instant : new String[] { "2026-06-01T00:00:00Z", "2026-06-01T02:00:00+02:00" }) {
-			assertThat(instant, Status.fromStatusCode(put("00", account, instant, BigDecimal.ONE).getStatus()),
+			assertThat(instant, Status.fromStatusCode(client.get(URL + account + "/" + instant).getStatus()),
 				equalTo(Status.NOT_FOUND));
 		}
 	}

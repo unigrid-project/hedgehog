@@ -18,24 +18,41 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.ParameterException;
 
+/* The data replaces the parameters as a whole, and a parameter it leaves out takes its default */
 @Command(name = "storage")
-public class Storage extends SporkCommand<String> {
+public class Storage extends SporkCommand<SporkData> {
+	private static final ObjectMapper JSON = new JsonConfiguration().getContext(SporkData.class);
+
 	@Override
 	protected String location() {
 		return "/gridspork/storage";
 	}
 
 	@Override
-	protected String read(final String data) {
-		return data;
+	protected GridSpork.Type type() {
+		return GridSpork.Type.STORAGE;
 	}
 
 	@Override
-	protected Entity<?> entityOf(final String data) {
-		return Entity.entity(data, MediaType.APPLICATION_JSON);
+	protected SporkData read(final String data) {
+		try {
+			return JSON.readValue(data, SporkData.class);
+		} catch (JsonProcessingException ex) {
+			throw new ParameterException(spec().commandLine(), "The storage parameters are not accepted: "
+				+ ex.getOriginalMessage(), ex);
+		}
+	}
+
+	@Override
+	protected void apply(final SporkData data, final GridSpork spork) {
+		spork.setData(data);
 	}
 }

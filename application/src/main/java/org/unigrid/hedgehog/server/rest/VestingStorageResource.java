@@ -21,46 +21,25 @@ package org.unigrid.hedgehog.server.rest;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
-@Slf4j
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class VestingStorageResource extends CDIBridgeResource {
 	@CDIBridgeInject
-	private P2PServer p2pServer;
-
-	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
-
-	@CDIBridgeInject
-	private Topology topology;
-
-	@CDIBridgeInject
-	private PendingSporks pendingSporks;
-
-	@CDIBridgeInject
-	private SporkLag lag;
 
 	@Path("/vesting-storage") @GET
 	public Response list() {
@@ -87,24 +66,5 @@ public class VestingStorageResource extends CDIBridgeResource {
 		}
 
 		return Response.ok().entity(vesting).build();
-	}
-
-	@Path("/vesting-storage/{address}") @PUT
-	public Response grow(@NotNull Vesting vesting, @NotNull @PathParam("address") String address,
-		@NotNull @HeaderParam("privateKey") String privateKey) {
-
-		if (Objects.nonNull(privateKey) && NetworkKey.isTrusted(privateKey)) {
-			final VestingStorage vs = ResourceHelper.nextVersion(sporkDatabase.getVestingStorage(),
-				VestingStorage::new, pendingSporks
-			);
-
-			final VestingStorage.SporkData data = vs.getData();
-
-			data.getVestingAddresses().put(Address.builder().wif(address).build(), vesting);
-
-			return ResourceHelper.propose(vs, privateKey, sporkDatabase, pendingSporks, topology, lag);
-		}
-
-		return Response.status(Response.Status.UNAUTHORIZED).build();
 	}
 }

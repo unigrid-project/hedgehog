@@ -20,13 +20,10 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
-import java.util.Map;
 import java.util.Optional;
 import lombok.SneakyThrows;
 import net.jqwik.api.ForAll;
@@ -44,8 +41,8 @@ import static org.unigrid.hedgehog.service.ledger.LedgerStreams.connection;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
 
-/* A node of an earlier release cannot read the sporks of the ledger: every step of a proposal that the REST resources
-   send on, the proposal, its co-signature and a renewal, goes to the nodes on the ledger protocol only */
+/* A node of an earlier release cannot read the sporks of the ledger: every step of a proposal that is handed to the
+   node, the proposal, its co-signature and a renewal, goes to the nodes on the ledger protocol only */
 public class LedgerSporkGateRestTest extends BaseRestClientTest {
 	@Inject private Topology topology;
 
@@ -58,26 +55,18 @@ public class LedgerSporkGateRestTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	private Response renew(final Signature signature) {
-		return client.putWithHeaders("/gridspork/renew", Entity.text(""),
-			new MultivaluedHashMap<>(Map.of("privateKey", signature.getPrivateKey())));
-	}
-
-	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldSendAProposalItsCosignatureAndItsRenewalToTheNodesOnTheLedgerProtocolOnly(
 		@ForAll("provideSignature") final Signature signature) {
 
 		final EmbeddedChannel ledger = stream(true);
 		final EmbeddedChannel earlier = stream(false);
-		final LedgerFee.SporkData data = new LedgerFee.SporkData();
 
-		data.setMinimumTransferFee(BigDecimal.valueOf(1, 3));
 		attach(topology, "10.9.9.1", ledger);
 		attach(topology, "10.9.9.2", earlier);
 
-		final Response proposal = client.putWithHeaders("/gridspork/ledger-fee", Entity.json(data),
-			new MultivaluedHashMap<>(Map.of("privateKey", signature.getPrivateKey())));
+		final Response proposal = propose(Type.LEDGER_FEE, (LedgerFee.SporkData data) ->
+			data.setMinimumTransferFee(BigDecimal.valueOf(1, 3)));
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.LEDGER_FEE));
@@ -87,7 +76,7 @@ public class LedgerSporkGateRestTest extends BaseRestClientTest {
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.LEDGER_FEE));
 		assertThat(sporkTypesWrittenTo(earlier), empty());
 
-		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(renew(Type.LEDGER_FEE, signature).getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.LEDGER_FEE));
 		assertThat(sporkTypesWrittenTo(earlier), empty());
 	}

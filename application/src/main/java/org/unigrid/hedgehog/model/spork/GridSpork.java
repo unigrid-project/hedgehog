@@ -29,10 +29,12 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -123,6 +125,25 @@ public class GridSpork implements Serializable, Signable {
 
 	public static GridSpork create(Type type) {
 		return type.factory.get();
+	}
+
+	/**
+	* Starts the next version of a spork from the stored one. The data of a proposal still awaiting its
+	* co-signature is carried over, so several changes can be proposed in a row and co-signed once. The version
+	* is newer than both, even when it is made within the millisecond of one of them.
+	*/
+	public static GridSpork nextVersion(Type type, GridSpork stored, Optional<? extends GridSpork> proposal) {
+		final GridSpork spork = Objects.isNull(stored) ? create(type) : SerializationUtils.clone(stored);
+
+		spork.archive();
+		proposal.ifPresent(held -> spork.setData(SerializationUtils.clone(held.<ChunkData>getData())));
+
+		Stream.concat(Stream.ofNullable(stored), proposal.stream()).map(GridSpork::getTimeStamp)
+			.filter(Objects::nonNull).max(Comparator.naturalOrder())
+			.filter(latest -> !spork.timeStamp.isAfter(latest))
+			.ifPresent(latest -> spork.timeStamp = latest.plusMillis(1));
+
+		return spork;
 	}
 
 	@JsonIgnore
@@ -264,6 +285,58 @@ public class GridSpork implements Serializable, Signable {
 	@JsonIgnore
 	public boolean canBeProposedOver(GridSpork stored, BooleanSupplier mayVerify) {
 		return isPending() && succeeds(stored, mayVerify, this::isValidSignature);
+	}
+
+	/**
+	* Decides whether this spork, handed out as the one a node stores, is one the network took: signed by a known
+	* network key and co-signed by a second one, or signed once by a build from before co-signatures, newer than the
+	* last version in its signature log, and with a log that known keys signed. Retired keys count, as the version a
+	* board signed before it was replaced is the one its successor renews. A board member builds on such a spork only,
+	* so that nothing between the node and the network can have them sign on top of a version no board made.
+	*/
+	@JsonIgnore
+	public boolean isTakenByTheNetwork() {
+		return isSignedAsTaken() && isNewerThanLog()
+			&& getSignatureLog().isValidFrom(0, NetworkKey.getKnownPublicKeys());
+	}
+
+	private boolean isSignedAsTaken() {
+		final Optional<String> signer = knownSignerOfHead(signature);
+		final Optional<String> cosigner = knownSignerOfHead(cosignature);
+
+		/* A build from before co-signatures signed once, and over the Java serialization of the spork */
+		final boolean isOfAnEarlierBuild = !isWireSignable() && isPending();
+
+		return signer.isPresent() && (isOfAnEarlierBuild || cosigner.isPresent() && !cosigner.equals(signer));
+	}
+
+	private Optional<String> knownSignerOfHead(byte[] headSignature) {
+		return Objects.isNull(headSignature) ? Optional.empty()
+			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature);
+	}
+
+	/**
+	* Decides whether this spork, handed out as the proposal that waits on the stored one, is what a current network
+	* key proposed over it: it may wait for its co-signature over the stored spork, and it was made from it, as its
+	* next version or as its renewal. The stored spork is one the network took ({@link #isTakenByTheNetwork()}).
+	*/
+	@JsonIgnore
+	public boolean isProposalOver(GridSpork stored) {
+		return canBeProposedOver(stored) && isMadeFrom(stored);
+	}
+
+	private boolean isMadeFrom(GridSpork stored) {
+		if (Objects.isNull(stored)) {
+			return Instant.EPOCH.equals(previousTimeStamp);
+		}
+
+		final boolean isNextVersion = Objects.equals(previousTimeStamp, stored.timeStamp)
+			&& Objects.equals(previousData, stored.data);
+		final boolean isRenewal = Objects.equals(data, stored.data)
+			&& Objects.equals(previousData, stored.previousData)
+			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
+
+		return isNextVersion || isRenewal;
 	}
 
 	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {

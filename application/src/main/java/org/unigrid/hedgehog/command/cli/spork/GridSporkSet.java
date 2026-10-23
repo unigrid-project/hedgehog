@@ -19,23 +19,24 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import lombok.Getter;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 
 @Command(name = "gridspork-set",
 	subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class, LedgerFee.class },
-	description = "Set an existing spork. Redefines any existing definitions of the spork."
+	description = "Propose a new version of a spork, signed on this machine with a board key. Redefines any existing "
+		+ "definitions of the spork once a second board key co-signs it with gridspork-cosign."
 )
 public class GridSporkSet {
 	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "JSON describing the spork data; for ledger-blacklist the file of addresses, for ledger-fee "
-			+ "the fee in coins.", required = true
+		description = "JSON describing the spork data; for mint-supply the supply in coins, for ledger-blacklist "
+			+ "the file of addresses, for ledger-fee the fee in coins.", required = true
 	)
 	private static String data;
 
-	@Getter @Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hex representation of private key signing the spork.", required = true
-	)
-	private static String key;
+	@Getter @Mixin
+	private BoardKeyOptions boardKey;
 }

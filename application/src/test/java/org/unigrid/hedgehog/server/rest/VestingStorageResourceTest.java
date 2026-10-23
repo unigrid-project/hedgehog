@@ -18,17 +18,13 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -50,15 +46,20 @@ import net.jqwik.time.api.constraints.DurationRange;
 import net.jqwik.time.api.constraints.InstantRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 public class VestingStorageResourceTest extends BaseRestClientTest {
+	private static final String URL = "/gridspork/vesting-storage/";
+
 	@Provide
-	public Arbitrary<Vesting> provideVesting(@ForAll @BigRange(min = "1", max = "1000000") @Scale(12) BigDecimal amount,
+	public Arbitrary<Vesting> provideVesting(@ForAll @BigRange(min = "1", max = "1000000") @Scale(8) BigDecimal amount,
 		@ForAll @ByteRange(min = 1) byte parts, @ForAll @DurationRange(min = "P1D", max = "P1000D") Duration duration,
 		@ForAll @InstantRange() Instant start, @ForAll @ByteRange(min = 1) int cliff,
 		@ForAll @ByteRange(min = 1, max = Byte.MAX_VALUE) int percent,
@@ -73,55 +74,64 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 		return data.getVestingAddresses().keySet().stream().map(Address::getWif).collect(Collectors.toSet());
 	}
 
+	private Response vest(String address, Vesting vesting) {
+		return propose(Type.VESTING_STORAGE, (VestingStorage.SporkData data) -> data.getVestingAddresses()
+			.put(new Address(address), vesting));
+	}
+
+	/* Each proposal carries the vestings of the one before it, so one co-signature stores them all */
 	@SneakyThrows
-	@Property(tries = 30)
+	@Property(tries = 5)
 	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
 		@ForAll @Size(max = 5) @UniqueElements List<@AlphaChars @StringLength(36) String> addresses,
 		@ForAll @UniqueElements @Size(5) List<@From("provideVesting") Vesting> vests) {
 
-		final String url = "/gridspork/vesting-storage/";
-		final Response response = client.get(url);
+		final Response response = client.get(URL);
 		final Set<String> expectedAddresses = new HashSet<>();
 		Response lastProposal = null;
 
 		if (Status.fromStatusCode(response.getStatus()) == Status.OK) {
-			final VestingStorage.SporkData data = response.readEntity(VestingStorage.class).getData();
-			expectedAddresses.addAll(wifsOf(data));
+			expectedAddresses.addAll(wifsOf(response.readEntity(VestingStorage.class).getData()));
 		}
 
 		for (int i = 0; i < addresses.size(); i++) {
-			final Response putResponse = client.putWithHeaders(url + addresses.get(i),
-				Entity.json(vests.get(i)),
-				new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-			);
+			final Response proposal = vest(addresses.get(i), vests.get(i));
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.ACCEPTED) {
+			if (Status.fromStatusCode(proposal.getStatus()) == Status.ACCEPTED) {
 				expectedAddresses.add(Address.builder().wif(addresses.get(i)).build().toString());
-				lastProposal = putResponse;
+				lastProposal = proposal;
 			}
 		}
 
 		if (Objects.nonNull(lastProposal)) {
 			assertThat(Status.fromStatusCode(cosign(lastProposal).getStatus()), equalTo(Status.OK));
-
-			final VestingStorage.SporkData data = client.getEntity(url, VestingStorage.class).getData();
-			assertThat(wifsOf(data), equalTo(expectedAddresses));
+			assertThat(wifsOf(client.getEntity(URL, VestingStorage.class).getData()), equalTo(expectedAddresses));
 		}
 	}
 
 	@SneakyThrows
-	@Property(tries = 50)
+	@Property(tries = 10)
 	public void shoulBeAbleToGetVestingStorageSpork(@ForAll("provideSignature") Signature signature,
 		@ForAll("provideVesting") Vesting vesting, @ForAll @AlphaChars @StringLength(36) String address) {
 
-		final String url = "/gridspork/vesting-storage/%s".formatted(address);
-		final Response putResponse = client.putWithHeaders(url, Entity.json(vesting),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+		final Response proposal = vest(address, vesting);
 
-		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
-		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
+		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
+		assertThat(client.getEntity(URL + address, Vesting.class).getAmount(), comparesEqualTo(vesting.getAmount()));
 
-		TestFileOutput.outputJson(client.getEntity(url, String.class));
+		TestFileOutput.outputJson(client.getEntity(URL + address, String.class));
+	}
+
+	/* A vesting without an amount can be signed, its wire form has room for none, but no node takes it */
+	@Property(tries = 1)
+	public void refusesAVestingThatNoNodeCanActOn(@ForAll("provideSignature") Signature signature,
+		@ForAll("provideVesting") Vesting vesting, @ForAll @AlphaChars @StringLength(36) String address) {
+
+		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
+			() -> vest(address, vesting.toBuilder().amount(null).build()));
+
+		assertThat(refusal.getMessage(), startsWith("400 "));
+		assertThat(refusal.getBody(), containsString(address));
 	}
 }

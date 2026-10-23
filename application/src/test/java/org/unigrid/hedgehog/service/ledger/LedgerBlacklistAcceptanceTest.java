@@ -72,7 +72,6 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
    accounts of its own, sets the list it needs and leaves nothing waiting. */
 public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private static final int WALLETS = 10;
-	private static final String BLACKLIST = "/gridspork/ledger-blacklist";
 
 	/* The container of the validator that is made to say yes to every claim, and what each node hears of the
 	   consensus */
@@ -172,7 +171,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 	private void blacklist(final LegacyWallet... wallets) {
 		final LedgerBlacklist.SporkData data = listing(wallets);
 
-		fleet().cosignByRest(restHost(), fleet().proposeByRest(restHost(), BLACKLIST, data));
+		fleet().cosignByRest(restHost(), fleet().proposeByRest(restHost(), Type.LEDGER_BLACKLIST, data));
 		awaitListed(data);
 	}
 
@@ -235,7 +234,7 @@ public class LedgerBlacklistAcceptanceTest extends BaseLedgerAcceptanceTest {
 		blacklist();
 		awaitGossipSettled();
 
-		final String digest = fleet().proposeByRest(host, BLACKLIST, newer);
+		final String digest = fleet().proposeByRest(host, Type.LEDGER_BLACKLIST, newer);
 
 		assertThat(bean(containerName(host), PendingSporks.class).proposalOf(Type.LEDGER_BLACKLIST)
 			.isPresent(), is(true));

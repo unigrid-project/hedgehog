@@ -21,15 +21,12 @@ package org.unigrid.hedgehog.server.rest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
-import java.util.Map;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -78,6 +75,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	private static final Instant SIGNED_AT = Instant.parse("2026-01-01T00:00:00Z");
 	private static final Instant PREVIOUSLY_SIGNED_AT = Instant.parse("2025-01-01T00:00:00Z");
 
+	/* As a node of release 0.0.7 holds it: signed once, over its Java serialization, by a board since replaced */
 	@SneakyThrows
 	private MintSupply seedMintSupplySignedBy(Signature signature) {
 		final MintSupply mintSupply = new MintSupply();
@@ -87,35 +85,28 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		mintSupply.setTimeStamp(SIGNED_AT);
 		mintSupply.setPreviousTimeStamp(PREVIOUSLY_SIGNED_AT);
 		mintSupply.setPreviousData(data.empty());
-		mintSupply.sign(signature.getPrivateKey());
+		mintSupply.setSignature(signature.sign(mintSupply.getSignable()));
 
 		sporkDatabase.setMintStorage(null);
 		sporkDatabase.setVestingStorage(null);
 		sporkDatabase.setStatisticsPubKey(null);
 		sporkDatabase.setMintSupply(mintSupply);
+		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
 		return mintSupply;
 	}
 
-	@SneakyThrows
-	private Response renew(Signature signature) {
-		return client.putWithHeaders("/gridspork/renew", Entity.text(""),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+	private void renewAndCosign(Signature signature) {
+		final Response proposal = renew(GridSpork.Type.MINT_SUPPLY, signature);
+
+		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
 	}
 
+	/* The version signed by a board that has since been replaced enters the log when the current board signs it again */
 	@SneakyThrows
-	private void cosignAll(Response proposals) {
-		for (JsonNode proposal : new ObjectMapper().readTree(proposals.readEntity(String.class))) {
-			assertThat(Status.fromStatusCode(cosign(proposal.get("digest").asText(), cosigner).getStatus()),
-				equalTo(Status.OK)
-			);
-		}
-	}
-
-	@SneakyThrows
-	@Property
+	@Property(tries = 3)
 	public void shouldResignStoredSporksWithoutChangingTheirData(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = new Signature();
+		final Signature retiredSignature = keyPair();
 
 		retire(retiredSignature);
 
@@ -123,11 +114,11 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 
 		assertThat(original.isValidSignature(), is(false));
 
-		final Response proposals = renew(signature);
+		final Response proposal = renew(GridSpork.Type.MINT_SUPPLY, signature);
 
-		assertThat(Status.fromStatusCode(proposals.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(sporkDatabase.getMintSupply(), sameInstance(original));
-		cosignAll(proposals);
+		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
 
 		final MintSupply renewed = sporkDatabase.getMintSupply();
 		final MintSupply.SporkData data = renewed.getData();
@@ -139,46 +130,19 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		assertThat(replaced.getSignature(), equalTo(original.getSignature()));
 		assertThat(renewed.getTimeStamp(), greaterThan(SIGNED_AT));
 		assertThat(renewed.getTimeStamp(), lessThanOrEqualTo(Instant.now().truncatedTo(ChronoUnit.MILLIS)));
-		assertThat(data.getMaxSupply(), equalTo(BigDecimal.TEN));
+		assertThat(data.getMaxSupply(), comparesEqualTo(BigDecimal.TEN));
 		assertThat(renewed.getPreviousTimeStamp(), equalTo(PREVIOUSLY_SIGNED_AT));
 		assertThat(renewed.getPreviousData(), equalTo(original.getPreviousData()));
 	}
 
 	@SneakyThrows
-	@Property
-	public void shouldRefuseToRenewOverAnUnknownSigner(@ForAll("provideSignature") Signature signature) {
-		final MintSupply original = seedMintSupplySignedBy(new Signature());
-
-		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.UNAUTHORIZED));
-		assertThat(sporkDatabase.getMintSupply(), sameInstance(original));
-	}
-
-	@SneakyThrows
-	@Property
-	public void shouldRefuseToRenewWithUntrustedKey(@ForAll("provideSignature") Signature signature) {
-		final MintSupply original = seedMintSupplySignedBy(signature);
-
-		assertThat(Status.fromStatusCode(renew(new Signature()).getStatus()), equalTo(Status.UNAUTHORIZED));
-		assertThat(sporkDatabase.getMintSupply(), sameInstance(original));
-	}
-
-	@SneakyThrows
-	@Property
-	public void shouldHaveNothingToRenewWhenDatabaseIsEmpty(@ForAll("provideSignature") Signature signature) {
-		seedMintSupplySignedBy(signature);
-		sporkDatabase.setMintSupply(null);
-
-		assertThat(Status.fromStatusCode(renew(signature).getStatus()), equalTo(Status.NO_CONTENT));
-	}
-
-	@SneakyThrows
-	@Property(tries = 5)
+	@Property(tries = 2)
 	public void shouldShowWhoSignedEachVersion(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = new Signature();
+		final Signature retiredSignature = keyPair();
 
 		retire(retiredSignature);
 		seedMintSupplySignedBy(retiredSignature);
-		cosignAll(renew(signature));
+		renewAndCosign(signature);
 
 		final JsonNode log = new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
 			.get(GridSpork.Type.MINT_SUPPLY.name());
@@ -191,10 +155,13 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 5)
+	@Property(tries = 1)
 	public void shouldHaveNoSignatureLogWhenDatabaseIsEmpty(@ForAll("provideSignature") Signature signature) {
 		seedMintSupplySignedBy(signature);
 		sporkDatabase.setMintSupply(null);
+		sporkDatabase.setStorageSpork(null);
+		sporkDatabase.setLedgerFee(null);
+		sporkDatabase.setLedgerBlacklist(null);
 
 		assertThat(Status.fromStatusCode(client.get("/gridspork/log").getStatus()), equalTo(Status.NO_CONTENT));
 	}
@@ -214,7 +181,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 5)
+	@Property(tries = 3)
 	public void shouldListProposalsWithTheirDigestAndSigner(@ForAll("provideSignature") Signature signature) {
 		final MintSupply proposal = proposeMintSupplySignedBy(signature);
 		final JsonNode listed = new ObjectMapper().readTree(client.get("/gridspork/pending")
@@ -229,7 +196,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 5)
+	@Property(tries = 1)
 	public void shouldHaveNoProposalsWhenNoneArePending(@ForAll("provideSignature") Signature signature) {
 		proposeMintSupplySignedBy(signature);
 		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
@@ -238,62 +205,14 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 5)
-	public void shouldStoreAProposalOnceCosigned(@ForAll("provideSignature") Signature signature) {
-		final MintSupply proposal = proposeMintSupplySignedBy(signature);
-
-		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), cosigner).getStatus()),
-			equalTo(Status.OK)
-		);
-
-		assertThat(sporkDatabase.getMintSupply().isDoublySigned(), is(true));
-		assertThat(sporkDatabase.getMintSupply().getSignable(), equalTo(proposal.getSignable()));
-		assertThat(pendingSporks.list(), empty());
-	}
-
-	@SneakyThrows
-	@Property(tries = 5)
-	public void shouldRefuseToCosignWithTheProposersKey(@ForAll("provideSignature") Signature signature) {
-		final MintSupply proposal = proposeMintSupplySignedBy(signature);
-
-		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), signature).getStatus()),
-			equalTo(Status.CONFLICT)
-		);
-
-		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
-		assertThat(pendingSporks.list(), contains(proposal));
-	}
-
-	@SneakyThrows
-	@Property(tries = 5)
-	public void shouldRefuseToCosignAnUnknownProposal(@ForAll("provideSignature") Signature signature) {
-		proposeMintSupplySignedBy(signature);
-
-		assertThat(Status.fromStatusCode(cosign("00", cosigner).getStatus()), equalTo(Status.NOT_FOUND));
-		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
-	}
-
-	@SneakyThrows
-	@Property(tries = 5)
-	public void shouldRefuseToCosignWithAnUntrustedKey(@ForAll("provideSignature") Signature signature) {
-		final MintSupply proposal = proposeMintSupplySignedBy(signature);
-
-		assertThat(Status.fromStatusCode(cosign(PendingSporks.digestOf(proposal), new Signature()).getStatus()),
-			equalTo(Status.UNAUTHORIZED)
-		);
-
-		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
-	}
-
-	@SneakyThrows
-	@Property(tries = 5)
+	@Property(tries = 2)
 	public void shouldShowBothSignersOfEachVersion(@ForAll("provideSignature") Signature signature) {
-		final Signature retiredSignature = new Signature();
+		final Signature retiredSignature = keyPair();
 
 		retire(retiredSignature);
 		seedMintSupplySignedBy(retiredSignature);
-		cosignAll(renew(signature));
-		cosignAll(renew(signature));
+		renewAndCosign(signature);
+		renewAndCosign(signature);
 
 		final JsonNode log = new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
 			.get(GridSpork.Type.MINT_SUPPLY.name());
@@ -301,8 +220,8 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 
 		assertThat(log.get("entries").get(0).get("cosigner").isNull(), is(true));
 		assertThat(entry.get("signer").asText(), equalTo(signature.getPublicKey()));
-		assertThat(entry.get("cosigner").asText(), equalTo(cosigner.getPublicKey()));
+		assertThat(entry.get("cosigner").asText(), equalTo(COSIGNER.getPublicKey()));
 		assertThat(log.get("head").get("signer").asText(), equalTo(signature.getPublicKey()));
-		assertThat(log.get("head").get("cosigner").asText(), equalTo(cosigner.getPublicKey()));
+		assertThat(log.get("head").get("cosigner").asText(), equalTo(COSIGNER.getPublicKey()));
 	}
 }

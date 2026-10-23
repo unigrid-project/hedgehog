@@ -18,44 +18,32 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
-import java.util.Map;
 import java.util.Optional;
 import lombok.SneakyThrows;
-import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.comparesEqualTo;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.LedgerFeeSporkTest;
 
+/* A fee that the spork refuses cannot be signed, as its wire form cannot hold it: the command line refuses it first
+   (LedgerFeeSporkCommandTest), and a node refuses one past the cap of the wire (GridSporkWireResourceTest) */
 public class LedgerFeeSporkResourceTest extends BaseRestClientTest {
 	private static final String URL = "/gridspork/ledger-fee";
 
 	@Provide
 	public Arbitrary<LedgerFee.SporkData> validData() {
 		return LedgerFeeSporkTest.fees().map(LedgerFeeSporkTest::with);
-	}
-
-	@Provide
-	public Arbitrary<LedgerFee.SporkData> invalidData() {
-		return Arbitraries.oneOf(LedgerFeeSporkTest.negativeFees(), LedgerFeeSporkTest.feesAboveACoin(),
-			LedgerFeeSporkTest.feesWithTooManyDecimals()).map(LedgerFeeSporkTest::with);
-	}
-
-	private Response put(final Entity<?> entity, final String privateKey) throws ResponseOddityException {
-		return client.putWithHeaders(URL, entity, new MultivaluedHashMap<>(Map.of("privateKey", privateKey)));
 	}
 
 	private Optional<BigDecimal> stored() throws ResponseOddityException {
@@ -74,49 +62,25 @@ public class LedgerFeeSporkResourceTest extends BaseRestClientTest {
 	public void storesAnyFeeUpToACoin(@ForAll("provideSignature") final Signature signature,
 		@ForAll("validData") final LedgerFee.SporkData data) {
 
-		final Response proposal = put(Entity.json(data), signature.getPrivateKey());
+		final Response proposal = propose(Type.LEDGER_FEE, (LedgerFee.SporkData held) -> {
+			held.setMinimumTransferFee(data.getMinimumTransferFee());
+			held.setMinimumNewAccountAmount(data.getMinimumNewAccountAmount());
+		});
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
-		assertThat(stored().orElseThrow().compareTo(data.getMinimumTransferFee()), equalTo(0));
+		assertThat(stored().orElseThrow(), comparesEqualTo(data.getMinimumTransferFee()));
 	}
 
 	@SneakyThrows
-	@Property(tries = 10)
-	public void rejectsAFeeTheSporkDoesNotAccept(@ForAll("provideSignature") final Signature signature,
-		@ForAll("invalidData") final LedgerFee.SporkData data) {
-
-		final Optional<BigDecimal> before = stored();
-
-		/* The client refuses any status it does not expect, a 400 among them */
-		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(Entity.json(data), signature.getPrivateKey()));
-
-		assertThat(refusal.getMessage(), startsWith("400 "));
-		assertThat(stored(), equalTo(before));
-	}
-
-	@SneakyThrows
-	@Property(tries = 1)
-	public void rejectsAMissingFee(@ForAll("provideSignature") final Signature signature) {
-		final Optional<BigDecimal> before = stored();
-
-		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(Entity.json("{\"minimumTransferFee\":null}"), signature.getPrivateKey()));
-
-		assertThat(refusal.getMessage(), startsWith("400 "));
-		assertThat(stored(), equalTo(before));
-	}
-
-	/* The trusted signature is only drawn to install a network key that the fresh one then fails to match */
-	@SneakyThrows
-	@Property(tries = 3)
-	public void rejectsUntrustedKeys(@ForAll("provideSignature") final Signature trusted,
+	@Property(tries = 2)
+	public void rejectsAFeeThatNoBoardKeySigned(@ForAll("provideSignature") final Signature trusted,
 		@ForAll("validData") final LedgerFee.SporkData data) {
 
 		final Optional<BigDecimal> before = stored();
 
-		assertThat(Status.fromStatusCode(put(Entity.json(data), new Signature().getPrivateKey()).getStatus()),
+		assertThat(Status.fromStatusCode(submit(next(Type.LEDGER_FEE, (LedgerFee.SporkData held) ->
+			held.setMinimumTransferFee(data.getMinimumTransferFee()), STRANGER)).getStatus()),
 			equalTo(Status.UNAUTHORIZED));
 		assertThat(stored(), equalTo(before));
 	}

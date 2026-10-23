@@ -61,7 +61,7 @@ final class FleetSporks {
 		return new Signature();
 	}
 
-	/* The private keys, which the commands of the foundation send to a node with the data of a spork */
+	/* The private keys, with which the commands of the foundation sign a spork before they hand it to a node */
 	static String proposerKey() {
 		return PROPOSER.getPrivateKey();
 	}

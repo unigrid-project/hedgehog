@@ -489,10 +489,10 @@ public final class LedgerFleet implements AutoCloseable {
 		return servers.get(index).getRest();
 	}
 
-	/* The command of the foundation, to the real REST server of one node: the data is proposed at the location with
-	   the first network key, and the node spreads the proposal to its peers. Gives the digest to co-sign by. */
-	public String proposeByRest(final int node, final String location, final Object data) {
-		return rest.propose(node, location, data);
+	/* The command of the foundation, to the real REST server of one node: the data is proposed signed with the first
+	   network key, and the node spreads the proposal to its peers. Gives the digest to co-sign by. */
+	public String proposeByRest(final int node, final Type type, final ChunkData data) {
+		return rest.propose(node, type, data);
 	}
 
 	/* The co-signature with the second key, after which the node stores the spork and spreads it */

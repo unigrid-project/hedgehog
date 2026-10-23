@@ -19,30 +19,42 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.refusal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.MintSupply.SporkData;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -52,11 +64,6 @@ public class MintSupplyTest {
 	private static final String LOCATION = "/gridspork/mint-supply";
 
 	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
-	}
-
-	@Provide
 	public Arbitrary<String> supplies() {
 		return SporkCommands.amounts();
 	}
@@ -64,6 +71,18 @@ public class MintSupplyTest {
 	@Provide
 	public Arbitrary<String> sporks() {
 		return SporkCommands.reports();
+	}
+
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
+	}
+
+	private static SporkData supplyOf(String maxSupply) {
+		final SporkData data = new SporkData();
+
+		data.setMaxSupply(new BigDecimal(maxSupply));
+		return data;
 	}
 
 	private static Runnable set(String supply, String key, boolean optionsLast) {
@@ -82,38 +101,78 @@ public class MintSupplyTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
-	@Property(tries = 30)
-	public void putsTheSupplySignedWithTheKeyAndPrintsTheSpork(@ForAll("keys") String key,
-		@ForAll("supplies") String supply, @ForAll("sporks") String spork, @ForAll Status status,
+	@Property(tries = 10)
+	public void proposesTheSupplyOverTheStoredSporkSignedHereWithTheKey(@ForAll("supplies") String supply,
 		@ForAll boolean optionsLast) {
 
-		Assume.that(status != Status.UNAUTHORIZED);
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf("10"));
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+		final Result result = RestCommandFixture.run(set(supply, PROPOSER.getPrivateKey(), optionsLast), node);
+		final GridSpork proposal = proposed(result, node, Type.MINT_SUPPLY);
 
-		final Result result = RestCommandFixture.run(set(supply, key, optionsLast), Response.status(status)
-			.entity(spork).build());
+		assertThat(proposal.<SporkData>getData().getMaxSupply(), equalTo(new BigDecimal(supply)));
+		assertThat(proposal.getPreviousData(), equalTo(stored.getData()));
+		assertThat(proposal.getPreviousTimeStamp(), equalTo(stored.getTimeStamp()));
+		assertThat(node.stored(Type.MINT_SUPPLY), equalTo(stored));
+	}
 
-		assertThat(result.request(), equalTo(Optional.of(new Request(HttpMethod.PUT, LOCATION,
-			Optional.of(Entity.text(supply)), signedBy(key)))));
+	/* The new supply takes the place of the one a proposal waiting for its co-signature would set */
+	@Example
+	public void proposesOverTheProposalThatAwaitsItsCosignature() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf("10"));
+		final FakeSporkNode node = new FakeSporkNode().holding(stored)
+			.waitingOn(proposal(Type.MINT_SUPPLY, stored, supplyOf("20"), PROPOSER));
+		final Result result = RestCommandFixture.run(set("30", PROPOSER.getPrivateKey(), true), node);
 
-		assertThat(tree(result.out()), equalTo(tree(spork)));
-		assertThat(result.err(), equalTo(""));
+		assertThat(proposed(result, node, Type.MINT_SUPPLY).<SporkData>getData().getMaxSupply(),
+			equalTo(new BigDecimal("30")));
 	}
 
 	@Example
-	public void reportsARejectedKey() {
-		final Result result = RestCommandFixture.run(set("1", "key", false), Response.status(Status.UNAUTHORIZED)
-			.build());
+	public void refusesASupplyThatNoNodeCanHoldBeforeSigningIt() {
+		for (String supply : List.of("-1", "0.123456789", "1E+13", "ten")) {
+			final FakeSporkNode node = new FakeSporkNode();
 
-		assertThat(result.out().lines().toList(), equalTo(List.of(Status.UNAUTHORIZED.getReasonPhrase())));
+			assertThat(supply, assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(
+				set(supply, PROPOSER.getPrivateKey(), false), node)).getMessage(), containsString("supply"));
+			assertThat(supply, node.submitted(), empty());
+		}
+	}
+
+	/* Whoever signs sees all of what the node holds and all of what they sign, before they sign it */
+	@Example
+	public void showsTheStoredAndTheProposedDataBeforeItSigns() {
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf("1000007")));
+		final String out = RestCommandFixture.run(set("2000003", PROPOSER.getPrivateKey(), true), node).out();
+		final List<String> order = List.of("Stored MINT_SUPPLY data", "1000007", "Proposed MINT_SUPPLY data",
+			"2000003", Status.ACCEPTED.getReasonPhrase());
+
+		for (int i = 1; i < order.size(); i++) {
+			assertThat(order.get(i), out.indexOf(order.get(i - 1)), lessThan(out.indexOf(order.get(i))));
+		}
 	}
 
 	@Example
-	public void requiresASupplyAndAKeyToSet() {
+	public void takesTheKeyFromTheEnvironment() {
+		final FakeSporkNode node = new FakeSporkNode();
+
+		SporkCommands.environmentKey(PROPOSER.getPrivateKey());
+		proposed(RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", "7", NAME), node), node,
+			Type.MINT_SUPPLY);
+
+		assertThat(refusal(set("7", PROPOSER.getPrivateKey(), true)), containsString("-k and $HEDGEHOG_BOARD_KEY"));
+	}
+
+	@Example
+	public void refusesWithoutAKeyOfTheBoardBeforeAskingTheNode() {
+		assertThat(refusal(set("1", STRANGER.getPrivateKey(), false)), containsString("not one of the current"));
+		assertThat(refusal(subcommand(new GridSporkSet(), "-D", "1", NAME)), containsString("A board key is needed"));
+	}
+
+	@Example
+	public void requiresASupply() {
 		assertThrows(CommandLine.MissingParameterException.class,
 			() -> subcommand(new GridSporkSet(), "-k", "key", NAME));
-
-		assertThrows(CommandLine.MissingParameterException.class,
-			() -> subcommand(new GridSporkSet(), "-D", "1", NAME));
 	}
 
 	@Example

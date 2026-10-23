@@ -34,11 +34,13 @@ fi
 
 hedgehog() { "$JAVA" -jar "$JAR" "$@" 2> >(grep -v '^WARNING\|^SLF4J' >&2); }
 
-# node <n> <command>: a cli command against node n
+# node <n> <command>: a cli command against node n. The board keys are those of this network, as a spork is signed by
+# the command line, which checks the key it is given against them.
 node() {
 	local n=$1
 	shift
-	hedgehog cli --resthost 127.0.0.1 --restport $((REST_BASE + n)) --resttoken "token$n" "$@"
+	hedgehog cli --resthost 127.0.0.1 --restport $((REST_BASE + n)) --resttoken "token$n" \
+		--network-keys "$NETWORK_KEYS" "$@"
 }
 
 field() { sed -n "s/^$1: //p" "$2"; }

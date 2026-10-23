@@ -47,7 +47,7 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 	/* The largest spork an honest node sends is a mint storage at its cap, its data and its previous data both, with
 	   two signatures and a signature log at its cap. That is under ten megabytes, and the bound leaves room above. */
-	private static final int MAX_SPORK_SIZE = 16 * 1024 * 1024;
+	static final int MAX_SPORK_SIZE = 16 * 1024 * 1024;
 
 	private static final int PEER_SIZE = Long.BYTES + PublishPeersDecoder.MAX_HOST_ADDRESS + 1;
 	private static final int GRIDNODE_SIZE = 1 + Long.BYTES + 3 * Short.BYTES + GridnodeDecoder.ID_LENGTH;

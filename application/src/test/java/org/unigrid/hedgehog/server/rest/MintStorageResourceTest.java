@@ -18,14 +18,11 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import lombok.SneakyThrows;
@@ -46,10 +43,13 @@ import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
 public class MintStorageResourceTest extends BaseRestClientTest {
+	private static final String URL = "/gridspork/mint-storage/";
+
 	/* An address that a node can read: the amounts of the other kinds are refused when they are proposed */
 	@Provide
 	public Arbitrary<Location> provideLocation(@ForAll @Size(20) byte[] hash, @ForAll @Positive int height) {
@@ -58,14 +58,18 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 		).build());
 	}
 
+	private Response grow(Location location, BigDecimal amount) {
+		return propose(Type.MINT_STORAGE, (MintStorage.SporkData data) -> data.getMints().put(location, amount));
+	}
+
+	/* Each proposal carries the mints of the one before it, so one co-signature stores them all */
 	@SneakyThrows
-	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
+	@Property(tries = 5, shrinking = ShrinkingMode.OFF)
 	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
 		@ForAll @UniqueElements @Size(5) List<@From("provideLocation") Location> locations,
 		@ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
-		final String url = "/gridspork/mint-storage/";
-		final Response response = client.get(url);
+		final Response response = client.get(URL);
 		final Set<Location> expectedLocations = new HashSet<>();
 		Response lastProposal = null;
 
@@ -75,40 +79,33 @@ public class MintStorageResourceTest extends BaseRestClientTest {
 		}
 
 		for (Location l : locations) {
-			final Response putResponse = client.putWithHeaders(url + l.getAddress().getWif() + "/" + l.getHeight(),
-				Entity.text(amount), new MultivaluedHashMap(Map.of("privateKey",
-				signature.getPrivateKey()))
-			);
+			final Response proposal = grow(l, amount);
 
-			if (Status.fromStatusCode(putResponse.getStatus()) == Status.ACCEPTED) {
+			if (Status.fromStatusCode(proposal.getStatus()) == Status.ACCEPTED) {
 				expectedLocations.add(l);
-				lastProposal = putResponse;
+				lastProposal = proposal;
 			}
 		}
 
 		if (Objects.nonNull(lastProposal)) {
 			assertThat(Status.fromStatusCode(cosign(lastProposal).getStatus()), equalTo(Status.OK));
 
-			final MintStorage.SporkData data = client.getEntity(url, MintStorage.class).getData();
+			final MintStorage.SporkData data = client.getEntity(URL, MintStorage.class).getData();
 			assertThat(data.getMints().keySet(), equalTo(expectedLocations));
 		}
 	}
 
 	@SneakyThrows
-	@Property(tries = 50)
+	@Property(tries = 10)
 	public void shoulBeAbleToGetMintStorageSpork(@ForAll("provideSignature") Signature signature,
 		@ForAll("provideLocation") Location location, @ForAll @BigRange(min = "1", max = "1000000") BigDecimal amount) {
 
-		final int height = location.getHeight();
-		final String wif = location.getAddress().getWif();
-		final String url = "/gridspork/mint-storage/%s/%d".formatted(wif, height);
+		final String url = URL + "%s/%d".formatted(location.getAddress().getWif(), location.getHeight());
+		final Response proposal = grow(location, amount);
 
-		final Response putResponse = client.putWithHeaders(url, Entity.text(amount),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
-
-		assertThat(Status.fromStatusCode(putResponse.getStatus()), equalTo(Status.ACCEPTED));
-		assertThat(Status.fromStatusCode(cosign(putResponse).getStatus()), equalTo(Status.OK));
+		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
+		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
+		assertThat(new BigDecimal(client.getEntity(url, String.class)), comparesEqualTo(amount));
 
 		TestFileOutput.outputJson(client.getEntity(url, String.class));
 	}

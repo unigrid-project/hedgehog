@@ -21,12 +21,12 @@ package org.unigrid.hedgehog.server.rest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Supplier;
+import java.util.Optional;
+import java.util.function.Consumer;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.Mocked;
@@ -40,6 +40,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.AfterTry;
 import org.bitcoinj.crypto.ECKey;
 import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -47,6 +48,10 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.ChunkData;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.server.TestServer;
 
 @WeldSetup(TestServer.class)
@@ -62,15 +67,21 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 
 	protected RestClient client;
 
-	/*
-	 * Sporks outlive a try, so the keys of recent tries must still name who signed them. Only recent ones,
-	 * because every signature check walks this list and every verifying key generates a keypair.
-	 */
+	/* A P-521 key pair takes a dozen tries to generate, so the two current network keys are made once for the run.
+	   The sporks a class stores outlive its tries, and stay signed by keys that the node still trusts. */
+	protected static final Signature PROPOSER = keyPair();
+	protected static final Signature COSIGNER = keyPair();
+	protected static final Signature STRANGER = keyPair();
+
+	/* The keys a test retires to stand for an earlier board, which a signature log may still name. Only recent ones,
+	   because every signature check walks this list. */
 	private static final int MAX_RETIRED_KEYS = 16;
 	private static final List<String> RETIRED_KEYS = new ArrayList<>();
 
-	/* The second current network key of a try, next to the one provideSignature() hands out */
-	protected static Signature cosigner;
+	@SneakyThrows
+	protected static Signature keyPair() {
+		return new Signature();
+	}
 
 	protected static void retire(Signature signature) {
 		RETIRED_KEYS.add(signature.getPublicKey());
@@ -81,15 +92,60 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	}
 
 	@SneakyThrows
-	protected Response cosign(String digest, Signature signature) {
-		return client.putWithHeaders("/gridspork/pending/" + digest, Entity.text(""),
-			new MultivaluedHashMap(Map.of("privateKey", signature.getPrivateKey()))
-		);
+	protected Response submit(GridSpork spork) {
+		return client.post(SporkClient.WIRE, Entity.entity(SporkWire.encode(spork),
+			MediaType.APPLICATION_OCTET_STREAM));
+	}
+
+	/* The next version over what the node holds, changed and signed once, as the command line makes it */
+	@SneakyThrows
+	protected <D extends ChunkData> GridSpork next(Type type, Consumer<D> change, Signature signer) {
+		final SporkClient sporks = new SporkClient(client);
+		final GridSpork stored = sporks.stored(type).orElse(null);
+		final GridSpork spork = GridSpork.nextVersion(type, stored, sporks.proposalOf(type, stored));
+
+		change.accept(spork.getData());
+		spork.sign(signer.getPrivateKey());
+		return spork;
+	}
+
+	protected <D extends ChunkData> Response propose(Type type, Consumer<D> change) {
+		return submit(next(type, change, PROPOSER));
+	}
+
+	/* The next version with data that replaces what the node holds as a whole */
+	@SneakyThrows
+	protected GridSpork replacing(Type type, ChunkData data, Signature signer) {
+		final GridSpork spork = GridSpork.nextVersion(type, new SporkClient(client).stored(type).orElse(null),
+			Optional.empty());
+
+		spork.setData(data);
+		spork.sign(signer.getPrivateKey());
+		return spork;
+	}
+
+	/* The stored spork of a type moved to now and signed again, as gridspork-renew makes it */
+	@SneakyThrows
+	protected Response renew(Type type, Signature signer) {
+		final GridSpork spork = new SporkClient(client).stored(type).orElseThrow();
+
+		spork.renew();
+		spork.sign(signer.getPrivateKey());
+		return submit(spork);
 	}
 
 	@SneakyThrows
+	protected static String digestIn(Response proposal) {
+		return new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText();
+	}
+
+	/* The proposal that the node answered with, co-signed as gridspork-cosign does it */
+	@SneakyThrows
 	protected Response cosign(Response proposal) {
-		return cosign(new ObjectMapper().readTree(proposal.readEntity(String.class)).get("digest").asText(), cosigner);
+		final GridSpork held = new SporkClient(client).proposal(digestIn(proposal)).orElseThrow();
+
+		held.cosign(COSIGNER.getPrivateKey());
+		return submit(held);
 	}
 
 	public List<ECKey> keys = new ArrayList<>();
@@ -99,32 +155,25 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 		new ApplicationDirectoryMockUp();
 	}
 
+	/* The proposer, with the network keys faked for the try that draws it */
 	@Provide
-	@SneakyThrows
 	public Arbitrary<Signature> provideSignature() {
-		return Arbitraries.create(new Supplier<Signature>() {
-			@Override
-			@SneakyThrows
-			public Signature get() {
-				final Signature signature = new Signature();
-
-				cosigner = new Signature();
-				retire(signature);
-				retire(cosigner);
-
-				new MockUp<NetworkKey>() {
-					@Mock public /* static */ String[] getPublicKeys() {
-						return new String[] { signature.getPublicKey(), cosigner.getPublicKey() };
-					}
-
-					@Mock public /* static */ String[] getRetiredPublicKeys() {
-						return RETIRED_KEYS.toArray(String[]::new);
-					}
-				};
-
-				return signature;
-			}
+		return Arbitraries.create(() -> {
+			mockNetworkKeys();
+			return PROPOSER;
 		});
+	}
+
+	protected static void mockNetworkKeys() {
+		new MockUp<NetworkKey>() {
+			@Mock public /* static */ String[] getPublicKeys() {
+				return new String[] { PROPOSER.getPublicKey(), COSIGNER.getPublicKey() };
+			}
+
+			@Mock public /* static */ String[] getRetiredPublicKeys() {
+				return RETIRED_KEYS.toArray(String[]::new);
+			}
+		};
 	}
 
 	@BeforeProperty

@@ -18,7 +18,10 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -94,5 +97,63 @@ public class GridSporkTest extends BaseMockedWeldTest {
 		assertThat(gridSpork.getPreviousTimeStamp(), equalTo(previouslySignedAt));
 		assertThat(gridSpork.getData(), sameInstance(data));
 		assertThat(gridSpork.getPreviousData(), nullValue());
+	}
+
+	private static MintSupply supplyOf(long maxSupply, Instant timeStamp) {
+		final MintSupply spork = new MintSupply();
+
+		spork.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.valueOf(maxSupply));
+		spork.setTimeStamp(timeStamp);
+		return spork;
+	}
+
+	@Example
+	public void shouldStartTheFirstVersionOfASporkFromNothing() {
+		final GridSpork first = GridSpork.nextVersion(GridSpork.Type.LEDGER_FEE, null, Optional.empty());
+
+		assertThat(first, instanceOf(LedgerFee.class));
+		assertThat(first.getPreviousTimeStamp(), equalTo(Instant.EPOCH));
+		assertThat(first.getPreviousData(), equalTo(new LedgerFee.SporkData()));
+		assertThat(first.getTimeStamp(), greaterThan(Instant.now().minusSeconds(60)));
+	}
+
+	@Example
+	public void shouldStartTheNextVersionFromACopyOfTheStoredOne() {
+		final Instant storedAt = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+		final MintSupply stored = supplyOf(10, storedAt);
+		final GridSpork next = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.empty());
+
+		assertThat(next, not(sameInstance(stored)));
+		assertThat(next.getData(), equalTo(stored.getData()));
+		assertThat(next.getData(), not(sameInstance(stored.getData())));
+		assertThat(next.getPreviousData(), equalTo(stored.getData()));
+		assertThat(next.getPreviousTimeStamp(), equalTo(storedAt));
+		assertThat(next.getTimeStamp(), greaterThan(storedAt));
+		assertThat(stored.getTimeStamp(), equalTo(storedAt));
+	}
+
+	/* Several changes can be proposed in a row and co-signed once */
+	@Example
+	public void shouldCarryOverTheDataOfAProposalThatAwaitsItsCosignature() {
+		final MintSupply stored = supplyOf(10, Instant.now().minusSeconds(60));
+		final MintSupply proposal = supplyOf(20, Instant.now().minusSeconds(30));
+		final GridSpork next = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.of(proposal));
+
+		assertThat(next.getData(), equalTo(proposal.getData()));
+		assertThat(next.getData(), not(sameInstance(proposal.getData())));
+		assertThat(next.getPreviousData(), equalTo(stored.getData()));
+	}
+
+	/* A version made within the millisecond of the one it follows would not be newer, and no node would take it */
+	@Example
+	public void shouldBeNewerThanWhatItFollowsEvenWhenMadeInTheSameMillisecond() {
+		final Instant ahead = Instant.now().plusSeconds(30).truncatedTo(ChronoUnit.MILLIS);
+		final MintSupply stored = supplyOf(10, ahead);
+		final MintSupply proposal = supplyOf(20, ahead.plusMillis(5));
+
+		assertThat(GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.empty()).getTimeStamp(),
+			equalTo(ahead.plusMillis(1)));
+		assertThat(GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.of(proposal)).getTimeStamp(),
+			equalTo(ahead.plusMillis(6)));
 	}
 }

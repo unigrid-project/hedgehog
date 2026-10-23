@@ -18,59 +18,37 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
-import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
-import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
-import org.unigrid.hedgehog.model.spork.SporkLag;
-import org.unigrid.hedgehog.server.p2p.P2PServer;
 
-@Slf4j
+/* The sporks as JSON, for people to read. A spork is signed on the machine of a board member and handed to the node
+   in its wire form (GridSporkWireResource). */
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class GridSporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
-	private P2PServer p2pServer;
-
-	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
 
 	@CDIBridgeInject
-	private Topology topology;
-
-	@CDIBridgeInject
 	private PendingSporks pendingSporks;
-
-	@CDIBridgeInject
-	private SporkLag lag;
 
 	@GET
 	public Response list() {
@@ -90,78 +68,6 @@ public class GridSporkResource extends CDIBridgeResource {
 		final List<PendingSporkInfo> proposals = pendingSporks.list().stream().map(PendingSporkInfo::of).toList();
 
 		return proposals.isEmpty() ? Response.noContent().build() : Response.ok().entity(proposals).build();
-	}
-
-	@Path("/pending/{digest}") @PUT
-	public Response cosign(@NotNull @PathParam("digest") String digest,
-		@NotNull @HeaderParam("privateKey") String privateKey) {
-
-		if (Objects.isNull(privateKey) || !NetworkKey.isTrusted(privateKey)) {
-			return Response.status(Response.Status.UNAUTHORIZED).build();
-		}
-
-		final Optional<GridSpork> proposal = pendingSporks.find(digest);
-
-		if (proposal.isEmpty()) {
-			return Response.status(Response.Status.NOT_FOUND).build();
-		}
-
-		final GridSpork spork = SerializationUtils.clone(proposal.get());
-
-		try {
-			spork.cosign(privateKey);
-		} catch (SigningException ex) {
-			log.atWarn().log("Co-signing of spork refused: {}", ex.getMessage());
-			return Response.status(Response.Status.CONFLICT).entity(ex.getMessage()).build();
-		}
-
-		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
-			return Response.status(Response.Status.CONFLICT).build();
-		}
-
-		sporkDatabase.set(spork);
-		pendingSporks.remove(spork.getType());
-		SporkRecipients.sendAll(spork, topology);
-		return Response.ok().build();
-	}
-
-	@Path("/renew") @PUT
-	public Response renew(@NotNull @HeaderParam("privateKey") String privateKey) {
-		if (Objects.isNull(privateKey) || !NetworkKey.isTrusted(privateKey)) {
-			return Response.status(Response.Status.UNAUTHORIZED).build();
-		}
-
-		final List<GridSpork> renewed = new ArrayList<>();
-
-		/* Everything is signed before anything is proposed, so a signing failure proposes nothing */
-		try {
-			for (GridSpork stored : storedSporks()) {
-				final GridSpork spork = SerializationUtils.clone(stored);
-
-				spork.renew();
-				spork.sign(privateKey);
-				renewed.add(spork);
-			}
-		} catch (SigningException ex) {
-			log.atWarn().log("Renewal of sporks failed: {}", ex.getMessage());
-			return Response.status(Response.Status.UNAUTHORIZED).build();
-		}
-
-		return renewed.isEmpty() ? Response.noContent().build() : Response.accepted(proposeAll(renewed)).build();
-	}
-
-	private List<PendingSporkInfo> proposeAll(List<GridSpork> sporks) {
-		final List<PendingSporkInfo> proposals = new ArrayList<>();
-
-		for (GridSpork spork : sporks) {
-			if (pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
-				lag.record(spork, sporkDatabase, SporkLag.LOCAL);
-				SporkRecipients.sendAll(spork, topology);
-				proposals.add(PendingSporkInfo.of(spork));
-			}
-		}
-
-		return proposals;
 	}
 
 	private List<GridSpork> storedSporks() {

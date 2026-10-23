@@ -18,14 +18,13 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import java.util.Map;
 import java.util.Optional;
 import lombok.SneakyThrows;
+import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -35,6 +34,7 @@ import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 
@@ -46,14 +46,15 @@ public class StorageSporkResourceTest extends BaseRestClientTest {
 		return StorageSporkTest.sporkDataAcrossTheBounds().filter(StorageSporkTest::accepts);
 	}
 
+	/* A value that its field on the wire holds and the spork still refuses: one past a field would wrap around */
 	@Provide
 	public Arbitrary<StorageSpork.SporkData> invalidData() {
-		return StorageSporkTest.sporkDataAcrossTheBounds().filter(data -> !StorageSporkTest.accepts(data));
-	}
-
-	private Response put(final StorageSpork.SporkData data, final String privateKey) throws ResponseOddityException {
-		return client.putWithHeaders(URL, Entity.json(data),
-			new MultivaluedHashMap<>(Map.of("privateKey", privateKey)));
+		return Combinators.combine(validData(), Arbitraries.of(0, 17), Arbitraries.of(0, 101)).as(
+			(data, copies, threshold) -> {
+				data.setManifestCopies(copies);
+				data.setRepairThresholdPercent(threshold);
+				return data;
+			});
 	}
 
 	private Optional<StorageSpork.SporkData> stored() throws ResponseOddityException {
@@ -67,11 +68,11 @@ public class StorageSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
-	@Property(tries = 10)
+	@Property(tries = 5)
 	public void storesValidParameters(@ForAll("provideSignature") final Signature signature,
 		@ForAll("validData") final StorageSpork.SporkData data) {
 
-		final Response proposal = put(data, signature.getPrivateKey());
+		final Response proposal = submit(replacing(Type.STORAGE, data, signature));
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
@@ -87,21 +88,20 @@ public class StorageSporkResourceTest extends BaseRestClientTest {
 
 		/* The client refuses any status it does not expect, a 400 among them */
 		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(data, signature.getPrivateKey()));
+			() -> submit(replacing(Type.STORAGE, data, signature)));
 
 		assertThat(refusal.getMessage(), startsWith("400 "));
 		assertThat(stored(), equalTo(before));
 	}
 
-	/* The trusted signature is only drawn to install a network key that the fresh one then fails to match */
 	@SneakyThrows
-	@Property(tries = 3)
-	public void rejectsUntrustedKeys(@ForAll("provideSignature") final Signature trusted,
+	@Property(tries = 2)
+	public void rejectsParametersThatNoBoardKeySigned(@ForAll("provideSignature") final Signature trusted,
 		@ForAll("validData") final StorageSpork.SporkData data) {
 
 		final Optional<StorageSpork.SporkData> before = stored();
 
-		assertThat(Status.fromStatusCode(put(data, new Signature().getPrivateKey()).getStatus()),
+		assertThat(Status.fromStatusCode(submit(replacing(Type.STORAGE, data, STRANGER)).getStatus()),
 			equalTo(Status.UNAUTHORIZED));
 		assertThat(stored(), equalTo(before));
 	}

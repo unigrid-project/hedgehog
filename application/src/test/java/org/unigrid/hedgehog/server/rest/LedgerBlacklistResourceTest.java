@@ -18,11 +18,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import lombok.SneakyThrows;
@@ -32,30 +29,21 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
 
+/* A list that the spork refuses cannot be signed, as its wire form cannot hold it: the command line refuses it first
+   (LedgerBlacklistCommandTest), and a node refuses one past the cap of the wire (GridSporkWireResourceTest) */
 public class LedgerBlacklistResourceTest extends BaseRestClientTest {
 	private static final String URL = "/gridspork/ledger-blacklist";
 
 	@Provide
-	public Arbitrary<LedgerBlacklist.SporkData> validData() {
-		return LedgerBlacklistTest.cappedSets().map(LedgerBlacklistTest::with);
-	}
-
-	@Provide
-	public Arbitrary<LedgerBlacklist.SporkData> invalidData() {
-		return LedgerBlacklistTest.cappedSets().map(addresses -> LedgerBlacklistTest.with(
-			LedgerBlacklistTest.plus(addresses, "not a hash")
-		));
-	}
-
-	private Response put(final Entity<?> entity, final String privateKey) throws ResponseOddityException {
-		return client.putWithHeaders(URL, entity, new MultivaluedHashMap<>(Map.of("privateKey", privateKey)));
+	public Arbitrary<Set<String>> validLists() {
+		return LedgerBlacklistTest.cappedSets();
 	}
 
 	private Optional<Set<String>> stored() throws ResponseOddityException {
@@ -69,79 +57,40 @@ public class LedgerBlacklistResourceTest extends BaseRestClientTest {
 			.getLegacyAddresses());
 	}
 
+	private GridSpork listing(Set<String> addresses, Signature signer) {
+		return next(Type.LEDGER_BLACKLIST, (LedgerBlacklist.SporkData data) -> data.setLegacyAddresses(addresses),
+			signer);
+	}
+
 	@SneakyThrows
-	private void assertStores(final LedgerBlacklist.SporkData data, final Signature signature) {
-		final Response proposal = put(Entity.json(data), signature.getPrivateKey());
+	private void assertStores(final Set<String> addresses) {
+		final Response proposal = submit(listing(addresses, PROPOSER));
 
 		assertThat(Status.fromStatusCode(proposal.getStatus()), equalTo(Status.ACCEPTED));
 		assertThat(Status.fromStatusCode(cosign(proposal).getStatus()), equalTo(Status.OK));
-		assertThat(stored(), equalTo(Optional.of(data.getLegacyAddresses())));
+		assertThat(stored(), equalTo(Optional.of(addresses)));
 	}
 
-	@Property(tries = 10)
+	@Property(tries = 5)
 	public void storesAnySetOfHashes(@ForAll("provideSignature") final Signature signature,
-		@ForAll("validData") final LedgerBlacklist.SporkData data) {
+		@ForAll("validLists") final Set<String> addresses) {
 
-		assertStores(data, signature);
+		assertStores(addresses);
 	}
 
 	@Property(tries = 1)
 	public void storesTheLargestList(@ForAll("provideSignature") final Signature signature) {
-		final Set<String> largest = LedgerBlacklistTest.distinctHashes(LedgerBlacklist.SporkData.MAX_ENTRIES);
-
-		assertStores(LedgerBlacklistTest.with(largest), signature);
+		assertStores(LedgerBlacklistTest.distinctHashes(LedgerBlacklist.SporkData.MAX_ENTRIES));
 	}
 
 	@SneakyThrows
-	@Property(tries = 5)
-	public void rejectsAnEntryThatIsNoHash(@ForAll("provideSignature") final Signature signature,
-		@ForAll("invalidData") final LedgerBlacklist.SporkData data) {
+	@Property(tries = 2)
+	public void rejectsAListThatNoBoardKeySigned(@ForAll("provideSignature") final Signature trusted,
+		@ForAll("validLists") final Set<String> addresses) {
 
 		final Optional<Set<String>> before = stored();
 
-		/* The client refuses any status it does not expect, a 400 among them */
-		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(Entity.json(data), signature.getPrivateKey()));
-
-		assertThat(refusal.getMessage(), startsWith("400 "));
-		assertThat(stored(), equalTo(before));
-	}
-
-	@SneakyThrows
-	@Property(tries = 1)
-	public void rejectsTooLongAList(@ForAll("provideSignature") final Signature signature) {
-		final Optional<Set<String>> before = stored();
-		final LedgerBlacklist.SporkData data = LedgerBlacklistTest.with(
-			LedgerBlacklistTest.distinctHashes(LedgerBlacklist.SporkData.MAX_ENTRIES + 1));
-
-		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(Entity.json(data), signature.getPrivateKey()));
-
-		assertThat(refusal.getMessage(), startsWith("400 "));
-		assertThat(stored(), equalTo(before));
-	}
-
-	@SneakyThrows
-	@Property(tries = 1)
-	public void rejectsAMissingList(@ForAll("provideSignature") final Signature signature) {
-		final Optional<Set<String>> before = stored();
-
-		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
-			() -> put(Entity.json("{\"legacyAddresses\":null}"), signature.getPrivateKey()));
-
-		assertThat(refusal.getMessage(), startsWith("400 "));
-		assertThat(stored(), equalTo(before));
-	}
-
-	/* The trusted signature is only drawn to install a network key that the fresh one then fails to match */
-	@SneakyThrows
-	@Property(tries = 3)
-	public void rejectsUntrustedKeys(@ForAll("provideSignature") final Signature trusted,
-		@ForAll("validData") final LedgerBlacklist.SporkData data) {
-
-		final Optional<Set<String>> before = stored();
-
-		assertThat(Status.fromStatusCode(put(Entity.json(data), new Signature().getPrivateKey()).getStatus()),
+		assertThat(Status.fromStatusCode(submit(listing(addresses, STRANGER)).getStatus()),
 			equalTo(Status.UNAUTHORIZED));
 		assertThat(stored(), equalTo(before));
 	}

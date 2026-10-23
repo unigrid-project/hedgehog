@@ -18,31 +18,36 @@
 
 package org.unigrid.hedgehog.command.cli.spork;
 
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.Response;
-import org.unigrid.hedgehog.model.Json;
+import java.math.BigDecimal;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.MintSupply.SporkData;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.ParameterException;
 
 @Command(name = "mint-supply")
-public class MintSupply extends SporkCommand<String> {
+public class MintSupply extends SporkCommand<BigDecimal> {
 	@Override
 	protected String location() {
 		return "/gridspork/mint-supply";
 	}
 
 	@Override
-	protected String read(final String data) {
-		return data;
+	protected GridSpork.Type type() {
+		return GridSpork.Type.MINT_SUPPLY;
 	}
 
 	@Override
-	protected Entity<?> entityOf(final String data) {
-		return Entity.text(data);
+	protected BigDecimal read(final String data) {
+		try {
+			return new BigDecimal(data.strip());
+		} catch (NumberFormatException ex) {
+			throw new ParameterException(spec().commandLine(), "The maximum supply \"%s\" is no number"
+				.formatted(data), ex);
+		}
 	}
 
-	/* This daemon answers with the proposal that was made */
 	@Override
-	protected void printProposalAnswer(final Response response) {
-		System.out.println(Json.parse(response.readEntity(String.class)));
+	protected void apply(final BigDecimal maxSupply, final GridSpork spork) {
+		spork.<SporkData>getData().setMaxSupply(maxSupply);
 	}
 }
