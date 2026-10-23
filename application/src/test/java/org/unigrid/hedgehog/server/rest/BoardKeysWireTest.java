@@ -18,16 +18,22 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response.Status;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import org.apache.commons.codec.binary.Hex;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -73,5 +79,35 @@ public class BoardKeysWireTest extends BaseRestClientTest {
 		assertThat(Status.fromStatusCode(submit(shorter).getStatus()), equalTo(Status.CONFLICT));
 		assertThat(sporkDatabase.getBoardKeys().<BoardKeys.SporkData>getData().getChanges().size(), equalTo(2));
 		assertThat(active(), equalTo(Set.of(publicKeysOf(keys(2, 3)))));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldShowTheBoardKeysThatTheNodeGoesBy() {
+		buildIn(keys(0, 1));
+
+		final byte[] root = rootOf(keys(0, 1));
+		final KeyChange adding = change(root, List.of(), keys(0, 1, 2), keys(0, 1, 2));
+		final KeyChange switchingOff = change(root, List.of(adding), keys(2, 3), keys(0, 2, 3));
+
+		submit(signed(chainOf(adding, switchingOff), key(2), key(3)));
+
+		final JsonNode shown = new ObjectMapper().readTree(client.get("/gridspork/board-keys")
+			.readEntity(String.class));
+
+		assertThat(shown.get("epoch").asLong(), equalTo(Network.BOARD_KEYS_EPOCH));
+		assertThat(shown.get("builtInKeys").size(), equalTo(2));
+		assertThat(shown.get("chain").size(), equalTo(2));
+		assertThat(shown.get("chain").get(1).get("previous").asText(),
+			equalTo(Hex.encodeHexString(BoardKeyChain.digestOf(adding))));
+		assertThat(textsOf(shown.get("active")), equalTo(Set.of(publicKeysOf(keys(2, 3)))));
+		assertThat(textsOf(shown.get("inactive")), equalTo(Set.of(publicKeysOf(keys(0, 1)))));
+	}
+
+	private static Set<String> textsOf(JsonNode array) {
+		final Set<String> texts = new TreeSet<>();
+
+		array.forEach(node -> texts.add(node.asText()));
+		return texts;
 	}
 }

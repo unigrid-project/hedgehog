@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -123,13 +124,19 @@ public class SporkClient {
 
 	/* The keys that signed a spork, by the start of each, and which of them the board switched off */
 	public static String signingOf(GridSpork spork) {
-		final byte[] digest = DigestUtils.sha512(spork.getSignable());
 		final Set<String> active = NetworkKey.getActiveKeys().active();
 
-		return "signed by " + Stream.of(spork.getSignature(), spork.getCosignature()).filter(Objects::nonNull)
-			.map(signature -> NetworkKey.signerOf(digest, signature, NetworkKey.getLogKeys())
-				.map(key -> StringUtils.left(key, SHOWN_HEX) + (active.contains(key) ? "" : SWITCHED_OFF))
-				.orElse("no board key")).collect(Collectors.joining(" and "));
+		return "signed by " + signersOf(spork).stream().map(signer -> signer.map(key -> StringUtils.left(key,
+			SHOWN_HEX) + (active.contains(key) ? "" : SWITCHED_OFF)).orElse("no board key"))
+			.collect(Collectors.joining(" and "));
+	}
+
+	/* Of each signature of the head, the key that was ever a board key and made it */
+	public static List<Optional<String>> signersOf(GridSpork spork) {
+		final byte[] digest = DigestUtils.sha512(spork.getSignable());
+
+		return Stream.of(spork.getSignature(), spork.getCosignature()).filter(Objects::nonNull)
+			.map(signature -> NetworkKey.signerOf(digest, signature, NetworkKey.getLogKeys())).toList();
 	}
 
 	/* A proposal as the node hands it out, which is for the caller to judge with requireProposalOver() */
