@@ -39,6 +39,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -114,7 +115,20 @@ public class MintStorageTest {
 		final Stream<String> leave = allowPast ? Stream.of("--allow-past") : Stream.empty();
 
 		return subcommand(new GridSporkGrow(), Stream.concat(Stream.of("-D", amount, "-k", PROPOSER.getPrivateKey(),
-			NAME), Stream.concat(leave, mint)).toArray(String[]::new));
+			NAME, "--first-version"), Stream.concat(leave, mint)).toArray(String[]::new));
+	}
+
+	/* A node can say it holds nothing, and a first version takes the place of any other however old, so one is grown
+	   only when the operator says so */
+	@Example
+	public void growsAFirstVersionOnlyWhenToldTo() {
+		final FakeSporkNode node = new FakeSporkNode();
+
+		assertThat(assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(subcommand(
+			new GridSporkGrow(), "-D", AMOUNT, "-k", PROPOSER.getPrivateKey(), NAME, "--address", ACCOUNT, "--time",
+			"4102444800"), node)).getMessage(), allOf(containsString("The node holds no MINT_STORAGE spork"),
+			containsString("--first-version")));
+		assertThat(node.submitted(), empty());
 	}
 
 	private static Map<Location, BigDecimal> mintsOf(Result result) {

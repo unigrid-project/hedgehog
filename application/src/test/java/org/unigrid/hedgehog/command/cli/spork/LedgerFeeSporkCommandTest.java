@@ -88,9 +88,10 @@ public class LedgerFeeSporkCommandTest {
 		SporkCommands.fakeTheBoard();
 	}
 
+	/* A node that holds no fee yet takes the first version of it */
 	private static Result set(String fee, FakeSporkNode node) {
-		return RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", fee, "-k", PROPOSER.getPrivateKey(), NAME),
-			node);
+		return RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", fee, "-k", PROPOSER.getPrivateKey(), NAME,
+			"--first-version"), node);
 	}
 
 	/* The data is judged before the key, so any key will do; the long form takes any value, a negative one among them */

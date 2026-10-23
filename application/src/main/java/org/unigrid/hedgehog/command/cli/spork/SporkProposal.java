@@ -55,10 +55,22 @@ public final class SporkProposal {
 
 	private static final int SHOWN_HEX = 16;
 
-	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change, String key) {
+	static final String FIRST_VERSION = "Make the first version of the spork when the node holds none. A first version"
+		+ " takes the place of the one the network holds, so give this only for a spork the network has none of.";
+
+	/* A node can answer that it holds no spork of a type when the network holds one, and a first version takes the place
+	   of any other first version however old, so one is made only when the operator says so */
+	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change, String key,
+		boolean firstVersion) {
+
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
 			final Optional<GridSpork> stored = sporks.stored(type);
+
+			if (stored.isEmpty()) {
+				requireFirstVersion(commandLine, type, firstVersion);
+			}
+
 			final GridSpork spork = GridSpork.nextVersion(type, stored.orElse(null),
 				sporks.proposalOf(type, stored.orElse(null)));
 
@@ -76,6 +88,15 @@ public final class SporkProposal {
 		} catch (SigningException | IllegalArgumentException ex) {
 			System.err.println("The spork was not proposed: " + TerminalText.printable(ex.getMessage()));
 		}
+	}
+
+	private static void requireFirstVersion(CommandLine commandLine, GridSpork.Type type, boolean firstVersion) {
+		if (!firstVersion) {
+			throw new ParameterException(commandLine, "The node holds no " + type + " spork, so nothing was"
+				+ " signed; give --first-version to make the first version of it");
+		}
+
+		System.out.println("Making the first version of the " + type + " spork, as the node holds none");
 	}
 
 	/* The data of a spork as a whole, so that whoever signs sees every change, those carried over among them */

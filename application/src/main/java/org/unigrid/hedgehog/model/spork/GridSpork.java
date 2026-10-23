@@ -386,8 +386,9 @@ public class GridSpork implements Serializable, Signable {
 	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
 	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
 	   as two renewals do, settle by time, and so does the first version, which follows nothing. So do two first
-	   versions, with no previous time stamp and no log, however far apart they were made: no version before them can
-	   win back its place, and each took two board keys, which may sign the data of a database again hours apart. */
+	   versions, with no previous time stamp and no log, however far apart they were made, as board members may sign
+	   the data of a database again hours apart: an older one never wins back its place, a new one takes two board
+	   keys, and the command line makes one only on the word of the operator, as a node can hide what it holds. */
 	private boolean mayTakeThePlaceOf(GridSpork stored) {
 		if (Objects.isNull(stored)) {
 			return true;

@@ -60,7 +60,7 @@ abstract class SporkCommand<D> implements Runnable {
 			final D data = read(GridSporkSet.getData());
 
 			SporkProposal.propose(spec.commandLine(), type(), spork -> apply(data, spork),
-				set.getBoardKey().resolve(NetworkKey::isTrusted));
+				set.getBoardKey().resolve(NetworkKey::isTrusted), set.isFirstVersion());
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();

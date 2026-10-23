@@ -37,6 +37,11 @@ public class GridSporkSet {
 	)
 	private static String data;
 
+	@Getter @Option(names = "--first-version", scope = CommandLine.ScopeType.INHERIT,
+		description = SporkProposal.FIRST_VERSION
+	)
+	private boolean firstVersion;
+
 	@Getter @Mixin
 	private BoardKeyOptions boardKey;
 }

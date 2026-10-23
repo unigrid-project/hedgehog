@@ -79,8 +79,9 @@ public class StorageTest {
 		SporkCommands.fakeTheBoard();
 	}
 
+	/* A node that holds no storage spork yet takes the first version of it */
 	private static Runnable set(String data) {
-		return subcommand(new GridSporkSet(), "-D", data, "-k", PROPOSER.getPrivateKey(), NAME);
+		return subcommand(new GridSporkSet(), "-D", data, "-k", PROPOSER.getPrivateKey(), NAME, "--first-version");
 	}
 
 	@Property(tries = 10)

@@ -101,9 +101,10 @@ public class LedgerBlacklistCommandTest {
 		};
 	}
 
+	/* A node that holds no blacklist yet takes the first version of it */
 	private static Runnable set(FileSystem fs, String key) {
-		return (Runnable) new CommandLine(new GridSporkSet(), readingFrom(fs)).parseArgs("-D", FILE, "-k", key, NAME)
-			.subcommand().commandSpec().userObject();
+		return (Runnable) new CommandLine(new GridSporkSet(), readingFrom(fs)).parseArgs("-D", FILE, "-k", key, NAME,
+			"--first-version").subcommand().commandSpec().userObject();
 	}
 
 	private static HedgehogCli.Result setThroughTheTree(FileSystem fs) {
