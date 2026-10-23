@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import net.jqwik.api.Example;
@@ -32,8 +34,10 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.RETIRED;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
@@ -44,6 +48,7 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
@@ -170,6 +175,53 @@ public class ForgedSporkTest {
 			assertThat(how, result.out(), not(containsString("Proposed data")));
 			assertThat(how, node.submitted(), empty());
 		});
+	}
+
+	private static String shortly(String hex) {
+		return hex.substring(0, 16);
+	}
+
+	/* What a build from before co-signatures stored: signed once, over its Java serialization */
+	private static GridSpork signedOnceByAnEarlierBuild(Signature signer) {
+		final GridSpork spork = GridSpork.create(Type.MINT_SUPPLY);
+
+		spork.setData(supplyOf(10));
+		spork.setPreviousData(supplyOf(0));
+		spork.setTimeStamp(Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(60));
+		spork.setPreviousTimeStamp(Instant.EPOCH);
+		spork.setSignature(SporkCommands.signatureOf(signer, spork));
+		return spork;
+	}
+
+	/* A node may hand out a head that passes for one the network took and is not the one it holds, which only a
+	   second node tells, so the head is shown short enough to hold against it before anything is signed over it */
+	@Example
+	public void showsTheStoredHeadBeforeSigningOverIt() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+		final Result result = RestCommandFixture.run(set(20), node);
+
+		assertThat(result.out(), containsString("made at " + stored.getTimeStamp()));
+		assertThat(result.out(), containsString("digest " + shortly(PendingSporks.digestOf(stored))));
+		assertThat(result.out(), containsString("signed by " + shortly(PROPOSER.getPublicKey()) + " and "
+			+ shortly(COSIGNER.getPublicKey())));
+		assertThat(result.out(), not(containsString("retired")));
+		assertThat(node.submitted(), hasSize(1));
+	}
+
+	/* A retired key and the single signature of a build from before co-signatures are what a forged head needs */
+	@Example
+	public void marksAHeadSignedOnceByARetiredKeyWhereverItIsSignedOver() {
+		final GridSpork stored = signedOnceByAnEarlierBuild(RETIRED);
+		final String head = "signed once by " + shortly(RETIRED.getPublicKey()) + " (retired key), in the form "
+			+ "of a build from before co-signatures";
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER);
+
+		assertThat(RestCommandFixture.run(set(20), new FakeSporkNode().holding(stored)).out(),
+			containsString(head));
+		assertThat(RestCommandFixture.run(renew(), new FakeSporkNode().holding(stored)).out(), containsString(head));
+		assertThat(RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)),
+			new FakeSporkNode().holding(stored).waitingOn(proposal)).out(), containsString(head));
 	}
 
 	@Example

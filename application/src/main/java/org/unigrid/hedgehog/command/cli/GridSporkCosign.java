@@ -109,6 +109,7 @@ public class GridSporkCosign implements Runnable {
 
 		System.out.println("Proposal " + digest + " of " + proposal.getType() + ", made at "
 			+ proposal.getTimeStamp() + " and signed by " + signer);
+		SporkProposal.showHead(stored);
 		SporkProposal.show("Stored data:", stored);
 		SporkProposal.show("Proposed data:", Optional.of(proposal));
 	}

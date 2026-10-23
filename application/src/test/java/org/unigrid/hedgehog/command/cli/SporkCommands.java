@@ -59,6 +59,7 @@ public final class SporkCommands {
 	public static final Signature PROPOSER = keyPair();
 	public static final Signature COSIGNER = keyPair();
 	public static final Signature STRANGER = keyPair();
+	public static final Signature RETIRED = keyPair();
 
 	private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -67,7 +68,8 @@ public final class SporkCommands {
 		return new Signature();
 	}
 
-	/* The proposer and the co-signer are the board, and the environment gives no key */
+	/* The proposer and the co-signer are the board, the retired key was of an earlier one, and the environment gives
+	   no key */
 	public static void fakeTheBoard() {
 		new MockUp<NetworkKey>() {
 			@Mock public String[] getPublicKeys() {
@@ -75,7 +77,7 @@ public final class SporkCommands {
 			}
 
 			@Mock public String[] getRetiredPublicKeys() {
-				return new String[0];
+				return new String[] { RETIRED.getPublicKey() };
 			}
 		};
 

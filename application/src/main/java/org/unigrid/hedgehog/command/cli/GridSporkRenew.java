@@ -79,6 +79,7 @@ public class GridSporkRenew implements Runnable {
 		}
 
 		for (GridSpork spork : stored) {
+			SporkProposal.showHead(Optional.of(spork));
 			SporkProposal.show("Renewing " + spork.getType() + " with its data unchanged, signed now:",
 				Optional.of(spork));
 		}

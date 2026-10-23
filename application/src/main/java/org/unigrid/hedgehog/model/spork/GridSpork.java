@@ -304,13 +304,16 @@ public class GridSpork implements Serializable, Signable {
 		final Optional<String> signer = knownSignerOfHead(signature);
 		final Optional<String> cosigner = knownSignerOfHead(cosignature);
 
-		/* A build from before co-signatures signed once, and over the Java serialization of the spork */
-		final boolean isOfAnEarlierBuild = !isWireSignable() && isPending();
-
-		return signer.isPresent() && (isOfAnEarlierBuild || cosigner.isPresent() && !cosigner.equals(signer));
+		return signer.isPresent() && (isOfAnEarlierBuild() || cosigner.isPresent() && !cosigner.equals(signer));
 	}
 
-	private Optional<String> knownSignerOfHead(byte[] headSignature) {
+	/* A build from before co-signatures signed once, and over the Java serialization of the spork */
+	@JsonIgnore
+	public boolean isOfAnEarlierBuild() {
+		return !isWireSignable() && isPending();
+	}
+
+	public Optional<String> knownSignerOfHead(byte[] headSignature) {
 		return Objects.isNull(headSignature) ? Optional.empty()
 			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature);
 	}
