@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -51,6 +52,8 @@ import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
@@ -318,6 +321,8 @@ public class SporkDbCommandTest {
 				assertThat(NetworkKey.signerOf(spork), equalTo(Optional.of(FIRST.getPublicKey())));
 				assertThat(linesOf(first), hasItem(spork.getType() + ": a first version of its data, made at "
 					+ spork.getTimeStamp() + " and signed by " + shortly(FIRST.getPublicKey())));
+				assertThat(linesOf(first), hasItems(spork.getType() + " time stamp: " + spork.getTimeStamp(),
+					spork.getType() + " flags: " + spork.getFlags()));
 			}
 
 			assertThat(first.out(), containsString("MINT_SUPPLY data:"));
@@ -342,14 +347,40 @@ public class SporkDbCommandTest {
 	@SneakyThrows
 	public void leavesASporkThatTheBoardSignedAsItIs() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final GridSpork spork = supply(supplyOf(10), FIRST, SECOND);
+			final GridSpork spork = SerializationUtils.clone(supply(supplyOf(10), FIRST, SECOND));
+
+			spork.renew();
+			spork.sign(SECOND.getPrivateKey());
+			spork.cosign(FIRST.getPrivateKey());
+
 			final HedgehogCli.Result result = sign(fs, written(fs, "signed.db", spork), "/out.db", FIRST);
 			final GridSpork signed = load(fs.getPath("/out.db")).getMintSupply();
 
 			assertThat(result.err(), result.exitCode(), equalTo(0));
 			assertThat(signed.getSignature(), equalTo(spork.getSignature()));
 			assertThat(signed.getCosignature(), equalTo(spork.getCosignature()));
-			assertThat(linesOf(result), hasItem("MINT_SUPPLY: signed by the board, left as it is"));
+			assertThat(linesOf(result), hasItems("MINT_SUPPLY signature log: 1 entries, head "
+				+ shortly(Hex.encodeHexString(spork.getSignatureLog().headHash())),
+				"MINT_SUPPLY: signed by the board, left as it is"));
+		}
+	}
+
+	/* Whoever signs vouches for every byte of it, the previous version and the history among them */
+	@Example
+	@SneakyThrows
+	public void showsEverythingThatItSignsBeforeItSigns() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = written(fs, "once.db", supply(supplyOf(10), FIRST));
+			final GridSpork spork = load(file).getMintSupply();
+			final HedgehogCli.Result result = sign(fs, file, "/twice.db", SECOND);
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(linesOf(result), hasItems("MINT_SUPPLY time stamp: " + spork.getTimeStamp(),
+				"MINT_SUPPLY previous time stamp: 1970-01-01T00:00:00Z", "MINT_SUPPLY flags: " + spork.getFlags(),
+				"MINT_SUPPLY signature log: 0 entries, head none",
+				"MINT_SUPPLY first signer: " + shortly(FIRST.getPublicKey())));
+			assertThat(result.out(), containsString("MINT_SUPPLY data:\n{\n  \"maxSupply\" : 10\n}"));
+			assertThat(result.out(), containsString("MINT_SUPPLY previous data:\n{\n  \"maxSupply\" : 0\n}"));
 		}
 	}
 

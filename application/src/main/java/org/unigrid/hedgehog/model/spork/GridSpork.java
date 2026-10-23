@@ -155,6 +155,7 @@ public class GridSpork implements Serializable, Signable {
 		final GridSpork first = create(spork.type);
 		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
+		first.flags |= Flag.WIRE_SIGNABLE.getValue();
 		first.setData(SerializationUtils.clone(spork.<ChunkData>getData()));
 		first.setPreviousData(first.<ChunkData>getData().empty());
 		first.setPreviousTimeStamp(Instant.EPOCH);

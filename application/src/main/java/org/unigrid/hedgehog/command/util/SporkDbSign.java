@@ -23,12 +23,18 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.SignatureLog;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
@@ -73,54 +79,77 @@ public class SporkDbSign implements Runnable {
 		}
 
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
+		final List<GridSpork> versions = new ArrayList<>();
 
 		for (GridSpork spork : SporkDatabaseFile.sporksOf(database)) {
 			SporkDatabaseFile.contentProblem(spork).ifPresent(problem -> {
 				throw refused("Nothing was signed: the content of the " + spork.getType()
 					+ " spork does not hold: " + problem);
 			});
+
+			versions.add(spork.isTakenByTheNetwork() || spork.canBeProposedOver(null) ? spork
+				: GridSpork.firstVersionOf(spork));
 		}
 
-		for (GridSpork spork : SporkDatabaseFile.sporksOf(database)) {
-			show(spork);
-			System.out.println(spork.getType() + ": " + signed(spork, database, key));
+		for (GridSpork version : versions) {
+			show(version);
+			System.out.println(version.getType() + ": " + signed(version, key));
+			database.set(version);
 		}
 
 		write(database);
 		System.out.println("output: " + output);
 	}
 
-	private void show(GridSpork spork) {
+	/* Every field the signature covers, so that nothing signed goes unseen */
+	private void show(GridSpork version) {
+		final String type = version.getType().toString();
+		final SignatureLog log = version.getSignatureLog();
+
+		print(type + " time stamp: " + version.getTimeStamp());
+		print(type + " previous time stamp: " + version.getPreviousTimeStamp());
+		print(type + " flags: " + version.getFlags());
+		print(type + " data:\n" + json(version, version.getData()));
+		print(type + " previous data:\n" + json(version, version.getPreviousData()));
+		print(type + " signature log: " + log.size() + " entries, head " + (log.isEmpty() ? "none"
+			: StringUtils.left(Hex.encodeHexString(log.headHash()), SporkDatabaseFile.SHOWN_HEX)));
+
+		if (Objects.nonNull(version.getSignature()) && version.isPending()) {
+			print(type + " first signer: " + SporkDatabaseFile.keyOf(version, version.getSignature()));
+		}
+	}
+
+	private static void print(String text) {
+		System.out.println(TerminalText.printable(text));
+	}
+
+	private String json(GridSpork version, ChunkData data) {
 		try {
-			System.out.println(spork.getType() + " data:");
-			System.out.println(TerminalText.printable(JSON.writeValueAsString(spork.getData())));
+			return JSON.writeValueAsString(data);
 		} catch (JsonProcessingException ex) {
-			throw refused("Nothing was signed: the data of the " + spork.getType() + " spork cannot be shown: "
+			throw refused("Nothing was signed: the data of the " + version.getType() + " spork cannot be shown: "
 				+ ex.getMessage());
 		}
 	}
 
 	/* Only a spork whose signature and log the current keys vouch for is co-signed: anything else could carry a
 	   history that no board made, and is begun again from its data */
-	private String signed(GridSpork spork, SporkDatabase database, String key) {
+	private String signed(GridSpork version, String key) {
 		try {
-			if (spork.isTakenByTheNetwork()) {
+			if (version.isTakenByTheNetwork()) {
 				return "signed by the board, left as it is";
 			}
 
-			if (spork.canBeProposedOver(null)) {
-				spork.cosign(key);
-				return "co-signed by " + SporkDatabaseFile.keyOf(spork, spork.getCosignature());
+			if (Objects.nonNull(version.getSignature())) {
+				version.cosign(key);
+				return "co-signed by " + SporkDatabaseFile.keyOf(version, version.getCosignature());
 			}
 
-			final GridSpork first = GridSpork.firstVersionOf(spork);
-
-			first.sign(key);
-			database.set(first);
-			return "a first version of its data, made at " + first.getTimeStamp() + " and signed by "
-				+ SporkDatabaseFile.keyOf(first, first.getSignature());
+			version.sign(key);
+			return "a first version of its data, made at " + version.getTimeStamp() + " and signed by "
+				+ SporkDatabaseFile.keyOf(version, version.getSignature());
 		} catch (SigningException ex) {
-			throw refused("Nothing was signed: the " + spork.getType() + " spork cannot be signed: "
+			throw refused("Nothing was signed: the " + version.getType() + " spork cannot be signed: "
 				+ ex.getMessage());
 		}
 	}
