@@ -95,6 +95,11 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return spork.<SporkData>getData().getChanges().size();
 	}
 
+	/* The number of changes of the chain */
+	public int chainLength() {
+		return lengthOf(this);
+	}
+
 	@Data
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = 6815529384750267513L;

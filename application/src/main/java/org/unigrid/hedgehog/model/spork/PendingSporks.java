@@ -72,7 +72,7 @@ public class PendingSporks {
 	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held)
+		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held) && !holdsLessThan(spork, held)
 			&& spork.isProposalOver(stored, mayVerify)) {
 			proposals.put(spork.getType(), spork);
 			return true;
@@ -109,6 +109,13 @@ public class PendingSporks {
 	/* A proposal that a key signed which the board switched off can no longer be co-signed into a spork that counts */
 	public synchronized void retainProposalsOfActiveKeys() {
 		proposals.values().removeIf(spork -> !spork.isValidSignature());
+	}
+
+	/* A change of the board keys waits for its co-signature, and one stolen key would push it out with a renewal of the
+	   chain as it is, or with a chain that holds less, if the newer proposal won whatever it held */
+	private static boolean holdsLessThan(GridSpork spork, GridSpork held) {
+		return spork instanceof BoardKeys proposal && held instanceof BoardKeys waiting
+			&& proposal.chainLength() < waiting.chainLength();
 	}
 
 	/* Of a proposal as of a co-signed version: the newest wins, so one stamped further ahead than clocks drift apart
