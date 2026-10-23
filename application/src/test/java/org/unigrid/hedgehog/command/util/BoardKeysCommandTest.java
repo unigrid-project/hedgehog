@@ -39,6 +39,7 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
@@ -54,15 +55,19 @@ import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysFixture;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 import picocli.CommandLine;
 
 /* A change of the board keys as the board makes it on its own machines: proposed, approved by each member, applied to
@@ -82,6 +87,7 @@ public class BoardKeysCommandTest {
 		};
 
 		OptionsCli.parse(List.of("util"), BOARD);
+		BoardKeysRecordFixture.inMemory();
 	}
 
 	@AfterTry
@@ -285,6 +291,72 @@ public class BoardKeysCommandTest {
 			assertSucceeded(approved);
 			assertThat(approved.out(), containsString("approvals: 1 of the 2 that the keys before it need"));
 			assertThat(approved.out().lines().toList(), hasItem("added keys that approved it: 0 of 1"));
+		}
+	}
+
+	/* A file of the chain of board keys, signed by key 1 and by the last key that the chain makes active */
+	@SneakyThrows
+	private static Path chained(FileSystem fs, String name, KeyChange... changes) {
+		final SporkDatabase database = SporkDatabase.builder().build();
+		final Path file = fs.getPath(name);
+		final List<String> active = changes[changes.length - 1].getActive();
+		final Signature cosigner = BoardKeysFixture.KEYS.stream()
+			.filter(key -> key.getPublicKey().equals(active.getLast())).findFirst().orElseThrow();
+
+		database.set(signed(chainOf(changes), key(1), cosigner));
+		SporkDatabase.persist(file, database);
+		return file;
+	}
+
+	private static HedgehogCli.Result sign(FileSystem fs, Path file, String output) {
+		return run(fs, "spork-db", "sign", file.toString(), "--output", output, "-k", key(1).getPrivateKey());
+	}
+
+	private static void assertRefused(HedgehogCli.Result result, String why) {
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), allOf(containsString(why), containsString("that this machine verified before"),
+			containsString("only to start over")));
+	}
+
+	/* What this machine verified of the chain of board keys is recorded, and a file that holds less of it or another
+	   chain is refused: what goes by it would take keys that the board switched off for active ones */
+	@Example
+	@SneakyThrows
+	public void signsProposesApprovesAndAppliesNothingOverAFileThatHoldsLessThanTheRecordedChain() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] root = rootOf(keys(0, 1));
+			final KeyChange first = change(root, List.of(), keys(1, 2), keys(0, 1, 2));
+			final KeyChange other = change(root, List.of(), keys(0, 1, 3), keys(0, 1, 3));
+			final HedgehogCli.Result recorded = sign(fs, chained(fs, "/chained.db", first), "/signed.db");
+
+			assertSucceeded(recorded);
+			assertThat(recorded.out(), containsString("Recorded the chain of 1 change"));
+
+			final Path none = withSupply(fs, key(0), key(1));
+
+			writeChange(fs, new ProposedKeyChange(listOf(0, 1), adding2AndSwitchingOff0(root)));
+			assertRefused(sign(fs, none, "/none.db"), "holds no board keys");
+			assertRefused(proposeTheChange(fs, "--spork-db", none.toString()), "holds no board keys");
+			assertRefused(approve(fs, key(1)), "holds no board keys");
+			assertRefused(run(fs, "board-keys", "apply", none.toString(), "--change", "/change.json", "--output",
+				"/changed.db"), "holds no board keys");
+			assertRefused(sign(fs, chained(fs, "/other.db", other), "/other-signed.db"), "does not hold");
+			assertThat(Files.exists(fs.getPath("/none.db")), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void recordsTheLongerChainOfAFile() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] root = rootOf(keys(0, 1));
+			final KeyChange first = change(root, List.of(), keys(1, 2), keys(0, 1, 2));
+			final KeyChange second = change(root, List.of(first), keys(1, 2, 3), keys(1, 2, 3));
+
+			assertSucceeded(sign(fs, chained(fs, "/first.db", first), "/first-signed.db"));
+			assertSucceeded(sign(fs, chained(fs, "/second.db", first, second), "/second-signed.db"));
+			assertRefused(sign(fs, chained(fs, "/again.db", first), "/again-signed.db"), "fewer than the chain of"
+				+ " 2 changes");
 		}
 	}
 

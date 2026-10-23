@@ -124,6 +124,18 @@ public final class BoardKeyChain {
 		return DigestUtils.sha512(change.decidedBehind(LINK_TAG));
 	}
 
+	/* Whether the chain begins with the whole of the other, as their changes decide. The last change of the other is
+	   enough to compare, as each change follows on what the one before it decided; a change that cannot be written is
+	   no change of either. */
+	public static boolean holds(List<KeyChange> chain, List<KeyChange> other) {
+		try {
+			return chain.size() >= other.size() && (other.isEmpty()
+				|| Arrays.equals(digestOf(chain.get(other.size() - 1)), digestOf(other.getLast())));
+		} catch (IllegalArgumentException ex) {
+			return false;
+		}
+	}
+
 	/* What the next change follows on */
 	public static byte[] headOf(byte[] root, List<KeyChange> changes) {
 		return changes.isEmpty() ? root : digestOf(changes.getLast());

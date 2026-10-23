@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -89,25 +88,11 @@ public class BoardKeys extends GridSpork implements Serializable {
 
 	/* Whether the chain of this spork begins with the whole chain of the other */
 	public boolean holdsTheChainOf(GridSpork other) {
-		final List<KeyChange> held = other.<SporkData>getData().getChanges();
-		final List<KeyChange> changes = this.<SporkData>getData().getChanges();
-
-		return changes.size() >= held.size() && decideAlike(changes, held);
+		return BoardKeyChain.holds(this.<SporkData>getData().getChanges(), other.<SporkData>getData().getChanges());
 	}
 
 	private static int lengthOf(GridSpork spork) {
 		return spork.<SporkData>getData().getChanges().size();
-	}
-
-	/* The last change of the stored chain is enough to compare, as each change follows on what the one before it
-	   decided; a change that cannot be written is no change of either */
-	private static boolean decideAlike(List<KeyChange> changes, List<KeyChange> held) {
-		try {
-			return held.isEmpty() || Arrays.equals(BoardKeyChain.digestOf(changes.get(held.size() - 1)),
-				BoardKeyChain.digestOf(held.getLast()));
-		} catch (IllegalArgumentException ex) {
-			return false;
-		}
 	}
 
 	@Data

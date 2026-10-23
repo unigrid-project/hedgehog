@@ -33,7 +33,8 @@ if [ -z "$JAR" ]; then
 	JAR=$(ls -t "$ROOT"/application/target/hedgehog-*-jar-with-dependencies.jar | head -1)
 fi
 
-hedgehog() { "$JAVA" -jar "$JAR" "$@" 2> >(grep -v '^WARNING\|^SLF4J' >&2); }
+# The command line keeps a record of the board keys it verified in its data directory, which is one of the rehearsal
+hedgehog() { XDG_DATA_HOME="$WORK/cli" "$JAVA" -jar "$JAR" "$@" 2> >(grep -v '^WARNING\|^SLF4J' >&2); }
 
 # node <n> <command>: a cli command against node n. The board keys are those of this network, as a spork is signed by
 # the command line, which checks the key it is given against them.

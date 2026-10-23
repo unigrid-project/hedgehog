@@ -62,6 +62,9 @@ public class BoardKeysApply implements Callable<Integer> {
 	@Override
 	public Integer call() {
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
+
+		SporkDatabaseFile.requireRecorded(spec, database, file);
+
 		final List<KeyChange> chain = new ArrayList<>(changesOf(database.getBoardKeys()));
 		final ActiveKeys keys;
 

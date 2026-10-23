@@ -97,25 +97,31 @@ public class SporkDatabase implements Serializable {
 	   database or the new one, never a truncated mix. Each save writes a file of its own, made new, so that a node and
 	   an import never write into each other's, and saves of one process take turns, so the last one stays. */
 	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
+		replace(path, channel -> write(channel, sporkDatabase));
+	}
+
+	interface ChannelWriter {
+		void write(FileChannel channel) throws IOException;
+	}
+
+	/* As persist() writes a database, any content that the writer puts into the channel and forces to the disk */
+	static void replace(Path path, ChannelWriter writer) throws IOException {
 		final Path file = path.toAbsolutePath();
 		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", ".tmp");
 
 		try {
-			write(temporary, sporkDatabase);
+			try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
+				StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+
+				writer.write(channel);
+			}
+
 			Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 			forceDirectory(file);
 
 		} catch (IOException | RuntimeException ex) {
 			removeTemporary(temporary, ex);
 			throw ex;
-		}
-	}
-
-	private static void write(Path temporary, SporkDatabase sporkDatabase) throws IOException {
-		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
-			StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
-
-			write(channel, sporkDatabase);
 		}
 	}
 

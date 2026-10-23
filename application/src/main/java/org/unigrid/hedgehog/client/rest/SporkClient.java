@@ -41,8 +41,10 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.RecordedChainException;
 
 /* The sporks of a node as a board member's command line reads them and hands them back: in the form peers exchange, so
    that what is signed on this machine covers the bytes every node reads. The client trusts any certificate, and the
@@ -67,18 +69,26 @@ public class SporkClient {
 	* Goes by the board keys that the node holds, once they hold from the root of this machine: the keys that sign a
 	* spork are those that the chain of the board makes active, and a key that the board added since the release is
 	* one of them. A node that holds none leaves the keys built into the release. Board keys that do not hold, or that
-	* two of their own keys did not sign, sign nothing on this machine.
+	* two of their own keys did not sign, sign nothing on this machine, and nor do any that hold less than the chain that
+	* this machine verified before ({@link BoardKeysRecord}).
 	*/
 	public void installBoardKeys() throws ResponseOddityException, UntrustedSporkException, IOException {
 		final Optional<GridSpork> held = sporkIn(rest.get(WIRE + "/" + GridSpork.Type.BOARD_KEYS.name()));
 
-		if (held.isPresent()) {
-			if (!(held.get() instanceof BoardKeys boardKeys) || !boardKeys.isTakenByTheNetwork()) {
-				throw new UntrustedSporkException(UNROOTED);
-			}
-
-			BoardKeysAuthority.install(boardKeys);
+		if (held.isPresent() && !(held.get() instanceof BoardKeys chain && chain.isTakenByTheNetwork())) {
+			throw new UntrustedSporkException(UNROOTED);
 		}
+
+		final Optional<BoardKeys> boardKeys = held.map(BoardKeys.class::cast);
+
+		try {
+			BoardKeysRecord.ofThisMachine().keep(boardKeys.map(spork -> spork.<BoardKeys.SporkData>getData()
+				.getChanges()), "the node").ifPresent(System.out::println);
+		} catch (RecordedChainException ex) {
+			throw new UntrustedSporkException(ex.getMessage());
+		}
+
+		boardKeys.ifPresent(BoardKeysAuthority::install);
 	}
 
 	/* The stored spork of a type, once it is known to be one the network took and that two keys active now signed. One

@@ -70,11 +70,15 @@ public final class SporkCommands {
 		return new Signature();
 	}
 
-	/* The proposer and the co-signer are the board, and the environment gives no key */
+	/* The proposer and the co-signer are the board, built into the release, and the environment gives no key */
 	public static void fakeTheBoard() {
 		new MockUp<NetworkKey>() {
 			@Mock public String[] getPublicKeys() {
 				return new String[] { PROPOSER.getPublicKey(), COSIGNER.getPublicKey() };
+			}
+
+			@Mock public String[] getBuiltInKeys() {
+				return getPublicKeys();
 			}
 		};
 

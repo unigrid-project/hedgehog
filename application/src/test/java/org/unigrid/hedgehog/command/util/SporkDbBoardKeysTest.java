@@ -52,6 +52,7 @@ import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.MintSupply;
@@ -85,6 +86,7 @@ public class SporkDbBoardKeysTest {
 		};
 
 		OptionsCli.parse(List.of("util"), BOARD);
+		BoardKeysRecordFixture.inMemory();
 	}
 
 	@AfterTry

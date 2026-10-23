@@ -35,10 +35,14 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.SerializationException;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.RecordedChainException;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
 import org.unigrid.hedgehog.model.util.TerminalText;
@@ -120,6 +124,20 @@ final class SporkDatabaseFile {
 			Files.deleteIfExists(output);
 		} catch (IOException ex) {
 			System.err.println("Could not remove the unfinished " + output + ": " + ex.getMessage());
+		}
+	}
+
+	/* A board member signs and approves by the keys that the chain of board keys of the file makes active, so a file
+	   that holds less than the chain that this machine verified before is refused, and one that holds more of it is
+	   recorded (BoardKeysRecord) */
+	static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
+		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
+			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());
+
+		try {
+			BoardKeysRecord.ofThisMachine().keep(chain, "the file " + file).ifPresent(System.out::println);
+		} catch (RecordedChainException | IOException ex) {
+			throw new ParameterException(spec.commandLine(), TerminalText.printable(ex.getMessage()), ex);
 		}
 	}
 

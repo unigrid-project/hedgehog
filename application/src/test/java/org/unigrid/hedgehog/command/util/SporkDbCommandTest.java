@@ -80,6 +80,7 @@ import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
@@ -129,6 +130,7 @@ public class SporkDbCommandTest {
 		};
 
 		OptionsCli.parse(List.of("util"), BOARD);
+		BoardKeysRecordFixture.inMemory();
 	}
 
 	/* The import installs into the data directory of a node in memory, whose file system gives everyone a lock, so

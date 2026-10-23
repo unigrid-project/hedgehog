@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.command.util;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
@@ -32,6 +34,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +50,7 @@ import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.server.rest.RestToken;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -93,6 +97,12 @@ public final class RestCommandFixture {
 		return run(HOST, command, () -> TOKEN, answer);
 	}
 
+	/* With the record of the board keys of this machine kept in the directory given, from one command to the next */
+	public static Result run(Runnable command, Answer answer, Path recordDirectory) {
+		readsBackItsEntity(Response.ok().build());
+		return run(HOST, command, () -> TOKEN, answer, recordDirectory);
+	}
+
 	public static Result runWithOddity(Runnable command, ResponseOddityException oddity) {
 		return run(HOST, command, () -> TOKEN, request -> {
 			throw oddity;
@@ -107,7 +117,13 @@ public final class RestCommandFixture {
 		});
 	}
 
+	/* A record of the board keys of its own for each command, in memory: the data directory of the user who runs the
+	   tests may hold one of a network */
 	private static Result run(String host, Runnable command, Token token, Answer answer) {
+		return run(host, command, token, answer, Jimfs.newFileSystem(Configuration.unix()).getPath("/data"));
+	}
+
+	private static Result run(String host, Runnable command, Token token, Answer answer, Path recordDirectory) {
 		final FakeClient client = new FakeClient(answer);
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		final ByteArrayOutputStream err = new ByteArrayOutputStream();
@@ -115,6 +131,7 @@ public final class RestCommandFixture {
 		final PrintStream originalErr = System.err;
 
 		fakeOptions(host, token);
+		BoardKeysRecordFixture.keepIn(recordDirectory);
 		System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
 		System.setErr(new PrintStream(err, true, StandardCharsets.UTF_8));
 

@@ -47,6 +47,7 @@ import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
@@ -112,10 +113,16 @@ public final class ChangeFile {
 	}
 
 	/* The chain of board keys of a spork database, or the keys built into the release when none is given or it holds
-	   none */
+	   none; one that is given is judged by the record of this machine first */
 	static List<KeyChange> chainOf(CommandSpec spec, Path sporkDb) {
-		final BoardKeys held = Objects.isNull(sporkDb) ? null : SporkDatabaseFile.load(spec, sporkDb).getBoardKeys();
+		if (Objects.isNull(sporkDb)) {
+			return List.of();
+		}
 
+		final SporkDatabase database = SporkDatabaseFile.load(spec, sporkDb);
+		final BoardKeys held = database.getBoardKeys();
+
+		SporkDatabaseFile.requireRecorded(spec, database, sporkDb);
 		return Objects.isNull(held) ? List.of() : held.<BoardKeys.SporkData>getData().getChanges();
 	}
 

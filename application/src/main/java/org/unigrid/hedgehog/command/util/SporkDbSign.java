@@ -78,6 +78,9 @@ public class SporkDbSign implements Runnable {
 	@Override
 	public void run() {
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
+
+		SporkDatabaseFile.requireRecorded(spec, database, file);
+
 		final String key = boardKey.resolve(NetworkKey::isTrusted);
 
 		SporkDatabaseFile.writeNew(spec, output, () -> signed(database, key));
