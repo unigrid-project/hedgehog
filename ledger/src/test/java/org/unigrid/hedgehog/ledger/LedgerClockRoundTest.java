@@ -253,19 +253,37 @@ public class LedgerClockRoundTest {
 		}
 	}
 
-	/* The round and the signature of a vote need nothing of the state, so they are checked before anything that does */
+	/* The round of a vote needs nothing of the state, so it is checked before anything that does */
 	@Example
-	public void shouldCheckTheRoundAndTheSignatureOfAVoteBeforeWhoCastIt() throws IOException {
+	public void shouldCheckTheRoundOfAVoteBeforeWhoCastIt() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(1) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+			final Vote own = add(ledger, seed(1), GRIDNODE, 1);
+			final Vote forged = new Vote(own.voter(), own.candidate(), own.action(), own.round(),
+				new byte[Ed25519.SIGNATURE_SIZE]);
+
+			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 0)).orElse(""), containsString("another round"));
+			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 1)).orElse(""), containsString("not a validator"));
+			assertThat(ledger.submit(forged).orElse(""), containsString("signature"));
+		}
+	}
+
+	/* Anyone can sign votes with keys of their own for nothing, so a vote of a key that is no validator is refused
+	   before its signature costs a check, or a place in the cache of verified signatures that real transactions need */
+	@Example
+	public void shouldRefuseAVoteOfAKeyThatIsNoValidatorWithoutCheckingItsSignature() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(startOf(1) + 1);
 			final Ledger ledger = open(fileSystem, clock);
 			final Vote outsider = add(ledger, seed(99), GRIDNODE, 1);
 			final Vote forged = new Vote(outsider.voter(), outsider.candidate(), outsider.action(), outsider.round(),
 				new byte[Ed25519.SIGNATURE_SIZE]);
+			final int verified = ledger.judging().verifiedSignatures();
 
-			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 0)).orElse(""), containsString("another round"));
-			assertThat(ledger.submit(forged).orElse(""), containsString("signature"));
 			assertThat(ledger.submit(outsider).orElse(""), containsString("not a validator"));
+			assertThat(ledger.submit(forged).orElse(""), containsString("not a validator"));
+			assertThat(ledger.judging().verifiedSignatures(), equalTo(verified));
 		}
 	}
 

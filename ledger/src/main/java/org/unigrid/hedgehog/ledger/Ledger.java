@@ -89,13 +89,13 @@ public final class Ledger implements ConsensusApp {
 		return checked(() -> admit(transaction));
 	}
 
-	/* What of a vote needs nothing of the state is asked first, so a vote that is plainly wrong costs nothing more */
+	/* The round of a vote needs nothing of the state, so a vote for another round costs nothing more */
 	private Optional<String> admit(Transaction transaction) {
 		final long now = clock.getAsLong();
-		final Optional<String> stamp = transaction instanceof Vote vote
-			? state.stampRejection(vote, blockTimeFor(now)) : Optional.empty();
+		final Optional<String> round = transaction instanceof Vote vote
+			? state.roundRejection(vote, blockTimeFor(now)) : Optional.empty();
 
-		return stamp.isPresent() ? stamp : admit(transaction, judgedAt(now));
+		return round.isPresent() ? round : admit(transaction, judgedAt(now));
 	}
 
 	private Optional<String> admit(Transaction transaction, LedgerState judging) {

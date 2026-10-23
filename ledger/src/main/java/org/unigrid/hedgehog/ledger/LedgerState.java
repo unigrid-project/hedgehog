@@ -227,6 +227,11 @@ public final class LedgerState {
 		return accounts.getOrDefault(key, 0L);
 	}
 
+	/* For the tests of this package: how many signatures the cache holds as verified */
+	int verifiedSignatures() {
+		return verified.size();
+	}
+
 	int accountCount() {
 		return accounts.size();
 	}
@@ -469,10 +474,11 @@ public final class LedgerState {
 			: Optional.of(VOTE_SIGNATURE_REJECTION);
 	}
 
-	/* What of a vote needs nothing of the state, for whoever takes votes in to ask before anything that does: that it
-	   is for the round of a block of this time, and that its signature holds, which binds it to this chain too */
-	public Optional<String> stampRejection(Vote vote, long blockTime) {
-		return vote.round() == roundAt(blockTime) ? signatureRejection(vote) : Optional.of(VOTE_ROUND_REJECTION);
+	/* Whether a vote is for the round of a block of this time, which needs nothing of the state, for whoever takes votes
+	   in to ask before anything that does. The signature is not: anyone can sign votes with keys of their own for
+	   nothing, so it is checked only once the voter is known to be a validator. */
+	public Optional<String> roundRejection(Vote vote, long blockTime) {
+		return vote.round() == roundAt(blockTime) ? Optional.empty() : Optional.of(VOTE_ROUND_REJECTION);
 	}
 
 	/* A refusal for a signature that does not verify is the same for every node, unlike one for the state or policy of
