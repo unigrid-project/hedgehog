@@ -23,7 +23,9 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -35,6 +37,7 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLog;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.util.TerminalText;
@@ -110,16 +113,32 @@ public class SporkDbSign implements Runnable {
 		}
 
 		if (spork.isPending() && spork.isValidSignature()) {
-			if (isFirstVersion(spork)) {
-				return spork;
+			if (!isFirstVersion(spork)) {
+				throw refused("Nothing was signed: the " + spork.getType() + " spork is signed once and is"
+					+ " no first version of its data, which is all this command co-signs; co-sign a"
+					+ " proposal over a stored spork with gridspork-cosign");
 			}
 
-			throw refused("Nothing was signed: the " + spork.getType() + " spork is signed once and is no"
-				+ " first version of its data, which is all this command co-signs; co-sign a proposal over a"
-				+ " stored spork with gridspork-cosign");
+			return notAhead(spork);
 		}
 
-		return GridSpork.firstVersionOf(spork);
+		try {
+			return GridSpork.firstVersionOf(spork);
+		} catch (IllegalArgumentException ex) {
+			throw refused("Nothing was signed: " + StringUtils.uncapitalize(ex.getMessage()));
+		}
+	}
+
+	/* A node takes a proposal stamped up to the leeway of clocks ahead of its own, and no further. A first version
+	   handed over to co-sign may be of any age, as board members pass the file between them, which can take longer
+	   than a proposal waits on a node: the age is shown instead. */
+	private GridSpork notAhead(GridSpork spork) {
+		if (spork.getTimeStamp().isAfter(Instant.now().plus(PendingSporks.LEEWAY))) {
+			throw refused("Nothing was signed: the " + spork.getType() + " spork is stamped at "
+				+ spork.getTimeStamp() + ", ahead of the clock of this machine");
+		}
+
+		return spork;
 	}
 
 	private static boolean isFirstVersion(GridSpork spork) {
@@ -145,6 +164,8 @@ public class SporkDbSign implements Runnable {
 
 		if (Objects.nonNull(version.getSignature()) && version.isPending()) {
 			print(type + " first signer: " + SporkDatabaseFile.keyOf(version, version.getSignature()));
+			print(type + " age: " + Duration.between(version.getTimeStamp(), Instant.now())
+				.truncatedTo(ChronoUnit.SECONDS));
 		}
 	}
 

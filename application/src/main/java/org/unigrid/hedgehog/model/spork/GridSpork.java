@@ -147,21 +147,25 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	/**
-	* Starts a first version of the data of a spork: no previous data, no signature log and no signature, made now
-	* and newer than the spork it is made from. It stands in for a spork that no current network key signed, which
-	* the board can no longer renew, and which a node holds nothing of.
+	* Starts a first version of the data of a spork: no previous data, no signature log and no signature, made now.
+	* It stands in for a spork that no current network key signed, which the board can no longer renew, and which a
+	* node holds nothing of. A spork stamped ahead of the clock is refused rather than outdone: a version stamped
+	* after it would win over every version the board makes until that time comes.
 	*/
 	public static GridSpork firstVersionOf(GridSpork spork) {
 		final GridSpork first = create(spork.type);
 		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
+		if (Objects.nonNull(spork.timeStamp) && !spork.timeStamp.isBefore(now)) {
+			throw new IllegalArgumentException("The " + spork.type + " spork is stamped at " + spork.timeStamp
+				+ ", ahead of the clock of this machine");
+		}
+
 		first.flags |= Flag.WIRE_SIGNABLE.getValue();
 		first.setData(SerializationUtils.clone(spork.<ChunkData>getData()));
 		first.setPreviousData(first.<ChunkData>getData().empty());
 		first.setPreviousTimeStamp(Instant.EPOCH);
-		first.setTimeStamp(Objects.isNull(spork.timeStamp) || now.isAfter(spork.timeStamp) ? now
-			: spork.timeStamp.plusMillis(1));
-
+		first.setTimeStamp(now);
 		return first;
 	}
 

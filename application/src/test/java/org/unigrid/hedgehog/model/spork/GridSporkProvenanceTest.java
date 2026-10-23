@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.spork;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
@@ -33,7 +34,9 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -119,6 +122,25 @@ public class GridSporkProvenanceTest {
 		spork.setSignature(signatureOf(FIRST, spork));
 
 		assertThat(spork.isTakenByTheNetwork(), is(false));
+	}
+
+	/* Made now, as a stamp ahead of the clock would win over every version the board makes until that time comes */
+	@Example
+	public void shouldStampAFirstVersionNowAndRefuseOneOverASporkStampedAhead() {
+		final GridSpork earlier = stored(null, 10);
+		final GridSpork ahead = stored(null, 10);
+
+		earlier.setTimeStamp(Instant.parse("2023-06-23T10:38:54.983Z"));
+		ahead.setTimeStamp(Instant.now().plusSeconds(3600));
+
+		final Instant before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork first = GridSpork.firstVersionOf(earlier);
+
+		assertThat(first.getTimeStamp().isBefore(before), is(false));
+		assertThat(first.getTimeStamp().isAfter(Instant.now()), is(false));
+		assertThat(first.getPreviousTimeStamp(), equalTo(Instant.EPOCH));
+		assertThat(first.getData(), equalTo(earlier.getData()));
+		assertThrows(IllegalArgumentException.class, () -> GridSpork.firstVersionOf(ahead));
 	}
 
 	@Example

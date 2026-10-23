@@ -40,7 +40,9 @@ import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -443,6 +445,61 @@ public class SporkDbCommandTest {
 				throw new UncheckedIOException(ex);
 			}
 		});
+	}
+
+	/* A first version signed once by the first board key, made at the time given */
+	@SneakyThrows
+	private static GridSpork firstVersionMadeAt(Instant at) {
+		final GridSpork spork = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+		spork.setData(supplyOf(10));
+		spork.setTimeStamp(at);
+		spork.sign(FIRST.getPrivateKey());
+		return spork;
+	}
+
+	/* Stamped ahead, a spork would win over every version the board makes until that time comes */
+	@Example
+	@SneakyThrows
+	public void signsNothingStampedAheadOfTheClock() {
+		final Instant ahead = Instant.parse("2100-01-01T00:00:00Z");
+		final GridSpork unsigned = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+		unsigned.setData(supplyOf(10));
+		unsigned.setTimeStamp(ahead);
+		unsigned.sign(keyPair().getPrivateKey());
+
+		final Map<String, GridSpork> stampedAhead = Map.of("no board key signed", unsigned,
+			"a first version to co-sign", firstVersionMadeAt(Instant.now().plus(PendingSporks.LEEWAY)
+				.plusSeconds(60)));
+
+		stampedAhead.forEach((how, spork) -> {
+			try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+				final HedgehogCli.Result result = sign(fs, written(fs, "ahead.db", spork), "/out.db", SECOND);
+
+				assertThat(how, result.exitCode(), equalTo(2));
+				assertThat(how, result.err(), containsString("Nothing was signed: the MINT_SUPPLY spork is stamped at "
+					+ spork.getTimeStamp() + ", ahead of the clock of this machine"));
+				assertThat(how, Files.exists(fs.getPath("/out.db")), is(false));
+			} catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
+		});
+	}
+
+	/* Board members pass the file between them, which can take longer than a proposal waits on a node */
+	@Example
+	@SneakyThrows
+	public void coSignsAFirstVersionMadeLongAgoAndShowsItsAge() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final GridSpork spork = firstVersionMadeAt(Instant.now().truncatedTo(ChronoUnit.MILLIS)
+				.minus(Duration.ofHours(3)));
+			final HedgehogCli.Result result = sign(fs, written(fs, "once.db", spork), "/out.db", SECOND);
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(linesOf(result), hasItem(startsWith("MINT_SUPPLY age: PT3H")));
+			assertThat(load(fs.getPath("/out.db")).getMintSupply().isTakenByTheNetwork(), is(true));
+		}
 	}
 
 	@Example
