@@ -101,8 +101,8 @@ public class BaseRestClientTest extends BaseMockedWeldTest {
 	@SneakyThrows
 	protected <D extends ChunkData> GridSpork next(Type type, Consumer<D> change, Signature signer) {
 		final SporkClient sporks = new SporkClient(client);
-		final GridSpork spork = GridSpork.nextVersion(type, sporks.stored(type).orElse(null),
-			sporks.proposalOf(type));
+		final GridSpork stored = sporks.stored(type).orElse(null);
+		final GridSpork spork = GridSpork.nextVersion(type, stored, sporks.proposalOf(type, stored));
 
 		change.accept(spork.getData());
 		spork.sign(signer.getPrivateKey());

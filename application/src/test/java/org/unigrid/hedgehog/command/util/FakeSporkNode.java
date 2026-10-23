@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
@@ -51,6 +52,7 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 	private final SporkDatabase database = new SporkDatabase();
 	private final PendingSporks pending = new PendingSporks();
 	private final List<GridSpork> submitted = new ArrayList<>();
+	private final List<GridSpork> forged = new ArrayList<>();
 
 	public FakeSporkNode holding(GridSpork... sporks) {
 		Arrays.stream(sporks).forEach(database::set);
@@ -59,6 +61,13 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 
 	public FakeSporkNode waitingOn(GridSpork proposal) {
 		Validate.isTrue(pending.offer(proposal, database.get(proposal.getType())), "No node would hold the proposal");
+		return this;
+	}
+
+	/* A proposal that no honest node would hold, handed out by one that is not honest or by whatever stands between
+	   it and the command line */
+	public FakeSporkNode handingOut(GridSpork forged) {
+		this.forged.add(forged);
 		return this;
 	}
 
@@ -90,8 +99,10 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 		}
 
 		if (location.startsWith(PENDING + "/")) {
-			return pending.find(StringUtils.substringAfterLast(location, "/")).map(FakeSporkNode::wire)
-				.orElseGet(() -> Response.status(Status.NOT_FOUND).build());
+			final String digest = StringUtils.substringAfterLast(location, "/");
+
+			return heldProposals().filter(spork -> PendingSporks.digestOf(spork).equals(digest)).findFirst()
+				.map(FakeSporkNode::wire).orElseGet(() -> Response.status(Status.NOT_FOUND).build());
 		}
 
 		Validate.isTrue(location.startsWith(WIRE + "/"), "No command of sporks asks for %s", location);
@@ -99,9 +110,13 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 			.map(FakeSporkNode::wire).orElseGet(() -> Response.noContent().build());
 	}
 
+	private Stream<GridSpork> heldProposals() {
+		return Stream.concat(forged.stream(), pending.list().stream());
+	}
+
 	@SneakyThrows
 	private Response proposals() {
-		final List<PendingSporkInfo> proposals = pending.list().stream().map(PendingSporkInfo::of).toList();
+		final List<PendingSporkInfo> proposals = heldProposals().map(PendingSporkInfo::of).toList();
 
 		return proposals.isEmpty() ? Response.noContent().build()
 			: Response.ok(JSON.writeValueAsString(proposals)).build();

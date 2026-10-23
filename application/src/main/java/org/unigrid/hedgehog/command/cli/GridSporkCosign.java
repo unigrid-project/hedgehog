@@ -19,7 +19,6 @@
 package org.unigrid.hedgehog.command.cli;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectWriter;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
@@ -28,12 +27,12 @@ import java.util.Optional;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
+import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
-import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine.Command;
@@ -45,9 +44,6 @@ import picocli.CommandLine.Parameters;
 		+ "What each one sets is shown beside what the node holds before it is signed on this machine."
 )
 public class GridSporkCosign implements Runnable {
-	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
-		.writerWithDefaultPrettyPrinter();
-
 	@Mixin
 	private BoardKeyOptions boardKey;
 
@@ -82,15 +78,20 @@ public class GridSporkCosign implements Runnable {
 			}
 		} catch (ResponseOddityException ex) {
 			System.err.println(RestClientCommand.describe(ex));
-		} catch (SigningException | IllegalArgumentException | IOException ex) {
+		} catch (UntrustedSporkException | SigningException | IllegalArgumentException | IOException ex) {
 			System.out.println("Co-signing " + digest + " refused: " + ex.getMessage());
 		}
 	}
 
+	/* The proposal is co-signed only once it is known to be what a current board key made from the stored spork,
+	   which in turn is known to be what the network took */
 	private static String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
-		throws ResponseOddityException, SigningException, IOException {
+		throws ResponseOddityException, UntrustedSporkException, SigningException, IOException {
 
-		show(proposal, digest, sporks.stored(proposal.getType()));
+		final Optional<GridSpork> stored = sporks.stored(proposal.getType());
+
+		SporkClient.requireProposalOver(proposal, proposal.getType(), stored.orElse(null));
+		show(proposal, digest, stored);
 		proposal.cosign(key);
 
 		final Response answer = sporks.submit(proposal);
@@ -108,9 +109,7 @@ public class GridSporkCosign implements Runnable {
 
 		System.out.println("Proposal " + digest + " of " + proposal.getType() + ", made at "
 			+ proposal.getTimeStamp() + " and signed by " + signer);
-		System.out.println("Stored data:");
-		System.out.println(stored.isPresent() ? JSON.writeValueAsString(stored.get().getData()) : "none");
-		System.out.println("Proposed data:");
-		System.out.println(JSON.writeValueAsString(proposal.getData()));
+		SporkProposal.show("Stored data:", stored);
+		SporkProposal.show("Proposed data:", Optional.of(proposal));
 	}
 }

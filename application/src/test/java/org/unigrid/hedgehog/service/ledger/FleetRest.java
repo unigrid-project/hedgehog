@@ -47,7 +47,7 @@ final class FleetRest {
 		try (RestClient client = clientOf(node)) {
 			final SporkClient sporks = new SporkClient(client);
 			final GridSpork stored = sporks.stored(type).orElse(null);
-			final GridSpork spork = GridSpork.nextVersion(type, stored, sporks.proposalOf(type));
+			final GridSpork spork = GridSpork.nextVersion(type, stored, sporks.proposalOf(type, stored));
 
 			spork.setData(data);
 			SporkContent.validate(spork, stored);

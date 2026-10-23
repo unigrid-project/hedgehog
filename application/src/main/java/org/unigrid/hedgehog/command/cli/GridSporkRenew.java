@@ -21,9 +21,11 @@ package org.unigrid.hedgehog.command.cli;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
+import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
@@ -57,14 +59,15 @@ public class GridSporkRenew implements Runnable {
 			}
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
-		} catch (SigningException | IllegalArgumentException ex) {
+		} catch (UntrustedSporkException | SigningException | IllegalArgumentException ex) {
 			System.err.println("Renewing refused, nothing was proposed: " + ex.getMessage());
 		}
 	}
 
-	/* Everything is signed before anything is proposed, so a signing failure proposes nothing */
+	/* Every spork is known to be what the network took and is shown before anything is signed, and everything is
+	   signed before anything is proposed, so a spork that fails proposes nothing */
 	private static List<GridSpork> renewed(SporkClient sporks, String key) throws ResponseOddityException,
-		SigningException {
+		UntrustedSporkException, SigningException, IOException {
 
 		final List<GridSpork> stored = new ArrayList<>();
 
@@ -72,6 +75,11 @@ public class GridSporkRenew implements Runnable {
 			if (type != GridSpork.Type.UNDEFINED) {
 				sporks.stored(type).ifPresent(stored::add);
 			}
+		}
+
+		for (GridSpork spork : stored) {
+			SporkProposal.show("Renewing " + spork.getType() + " with its data unchanged, signed now:",
+				Optional.of(spork));
 		}
 
 		for (GridSpork spork : stored) {

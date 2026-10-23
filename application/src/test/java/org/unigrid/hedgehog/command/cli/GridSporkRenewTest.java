@@ -38,6 +38,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
@@ -107,6 +108,8 @@ public class GridSporkRenewTest {
 			assertThat(NetworkKey.signerOf(renewed), equalTo(Optional.of(PROPOSER.getPublicKey())));
 			assertThat(renewed.getSignatureLog().last().getSignature(), equalTo(before.getSignature()));
 			assertThat(result.out(), containsString(PendingSporks.digestOf(renewed)));
+			assertThat(result.out().indexOf("Renewing " + before.getType()),
+				lessThan(result.out().indexOf(Status.ACCEPTED.getReasonPhrase())));
 		}
 
 		assertThat(result.err(), equalTo(""));

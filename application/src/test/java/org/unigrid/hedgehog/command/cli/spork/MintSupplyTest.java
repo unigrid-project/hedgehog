@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +36,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
@@ -134,6 +136,19 @@ public class MintSupplyTest {
 			assertThat(supply, assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(
 				set(supply, PROPOSER.getPrivateKey(), false), node)).getMessage(), containsString("supply"));
 			assertThat(supply, node.submitted(), empty());
+		}
+	}
+
+	/* Whoever signs sees all of what the node holds and all of what they sign, before they sign it */
+	@Example
+	public void showsTheStoredAndTheProposedDataBeforeItSigns() {
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf("1000007")));
+		final String out = RestCommandFixture.run(set("2000003", PROPOSER.getPrivateKey(), true), node).out();
+		final List<String> order = List.of("Stored MINT_SUPPLY data", "1000007", "Proposed MINT_SUPPLY data",
+			"2000003", Status.ACCEPTED.getReasonPhrase());
+
+		for (int i = 1; i < order.size(); i++) {
+			assertThat(order.get(i), out.indexOf(order.get(i - 1)), lessThan(out.indexOf(order.get(i))));
 		}
 	}
 

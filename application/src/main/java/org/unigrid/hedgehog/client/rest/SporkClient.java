@@ -31,8 +31,10 @@ import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 
 /* The sporks of a node as a board member's command line reads them and hands them back: in the form peers exchange, so
-   that what is signed on this machine covers the bytes every node reads. A spork the node sends that does not decode
-   is an IllegalArgumentException, as it would be from a peer. */
+   that what is signed on this machine covers the bytes every node reads. The client trusts any certificate, and the
+   node may not be what it claims to be either, so nothing it hands out is signed on top of before it is known to be
+   what the network took or what a current board key proposed. A spork that does not decode is an
+   IllegalArgumentException, as it would be from a peer. */
 @RequiredArgsConstructor
 public class SporkClient {
 	public static final String WIRE = "/gridspork/wire";
@@ -42,29 +44,56 @@ public class SporkClient {
 
 	private final RestClient rest;
 
-	public Optional<GridSpork> stored(GridSpork.Type type) throws ResponseOddityException {
-		return sporkIn(rest.get(WIRE + "/" + type.name()));
+	/* The stored spork of a type, once it is known to be one the network took */
+	public Optional<GridSpork> stored(GridSpork.Type type) throws ResponseOddityException, UntrustedSporkException {
+		final Optional<GridSpork> stored = sporkIn(rest.get(WIRE + "/" + type.name()));
+
+		if (stored.isPresent() && (stored.get().getType() != type || !stored.get().isTakenByTheNetwork())) {
+			throw new UntrustedSporkException("The " + type + " spork that the node holds is not one that board "
+				+ "keys signed, so nothing is signed on top of it");
+		}
+
+		return stored;
 	}
 
+	/* A proposal as the node hands it out, which is for the caller to judge with requireProposalOver() */
 	public Optional<GridSpork> proposal(String digest) throws ResponseOddityException {
 		return sporkIn(rest.get(PENDING + "/" + digest));
 	}
 
-	/* The node lists its proposals with their digests, by which it hands each one out */
-	public Optional<GridSpork> proposalOf(GridSpork.Type type) throws ResponseOddityException, IOException {
+	/* The node lists its proposals with their digests, by which it hands each one out. The one of the type is taken
+	   only once it is known to be what a current board key made from the stored spork, which is a verified one. */
+	public Optional<GridSpork> proposalOf(GridSpork.Type type, GridSpork stored) throws ResponseOddityException,
+		IOException, UntrustedSporkException {
+
 		final Response listed = rest.get(PENDING);
 
 		if (listed.getStatus() != Status.OK.getStatusCode()) {
 			return Optional.empty();
 		}
 
-		for (JsonNode proposal : JSON.readTree(listed.readEntity(String.class))) {
-			if (type.name().equals(proposal.path("type").asText())) {
-				return proposal(proposal.path("digest").asText());
+		for (JsonNode listing : JSON.readTree(listed.readEntity(String.class))) {
+			if (type.name().equals(listing.path("type").asText())) {
+				final Optional<GridSpork> proposal = proposal(listing.path("digest").asText());
+
+				if (proposal.isPresent()) {
+					requireProposalOver(proposal.get(), type, stored);
+				}
+
+				return proposal;
 			}
 		}
 
 		return Optional.empty();
+	}
+
+	public static void requireProposalOver(GridSpork proposal, GridSpork.Type type, GridSpork stored)
+		throws UntrustedSporkException {
+
+		if (proposal.getType() != type || !proposal.isProposalOver(stored)) {
+			throw new UntrustedSporkException("The " + type + " proposal that the node waits on is not one that "
+				+ "a current board key made from the spork it holds, so nothing is signed on top of it");
+		}
 	}
 
 	public Response submit(GridSpork spork) throws ResponseOddityException {

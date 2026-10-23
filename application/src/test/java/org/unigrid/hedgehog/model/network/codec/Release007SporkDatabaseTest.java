@@ -147,6 +147,7 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 			).getGridSpork();
 
 			assertThat(type.name(), stored, is(notNullValue()));
+			assertThat(type.name(), stored.isTakenByTheNetwork(), is(true));
 			assertThat(type.name(), renewed.getSignatureLog().last().getSigner(), equalTo(FIXTURE_PUBLIC_KEY));
 			assertThat(type.name(), renewed.canReplace(stored), is(true));
 			assertThat(type.name(), received.canReplace(stored), is(true));

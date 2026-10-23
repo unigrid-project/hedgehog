@@ -75,6 +75,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	private static final Instant SIGNED_AT = Instant.parse("2026-01-01T00:00:00Z");
 	private static final Instant PREVIOUSLY_SIGNED_AT = Instant.parse("2025-01-01T00:00:00Z");
 
+	/* As a node of release 0.0.7 holds it: signed once, over its Java serialization, by a board since replaced */
 	@SneakyThrows
 	private MintSupply seedMintSupplySignedBy(Signature signature) {
 		final MintSupply mintSupply = new MintSupply();
@@ -84,7 +85,7 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 		mintSupply.setTimeStamp(SIGNED_AT);
 		mintSupply.setPreviousTimeStamp(PREVIOUSLY_SIGNED_AT);
 		mintSupply.setPreviousData(data.empty());
-		mintSupply.sign(signature.getPrivateKey());
+		mintSupply.setSignature(signature.sign(mintSupply.getSignable()));
 
 		sporkDatabase.setMintStorage(null);
 		sporkDatabase.setVestingStorage(null);

@@ -137,6 +137,12 @@ public final class SporkCommands {
 		spork.sign(signer.getPrivateKey());
 	}
 
+	/* A signature of the spork as it stands, whoever the key belongs to */
+	@SneakyThrows
+	public static byte[] signatureOf(Signature signer, GridSpork spork) {
+		return signer.sign(spork.getSignable());
+	}
+
 	/* The spork that a command handed the node last, in the form it went */
 	public static GridSpork submitted(Result result) {
 		final Request request = result.request().orElseThrow();
