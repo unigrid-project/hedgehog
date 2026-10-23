@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
@@ -148,6 +149,38 @@ public class SporkContentTest {
 
 			assertThat(refusal(vestingOf(damage.apply(vesting().toBuilder()).build()), null), containsString(OLD));
 		}
+	}
+
+	/* What vests to an address that no ledger knows vests to no one, and an address can hide a character that the
+	   terminal does not show, so a new vesting is to an address as a mint is */
+	@Example
+	public void shouldRefuseAVestingToAnAddressThatIsNoneOfALedger() {
+		for (String address : List.of(OLD + "​", "garbage", ACCOUNT.toUpperCase(), ACCOUNT.substring(1))) {
+			final VestingStorage spork = new VestingStorage();
+
+			spork.<VestingStorage.SporkData>getData().getVestingAddresses().put(new Address(address), vesting());
+			assertThat(address, refusal(spork, null), containsString("neither"));
+		}
+
+		final VestingStorage account = new VestingStorage();
+
+		account.<VestingStorage.SporkData>getData().getVestingAddresses().put(new Address(ACCOUNT), vesting());
+		SporkContent.validate(account, null);
+	}
+
+	/* The key is shown to whoever signs it and read by those who use it, so it is hex and nothing else */
+	@Example
+	public void shouldTakeOnlyAStatisticsKeyOfHexDigits() {
+		final StatisticsPubKey spork = new StatisticsPubKey();
+
+		for (String key : List.of("", "xyz", "ab\u007fcd", "ab cd", "ab​cd")) {
+			spork.<StatisticsPubKey.SporkData>getData().setPublicKey(key);
+			assertThat(key, refusal(spork, null), containsString("statistics"));
+			assertThat(key, refusal(spork, spork), containsString("statistics"));
+		}
+
+		spork.<StatisticsPubKey.SporkData>getData().setPublicKey("0123456789abcdefABCDEF");
+		SporkContent.validate(spork, null);
 	}
 
 	@Example

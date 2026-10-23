@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.util;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.containsStringIgnoringCase;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
@@ -75,6 +76,8 @@ import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
+import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -86,6 +89,8 @@ import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
+import org.unigrid.hedgehog.model.spork.VestingStorage;
+import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 import picocli.CommandLine;
 
 /* The commands that check a spork database, sign it with board keys and install it as the database of a node. The
@@ -455,6 +460,47 @@ public class SporkDbCommandTest {
 			assertThat(result.err(), result.exitCode(), equalTo(0));
 			assertThat(installed.<LedgerBlacklist.SporkData>getData().getLegacyAddresses(), instanceOf(TreeSet.class));
 			assertThat(installed.isTakenByTheNetwork(), is(true));
+		}
+	}
+
+	/* Vestings that a database holds to an address with a character in it that the terminal does not show */
+	@SneakyThrows
+	private static Path vestingTo(FileSystem fs, String address) {
+		final GridSpork spork = GridSpork.nextVersion(Type.VESTING_STORAGE, null, Optional.empty());
+
+		spork.<VestingStorage.SporkData>getData().getVestingAddresses().put(new Address(address), Vesting.builder()
+			.amount(BigDecimal.TEN).start(Instant.EPOCH).duration(Duration.ofDays(30)).parts(4).build());
+		spork.sign(keyPair().getPrivateKey());
+		return written(fs, "vesting.db", spork);
+	}
+
+	/* What is signed is what is shown: a character that the terminal would leave out is shown as its escape */
+	@Example
+	@SneakyThrows
+	public void showsACharacterThatTheTerminalDoesNotShowAsItsEscape() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final String address = LegacyAddress.encode(new byte[20]);
+			final HedgehogCli.Result result = sign(fs, vestingTo(fs, address + "​"), "/out.db", FIRST);
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(result.out(), containsStringIgnoringCase(address + "\\u200b"));
+		}
+	}
+
+	/* A character that the terminal leaves out and that no escape shows makes what is shown another text than what
+	   is signed */
+	@Example
+	@SneakyThrows
+	public void signsNothingThatWouldBeShownAsAnotherText() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = sign(fs, vestingTo(fs, LegacyAddress.encode(new byte[20]) + "\u007f"),
+				"/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Nothing was signed: the VESTING_STORAGE spork holds text that"
+				+ " cannot be shown as it is"));
+			assertThat(result.out(), not(containsString("data:")));
+			assertThat(Files.exists(fs.getPath("/out.db"), LinkOption.NOFOLLOW_LINKS), is(false));
 		}
 	}
 

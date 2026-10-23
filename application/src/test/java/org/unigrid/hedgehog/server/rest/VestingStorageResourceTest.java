@@ -35,12 +35,10 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.From;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Property;
-import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.BigRange;
 import net.jqwik.api.constraints.ByteRange;
 import net.jqwik.api.constraints.Scale;
 import net.jqwik.api.constraints.Size;
-import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.constraints.UniqueElements;
 import net.jqwik.time.api.constraints.DurationRange;
 import net.jqwik.time.api.constraints.InstantRange;
@@ -69,6 +67,12 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 			.parts(parts).start(start).cliff(cliff).percent(percent).block(block).build());
 	}
 
+	/* Ledger accounts, as a vesting goes to an address that a ledger knows */
+	@Provide
+	public Arbitrary<String> accounts() {
+		return Arbitraries.strings().withChars("0123456789abcdef").ofLength(64);
+	}
+
 	/* Map keys travel through JSON as their toString(), so each key read back wraps the address it stood for */
 	private static Set<String> wifsOf(VestingStorage.SporkData data) {
 		return data.getVestingAddresses().keySet().stream().map(Address::getWif).collect(Collectors.toSet());
@@ -83,7 +87,7 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 5)
 	public void shoulBeVerifiableInList(@ForAll("provideSignature") Signature signature,
-		@ForAll @Size(max = 5) @UniqueElements List<@AlphaChars @StringLength(36) String> addresses,
+		@ForAll @Size(max = 5) @UniqueElements List<@From("accounts") String> addresses,
 		@ForAll @UniqueElements @Size(5) List<@From("provideVesting") Vesting> vests) {
 
 		final Response response = client.get(URL);
@@ -112,7 +116,7 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	@Property(tries = 10)
 	public void shoulBeAbleToGetVestingStorageSpork(@ForAll("provideSignature") Signature signature,
-		@ForAll("provideVesting") Vesting vesting, @ForAll @AlphaChars @StringLength(36) String address) {
+		@ForAll("provideVesting") Vesting vesting, @ForAll("accounts") String address) {
 
 		final Response proposal = vest(address, vesting);
 
@@ -126,7 +130,7 @@ public class VestingStorageResourceTest extends BaseRestClientTest {
 	/* A vesting without an amount can be signed, its wire form has room for none, but no node takes it */
 	@Property(tries = 1)
 	public void refusesAVestingThatNoNodeCanActOn(@ForAll("provideSignature") Signature signature,
-		@ForAll("provideVesting") Vesting vesting, @ForAll @AlphaChars @StringLength(36) String address) {
+		@ForAll("provideVesting") Vesting vesting, @ForAll("accounts") String address) {
 
 		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
 			() -> vest(address, vesting.toBuilder().amount(null).build()));

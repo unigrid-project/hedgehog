@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -64,7 +65,7 @@ import picocli.CommandLine.Spec;
 )
 public class SporkDbSign implements Runnable {
 	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
-		.writerWithDefaultPrettyPrinter();
+		.writerWithDefaultPrettyPrinter().with(JsonWriteFeature.ESCAPE_NON_ASCII);
 
 	@Parameters(index = "0", paramLabel = "<file>", description = "The spork database to sign.")
 	private Path file;
@@ -120,9 +121,13 @@ public class SporkDbSign implements Runnable {
 		}
 	}
 
+	private record Version(GridSpork spork, String shown) {
+	}
+
+	/* Everything is judged, and the text of each spork made, before anything is shown or signed */
 	private SporkDatabase signed(String key) {
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
-		final List<GridSpork> versions = new ArrayList<>();
+		final List<Version> versions = new ArrayList<>();
 
 		for (GridSpork spork : SporkDatabaseFile.sporksOf(database)) {
 			SporkDatabaseFile.contentProblem(spork).ifPresent(problem -> {
@@ -130,13 +135,15 @@ public class SporkDbSign implements Runnable {
 					+ " spork does not hold: " + problem);
 			});
 
-			versions.add(versionToSign(SporkDatabaseFile.readBack(spork)));
+			final GridSpork version = versionToSign(SporkDatabaseFile.readBack(spork));
+
+			versions.add(new Version(version, shown(version)));
 		}
 
-		for (GridSpork version : versions) {
-			show(version);
-			System.out.println(version.getType() + ": " + signed(version, key));
-			database.set(version);
+		for (Version version : versions) {
+			System.out.println(version.shown());
+			System.out.println(version.spork().getType() + ": " + signed(version.spork(), key));
+			database.set(version.spork());
 		}
 
 		return database;
@@ -187,28 +194,32 @@ public class SporkDbSign implements Runnable {
 			&& empty.equals(Objects.requireNonNullElse(spork.getPreviousData(), empty));
 	}
 
-	/* Every field the signature covers, so that nothing signed goes unseen */
-	private void show(GridSpork version) {
+	/* Every field the signature covers, so that nothing signed goes unseen. A character that the terminal does not show
+	   is escaped in the data, and any other text that the terminal would show as something else than it is refuses
+	   the spork, as whoever signs vouches for what they saw. */
+	private String shown(GridSpork version) {
 		final String type = version.getType().toString();
 		final SignatureLog log = version.getSignatureLog();
-
-		print(type + " time stamp: " + version.getTimeStamp());
-		print(type + " previous time stamp: " + version.getPreviousTimeStamp());
-		print(type + " flags: " + version.getFlags());
-		print(type + " data:\n" + json(version, version.getData()));
-		print(type + " previous data:\n" + json(version, version.getPreviousData()));
-		print(type + " signature log: " + log.size() + " entries, head " + (log.isEmpty() ? "none"
-			: StringUtils.left(Hex.encodeHexString(log.headHash()), SporkDatabaseFile.SHOWN_HEX)));
+		final List<String> lines = new ArrayList<>(List.of(type + " time stamp: " + version.getTimeStamp(),
+			type + " previous time stamp: " + version.getPreviousTimeStamp(),
+			type + " flags: " + version.getFlags(), type + " data:\n" + json(version, version.getData()),
+			type + " previous data:\n" + json(version, version.getPreviousData()),
+			type + " signature log: " + log.size() + " entries, head " + (log.isEmpty() ? "none"
+				: StringUtils.left(Hex.encodeHexString(log.headHash()), SporkDatabaseFile.SHOWN_HEX))));
 
 		if (Objects.nonNull(version.getSignature()) && version.isPending()) {
-			print(type + " first signer: " + SporkDatabaseFile.keyOf(version, version.getSignature()));
-			print(type + " age: " + Duration.between(version.getTimeStamp(), Instant.now())
+			lines.add(type + " first signer: " + SporkDatabaseFile.keyOf(version, version.getSignature()));
+			lines.add(type + " age: " + Duration.between(version.getTimeStamp(), Instant.now())
 				.truncatedTo(ChronoUnit.SECONDS));
 		}
-	}
 
-	private static void print(String text) {
-		System.out.println(TerminalText.printable(text));
+		final String shown = String.join("\n", lines);
+
+		if (!shown.equals(TerminalText.printable(shown))) {
+			throw refused("Nothing was signed: the " + type + " spork holds text that cannot be shown as it is");
+		}
+
+		return shown;
 	}
 
 	private String json(GridSpork version, ChunkData data) {
