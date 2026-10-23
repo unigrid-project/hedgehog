@@ -90,7 +90,7 @@ public class KeyChange implements Serializable {
 	*/
 	public void write(ByteBuf out) {
 		requireEncodable();
-		writeSigned(out);
+		writeDecided(out);
 		out.writeByte(approvals.size());
 
 		approvals.forEach(approval -> {
@@ -103,18 +103,22 @@ public class KeyChange implements Serializable {
 		return bytesOf(this::write);
 	}
 
-	/* The change without its approvals, behind the tag */
 	@JsonIgnore
 	public byte[] getSignable() {
+		return decidedBehind(TAG);
+	}
+
+	/* What the change decides, which is all of it but the approvals, behind a tag that says what the bytes are for */
+	byte[] decidedBehind(byte[] tag) {
 		requireEncodable();
 
 		return bytesOf(out -> {
-			out.writeBytes(TAG);
-			writeSigned(out);
+			out.writeBytes(tag);
+			writeDecided(out);
 		});
 	}
 
-	private void writeSigned(ByteBuf out) {
+	private void writeDecided(ByteBuf out) {
 		out.writeInt(sequence);
 		out.writeLong(madeAt.toEpochMilli());
 		out.writeBytes(previous);

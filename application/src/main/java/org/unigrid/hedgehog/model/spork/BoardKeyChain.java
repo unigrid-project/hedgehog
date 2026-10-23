@@ -34,7 +34,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
@@ -49,11 +48,12 @@ import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 * <p>A change holds when it follows on the change before it, or on the root, lists 2 to 16 keys that differ from the
 * keys before it, a majority of the keys before it approved it, and never fewer than two, and every key it adds
 * approved it too: a key that is added has to be held by someone, so a mistyped key cannot take the place of the
-* board. No other key approves a change. An approval covers the change as a whole except the approvals.
+* board. No other key approves a change. An approval covers what the change decides, which is all of it but the
+* approvals, and the change after it follows on the same.
 *
 * <p>Verifying a change costs a signature for each approval, and a peer can send a chain that a node verified before
-* with a change added that does not hold, so a change that verified is remembered by its digest, which covers every
-* change before it and the root.
+* with a change added that does not hold, so a change that verified is remembered by the digest of all of its bytes,
+* which follow on every change before it and on the root.
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class BoardKeyChain {
@@ -63,6 +63,7 @@ public final class BoardKeyChain {
 	public static final int MAX_APPROVALS = 2 * MAX_KEYS;
 
 	private static final byte[] ROOT_TAG = "hedgehog/board-keys/1".getBytes(StandardCharsets.US_ASCII);
+	private static final byte[] LINK_TAG = "hedgehog/board-keys/link/1".getBytes(StandardCharsets.US_ASCII);
 	private static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
 	private static final Map<String, ActiveKeys> VERIFIED = new ConcurrentHashMap<>();
 
@@ -95,8 +96,12 @@ public final class BoardKeyChain {
 		return Math.max(MIN_KEYS, keys / 2 + 1);
 	}
 
+	/* What the next change follows on: the digest of what this one decides. The approvals decide whether it holds,
+	   not which change it is, as whoever holds a change can drop an approval beyond the quorum or turn a signature
+	   into its other valid form, and the change that follows would no longer follow on it. Tagged apart from the
+	   bytes that an approval signs, so it is no digest that a signature covers. */
 	public static byte[] digestOf(KeyChange change) {
-		return DigestUtils.sha512(change.toBytes());
+		return DigestUtils.sha512(change.decidedBehind(LINK_TAG));
 	}
 
 	/* What the next change follows on */
@@ -120,8 +125,8 @@ public final class BoardKeyChain {
 
 			try {
 				requireLink(change, i, previous);
+				keys = verified(change, keys);
 				previous = digestOf(change);
-				keys = verified(change, keys, previous);
 			} catch (IllegalArgumentException | NullPointerException ex) {
 				throw new IllegalArgumentException("Change " + i + " of the board keys does not hold: "
 					+ ex.getMessage(), ex);
@@ -147,8 +152,10 @@ public final class BoardKeyChain {
 			index == 0 ? "root of the chain" : "change before it");
 	}
 
-	private static ActiveKeys verified(KeyChange change, ActiveKeys before, byte[] digest) {
-		final String id = Hex.encodeHexString(digest);
+	/* Remembered by the digest of the change with its approvals, so a copy with an approval that does not verify is
+	   checked again */
+	private static ActiveKeys verified(KeyChange change, ActiveKeys before) {
+		final String id = DigestUtils.sha512Hex(change.toBytes());
 		final ActiveKeys remembered = VERIFIED.get(id);
 
 		if (Objects.nonNull(remembered)) {

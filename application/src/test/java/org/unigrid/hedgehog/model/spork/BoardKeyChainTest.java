@@ -18,8 +18,14 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.ByteArrayOutputStream;
+import java.math.BigInteger;
+import java.security.AlgorithmParameters;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECParameterSpec;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -33,6 +39,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
@@ -184,6 +191,90 @@ public class BoardKeyChainTest {
 		assertThat(refusal(first, change(1, ROOT, withoutTheFirst, approvers)), containsString("does not follow"));
 		assertThat(refusal(change(1, ROOT, builtInAnd(KEYS.get(4)), keysOf(KEYS.get(0), KEYS.get(1), KEYS.get(2),
 			KEYS.get(4)))), containsString("sequence"));
+	}
+
+	/* Which keys approved a change, and in which of its two valid forms each signature is, decide whether it holds and
+	   not which change it is: whoever holds it can drop an approval beyond the quorum or turn a signature s into n - s,
+	   and the change that follows still follows on it */
+	@Example
+	public void shouldLinkTheNextChangeToWhatAChangeDecidesWhateverItsApprovals() {
+		final KeyChange first = change(0, ROOT, builtInAnd(KEYS.get(4)), builtInAnd(KEYS.get(4)));
+		final KeyChange dropped = SerializationUtils.clone(first);
+		final KeyChange malleated = SerializationUtils.clone(first);
+		final KeyChange.Approval approval = malleated.getApprovals().get(0);
+		final KeyChange second = change(1, BoardKeyChain.digestOf(first), builtInAnd(KEYS.get(4)).subList(1, 5),
+			keysOf(KEYS.get(1), KEYS.get(2), KEYS.get(4)));
+
+		dropped.getApprovals().remove(0);
+		approval.setSignature(malleated(approval.getSignature()));
+		assertThat(approval.getSignature(), not(equalTo(first.getApprovals().get(0).getSignature())));
+		assertThat(Signature.isSignedBy(approval.getKey(), first.getSignable(), approval.getSignature()), is(true));
+
+		for (KeyChange copy : List.of(first, dropped, malleated)) {
+			assertThat(BoardKeyChain.digestOf(copy), equalTo(BoardKeyChain.digestOf(first)));
+			assertThat(verify(copy, second).length(), is(2));
+		}
+	}
+
+	@Example
+	public void shouldRefuseAfterAChangeOneThatDecidesOtherwise() {
+		final KeyChange first = addingTheFifthKey();
+		final KeyChange other = change(0, ROOT, builtInAnd(KEYS.get(5)), keysOf(KEYS.get(0), KEYS.get(1),
+			KEYS.get(2), KEYS.get(5)));
+		final KeyChange second = change(1, BoardKeyChain.digestOf(first), builtInAnd(KEYS.get(4)).subList(1, 5),
+			keysOf(KEYS.get(1), KEYS.get(2), KEYS.get(4)));
+
+		assertThat(verify(first, second).length(), is(2));
+		assertThat(refusal(other, second), containsString("does not follow"));
+	}
+
+	/* Two copies of a change with the same decision are one change to the chain, but not to what was verified: a copy
+	   with an approval that does not verify is checked again and refused */
+	@Example
+	public void shouldCheckTheApprovalsOfACopyOfAVerifiedChangeAgain() {
+		final KeyChange first = addingTheFifthKey();
+		final KeyChange corrupted = SerializationUtils.clone(first);
+
+		verify(first);
+		corrupted.getApprovals().get(0).getSignature()[10] ^= 1;
+		assertThat(refusal(corrupted), containsString("does not verify"));
+	}
+
+	/* The other valid form of an ECDSA signature in DER: (r, n - s) for (r, s) */
+	@SneakyThrows
+	private static byte[] malleated(byte[] der) {
+		final AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
+
+		parameters.init(new ECGenParameterSpec("secp521r1"));
+
+		final BigInteger order = parameters.getParameterSpec(ECParameterSpec.class).getOrder();
+		final int rAt = der[1] == (byte) 0x81 ? 3 : 2;
+		final int sAt = rAt + 2 + der[rAt + 1];
+		final byte[] r = Arrays.copyOfRange(der, rAt + 2, sAt);
+		final BigInteger s = new BigInteger(1, Arrays.copyOfRange(der, sAt + 2, sAt + 2 + der[sAt + 1]));
+
+		return derOf(r, order.subtract(s).toByteArray());
+	}
+
+	private static byte[] derOf(byte[] r, byte[] s) {
+		final ByteArrayOutputStream body = new ByteArrayOutputStream();
+		final ByteArrayOutputStream der = new ByteArrayOutputStream();
+
+		body.write(0x02);
+		body.write(r.length);
+		body.writeBytes(r);
+		body.write(0x02);
+		body.write(s.length);
+		body.writeBytes(s);
+		der.write(0x30);
+
+		if (body.size() > Byte.MAX_VALUE) {
+			der.write(0x81);
+		}
+
+		der.write(body.size());
+		der.writeBytes(body.toByteArray());
+		return der.toByteArray();
 	}
 
 	/* A change verified once is known by its digest, which covers the change before it, but where it stands in the
