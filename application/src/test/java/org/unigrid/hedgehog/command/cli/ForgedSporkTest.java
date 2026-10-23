@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
@@ -235,5 +236,56 @@ public class ForgedSporkTest {
 			assertThat(how, result.out(), containsString(UNTRUSTED_STORED));
 			assertThat(how, node.submitted(), empty());
 		});
+	}
+
+	/* The next version over a stored spork with the time stamp given, signed by the keys given */
+	private static GridSpork signedAt(Instant stamp, GridSpork stored, long maxSupply, Signature... signers) {
+		final GridSpork spork = GridSpork.nextVersion(Type.MINT_SUPPLY, stored, Optional.empty());
+
+		spork.setData(supplyOf(maxSupply));
+		spork.setTimeStamp(stamp);
+		SporkCommands.sign(spork, signers[0]);
+
+		if (signers.length > 1) {
+			spork.setCosignature(SporkCommands.signatureOf(signers[1], spork));
+		}
+
+		return spork;
+	}
+
+	/* An honest node drops a proposal once it is older than a proposal waits and takes none stamped further ahead
+	   than clocks drift apart, so one outside that span is replayed or forged */
+	@Example
+	public void coSignsNoProposalOlderThanAProposalWaitsOrAheadOfTheClock() {
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork stored = signedAt(now.minus(PendingSporks.LIFETIME).minusSeconds(3600), null, 10, PROPOSER,
+			COSIGNER);
+		final Map<String, GridSpork> outOfTime = Map.of(
+			"longer ago than a proposal waits",
+			signedAt(now.minus(PendingSporks.LIFETIME).minusSeconds(60), stored, 20, PROPOSER),
+			"stamped ahead of the clock of this machine",
+			signedAt(now.plus(PendingSporks.LEEWAY).plusSeconds(60), stored, 20, PROPOSER));
+
+		outOfTime.forEach((how, proposal) -> {
+			final FakeSporkNode node = new FakeSporkNode().holding(stored).handingOut(proposal);
+			final Result cosigning = RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), node);
+			final Result setting = RestCommandFixture.run(set(30), node);
+
+			assertThat(how, cosigning.out(), containsString("refused: The MINT_SUPPLY proposal"));
+			assertThat(how, cosigning.out(), containsString(how));
+			assertThat(how, setting.err(), containsString(how));
+			assertThat(how, node.submitted(), empty());
+		});
+	}
+
+	@Example
+	public void signsNothingOverAStoredSporkStampedAheadOfTheClock() {
+		final Instant ahead = Instant.now().plus(PendingSporks.LEEWAY).plusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork stored = signedAt(ahead, null, 10, PROPOSER, COSIGNER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+
+		assertThat(RestCommandFixture.run(set(20), node).err(), containsString("stamped ahead of the clock"));
+		assertThat(RestCommandFixture.run(renew(), node).err(), containsString("stamped ahead of the clock"));
+		assertThat(node.submitted(), empty());
 	}
 }
