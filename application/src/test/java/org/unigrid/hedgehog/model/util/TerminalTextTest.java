@@ -28,20 +28,20 @@ import static org.hamcrest.Matchers.is;
 public class TerminalTextTest {
 	@Example
 	public void shouldDropWhatATerminalWouldActOn() {
-		assertThat(TerminalText.printable("a\u001b[2Jb\u009b31mc\rd\u0007e\u007ff\u0000g\th‮i⁦j"),
+		assertThat(TerminalText.printable("a\u001b[2Jb\u009b31mc\rd\u0007e\u007ff\u0000gh‮i⁦j"),
 			equalTo("a[2Jb31mcdefghij"));
 	}
 
 	@Example
-	public void shouldKeepLinesAndTextOfAnyScript() {
-		final String text = "Stored data:\n{ \"name\" : \"Åsa Ünal 東京 🚀\" }\n";
+	public void shouldKeepLinesTabsAndTextOfAnyScript() {
+		final String text = "Stored data:\n{ \"name\" :\t\"Åsa Ünal 東京 🚀\" }\n";
 
 		assertThat(TerminalText.printable(text), equalTo(text));
 	}
 
 	@Property
-	public void shouldLeaveNothingATerminalActsOnButLineBreaks(@ForAll String text) {
-		assertThat(TerminalText.printable(text).codePoints().allMatch(point -> point == '\n'
+	public void shouldLeaveNothingATerminalActsOnButLineBreaksAndTabs(@ForAll String text) {
+		assertThat(TerminalText.printable(text).codePoints().allMatch(point -> point == '\n' || point == '\t'
 			|| !Character.isISOControl(point) && Character.getType(point) != Character.FORMAT), is(true));
 	}
 }

@@ -23,7 +23,8 @@ import lombok.NoArgsConstructor;
 
 /* What a node sends is shown to an operator who decides on it, and a terminal acts on control characters: they can
    clear the screen, move the cursor or overwrite a line, and the characters that reorder text can make it read as
-   something else, so none of them reaches the terminal. Line breaks stay, as the data shown spans lines. */
+   something else, so none of them reaches the terminal. Line breaks stay, as the data shown spans lines, and so do
+   tabs, which are spaces. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class TerminalText {
 	public static String printable(String text) {
@@ -34,6 +35,7 @@ public final class TerminalText {
 	}
 
 	private static boolean isPrintable(int point) {
-		return point == '\n' || !Character.isISOControl(point) && Character.getType(point) != Character.FORMAT;
+		return point == '\n' || point == '\t'
+			|| !Character.isISOControl(point) && Character.getType(point) != Character.FORMAT;
 	}
 }
