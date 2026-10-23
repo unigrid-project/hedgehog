@@ -146,6 +146,24 @@ public class GridSpork implements Serializable, Signable {
 		return spork;
 	}
 
+	/**
+	* Starts a first version of the data of a spork: no previous data, no signature log and no signature, made now
+	* and newer than the spork it is made from. It stands in for a spork that no current network key signed, which
+	* the board can no longer renew, and which a node holds nothing of.
+	*/
+	public static GridSpork firstVersionOf(GridSpork spork) {
+		final GridSpork first = create(spork.type);
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+		first.setData(SerializationUtils.clone(spork.<ChunkData>getData()));
+		first.setPreviousData(first.<ChunkData>getData().empty());
+		first.setPreviousTimeStamp(Instant.EPOCH);
+		first.setTimeStamp(Objects.isNull(spork.timeStamp) || now.isAfter(spork.timeStamp) ? now
+			: spork.timeStamp.plusMillis(1));
+
+		return first;
+	}
+
 	@JsonIgnore
 	public boolean isNewerThan(GridSpork otherSpork) {
 		if (Objects.isNull(otherSpork) || Objects.isNull(otherSpork.timeStamp)) {

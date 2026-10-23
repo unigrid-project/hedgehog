@@ -22,8 +22,11 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -32,12 +35,15 @@ import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
@@ -45,11 +51,11 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.cli.SporkCommands;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -76,9 +82,15 @@ public class SporkDbCommandTest {
 		return new Signature();
 	}
 
+	/* The environment gives no key, and the network keys are those of the board of the run */
 	@BeforeTry
 	public void fakeTheBoard() {
-		SporkCommands.environmentKey(null);
+		new MockUp<BoardKeyOptions>() {
+			@Mock String environmentKey() {
+				return null;
+			}
+		};
+
 		OptionsCli.parse(List.of("util"), BOARD);
 	}
 
@@ -246,6 +258,131 @@ public class SporkDbCommandTest {
 			garbage.assertNoStackTrace();
 			assertThat(missing.exitCode(), equalTo(2));
 			assertThat(missing.err(), containsString("Cannot read the spork database /missing.db"));
+		}
+	}
+
+	private static HedgehogCli.Result sign(FileSystem fs, Path file, String output, Signature key) {
+		return run(fs, "sign", file.toString(), "--output", output, "-k", key.getPrivateKey());
+	}
+
+	private static List<GridSpork> mintsOf(SporkDatabase database) {
+		return List.of(database.getMintStorage(), database.getMintSupply());
+	}
+
+	/* What the board signed in 2023 and 2024, with keys it no longer holds, becomes first versions of the same data
+	   that two board members sign one after the other, each on a machine of their own */
+	@Example
+	@SneakyThrows
+	public void makesFirstVersionsOfWhatNoBoardKeySignedAndCoSignsThemOnASecondRun() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = fixture(fs, LEGACY);
+			final SporkDatabase original = load(file);
+			final HedgehogCli.Result first = sign(fs, file, "/once.db", FIRST);
+
+			assertThat(first.err(), first.exitCode(), equalTo(0));
+			assertThat(load(file), equalTo(original));
+
+			final SporkDatabase once = load(fs.getPath("/once.db"));
+
+			for (GridSpork spork : mintsOf(once)) {
+				final GridSpork before = original.get(spork.getType());
+
+				assertThat(spork.getData(), equalTo(before.getData()));
+				assertThat(spork.getPreviousTimeStamp(), equalTo(Instant.EPOCH));
+				assertThat(spork.getSignatureLog().isEmpty(), is(true));
+				assertThat(spork.getTimeStamp(), greaterThan(before.getTimeStamp()));
+				assertThat(spork.isPending(), is(true));
+				assertThat(NetworkKey.signerOf(spork), equalTo(Optional.of(FIRST.getPublicKey())));
+				assertThat(linesOf(first), hasItem(spork.getType() + ": a first version of its data, made at "
+					+ spork.getTimeStamp() + " and signed by " + shortly(FIRST.getPublicKey())));
+			}
+
+			assertThat(first.out(), containsString("MINT_SUPPLY data:"));
+			assertThat(first.out(), containsString("\"maxSupply\" : 1000000000"));
+			assertThat(linesOf(first), hasItem("output: /once.db"));
+
+			final HedgehogCli.Result second = sign(fs, fs.getPath("/once.db"), "/twice.db", SECOND);
+
+			assertThat(second.err(), second.exitCode(), equalTo(0));
+
+			for (GridSpork spork : mintsOf(load(fs.getPath("/twice.db")))) {
+				assertThat(spork.isTakenByTheNetwork(), is(true));
+				assertThat(spork.canReplace(null), is(true));
+				assertThat(spork.getData(), equalTo(original.get(spork.getType()).getData()));
+				assertThat(linesOf(second), hasItem(spork.getType() + ": co-signed by "
+					+ shortly(SECOND.getPublicKey())));
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void leavesASporkThatTheBoardSignedAsItIs() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final GridSpork spork = supply(supplyOf(10), FIRST, SECOND);
+			final HedgehogCli.Result result = sign(fs, written(fs, "signed.db", spork), "/out.db", FIRST);
+			final GridSpork signed = load(fs.getPath("/out.db")).getMintSupply();
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(signed.getSignature(), equalTo(spork.getSignature()));
+			assertThat(signed.getCosignature(), equalTo(spork.getCosignature()));
+			assertThat(linesOf(result), hasItem("MINT_SUPPLY: signed by the board, left as it is"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesToCoSignWithTheKeyThatSigned() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = sign(fs, written(fs, "once.db", supply(supplyOf(10), FIRST)),
+				"/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("A second, different network key has to co-sign the spork"));
+			result.assertNoStackTrace();
+			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAKeyThatIsNoBoardKey() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = sign(fs, fixture(fs, LEGACY), "/out.db", keyPair());
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("not one of the current board keys"));
+			assertThat(result.out(), emptyString());
+			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void refusesAnOutputThatExists() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			Files.writeString(fs.getPath("/out.db"), "another database");
+
+			final HedgehogCli.Result result = sign(fs, fixture(fs, LEGACY), "/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("--output /out.db exists and is not overwritten"));
+			assertThat(Files.readString(fs.getPath("/out.db")), equalTo("another database"));
+		}
+	}
+
+	/* The mints of the fixture are made up, so nothing of it is signed and nothing of it is shown as signed */
+	@Example
+	@SneakyThrows
+	public void signsNothingWhenTheContentOfASporkDoesNotHold() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = sign(fs, fixture(fs, RELEASE_007), "/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Nothing was signed: the content of the MINT_STORAGE spork does"
+				+ " not hold: The mint of "));
+			assertThat(result.out(), not(containsString("data:")));
+			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
 		}
 	}
 }

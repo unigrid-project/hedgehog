@@ -22,7 +22,7 @@ import picocli.CommandLine.Command;
 
 @Command(name = "spork-db", description = "Check a spork database, sign it with board keys and install it as the"
 	+ " spork database of the node of this machine.",
-	subcommands = SporkDbValidate.class
+	subcommands = { SporkDbValidate.class, SporkDbSign.class }
 )
 public class SporkDbCommand {
 	/* Empty on purpose */

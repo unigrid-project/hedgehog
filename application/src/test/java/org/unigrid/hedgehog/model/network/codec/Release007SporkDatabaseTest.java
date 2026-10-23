@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import io.netty.channel.ChannelHandlerContext;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -33,6 +34,7 @@ import java.util.Objects;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import mockit.Mocked;
 import net.jqwik.api.Example;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -142,6 +144,34 @@ public class Release007SporkDatabaseTest extends BaseCodecTest<PublishSpork> {
 				assertThat(type.name(), stored.isTakenByTheNetwork(), is(false));
 				assertThat(type.name(), stored.isValidSignature(), is(false));
 				assertThrows(SigningException.class, () -> renewed.sign(board.get(0).getPrivateKey()));
+			}
+		}
+	}
+
+	/* What the board signs again, each type of it a first version of the same data, which every node takes */
+	@SneakyThrows
+	@Example
+	public void shouldTakeTheirDataSignedAgainAsFirstVersions(@Mocked ChannelHandlerContext context) {
+		final SporkDatabase database = fixture();
+		final List<Signature> board = currentBoard();
+
+		for (GridSpork.Type type : GridSpork.Type.values()) {
+			final GridSpork stored = type == GridSpork.Type.UNDEFINED ? null : database.get(type);
+
+			if (Objects.nonNull(stored)) {
+				final GridSpork first = GridSpork.firstVersionOf(stored);
+
+				first.sign(board.get(0).getPrivateKey());
+				first.cosign(board.get(1).getPrivateKey());
+
+				final GridSpork received = encodeDecode(PublishSpork.builder().gridSpork(first).build(),
+					new PublishSporkEncoder(), new PublishSporkDecoder(), context
+				).getGridSpork();
+
+				assertThat(type.name(), first.getTimeStamp().isAfter(stored.getTimeStamp()), is(true));
+				assertThat(type.name(), received.isTakenByTheNetwork(), is(true));
+				assertThat(type.name(), received.canReplace(null), is(true));
+				assertThat(type.name(), received.getData(), equalTo(stored.getData()));
 			}
 		}
 	}
