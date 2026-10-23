@@ -118,7 +118,7 @@ public class GridSporkCosign implements Runnable {
 		final Response answer = sporks.submit(proposal);
 
 		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
-			: "Co-signing " + digest + " refused: " + TerminalText.printable(answer.readEntity(String.class));
+			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer));
 	}
 
 	/* A proposal holds all the data that it sets, the changes of the proposals it replaced among it, so the whole of

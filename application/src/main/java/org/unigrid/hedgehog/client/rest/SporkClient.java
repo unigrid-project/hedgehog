@@ -26,6 +26,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -133,6 +134,11 @@ public class SporkClient {
 		}
 
 		return Optional.of(SporkWire.decode(bodyOf(response)));
+	}
+
+	/* What the node answers a signed spork with: the proposal it holds, or why it refused the spork */
+	public static String textOf(Response response) throws IOException {
+		return new String(bodyOf(response), StandardCharsets.UTF_8);
 	}
 
 	/* A node answers with a spork or with the list of its proposals, one of each type, so an answer bigger than a

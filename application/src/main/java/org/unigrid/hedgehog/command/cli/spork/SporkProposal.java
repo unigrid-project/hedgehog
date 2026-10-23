@@ -121,15 +121,21 @@ public final class SporkProposal {
 		}
 	}
 
-	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes */
-	public static void print(Response response) {
+	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes. The status says
+	   whether the node took the spork, so an answer too big to read is only said to be so. */
+	public static void print(Response response) throws IOException {
 		System.out.println(TerminalText.printable(String.valueOf(response.getStatusInfo())));
 
 		if (response.hasEntity()) {
-			final String answer = response.readEntity(String.class);
 			final boolean held = response.getStatus() == Status.ACCEPTED.getStatusCode();
 
-			System.out.println(held ? Json.parse(answer) : TerminalText.printable(answer));
+			try {
+				final String answer = SporkClient.textOf(response);
+
+				System.out.println(held ? Json.parse(answer) : TerminalText.printable(answer));
+			} catch (IllegalArgumentException ex) {
+				System.out.println(ex.getMessage());
+			}
 		}
 	}
 }

@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -357,6 +358,38 @@ public class ForgedSporkTest {
 			assertThat(flooded, result.out() + result.err(), containsString("more than " + SporkWire.MAX_SIZE));
 			assertThat(flooded, endless.read, lessThanOrEqualTo(SporkWire.MAX_SIZE + 1L));
 			assertThat(flooded, node.submitted(), empty());
+		}
+	}
+
+	/* What the node answers a signed spork with is read no further either, whether it took the spork or not; the
+	   status still says which */
+	@Example
+	public void readsNoMoreOfTheAnswerToASignedSporkThanASporkTakes() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER);
+
+		for (Status status : List.of(Status.ACCEPTED, Status.CONFLICT)) {
+			final List<Endless> answers = new ArrayList<>();
+			final FakeSporkNode node = new FakeSporkNode().holding(stored).waitingOn(proposal);
+			final RestCommandFixture.Answer flooding = request -> {
+				if (HttpMethod.POST.equals(request.method())) {
+					answers.add(new Endless());
+					return Response.status(status).entity(answers.getLast()).build();
+				}
+
+				return node.respond(request);
+			};
+
+			for (Runnable command : List.of(set(30), renew(), cosign(PendingSporks.digestOf(proposal)))) {
+				final Result result = RestCommandFixture.run(command, flooding);
+
+				assertThat(status.toString(), result.out() + result.err(), containsString("more than "
+					+ SporkWire.MAX_SIZE));
+			}
+
+			assertThat(status.toString(), answers, hasSize(3));
+			assertThat(status.toString(), answers.stream().allMatch(answer -> answer.read <= SporkWire.MAX_SIZE + 1L),
+				is(true));
 		}
 	}
 
