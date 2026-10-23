@@ -22,6 +22,7 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -56,6 +57,7 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
@@ -93,8 +95,12 @@ public class LedgerVoteCommandTest {
 	}
 
 	private static Response info(long round, String... validators) {
+		return infoEnding(LedgerCommandFixtures.ROUND_ENDS, round, validators);
+	}
+
+	private static Response infoEnding(long roundEnds, long round, String... validators) {
 		final LedgerInfo info = new LedgerInfo(true, false, "", true, CHAIN_ID, 3, "22".repeat(64), "12.50000000",
-			round, List.of(validators), "0.00100000", 0, List.of(), List.of());
+			round, roundEnds, List.of(validators), "0.00100000", 0, List.of(), List.of());
 
 		return Response.ok(info).build();
 	}
@@ -220,6 +226,44 @@ public class LedgerVoteCommandTest {
 			assertRefusedBeforeSending(refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE));
 			assertRefusedBeforeSending(refusedOn(fs, KEY_OPTION, KEY_FILE, CANDIDATE_OPTION, CANDIDATE,
 				ADD_OPTION, REMOVE_OPTION));
+		}
+	}
+
+	/* A proposer may close a round up to MAX_CLOCK_SKEW_MILLIS before its end by the clock of another node, so a vote
+	   signed that close to the end may be taken in and then dropped; the voter is told to vote in the next round */
+	@Example
+	@SneakyThrows
+	public void refusesToSignWhenTheRoundIsAboutToEnd() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final AccountKey voter = Ed25519.publicKey(SEED);
+			final long ends = System.currentTimeMillis() + Ledger.MAX_CLOCK_SKEW_MILLIS / 2;
+
+			final Outcome outcome = sendOn(fs, infoEnding(ends, ROUND, voter.toString()), accepted(), KEY_OPTION,
+				KEY_FILE, CANDIDATE_OPTION, CANDIDATE, ADD_OPTION);
+
+			assertThat(outcome.cli().exitCode(), equalTo(2));
+			assertThat(outcome.cli().err(), containsString("round " + (ROUND + 1) + ", which starts at "
+				+ Instant.ofEpochMilli(ends)));
+			assertThat(outcome.cli().err(), not(containsString("Signed for chain")));
+			assertNothingPosted(outcome);
+			outcome.cli().assertNoStackTrace();
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void signsWhileTheRoundHasLongerToRun() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.writeSeed(fs, SEED);
+			final AccountKey voter = Ed25519.publicKey(SEED);
+			final long ends = System.currentTimeMillis() + 10 * Ledger.MAX_CLOCK_SKEW_MILLIS;
+
+			final Outcome outcome = sendOn(fs, infoEnding(ends, ROUND, voter.toString()), accepted(), KEY_OPTION,
+				KEY_FILE, CANDIDATE_OPTION, CANDIDATE, ADD_OPTION);
+
+			assertThat(outcome.cli().exitCode(), equalTo(0));
+			assertThat(voteIn(outcome).round(), equalTo(ROUND));
 		}
 	}
 

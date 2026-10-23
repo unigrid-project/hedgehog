@@ -105,6 +105,16 @@ public class LedgerRoundTest {
 		assertThat(state.roundAt(GENESIS_TIME + 7 * ROUND + 5), equalTo(7L));
 	}
 
+	/* A round ends where the next starts; one too long for a long to count its end never ends */
+	@Example
+	public void shouldEndARoundWhereTheNextStarts() {
+		final LedgerState state = chain();
+
+		assertThat(state.roundEndAt(startOf(3) + 5), equalTo(startOf(4)));
+		assertThat(state.roundEndAt(startOf(4)), equalTo(startOf(5)));
+		assertThat(state(Long.MAX_VALUE, ANY_MINT, FOUNDATION).roundEndAt(GENESIS_TIME), equalTo(Long.MAX_VALUE));
+	}
+
 	@Example
 	public void shouldBeInTheRoundOfTheTimeOfTheTip() {
 		final LedgerState state = chain();

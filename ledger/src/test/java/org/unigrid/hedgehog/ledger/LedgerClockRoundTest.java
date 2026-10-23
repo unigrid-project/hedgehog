@@ -69,6 +69,19 @@ public class LedgerClockRoundTest {
 		}
 	}
 
+	/* When the next round starts, and a vote for the round of the clock comes too late */
+	@Example
+	public void shouldSayWhenTheRoundOfItsClockEnds() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(2) + 5);
+			final Ledger ledger = open(fileSystem, clock);
+
+			assertThat(ledger.roundEnds(), equalTo(startOf(3)));
+			clock.set(startOf(3));
+			assertThat(ledger.roundEnds(), equalTo(startOf(4)));
+		}
+	}
+
 	/* No block is dated before its tip, so a clock that runs behind the tip is in the round of the tip */
 	@Example
 	public void shouldNeverBeInARoundBeforeTheTip() throws IOException {

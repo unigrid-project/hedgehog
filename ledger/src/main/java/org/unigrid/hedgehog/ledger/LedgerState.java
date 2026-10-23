@@ -201,6 +201,18 @@ public final class LedgerState {
 		return Math.floorDiv(time - genesis.getTime(), genesis.getRoundMillis());
 	}
 
+	/* Where the round of this time ends and the next starts. A genesis may give rounds so long that a long cannot count
+	   to that end, and such a round does not end. */
+	public long roundEndAt(long time) {
+		try {
+			final long sinceGenesis = Math.multiplyExact(roundAt(time) + 1, genesis.getRoundMillis());
+
+			return Math.addExact(genesis.getTime(), sinceGenesis);
+		} catch (ArithmeticException e) {
+			return Long.MAX_VALUE;
+		}
+	}
+
 	/* The state as a block of this time finds it before its transactions, as far as votes go: the round of the tip
 	   closed when the time lies in a later one. This state itself when it does not, a copy when it does. */
 	public LedgerState inRoundOf(long time) {

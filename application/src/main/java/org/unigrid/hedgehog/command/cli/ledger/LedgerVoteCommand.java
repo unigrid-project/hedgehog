@@ -19,12 +19,14 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
@@ -83,6 +85,7 @@ public class LedgerVoteCommand implements Callable<Integer> {
 		final byte[] chainId = LedgerClient.chainId(info, draft.chain());
 		final long round = LedgerClient.round(info);
 
+		refuseNearTheEndOf(round, LedgerClient.roundEnds(info));
 		refuseWhenNotAllowed(draft, LedgerClient.validators(info));
 		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), round, chainId);
 
@@ -112,6 +115,16 @@ public class LedgerVoteCommand implements Callable<Integer> {
 			return LedgerKeyFile.load(keyFile);
 		} catch (IllegalArgumentException ex) {
 			throw refused("--key: " + ex.getMessage());
+		}
+	}
+
+	/* Validators take a block dated up to MAX_CLOCK_SKEW_MILLIS ahead of their clocks, so a proposer may close a round
+	   that much before its end; a vote signed that late may be taken in and then dropped with its round */
+	private void refuseNearTheEndOf(long round, long ends) {
+		if (ends - System.currentTimeMillis() < Ledger.MAX_CLOCK_SKEW_MILLIS) {
+			throw refused("Round " + round + " ends in less than " + Ledger.MAX_CLOCK_SKEW_MILLIS / 1000
+				+ " seconds, too soon for a vote to be sure of a block: vote in round " + (round + 1)
+				+ ", which starts at " + Instant.ofEpochMilli(ends));
 		}
 	}
 

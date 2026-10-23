@@ -316,6 +316,11 @@ public final class Ledger implements ConsensusApp {
 		return state.roundAt(blockTimeFor(clock.getAsLong()));
 	}
 
+	/* When that round ends and the next starts, by this node's clock */
+	public synchronized long roundEnds() {
+		return state.roundEndAt(blockTimeFor(clock.getAsLong()));
+	}
+
 	public synchronized long balanceOf(Address key) {
 		return state.balanceOf(key);
 	}
