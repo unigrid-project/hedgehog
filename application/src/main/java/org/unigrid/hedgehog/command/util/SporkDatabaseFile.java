@@ -39,7 +39,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
 
 /* A spork database as the spork-db commands read it and judge each spork in it: by who signed it, as a node judges
-   the database it loads, and by its content, judged whole as a node judges a first version */
+   the database it loads, and by what holds for the spork as a whole */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class SporkDatabaseFile {
 	static final int SHOWN_HEX = 16;
@@ -61,10 +61,13 @@ final class SporkDatabaseFile {
 		return types().stream().map(database::get).filter(Objects::nonNull).toList();
 	}
 
-	/* The bounds of the wire are those a node reads a spork within, so what does not travel cannot be signed */
+	/* What a database holds is what the network carried, and signing it again changes none of it, so it is judged as a
+	   version that changes nothing: the entries are history, a mint storage entry at a height of the old chain was
+	   paid by that chain, and the ledger leaves out any entry it cannot make. The bounds of the wire are those a node
+	   reads a spork within, so what does not travel cannot be signed. */
 	static Optional<String> contentProblem(GridSpork spork) {
 		try {
-			SporkContent.validate(spork, null);
+			SporkContent.validate(spork, spork);
 			SporkWire.decode(SporkWire.encode(spork));
 			return Optional.empty();
 		} catch (Exception ex) {

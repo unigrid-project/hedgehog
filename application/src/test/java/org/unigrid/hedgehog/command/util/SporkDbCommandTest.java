@@ -213,7 +213,8 @@ public class SporkDbCommandTest {
 		}
 	}
 
-	/* The mints of the fixture are made up, and are told apart from those the ledger can pay */
+	/* The mints of the fixture are made up, but they are history the network carried, which signing again leaves
+	   as it is, so only who signed them fails */
 	@Example
 	@SneakyThrows
 	public void reportsTheSporksOfRelease007AsNotSignedByTheBoard() {
@@ -225,7 +226,7 @@ public class SporkDbCommandTest {
 			assertThat(result.err(), result.exitCode(), equalTo(1));
 			assertThat(lineOf(result, Type.MINT_STORAGE), startsWith("MINT_STORAGE: made " + mints.getTimeStamp()
 				+ ", digest " + shortly(PendingSporks.digestOf(mints)) + ", signer not a board key, co-signer none"
-				+ ", log entries 0, not signed by the board, content not valid: The mint of "));
+				+ ", log entries 0, not signed by the board, content valid"));
 			assertThat(lineOf(result, Type.MINT_SUPPLY), containsString("not signed by the board, content valid"));
 			assertThat(lineOf(result, Type.LEDGER_FEE), equalTo("LEDGER_FEE: absent"));
 
@@ -550,11 +551,16 @@ public class SporkDbCommandTest {
 	@SneakyThrows
 	public void signsNothingWhenTheContentOfASporkDoesNotHold() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = sign(fs, fixture(fs, RELEASE_007), "/out.db", FIRST);
+			final GridSpork unsigned = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+			unsigned.setData(supplyOf(-1));
+
+			final Path negative = written(fs, "negative.db", unsigned);
+			final HedgehogCli.Result result = sign(fs, negative, "/out.db", FIRST);
 
 			assertThat(result.exitCode(), equalTo(2));
-			assertThat(result.err(), containsString("Nothing was signed: the content of the MINT_STORAGE spork does"
-				+ " not hold: The mint of "));
+			assertThat(result.err(), containsString("Nothing was signed: the content of the MINT_SUPPLY spork does"
+				+ " not hold: A maximum supply is not negative"));
 			assertThat(result.out(), not(containsString("data:")));
 			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
 		}
@@ -672,6 +678,23 @@ public class SporkDbCommandTest {
 				assertThat(spork.isTakenByTheNetwork(), is(true));
 				assertThat(spork.getData(), equalTo(load(earlier).get(spork.getType()).getData()));
 			}
+		}
+	}
+
+	/* Entries that a new version could not add, such as mints of addresses no ledger knows, are history here */
+	@Example
+	@SneakyThrows
+	public void signsTheHistoryOfAnEarlierBuildAsItIs() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path earlier = fixture(fs, RELEASE_007);
+			final HedgehogCli.Result first = sign(fs, earlier, "/spork.db.once", FIRST);
+			final HedgehogCli.Result second = sign(fs, fs.getPath("/spork.db.once"), "/spork.db.signed", SECOND);
+			final GridSpork mints = load(fs.getPath("/spork.db.signed")).getMintStorage();
+
+			assertThat(first.err(), first.exitCode(), equalTo(0));
+			assertThat(second.err(), second.exitCode(), equalTo(0));
+			assertThat(mints.isTakenByTheNetwork(), is(true));
+			assertThat(mints.getData(), equalTo(load(earlier).getMintStorage().getData()));
 		}
 	}
 }
