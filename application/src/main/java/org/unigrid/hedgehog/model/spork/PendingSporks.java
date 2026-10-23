@@ -29,10 +29,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 /**
@@ -62,29 +64,51 @@ public class PendingSporks {
 	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
 	public boolean offer(GridSpork spork, GridSpork stored) {
-		return offer(spork, stored, () -> true);
+		return offer(spork, () -> stored, () -> true);
 	}
 
 	/**
 	* Holds the proposal as {@link #offer(GridSpork, GridSpork)} does, asking {@code mayVerify} right before its
-	* signature is checked, as {@link GridSpork#isProposalOver(GridSpork, BooleanSupplier)} does. The signature is
-	* checked without the lock, so that a spork that costs many checks holds up no other thread, and whether the
-	* proposal may take the place of the one held is asked again under the lock.
+	* signature is checked, as {@link GridSpork#isProposalOver(GridSpork, BooleanSupplier)} does.
 	*/
 	public boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
-		if (!isAlive(spork) || isAheadOfTime(spork) || !mayTakeThePlaceOfTheHeld(spork)
-			|| !spork.isProposalOver(stored, mayVerify)) {
+		return offer(spork, () -> stored, mayVerify);
+	}
+
+	/**
+	* Holds the proposal as {@link #offer(GridSpork, GridSpork, BooleanSupplier)} does, over the spork that the node
+	* stores, which {@code stored} reads. The signature is checked without the lock, so that a spork that costs many
+	* checks holds up no other thread. Under the lock the proposal is held only if neither the keys that the node goes
+	* by nor the stored spork changed meanwhile: either change is followed by a cleanup ({@link
+	* #retainProposalsOfActiveKeys()}, {@link #retainProposalsOver(GridSpork)}) that judged the proposals held then,
+	* and a proposal checked against what was there before must not come in after it. It is turned down as one that
+	* failed its check, and comes again from the peers that hold it.
+	*/
+	public boolean offer(GridSpork spork, Supplier<GridSpork> stored, BooleanSupplier mayVerify) {
+		final long generation = NetworkKey.getGeneration();
+		final GridSpork over = stored.get();
+
+		if (!mayBeHeld(spork, over, mayVerify)) {
 			return false;
 		}
 
 		synchronized (this) {
-			if (mayTakeThePlaceOfTheHeld(spork)) {
+			if (isUnchanged(generation, over, stored) && mayTakeThePlaceOfTheHeld(spork)) {
 				proposals.put(spork.getType(), spork);
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	private static boolean isUnchanged(long generation, GridSpork over, Supplier<GridSpork> stored) {
+		return NetworkKey.getGeneration() == generation && stored.get() == over;
+	}
+
+	private boolean mayBeHeld(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
+		return isAlive(spork) && !isAheadOfTime(spork) && mayTakeThePlaceOfTheHeld(spork)
+			&& spork.isProposalOver(stored, mayVerify);
 	}
 
 	private synchronized boolean mayTakeThePlaceOfTheHeld(GridSpork spork) {

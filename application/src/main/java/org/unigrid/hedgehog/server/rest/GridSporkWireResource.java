@@ -117,7 +117,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response hold(GridSpork spork) {
-		if (!pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
+		if (!pendingSporks.offer(spork, () -> sporkDatabase.get(spork.getType()), () -> true)) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 

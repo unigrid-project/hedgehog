@@ -146,7 +146,8 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 			return Response.status(Status.UNAUTHORIZED).entity("No current board key signed the spork").build();
 		}
 
-		if (spork.isPending() ? !pending.offer(spork, stored) : pending.isAheadOfTime(spork)
+		if (spork.isPending() ? !pending.offer(spork, () -> database.get(spork.getType()), () -> true)
+			: pending.isAheadOfTime(spork)
 			|| !spork.canReplace(stored)) {
 			return Response.status(Status.CONFLICT).entity("The spork does not follow on").build();
 		}

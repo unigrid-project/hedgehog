@@ -93,7 +93,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		SporkLag.Turn turn) {
 
 		if (spork.isPending()) {
-			return pendingSporks.offer(spork, stored, turn);
+			return pendingSporks.offer(spork, () -> db.get(spork.getType()), turn);
 		}
 
 		if (pendingSporks.isAheadOfTime(spork)) {
