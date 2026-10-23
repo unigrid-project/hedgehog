@@ -31,9 +31,11 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -42,6 +44,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.regex.Pattern;
@@ -396,6 +399,50 @@ public class SporkDbCommandTest {
 			result.assertNoStackTrace();
 			assertThat(Files.exists(fs.getPath("/out.db")), is(false));
 		}
+	}
+
+	/* Signed once by a board key, but not as this command makes a first version: a proposal over a version that the
+	   file does not hold, data before it that was never shown as a change, a history, or the form of a build from
+	   before co-signatures. A co-signature would make any of them a spork that the network takes. */
+	@SneakyThrows
+	private static Map<String, GridSpork> signedOnceButNoFirstVersion() {
+		final GridSpork stored = supply(supplyOf(10), FIRST, SECOND);
+		final GridSpork overStored = GridSpork.nextVersion(Type.MINT_SUPPLY, stored, Optional.empty());
+		final GridSpork withPreviousData = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+		final GridSpork withALog = SerializationUtils.clone(stored);
+		final GridSpork ofAnEarlierBuild = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+		overStored.setData(supplyOf(20));
+		overStored.sign(FIRST.getPrivateKey());
+		withPreviousData.setData(supplyOf(10));
+		withPreviousData.setPreviousData(supplyOf(1_000_000));
+		withPreviousData.sign(FIRST.getPrivateKey());
+		withALog.renew();
+		withALog.sign(FIRST.getPrivateKey());
+		ofAnEarlierBuild.setData(supplyOf(10));
+		ofAnEarlierBuild.setFlags((short) 0);
+		ofAnEarlierBuild.setSignature(FIRST.sign(ofAnEarlierBuild.getSignable()));
+
+		return Map.of("a version over another", overStored, "previous data", withPreviousData,
+			"a signature log", withALog, "an earlier build", ofAnEarlierBuild);
+	}
+
+	@Example
+	@SneakyThrows
+	public void coSignsNothingSignedOnceThatIsNoFirstVersionOfItsOwn() {
+		signedOnceButNoFirstVersion().forEach((how, spork) -> {
+			try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+				final HedgehogCli.Result result = sign(fs, written(fs, "once.db", spork), "/out.db", SECOND);
+
+				assertThat(how, result.exitCode(), equalTo(2));
+				assertThat(how, result.err(), containsString("Nothing was signed: the MINT_SUPPLY spork is signed"
+					+ " once and is no first version of its data"));
+				assertThat(how, result.err(), containsString("gridspork-cosign"));
+				assertThat(how, Files.exists(fs.getPath("/out.db")), is(false));
+			} catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
+		});
 	}
 
 	@Example

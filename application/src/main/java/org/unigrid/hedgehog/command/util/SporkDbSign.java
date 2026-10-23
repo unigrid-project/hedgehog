@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -87,8 +88,7 @@ public class SporkDbSign implements Runnable {
 					+ " spork does not hold: " + problem);
 			});
 
-			versions.add(spork.isTakenByTheNetwork() || spork.canBeProposedOver(null) ? spork
-				: GridSpork.firstVersionOf(spork));
+			versions.add(versionToSign(spork));
 		}
 
 		for (GridSpork version : versions) {
@@ -99,6 +99,35 @@ public class SporkDbSign implements Runnable {
 
 		write(database);
 		System.out.println("output: " + output);
+	}
+
+	/* A spork that a board key signed once is co-signed only in the shape this command gives a first version, which
+	   holds nothing but its data: anything else, a proposal over a version this file does not hold among them, is
+	   judged against the spork the network holds, which only a node knows */
+	private GridSpork versionToSign(GridSpork spork) {
+		if (spork.isTakenByTheNetwork()) {
+			return spork;
+		}
+
+		if (spork.isPending() && spork.isValidSignature()) {
+			if (isFirstVersion(spork)) {
+				return spork;
+			}
+
+			throw refused("Nothing was signed: the " + spork.getType() + " spork is signed once and is no"
+				+ " first version of its data, which is all this command co-signs; co-sign a proposal over a"
+				+ " stored spork with gridspork-cosign");
+		}
+
+		return GridSpork.firstVersionOf(spork);
+	}
+
+	private static boolean isFirstVersion(GridSpork spork) {
+		final ChunkData empty = spork.<ChunkData>getData().empty();
+
+		return (spork.getFlags() & GridSpork.Flag.WIRE_SIGNABLE.getValue()) != 0
+			&& Instant.EPOCH.equals(spork.getPreviousTimeStamp()) && spork.getSignatureLog().isEmpty()
+			&& empty.equals(Objects.requireNonNullElse(spork.getPreviousData(), empty));
 	}
 
 	/* Every field the signature covers, so that nothing signed goes unseen */
