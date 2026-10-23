@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -132,6 +133,32 @@ public class BoardKeysSigningTest {
 		assertThat(earlier.getSignatureLog().last().getSigners(), is(List.of(key(0).getPublicKey(),
 			key(1).getPublicKey())));
 		assertThat(earlier.isTakenByTheNetwork(), is(true));
+	}
+
+	/* The log of a spork names who signed each version among every key that was ever active, and says which of them
+	   the board switched off */
+	@Example
+	@SneakyThrows
+	public void shouldNameInTheLogTheKeysThatTheBoardSwitchedOffAndSaySo() {
+		final MintSupply earlier = supply(key(0), key(1));
+
+		installBothChanges();
+
+		final SignatureLogInfo stored = SignatureLogInfo.of(earlier);
+
+		assertThat(stored.head().signer(), is(key(0).getPublicKey()));
+		assertThat(stored.head().cosigner(), is(key(1).getPublicKey()));
+		assertThat(stored.switchedOff(), is(Set.of(key(0).getPublicKey())));
+
+		earlier.renew();
+		earlier.sign(key(1).getPrivateKey());
+		earlier.cosign(key(2).getPrivateKey());
+
+		final SignatureLogInfo renewed = SignatureLogInfo.of(earlier);
+
+		assertThat(renewed.entries().get(0).signer(), is(key(0).getPublicKey()));
+		assertThat(renewed.head().signer(), is(key(1).getPublicKey()));
+		assertThat(renewed.switchedOff(), is(Set.of(key(0).getPublicKey())));
 	}
 
 	@Example
