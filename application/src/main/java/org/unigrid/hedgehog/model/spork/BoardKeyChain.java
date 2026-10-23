@@ -33,7 +33,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -60,7 +59,8 @@ import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 *
 * <p>Verifying a change costs a signature for each approval, and a peer can send a chain that a node verified before
 * with a change added that does not hold, so a change that verified is remembered by the digest of all of its bytes,
-* which follow on every change before it and on the root.
+* which follow on every change before it and on the root. So many are remembered and no more, the one used least
+* recently going first, so that copies of a change signed again, each of other bytes, push out none that is in use.
 *
 * <p>A release that vouches for the chain up to a change ({@link Network#BOARD_KEYS_CHECKPOINT}) takes no chain from
 * its root that does not hold that change.
@@ -74,7 +74,7 @@ public final class BoardKeyChain {
 
 	private static final byte[] ROOT_TAG = "hedgehog/board-keys/1".getBytes(StandardCharsets.US_ASCII);
 	private static final byte[] LINK_TAG = "hedgehog/board-keys/link/1".getBytes(StandardCharsets.US_ASCII);
-	private static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
+	static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
 	private static final float LOAD_FACTOR = 0.75f;
 	private static final Map<String, String> REJECTED = remembering(MAX_REMEMBERED);
 
@@ -86,7 +86,7 @@ public final class BoardKeyChain {
 		Set.of(NetOptions.RELEASE_NETWORK_KEYS.split(",")));
 
 	private static volatile Release release = THE_RELEASE;
-	private static final Map<String, ActiveKeys> VERIFIED = new ConcurrentHashMap<>();
+	private static final Map<String, ActiveKeys> VERIFIED = remembering(MAX_REMEMBERED);
 
 	/*
 	    Root format, of which the root is the SHA-512 digest:
@@ -258,9 +258,7 @@ public final class BoardKeyChain {
 
 		final ActiveKeys after = before.after(change.getActive());
 
-		if (VERIFIED.size() < MAX_REMEMBERED) {
-			VERIFIED.putIfAbsent(id, after);
-		}
+		VERIFIED.put(id, after);
 
 		return after;
 	}
