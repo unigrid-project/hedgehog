@@ -47,12 +47,14 @@ import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 /* What a spork may hold beyond what its wire form bounds, by its type. The command line checks a spork by these rules
-   before it signs it, and a node checks one it is handed before it holds it or sends it on, so a change that no node
-   can act on is refused when it is made, not found out by every node when it is due. Of a spork with entries, only
-   the entries that the new version adds or changes are judged: those of the stored version were taken when it was
-   made, under the rules of that time, and are no part of the change. The answer is an IllegalArgumentException that
-   says what is wrong. The mints are judged as the ledger reads them, which the snapshot model knows, so the rules
-   sit above both the sporks and that model. */
+   before it signs it, and a node checks one that is handed to it over REST before it holds it or sends it on, so a
+   change that no node can act on is refused when it is made, not found out by every node when it is due. A spork
+   from a peer is not judged again: two board keys signed it, and a node of a later release with stricter rules would
+   otherwise refuse what the network carries. Of a spork with entries, only the entries that the new version adds or
+   changes are judged: those of the stored version were taken when it was made, under the rules of that time, and
+   are no part of the change. The answer is an IllegalArgumentException that says what is wrong. The mints are
+   judged as the ledger reads them, which the snapshot model knows, so the rules sit above both the sporks and that
+   model. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkContent {
 	private static final String AMOUNT_BOUNDS = "at most " + SporkAmount.MAX_DECIMALS + " decimals and "
