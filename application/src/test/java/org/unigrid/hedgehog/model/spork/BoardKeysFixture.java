@@ -25,11 +25,14 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -73,6 +76,21 @@ public final class BoardKeysFixture {
 				return builtIn;
 			}
 		};
+	}
+
+	/* A release that vouches for the chain given, up to its last change, and that builds in the keys that the node
+	   goes by now, or other keys, as a network of keys of its own does */
+	public static void checkpointAt(List<KeyChange> chain, boolean isBuiltIn) {
+		final Network.Checkpoint checkpoint = new Network.Checkpoint(chain.size(),
+			Hex.encodeHexString(BoardKeyChain.digestOf(chain.getLast())));
+
+		BoardKeyChain.setRelease(new BoardKeyChain.Release(Optional.of(checkpoint),
+			isBuiltIn ? Set.copyOf(Arrays.asList(NetworkKey.getBuiltInKeys())) : Set.of()));
+	}
+
+	/* The release as it is, which a class that stands in another one in a test goes back to before every other one */
+	public static void withoutCheckpoint() {
+		BoardKeyChain.setRelease(BoardKeyChain.THE_RELEASE);
 	}
 
 	public static byte[] rootOf(List<Signature> builtIn) {

@@ -52,11 +52,13 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.withoutCheckpoint;
 import picocli.CommandLine;
 
 /* The commands that sign sporks go by the board keys of the node, once they hold from the root of this machine. The
@@ -70,6 +72,7 @@ public class BoardKeysCommandLineTest {
 	@BeforeTry
 	public void before() {
 		buildIn(keys(0, 1));
+		withoutCheckpoint();
 		SporkCommands.environmentKey(null);
 	}
 
@@ -148,6 +151,21 @@ public class BoardKeysCommandLineTest {
 		final byte[] elsewhere = rootOf(keys(0, 5));
 		final FakeSporkNode node = new FakeSporkNode().holding(signedAnyway(chainOf(change(elsewhere, List.of(),
 			keys(0, 1, 5), keys(0, 1, 5))), key(0), key(1)));
+		final Result result = RestCommandFixture.run(setSupply(key(0)), node);
+
+		assertThat(result.err(), containsString("board keys"));
+		assertThat(node.submitted(), empty());
+		assertThat(NetworkKey.getActiveKeys().length(), is(0));
+	}
+
+	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	@Example
+	public void signsNothingOverBoardKeysThatDoNotHoldTheCheckpointOfTheRelease() {
+		final KeyChange elsewhere = change(ROOT, List.of(), keys(0, 1, 5), keys(0, 1, 5));
+		final FakeSporkNode node = new FakeSporkNode().holding(signedAnyway(chainOf(elsewhere), key(0), key(1)));
+
+		checkpointAt(List.of(ADDING), true);
+
 		final Result result = RestCommandFixture.run(setSupply(key(0)), node);
 
 		assertThat(result.err(), containsString("board keys"));

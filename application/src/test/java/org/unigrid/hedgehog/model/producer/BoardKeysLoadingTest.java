@@ -32,8 +32,10 @@ import java.util.List;
 import java.util.Set;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
+import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -44,6 +46,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -55,15 +58,18 @@ import org.unigrid.hedgehog.model.util.Reflection;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.withoutCheckpoint;
 
 /* A node goes by the board keys of the database it loads before it judges the other sporks in it. The release builds
    in keys 0 and 1; the first change adds key 2, and the second switches keys 0 and 1 off and adds key 3. */
+@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class BoardKeysLoadingTest {
 	private static final byte[] ROOT = rootOf(keys(0, 1));
 	private static final KeyChange ADDING = change(ROOT, List.of(), keys(0, 1, 2), keys(0, 1, 2));
@@ -72,6 +78,7 @@ public class BoardKeysLoadingTest {
 	@BeforeTry
 	public void before() {
 		buildIn(keys(0, 1));
+		withoutCheckpoint();
 	}
 
 	@AfterTry
@@ -132,13 +139,26 @@ public class BoardKeysLoadingTest {
 
 	@Example
 	public void shouldLeaveOutBoardKeysThatAreRootedInOtherKeys() {
+		final byte[] elsewhere = rootOf(keys(0, 5));
+
+		assertLeftOut(signedAnyway(chainOf(change(elsewhere, List.of(), keys(0, 1, 5), keys(0, 1, 5))), key(0),
+			key(1)));
+	}
+
+	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	@Example
+	public void shouldLeaveOutBoardKeysThatDoNotHoldTheCheckpointOfTheRelease() {
+		checkpointAt(List.of(ADDING), true);
+		assertLeftOut(signedAnyway(chainOf(change(ROOT, List.of(), keys(0, 1, 5), keys(0, 1, 5))), key(0),
+			key(1)));
+	}
+
+	private static void assertLeftOut(GridSpork boardKeys) {
 		final ListAppender<ILoggingEvent> log = new ListAppender<>();
 		final Logger logger = (Logger) LoggerFactory.getLogger(SporkDatabaseProducer.class);
-		final byte[] elsewhere = rootOf(keys(0, 5));
 		final SporkDatabase stored = SporkDatabase.builder().build();
 
-		stored.set(signedAnyway(chainOf(change(elsewhere, List.of(), keys(0, 1, 5), keys(0, 1, 5))), key(0),
-			key(1)));
+		stored.set(boardKeys);
 		log.start();
 		logger.addAppender(log);
 

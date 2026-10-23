@@ -35,6 +35,7 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.SerializationException;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
@@ -128,11 +129,20 @@ final class SporkDatabaseFile {
 	}
 
 	/* A board member signs and approves by the keys that the chain of board keys of the file makes active, so a file
-	   that holds less than the chain that this machine verified before is refused, and one that holds more of it is
-	   recorded (BoardKeysRecord) */
+	   whose chain does not hold from the root of this machine, through the checkpoint of the release, or that holds
+	   less than the chain that this machine verified before is refused, and one that holds more of it is recorded
+	   (BoardKeysRecord) */
 	static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
 		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
 			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());
+
+		try {
+			chain.ifPresent(BoardKeyChain::verify);
+		} catch (IllegalArgumentException ex) {
+			throw new ParameterException(spec.commandLine(), "The chain of board keys of " + file
+				+ " does not hold from the root of this machine: " + TerminalText.printable(ex.getMessage()),
+				ex);
+		}
 
 		try {
 			BoardKeysRecord.ofThisMachine().keep(chain, "the file " + file).ifPresent(System.out::println);

@@ -34,8 +34,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.Validate;
+import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -56,6 +58,9 @@ import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 * <p>Verifying a change costs a signature for each approval, and a peer can send a chain that a node verified before
 * with a change added that does not hold, so a change that verified is remembered by the digest of all of its bytes,
 * which follow on every change before it and on the root.
+*
+* <p>A release that vouches for the chain up to a change ({@link Network#BOARD_KEYS_CHECKPOINT}) takes no chain from
+* its root that does not hold that change.
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class BoardKeyChain {
@@ -67,6 +72,15 @@ public final class BoardKeyChain {
 	private static final byte[] ROOT_TAG = "hedgehog/board-keys/1".getBytes(StandardCharsets.US_ASCII);
 	private static final byte[] LINK_TAG = "hedgehog/board-keys/link/1".getBytes(StandardCharsets.US_ASCII);
 	private static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
+
+	/* The checkpoint that the release vouches for, and the board keys built into it */
+	record Release(Optional<Network.Checkpoint> checkpoint, Set<String> builtInKeys) {
+	}
+
+	static final Release THE_RELEASE = new Release(Network.BOARD_KEYS_CHECKPOINT,
+		Set.of(NetOptions.RELEASE_NETWORK_KEYS.split(",")));
+
+	private static volatile Release release = THE_RELEASE;
 	private static final Map<String, ActiveKeys> VERIFIED = new ConcurrentHashMap<>();
 
 	/*
@@ -103,13 +117,45 @@ public final class BoardKeyChain {
 		return Arrays.asList(NetworkKey.getBuiltInKeys());
 	}
 
-	/* As verify() answers, from the root of this node */
+	/* As verify() answers, from the root of this node and through the checkpoint of its release */
 	public static ActiveKeys verify(List<KeyChange> changes) {
+		checkpoint().ifPresent(point -> Validate.isTrue(holds(changes, point), "The chain of board keys does not"
+			+ " hold change %d of the chain of the board, which is the checkpoint of this release",
+			point.length() - 1));
+
 		return verify(root(), builtInKeys(), changes);
 	}
 
 	public static Optional<ActiveKeys> verified(List<KeyChange> changes) {
-		return verified(root(), builtInKeys(), changes);
+		return checkpoint().filter(point -> !holds(changes, point)).isPresent() ? Optional.empty()
+			: verified(root(), builtInKeys(), changes);
+	}
+
+	/* The checkpoint of the release, which a network of keys of its own goes without */
+	private static Optional<Network.Checkpoint> checkpoint() {
+		final Release vouching = release;
+
+		return vouching.checkpoint().filter(point -> isBuiltInto(vouching));
+	}
+
+	/* Whether the node goes by the board keys built into the release, rather than by keys of a network of its own */
+	private static boolean isBuiltInto(Release vouching) {
+		return Optional.ofNullable(NetworkKey.getBuiltInKeys()).map(keys -> Set.copyOf(Arrays.asList(keys))
+			.equals(vouching.builtInKeys())).orElse(false);
+	}
+
+	/* What a test stands in for the release, which goes back with THE_RELEASE */
+	static void setRelease(Release vouching) {
+		release = vouching;
+	}
+
+	private static boolean holds(List<KeyChange> changes, Network.Checkpoint checkpoint) {
+		try {
+			return changes.size() >= checkpoint.length() && (checkpoint.length() == 0 || Hex.encodeHexString(
+				digestOf(changes.get(checkpoint.length() - 1))).equals(checkpoint.digest()));
+		} catch (IllegalArgumentException | NullPointerException ex) {
+			return false;
+		}
 	}
 
 	public static int quorumOf(int keys) {

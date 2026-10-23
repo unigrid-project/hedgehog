@@ -63,6 +63,7 @@ import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
@@ -88,6 +89,7 @@ public class BoardKeysCommandTest {
 
 		OptionsCli.parse(List.of("util"), BOARD);
 		BoardKeysRecordFixture.inMemory();
+		BoardKeysFixture.withoutCheckpoint();
 	}
 
 	@AfterTry
@@ -357,6 +359,26 @@ public class BoardKeysCommandTest {
 			assertSucceeded(sign(fs, chained(fs, "/second.db", first, second), "/second-signed.db"));
 			assertRefused(sign(fs, chained(fs, "/again.db", first), "/again-signed.db"), "fewer than the chain of"
 				+ " 2 changes");
+		}
+	}
+
+	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	@Example
+	@SneakyThrows
+	public void signsNothingOverAFileWhoseChainDoesNotHoldTheCheckpointOfTheRelease() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final byte[] root = rootOf(keys(0, 1));
+			final KeyChange first = change(root, List.of(), keys(1, 2), keys(0, 1, 2));
+			final Path other = chained(fs, "/other.db", change(root, List.of(), keys(0, 1, 3), keys(0, 1, 3)));
+
+			checkpointAt(List.of(first), true);
+
+			final HedgehogCli.Result refused = sign(fs, other, "/other-signed.db");
+
+			assertThat(refused.exitCode(), equalTo(2));
+			assertThat(refused.err(), containsString("checkpoint"));
+			assertThat(Files.exists(fs.getPath("/other-signed.db")), is(false));
+			assertSucceeded(sign(fs, chained(fs, "/first.db", first), "/first-signed.db"));
 		}
 	}
 

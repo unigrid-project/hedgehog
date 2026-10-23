@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model;
 
 import java.util.Arrays;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -37,6 +38,15 @@ public class Network {
 	/* With the board keys built into the release, the root of the chain of changes to them (BoardKeyChain). A release
 	   that counts it up starts from its own keys again, and every change made before it is void. */
 	public static final long BOARD_KEYS_EPOCH = 1;
+
+	/* A chain of board keys that the release vouches for: its length, and the digest in hex of what its last change
+	   decides (BoardKeyChain.digestOf). A quorum of any key set the board ever had can sign a fork that a node which
+	   starts fresh takes, so a release made after a change of the board keys sets this, or counts the epoch up, and a
+	   node of it takes no chain that does not hold the checkpoint. */
+	public record Checkpoint(int length, String digest) {
+	}
+
+	public static final Optional<Checkpoint> BOARD_KEYS_CHECKPOINT = Optional.empty();
 
 	private static final String[] EARLIER_PROTOCOLS = {
 		"hedgehog/0.0.4",

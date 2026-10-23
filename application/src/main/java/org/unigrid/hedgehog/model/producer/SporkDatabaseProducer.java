@@ -140,7 +140,8 @@ public class SporkDatabaseProducer {
 		}
 
 		return spork instanceof BoardKeys boardKeys && boardKeys.chainKeys().isEmpty()
-			? "its chain of board keys does not hold from the root of this node" : signingOf(spork);
+			? "its chain of board keys does not hold from the root of this node, through the checkpoint of its"
+			+ " release" : signingOf(spork);
 	}
 
 	private static String signingOf(GridSpork spork) {
