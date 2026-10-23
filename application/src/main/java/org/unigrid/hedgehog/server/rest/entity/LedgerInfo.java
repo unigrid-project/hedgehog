@@ -29,7 +29,8 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
 
 /* What the node says of its ledger. Amounts are coins as text with eight decimals, hashes and keys lower-case hex.
-   Before there is a ledger only what the service itself knows is there; the rest is left out, not made up. */
+   The round is the validator round of the node's clock, the one a vote is signed for now. Before there is a ledger
+   only what the service itself knows is there; the rest is left out, not made up. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record LedgerInfo(boolean running, boolean halted, String haltReason, boolean signing, String chainId,
 	long height, String tipHash, String supply, Long round, List<String> validators, String minimumFee,
