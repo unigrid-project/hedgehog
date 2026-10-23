@@ -65,6 +65,7 @@ strip_signature() {
 }
 
 log "keys in $WORK"
+mkdir -p "$WORK"
 cd "$WORK"
 hedgehog util key-generate > board1.txt
 hedgehog util key-generate > board2.txt
