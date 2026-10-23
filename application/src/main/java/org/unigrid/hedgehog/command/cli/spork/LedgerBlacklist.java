@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist.SporkData;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
@@ -52,6 +53,17 @@ public class LedgerBlacklist extends SporkCommand<SporkData> {
 	@Override
 	protected String location() {
 		return "/gridspork/ledger-blacklist";
+	}
+
+	@Override
+	protected GridSpork.Type type() {
+		return GridSpork.Type.LEDGER_BLACKLIST;
+	}
+
+	/* The list replaces the one before it as a whole */
+	@Override
+	protected void apply(final SporkData data, final GridSpork spork) {
+		spork.setData(data);
 	}
 
 	/* The addresses are decoded here rather than by the daemon, which only ever sees and checks their hashes */

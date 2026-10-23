@@ -19,10 +19,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitrary;
@@ -31,18 +28,29 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.json;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.StorageSpork.SporkData;
+import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -52,13 +60,27 @@ public class StorageTest {
 	private static final String LOCATION = "/gridspork/storage";
 
 	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
+	public Arbitrary<String> sporks() {
+		return SporkCommands.reports();
 	}
 
 	@Provide
-	public Arbitrary<String> sporks() {
-		return SporkCommands.reports();
+	public Arbitrary<SporkData> validData() {
+		return StorageSporkTest.sporkDataAcrossTheBounds().filter(StorageSporkTest::accepts);
+	}
+
+	@Provide
+	public Arbitrary<SporkData> invalidData() {
+		return StorageSporkTest.sporkDataAcrossTheBounds().filter(data -> !StorageSporkTest.accepts(data));
+	}
+
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
+	}
+
+	private static Runnable set(String data) {
+		return subcommand(new GridSporkSet(), "-D", data, "-k", PROPOSER.getPrivateKey(), NAME);
 	}
 
 	@Property(tries = 10)
@@ -72,18 +94,41 @@ public class StorageTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
-	@Property(tries = 30)
-	public void putsTheSporkDataAsJsonSignedWithTheKeyAndPrintsTheStatus(@ForAll("keys") String key,
-		@ForAll("sporks") String data, @ForAll Status status) {
+	@Property(tries = 10)
+	public void proposesTheParametersOfTheJsonSignedHereWithTheKey(@ForAll("validData") SporkData data) {
+		final GridSpork stored = stored(Type.STORAGE, new SporkData());
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+		final GridSpork proposal = proposed(RestCommandFixture.run(set(json(data)), node), node, Type.STORAGE);
 
-		final Result result = RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", data, "-k", key, NAME),
-			Response.status(status).build());
+		assertThat(proposal.getData(), equalTo(data));
+		assertThat(proposal.getPreviousData(), equalTo(stored.getData()));
+	}
 
-		assertThat(result.request(), equalTo(Optional.of(new Request(HttpMethod.PUT, LOCATION,
-			Optional.of(Entity.entity(data, MediaType.APPLICATION_JSON)), signedBy(key)))));
+	/* What the JSON leaves out is what a spork holds unless it is told otherwise */
+	@Example
+	public void takesTheDefaultOfWhatTheJsonLeavesOut() {
+		final FakeSporkNode node = new FakeSporkNode();
+		final SporkData expected = new SporkData();
 
-		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
-		assertThat(result.err(), equalTo(""));
+		expected.setManifestCopies(5);
+		assertThat(proposed(RestCommandFixture.run(set("{\"manifestCopies\":5}"), node), node, Type.STORAGE)
+			.getData(), equalTo(expected));
+	}
+
+	@Property(tries = 10)
+	public void refusesParametersThatNoNodeCanStoreBy(@ForAll("invalidData") SporkData data) {
+		final FakeSporkNode node = new FakeSporkNode();
+
+		assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(set(json(data)), node));
+		assertThat(node.submitted(), empty());
+	}
+
+	@Example
+	public void refusesWhatIsNoJsonOfTheParameters() {
+		for (String data : List.of("", "{", "[]", "{\"manifestCopies\":\"many\"}")) {
+			assertThat(data, assertThrows(CommandLine.ParameterException.class,
+				() -> set(data).run()).getMessage(), containsString("storage parameters"));
+		}
 	}
 
 	@Example

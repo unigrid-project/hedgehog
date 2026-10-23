@@ -33,7 +33,10 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -67,11 +70,13 @@ public final class RestCommandFixture {
 	public record Request(String method, String location, Optional<Entity<?>> entity,
 		Optional<MultivaluedMap<String, Object>> headers) { }
 
+	/* The request is the last one sent, the requests are all of them in the order they were sent */
 	public record Result(Optional<Connection> connection, boolean closed, Optional<Request> request, String out,
-		String err) { }
+		String err, List<Request> requests) { }
 
-	private interface Answer {
-		Response respond() throws ResponseOddityException;
+	/* What the node answers each request with, for a command that sends more than one */
+	public interface Answer {
+		Response respond(Request request) throws ResponseOddityException;
 	}
 
 	private interface Token {
@@ -79,16 +84,17 @@ public final class RestCommandFixture {
 	}
 
 	public static Result run(Runnable command, Response canned) {
-		return runOn(HOST, command, canned);
+		readsBackItsEntity(canned);
+		return run(HOST, command, () -> TOKEN, request -> canned);
 	}
 
-	public static Result runOn(String host, Runnable command, Response canned) {
-		readsBackItsEntity(canned);
-		return run(host, command, () -> TOKEN, () -> canned);
+	public static Result run(Runnable command, Answer answer) {
+		readsBackItsEntity(Response.ok().build());
+		return run(HOST, command, () -> TOKEN, answer);
 	}
 
 	public static Result runWithOddity(Runnable command, ResponseOddityException oddity) {
-		return run(HOST, command, () -> TOKEN, () -> {
+		return run(HOST, command, () -> TOKEN, request -> {
 			throw oddity;
 		});
 	}
@@ -96,7 +102,7 @@ public final class RestCommandFixture {
 	public static Result runWithoutToken(Runnable command, IOException unreadable) {
 		return run(HOST, command, () -> {
 			throw unreadable;
-		}, () -> {
+		}, request -> {
 			throw new IllegalStateException("A request went out without a token");
 		});
 	}
@@ -120,7 +126,7 @@ public final class RestCommandFixture {
 		}
 
 		return new Result(client.connection, client.closed, client.request, out.toString(StandardCharsets.UTF_8),
-			err.toString(StandardCharsets.UTF_8));
+			err.toString(StandardCharsets.UTF_8), List.copyOf(client.requests));
 	}
 
 	private static void fakeOptions(String host, Token token) {
@@ -158,7 +164,10 @@ public final class RestCommandFixture {
 	}
 
 	private static final class FakeClient extends MockUp<RestClient> {
+		private static final String PRIVATE_KEY = "privateKey";
+
 		private final Answer answer;
+		private final List<Request> requests = new ArrayList<>();
 		private Optional<Connection> connection = Optional.empty();
 		private Optional<Request> request = Optional.empty();
 		private boolean closed;
@@ -223,13 +232,20 @@ public final class RestCommandFixture {
 			closed = true;
 		}
 
+		/* A board key is used on this machine alone, so no command may send one in any header */
 		private Response respond(String method, String location, Entity<?> entity,
 			MultivaluedMap<String, Object> headers) throws ResponseOddityException {
 
-			request = Optional.of(new Request(method, location, Optional.ofNullable(entity),
-				Optional.ofNullable(headers)));
+			final Request sent = new Request(method, location, Optional.ofNullable(entity),
+				Optional.ofNullable(headers));
 
-			return answer.respond();
+			if (Objects.nonNull(headers) && headers.keySet().stream().anyMatch(PRIVATE_KEY::equalsIgnoreCase)) {
+				throw new AssertionError("A private key went out in a header to " + location);
+			}
+
+			request = Optional.of(sent);
+			requests.add(sent);
+			return answer.respond(sent);
 		}
 	}
 }

@@ -19,21 +19,22 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.regex.Pattern;
 import lombok.Getter;
-import lombok.SneakyThrows;
 import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -70,53 +71,52 @@ public class MintStorage implements Runnable {
 	private boolean allowPast;
 
 	@Override
-	@SneakyThrows
 	public void run() {
 		if (spec.parent().userObject() instanceof GridSporkGet) {
-			final RestClientCommand cmd = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-storage") {
+			new RestClientCommand(HttpMethod.GET, "/gridspork/mint-storage") {
 				@Override
 				protected void execute(Response response) {
 					System.out.println(Json.parse(response.readEntity(String.class)));
 				}
-			};
-
-			cmd.run();
-		} else if (spec.parent().userObject() instanceof GridSporkGrow) {
-			if (ObjectUtils.anyNull(address, number)) {
-				System.out.println("Both the address and its block height or time have to be specified");
-			} else {
-				final String url = "/gridspork/mint-storage/%s/%s".formatted(address, numberOfTheMint());
-				final RestClientCommand cmd = new RestClientCommand(HttpMethod.PUT, url) {
-					@Override
-					protected <T> Entity<T> getEntity() {
-						return (Entity<T>) Entity.text(GridSporkGrow.getData());
-					}
-
-					@Override
-					protected void execute(Response response) {
-						System.out.println(Json.parse(response.readEntity(String.class)));
-					}
-				};
-
-				final MultivaluedMap<String, Object> headers = new MultivaluedHashMap<>();
-				headers.add("privateKey", GridSporkGrow.getKey());
-
-				cmd.setHeaders(headers);
-				cmd.run();
-			}
+			}.run();
+		} else if (spec.parent().userObject() instanceof GridSporkGrow grow) {
+			grow(grow);
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();
 		}
 	}
 
-	private String numberOfTheMint() {
+	/* The mint is read before the key, as neither needs the node and a mistake in the mint is the likelier one */
+	private void grow(GridSporkGrow grow) {
+		if (ObjectUtils.anyNull(address, number)) {
+			System.out.println("Both the address and its block height or time have to be specified");
+			return;
+		}
+
+		final Location location = new Location(new Address(address), heightOfTheMint());
+		final BigDecimal amount = amountOf(GridSporkGrow.getData());
+
+		SporkProposal.propose(spec.commandLine(), GridSpork.Type.MINT_STORAGE,
+			spork -> spork.<SporkData>getData().getMints().put(location, amount), grow.getBoardKey().resolve()
+		);
+	}
+
+	private BigDecimal amountOf(String text) {
+		try {
+			return new BigDecimal(text.strip());
+		} catch (NumberFormatException ex) {
+			throw new ParameterException(spec.commandLine(), "The amount \"" + text + "\" is no number", ex);
+		}
+	}
+
+	private int heightOfTheMint() {
 		try {
 			final long value = DIGITS.matcher(number).matches() ? Long.parseLong(number) : secondsOfTheInstant();
 			final int stored = MintEntry.heightOf(address, value);
 
 			requireNotPast(value);
-			return Integer.toUnsignedString(stored);
+			return stored;
 		} catch (IllegalArgumentException ex) {
 			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
 		}

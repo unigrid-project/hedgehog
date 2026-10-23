@@ -18,63 +18,99 @@
 
 package org.unigrid.hedgehog.command.cli;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.client.rest.SporkClient;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.spork.ChunkData;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Parameters;
 
 @Command(name = "gridspork-cosign",
-	description = "Co-sign sporks awaiting a second network key, naming each by its digest from gridspork-pending."
+	description = "Co-sign sporks awaiting a second board key, naming each by its digest from gridspork-pending. "
+		+ "What each one sets is shown beside what the node holds before it is signed on this machine."
 )
-public class GridSporkCosign extends RestClientCommand {
-	@Option(names = { "-k", "--key" }, description = "Hex representation of private key co-signing the sporks.",
-		required = true
-	)
-	private String key;
+public class GridSporkCosign implements Runnable {
+	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
+		.writerWithDefaultPrettyPrinter();
+
+	@Mixin
+	private BoardKeyOptions boardKey;
 
 	@Parameters(arity = "1..*", description = "Digests of the sporks to co-sign.")
 	private List<String> digests;
 
-	private String digest;
-
-	public GridSporkCosign() {
-		super(HttpMethod.PUT, null, Optional.of(() -> "Unauthorized"));
-	}
-
 	@Override
 	public void run() {
-		setHeaders(new MultivaluedHashMap<>(Map.of("privateKey", key)));
+		final String key = boardKey.resolve();
 
-		for (String nextDigest : digests) {
-			digest = nextDigest;
-			super.run();
+		try (RestClient rest = RestClientCommand.connect()) {
+			final SporkClient sporks = new SporkClient(rest);
+
+			digests.forEach(digest -> cosign(sporks, digest, key));
+		} catch (IOException ex) {
+			System.err.println(RestClientCommand.describe(ex));
 		}
 	}
 
-	@Override
-	protected String getLocation() {
-		return "/gridspork/pending/" + digest;
+	/* Each digest is tried on its own, so one that fails leaves the others to be co-signed */
+	private static void cosign(SporkClient sporks, String digest, String key) {
+		try {
+			final Optional<GridSpork> proposal = sporks.proposal(digest);
+
+			if (proposal.isEmpty()) {
+				System.out.println("No spork awaits a co-signature under " + digest);
+			} else if (!PendingSporks.digestOf(proposal.get()).equals(digest)) {
+				System.out.println("The node answered " + digest + " with another spork, which was not "
+					+ "co-signed");
+			} else {
+				System.out.println(cosigned(sporks, proposal.get(), digest, key));
+			}
+		} catch (ResponseOddityException ex) {
+			System.err.println(RestClientCommand.describe(ex));
+		} catch (SigningException | IllegalArgumentException | IOException ex) {
+			System.out.println("Co-signing " + digest + " refused: " + ex.getMessage());
+		}
 	}
 
-	@Override
-	protected <T> Entity<T> getEntity() {
-		return (Entity<T>) Entity.text("");
+	private static String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
+		throws ResponseOddityException, SigningException, IOException {
+
+		show(proposal, digest, sporks.stored(proposal.getType()));
+		proposal.cosign(key);
+
+		final Response answer = sporks.submit(proposal);
+
+		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
+			: "Co-signing " + digest + " refused: " + answer.readEntity(String.class);
 	}
 
-	@Override
-	protected void execute(Response response) {
-		System.out.println(switch (Status.fromStatusCode(response.getStatus())) {
-			case OK -> "Co-signed " + digest;
-			case NOT_FOUND -> "No spork awaits a co-signature under " + digest;
-			default -> "Co-signing " + digest + " refused: " + response.readEntity(String.class);
-		});
+	/* A proposal holds all the data that it sets, the changes of the proposals it replaced among it, so the whole of
+	   it and the whole of what the node holds are shown: that is every change that the co-signature accepts */
+	private static void show(GridSpork proposal, String digest, Optional<GridSpork> stored)
+		throws JsonProcessingException {
+
+		final String signer = NetworkKey.signerOf(proposal).orElse("no known board key");
+
+		System.out.println("Proposal " + digest + " of " + proposal.getType() + ", made at "
+			+ proposal.getTimeStamp() + " and signed by " + signer);
+		System.out.println("Stored data:");
+		System.out.println(stored.isPresent() ? JSON.writeValueAsString(stored.get().getData()) : "none");
+		System.out.println("Proposed data:");
+		System.out.println(JSON.writeValueAsString(proposal.getData()));
 	}
 }

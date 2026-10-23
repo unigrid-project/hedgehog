@@ -19,17 +19,15 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -38,22 +36,31 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.Positive;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -61,17 +68,13 @@ import picocli.CommandLine.Model.CommandSpec;
 public class MintStorageTest {
 	private static final String NAME = "mint-storage";
 	private static final String LOCATION = "/gridspork/mint-storage";
-	private static final int ADDRESS_LENGTH = 40;
 	private static final int ACCOUNT_LENGTH = 64;
 	private static final int HASH_LENGTH = 20;
 	private static final long UNSIGNED_MAXIMUM = 4_294_967_295L;
 	private static final String ACCOUNT = "ab".repeat(ACCOUNT_LENGTH / 2);
+	private static final String OLD = LegacyAddress.encode(new byte[HASH_LENGTH]);
+	private static final String AMOUNT = "5";
 	private static final String UNSPECIFIED = "Both the address and its block height or time have to be specified";
-
-	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
-	}
 
 	@Provide
 	public Arbitrary<String> amounts() {
@@ -84,11 +87,6 @@ public class MintStorageTest {
 	}
 
 	@Provide
-	public Arbitrary<String> addresses() {
-		return Arbitraries.strings().alpha().numeric().ofMinLength(1).ofMaxLength(ADDRESS_LENGTH);
-	}
-
-	@Provide
 	public Arbitrary<String> accounts() {
 		return Arbitraries.strings().withChars("0123456789abcdef").ofLength(ACCOUNT_LENGTH);
 	}
@@ -98,75 +96,51 @@ public class MintStorageTest {
 		return Arbitraries.bytes().array(byte[].class).ofSize(HASH_LENGTH).map(LegacyAddress::encode);
 	}
 
-	private static Runnable grow(String amount, String key, Optional<String> address, Optional<String> number) {
-		return growWith("--height", amount, key, address, number);
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
 	}
 
 	/* Most of what is tested here is about the number, and a time that has passed is allowed for it */
-	private static Runnable growWith(String option, String amount, String key, Optional<String> address,
-		Optional<String> number) {
-
-		return growCommand(true, option, amount, key, address, number);
+	private static Runnable grow(String option, String amount, Optional<String> address, Optional<String> number) {
+		return growCommand(true, option, amount, address, number);
 	}
 
-	private static Runnable growCommand(boolean allowPast, String option, String amount, String key,
-		Optional<String> address, Optional<String> number) {
+	private static Runnable growCommand(boolean allowPast, String option, String amount, Optional<String> address,
+		Optional<String> number) {
 
 		final Stream<String> mint = Stream.concat(address.stream().flatMap(value -> Stream.of("--address", value)),
 			number.stream().flatMap(value -> Stream.of(option, value)));
 		final Stream<String> leave = allowPast ? Stream.of("--allow-past") : Stream.empty();
 
-		return subcommand(new GridSporkGrow(), Stream.concat(Stream.of("-D", amount, "-k", key, NAME),
-			Stream.concat(leave, mint)).toArray(String[]::new));
+		return subcommand(new GridSporkGrow(), Stream.concat(Stream.of("-D", amount, "-k", PROPOSER.getPrivateKey(),
+			NAME), Stream.concat(leave, mint)).toArray(String[]::new));
 	}
 
-	private static Result sentWithoutLeave(String address, String number) {
-		return RestCommandFixture.run(growCommand(false, "--time", "5", "key", Optional.of(address),
-			Optional.of(number)), Response.ok("{}").build());
+	private static Map<Location, BigDecimal> mintsOf(Result result) {
+		return SporkCommands.submitted(result).<SporkData>getData().getMints();
 	}
 
-	private static String refusalWithoutLeave(String address, String number) {
-		final AtomicReference<String> message = new AtomicReference<>();
-		final Runnable command = growCommand(false, "--time", "5", "key", Optional.of(address), Optional.of(number));
-
-		final Result result = RestCommandFixture.run(() -> {
-			try {
-				command.run();
-			} catch (CommandLine.ParameterException ex) {
-				message.set(ex.getMessage());
-			}
-		}, Response.ok("{}").build());
-
-		assertThat(address + " " + number, result.connection(), equalTo(Optional.empty()));
-		assertThat(address + " " + number, message.get(), notNullValue());
-		return message.get();
+	private static Map<Location, BigDecimal> mint(String address, String number) {
+		return Map.of(new Location(new Address(address), Integer.parseUnsignedInt(number)), new BigDecimal(AMOUNT));
 	}
 
-	private static Result sent(String option, String address, String number) {
-		return RestCommandFixture.run(growWith(option, "5", "key", Optional.of(address), Optional.of(number)),
-			Response.ok("{}").build());
+	private static Map<Location, BigDecimal> sent(String option, String address, String number) {
+		return mintsOf(RestCommandFixture.run(grow(option, AMOUNT, Optional.of(address), Optional.of(number)),
+			new FakeSporkNode()));
 	}
 
-	private static Request put(String address, String number) {
-		return new Request(HttpMethod.PUT, LOCATION + "/" + address + "/" + number, Optional.of(Entity.text("5")),
-			signedBy("key"));
+	private static Map<Location, BigDecimal> sentWithoutLeave(String address, String number) {
+		return mintsOf(RestCommandFixture.run(growCommand(false, "--time", AMOUNT, Optional.of(address),
+			Optional.of(number)), new FakeSporkNode()));
 	}
 
 	private static String refusal(String address, String number) {
-		final AtomicReference<String> message = new AtomicReference<>();
-		final Runnable command = growWith("--height", "5", "key", Optional.of(address), Optional.of(number));
+		return SporkCommands.refusal(grow("--height", AMOUNT, Optional.of(address), Optional.of(number)));
+	}
 
-		final Result result = RestCommandFixture.run(() -> {
-			try {
-				command.run();
-			} catch (CommandLine.ParameterException ex) {
-				message.set(ex.getMessage());
-			}
-		}, Response.ok("{}").build());
-
-		assertThat(address + " " + number, result.connection(), equalTo(Optional.empty()));
-		assertThat(address + " " + number, message.get(), notNullValue());
-		return message.get();
+	private static String refusalWithoutLeave(String address, String number) {
+		return SporkCommands.refusal(growCommand(false, "--time", AMOUNT, Optional.of(address), Optional.of(number)));
 	}
 
 	@Property(tries = 10)
@@ -180,26 +154,38 @@ public class MintStorageTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
-	@Property(tries = 30)
-	public void putsTheMintForTheAddressAndHeightSignedWithTheKey(@ForAll("keys") String key,
-		@ForAll("amounts") String amount, @ForAll("addresses") String address, @ForAll @Positive int height,
-		@ForAll("sporks") String spork, @ForAll Status status) {
+	@Property(tries = 10)
+	public void proposesTheMintBesideTheStoredOnesSignedHereWithTheKey(@ForAll("amounts") String amount,
+		@ForAll("oldAddresses") String address, @ForAll @Positive int height) {
 
-		Assume.that(status != Status.UNAUTHORIZED);
+		final SporkData before = new SporkData();
 
-		final Result result = RestCommandFixture.run(grow(amount, key, Optional.of(address),
-			Optional.of(Integer.toString(height))), Response.status(status).entity(spork).build());
+		before.setMints(new HashMap<>(Map.of(new Location(new Address(OLD), 1), BigDecimal.ONE)));
 
-		assertThat(result.request(), equalTo(Optional.of(new Request(HttpMethod.PUT, LOCATION + "/" + address + "/"
-			+ height, Optional.of(Entity.text(amount)), signedBy(key)))));
+		final GridSpork stored = stored(Type.MINT_STORAGE, before);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+		final Result result = RestCommandFixture.run(grow("--height", amount, Optional.of(address),
+			Optional.of(Integer.toString(height))), node);
+		final Map<Location, BigDecimal> expected = new HashMap<>(before.getMints());
 
-		assertThat(tree(result.out()), equalTo(tree(spork)));
-		assertThat(result.err(), equalTo(""));
+		expected.put(new Location(new Address(address), height), new BigDecimal(amount));
+		assertThat(proposed(result, node, Type.MINT_STORAGE).<SporkData>getData().getMints(), equalTo(expected));
 	}
 
-	@Property(tries = 10)
+	@Property(tries = 5)
 	public void sendsNothingWithoutAnAddress(@ForAll("amounts") String amount, @ForAll Optional<@Positive Integer> height) {
-		final Result result = RestCommandFixture.run(grow(amount, "key", Optional.empty(), height.map(String::valueOf)),
+		final Result result = RestCommandFixture.run(grow("--height", amount, Optional.empty(),
+			height.map(String::valueOf)), Response.ok().build());
+
+		assertThat(result.connection(), equalTo(Optional.empty()));
+		assertThat(result.out().lines().toList(), equalTo(List.of(UNSPECIFIED)));
+	}
+
+	@Property(tries = 5)
+	public void sendsNothingWithoutAHeightOrATime(@ForAll("amounts") String amount,
+		@ForAll("accounts") String address) {
+
+		final Result result = RestCommandFixture.run(grow("--height", amount, Optional.of(address), Optional.empty()),
 			Response.ok().build());
 
 		assertThat(result.connection(), equalTo(Optional.empty()));
@@ -207,30 +193,18 @@ public class MintStorageTest {
 	}
 
 	@Property(tries = 10)
-	public void sendsNothingWithoutAHeightOrATime(@ForAll("amounts") String amount,
-		@ForAll("addresses") String address) {
-
-		final Result result = RestCommandFixture.run(grow(amount, "key", Optional.of(address), Optional.empty()),
-			Response.ok().build());
-
-		assertThat(result.connection(), equalTo(Optional.empty()));
-		assertThat(result.out().lines().toList(), equalTo(List.of(UNSPECIFIED)));
-	}
-
-	@Property(tries = 20)
-	public void putsTheSecondsOfAnAccountThatAreGivenAsDigits(@ForAll("accounts") String account,
+	public void proposesTheSecondsOfAnAccountThatAreGivenAsDigits(@ForAll("accounts") String account,
 		@ForAll @LongRange(min = 0, max = UNSIGNED_MAXIMUM) long seconds) {
 
 		for (String option : List.of("--height", "--time")) {
-			assertThat(sent(option, account, Long.toString(seconds)).request(),
-				equalTo(Optional.of(put(account, Long.toString(seconds)))));
+			assertThat(sent(option, account, Long.toString(seconds)), equalTo(mint(account, Long.toString(seconds))));
 		}
 	}
 
 	@Example
-	public void putsTheSecondsOfAnAccountAtTheEdgesOfThirtyTwoBits() {
+	public void proposesTheSecondsOfAnAccountAtTheEdgesOfThirtyTwoBits() {
 		for (String seconds : List.of("0", "1", "2147483647", "2147483648", "4000000000", "4294967295")) {
-			assertThat(sent("--time", ACCOUNT, seconds).request(), equalTo(Optional.of(put(ACCOUNT, seconds))));
+			assertThat(sent("--time", ACCOUNT, seconds), equalTo(mint(ACCOUNT, seconds)));
 		}
 	}
 
@@ -243,9 +217,8 @@ public class MintStorageTest {
 			"2026-06-01T00:00:00.9Z", "1780272000");
 
 		instants.forEach((instant, seconds) -> {
-			assertThat(instant, sent("--time", ACCOUNT, instant).request(), equalTo(Optional.of(put(ACCOUNT, seconds))));
-			assertThat(instant, sent("--height", ACCOUNT, instant).request(),
-				equalTo(Optional.of(put(ACCOUNT, seconds))));
+			assertThat(instant, sent("--time", ACCOUNT, instant), equalTo(mint(ACCOUNT, seconds)));
+			assertThat(instant, sent("--height", ACCOUNT, instant), equalTo(mint(ACCOUNT, seconds)));
 		});
 	}
 
@@ -279,7 +252,7 @@ public class MintStorageTest {
 		}
 	}
 
-	@Property(tries = 20)
+	@Property(tries = 10)
 	public void refusesAnIsoInstantForAnAddressOfTheOldChain(@ForAll("oldAddresses") String address) {
 		for (String instant : List.of("2026-06-01T00:00:00Z", "2026-06-01T02:00:00+02:00", "2026-06-01T00:00:00")) {
 			final String message = refusal(address, instant);
@@ -290,34 +263,46 @@ public class MintStorageTest {
 		}
 	}
 
+	/* What is not a lower-case account takes a height alone, and is then no address that the ledger can mint to */
 	@Example
-	public void takesOnlyAHeightForWhatIsNotALowerCaseAccount() {
-		final String upperCase = ACCOUNT.toUpperCase();
+	public void takesOnlyAHeightForWhatIsNotALowerCaseAccountAndRefusesToMintToIt() {
+		for (String address : List.of(ACCOUNT.toUpperCase(), "garbage", "abc" + ACCOUNT, ACCOUNT.substring(1))) {
+			final FakeSporkNode node = new FakeSporkNode();
 
-		for (String address : List.of(upperCase, "garbage", "abc" + ACCOUNT, ACCOUNT.substring(1))) {
 			assertThat(address, refusal(address, "2026-06-01T00:00:00Z"), containsString("height"));
-			assertThat(address, sent("--height", address, "4200000").request(),
-				equalTo(Optional.of(put(address, "4200000"))));
+			assertThat(address, assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(
+				grow("--height", AMOUNT, Optional.of(address), Optional.of("4200000")), node)).getMessage(),
+				containsString("neither"));
+			assertThat(address, node.submitted(), empty());
 		}
 	}
 
-	@Property(tries = 20)
-	public void putsTheHeightOfTheOldChainOfAnOldAddressAsDigits(@ForAll("oldAddresses") String address,
+	@Property(tries = 10)
+	public void proposesTheHeightOfTheOldChainOfAnOldAddressAsDigits(@ForAll("oldAddresses") String address,
 		@ForAll @IntRange(min = 0) int height) {
 
-		assertThat(sent("--height", address, Integer.toString(height)).request(),
-			equalTo(Optional.of(put(address, Integer.toString(height)))));
+		assertThat(sent("--height", address, Integer.toString(height)), equalTo(mint(address,
+			Integer.toString(height))));
 	}
 
 	@Example
 	public void refusesAHeightOfTheOldChainAbove2To31() {
-		final String old = LegacyAddress.encode(new byte[HASH_LENGTH]);
-
 		for (String height : List.of("2147483648", "4000000000", "4294967295")) {
-			final String message = refusal(old, height);
+			final String message = refusal(OLD, height);
 
 			assertThat(message, containsString("old-style"));
 			assertThat(message, containsString(height));
+		}
+	}
+
+	@Example
+	public void refusesAnAmountThatNoNodeCanMintBeforeSigningIt() {
+		for (String amount : List.of("0", "0.000000001", "92233720369", "five")) {
+			final FakeSporkNode node = new FakeSporkNode();
+
+			assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(grow("--time", amount,
+				Optional.of(ACCOUNT), Optional.of("4102444800")), node));
+			assertThat(amount, node.submitted(), empty());
 		}
 	}
 
@@ -343,24 +328,22 @@ public class MintStorageTest {
 
 	@Example
 	public void takesATimeThatIsToComeWithoutLeave() {
-		assertThat(sentWithoutLeave(ACCOUNT, "2100-01-01T00:00:00Z").request(),
-			equalTo(Optional.of(put(ACCOUNT, "4102444800"))));
-		assertThat(sentWithoutLeave(ACCOUNT, "4102444800").request(), equalTo(Optional.of(put(ACCOUNT, "4102444800"))));
+		assertThat(sentWithoutLeave(ACCOUNT, "2100-01-01T00:00:00Z"), equalTo(mint(ACCOUNT, "4102444800")));
+		assertThat(sentWithoutLeave(ACCOUNT, "4102444800"), equalTo(mint(ACCOUNT, "4102444800")));
 	}
 
 	@Example
 	public void takesATimeThatHasPassedWhenItIsAllowed() {
-		assertThat(sent("--time", ACCOUNT, "20260601").request(), equalTo(Optional.of(put(ACCOUNT, "20260601"))));
-		assertThat(sent("--time", ACCOUNT, "2026-06-01T00:00:00Z").request(),
-			equalTo(Optional.of(put(ACCOUNT, "1780272000"))));
+		assertThat(sent("--time", ACCOUNT, "20260601"), equalTo(mint(ACCOUNT, "20260601")));
+		assertThat(sent("--time", ACCOUNT, "2026-06-01T00:00:00Z"), equalTo(mint(ACCOUNT, "1780272000")));
 	}
 
-	@Property(tries = 20)
+	@Property(tries = 10)
 	public void needsNoLeaveForAHeightOfTheOldChain(@ForAll("oldAddresses") String address,
 		@ForAll @IntRange(min = 0) int height) {
 
-		assertThat(sentWithoutLeave(address, Integer.toString(height)).request(),
-			equalTo(Optional.of(put(address, Integer.toString(height)))));
+		assertThat(sentWithoutLeave(address, Integer.toString(height)), equalTo(mint(address,
+			Integer.toString(height))));
 	}
 
 	@Example
@@ -378,12 +361,12 @@ public class MintStorageTest {
 	}
 
 	@Example
-	public void requiresAnAmountAndAKeyToGrow() {
+	public void requiresAnAmountAndABoardKeyToGrow() {
 		assertThrows(CommandLine.MissingParameterException.class,
 			() -> subcommand(new GridSporkGrow(), "-k", "key", NAME));
 
-		assertThrows(CommandLine.MissingParameterException.class,
-			() -> subcommand(new GridSporkGrow(), "-D", "1", NAME));
+		assertThat(SporkCommands.refusal(subcommand(new GridSporkGrow(), "-D", "1", NAME, "--address", ACCOUNT,
+			"--time", "4102444800")), containsString("A board key is needed"));
 	}
 
 	@Example

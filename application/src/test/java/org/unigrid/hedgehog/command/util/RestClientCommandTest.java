@@ -33,6 +33,7 @@ import java.util.function.Supplier;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -182,5 +183,13 @@ public class RestClientCommandTest {
 		assertThat(result.connection(), equalTo(Optional.empty()));
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of(problem)));
+	}
+
+	@Example
+	public void takesOnlyAnAddressOfThisMachineForThisMachine() {
+		assertThat(RestClientCommand.isLoopback("localhost"), is(true));
+		assertThat(RestClientCommand.isLoopback("::1"), is(true));
+		assertThat(RestClientCommand.isLoopback("203.0.113.9"), is(false));
+		assertThat(RestClientCommand.isLoopback("unresolvable.invalid"), is(false));
 	}
 }

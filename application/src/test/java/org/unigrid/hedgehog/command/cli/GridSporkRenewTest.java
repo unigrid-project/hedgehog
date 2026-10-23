@@ -19,40 +19,51 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Assume;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
-import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class GridSporkRenewTest {
-	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
-	}
+	private static final long TYPES = Arrays.stream(Type.values()).filter(type -> type != Type.UNDEFINED).count();
 
-	@Provide
-	public Arbitrary<String> proposals() {
-		return SporkCommands.reports();
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
 	}
 
 	private static GridSporkRenew renew(String key) {
@@ -62,40 +73,80 @@ public class GridSporkRenewTest {
 		return command;
 	}
 
-	@Property(tries = 30)
-	public void putsAKeySignedRenewalAndPrintsTheProposals(@ForAll("keys") String key, @ForAll("proposals") String proposals,
-		@ForAll Status status) {
+	private static MintSupply.SporkData supplyOf(long maxSupply) {
+		final MintSupply.SporkData data = new MintSupply.SporkData();
 
-		Assume.that(status != Status.UNAUTHORIZED);
+		data.setMaxSupply(BigDecimal.valueOf(maxSupply));
+		return data;
+	}
 
-		final Result result = RestCommandFixture.run(renew(key), Response.status(status).entity(proposals).build());
+	private static List<String> methods(Result result) {
+		return result.requests().stream().map(Request::method).toList();
+	}
 
-		assertThat(result.request(), equalTo(Optional.of(new Request(HttpMethod.PUT, "/gridspork/renew",
-			Optional.of(Entity.text("")), signedBy(key)))));
+	@Example
+	public void renewsEveryStoredSporkSignedHereAndSignsThemAllBeforeHandingAnyBack() {
+		final GridSpork supply = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final GridSpork fee = stored(Type.LEDGER_FEE, new LedgerFee.SporkData());
+		final FakeSporkNode node = new FakeSporkNode().holding(supply, fee);
+		final Result result = RestCommandFixture.run(renew(PROPOSER.getPrivateKey()), node);
 
-		assertThat(tree(result.out()), equalTo(tree(proposals)));
+		assertThat(methods(result), equalTo(Stream.concat(Collections.nCopies((int) TYPES, HttpMethod.GET).stream(),
+			Stream.of(HttpMethod.POST, HttpMethod.POST)).toList()));
+
+		/* As the node holds them: an amount of the fee travels in units, and so comes back with eight decimals */
+		for (GridSpork before : List.of(SporkWire.decode(SporkWire.encode(supply)),
+			SporkWire.decode(SporkWire.encode(fee)))) {
+
+			final GridSpork renewed = node.proposalOf(before.getType()).orElseThrow();
+
+			assertThat(renewed.isPending(), is(true));
+			assertThat(renewed.getData(), equalTo(before.getData()));
+			assertThat(renewed.getPreviousData(), equalTo(before.getPreviousData()));
+			assertThat(renewed.getTimeStamp(), greaterThan(before.getTimeStamp()));
+			assertThat(NetworkKey.signerOf(renewed), equalTo(Optional.of(PROPOSER.getPublicKey())));
+			assertThat(renewed.getSignatureLog().last().getSignature(), equalTo(before.getSignature()));
+			assertThat(result.out(), containsString(PendingSporks.digestOf(renewed)));
+		}
+
 		assertThat(result.err(), equalTo(""));
 	}
 
-	@Property(tries = 10)
-	public void saysSoWhenNothingCameBackToRenew(@ForAll Status status) {
-		Assume.that(status != Status.UNAUTHORIZED);
-
-		final Result result = RestCommandFixture.run(renew("key"), Response.status(status).build());
+	@Example
+	public void saysSoWhenNothingIsStoredToRenew() {
+		final Result result = RestCommandFixture.run(renew(PROPOSER.getPrivateKey()), new FakeSporkNode());
 
 		assertThat(result.out().lines().toList(), equalTo(List.of("No sporks to renew")));
+		assertThat(methods(result), equalTo(Collections.nCopies((int) TYPES, HttpMethod.GET)));
+	}
+
+	/* A version that no known key signed cannot enter the signature log, and then nothing is renewed at all */
+	@Example
+	public void proposesNothingWhenOneSporkCannotBeRenewed() {
+		final GridSpork supply = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final GridSpork forged = proposal(Type.LEDGER_FEE, null, new LedgerFee.SporkData(), STRANGER);
+		final FakeSporkNode node = new FakeSporkNode().holding(supply, forged);
+		final Result result = RestCommandFixture.run(renew(PROPOSER.getPrivateKey()), node);
+
+		assertThat(node.submitted(), empty());
+		assertThat(result.err(), containsString("nothing was proposed"));
+	}
+
+	@Property(tries = 3)
+	public void reportsAnOddAnswerOnce(@ForAll Status status) {
+		final ResponseOddityException oddity = new ResponseOddityException(status);
+		final Result result = RestCommandFixture.runWithOddity(renew(PROPOSER.getPrivateKey()), oddity);
+
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of(oddity.getMessage())));
 	}
 
 	@Example
-	public void reportsARejectedKey() {
-		final Result result = RestCommandFixture.run(renew("key"), Response.status(Status.UNAUTHORIZED).build());
+	public void refusesWithoutABoardKeyBeforeAskingTheNode() {
+		final GridSporkRenew command = new GridSporkRenew();
 
-		assertThat(result.out().lines().toList(), equalTo(List.of(Status.UNAUTHORIZED.getReasonPhrase())));
-	}
-
-	@Example
-	public void requiresAKey() {
-		assertThrows(CommandLine.MissingParameterException.class,
-			() -> new CommandLine(new GridSporkRenew()).parseArgs());
+		new CommandLine(command).parseArgs();
+		assertThat(SporkCommands.refusal(command), containsString("A board key is needed"));
+		assertThat(SporkCommands.refusal(renew(STRANGER.getPrivateKey())), containsString("not one of the current"));
 	}
 }

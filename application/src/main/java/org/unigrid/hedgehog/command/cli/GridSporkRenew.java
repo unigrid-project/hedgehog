@@ -18,45 +18,67 @@
 
 package org.unigrid.hedgehog.command.cli;
 
-import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MultivaluedHashMap;
-import jakarta.ws.rs.core.Response;
-import java.util.Map;
-import java.util.Optional;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.client.rest.SporkClient;
+import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
-import org.unigrid.hedgehog.model.Json;
+import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
+import picocli.CommandLine.Mixin;
 
 @Command(name = "gridspork-renew",
-	description = "Propose every spork this node holds re-signed with the given key, keeping the spork data "
-		+ "unchanged. A second network key accepts the proposals with gridspork-cosign."
+	description = "Propose every spork the node holds again, signed on this machine with a board key and with the "
+		+ "spork data unchanged. A second board key accepts the proposals with gridspork-cosign."
 )
-public class GridSporkRenew extends RestClientCommand {
-	@Option(names = { "-k", "--key" }, description = "Hex representation of private key signing the sporks.",
-		required = true
-	)
-	private String key;
-
-	public GridSporkRenew() {
-		super(HttpMethod.PUT, "/gridspork/renew", Optional.of(() -> "Unauthorized"));
-	}
+public class GridSporkRenew implements Runnable {
+	@Mixin
+	private BoardKeyOptions boardKey;
 
 	@Override
 	public void run() {
-		setHeaders(new MultivaluedHashMap<>(Map.of("privateKey", key)));
-		super.run();
+		final String key = boardKey.resolve();
+
+		try (RestClient rest = RestClientCommand.connect()) {
+			final SporkClient sporks = new SporkClient(rest);
+			final List<GridSpork> renewed = renewed(sporks, key);
+
+			if (renewed.isEmpty()) {
+				System.out.println("No sporks to renew");
+			}
+
+			for (GridSpork spork : renewed) {
+				SporkProposal.print(sporks.submit(spork));
+			}
+		} catch (ResponseOddityException | IOException ex) {
+			System.err.println(RestClientCommand.describe(ex));
+		} catch (SigningException | IllegalArgumentException ex) {
+			System.err.println("Renewing refused, nothing was proposed: " + ex.getMessage());
+		}
 	}
 
-	@Override
-	protected <T> Entity<T> getEntity() {
-		return (Entity<T>) Entity.text("");
-	}
+	/* Everything is signed before anything is proposed, so a signing failure proposes nothing */
+	private static List<GridSpork> renewed(SporkClient sporks, String key) throws ResponseOddityException,
+		SigningException {
 
-	@Override
-	protected void execute(Response response) {
-		System.out.println(response.hasEntity() ? Json.parse(response.readEntity(String.class))
-			: "No sporks to renew");
+		final List<GridSpork> stored = new ArrayList<>();
+
+		for (GridSpork.Type type : GridSpork.Type.values()) {
+			if (type != GridSpork.Type.UNDEFINED) {
+				sporks.stored(type).ifPresent(stored::add);
+			}
+		}
+
+		for (GridSpork spork : stored) {
+			spork.renew();
+			spork.sign(key);
+		}
+
+		return stored;
 	}
 }

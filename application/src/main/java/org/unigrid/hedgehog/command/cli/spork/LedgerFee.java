@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import java.math.BigDecimal;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerFee.SporkData;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
@@ -31,6 +32,16 @@ public class LedgerFee extends SporkCommand<SporkData> {
 	@Override
 	protected String location() {
 		return "/gridspork/ledger-fee";
+	}
+
+	@Override
+	protected GridSpork.Type type() {
+		return GridSpork.Type.LEDGER_FEE;
+	}
+
+	@Override
+	protected void apply(final SporkData data, final GridSpork spork) {
+		spork.setData(data);
 	}
 
 	/* A BigDecimal keeps the typed digits, so no floating point ever rounds the fee on its way to the daemon */

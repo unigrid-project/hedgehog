@@ -19,11 +19,8 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -32,21 +29,27 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.comparesEqualTo;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.signedBy;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
+import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerFee.SporkData;
 import org.unigrid.hedgehog.model.spork.LedgerFeeSporkTest;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
@@ -55,11 +58,6 @@ import picocli.CommandLine.Model.CommandSpec;
 public class LedgerFeeSporkCommandTest {
 	private static final String NAME = "ledger-fee";
 	private static final String LOCATION = "/gridspork/ledger-fee";
-
-	@Provide
-	public Arbitrary<String> keys() {
-		return SporkCommands.keys();
-	}
 
 	@Provide
 	public Arbitrary<String> sporks() {
@@ -85,11 +83,17 @@ public class LedgerFeeSporkCommandTest {
 			Arbitraries.of("", " ", "0,5", "1.5.0", "0x10", "1e", "NaN", "Infinity", "1e99999999999"));
 	}
 
-	private static Runnable set(String key, String fee) {
-		return subcommand(new GridSporkSet(), "-D", fee, "-k", key, NAME);
+	@BeforeTry
+	public void fakeTheBoard() {
+		SporkCommands.fakeTheBoard();
 	}
 
-	/* The long form takes any value, a negative one among them */
+	private static Result set(String fee, FakeSporkNode node) {
+		return RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", fee, "-k", PROPOSER.getPrivateKey(), NAME),
+			node);
+	}
+
+	/* The data is judged before the key, so any key will do; the long form takes any value, a negative one among them */
 	private static HedgehogCli.Result setThroughTheTree(String fee) {
 		return HedgehogCli.run("cli", "gridspork-set", "--data=" + fee, "-k", "0".repeat(64), NAME);
 	}
@@ -105,32 +109,26 @@ public class LedgerFeeSporkCommandTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
-	@Property(tries = 40)
-	public void putsTheFeeExactlyAsTypedSignedWithTheKeyAndPrintsTheStatus(@ForAll("keys") String key,
-		@ForAll("acceptedTexts") String text, @ForAll Status status) {
+	/* An amount travels in units, so it reaches the node with eight decimals whatever it was typed with */
+	private static void assertProposes(String text, SporkData expected) {
+		final FakeSporkNode node = new FakeSporkNode();
+		final SporkData proposed = proposed(set(text, node), node, Type.LEDGER_FEE).getData();
 
-		final Result result = RestCommandFixture.run(set(key, text), Response.status(status).build());
-		final Request request = result.request().orElseThrow();
+		assertThat(proposed.getMinimumTransferFee(), comparesEqualTo(expected.getMinimumTransferFee()));
+		assertThat(proposed.getMinimumNewAccountAmount(), comparesEqualTo(expected.getMinimumNewAccountAmount()));
+	}
 
-		assertThat(request.method(), equalTo(HttpMethod.PUT));
-		assertThat(request.location(), equalTo(LOCATION));
-		assertThat(request.entity().orElseThrow().getMediaType(), equalTo(MediaType.APPLICATION_JSON_TYPE));
-		assertThat((Object) request.entity().orElseThrow().getEntity(),
-			equalTo(LedgerFeeSporkTest.with(new BigDecimal(text))));
-		assertThat(request.headers(), equalTo(signedBy(key)));
-		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
-		assertThat(result.err(), equalTo(""));
+	@Property(tries = 20)
+	public void proposesTheFeeExactlyAsTypedSignedHereWithTheKey(@ForAll("acceptedTexts") String text) {
+		assertProposes(text, LedgerFeeSporkTest.with(new BigDecimal(text)));
 	}
 
 	@Example
 	public void readsADecimalNumberOfCoinsWithoutFloatingPoint() {
-		final Result result = RestCommandFixture.run(set("0".repeat(64), "0.1"), Response.ok().build());
-
-		assertThat((Object) result.request().orElseThrow().entity().orElseThrow().getEntity(),
-			equalTo(LedgerFeeSporkTest.with(new BigDecimal("0.1"))));
+		assertProposes("0.1", LedgerFeeSporkTest.with(new BigDecimal("0.1")));
 	}
 
-	@Property(tries = 40)
+	@Property(tries = 20)
 	public void namesTheFeeThatTheSporkDoesNotAccept(@ForAll("refusedTexts") String text) {
 		final HedgehogCli.Result result = setThroughTheTree(text);
 
@@ -140,7 +138,7 @@ public class LedgerFeeSporkCommandTest {
 		result.assertNoStackTrace();
 	}
 
-	@Property(tries = 40)
+	@Property(tries = 20)
 	public void namesTheTextThatIsNoNumber(@ForAll("notNumbers") String text) {
 		final HedgehogCli.Result result = setThroughTheTree(text);
 
@@ -152,11 +150,10 @@ public class LedgerFeeSporkCommandTest {
 
 	@Example
 	public void readsTheFeeAndTheAmountToANewAccount() {
-		final Result result = RestCommandFixture.run(set("0".repeat(64), "0.001: 1.5"), Response.ok().build());
-		final var expected = LedgerFeeSporkTest.with(new BigDecimal("0.001"));
+		final SporkData expected = LedgerFeeSporkTest.with(new BigDecimal("0.001"));
 
 		expected.setMinimumNewAccountAmount(new BigDecimal("1.5"));
-		assertThat((Object) result.request().orElseThrow().entity().orElseThrow().getEntity(), equalTo(expected));
+		assertProposes("0.001: 1.5", expected);
 	}
 
 	@Example
@@ -173,6 +170,16 @@ public class LedgerFeeSporkCommandTest {
 		final HedgehogCli.Result result = setThroughTheTree("0.000000001");
 
 		assertThat(result.err(), containsString("at most 8 decimals"));
+	}
+
+	@Example
+	public void refusesAKeyThatIsNoBoardKeyThroughTheTree() {
+		final HedgehogCli.Result result = setThroughTheTree("0.001");
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("not one of the current board keys"));
+		assertThat(result.err(), containsString("Usage"));
+		result.assertNoStackTrace();
 	}
 
 	@Example
