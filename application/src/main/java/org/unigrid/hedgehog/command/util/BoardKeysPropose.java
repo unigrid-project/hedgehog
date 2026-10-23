@@ -23,14 +23,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
-import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import picocli.CommandLine.Command;
@@ -67,7 +65,7 @@ public class BoardKeysPropose implements Callable<Integer> {
 
 	@Override
 	public Integer call() {
-		final List<KeyChange> chain = chainOf();
+		final List<KeyChange> chain = ChangeFile.chainOf(spec, sporkDb);
 		final ActiveKeys before = verified(chain);
 		final Set<String> after = after(before.active());
 		final KeyChange change = new KeyChange(chain.size(), Instant.now().truncatedTo(ChronoUnit.MILLIS),
@@ -83,16 +81,6 @@ public class BoardKeysPropose implements Callable<Integer> {
 		proposed.getAdded().forEach(key -> System.out.println("approve too: " + key));
 		System.out.println("output: " + output);
 		return 0;
-	}
-
-	private List<KeyChange> chainOf() {
-		if (Objects.isNull(sporkDb)) {
-			return List.of();
-		}
-
-		final BoardKeys held = SporkDatabaseFile.load(spec, sporkDb).getBoardKeys();
-
-		return Objects.isNull(held) ? List.of() : held.<BoardKeys.SporkData>getData().getChanges();
 	}
 
 	private ActiveKeys verified(List<KeyChange> chain) {

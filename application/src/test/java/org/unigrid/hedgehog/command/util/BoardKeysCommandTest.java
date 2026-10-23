@@ -43,21 +43,26 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
-import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import picocli.CommandLine;
 
 /* A change of the board keys as the board makes it on its own machines: proposed, approved by each member, applied to
@@ -132,7 +137,22 @@ public class BoardKeysCommandTest {
 	}
 
 	private static HedgehogCli.Result approve(FileSystem fs, Signature key) {
-		return run(fs, "board-keys", "approve", "/change.json", "-k", key.getPrivateKey());
+		return run(fs, "board-keys", "approve", "/change.json", "--spork-db", "/spork.db", "-k", key.getPrivateKey());
+	}
+
+	/* A change file as anyone can write it */
+	@SneakyThrows
+	private static void writeChange(FileSystem fs, ProposedKeyChange proposed) {
+		Files.write(fs.getPath("/change.json"), new JsonConfiguration().getContext(ProposedKeyChange.class)
+			.writeValueAsBytes(proposed));
+	}
+
+	private static KeyChange adding2AndSwitchingOff0(byte[] root) {
+		return change(root, List.of(), keys(1, 2), List.of());
+	}
+
+	private static List<String> listOf(int... indices) {
+		return new ArrayList<>(List.of(publicKeysOf(keys(indices))));
 	}
 
 	private static void assertSucceeded(HedgehogCli.Result result) {
@@ -192,10 +212,69 @@ public class BoardKeysCommandTest {
 		}
 	}
 
+	/* Nothing signs the keys that a change file names as those before it, so a file that says the change only adds a
+	   key, while it switches one off too, is refused before anything is signed */
+	@Example
+	@SneakyThrows
+	public void approvesNoChangeWhoseFileHidesWhatItSwitchesOff() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			withSupply(fs, key(0), key(1));
+			writeChange(fs, new ProposedKeyChange(listOf(1), adding2AndSwitchingOff0(rootOf(keys(0, 1)))));
+
+			final byte[] tampered = Files.readAllBytes(fs.getPath("/change.json"));
+			final HedgehogCli.Result result = approve(fs, key(1));
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString(ChangeFile.shortly(key(0).getPublicKey())));
+			assertThat(Files.readAllBytes(fs.getPath("/change.json")), equalTo(tampered));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void approvesNoChangeThatFollowsOnTheHeadOfAnotherChain() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			withSupply(fs, key(0), key(1));
+			writeChange(fs, new ProposedKeyChange(listOf(0, 1), adding2AndSwitchingOff0(rootOf(keys(0, 3)))));
+
+			final HedgehogCli.Result result = approve(fs, key(1));
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("does not follow on"));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void readsNoChangeFileThatHoldsAnythingButKeys() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final List<String> escaped = listOf(0, 1);
+
+			withSupply(fs, key(0), key(1));
+			escaped.set(0, "\u001b[2J" + escaped.get(0).substring(4));
+			writeChange(fs, new ProposedKeyChange(escaped, adding2AndSwitchingOff0(rootOf(keys(0, 1)))));
+
+			final HedgehogCli.Result escape = approve(fs, key(1));
+			final KeyChange malformed = adding2AndSwitchingOff0(rootOf(keys(0, 1)));
+
+			malformed.getActive().set(1, malformed.getActive().get(1).substring(2) + "00");
+			writeChange(fs, new ProposedKeyChange(listOf(0, 1), malformed));
+
+			final HedgehogCli.Result wrongKey = approve(fs, key(1));
+
+			for (HedgehogCli.Result result : List.of(escape, wrongKey)) {
+				assertThat(result.exitCode(), equalTo(2));
+				assertThat(result.err(), containsString("Cannot read the change of the board keys"));
+				assertThat(result.err(), not(containsString("\u001b")));
+			}
+		}
+	}
+
 	@Example
 	@SneakyThrows
 	public void takesAnApprovalOnlyOfAKeyThatIsActiveBeforeTheChangeOrThatItAdds() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			withSupply(fs, key(0), key(1));
 			assertSucceeded(proposeTheChange(fs));
 
 			final HedgehogCli.Result stranger = approve(fs, key(3));

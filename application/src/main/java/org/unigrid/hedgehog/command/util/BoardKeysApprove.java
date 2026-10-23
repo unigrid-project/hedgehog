@@ -36,21 +36,28 @@ import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
-/* An approval covers what the change decides, so that is shown in full before it is signed. Whether the approvals reach
-   the quorum is told against the keys before it as the change file names them; the chain that the change is applied to
-   decides. */
+/* An approval covers what the change decides, so that is shown in full before it is signed, with the keys before it as
+   the chain it follows on makes them active: nothing signs what the change file says of those */
 @Command(name = "approve",
 	description = "Approves a change of the board keys with a board key that is active before it or that the change"
-		+ " adds, and writes the approval into the change file. Every key that the change adds approves it too."
+		+ " adds, and writes the approval into the change file. Every key that the change adds approves it too. The"
+		+ " change is judged against the chain of board keys of --spork-db, which it follows on."
 )
 public class BoardKeysApprove implements Callable<Integer> {
 	@Parameters(index = "0", paramLabel = "<change>", description = "The change file that util board-keys propose"
 		+ " wrote.")
 	private Path changeFile;
+
+	@Option(names = "--spork-db", paramLabel = "<file>", required = true,
+		description = "A spork database that holds the chain of board keys that the change follows on, or no board"
+			+ " keys when it is the first change of the network."
+	)
+	private Path sporkDb;
 
 	@Mixin
 	private BoardKeyOptions boardKey;
@@ -59,7 +66,8 @@ public class BoardKeysApprove implements Callable<Integer> {
 
 	@Override
 	public Integer call() {
-		final ProposedKeyChange proposed = ChangeFile.read(spec, changeFile);
+		final ProposedKeyChange read = ChangeFile.read(spec, changeFile);
+		final ProposedKeyChange proposed = ChangeFile.onTheChain(spec, ChangeFile.chainOf(spec, sporkDb), read);
 		final KeyChange change = proposed.getChange();
 		final Set<String> approvers = new TreeSet<>(proposed.getBefore());
 

@@ -65,7 +65,7 @@ public class BoardKeysApply implements Callable<Integer> {
 		final List<KeyChange> chain = new ArrayList<>(changesOf(database.getBoardKeys()));
 		final ActiveKeys keys;
 
-		chain.add(ChangeFile.read(spec, changeFile).getChange());
+		chain.add(ChangeFile.onTheChain(spec, List.copyOf(chain), ChangeFile.read(spec, changeFile)).getChange());
 
 		try {
 			keys = BoardKeyChain.verify(chain);
