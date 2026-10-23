@@ -56,7 +56,8 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class ForgedHeadReceptionTest {
 	private static final String PEER = "198.51.100.7";
-	private static final Instant EARLIER_BUILD = Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(60);
+	private static final Instant EARLIER_BUILD = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+		.minus(PendingSporks.LIFETIME.multipliedBy(3));
 
 	private static final Signature FIRST = keyPair();
 	private static final Signature SECOND = keyPair();
@@ -131,13 +132,19 @@ public class ForgedHeadReceptionTest {
 		return ofAnEarlierBuild(spork, RETIRED);
 	}
 
+	/* The next version as the command line makes it, at the time given or else now */
 	@SneakyThrows
-	private static GridSpork proposalOver(GridSpork stored, long maxSupply) {
+	private static GridSpork proposalOver(GridSpork stored, long maxSupply, Instant at) {
 		final GridSpork spork = GridSpork.nextVersion(Type.MINT_SUPPLY, stored, Optional.empty());
 
 		spork.setData(supplyOf(maxSupply));
+		Optional.ofNullable(at).ifPresent(spork::setTimeStamp);
 		spork.sign(FIRST.getPrivateKey());
 		return spork;
+	}
+
+	private static GridSpork proposalOver(GridSpork stored, long maxSupply) {
+		return proposalOver(stored, maxSupply, null);
 	}
 
 	@SneakyThrows
@@ -221,18 +228,43 @@ public class ForgedHeadReceptionTest {
 	}
 
 	/* A node can as well hand out the version before the head, which the network did take. A version over it is a
-	   sibling of the head, newer and over the same log, which would undo the change of the head. */
+	   sibling of the head that undoes its change, and once a proposal made along with the head could no longer be
+	   waiting, no race between two co-signers explains it. */
 	@Example
-	public void shouldRefuseASiblingThatChangesWhatTheStoredSporkHolds() {
-		final List<GridSpork> versions = versions(3);
-		final GridSpork proposal = proposalOver(versions.get(1), 99);
-		final GridSpork overNothing = proposalOver(null, 99);
-		final Node node = new Node(versions.getLast());
+	public void shouldRefuseASiblingThatChangesTheStoredSporkOnceAProposalOfItsTimeIsGone() {
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork before = cosigned(proposalOver(firstVersion(), 20,
+			now.minus(PendingSporks.LIFETIME.multipliedBy(2))));
+		final GridSpork head = cosigned(proposalOver(before, 30, now.minus(PendingSporks.LIFETIME).minusSeconds(1)));
+		final GridSpork rollback = proposalOver(before, 99, now);
+		final Node node = new Node(head);
 
-		assertThat(node.receive(proposal), is(false));
-		assertThat(node.receive(cosigned(proposal)), is(false));
-		assertThat(node.stored().getSignable(), equalTo(versions.getLast().getSignable()));
-		assertThat(new Node(versions.getFirst()).receive(cosigned(overNothing)), is(false));
+		assertThat(node.receive(rollback), is(false));
+		assertThat(node.receive(cosigned(rollback)), is(false));
+		assertThat(node.stored().getSignable(), equalTo(head.getSignable()));
+	}
+
+	/* Two board members can co-sign different proposals over one version on two nodes before either node hears of the
+	   other. Every node takes the newer of them, as long as it was made within the lifetime of a proposal after the
+	   one it replaces. */
+	@Example
+	public void shouldConvergeOnTheNewerOfTwoVersionsCosignedOverTheSameVersion() {
+		final GridSpork base = versions(2).getLast();
+		final GridSpork older = cosigned(proposalOver(base, 30, base.getTimeStamp().plusSeconds(1)));
+		final GridSpork newer = cosigned(proposalOver(base, 40, older.getTimeStamp().plus(PendingSporks.LIFETIME)));
+		final GridSpork tooLate = cosigned(proposalOver(base, 50, older.getTimeStamp().plus(PendingSporks.LIFETIME)
+			.plusMillis(1)));
+
+		for (List<GridSpork> arrivals : List.of(List.of(older, newer), List.of(newer, older))) {
+			final Node node = new Node(base);
+
+			arrivals.forEach(node::receive);
+			assertThat(node.stored().getSignable(), equalTo(newer.getSignable()));
+		}
+
+		assertThat(new Node(older).receive(newer), is(true));
+		assertThat(new Node(newer).receive(older), is(false));
+		assertThat(new Node(older).receive(tooLate), is(false));
 	}
 
 	@SneakyThrows
@@ -245,15 +277,18 @@ public class ForgedHeadReceptionTest {
 		return cosigned(renewal);
 	}
 
-	/* Two versions that make the same change over the same version, as two renewals of it do, settle by time */
+	/* Two versions that make the same change over the same version, as two renewals of it do, settle by time, however
+	   far apart they were made */
 	@Example
 	public void shouldSettleSiblingsThatMakeTheSameChangeByTheirTimeStamps() {
 		final GridSpork head = versions(2).getLast();
 		final GridSpork older = renewalOf(head, head.getTimeStamp().plusMillis(1));
 		final GridSpork newer = renewalOf(head, head.getTimeStamp().plusMillis(2));
+		final GridSpork muchLater = renewalOf(head, older.getTimeStamp().plus(PendingSporks.LIFETIME.multipliedBy(2)));
 
 		assertThat(new Node(older).receive(newer), is(true));
 		assertThat(new Node(newer).receive(older), is(false));
+		assertThat(new Node(older).receive(muchLater), is(true));
 	}
 
 	@Example

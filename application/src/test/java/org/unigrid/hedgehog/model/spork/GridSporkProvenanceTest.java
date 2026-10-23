@@ -191,8 +191,9 @@ public class GridSporkProvenanceTest {
 		assertThat(tampered.isProposalOver(stored), is(false));
 	}
 
-	/* Made from a sibling of the stored spork, a proposal goes on with another head than the stored one, and made over
-	   nothing, it is a sibling that undoes what the stored one holds: no node takes either */
+	/* Made from a sibling of the stored spork, a proposal goes on with another head than the stored one, which no node
+	   takes either. Made over nothing, it is a sibling of the stored one, which a node takes for a while after it as
+	   two co-signers can race, so only what it was made from tells that it undoes what the stored one holds. */
 	@Example
 	public void shouldRefuseAProposalMadeFromAnotherVersionThanTheStoredOne() {
 		final GridSpork stored = stored(null, 10);
@@ -202,7 +203,6 @@ public class GridSporkProvenanceTest {
 
 		assertThat(overSibling.canBeProposedOver(stored), is(false));
 		assertThat(overSibling.isProposalOver(stored), is(false));
-		assertThat(overNothing.canBeProposedOver(stored), is(false));
 		assertThat(overNothing.isProposalOver(stored), is(false));
 		assertThat(proposal(stored, 20, FIRST).isProposalOver(null), is(false));
 	}

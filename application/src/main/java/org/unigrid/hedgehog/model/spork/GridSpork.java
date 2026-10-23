@@ -252,7 +252,8 @@ public class GridSpork implements Serializable, Signable {
 	* Decides whether this spork, received from the network, may replace the stored one. It must be signed
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
 	* known keys, and either extend the log, with the stored spork as the first entry it adds, or win against
-	* a sibling signed on top of the same log that makes the same change by being newer.
+	* a sibling made over the same version by being newer, when it makes the same change or comes within the
+	* lifetime of a proposal after it.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -354,20 +355,32 @@ public class GridSpork implements Serializable, Signable {
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
 		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
-			&& makesTheChangeOf(stored);
+			&& mayTakeThePlaceOf(stored);
 		final boolean isLater = log.size() > storedLog.size() && goesOnWithTheHeadOf(stored, storedLog.size());
 
 		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
 	}
 
-	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data would undo
-	   its change unseen: a node that hands out the version before the stored one would have a board member sign over
-	   it a sibling that every node takes. Two versions that make the same change, as two renewals do, still settle by
-	   time, and so does the first version, which follows nothing. */
-	private boolean makesTheChangeOf(GridSpork stored) {
-		return Objects.isNull(stored) || Objects.equals(data, stored.data)
-			&& Objects.equals(previousData, stored.previousData)
+	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
+	   change unseen: a node that hands out the version before the stored one has a board member sign over it a
+	   sibling that every node takes. Two co-signers racing over one version make siblings only while a proposal
+	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
+	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
+	   as two renewals do, settle by time, and so does the first version, which follows nothing. */
+	private boolean mayTakeThePlaceOf(GridSpork stored) {
+		if (Objects.isNull(stored)) {
+			return true;
+		}
+
+		final boolean isOverTheSameVersion = Objects.equals(previousData, stored.previousData)
 			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
+
+		return isOverTheSameVersion && (Objects.equals(data, stored.data) || isWithinAProposalsLifetimeOf(stored));
+	}
+
+	private boolean isWithinAProposalsLifetimeOf(GridSpork stored) {
+		return Objects.nonNull(stored.timeStamp)
+			&& !timeStamp.isAfter(stored.timeStamp.plus(PendingSporks.LIFETIME));
 	}
 
 	/* Known keys signed every entry, retired ones among them, so a version that no board made could follow the stored
