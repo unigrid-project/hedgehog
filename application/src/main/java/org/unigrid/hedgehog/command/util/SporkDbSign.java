@@ -54,8 +54,9 @@ import picocli.CommandLine.Spec;
 @Command(name = "sign",
 	description = "Signs a spork database with a board key and writes the result to --output. A spork that no"
 		+ " current board key signed becomes a first version of the same data, made now and signed with the key; a"
-		+ " spork that another board key signed once is co-signed; a spork that two board keys signed is left as it"
-		+ " is. A second board member runs the command on the output with their own key."
+		+ " first version that this command made and another board key signed is co-signed; a spork that two board"
+		+ " keys signed is left as it is. A second board member runs the command on the output with their own key."
+		+ " Any other spork signed once is refused, as is one stamped ahead of the clock."
 )
 public class SporkDbSign implements Runnable {
 	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
@@ -182,8 +183,6 @@ public class SporkDbSign implements Runnable {
 		}
 	}
 
-	/* Only a spork whose signature and log the current keys vouch for is co-signed: anything else could carry a
-	   history that no board made, and is begun again from its data */
 	private String signed(GridSpork version, String key) {
 		try {
 			if (version.isTakenByTheNetwork()) {
