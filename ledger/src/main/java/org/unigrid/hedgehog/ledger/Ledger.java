@@ -95,7 +95,7 @@ public final class Ledger implements ConsensusApp {
 		final Optional<String> round = transaction instanceof Vote vote
 			? state.roundRejection(vote, blockTimeFor(now)) : Optional.empty();
 
-		return round.isPresent() ? round : admit(transaction, judgedAt(now));
+		return round.isPresent() ? round : admit(transaction, judgedAt(now, transaction instanceof Vote));
 	}
 
 	private Optional<String> admit(Transaction transaction, LedgerState judging) {
@@ -171,18 +171,24 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	/* What waits is judged as the block this node would make now would find it: with the round of the tip closed when
-	   the time lies in a later round, as that block closes it first */
-	private LedgerState judgedAt(long now) {
+	   the time lies in a later round, as that block closes it first. Only a vote depends on the round, so the opened
+	   state, which costs a copy of the state, is made only when votes are judged. */
+	private LedgerState judgedAt(long now, boolean judgesVotes) {
 		final long blockTime = blockTimeFor(now);
+		final boolean roundPassed = state.roundAt(blockTime) > state.round();
 
 		dropPassedVotes(blockTime);
 		state.askAuthorityAt(now);
-		opened = state.roundAt(blockTime) > state.round() ? openedAt(blockTime) : null;
 
-		if (opened == null) {
+		if (!roundPassed) {
+			opened = null;
+		}
+
+		if (!roundPassed || !judgesVotes) {
 			return state;
 		}
 
+		opened = openedAt(blockTime);
 		opened.askAuthorityAt(now);
 		return opened;
 	}
@@ -247,7 +253,7 @@ public final class Ledger implements ConsensusApp {
 
 		log.append(block);
 		state.apply(block);
-		mempool.removeCommitted(block, judgedAt(clock.getAsLong()));
+		mempool.removeCommitted(block, judgedAt(clock.getAsLong(), mempool.holdsVotes()));
 	}
 
 	/* Up to `max` committed blocks from the height `from`, in order, for a node that is behind, and never more than
@@ -338,9 +344,14 @@ public final class Ledger implements ConsensusApp {
 		return mempool.size();
 	}
 
-	/* For the tests of this package: the state that what this node takes in now is judged by */
+	/* For the tests of this package: the state that a vote this node takes in now is judged by */
 	synchronized LedgerState judging() {
-		return judgedAt(clock.getAsLong());
+		return judgedAt(clock.getAsLong(), true);
+	}
+
+	/* For the tests of this package: whether the state opened for a later round than the tip's is kept */
+	synchronized boolean holdsOpenedState() {
+		return opened != null;
 	}
 
 	/* What waits for a block, oldest first, in an order in which it can all be taken in again */

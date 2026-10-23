@@ -253,6 +253,25 @@ public class LedgerClockRoundTest {
 		}
 	}
 
+	/* A node that catches up commits block after block while its clock is in a later round. Only a vote that waits is
+	   judged by the state of that round, so with none waiting no commit makes a copy of the state to open it. */
+	@Example
+	public void shouldOpenTheNextRoundOnACommitOnlyWhileAVoteWaits() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(5));
+			final Ledger ledger = open(fileSystem, clock);
+
+			ledger.submit(mint(1, 5));
+			seal(ledger, startOf(0) + 1);
+			assertThat(ledger.holdsOpenedState(), is(false));
+
+			ledger.submit(add(ledger, seed(1), GRIDNODE, 5));
+			ledger.submit(mint(2, 5));
+			seal(ledger, startOf(0) + 2);
+			assertThat(ledger.holdsOpenedState(), is(true));
+		}
+	}
+
 	/* The round of a vote needs nothing of the state, so it is checked before anything that does */
 	@Example
 	public void shouldCheckTheRoundOfAVoteBeforeWhoCastIt() throws IOException {

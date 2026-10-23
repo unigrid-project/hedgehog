@@ -238,6 +238,10 @@ public final class Mempool {
 		return pending.size();
 	}
 
+	public synchronized boolean holdsVotes() {
+		return pending.values().stream().anyMatch(Vote.class::isInstance);
+	}
+
 	/* A vote counts only in a block of its own round, so once that round has passed no block can ever take it */
 	public synchronized void dropVotesBefore(long round) {
 		pending.values().removeIf(waiting -> waiting instanceof Vote vote && vote.round() < round);

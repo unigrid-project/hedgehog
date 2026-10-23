@@ -190,9 +190,11 @@ public class MempoolTest {
 		mempool.admit(vote(state, 1, 200, Vote.Action.ADD), state);
 		mempool.dropVotesBefore(0);
 		assertThat(mempool.size(), equalTo(2));
+		assertThat(mempool.holdsVotes(), is(true));
 
 		mempool.dropVotesBefore(1);
 		assertThat(mempool.peek(10), equalTo(List.of(mint(1, 5))));
+		assertThat(mempool.holdsVotes(), is(false));
 	}
 
 	@Example
