@@ -44,6 +44,15 @@ public final class Ledger implements ConsensusApp {
 	private final Mempool mempool = new Mempool();
 	private final LongSupplier clock;
 
+	/* The state as a block of a later round than the tip's finds it. Making it copies the state, so it is made when
+	   what waits is first judged in that round and kept until the tip or the round moves: a peer cannot make every
+	   transaction it sends cost a copy of the ledger. */
+	private LedgerState opened;
+
+	/* The round below which no vote waits, so that the mempool is looked through when the round moves and not at
+	   every question */
+	private long votesDroppedBefore;
+
 	public Ledger(LedgerState state, BlockLog log) {
 		this(state, log, System::currentTimeMillis);
 	}
@@ -80,13 +89,16 @@ public final class Ledger implements ConsensusApp {
 		return checked(() -> admit(transaction));
 	}
 
+	/* What of a vote needs nothing of the state is asked first, so a vote that is plainly wrong costs nothing more */
 	private Optional<String> admit(Transaction transaction) {
 		final long now = clock.getAsLong();
+		final Optional<String> stamp = transaction instanceof Vote vote
+			? state.stampRejection(vote, blockTimeFor(now)) : Optional.empty();
 
-		state.askAuthorityAt(now);
+		return stamp.isPresent() ? stamp : admit(transaction, judgedAt(now));
+	}
 
-		final LedgerState judging = judgedAt(now);
-
+	private Optional<String> admit(Transaction transaction, LedgerState judging) {
 		if (mempool.admit(transaction, judging)) {
 			return Optional.empty();
 		}
@@ -150,17 +162,37 @@ public final class Ledger implements ConsensusApp {
 		return Math.max(time, state.tipTime());
 	}
 
-	/* What waits is judged as the block this node would make at this time would find it: with the round of the tip
-	   closed when the time lies in a later round, as that block closes it first */
-	private LedgerState judgedAt(long time) {
-		final long blockTime = blockTimeFor(time);
+	/* What waits is judged as the block this node would make now would find it: with the round of the tip closed when
+	   the time lies in a later round, as that block closes it first */
+	private LedgerState judgedAt(long now) {
+		final long blockTime = blockTimeFor(now);
 
 		dropPassedVotes(blockTime);
-		return state.inRoundOf(blockTime);
+		state.askAuthorityAt(now);
+		opened = state.roundAt(blockTime) > state.round() ? openedAt(blockTime) : null;
+
+		if (opened == null) {
+			return state;
+		}
+
+		opened.askAuthorityAt(now);
+		return opened;
+	}
+
+	private LedgerState openedAt(long blockTime) {
+		final boolean kept = opened != null && opened.height() == state.height()
+			&& opened.round() == state.roundAt(blockTime);
+
+		return kept ? opened : state.inRoundOf(blockTime);
 	}
 
 	private void dropPassedVotes(long blockTime) {
-		mempool.dropVotesBefore(state.roundAt(blockTime));
+		final long round = state.roundAt(blockTime);
+
+		if (round != votesDroppedBefore) {
+			mempool.dropVotesBefore(round);
+			votesDroppedBefore = round;
+		}
 	}
 
 	/* The due mints come first, then what waits in the mempool. The block is cut after the checks, so a due mint
@@ -299,6 +331,11 @@ public final class Ledger implements ConsensusApp {
 
 	public synchronized int pending() {
 		return mempool.size();
+	}
+
+	/* For the tests of this package: the state that what this node takes in now is judged by */
+	synchronized LedgerState judging() {
+		return judgedAt(clock.getAsLong());
 	}
 
 	/* What waits for a block, oldest first, in an order in which it can all be taken in again */

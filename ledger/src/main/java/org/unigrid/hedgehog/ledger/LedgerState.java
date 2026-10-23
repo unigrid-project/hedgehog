@@ -38,6 +38,7 @@ public final class LedgerState {
 	public static final int MAX_VOTES_PER_VALIDATOR = 64;
 
 	private static final String VOTE_SIGNATURE_REJECTION = "Vote signature is not valid";
+	private static final String VOTE_ROUND_REJECTION = "Vote is for another round";
 	private static final String TRANSFER_SIGNATURE_REJECTION = "Transfer signature is not valid";
 	private static final String CLAIM_SIGNATURE_REJECTION = "Claim signature is not valid";
 	private static final Set<String> SIGNATURE_REJECTIONS = Set.of(VOTE_SIGNATURE_REJECTION,
@@ -418,7 +419,7 @@ public final class LedgerState {
 		}
 
 		if (vote.round() != round) {
-			return Optional.of("Vote is for another round");
+			return Optional.of(VOTE_ROUND_REJECTION);
 		}
 
 		return countRejection(vote);
@@ -464,7 +465,14 @@ public final class LedgerState {
 	}
 
 	private Optional<String> signatureRejection(Vote vote) {
-		return vote.hasValidSignature(chainId) ? Optional.empty() : Optional.of(VOTE_SIGNATURE_REJECTION);
+		return verified.check(vote, () -> vote.hasValidSignature(chainId)) ? Optional.empty()
+			: Optional.of(VOTE_SIGNATURE_REJECTION);
+	}
+
+	/* What of a vote needs nothing of the state, for whoever takes votes in to ask before anything that does: that it
+	   is for the round of a block of this time, and that its signature holds, which binds it to this chain too */
+	public Optional<String> stampRejection(Vote vote, long blockTime) {
+		return vote.round() == roundAt(blockTime) ? signatureRejection(vote) : Optional.of(VOTE_ROUND_REJECTION);
 	}
 
 	/* A refusal for a signature that does not verify is the same for every node, unlike one for the state or policy of

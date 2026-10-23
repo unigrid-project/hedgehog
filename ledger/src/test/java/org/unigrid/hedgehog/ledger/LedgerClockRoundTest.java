@@ -28,6 +28,8 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.sameInstance;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 /* The round a node is in is the round of its clock, as the next block it makes is dated by that clock: it is the
@@ -141,6 +143,42 @@ public class LedgerClockRoundTest {
 
 			assertThat(ledger.hasWork(clock.get()), is(false));
 			assertThat(ledger.pending(), equalTo(0));
+		}
+	}
+
+	/* Opening the next round takes a copy of the state, which a peer must not be able to make the node pay for with
+	   each transaction it sends: the opened state is made once and kept until the round or the tip moves */
+	@Example
+	public void shouldOpenTheNextRoundOnceAndNotForEachTransactionItTakesIn() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(1) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+			final LedgerState opened = ledger.judging();
+
+			for (int n = 1; n <= 20; n++) {
+				assertThat(ledger.submit(mint(n, 5)), equalTo(Optional.empty()));
+				assertThat(ledger.submit(add(ledger, seed(1), seed(300 + n), 1)), equalTo(Optional.empty()));
+			}
+
+			assertThat(ledger.judging(), sameInstance(opened));
+			clock.set(startOf(2));
+			assertThat(ledger.judging(), not(sameInstance(opened)));
+		}
+	}
+
+	/* The round and the signature of a vote need nothing of the state, so they are checked before anything that does */
+	@Example
+	public void shouldCheckTheRoundAndTheSignatureOfAVoteBeforeWhoCastIt() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(1) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+			final Vote outsider = add(ledger, seed(99), GRIDNODE, 1);
+			final Vote forged = new Vote(outsider.voter(), outsider.candidate(), outsider.action(), outsider.round(),
+				new byte[Ed25519.SIGNATURE_SIZE]);
+
+			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 0)).orElse(""), containsString("another round"));
+			assertThat(ledger.submit(forged).orElse(""), containsString("signature"));
+			assertThat(ledger.submit(outsider).orElse(""), containsString("not a validator"));
 		}
 	}
 
