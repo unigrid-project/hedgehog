@@ -21,13 +21,7 @@ package org.unigrid.hedgehog.command.util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonWriteFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -85,42 +79,9 @@ public class SporkDbSign implements Runnable {
 	public void run() {
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
 		final String key = boardKey.resolve(NetworkKey::isTrusted);
-		final FileChannel created = created();
-		boolean written = false;
 
-		try (FileChannel channel = created) {
-			SporkDatabase.write(channel, signed(database, key));
-			written = true;
-		} catch (IOException ex) {
-			throw refused("Cannot write the spork database " + output + ": " + ex.getMessage());
-		} finally {
-			if (!written) {
-				removeOutput();
-			}
-		}
-
+		SporkDatabaseFile.writeNew(spec, output, () -> signed(database, key));
 		System.out.println("output: " + output);
-	}
-
-	/* Made new and never through a link, in one step with the check that nothing is there: a link could lead
-	   anywhere, and a file put there after a check would be written over */
-	private FileChannel created() {
-		try {
-			return FileChannel.open(output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
-				LinkOption.NOFOLLOW_LINKS);
-		} catch (FileAlreadyExistsException ex) {
-			throw refused("--output " + output + " exists and is not overwritten");
-		} catch (IOException ex) {
-			throw refused("Cannot make the spork database " + output + ": " + ex.getMessage());
-		}
-	}
-
-	private void removeOutput() {
-		try {
-			Files.deleteIfExists(output);
-		} catch (IOException ex) {
-			System.err.println("Could not remove the unfinished " + output + ": " + ex.getMessage());
-		}
 	}
 
 	private record Version(GridSpork spork, String shown) {

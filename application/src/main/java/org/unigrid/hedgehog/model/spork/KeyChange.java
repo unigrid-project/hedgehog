@@ -128,7 +128,7 @@ public class KeyChange implements Serializable {
 
 	/* The counts and sizes travel in as few bytes as the caps need, so a change beyond them could only be written as
 	   another change; it is refused instead */
-	private void requireEncodable() {
+	public void requireEncodable() {
 		Validate.isTrue(Objects.nonNull(madeAt), "A change of the board keys has a time it was made at");
 		Validate.isTrue(Objects.nonNull(previous) && previous.length == DIGEST_SIZE,
 			"A change of the board keys follows a digest of %d bytes", DIGEST_SIZE);

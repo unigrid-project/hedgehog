@@ -19,11 +19,17 @@
 package org.unigrid.hedgehog.command.util;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.SerializationException;
@@ -74,6 +80,47 @@ final class SporkDatabaseFile {
 	   board make a chain, and the spork of a chain that a change just extended is signed with the keys it adds */
 	private static void goByTheBoardKeysOf(SporkDatabase database) {
 		Optional.ofNullable(database.getBoardKeys()).ifPresent(BoardKeysAuthority::install);
+	}
+
+	/* Into a file made new and never through a link, in one step with the check that nothing is there: a link could
+	   lead anywhere, and a file put there after a check would be written over. The database is made once the file is,
+	   and a file that is not written whole is removed again. */
+	static void writeNew(CommandSpec spec, Path output, Supplier<SporkDatabase> database) {
+		final FileChannel created = created(spec, output);
+		boolean written = false;
+
+		try (FileChannel channel = created) {
+			SporkDatabase.write(channel, database.get());
+			written = true;
+		} catch (IOException ex) {
+			throw new ParameterException(spec.commandLine(), "Cannot write the spork database " + output + ": "
+				+ ex.getMessage());
+		} finally {
+			if (!written) {
+				removeUnfinished(output);
+			}
+		}
+	}
+
+	private static FileChannel created(CommandSpec spec, Path output) {
+		try {
+			return FileChannel.open(output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
+				LinkOption.NOFOLLOW_LINKS);
+		} catch (FileAlreadyExistsException ex) {
+			throw new ParameterException(spec.commandLine(), "--output " + output
+				+ " exists and is not overwritten");
+		} catch (IOException ex) {
+			throw new ParameterException(spec.commandLine(), "Cannot make the spork database " + output + ": "
+				+ ex.getMessage());
+		}
+	}
+
+	private static void removeUnfinished(Path output) {
+		try {
+			Files.deleteIfExists(output);
+		} catch (IOException ex) {
+			System.err.println("Could not remove the unfinished " + output + ": " + ex.getMessage());
+		}
 	}
 
 	private static ParameterException unreadable(CommandSpec spec, Path file, String reason, Exception cause) {
