@@ -60,7 +60,7 @@ public class BoardKeyOptionsTest {
 
 		@Override
 		public void run() {
-			resolved = boardKey.resolve();
+			resolved = boardKey.resolve(NetworkKey::isTrusted);
 		}
 	}
 

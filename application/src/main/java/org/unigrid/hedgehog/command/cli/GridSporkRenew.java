@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import picocli.CommandLine.Command;
@@ -44,7 +45,7 @@ public class GridSporkRenew implements Runnable {
 
 	@Override
 	public void run() {
-		final String key = boardKey.resolve();
+		final String key = boardKey.resolve(NetworkKey::isTrusted);
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);

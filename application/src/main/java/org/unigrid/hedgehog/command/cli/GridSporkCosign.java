@@ -52,7 +52,7 @@ public class GridSporkCosign implements Runnable {
 
 	@Override
 	public void run() {
-		final String key = boardKey.resolve();
+		final String key = boardKey.resolve(NetworkKey::isTrusted);
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
