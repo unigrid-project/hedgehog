@@ -133,6 +133,29 @@ public class ForgedVersionTest {
 		assertThat(new PendingSporks().offer(laundered, stored), is(false));
 	}
 
+	/* A first version that the two switched-off keys signed, as anyone who holds them can, while a node may hold none */
+	@SneakyThrows
+	public static GridSpork forgedFirstVersion() {
+		final GridSpork forged = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+		forged.setData(supplyOf(1_000_000));
+		forged.setTimeStamp(Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(60));
+		forged.sign(key(0).getPrivateKey());
+		forged.setCosignature(key(1).sign(forged.getSignable()));
+		return forged;
+	}
+
+	/* Its renewal carries no previous version, as a first version over nothing does, but its log holds the forged one */
+	@Example
+	public void shouldRefuseOverNothingAProposalMadeFromAVersionThatSwitchedOffKeysSigned() {
+		final GridSpork laundered = renewalOf(forgedFirstVersion(), key(2));
+
+		assertThat(laundered.getSignatureLog().size(), is(1));
+		assertThat(laundered.isProposalOver(null), is(false));
+		assertThat(new PendingSporks().offer(laundered, null), is(false));
+		assertThat(nextVersionOf(null, key(2)).isProposalOver(null), is(true));
+	}
+
 	@Example
 	public void shouldStillTakeTheNextVersionAndTheRenewalOfTheStoredSpork() {
 		final GridSpork stored = genuine();

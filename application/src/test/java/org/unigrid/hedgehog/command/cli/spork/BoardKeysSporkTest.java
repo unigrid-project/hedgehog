@@ -138,7 +138,7 @@ public class BoardKeysSporkTest {
 			final GridSporkCosign cosign = new GridSporkCosign();
 
 			assertThat(proposed.err(), equalTo(""));
-			new CommandLine(cosign).parseArgs("-k", key(2).getPrivateKey(), digest);
+			new CommandLine(cosign).parseArgs("-k", key(2).getPrivateKey(), "--first-version", digest);
 			assertThat(RestCommandFixture.run(cosign, node).out(), containsString("Co-signed " + digest));
 			assertThat(NetworkKey.getActiveKeys().active(), equalTo(Set.of(publicKeysOf(keys(1, 2)))));
 		}
@@ -156,7 +156,7 @@ public class BoardKeysSporkTest {
 			final String digest = PendingSporks.digestOf(node.proposalOf(Type.BOARD_KEYS).orElseThrow());
 			final GridSporkCosign cosign = new GridSporkCosign();
 
-			new CommandLine(cosign).parseArgs("-k", key(1).getPrivateKey(), digest);
+			new CommandLine(cosign).parseArgs("-k", key(1).getPrivateKey(), "--first-version", digest);
 			assertThat(RestCommandFixture.run(cosign, node).out(), allOf(containsString("signed by "
 				+ key(2).getPublicKey()), containsString("Co-signed " + digest)));
 		}

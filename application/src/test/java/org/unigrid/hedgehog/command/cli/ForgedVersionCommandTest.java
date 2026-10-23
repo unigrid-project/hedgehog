@@ -44,6 +44,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
+import static org.unigrid.hedgehog.model.spork.ForgedVersionTest.forgedFirstVersion;
 import static org.unigrid.hedgehog.model.spork.ForgedVersionTest.forgedOver;
 import static org.unigrid.hedgehog.model.spork.ForgedVersionTest.genuine;
 import static org.unigrid.hedgehog.model.spork.ForgedVersionTest.installTheBoardKeys;
@@ -68,11 +69,15 @@ public class ForgedVersionCommandTest {
 	}
 
 	private static GridSporkCosign cosign(GridSpork proposal, String... switchedOff) {
+		return cosignWith(proposal, Stream.of(switchedOff).flatMap(type -> Stream.of("--switched-off", type))
+			.toArray(String[]::new));
+	}
+
+	private static GridSporkCosign cosignWith(GridSpork proposal, String... options) {
 		final GridSporkCosign command = new GridSporkCosign();
 
 		new CommandLine(command).parseArgs(Stream.concat(Stream.of("-k", key(3).getPrivateKey(),
-			PendingSporks.digestOf(proposal)), Stream.of(switchedOff).flatMap(type -> Stream.of("--switched-off",
-			type))).toArray(String[]::new));
+			PendingSporks.digestOf(proposal)), Stream.of(options)).toArray(String[]::new));
 		return command;
 	}
 
@@ -96,6 +101,30 @@ public class ForgedVersionCommandTest {
 			+ " refused"), containsString("not one that a current board key made from the spork it holds")));
 		assertThat(node.submitted(), empty());
 		assertThat(node.stored(Type.MINT_SUPPLY), equalTo(stored));
+	}
+
+	/* A node that holds none of the type co-signs nothing unless told it is a first version, and the renewal of a
+	   version that switched-off keys signed is none */
+	@Example
+	public void coSignsOverNothingOnlyAFirstVersionByName() {
+		final GridSpork laundered = renewalOf(forgedFirstVersion(), key(2));
+		final GridSpork first = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+		final FakeSporkNode node = new FakeSporkNode().holding(boardKeys).handingOut(laundered);
+
+		first.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.TEN);
+		SporkCommands.sign(first, key(2));
+
+		assertThat(RestCommandFixture.run(cosign(laundered), node).out(), allOf(containsString("refused"),
+			containsString("--first-version")));
+		assertThat(RestCommandFixture.run(cosignWith(laundered, "--first-version"), node).out(), allOf(
+			containsString("refused"), containsString("not one that a current board key made")));
+		assertThat(node.submitted(), empty());
+
+		final FakeSporkNode fresh = new FakeSporkNode().holding(boardKeys).waitingOn(first);
+
+		assertThat(RestCommandFixture.run(cosign(first), fresh).out(), containsString("--first-version"));
+		assertThat(RestCommandFixture.run(cosignWith(first, "--first-version"), fresh).out(), containsString(
+			"Co-signed " + PendingSporks.digestOf(first)));
 	}
 
 	/* Over a version that switched-off keys signed, which may be forged, only its renewal is signed again */

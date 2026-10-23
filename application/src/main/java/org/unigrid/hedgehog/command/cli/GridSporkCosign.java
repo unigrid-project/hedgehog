@@ -65,6 +65,11 @@ public class GridSporkCosign implements Runnable {
 	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
 	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
 
+	@Option(names = "--first-version", description = "Co-sign the first version of a spork when the node holds none"
+		+ " of its type. A first version takes the place of the one the network holds, so give this only for a spork"
+		+ " the network has none of.")
+	private boolean firstVersion;
+
 	@Spec
 	private CommandSpec spec;
 
@@ -149,6 +154,7 @@ public class GridSporkCosign implements Runnable {
 			requireRenewalByName(proposal, stored.get());
 		}
 
+		requireFirstVersionByName(type, stored);
 		SporkClient.requireProposalOver(proposal, type, stored.orElse(null));
 
 		if (isSwitchedOff) {
@@ -162,6 +168,18 @@ public class GridSporkCosign implements Runnable {
 
 		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
 			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer));
+	}
+
+	/* A node that holds none of the type may be one that never got it, or one that hides it, and what is co-signed over
+	   nothing takes the place of whatever the network holds, so it is co-signed only by name, as it is proposed */
+	private void requireFirstVersionByName(GridSpork.Type type, Optional<GridSpork> stored)
+		throws UntrustedSporkException {
+
+		if (stored.isEmpty() && !firstVersion) {
+			throw new UntrustedSporkException("the node holds no " + type + " spork, and a version over nothing"
+				+ " takes the place of the one the network holds; give --first-version to co-sign the first"
+				+ " version of it");
+		}
 	}
 
 	/* Two stolen keys that the board switched off can forge the stored spork, so nothing is co-signed over it but the

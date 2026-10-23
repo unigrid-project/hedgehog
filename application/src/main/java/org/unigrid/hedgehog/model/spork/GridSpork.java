@@ -495,10 +495,11 @@ public class GridSpork implements Serializable, Signable {
 
 	/* The previous data and time stamp of a version over a forged one, renewed, are those of the stored spork, so what
 	   it was made from is told by the head that its log ends with, which is the stored head for every version that
-	   archive() or renew() made from it */
+	   archive() or renew() made from it. Over nothing that is a log of nothing, as a renewal of a forged first version
+	   has no previous version either. */
 	private boolean isMadeFrom(GridSpork stored) {
 		if (Objects.isNull(stored)) {
-			return Instant.EPOCH.equals(previousTimeStamp);
+			return Instant.EPOCH.equals(previousTimeStamp) && getSignatureLog().isEmpty();
 		}
 
 		final boolean isNextVersion = isSameVersion(previousTimeStamp, previousData, stored.timeStamp, stored.data);
