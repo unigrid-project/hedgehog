@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -44,6 +48,7 @@ import java.util.Optional;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.LoggerFactory;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.jqwik.SuiteDomain;
@@ -201,5 +206,30 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 
 		assertThat(((Ping) channel.readInbound()).getNanoTime(), is(5L));
 		assertThat(channel.<Object>readInbound(), nullValue());
+	}
+
+	/* A peer of a later release sends sporks of types this node does not know, which is no fault of either */
+	@Example
+	public void shouldNoteASporkOfAnUnknownTypeOnlyInTheDebugLog() {
+		final ListAppender<ILoggingEvent> log = new ListAppender<>();
+		final Logger logger = (Logger) LoggerFactory.getLogger(AbstractGridSporkDecoder.class);
+		final Level level = logger.getLevel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), new PublishSporkDecoder());
+		final ByteBuf spork = Unpooled.buffer().writeShort(FrameDecoder.MAGIC)
+			.writeShort(Packet.Type.PUBLISH_SPORK.getValue()).writeInt(Short.BYTES + 10)
+			.writeShort(Short.MAX_VALUE).writeZero(10);
+
+		log.start();
+		logger.addAppender(log);
+		logger.setLevel(Level.DEBUG);
+
+		try {
+			channel.writeInbound(spork);
+			assertThat(channel.<Object>readInbound(), nullValue());
+			assertThat(log.list.stream().map(ILoggingEvent::getLevel).toList(), contains(Level.DEBUG));
+		} finally {
+			logger.detachAppender(log);
+			logger.setLevel(level);
+		}
 	}
 }

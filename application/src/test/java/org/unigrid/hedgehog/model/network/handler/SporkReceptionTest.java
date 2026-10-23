@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.math.BigDecimal;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
@@ -28,8 +32,10 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintSupply;
@@ -89,6 +95,29 @@ public class SporkReceptionTest {
 		keyLookups = 0;
 		IntStream.range(0, 1000).forEach(n -> receive(forged));
 		return keyLookups;
+	}
+
+	/* A peer of a later release sends sporks of types this node does not know, which is no fault of either */
+	@SneakyThrows
+	@Example
+	public void shouldNoteASporkOfAnUnknownTypeOnlyInTheDebugLog() {
+		final ListAppender<ILoggingEvent> log = new ListAppender<>();
+		final Logger logger = (Logger) LoggerFactory.getLogger(PublishSporkChannelHandler.class);
+		final Level level = logger.getLevel();
+		final GridSpork unknown = new MintSupply();
+
+		unknown.setType((short) 0);
+		log.start();
+		logger.addAppender(log);
+		logger.setLevel(Level.DEBUG);
+
+		try {
+			handler.typedChannelRead(null, PublishSpork.builder().gridSpork(unknown).build());
+			assertThat(log.list.stream().map(ILoggingEvent::getLevel).toList(), contains(Level.DEBUG));
+		} finally {
+			logger.detachAppender(log);
+			logger.setLevel(level);
+		}
 	}
 
 	@Example

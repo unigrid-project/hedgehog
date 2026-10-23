@@ -42,7 +42,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		final GridSpork spork = publishSpork.getGridSpork();
 
 		if (spork.getType() == Type.UNDEFINED) {
-			log.atError().log("Received unsupported spork type - ignoring.");
+			log.atDebug().log("Received unsupported spork type - ignoring.");
 			return;
 		}
 
