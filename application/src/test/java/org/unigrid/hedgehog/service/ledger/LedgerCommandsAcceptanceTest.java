@@ -278,6 +278,7 @@ public class LedgerCommandsAcceptanceTest extends BaseLedgerAcceptanceTest {
 			assertThat(info.height(), equalTo(fleet().height(node)));
 			assertThat(info.supply(), equalTo(LedgerText.coins(fleet().supplyOn(node))));
 			assertThat(info.validators(), containsInAnyOrder(validators().toArray(String[]::new)));
+			assertThat(info.roundValidators(), containsInAnyOrder(validators().toArray(String[]::new)));
 			assertThat(info.minimumFee(), equalTo(LedgerText.coins(FEE)));
 			assertThat(info.signing(), is(node < fleet().validators()));
 		});

@@ -22,7 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 
 /* The validators of a round, in the order that decides who proposes. The set is fixed for the whole round;
-   it changes only when a round ends. */
+   it changes only after the block that closes a round, the first one dated in a later round. */
 public record ValidatorSet(List<AccountKey> keys) {
 	public static final int MAX_SIZE = 1000;
 

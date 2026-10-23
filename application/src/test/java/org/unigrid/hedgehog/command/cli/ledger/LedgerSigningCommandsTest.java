@@ -94,7 +94,7 @@ public class LedgerSigningCommandsTest {
 
 	private static Response info(final String chainId, final Long round, final List<String> validators) {
 		return Response.ok(new LedgerInfo(true, false, "", true, chainId, 3, "22".repeat(64), "12.50000000", round,
-			validators, "0.00100000", 0, List.of(), List.of())).build();
+			LedgerCommandFixtures.ROUND_ENDS, validators, validators, "0.00100000", 0, List.of(), List.of())).build();
 	}
 
 	private static Response info() {
@@ -286,7 +286,7 @@ public class LedgerSigningCommandsTest {
 		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(CHAIN_ID, null, voter), accepted(), vote()),
 			UNREADABLE + "no round");
 		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(CHAIN_ID, 7L, null), accepted(), vote()),
-			UNREADABLE + "no validators");
+			UNREADABLE + "no roundValidators");
 		assertEndsWithOneLine(run(FakeLedgerNode.LOCAL, info(), account(null), accepted(), withoutNonce),
 			UNREADABLE + "no nonce");
 	}

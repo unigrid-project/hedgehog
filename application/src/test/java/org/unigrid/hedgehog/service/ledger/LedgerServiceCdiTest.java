@@ -59,7 +59,7 @@ public class LedgerServiceCdiTest extends BaseMockedWeldTest {
 		final byte[] hash = SnapshotDigest.of(snapshot);
 		final long total = SnapshotReader.open(snapshot).totalBalance();
 		final Path genesisFile = data.resolve("ledger-genesis.json");
-		final LedgerGenesis genesis = new LedgerGenesis(System.currentTimeMillis() - 60_000, 1_000,
+		final LedgerGenesis genesis = new LedgerGenesis(System.currentTimeMillis() - 60_000, 3_600_000,
 			new ValidatorSet(List.of(Ed25519.publicKey(LedgerTestChain.seed(7)))), hash, total);
 
 		GenesisFile.write(genesisFile, genesis);

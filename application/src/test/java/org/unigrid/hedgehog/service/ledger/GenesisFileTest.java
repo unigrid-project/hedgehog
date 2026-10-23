@@ -78,7 +78,7 @@ public class GenesisFileTest {
 		final Arbitrary<List<AccountKey>> keys = Arbitraries.integers().map(GenesisFileTest::keyOf).list()
 			.ofMinSize(1).ofMaxSize(20).uniqueElements();
 
-		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.integers().greaterOrEqual(1),
+		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs().greaterOrEqual(60_000),
 			keys, Arbitraries.bytes().array(byte[].class).ofSize(Digests.HASH_SIZE),
 			Arbitraries.longs().greaterOrEqual(0)
 		).as((time, round, validators, hash, total) -> new LedgerGenesis(time, round, new ValidatorSet(validators),
@@ -98,7 +98,8 @@ public class GenesisFileTest {
 
 	@Provide
 	public Arbitrary<String> provideUnknownField() {
-		return Arbitraries.of("tiem", "Time", "validator", "snapshot_hash", "comment", "round", "snapshotTotal2");
+		return Arbitraries.of("tiem", "Time", "validator", "snapshot_hash", "comment", "round", "roundLength",
+			"snapshotTotal2");
 	}
 
 	@Provide
@@ -120,9 +121,10 @@ public class GenesisFileTest {
 			new Damage("time", quoted("1700000000000")), new Damage("time", "1.5"), new Damage("time", "1e3"),
 			new Damage("time", "true"), new Damage("time", "null"), new Damage("time", "[]"),
 			new Damage("time", "{}"), new Damage("time", "-1"), new Damage("time", "9223372036854775808"),
-			new Damage("roundLength", quoted("100")), new Damage("roundLength", "100.0"),
-			new Damage("roundLength", "null"), new Damage("roundLength", "[]"), new Damage("roundLength", "0"),
-			new Damage("roundLength", "-1"), new Damage("roundLength", "2147483648"),
+			new Damage("roundMillis", quoted("3600000")), new Damage("roundMillis", "3600000.0"),
+			new Damage("roundMillis", "null"), new Damage("roundMillis", "[]"), new Damage("roundMillis", "0"),
+			new Damage("roundMillis", "-1"), new Damage("roundMillis", "59999"),
+			new Damage("roundMillis", "9223372036854775808"),
 			new Damage("validators", quoted(FIRST_KEY)), new Damage("validators", "{}"),
 			new Damage("validators", "5"), new Damage("validators", "null"), new Damage("validators", "[]"),
 			new Damage("validators[0]", "validators", "[5]"), new Damage("validators[0]", "validators", "[null]"),
@@ -152,7 +154,7 @@ public class GenesisFileTest {
 		final Map<String, String> fields = new LinkedHashMap<>();
 
 		fields.put("time", "1700000000000");
-		fields.put("roundLength", "100");
+		fields.put("roundMillis", "3600000");
 		fields.put("validators", list(FIRST_KEY, SECOND_KEY));
 		fields.put("snapshotHash", quoted(HASH));
 		fields.put("snapshotTotal", "12345678900000000");
@@ -197,7 +199,7 @@ public class GenesisFileTest {
 	}
 
 	private static LedgerGenesis bundled() {
-		return new LedgerGenesis(1700000000000L, 100, new ValidatorSet(List.of(AccountKey.fromHex(FIRST_KEY),
+		return new LedgerGenesis(1700000000000L, 3_600_000L, new ValidatorSet(List.of(AccountKey.fromHex(FIRST_KEY),
 			AccountKey.fromHex(SECOND_KEY))), HEX.parseHex(HASH), 12345678900000000L
 		);
 	}
@@ -274,6 +276,21 @@ public class GenesisFileTest {
 	@Example
 	public void shouldReadTheDocumentedFormat() {
 		assertThat(loaded(document(validFields())), equalTo(bundled()));
+	}
+
+	/* A block may be dated half a minute ahead of a validator's clock, so a shorter round would have votes race its
+	   end; a minute is the least */
+	@Example
+	public void shouldTakeARoundOfAMinuteAndNothingShorter() {
+		assertThat(loaded(documentWith("roundMillis", "60000")).getRoundMillis(), equalTo(60_000L));
+		assertThat(messageOfLoading(documentWith("roundMillis", "59999")),
+			containsString("'roundMillis' must be a whole number from 60000"));
+	}
+
+	/* A round is milliseconds, so a round of over 25 days does not fit an int and must still be read whole */
+	@Example
+	public void shouldReadARoundPastWhatAnIntHolds() {
+		assertThat(loaded(documentWith("roundMillis", "4294967306")).getRoundMillis(), equalTo(4_294_967_306L));
 	}
 
 	@Example

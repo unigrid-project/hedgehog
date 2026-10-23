@@ -229,7 +229,7 @@ public class LedgerServiceTest {
 			final byte[] hash = SnapshotDigest.of(written);
 
 			hash[0] ^= (byte) hashFlip;
-			genesis = new LedgerGenesis(System.currentTimeMillis() - 60_000, 1_000,
+			genesis = new LedgerGenesis(System.currentTimeMillis() - 60_000, 3_600_000,
 				new ValidatorSet(List.of(Ed25519.publicKey(SEED))), hash, reader.totalBalance() + totalOffset);
 			genesisFile = files.getPath("/genesis/ledger-genesis.json");
 			Files.createDirectories(genesisFile.getParent());
@@ -266,7 +266,7 @@ public class LedgerServiceTest {
 
 		/* Another chain, over the same snapshot: only the time of its start differs */
 		LedgerGenesis otherGenesis() {
-			return new LedgerGenesis(genesis.getTime() + 1, genesis.getRoundLength(), genesis.getValidators(),
+			return new LedgerGenesis(genesis.getTime() + 1, genesis.getRoundMillis(), genesis.getValidators(),
 				genesis.getSnapshotHash(), genesis.getSnapshotTotal());
 		}
 

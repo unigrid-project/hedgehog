@@ -36,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -50,6 +51,7 @@ import org.jboss.weld.environment.se.WeldContainer;
 import static org.awaitility.Awaitility.await;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.ledger.Address;
+import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
@@ -372,6 +374,11 @@ public final class LedgerFleet implements AutoCloseable {
 
 	public long balanceOf(final int node, final Address address) {
 		return service(node(node)).balanceOf(address).orElseThrow(() -> noLedger(node));
+	}
+
+	/* Anything else the newest ledger of the node answers, such as its round or what waits in it */
+	public <T> T readOn(final int node, final Function<Ledger, T> reading) {
+		return service(node(node)).read(reading).orElseThrow(() -> noLedger(node));
 	}
 
 	private static AssertionError noLedger(final int node) {

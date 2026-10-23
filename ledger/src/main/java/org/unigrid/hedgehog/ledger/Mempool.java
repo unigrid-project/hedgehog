@@ -238,6 +238,16 @@ public final class Mempool {
 		return pending.size();
 	}
 
+	public synchronized boolean holdsVotes() {
+		return pending.values().stream().anyMatch(Vote.class::isInstance);
+	}
+
+	/* A vote counts only in a block of its own round, and a node dates the blocks it makes by its clock, so once the
+	   round has passed for the node that holds the vote, no block of its own can take it */
+	public synchronized void dropVotesBefore(long round) {
+		pending.values().removeIf(waiting -> waiting instanceof Vote vote && vote.round() < round);
+	}
+
 	/* The tip moved, so what was pending is checked again against the new state, and every heartbeat, which
 	   was for the old tip, is forgotten */
 	public synchronized void removeCommitted(Block block, LedgerState state) {

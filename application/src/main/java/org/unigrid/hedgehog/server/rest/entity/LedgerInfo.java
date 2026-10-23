@@ -24,20 +24,25 @@ import java.util.List;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Status;
+import org.unigrid.hedgehog.ledger.ValidatorSet;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
 
 /* What the node says of its ledger. Amounts are coins as text with eight decimals, hashes and keys lower-case hex.
-   Before there is a ledger only what the service itself knows is there; the rest is left out, not made up. */
+   The round is the validator round of the node's clock, the one a vote is signed for now, and roundEnds the Unix
+   millisecond at which it ends and the next starts. The validators sign the blocks; the roundValidators are the set
+   a vote of the round is judged by, which differs from them between the end of a round and the block that closes
+   it. Before there is a ledger only what the service itself knows is there; the rest is left out, not made up. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record LedgerInfo(boolean running, boolean halted, String haltReason, boolean signing, String chainId,
-	long height, String tipHash, String supply, Long round, List<String> validators, String minimumFee,
-	long droppedInbound, List<String> unsetSporks, List<String> laggingSporks) {
+	long height, String tipHash, String supply, Long round, Long roundEnds, List<String> validators,
+	List<String> roundValidators, String minimumFee, long droppedInbound, List<String> unsetSporks,
+	List<String> laggingSporks) {
 
 	public static LedgerInfo of(final Report report) {
 		return new LedgerInfo(report.running(), report.halted(), report.haltReason(), report.signing(), null,
-			report.height(), report.tipHash(), null, null, null, null, report.droppedInbound(),
+			report.height(), report.tipHash(), null, null, null, null, null, null, report.droppedInbound(),
 			names(report.unsetSporks()), names(report.laggingSporks()));
 	}
 
@@ -47,9 +52,13 @@ public record LedgerInfo(boolean running, boolean halted, String haltReason, boo
 
 		return new LedgerInfo(report.running(), report.halted(), report.haltReason(), report.signing(),
 			hex.formatHex(tip.chainId()), tip.height(), hex.formatHex(tip.tipHash()),
-			LedgerText.coins(ledger.supply()), ledger.round(),
-			ledger.validators().keys().stream().map(AccountKey::toString).toList(), minimumFee,
-			report.droppedInbound(), names(report.unsetSporks()), names(report.laggingSporks()));
+			LedgerText.coins(ledger.supply()), ledger.round(), ledger.roundEnds(), keys(ledger.validators()),
+			keys(ledger.roundValidators()), minimumFee, report.droppedInbound(), names(report.unsetSporks()),
+			names(report.laggingSporks()));
+	}
+
+	private static List<String> keys(final ValidatorSet validators) {
+		return validators.keys().stream().map(AccountKey::toString).toList();
 	}
 
 	private static List<String> names(final List<Type> sporks) {

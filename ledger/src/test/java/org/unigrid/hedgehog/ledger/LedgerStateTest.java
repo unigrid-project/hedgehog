@@ -113,8 +113,8 @@ public class LedgerStateTest {
 		final Block block = soloBlock(state, mint(1, 5));
 
 		assertThrows(InvalidBlockException.class, () -> state.apply(block.toBuilder().height(9).build()));
-		state.applicable(List.of(mint(1, 5)));
-		state.rootAfter(1, List.of(mint(1, 5)));
+		state.applicable(state.tipTime(), List.of(mint(1, 5)));
+		state.rootAfter(1, state.tipTime(), List.of(mint(1, 5)));
 		state.proposalRejection(block);
 		state.rejectionOf(block);
 
@@ -220,7 +220,7 @@ public class LedgerStateTest {
 		final List<Transaction> both = List.of(new Mint(account(1), 5, reference(1)),
 			new Mint(account(2), 5, reference(1)));
 
-		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, both));
+		assertThrows(IllegalArgumentException.class, () -> state.rootAfter(1, state.tipTime(), both));
 	}
 
 	@Example
@@ -250,7 +250,7 @@ public class LedgerStateTest {
 		follower.apply(certified);
 
 		assertThat(follower.balanceOf(account(1)), equalTo(500L));
-		assertThat(follower.stateRoot(), equalTo(signer.rootAfter(1, List.of(mint(1, 500)))));
+		assertThat(follower.stateRoot(), equalTo(signer.rootAfter(1, signer.tipTime(), List.of(mint(1, 500)))));
 	}
 
 	/* A validator still asks the authority before it signs, and a proposer before it proposes */
@@ -406,18 +406,18 @@ public class LedgerStateTest {
 	public void shouldNotDependOnTheOrderOfMintsInTheRoot() {
 		final LedgerState state = soloState(ANY_MINT);
 
-		assertThat(state.rootAfter(1, List.of(mint(1, 5), mint(2, 6))), equalTo(state.rootAfter(1,
-			List.of(mint(2, 6), mint(1, 5)))));
+		assertThat(state.rootAfter(1, state.tipTime(), List.of(mint(1, 5), mint(2, 6))),
+			equalTo(state.rootAfter(1, state.tipTime(), List.of(mint(2, 6), mint(1, 5)))));
 	}
 
 	@Example
 	public void shouldCommitTheRootToTheRecipientAndTheReference() {
 		final LedgerState state = soloState(ANY_MINT);
-		final byte[] base = state.rootAfter(1, List.of(new Mint(account(1), 5, reference(1))));
+		final byte[] base = state.rootAfter(1, state.tipTime(), List.of(new Mint(account(1), 5, reference(1))));
 
-		assertThat(state.rootAfter(1, List.of(new Mint(account(2), 5, reference(1)))), not(equalTo(base)));
-		assertThat(state.rootAfter(1, List.of(new Mint(account(1), 6, reference(1)))), not(equalTo(base)));
-		assertThat(state.rootAfter(1, List.of(new Mint(account(1), 5, reference(2)))), not(equalTo(base)));
+		assertThat(state.rootAfter(1, state.tipTime(), List.of(new Mint(account(2), 5, reference(1)))), not(equalTo(base)));
+		assertThat(state.rootAfter(1, state.tipTime(), List.of(new Mint(account(1), 6, reference(1)))), not(equalTo(base)));
+		assertThat(state.rootAfter(1, state.tipTime(), List.of(new Mint(account(1), 5, reference(2)))), not(equalTo(base)));
 	}
 
 	@Property(tries = 30)

@@ -38,6 +38,7 @@ public final class LedgerState {
 	public static final int MAX_VOTES_PER_VALIDATOR = 64;
 
 	private static final String VOTE_SIGNATURE_REJECTION = "Vote signature is not valid";
+	private static final String VOTE_ROUND_REJECTION = "Vote is for another round";
 	private static final String TRANSFER_SIGNATURE_REJECTION = "Transfer signature is not valid";
 	private static final String CLAIM_SIGNATURE_REJECTION = "Claim signature is not valid";
 	private static final Set<String> SIGNATURE_REJECTIONS = Set.of(VOTE_SIGNATURE_REJECTION,
@@ -81,6 +82,10 @@ public final class LedgerState {
 	private long tipTime;
 	private Certificate tipCertificate = Certificate.EMPTY;
 	private long authorityTime;
+
+	/* The round of the time of the tip, or of the block being applied once it has opened, which the votes held are
+	   for. The genesis time is in round 0 and no block is older than its tip, so it never goes back. */
+	private long round;
 
 	/* Set only on the scratch copy a certified block is checked against. More than 2/3 of the validators signed
 	   that block after asking their authorities, so this node's own authority, which may not know the mint yet
@@ -128,6 +133,7 @@ public final class LedgerState {
 		tipTime = other.tipTime;
 		tipCertificate = other.tipCertificate;
 		authorityTime = other.authorityTime;
+		round = other.round;
 	}
 
 	public LedgerState copy() {
@@ -185,9 +191,39 @@ public final class LedgerState {
 		return tipCertificate;
 	}
 
-	/* The round the next block belongs to; a round is roundLength blocks, counted from 0 */
+	/* The round of the tip: the one the votes held are for, and the one a vote must name for this state to take it */
 	public long round() {
-		return height / genesis.getRoundLength();
+		return round;
+	}
+
+	/* Rounds are roundMillis long and follow each other from the genesis time, which starts round 0 */
+	public long roundAt(long time) {
+		return Math.floorDiv(time - genesis.getTime(), genesis.getRoundMillis());
+	}
+
+	/* Where the round of this time ends and the next starts. A genesis may give rounds so long that a long cannot count
+	   to that end, and such a round does not end. */
+	public long roundEndAt(long time) {
+		try {
+			final long sinceGenesis = Math.multiplyExact(roundAt(time) + 1, genesis.getRoundMillis());
+
+			return Math.addExact(genesis.getTime(), sinceGenesis);
+		} catch (ArithmeticException e) {
+			return Long.MAX_VALUE;
+		}
+	}
+
+	/* The state as a block of this time finds it before its transactions, as far as votes go: the round of the tip
+	   closed when the time lies in a later one. This state itself when it does not, a copy when it does. */
+	public LedgerState inRoundOf(long time) {
+		if (roundAt(time) <= round) {
+			return this;
+		}
+
+		final LedgerState opened = copy();
+
+		opened.enterRoundOf(time);
+		return opened;
 	}
 
 	public ValidatorSet validators() {
@@ -201,6 +237,11 @@ public final class LedgerState {
 
 	public long balanceOf(Address key) {
 		return accounts.getOrDefault(key, 0L);
+	}
+
+	/* For the tests of this package: how many signatures the cache holds as verified */
+	int verifiedSignatures() {
+		return verified.size();
 	}
 
 	int accountCount() {
@@ -274,15 +315,16 @@ public final class LedgerState {
 		tipHash = next.tipHash;
 		tipTime = next.tipTime;
 		tipCertificate = next.tipCertificate;
+		round = next.round;
 	}
 
-	/* The candidates that can go in one block, in order: each is kept if it is still valid after the ones kept
-	   before it. The state itself is not touched. */
-	public List<Transaction> applicable(List<Transaction> candidates) {
+	/* The candidates that can go in one block of this time, in order: each is kept if it is still valid after the
+	   ones kept before it. The state itself is not touched. */
+	public List<Transaction> applicable(long blockTime, List<Transaction> candidates) {
 		final LedgerState scratch = copy();
 		final List<Transaction> kept = new ArrayList<>();
 
-		scratch.payFees(tipCertificate);
+		scratch.openBlock(blockTime, tipCertificate);
 
 		for (final Transaction candidate : candidates) {
 			if (scratch.rejectionOf(candidate).isEmpty()) {
@@ -294,12 +336,12 @@ public final class LedgerState {
 		return kept;
 	}
 
-	/* What the root would be if these transactions made the block at blockHeight, for a proposer to commit to. A
-	   proposer carries the tip certificate as last commit, so that is what is paid. */
-	public byte[] rootAfter(long blockHeight, List<Transaction> transactions) {
+	/* What the root would be if these transactions made the block at blockHeight and blockTime, for a proposer to
+	   commit to. A proposer carries the tip certificate as last commit, so that is what is paid. */
+	public byte[] rootAfter(long blockHeight, long blockTime, List<Transaction> transactions) {
 		final LedgerState next = copy();
 
-		next.payFees(tipCertificate);
+		next.openBlock(blockTime, tipCertificate);
 
 		for (final Transaction transaction : transactions) {
 			final Optional<String> rejection = next.rejectionOf(transaction);
@@ -315,15 +357,29 @@ public final class LedgerState {
 		return next.stateRoot();
 	}
 
-	/* The last block of a round closes it: the changes more than 2/3 of the set voted for take effect for the
-	   next round, and the votes start over */
+	/* What comes before the transactions of a block. The set that signs the block is the one of its parent, which
+	   is kept for the check of the next block's last commit; a round the block closes changes the set only for the
+	   blocks after it. */
+	private void openBlock(long blockTime, Certificate lastCommit) {
+		previousValidators = validators;
+		enterRoundOf(blockTime);
+		payFees(lastCommit);
+	}
+
+	/* A block of a later round than the tip's closes the tip's round before its own transactions apply: the changes
+	   more than 2/3 of the set voted for take effect, and the votes start over. Rounds that passed without a block
+	   hold no votes, so however many there were, they change nothing more. */
+	private void enterRoundOf(long blockTime) {
+		final long next = roundAt(blockTime);
+
+		if (next > round) {
+			endRound();
+			round = next;
+		}
+	}
+
 	private void finishBlock(long blockHeight) {
 		height = blockHeight;
-		previousValidators = validators;
-
-		if (blockHeight % genesis.getRoundLength() == 0) {
-			endRound();
-		}
 	}
 
 	private void endRound() {
@@ -379,8 +435,8 @@ public final class LedgerState {
 			return Optional.of("Voter is not a validator");
 		}
 
-		if (vote.round() != round()) {
-			return Optional.of("Vote is for another round");
+		if (vote.round() != round) {
+			return Optional.of(VOTE_ROUND_REJECTION);
 		}
 
 		return countRejection(vote);
@@ -426,7 +482,15 @@ public final class LedgerState {
 	}
 
 	private Optional<String> signatureRejection(Vote vote) {
-		return vote.hasValidSignature(chainId) ? Optional.empty() : Optional.of(VOTE_SIGNATURE_REJECTION);
+		return verified.check(vote, () -> vote.hasValidSignature(chainId)) ? Optional.empty()
+			: Optional.of(VOTE_SIGNATURE_REJECTION);
+	}
+
+	/* Whether a vote is for the round of a block of this time, which needs nothing of the state, for whoever takes votes
+	   in to ask before anything that does. The signature is not: anyone can sign votes with keys of their own for
+	   nothing, so it is checked only once the voter is known to be a validator. */
+	public Optional<String> roundRejection(Vote vote, long blockTime) {
+		return vote.round() == roundAt(blockTime) ? Optional.empty() : Optional.of(VOTE_ROUND_REJECTION);
 	}
 
 	/* A refusal for a signature that does not verify is the same for every node, unlike one for the state or policy of
@@ -592,7 +656,7 @@ public final class LedgerState {
 	}
 
 	private Optional<String> applyTransactions(Block block) {
-		payFees(block.getLastCommit());
+		openBlock(block.getTime(), block.getLastCommit());
 
 		for (final Transaction transaction : block.getTransactions()) {
 			final Optional<String> rejection = rejectionOf(transaction);
@@ -655,7 +719,7 @@ public final class LedgerState {
 	}
 
 	/* The block before this one was committed by the validators of its time, which are not always today's: the
-	   block that ended a round may have changed the set. The first block has nothing to carry. */
+	   block that closed a round may have changed the set. The first block has nothing to carry. */
 	private Optional<String> lastCommitRejection(Block block) {
 		if (height == 0) {
 			return block.getLastCommit().equals(Certificate.EMPTY) ? Optional.empty()
@@ -713,12 +777,12 @@ public final class LedgerState {
 		return block.getTime() < tipTime ? Optional.of("Block is older than the tip") : Optional.empty();
 	}
 
-	/* A block with nothing in it exists to pay out fees that wait, so a quiet chain never holds them back */
 	private Optional<String> contentRejection(Block block) {
 		final int count = block.getTransactions().size();
+		final boolean mayBeEmpty = mayBeEmpty(block);
 
-		if (count > Block.MAX_TRANSACTIONS || (count == 0 && pool == 0)) {
-			return Optional.of("A block holds " + (pool > 0 ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
+		if (count > Block.MAX_TRANSACTIONS || (count == 0 && !mayBeEmpty)) {
+			return Optional.of("A block holds " + (mayBeEmpty ? 0 : 1) + " to " + Block.MAX_TRANSACTIONS
 				+ " transactions");
 		}
 
@@ -727,6 +791,18 @@ public final class LedgerState {
 		}
 
 		return Optional.empty();
+	}
+
+	/* A block with nothing in it exists to pay out fees that wait, or to close a round that holds votes once its time
+	   is over, so a quiet chain holds back neither. The votes leave with the round, so that makes at most one empty
+	   block a round, and none on a quiet chain where nobody votes. */
+	private boolean mayBeEmpty(Block block) {
+		return pool > 0 || closesRoundWithVotes(block.getTime());
+	}
+
+	/* Whether a block of this time would close the round of the tip while it holds votes */
+	public boolean closesRoundWithVotes(long blockTime) {
+		return !votes.isEmpty() && roundAt(blockTime) > round;
 	}
 
 	private void apply(Transaction transaction) {

@@ -55,7 +55,7 @@ public class LedgerGenesisTest {
 	}
 
 	@Example
-	public void shouldRefuseARoundOfNoBlocks() {
+	public void shouldRefuseARoundShorterThanAMillisecond() {
 		assertThrows(IllegalArgumentException.class, () -> new LedgerGenesis(5, 0, VALIDATORS));
 		assertThrows(IllegalArgumentException.class, () -> new LedgerGenesis(5, -3, VALIDATORS));
 	}
@@ -65,8 +65,18 @@ public class LedgerGenesisTest {
 		final LedgerGenesis genesis = new LedgerGenesis(5, 10, VALIDATORS);
 
 		assertThat(genesis.getValidators(), equalTo(VALIDATORS));
-		assertThat(genesis.getRoundLength(), equalTo(10));
+		assertThat(genesis.getRoundMillis(), equalTo(10L));
 		assertThat(genesis.getTime(), equalTo(5L));
+	}
+
+	/* A round of days does not fit the milliseconds of an int, so all of the long is kept and committed to */
+	@Example
+	public void shouldKeepAndCommitToARoundPastWhatAnIntHolds() {
+		final long longRound = (1L << 32) + 10;
+
+		assertThat(new LedgerGenesis(5, longRound, VALIDATORS).getRoundMillis(), equalTo(longRound));
+		assertThat(new LedgerGenesis(5, longRound, VALIDATORS).chainId(),
+			not(equalTo(new LedgerGenesis(5, 10, VALIDATORS).chainId())));
 	}
 
 	private static byte[] hashOf(int fill) {

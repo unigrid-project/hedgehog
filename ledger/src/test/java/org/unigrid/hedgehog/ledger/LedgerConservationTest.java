@@ -69,7 +69,7 @@ public class LedgerConservationTest {
 				candidates.add(candidate(state, random, blockNumber, index));
 			}
 
-			final List<Transaction> kept = state.applicable(candidates);
+			final List<Transaction> kept = state.applicable(state.tipTime(), candidates);
 
 			if (!kept.isEmpty() || state.pool() > 0) {
 				state.apply(soloBlock(state, kept.toArray(new Transaction[0])));
