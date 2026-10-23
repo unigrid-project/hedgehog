@@ -42,35 +42,20 @@ import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 
-/* The release builds in keys 0 and 1. The node holds the second version of the mint supply, which they signed and
-   whose log holds the first; then the board switches one of them off, or both. */
+/* The release builds in keys 0 and 1. The node holds the second version of the mint supply, whose log holds the
+   first; then the board switches one of its signers off, or both. */
 public class SporkAnchorTest {
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private SporkDatabase database;
 	private PendingSporks pending;
+	private MintSupply first;
 	private MintSupply stored;
 
 	@BeforeTry
-	@SneakyThrows
 	public void before() {
-		final MintSupply first = new MintSupply();
-
 		buildIn(keys(0, 1));
 		database = SporkDatabase.builder().build();
 		pending = new PendingSporks();
-
-		first.archive();
-		first.setTimeStamp(Instant.now().minusSeconds(120));
-		first.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.ONE);
-		first.sign(key(0).getPrivateKey());
-		first.cosign(key(1).getPrivateKey());
-
-		stored = (MintSupply) GridSpork.nextVersion(Type.MINT_SUPPLY, first, Optional.empty());
-		stored.setTimeStamp(Instant.now().minusSeconds(60));
-		stored.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.TEN);
-		stored.sign(key(0).getPrivateKey());
-		stored.cosign(key(1).getPrivateKey());
-		database.set(stored);
 	}
 
 	@AfterTry
@@ -82,49 +67,96 @@ public class SporkAnchorTest {
 		NetworkKey.install(NetworkKey.getActiveKeys().after(List.of(publicKeysOf(keys(keys)))));
 	}
 
+	@SneakyThrows
+	private static MintSupply version(MintSupply over, BigDecimal supply, long secondsAgo, int signer, int cosigner) {
+		final MintSupply spork = (MintSupply) GridSpork.nextVersion(Type.MINT_SUPPLY, over, Optional.empty());
+
+		spork.setTimeStamp(Instant.now().minusSeconds(secondsAgo));
+		spork.<MintSupply.SporkData>getData().setMaxSupply(supply);
+		spork.sign(key(signer).getPrivateKey());
+		spork.cosign(key(cosigner).getPrivateKey());
+		return spork;
+	}
+
+	/* The first version by the keys given first, the second over it by the keys given then */
+	private void store(int firstSigner, int firstCosigner, int signer, int cosigner) {
+		first = version(null, BigDecimal.ONE, 120, firstSigner, firstCosigner);
+		stored = version(first, BigDecimal.TEN, 60, signer, cosigner);
+		database.set(stored);
+	}
+
 	private boolean receive(GridSpork spork) {
 		return handler.receive(SerializationUtils.clone(spork), database, pending, new SporkLag(), "peer");
 	}
 
-	/* What util spork-db sign makes of the stored data with two keys that are active */
+	/* What util spork-db sign makes of the data with two keys that are active, a while after the version before */
 	@SneakyThrows
-	private GridSpork signedAgain(int signer, int cosigner) {
-		final GridSpork first = GridSpork.firstVersionOf(stored);
+	private GridSpork signedAgain(BigDecimal supply, int signer, int cosigner) {
+		Thread.sleep(2);
 
-		first.sign(key(signer).getPrivateKey());
-		first.cosign(key(cosigner).getPrivateKey());
-		return first;
+		final GridSpork again = GridSpork.firstVersionOf(stored);
+
+		again.<MintSupply.SporkData>getData().setMaxSupply(supply);
+		again.sign(key(signer).getPrivateKey());
+		again.cosign(key(cosigner).getPrivateKey());
+		return again;
+	}
+
+	@SneakyThrows
+	private static GridSpork proposed(GridSpork spork, int signer) {
+		final GridSpork proposal = SerializationUtils.clone(spork);
+
+		proposal.sign(key(signer).getPrivateKey());
+		return proposal;
 	}
 
 	@Example
-	public void shouldTakeTheVersionSignedAgainInPlaceOfOneThatNoActiveKeySigned() {
+	public void shouldTakeAVersionSignedAgainInPlaceOfOneThatNoActiveKeySigned() {
+		store(0, 1, 0, 1);
 		activate(2, 3);
 
-		final GridSpork again = signedAgain(2, 3);
+		for (BigDecimal supply : List.of(BigDecimal.TEN, BigDecimal.TWO)) {
+			final GridSpork again = signedAgain(supply, 2, 3);
 
-		assertThat(receive(again), is(true));
-		assertThat(database.getMintSupply().getTimeStamp(), is(again.getTimeStamp()));
-		assertThat(database.getMintSupply().isCounting(), is(true));
+			assertThat(receive(again), is(true));
+			assertThat(database.getMintSupply().getTimeStamp(), is(again.getTimeStamp()));
+			assertThat(database.getMintSupply().isCounting(), is(true));
+		}
+	}
+
+	@Example
+	public void shouldTakeAProposalSignedAgainOverOneThatNoActiveKeySigned() {
+		store(0, 1, 0, 1);
+		activate(2, 3);
+
+		assertThat(receive(proposed(GridSpork.firstVersionOf(stored), 2)), is(true));
+		assertThat(pending.proposalOf(Type.MINT_SUPPLY).isPresent(), is(true));
 	}
 
 	/* A key that is still active vouches for the stored version, and the version signed again does not carry it on */
 	@Example
 	public void shouldKeepOutAVersionThatDoesNotFollowOnOneThatAnActiveKeySigned() {
+		store(0, 1, 0, 1);
 		activate(1, 2);
 
-		assertThat(receive(signedAgain(1, 2)), is(false));
+		assertThat(receive(signedAgain(BigDecimal.TEN, 1, 2)), is(false));
+		assertThat(receive(first), is(false));
 		assertThat(database.getMintSupply(), sameInstance(stored));
 	}
 
+	/* Keys 0 and 1 signed the first version and stay active; keys 2 and 3 signed the second, and the board switches
+	   them off. Whoever kept the first version sends it again, which must not take the data back. */
 	@Example
-	@SneakyThrows
-	public void shouldTakeAProposalSignedAgainOverOneThatNoActiveKeySigned() {
-		activate(2, 3);
+	public void shouldNeverTakeAnOlderVersionBackInPlaceOfOneThatNoActiveKeySigned() {
+		activate(0, 1, 2, 3);
+		store(0, 1, 2, 3);
+		activate(0, 1);
 
-		final GridSpork again = GridSpork.firstVersionOf(stored);
-
-		again.sign(key(2).getPrivateKey());
-		assertThat(receive(again), is(true));
-		assertThat(pending.proposalOf(Type.MINT_SUPPLY).isPresent(), is(true));
+		assertThat(stored.isAnchoring(), is(false));
+		assertThat(receive(first), is(false));
+		assertThat(receive(proposed(first, 0)), is(false));
+		assertThat(database.getMintSupply(), sameInstance(stored));
+		assertThat(pending.list().isEmpty(), is(true));
+		assertThat(receive(signedAgain(BigDecimal.TWO, 0, 1)), is(true));
 	}
 }

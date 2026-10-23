@@ -306,7 +306,8 @@ public class GridSpork implements Serializable, Signable {
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
 	* current keys, and either extend the log, with the stored spork as the first entry it adds, or win against
 	* a sibling made over the same version by being newer, when it makes the same change or comes within the
-	* lifetime of a proposal after it.
+	* lifetime of a proposal after it. A stored spork that no active key signed ({@link #isAnchoring()}) is taken over
+	* by any version newer than it and than every version in its log.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -446,12 +447,40 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {
-		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
+		final GridSpork anchor = anchorAmong(stored);
+		final SignatureLog storedLog = logOf(anchor);
 
 		/* Head first, so a forged log costs one verification rather than one per entry */
-		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
+		return followsOn(stored, anchor, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
 			&& isSignedHead.getAsBoolean()
 			&& getSignatureLog().isValidFrom(firstUncheckedEntry(storedLog), logKeys());
+	}
+
+	private static GridSpork anchorAmong(GridSpork stored) {
+		return Objects.nonNull(stored) && stored.isAnchoring() ? stored : null;
+	}
+
+	private static SignatureLog logOf(GridSpork spork) {
+		return Objects.isNull(spork) ? new SignatureLog() : spork.getSignatureLog();
+	}
+
+	/* A stored spork that no active key signed is no anchor: the version that the board signs again takes its place
+	   without carrying its log on. It still holds its place in time, so that version is newer than it and than every
+	   version in its log, and is none of them: a version that someone kept cannot take its data back. */
+	private boolean followsOn(GridSpork stored, GridSpork anchor, SignatureLog storedLog) {
+		return (anchor == stored || isLaterThanAllOf(stored)) && isSuccessorOf(anchor, storedLog);
+	}
+
+	private boolean isLaterThanAllOf(GridSpork stored) {
+		final byte[] digest = DigestUtils.sha512(getSignable());
+
+		return Objects.nonNull(timeStamp) && isNewerThan(stored)
+			&& !Arrays.equals(digest, DigestUtils.sha512(stored.getSignable()))
+			&& stored.getSignatureLog().getEntries().stream().allMatch(entry -> isLaterThan(entry, digest));
+	}
+
+	private boolean isLaterThan(SignatureLogEntry entry, byte[] digest) {
+		return timeStamp.isAfter(entry.getTimeStamp()) && !Arrays.equals(entry.getDigest(), digest);
 	}
 
 	/* The entries of the stored log were checked when the stored spork was taken; a log that does not carry it on is

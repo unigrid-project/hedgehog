@@ -78,7 +78,7 @@ public class SporkCountingTest {
 		database.set(spork);
 		assertThat(spork.isCounting(), is(true));
 		assertThat(database.counting(GridSpork.Type.MINT_SUPPLY), sameInstance(spork));
-		assertThat(database.anchorOf(GridSpork.Type.MINT_SUPPLY), sameInstance(spork));
+		assertThat(spork.isAnchoring(), is(true));
 		assertThat(database.counting(GridSpork.Type.LEDGER_FEE), nullValue());
 	}
 
@@ -92,7 +92,7 @@ public class SporkCountingTest {
 
 		assertThat(spork.isCounting(), is(false));
 		assertThat(database.counting(GridSpork.Type.MINT_SUPPLY), nullValue());
-		assertThat(database.anchorOf(GridSpork.Type.MINT_SUPPLY), sameInstance(spork));
+		assertThat(spork.isAnchoring(), is(true));
 		assertThat(spork.isTakenByTheNetwork(), is(false));
 		assertThat(spork.wasTakenByTheNetwork(), is(true));
 	}
@@ -105,7 +105,7 @@ public class SporkCountingTest {
 		activate(1, 2);
 		activate(2, 3);
 
-		assertThat(database.anchorOf(GridSpork.Type.MINT_SUPPLY), nullValue());
+		assertThat(spork.isAnchoring(), is(false));
 		assertThat(database.get(GridSpork.Type.MINT_SUPPLY), sameInstance(spork));
 		assertThat(spork.wasTakenByTheNetwork(), is(true));
 		assertThat(supply(key(4), key(5)).wasTakenByTheNetwork(), is(false));
