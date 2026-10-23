@@ -61,24 +61,36 @@ public class PendingSporks {
 	* Holds the proposal when it may replace the stored spork once co-signed and is newer than the one held
 	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
-	public synchronized boolean offer(GridSpork spork, GridSpork stored) {
+	public boolean offer(GridSpork spork, GridSpork stored) {
 		return offer(spork, stored, () -> true);
 	}
 
 	/**
 	* Holds the proposal as {@link #offer(GridSpork, GridSpork)} does, asking {@code mayVerify} right before its
-	* signature is checked, as {@link GridSpork#isProposalOver(GridSpork, BooleanSupplier)} does.
+	* signature is checked, as {@link GridSpork#isProposalOver(GridSpork, BooleanSupplier)} does. The signature is
+	* checked without the lock, so that a spork that costs many checks holds up no other thread, and whether the
+	* proposal may take the place of the one held is asked again under the lock.
 	*/
-	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
-		final GridSpork held = proposals.get(spork.getType());
+	public boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
+		if (!isAlive(spork) || isAheadOfTime(spork) || !mayTakeThePlaceOfTheHeld(spork)
+			|| !spork.isProposalOver(stored, mayVerify)) {
+			return false;
+		}
 
-		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held) && !holdsLessThan(spork, held)
-			&& spork.isProposalOver(stored, mayVerify)) {
-			proposals.put(spork.getType(), spork);
-			return true;
+		synchronized (this) {
+			if (mayTakeThePlaceOfTheHeld(spork)) {
+				proposals.put(spork.getType(), spork);
+				return true;
+			}
 		}
 
 		return false;
+	}
+
+	private synchronized boolean mayTakeThePlaceOfTheHeld(GridSpork spork) {
+		final GridSpork held = proposals.get(spork.getType());
+
+		return spork.isNewerThan(held) && !holdsLessThan(spork, held);
 	}
 
 	public synchronized List<GridSpork> list() {
@@ -98,17 +110,30 @@ public class PendingSporks {
 		proposals.remove(type);
 	}
 
-	public synchronized void retainProposalsOver(GridSpork stored) {
-		final GridSpork held = proposals.get(stored.getType());
+	/* Judged without the lock, as an offer is, and dropped only if it is still the proposal held */
+	public void retainProposalsOver(GridSpork stored) {
+		final GridSpork held = heldOf(stored.getType());
 
 		if (Objects.nonNull(held) && !held.isProposalOver(stored)) {
-			proposals.remove(stored.getType());
+			drop(held);
 		}
 	}
 
 	/* A proposal that a key signed which the board switched off can no longer be co-signed into a spork that counts */
-	public synchronized void retainProposalsOfActiveKeys() {
-		proposals.values().removeIf(spork -> !spork.isValidSignature());
+	public void retainProposalsOfActiveKeys() {
+		heldProposals().stream().filter(spork -> !spork.isValidSignature()).forEach(this::drop);
+	}
+
+	private synchronized GridSpork heldOf(Type type) {
+		return proposals.get(type);
+	}
+
+	private synchronized List<GridSpork> heldProposals() {
+		return new ArrayList<>(proposals.values());
+	}
+
+	private synchronized void drop(GridSpork held) {
+		proposals.remove(held.getType(), held);
 	}
 
 	/* A change of the board keys waits for its co-signature, and one stolen key would push it out with a renewal of the

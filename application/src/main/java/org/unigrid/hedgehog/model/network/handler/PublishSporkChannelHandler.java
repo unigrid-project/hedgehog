@@ -76,7 +76,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		String source) {
 
 		final GridSpork stored = db.get(spork.getType());
-		final SporkLag.Turn turn = lag.turnOf(spork.getType(), source);
+		final SporkLag.Turn turn = lag.turnOf(spork, source);
 
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
 		lag.record(spork, db, turn);

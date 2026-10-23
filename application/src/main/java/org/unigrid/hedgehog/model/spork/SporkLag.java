@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BinaryOperator;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -106,18 +107,27 @@ public class SporkLag {
 	}
 
 	public Turn turnOf(Type type, String source) {
-		return new Turn(type, source);
+		return new Turn(type, source, () -> 1);
+	}
+
+	/* A spork of the board keys costs a check for each approval of the changes of its chain that are not remembered,
+	   and the head one more, as any other spork does */
+	public Turn turnOf(GridSpork spork, String source) {
+		return new Turn(spork.getType(), source, () -> spork instanceof BoardKeys boardKeys
+			? 1 + boardKeys.uncheckedApprovals() : 1);
 	}
 
 	/**
 	* The right of one spork that came in to have its signatures checked. It is taken from the slots of its source
 	* when the first check is about to be made and is kept for every later check of the same spork, so a spork costs
-	* its source one slot at most, and a spork that fails a cheaper test first costs none.
+	* its source one turn at most, charged by the checks it can cost, and a spork that fails a cheaper test first
+	* costs none.
 	*/
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 	public final class Turn implements BooleanSupplier {
 		private final Type type;
 		@Getter private final String source;
+		private final IntSupplier checks;
 		private Boolean given;
 
 		/* What is handed to this node over REST is not limited: it comes from a holder of the REST token, not from
@@ -125,7 +135,7 @@ public class SporkLag {
 		@Override
 		public boolean getAsBoolean() {
 			if (Objects.isNull(given)) {
-				given = LOCAL.equals(source) || slots.take(type, source);
+				given = LOCAL.equals(source) || slots.take(type, source, checks.getAsInt());
 			}
 
 			return given;

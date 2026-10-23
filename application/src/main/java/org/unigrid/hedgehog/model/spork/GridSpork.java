@@ -85,6 +85,18 @@ public class GridSpork implements Serializable, Signable {
 	private record Standing(long generation, boolean counting, boolean anchoring) {
 	}
 
+	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE) @ToString.Exclude
+	private transient volatile HeadCheck headCheck;
+
+	private record HeadCheck(long generation, byte[] digest, byte[] signature, byte[] cosignature,
+		boolean isDoublySigned) {
+
+		private boolean isOf(long other, byte[] otherDigest, byte[] otherSignature, byte[] otherCosignature) {
+			return generation == other && Arrays.equals(digest, otherDigest)
+				&& Arrays.equals(signature, otherSignature) && Arrays.equals(cosignature, otherCosignature);
+		}
+	}
+
 	@AllArgsConstructor
 	public enum Flag {
 		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
@@ -245,7 +257,7 @@ public class GridSpork implements Serializable, Signable {
 
 		cosignature = signatureOf(privateKeyHex);
 
-		if (!isDoublySigned()) {
+		if (!isDoublySignedBy(headKeys())) {
 			cosignature = null;
 			throw new SigningException("A second, different network key has to co-sign the spork");
 		}
@@ -269,9 +281,29 @@ public class GridSpork implements Serializable, Signable {
 		return signerOfHead(signature).isPresent();
 	}
 
+	/* The decisions that a spork from a peer goes through each ask this, and the answer costs a signature for each
+	   active key that a signature is tried against, so it is worked out once for a head, its signatures and the keys
+	   the node goes by */
 	@JsonIgnore
 	public boolean isDoublySigned() {
-		return isDoublySignedBy(headKeys());
+		final long generation = NetworkKey.getGeneration();
+		final byte[] digest = DigestUtils.sha512(getSignable());
+		final HeadCheck known = headCheck;
+
+		if (Objects.nonNull(known) && known.isOf(generation, digest, signature, cosignature)) {
+			return known.isDoublySigned();
+		}
+
+		final Set<String> keys = headKeys();
+		final boolean isDoublySigned = isPair(signerOf(digest, signature, keys),
+			signerOf(digest, cosignature, keys));
+
+		headCheck = new HeadCheck(generation, digest, signature, cosignature, isDoublySigned);
+		return isDoublySigned;
+	}
+
+	private static Optional<String> signerOf(byte[] digest, byte[] headSignature, Set<String> keys) {
+		return Objects.isNull(headSignature) ? Optional.empty() : NetworkKey.signerOf(digest, headSignature, keys);
 	}
 
 	private boolean isDoublySignedBy(Set<String> keys) {

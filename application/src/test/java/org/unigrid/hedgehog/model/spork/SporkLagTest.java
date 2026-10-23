@@ -36,6 +36,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeProperty;
+import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -102,6 +103,11 @@ public class SporkLagTest {
 
 	private Instant ago(Duration age) {
 		return now.minus(age);
+	}
+
+	/* A copy of its own, as each message from a peer is: the same spork object is checked once */
+	private static <S extends GridSpork> S heard(S spork) {
+		return SerializationUtils.clone(spork);
 	}
 
 	/* A spork a second after the one before it, as the lag takes one a second for each type at most */
@@ -384,11 +390,11 @@ public class SporkLagTest {
 		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
 
 		keyLookups = 0;
-		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, "2001:db8:" + n + "::/64"));
+		IntStream.range(0, 1000).forEach(n -> lag.record(heard(forged), database, "2001:db8:" + n + "::/64"));
 		assertThat(keyLookups, is(VerifySlots.CEILING * LOOKUPS_PER_CHECK));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
-		IntStream.range(0, 1000).forEach(n -> lag.record(forged, database, "2001:db8:" + n + "::/64"));
+		IntStream.range(0, 1000).forEach(n -> lag.record(heard(forged), database, "2001:db8:" + n + "::/64"));
 		assertThat(keyLookups, is(2 * VerifySlots.CEILING * LOOKUPS_PER_CHECK));
 	}
 
@@ -397,7 +403,7 @@ public class SporkLagTest {
 		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
 
 		keyLookups = 0;
-		IntStream.range(0, 5).forEach(n -> lag.record(forged, database, SporkLag.LOCAL));
+		IntStream.range(0, 5).forEach(n -> lag.record(heard(forged), database, SporkLag.LOCAL));
 		assertThat(keyLookups, is(5 * LOOKUPS_PER_CHECK));
 
 		lag.record(agreement(ago(Duration.ofMinutes(5))), database, SporkLag.LOCAL);
@@ -442,7 +448,8 @@ public class SporkLagTest {
 		final LedgerFee fee = agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer));
 
 		keyLookups = 0;
-		IntStream.range(0, 2 * VerifySlots.CEILING).forEach(n -> lag.record(supply, database, "source-" + n));
+		IntStream.range(0, 2 * VerifySlots.CEILING).forEach(n -> lag.record(heard(supply), database,
+			"source-" + n));
 		lag.record(fee, database, "source-0");
 
 		assertThat(keyLookups, is((VerifySlots.CEILING + 1) * LOOKUPS_PER_CHECK));

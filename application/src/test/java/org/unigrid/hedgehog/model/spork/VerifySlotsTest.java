@@ -92,6 +92,21 @@ public class VerifySlotsTest {
 		assertThat(slots.take(TYPE, "yet another"), is(false));
 	}
 
+	/* A spork that costs more than one check, as one of the board keys does, is charged as many, but never more than
+	   the ceiling, so that one which costs that much is checked in a second of its own */
+	@Example
+	public void chargesASporkForTheChecksItCostsAndNeverMoreThanTheCeiling() {
+		assertThat(slots.take(TYPE, "peer", 10), is(true));
+		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - 10));
+
+		now = now.plus(SporkLag.VERIFY_GAP);
+		assertThat(slots.take(TYPE, "costly", 1000), is(true));
+		assertThat(slots.take(TYPE, "another"), is(false));
+
+		slots.giveBack(TYPE, "costly");
+		assertThat(slots.take(TYPE, "another"), is(true));
+	}
+
 	@Example
 	public void givesBackNothingForASlotThatWasNotGiven() {
 		assertThat(taken(TYPE, "peer-", VerifySlots.CEILING), is((long) VerifySlots.CEILING));

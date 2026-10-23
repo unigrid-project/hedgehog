@@ -24,6 +24,9 @@ import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,6 +75,8 @@ public final class BoardKeyChain {
 	private static final byte[] ROOT_TAG = "hedgehog/board-keys/1".getBytes(StandardCharsets.US_ASCII);
 	private static final byte[] LINK_TAG = "hedgehog/board-keys/link/1".getBytes(StandardCharsets.US_ASCII);
 	private static final int MAX_REMEMBERED = 4 * MAX_CHANGES;
+	private static final float LOAD_FACTOR = 0.75f;
+	private static final Map<String, String> REJECTED = remembering(MAX_REMEMBERED);
 
 	/* The checkpoint that the release vouches for, and the board keys built into it */
 	record Release(Optional<Network.Checkpoint> checkpoint, Set<String> builtInKeys) {
@@ -231,7 +236,8 @@ public final class BoardKeyChain {
 	}
 
 	/* Remembered by the digest of the change with its approvals, so a copy with an approval that does not verify is
-	   checked again */
+	   checked again. The digest pins every change before it, so a change that did not hold never will, and what it
+	   failed on is remembered too: the same forged change sent again costs no signature. */
 	private static ActiveKeys verified(KeyChange change, ActiveKeys before) {
 		final String id = DigestUtils.sha512Hex(change.toBytes());
 		final ActiveKeys remembered = VERIFIED.get(id);
@@ -240,8 +246,15 @@ public final class BoardKeyChain {
 			return remembered;
 		}
 
-		requireKeys(change.getActive(), before.active());
-		requireApprovals(change, before.active());
+		Validate.isTrue(!REJECTED.containsKey(id), "%s", REJECTED.get(id));
+
+		try {
+			requireKeys(change.getActive(), before.active());
+			requireApprovals(change, before.active());
+		} catch (IllegalArgumentException ex) {
+			REJECTED.put(id, ex.getMessage());
+			throw ex;
+		}
 
 		final ActiveKeys after = before.after(change.getActive());
 
@@ -280,8 +293,37 @@ public final class BoardKeyChain {
 
 		final byte[] signable = change.getSignable();
 
-		Validate.isTrue(change.getApprovals().stream().allMatch(approval -> Signature.isSignedBy(approval.getKey(),
-			signable, approval.getSignature())), "an approval does not verify");
+		/* The approvals of the keys before it first, as a change that a quorum of them did not make fails on the
+		   first one that does not verify, before any approval of a key it adds is checked */
+		Validate.isTrue(change.getApprovals().stream().sorted(Comparator.comparing(approval -> added.contains(
+			approval.getKey()))).allMatch(approval -> Signature.isSignedBy(approval.getKey(), signable,
+			approval.getSignature())), "an approval does not verify");
+	}
+
+	/* The approvals of the changes that are remembered neither as holding nor as not, which is what checking the chain
+	   can cost; a change that cannot be written costs none, as it fails before any signature is checked */
+	public static int uncheckedApprovals(List<KeyChange> changes) {
+		return changes.stream().filter(Objects::nonNull).mapToInt(BoardKeyChain::uncheckedApprovalsOf).sum();
+	}
+
+	private static int uncheckedApprovalsOf(KeyChange change) {
+		try {
+			final String id = DigestUtils.sha512Hex(change.toBytes());
+
+			return VERIFIED.containsKey(id) || REJECTED.containsKey(id) ? 0 : change.getApprovals().size();
+		} catch (IllegalArgumentException | NullPointerException ex) {
+			return 0;
+		}
+	}
+
+	/* At most so many, the one used least recently going first, so that what a node is sent again and again stays */
+	private static <V> Map<String, V> remembering(int capacity) {
+		return Collections.synchronizedMap(new LinkedHashMap<>(capacity, LOAD_FACTOR, true) {
+			@Override
+			protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+				return size() > capacity;
+			}
+		});
 	}
 
 	private static boolean isAscending(List<String> keys) {

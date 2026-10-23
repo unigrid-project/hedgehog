@@ -47,8 +47,11 @@ final class VerifySlots {
 	private record Window(Instant start, int taken) {
 	}
 
+	private record Taken(Instant at, int charged) {
+	}
+
 	private final Supplier<Instant> clock;
-	private final Map<Slot, Instant> held = new HashMap<>();
+	private final Map<Slot, Taken> held = new HashMap<>();
 	private final Map<Type, Window> windows = new EnumMap<>(Type.class);
 	private Instant sweptAt;
 
@@ -56,17 +59,24 @@ final class VerifySlots {
 		this.clock = clock;
 	}
 
-	/* The lock is held for the decision only, never while a signature is checked */
 	synchronized boolean take(final Type type, final String source) {
+		return take(type, source, 1);
+	}
+
+	/* The lock is held for the decision only, never while a signature is checked. A spork that costs more than one
+	   check, as one of the board keys does, is charged as many, but never more than the ceiling, so that one which
+	   costs that much is checked in a second of its own. */
+	synchronized boolean take(final Type type, final String source, final int checks) {
 		final Instant now = clock.get();
 		final Slot slot = new Slot(type, source);
 		final Window window = windowOf(type, now);
+		final int charged = Math.clamp(checks, 1, CEILING);
 
 		sweep(now);
 
-		if (hasPassed(held.get(slot), now) && window.taken() < CEILING) {
-			held.put(slot, now);
-			windows.put(type, new Window(window.start(), window.taken() + 1));
+		if (hasPassed(atOf(held.get(slot)), now) && window.taken() + charged <= CEILING) {
+			held.put(slot, new Taken(now, charged));
+			windows.put(type, new Window(window.start(), window.taken() + charged));
 			return true;
 		}
 
@@ -76,10 +86,16 @@ final class VerifySlots {
 	/* A right that was used on a genuine spork is given back, so a peer that sends several in a row has each of them
 	   checked, and only a check that fails costs a peer its turn */
 	synchronized void giveBack(final Type type, final String source) {
-		if (Objects.nonNull(held.remove(new Slot(type, source)))) {
+		final Taken taken = held.remove(new Slot(type, source));
+
+		if (Objects.nonNull(taken)) {
 			windows.computeIfPresent(type, (key, window) -> new Window(window.start(),
-				Math.max(0, window.taken() - 1)));
+				Math.max(0, window.taken() - taken.charged())));
 		}
+	}
+
+	private static Instant atOf(final Taken taken) {
+		return Objects.isNull(taken) ? null : taken.at();
 	}
 
 	synchronized int tracked() {
@@ -94,7 +110,7 @@ final class VerifySlots {
 
 	private void sweep(final Instant now) {
 		if (hasPassed(sweptAt, now)) {
-			held.values().removeIf(taken -> hasPassed(taken, now));
+			held.values().removeIf(taken -> hasPassed(taken.at(), now));
 			sweptAt = now;
 		}
 	}

@@ -100,6 +100,12 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return lengthOf(this);
 	}
 
+	/* What checking the chain can cost: a signature for each approval of a change that is not remembered */
+	public int uncheckedApprovals() {
+		return Optional.ofNullable(this.<SporkData>getData()).map(SporkData::getChanges)
+			.map(BoardKeyChain::uncheckedApprovals).orElse(0);
+	}
+
 	@Data
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = 6815529384750267513L;
