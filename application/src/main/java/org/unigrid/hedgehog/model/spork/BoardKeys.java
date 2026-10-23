@@ -44,8 +44,18 @@ public class BoardKeys extends GridSpork implements Serializable {
 
 	/* What the chain makes of the board keys, from the root of this node, or nothing when it does not hold */
 	public Optional<ActiveKeys> chainKeys() {
-		return Optional.ofNullable(this.<SporkData>getData()).map(SporkData::getChanges)
-			.flatMap(BoardKeyChain::verified);
+		return changesOf(this).flatMap(BoardKeyChain::verified);
+	}
+
+	/* What is read from the wire always holds a chain, while a file can hold a spork with no chain at all, or with a
+	   change missing from it, which is no chain of anything */
+	public boolean holdsAChain() {
+		return changesOf(this).isPresent();
+	}
+
+	private static Optional<List<KeyChange>> changesOf(GridSpork spork) {
+		return Optional.ofNullable(spork.<SporkData>getData()).map(SporkData::getChanges)
+			.filter(changes -> changes.stream().allMatch(Objects::nonNull));
 	}
 
 	/* Two keys that the chain makes active sign it, so a change takes effect with a head that the new board signed,
@@ -86,13 +96,17 @@ public class BoardKeys extends GridSpork implements Serializable {
 			|| isNewerThan(stored));
 	}
 
-	/* Whether the chain of this spork begins with the whole chain of the other */
+	/* Whether the chain of this spork begins with the whole chain of the other; a spork without a chain holds none
+	   and is held by none */
 	public boolean holdsTheChainOf(GridSpork other) {
-		return BoardKeyChain.holds(this.<SporkData>getData().getChanges(), other.<SporkData>getData().getChanges());
+		final Optional<List<KeyChange>> held = changesOf(other);
+
+		return held.isPresent() && changesOf(this).filter(changes -> BoardKeyChain.holds(changes, held.get()))
+			.isPresent();
 	}
 
 	private static int lengthOf(GridSpork spork) {
-		return spork.<SporkData>getData().getChanges().size();
+		return changesOf(spork).map(List::size).orElse(0);
 	}
 
 	/* The number of changes of the chain */
@@ -102,8 +116,7 @@ public class BoardKeys extends GridSpork implements Serializable {
 
 	/* What checking the chain can cost: a signature for each approval of a change that is not remembered */
 	public int uncheckedApprovals() {
-		return Optional.ofNullable(this.<SporkData>getData()).map(SporkData::getChanges)
-			.map(BoardKeyChain::uncheckedApprovals).orElse(0);
+		return changesOf(this).map(BoardKeyChain::uncheckedApprovals).orElse(0);
 	}
 
 	@Data

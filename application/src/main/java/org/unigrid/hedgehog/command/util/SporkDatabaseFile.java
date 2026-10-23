@@ -76,6 +76,12 @@ final class SporkDatabaseFile {
 				+ " the wire", null);
 		});
 
+		Optional.ofNullable(database.getBoardKeys()).filter(boardKeys -> !boardKeys.holdsAChain())
+			.ifPresent(boardKeys -> {
+				throw unreadable(spec, file, "the " + Type.BOARD_KEYS + " spork holds no chain of changes",
+					null);
+			});
+
 		goByTheBoardKeysOf(database);
 		return database;
 	}
