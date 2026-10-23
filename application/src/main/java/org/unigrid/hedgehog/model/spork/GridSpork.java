@@ -385,7 +385,9 @@ public class GridSpork implements Serializable, Signable {
 	   sibling that every node takes. Two co-signers racing over one version make siblings only while a proposal
 	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
 	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
-	   as two renewals do, settle by time, and so does the first version, which follows nothing. */
+	   as two renewals do, settle by time, and so does the first version, which follows nothing. So do two first
+	   versions, with no previous time stamp and no log, however far apart they were made: no version before them can
+	   win back its place, and each took two board keys, which may sign the data of a database again hours apart. */
 	private boolean mayTakeThePlaceOf(GridSpork stored) {
 		if (Objects.isNull(stored)) {
 			return true;
@@ -394,7 +396,13 @@ public class GridSpork implements Serializable, Signable {
 		final boolean isOverTheSameVersion = Objects.equals(previousData, stored.previousData)
 			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
 
-		return isOverTheSameVersion && (Objects.equals(data, stored.data) || isWithinAProposalsLifetimeOf(stored));
+		return isOverTheSameVersion && (Objects.equals(data, stored.data) || isFirstVersion()
+			|| isWithinAProposalsLifetimeOf(stored));
+	}
+
+	/* A sibling has the log of the stored spork, so this one being a first version makes both one */
+	private boolean isFirstVersion() {
+		return Instant.EPOCH.equals(previousTimeStamp) && getSignatureLog().isEmpty();
 	}
 
 	private boolean isWithinAProposalsLifetimeOf(GridSpork stored) {

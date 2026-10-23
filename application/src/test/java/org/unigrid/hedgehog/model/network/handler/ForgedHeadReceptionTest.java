@@ -279,6 +279,19 @@ public class ForgedHeadReceptionTest {
 		assertThat(new Node(older).receive(muchLater), is(true));
 	}
 
+	/* The board signs the data of a database again as first versions, which two board members can make on two
+	   machines hours apart. There is no version before them that the later one could undo, so the newer wins. */
+	@Example
+	public void shouldSettleFirstVersionsMadeFarApartByTheirTimeStamps() {
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork older = cosigned(proposalOver(null, 10, now.minus(PendingSporks.LIFETIME.multipliedBy(3))));
+		final GridSpork newer = cosigned(proposalOver(null, 20, now));
+
+		assertThat(new Node(older).receive(newer), is(true));
+		assertThat(new Node(newer).receive(older), is(false));
+		assertThat(new Node(older).stored().getSignable(), equalTo(older.getSignable()));
+	}
+
 	@Example
 	public void shouldTakeTheFirstVersionWhenNothingIsStored() {
 		final Node node = new Node();
