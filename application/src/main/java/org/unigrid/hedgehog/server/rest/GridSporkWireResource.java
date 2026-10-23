@@ -126,7 +126,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 		}
 
 		sporkDatabase.set(spork);
-		pendingSporks.remove(spork.getType());
+		pendingSporks.retainProposalsOver(spork);
 		SporkRecipients.sendAll(spork, topology);
 		return Response.ok().build();
 	}

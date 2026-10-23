@@ -153,7 +153,7 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 		}
 
 		database.set(spork);
-		pending.remove(spork.getType());
+		pending.retainProposalsOver(spork);
 		return Response.ok().build();
 	}
 }
