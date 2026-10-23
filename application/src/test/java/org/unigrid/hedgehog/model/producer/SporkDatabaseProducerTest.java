@@ -204,6 +204,29 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		}
 	}
 
+	/* A spork that cannot even be encoded is one the node does not take, and the node starts all the same */
+	@Example
+	@SneakyThrows
+	public void shouldDropASporkThatCannotBeEncodedAndStart() {
+		final Signature first = new Signature();
+		final Signature second = new Signature();
+
+		fakeTheBoard(first, second);
+
+		final GridSpork undefined = signed(GridSpork.Type.MINT_STORAGE, new MintStorage().getData(), first, second);
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		stored.set(undefined);
+		undefined.setType((short) 0);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = Files.createDirectories(fs.getPath("/data")).resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			assertThat(produced(holding(fs.getPath("/data"))), equalTo(SporkDatabase.builder().build()));
+		}
+	}
+
 	/* One key that the board no longer holds signed them, so a node that upgrades from 0.0.7 holds none of them and
 	   takes the versions that the current board signed from its peers */
 	@Example

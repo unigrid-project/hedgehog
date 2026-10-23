@@ -317,11 +317,17 @@ public class GridSpork implements Serializable, Signable {
 	* network key and co-signed by a second one, newer than the last version in its signature log, and with a log that
 	* current keys signed. A single signature, as builds from before co-signatures made, never counts: one key alone
 	* could make it. A board member builds on such a spork only, so that nothing between the node and the network can
-	* have them sign on top of a version no board made, and a node keeps no other.
+	* have them sign on top of a version no board made, and a node keeps no other. A spork that cannot be encoded to
+	* check its signatures over, as one of no known type, is none the network took.
 	*/
 	@JsonIgnore
 	public boolean isTakenByTheNetwork() {
-		return isDoublySigned() && isNewerThanLog() && getSignatureLog().isValidFrom(0, NetworkKey.getLogKeys());
+		try {
+			return isDoublySigned() && isNewerThanLog()
+				&& getSignatureLog().isValidFrom(0, NetworkKey.getLogKeys());
+		} catch (RuntimeException ex) {
+			return false;
+		}
 	}
 
 	/**

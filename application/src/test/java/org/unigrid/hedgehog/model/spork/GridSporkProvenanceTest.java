@@ -159,6 +159,19 @@ public class GridSporkProvenanceTest {
 		}
 	}
 
+	/* A file can hold a spork of no type a node knows, which cannot be encoded to check its signatures over */
+	@Example
+	public void shouldRefuseASporkThatCannotBeEncoded() {
+		final GridSpork undefined = stored(null, 10);
+		final GridSpork untyped = stored(null, 10);
+
+		undefined.setType((short) 0);
+		untyped.setType((GridSpork.Type) null);
+
+		assertThat(undefined.isTakenByTheNetwork(), is(false));
+		assertThat(untyped.isTakenByTheNetwork(), is(false));
+	}
+
 	@Example
 	public void shouldRefuseASporkWhoseDataChangedAfterItWasSigned() {
 		final GridSpork spork = stored(null, 10);

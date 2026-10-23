@@ -101,8 +101,12 @@ public class SporkDatabaseProducer {
 	}
 
 	private static String reasonOf(GridSpork spork) {
-		return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
-			: "two different current network keys did not sign it";
+		try {
+			return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
+				: "two different current network keys did not sign it";
+		} catch (RuntimeException ex) {
+			return "it cannot be encoded to check its signatures: " + ex.getMessage();
+		}
 	}
 
 	private static String movedAside(Path path) {
