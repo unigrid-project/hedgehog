@@ -185,6 +185,27 @@ public class LedgerClockRoundTest {
 		}
 	}
 
+	/* A node that is behind takes the certified blocks of its peers whatever its own clock says, and comes to the same
+	   set and the same root through the block that closed the round */
+	@Example
+	public void shouldFollowTheBlockThatClosesARoundAsItsPeersCertifiedIt() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger leader = withVotesInRoundZero(fileSystem, clock);
+			final Ledger follower = new Ledger(state(ROUND, ANY_MINT, FOUNDATION),
+				BlockLog.open(fileSystem.getPath("/follower/blocks.log")), () -> startOf(0));
+
+			clock.set(startOf(2));
+			leader.commit(certify(proposed(leader, clock.get()), leader, FOUNDATION));
+			follower.commit(leader.block(1).orElseThrow());
+			follower.commit(leader.block(2).orElseThrow());
+
+			assertThat(follower.validators(), equalTo(leader.validators()));
+			assertThat(follower.validators().contains(Ed25519.publicKey(GRIDNODE)), is(true));
+			assertThat(follower.stateRoot(), equalTo(leader.stateRoot()));
+		}
+	}
+
 	@Example
 	public void shouldHaveNoWorkWhenARoundWithoutVotesEnds() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
