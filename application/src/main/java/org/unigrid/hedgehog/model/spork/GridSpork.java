@@ -79,9 +79,10 @@ public class GridSpork implements Serializable, Signable {
 	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE) @ToString.Exclude
 	private transient volatile Standing standing;
 
-	/* Which of the keys active now signed the head, worked out once for each set of them: the policy of a spork is
-	   read every second, and a spork that a node holds is replaced whole and never changed in place */
-	private record Standing(Set<String> keys, boolean counting, boolean anchoring) {
+	/* Which of the keys active now signed the head, worked out once until the keys that the node goes by change: the
+	   policy of a spork is read thousands of times a second, and a spork that a node holds is replaced whole and never
+	   changed in place */
+	private record Standing(long generation, boolean counting, boolean anchoring) {
 	}
 
 	@AllArgsConstructor
@@ -392,27 +393,33 @@ public class GridSpork implements Serializable, Signable {
 		return standing().anchoring();
 	}
 
-	/* A spork that cannot be encoded to check its signatures over has no signer */
+	/* The generation is read before the keys, so a standing worked out over keys that changed meanwhile is worked out
+	   again. A spork that cannot be encoded to check its signatures over has no signer. */
 	private Standing standing() {
+		final long generation = NetworkKey.getGeneration();
 		final Standing known = standing;
 
-		try {
-			final Set<String> keys = headKeys();
-
-			return Objects.nonNull(known) && known.keys().equals(keys) ? known : judgedBy(keys);
-		} catch (RuntimeException ex) {
-			return new Standing(Set.of(), false, false);
+		if (Objects.nonNull(known) && known.generation() == generation) {
+			return known;
 		}
-	}
 
-	private Standing judgedBy(Set<String> keys) {
-		final Optional<String> signer = signerOfHead(signature, keys);
-		final Optional<String> cosigner = signerOfHead(cosignature, keys);
-		final Standing judged = new Standing(keys, isPair(signer, cosigner),
-			signer.isPresent() || cosigner.isPresent());
+		Standing judged;
+
+		try {
+			judged = judgedBy(generation, headKeys());
+		} catch (RuntimeException ex) {
+			judged = new Standing(generation, false, false);
+		}
 
 		standing = judged;
 		return judged;
+	}
+
+	private Standing judgedBy(long generation, Set<String> keys) {
+		final Optional<String> signer = signerOfHead(signature, keys);
+		final Optional<String> cosigner = signerOfHead(cosignature, keys);
+
+		return new Standing(generation, isPair(signer, cosigner), signer.isPresent() || cosigner.isPresent());
 	}
 
 	/* An amount beyond the bounds of the wire writes out as up to gigabytes, so it is judged before the spork is

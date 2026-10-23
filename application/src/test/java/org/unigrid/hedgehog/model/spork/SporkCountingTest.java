@@ -21,7 +21,10 @@ package org.unigrid.hedgehog.model.spork;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
@@ -39,6 +42,7 @@ import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 
 /* The release builds in keys 0 and 1, and the board switches them off one after the other */
 public class SporkCountingTest {
+	private static int lookups;
 	private SporkDatabase database;
 
 	@BeforeTry
@@ -117,6 +121,28 @@ public class SporkCountingTest {
 		database.set(supply(key(1), key(2)));
 
 		assertThat(database.counting(GridSpork.Type.MINT_SUPPLY).isCounting(), is(true));
+	}
+
+	/* The policy reads a spork thousands of times a second, so whether it counts is worked out once for each set of
+	   keys that the node goes by */
+	@Example
+	public void shouldJudgeASporkOnceForEachSetOfKeys() {
+		final MintSupply spork = supply(key(0), key(1));
+
+		new MockUp<NetworkKey>() {
+			@Mock public String[] getPublicKeys() {
+				lookups++;
+				return publicKeysOf(keys(0, 1));
+			}
+		};
+
+		lookups = 0;
+		IntStream.range(0, 100).forEach(i -> spork.isCounting());
+		assertThat(lookups, is(1));
+
+		activate(1, 2);
+		IntStream.range(0, 100).forEach(i -> spork.isCounting());
+		assertThat(lookups, is(2));
 	}
 
 	@Example

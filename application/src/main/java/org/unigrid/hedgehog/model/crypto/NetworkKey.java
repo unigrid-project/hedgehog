@@ -27,6 +27,7 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -43,6 +44,9 @@ public class NetworkKey {
 	   long as nothing is installed, so a network started with keys of its own goes by them until its board changes
 	   them. */
 	private static final AtomicReference<ActiveKeys> INSTALLED = new AtomicReference<>();
+
+	/* Counts every change of what is installed, so that what is judged by the keys can be kept until they change */
+	private static final AtomicLong GENERATION = new AtomicLong();
 
 	/* The board keys of the release, or of a private network that gives its own, which the chain of changes to the
 	   board keys is rooted in */
@@ -74,7 +78,19 @@ public class NetworkKey {
 	* fork of it that came later.
 	*/
 	public static boolean install(ActiveKeys keys) {
-		return INSTALLED.updateAndGet(installed -> keys.length() > lengthOf(installed) ? keys : installed) == keys;
+		final ActiveKeys before = INSTALLED.get();
+		final boolean isInstalled = INSTALLED.updateAndGet(installed -> keys.length() > lengthOf(installed) ? keys
+			: installed) == keys;
+
+		if (isInstalled && before != keys) {
+			GENERATION.incrementAndGet();
+		}
+
+		return isInstalled;
+	}
+
+	public static long getGeneration() {
+		return GENERATION.get();
 	}
 
 	private static int lengthOf(ActiveKeys installed) {
@@ -84,6 +100,7 @@ public class NetworkKey {
 	/* A process that starts over goes by the built-in keys again, as each test of a process does */
 	public static void reset() {
 		INSTALLED.set(null);
+		GENERATION.incrementAndGet();
 	}
 
 	public static Optional<String> signerOf(Signable signable) {
