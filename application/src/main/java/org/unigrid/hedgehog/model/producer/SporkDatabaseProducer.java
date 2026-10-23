@@ -41,6 +41,7 @@ import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -96,19 +97,21 @@ public class SporkDatabaseProducer {
 	   what the node keeps, so the file as it was is copied aside first, as it is what the board signs again with util
 	   spork-db sign. */
 	private static SporkDatabase signedByTheBoard(SporkDatabase database, Path path) {
+		final Instant now = Instant.now();
+
 		Optional.ofNullable(database.getBoardKeys()).filter(GridSpork::isTakenByTheNetwork)
+			.filter(boardKeys -> !PendingSporks.isAheadOf(now, boardKeys))
 			.ifPresent(BoardKeysAuthority::install);
 
 		final List<GridSpork.Type> leftOut = Arrays.stream(GridSpork.Type.values())
 			.filter(type -> type != GridSpork.Type.UNDEFINED)
-			.filter(type -> database.holdsAnotherSporkIn(type) || Objects.nonNull(database.get(type))
-				&& !database.get(type).wasTakenByTheNetwork()).toList();
+			.filter(type -> isLeftOut(database, type, now)).toList();
 
 		if (!leftOut.isEmpty()) {
 			final String copy = keptAside(path);
 
 			leftOut.forEach(type -> {
-				log.atWarn().addArgument(type).addArgument(reasonOf(database, type)).addArgument(copy)
+				log.atWarn().addArgument(type).addArgument(reasonOf(database, type, now)).addArgument(copy)
 					.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
 				database.clear(type);
 			});
@@ -128,11 +131,25 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	private static String reasonOf(SporkDatabase database, GridSpork.Type type) {
+	/* A spork stamped further ahead than clocks drift apart would hold off every version the board makes until its
+	   time came, as one from a peer would */
+	private static boolean isLeftOut(SporkDatabase database, GridSpork.Type type, Instant now) {
+		final GridSpork spork = database.get(type);
+
+		return database.holdsAnotherSporkIn(type) || Objects.nonNull(spork)
+			&& (!spork.wasTakenByTheNetwork() || PendingSporks.isAheadOf(now, spork));
+	}
+
+	private static String reasonOf(SporkDatabase database, GridSpork.Type type, Instant now) {
 		final GridSpork spork = database.get(type);
 
 		if (database.holdsAnotherSporkIn(type)) {
 			return "it sits in the slot of another type";
+		}
+
+		if (PendingSporks.isAheadOf(now, spork)) {
+			return "it is stamped at " + spork.getTimeStamp() + ", further ahead of the clock than clocks drift"
+				+ " apart";
 		}
 
 		if (!spork.isWithinBounds()) {

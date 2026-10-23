@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.spork;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -110,8 +111,14 @@ public class PendingSporks {
 		proposals.values().removeIf(spork -> !spork.isValidSignature());
 	}
 
-	private boolean isAheadOfTime(GridSpork spork) {
-		return spork.getTimeStamp().isAfter(clock.instant().plus(LEEWAY));
+	/* Of a proposal as of a co-signed version: the newest wins, so one stamped further ahead than clocks drift apart
+	   would hold off every version the board makes until its time came */
+	public boolean isAheadOfTime(GridSpork spork) {
+		return isAheadOf(clock.instant(), spork);
+	}
+
+	public static boolean isAheadOf(Instant now, GridSpork spork) {
+		return Objects.nonNull(spork.getTimeStamp()) && spork.getTimeStamp().isAfter(now.plus(LEEWAY));
 	}
 
 	private boolean isAlive(GridSpork spork) {

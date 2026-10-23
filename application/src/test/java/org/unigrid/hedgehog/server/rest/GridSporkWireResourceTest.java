@@ -340,6 +340,28 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 			equalTo(Optional.of(PendingSporks.digestOf(over))));
 	}
 
+	/* A version stamped far ahead would win over every version the board makes until its time came, so it is taken no
+	   further ahead than clocks drift apart, as a proposal is */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldRefuseAVersionStampedFarAheadAndTakeTheBoardsVersionAfterIt(
+		@ForAll("provideSignature") Signature signature) {
+
+		final GridSpork ahead = GridSpork.nextVersion(Type.LEDGER_FEE, sporkDatabase.getLedgerFee(), Optional.empty());
+
+		ahead.<LedgerFee.SporkData>getData().setMinimumTransferFee(new BigDecimal("0.5"));
+		ahead.setTimeStamp(Instant.parse("2100-01-01T00:00:00Z"));
+		ahead.sign(signature.getPrivateKey());
+		ahead.cosign(COSIGNER.getPrivateKey());
+		assertThat(statusOf(submit(ahead)), equalTo(Status.CONFLICT));
+
+		final GridSpork board = next(Type.LEDGER_FEE, (LedgerFee.SporkData data) -> data.setMinimumTransferFee(
+			new BigDecimal("0.375")), signature);
+
+		board.cosign(COSIGNER.getPrivateKey());
+		assertThat(statusOf(submit(board)), equalTo(Status.OK));
+	}
+
 	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldRefuseAnOlderSporkReplayedOverTheStoredOne(@ForAll("provideSignature") Signature signature) {

@@ -96,6 +96,11 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return pendingSporks.offer(spork, stored, turn);
 		}
 
+		if (pendingSporks.isAheadOfTime(spork)) {
+			log.atDebug().log("Dropped a {} spork stamped ahead of the clock", spork.getType());
+			return false;
+		}
+
 		if (spork instanceof BoardKeys boardKeys) {
 			return BoardKeysAuthority.accept(boardKeys, db, pendingSporks, turn);
 		}
