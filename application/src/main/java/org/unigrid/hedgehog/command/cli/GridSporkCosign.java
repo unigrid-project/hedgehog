@@ -145,10 +145,8 @@ public class GridSporkCosign implements Runnable {
 		final Optional<GridSpork> stored = sporks.held(type);
 		final boolean isSwitchedOff = stored.isPresent() && !stored.get().isTakenByTheNetwork();
 
-		if (isSwitchedOff && !switchedOff.contains(type)) {
-			throw new UntrustedSporkException("the " + type + " spork that the node holds is "
-				+ SporkClient.signingOf(stored.get()) + "; give --switched-off " + type
-				+ " to co-sign a renewal of it");
+		if (isSwitchedOff) {
+			requireRenewalByName(proposal, stored.get());
 		}
 
 		SporkClient.requireProposalOver(proposal, type, stored.orElse(null));
@@ -164,6 +162,24 @@ public class GridSporkCosign implements Runnable {
 
 		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
 			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer));
+	}
+
+	/* Two stolen keys that the board switched off can forge the stored spork, so nothing is co-signed over it but the
+	   very version that the node holds, renewed */
+	private void requireRenewalByName(GridSpork proposal, GridSpork stored) throws UntrustedSporkException {
+		final GridSpork.Type type = stored.getType();
+
+		if (!switchedOff.contains(type)) {
+			throw new UntrustedSporkException("the " + type + " spork that the node holds is "
+				+ SporkClient.signingOf(stored) + "; give --switched-off " + type
+				+ " to co-sign a renewal of it");
+		}
+
+		if (!proposal.isRenewalOf(stored)) {
+			throw new UntrustedSporkException("the " + type + " proposal is no renewal of the spork that the"
+				+ " node holds, which is " + SporkClient.signingOf(stored)
+				+ ", and only a renewal is co-signed over it");
+		}
 	}
 
 	/* A proposal holds all the data that it sets, the changes of the proposals it replaced among it, so the whole of

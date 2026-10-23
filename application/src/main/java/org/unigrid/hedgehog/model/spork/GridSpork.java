@@ -432,25 +432,73 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Decides whether this spork, handed out as the proposal that waits on the stored one, is what a current network
 	* key proposed over it: it may wait for its co-signature over the stored spork, and it was made from it, as its
-	* next version or as its renewal. The stored spork is one the network took ({@link #isTakenByTheNetwork()}).
+	* next version or as its renewal, with the stored head as the last entry of its log. A co-signed version from a peer
+	* is judged by {@link #canReplace(GridSpork)} instead, as a node that missed versions takes one that logs several.
 	*/
 	@JsonIgnore
 	public boolean isProposalOver(GridSpork stored) {
-		return canBeProposedOver(stored) && isMadeFrom(stored);
+		return isProposalOver(stored, () -> true);
 	}
 
+	/**
+	* Decides as {@link #isProposalOver(GridSpork)} does, asking {@code mayVerify} as
+	* {@link #canReplace(GridSpork, BooleanSupplier)} does.
+	*/
+	@JsonIgnore
+	public boolean isProposalOver(GridSpork stored, BooleanSupplier mayVerify) {
+		return isPending() && isMadeFrom(stored) && succeeds(stored, mayVerify, this::isValidSignature);
+	}
+
+	/**
+	* Decides whether this spork is the stored one moved to a new point in time and nothing else: the same data over the
+	* same version, and the log of the stored spork with its head appended.
+	*/
+	@JsonIgnore
+	public boolean isRenewalOf(GridSpork stored) {
+		final SignatureLog storedLog = stored.getSignatureLog();
+
+		return isRenewalOver(stored) && getSignatureLog().size() == storedLog.size() + 1
+			&& storedLog.isPrefixOf(getSignatureLog()) && endsWithTheHeadOf(stored);
+	}
+
+	/* The previous data and time stamp of a version over a forged one, renewed, are those of the stored spork, so what
+	   it was made from is told by the head that its log ends with, which is the stored head for every version that
+	   archive() or renew() made from it */
 	private boolean isMadeFrom(GridSpork stored) {
 		if (Objects.isNull(stored)) {
 			return Instant.EPOCH.equals(previousTimeStamp);
 		}
 
-		final boolean isNextVersion = Objects.equals(previousTimeStamp, stored.timeStamp)
-			&& Objects.equals(previousData, stored.data);
-		final boolean isRenewal = Objects.equals(data, stored.data)
-			&& Objects.equals(previousData, stored.previousData)
-			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
+		final boolean isNextVersion = isSameVersion(previousTimeStamp, previousData, stored.timeStamp, stored.data);
 
-		return isNextVersion || isRenewal;
+		return (isNextVersion || isRenewalOver(stored)) && endsWithTheHeadOf(stored);
+	}
+
+	private boolean isRenewalOver(GridSpork stored) {
+		return Arrays.equals(encoded(data), encoded(stored.data))
+			&& isSameVersion(previousTimeStamp, previousData, stored.previousTimeStamp, stored.previousData);
+	}
+
+	private boolean endsWithTheHeadOf(GridSpork stored) {
+		final SignatureLog log = getSignatureLog();
+
+		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.timeStamp)
+			&& goesOnWithTheHeadOf(stored, log.size() - 1);
+	}
+
+	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
+	   the scale it was written with and a time stamp its nanoseconds, while the wire carries units and milliseconds */
+	private boolean isSameVersion(Instant stamp, ChunkData chunk, Instant otherStamp, ChunkData otherChunk) {
+		return millisOf(stamp) == millisOf(otherStamp) && Arrays.equals(encoded(chunk), encoded(otherChunk));
+	}
+
+	private static long millisOf(Instant stamp) {
+		return Objects.requireNonNullElse(stamp, Instant.EPOCH).toEpochMilli();
+	}
+
+	private byte[] encoded(ChunkData chunk) {
+		return SporkContentEncoder.encode(type, Objects.requireNonNullElseGet(chunk,
+			() -> create(type).<ChunkData>getData().empty()));
 	}
 
 	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {

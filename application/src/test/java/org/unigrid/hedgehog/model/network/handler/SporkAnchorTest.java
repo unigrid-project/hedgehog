@@ -124,12 +124,20 @@ public class SporkAnchorTest {
 		}
 	}
 
+	/* A proposal is held over the version it was made from only, so the board signs the stored one again as its
+	   renewal; a first version of its data, which util spork-db sign co-signs in a file, is no proposal over it */
 	@Example
+	@SneakyThrows
 	public void shouldTakeAProposalSignedAgainOverOneThatNoActiveKeySigned() {
 		store(0, 1, 0, 1);
 		activate(2, 3);
 
-		assertThat(receive(proposed(GridSpork.firstVersionOf(stored), 2)), is(true));
+		final GridSpork renewal = SerializationUtils.clone(stored);
+
+		renewal.renew();
+		renewal.sign(key(2).getPrivateKey());
+		assertThat(receive(proposed(GridSpork.firstVersionOf(stored), 2)), is(false));
+		assertThat(receive(renewal), is(true));
 		assertThat(pending.proposalOf(Type.MINT_SUPPLY).isPresent(), is(true));
 	}
 

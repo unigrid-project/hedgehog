@@ -215,13 +215,16 @@ public class SporkReceptionTest {
 		assertThat(pendingSporks.list(), empty());
 	}
 
+	/* A proposal is held over the version it was made from only, so a node that has yet to store that version takes
+	   it once a peer sends it again, which sends its stored sporks before its proposals */
 	@Example
 	public void shouldKeepAProposalOnTopOfTheStoredSpork() {
 		final MintSupply stored = cosigned(proposal(new MintSupply()));
 		final MintSupply spork = proposal(stored);
 
-		receive(spork);
-		receive(stored);
+		assertThat(receive(spork), is(false));
+		assertThat(receive(stored), is(true));
+		assertThat(receive(spork), is(true));
 
 		assertThat(sporkDatabase.getMintSupply(), equalTo(stored));
 		assertThat(pendingSporks.list(), contains(spork));

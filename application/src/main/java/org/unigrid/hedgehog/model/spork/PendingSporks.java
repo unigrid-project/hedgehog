@@ -66,13 +66,13 @@ public class PendingSporks {
 
 	/**
 	* Holds the proposal as {@link #offer(GridSpork, GridSpork)} does, asking {@code mayVerify} right before its
-	* signature is checked, as {@link GridSpork#canBeProposedOver(GridSpork, BooleanSupplier)} does.
+	* signature is checked, as {@link GridSpork#isProposalOver(GridSpork, BooleanSupplier)} does.
 	*/
 	public synchronized boolean offer(GridSpork spork, GridSpork stored, BooleanSupplier mayVerify) {
 		final GridSpork held = proposals.get(spork.getType());
 
 		if (isAlive(spork) && !isAheadOfTime(spork) && spork.isNewerThan(held)
-			&& spork.canBeProposedOver(stored, mayVerify)) {
+			&& spork.isProposalOver(stored, mayVerify)) {
 			proposals.put(spork.getType(), spork);
 			return true;
 		}
@@ -100,7 +100,7 @@ public class PendingSporks {
 	public synchronized void retainProposalsOver(GridSpork stored) {
 		final GridSpork held = proposals.get(stored.getType());
 
-		if (Objects.nonNull(held) && !held.canBeProposedOver(stored)) {
+		if (Objects.nonNull(held) && !held.isProposalOver(stored)) {
 			proposals.remove(stored.getType());
 		}
 	}

@@ -201,6 +201,7 @@ public class ForgedHeadReceptionTest {
 		}
 	}
 
+	/* A proposal is held over the version it was made from only, which a node that is behind takes first */
 	@Example
 	public void shouldCatchUpOverSeveralVersionsAtOnce() {
 		final List<GridSpork> versions = versions(5);
@@ -209,9 +210,10 @@ public class ForgedHeadReceptionTest {
 		for (GridSpork behind : versions.subList(0, versions.size() - 1)) {
 			final Node node = new Node(behind);
 
-			assertThat(node.receive(proposal), is(true));
+			assertThat(node.receive(proposal), is(false));
 			assertThat(node.receive(versions.getLast()), is(true));
 			assertThat(node.stored().getSignable(), equalTo(versions.getLast().getSignable()));
+			assertThat(node.receive(proposal), is(true));
 		}
 	}
 

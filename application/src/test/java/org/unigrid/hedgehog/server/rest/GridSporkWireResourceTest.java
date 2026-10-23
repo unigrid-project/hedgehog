@@ -315,11 +315,11 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 		assertThat(statusOf(undecodable), equalTo(Status.BAD_REQUEST));
 	}
 
-	/* A peer keeps a proposal held over the version it stores as long as it may still be co-signed over it, so the
-	   node does the same with a version it is handed */
+	/* A proposal is held over the version it was made from only, as a peer holds one, so a node that has yet to store
+	   that version takes the proposal once it is handed the version */
 	@SneakyThrows
 	@Property(tries = 1)
-	public void shouldKeepAProposalThatGoesOnFromTheSporkItStores(@ForAll("provideSignature") Signature signature) {
+	public void shouldTakeAProposalOnceItStoresTheVersionItGoesOnFrom(@ForAll("provideSignature") Signature signature) {
 		pendingSporks.remove(Type.LEDGER_FEE);
 
 		final GridSpork stored = sporkDatabase.getLedgerFee();
@@ -333,8 +333,9 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 		over.<LedgerFee.SporkData>getData().setMinimumTransferFee(new BigDecimal("0.125"));
 		over.sign(signature.getPrivateKey());
 
-		assertThat(pendingSporks.offer(over, stored), is(true));
+		assertThat(pendingSporks.offer(over, stored), is(false));
 		assertThat(statusOf(submit(version)), equalTo(Status.OK));
+		assertThat(statusOf(submit(over)), equalTo(Status.ACCEPTED));
 		assertThat(pendingSporks.proposalOf(Type.LEDGER_FEE).map(PendingSporks::digestOf),
 			equalTo(Optional.of(PendingSporks.digestOf(over))));
 	}
