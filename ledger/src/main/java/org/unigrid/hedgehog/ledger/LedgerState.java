@@ -200,6 +200,19 @@ public final class LedgerState {
 		return Math.floorDiv(time - genesis.getTime(), genesis.getRoundMillis());
 	}
 
+	/* The state as a block of this time finds it before its transactions, as far as votes go: the round of the tip
+	   closed when the time lies in a later one. This state itself when it does not, a copy when it does. */
+	public LedgerState inRoundOf(long time) {
+		if (roundAt(time) <= round) {
+			return this;
+		}
+
+		final LedgerState opened = copy();
+
+		opened.enterRoundOf(time);
+		return opened;
+	}
+
 	public ValidatorSet validators() {
 		return validators;
 	}

@@ -559,7 +559,7 @@ public class LedgerTest {
 	@Example
 	public void shouldKeepOnlyWhatFitsInTheBlockItProposes() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
-			final Ledger ledger = open(fileSystem);
+			final Ledger ledger = open(fileSystem, HOUR, () -> 2000);
 
 			for (int i = 0; i < 40; i++) {
 				assertThat(ledger.submit(voteAdd(ledger, 1, seed(300 + i), 0)), equalTo(Optional.empty()));

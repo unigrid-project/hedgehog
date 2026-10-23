@@ -182,6 +182,20 @@ public class MempoolTest {
 	}
 
 	@Example
+	public void shouldDropTheVotesOfTheRoundsBeforeTheOneItIsGiven() {
+		final LedgerState state = chain();
+		final Mempool mempool = new Mempool();
+
+		mempool.admit(mint(1, 5), state);
+		mempool.admit(vote(state, 1, 200, Vote.Action.ADD), state);
+		mempool.dropVotesBefore(0);
+		assertThat(mempool.size(), equalTo(2));
+
+		mempool.dropVotesBefore(1);
+		assertThat(mempool.peek(10), equalTo(List.of(mint(1, 5))));
+	}
+
+	@Example
 	public void shouldAdmitAValidHeartbeatAndKeepTheLatestPerValidator() {
 		final LedgerState state = chain();
 		final Mempool mempool = new Mempool();

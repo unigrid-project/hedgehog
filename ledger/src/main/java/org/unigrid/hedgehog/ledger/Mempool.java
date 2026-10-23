@@ -238,6 +238,11 @@ public final class Mempool {
 		return pending.size();
 	}
 
+	/* A vote counts only in a block of its own round, so once that round has passed no block can ever take it */
+	public synchronized void dropVotesBefore(long round) {
+		pending.values().removeIf(waiting -> waiting instanceof Vote vote && vote.round() < round);
+	}
+
 	/* The tip moved, so what was pending is checked again against the new state, and every heartbeat, which
 	   was for the old tip, is forgotten */
 	public synchronized void removeCommitted(Block block, LedgerState state) {

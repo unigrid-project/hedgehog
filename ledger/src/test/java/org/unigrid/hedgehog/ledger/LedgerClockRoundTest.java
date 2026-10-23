@@ -1,0 +1,164 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.ledger;
+
+import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import net.jqwik.api.Example;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
+
+/* The round a node is in is the round of its clock, as the next block it makes is dated by that clock: it is the
+   round a vote is signed for, the one a vote it takes in must name, and the one a vote that waits must still be in */
+public class LedgerClockRoundTest {
+	private static final long ROUND = 60_000;
+	private static final List<byte[]> FOUNDATION = seeds(1, 3);
+	private static final byte[] GRIDNODE = seed(201);
+
+	private static long startOf(long round) {
+		return GENESIS_TIME + round * ROUND;
+	}
+
+	private static Ledger open(FileSystem fileSystem, AtomicLong clock) throws IOException {
+		return new Ledger(state(ROUND, ANY_MINT, FOUNDATION), BlockLog.open(fileSystem.getPath("/data/blocks.log")),
+			clock::get);
+	}
+
+	private static Vote add(Ledger ledger, byte[] voter, byte[] candidate, long round) {
+		return Vote.signed(voter, Ed25519.publicKey(candidate), Vote.Action.ADD, round, ledger.chainId());
+	}
+
+	private static void seal(Ledger ledger, long time) throws IOException {
+		ledger.commit(nextBlock(ledger, FOUNDATION, ledger.validators().size(), time));
+	}
+
+	@Example
+	public void shouldBeInTheRoundOfItsClock() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(3) + 5);
+			final Ledger ledger = open(fileSystem, clock);
+
+			assertThat(ledger.round(), equalTo(3L));
+			clock.set(startOf(4));
+			assertThat(ledger.round(), equalTo(4L));
+		}
+	}
+
+	/* No block is dated before its tip, so a clock that runs behind the tip is in the round of the tip */
+	@Example
+	public void shouldNeverBeInARoundBeforeTheTip() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(2));
+			final Ledger ledger = open(fileSystem, clock);
+
+			ledger.submit(mint(1, 5));
+			seal(ledger, clock.get());
+			clock.set(startOf(1));
+
+			assertThat(ledger.round(), equalTo(2L));
+		}
+	}
+
+	@Example
+	public void shouldTakeOnlyAVoteForTheRoundOfItsClock() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(2) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+
+			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 2)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(add(ledger, seed(2), GRIDNODE, 0)).orElse(""), containsString("another round"));
+		}
+	}
+
+	/* The next block closes the round of the tip before anything else, so the set it elects already counts for a vote
+	   taken in now */
+	@Example
+	public void shouldJudgeAVoteByTheSetThatTheRoundThatPassedElected() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+
+			for (final byte[] voter : FOUNDATION) {
+				ledger.submit(add(ledger, voter, GRIDNODE, 0));
+			}
+
+			seal(ledger, clock.get());
+			clock.set(startOf(1));
+
+			assertThat(ledger.validators().contains(Ed25519.publicKey(GRIDNODE)), is(false));
+			assertThat(ledger.submit(add(ledger, GRIDNODE, seed(202), 1)), equalTo(Optional.empty()));
+			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 1)).orElse(""),
+				containsString("already a validator"));
+		}
+	}
+
+	@Example
+	public void shouldNeverProposeAVoteWhoseRoundHasPassed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+
+			ledger.submit(add(ledger, seed(1), GRIDNODE, 0));
+			ledger.submit(mint(1, 5));
+			clock.set(startOf(1));
+
+			assertThat(proposed(ledger, clock.get()).getTransactions(), equalTo(List.of(mint(1, 5))));
+			assertThat(ledger.pending(), equalTo(1));
+		}
+	}
+
+	/* A vote that missed the end of its round could only be refused by every block from then on */
+	@Example
+	public void shouldDropAWaitingVoteOnceItsRoundHasPassed() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+
+			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 0)), equalTo(Optional.empty()));
+			clock.set(startOf(1));
+
+			assertThat(ledger.hasWork(clock.get()), is(false));
+			assertThat(ledger.pending(), equalTo(0));
+		}
+	}
+
+	/* A proposer whose clock runs behind may date its block in the round this node's clock has left; a vote taken for
+	   the round of this clock still waits for a block of that round */
+	@Example
+	public void shouldKeepAVoteForTheRoundOfItsClockWhenABlockOfAnEarlierRoundComes() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(1) + 10);
+			final Ledger ledger = open(fileSystem, clock);
+			final Vote vote = add(ledger, seed(1), GRIDNODE, 1);
+
+			assertThat(ledger.submit(vote), equalTo(Optional.empty()));
+			ledger.submit(mint(1, 5));
+			seal(ledger, startOf(1) - 1);
+
+			assertThat(ledger.pending(), equalTo(1));
+			assertThat(proposed(ledger, clock.get()).getTransactions(), equalTo(List.of(vote)));
+		}
+	}
+}

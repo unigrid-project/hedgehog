@@ -81,14 +81,18 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	private Optional<String> admit(Transaction transaction) {
-		state.askAuthorityAt(clock.getAsLong());
+		final long now = clock.getAsLong();
 
-		if (mempool.admit(transaction, state)) {
+		state.askAuthorityAt(now);
+
+		final LedgerState judging = judgedAt(now);
+
+		if (mempool.admit(transaction, judging)) {
 			return Optional.empty();
 		}
 
-		final Optional<String> reason = transaction instanceof Transfer transfer ? state.rejectionOfQueued(transfer)
-			: state.rejectionOf(transaction);
+		final Optional<String> reason = transaction instanceof Transfer transfer
+			? judging.rejectionOfQueued(transfer) : judging.rejectionOf(transaction);
 
 		return Optional.of(reason.orElse(transaction instanceof Transfer
 			? "Not queued: one waits for this nonce, or it is outside the window or not covered"
@@ -110,6 +114,9 @@ public final class Ledger implements ConsensusApp {
 		}
 
 		final long blockTime = blockTimeFor(time);
+
+		dropPassedVotes(blockTime);
+
 		final List<Transaction> transactions = applicableAt(blockTime);
 
 		if (transactions.isEmpty() && state.pool() == 0) {
@@ -129,6 +136,7 @@ public final class Ledger implements ConsensusApp {
 	public synchronized boolean hasWork(long time) {
 		final long blockTime = blockTimeFor(time);
 
+		dropPassedVotes(blockTime);
 		state.askAuthorityAt(blockTime);
 		return !isPlainlyQuiet(blockTime) && (state.pool() > 0 || !applicableAt(blockTime).isEmpty());
 	}
@@ -140,6 +148,19 @@ public final class Ledger implements ConsensusApp {
 	/* A block is never dated before the tip */
 	private long blockTimeFor(long time) {
 		return Math.max(time, state.tipTime());
+	}
+
+	/* What waits is judged as the block this node would make at this time would find it: with the round of the tip
+	   closed when the time lies in a later round, as that block closes it first */
+	private LedgerState judgedAt(long time) {
+		final long blockTime = blockTimeFor(time);
+
+		dropPassedVotes(blockTime);
+		return state.inRoundOf(blockTime);
+	}
+
+	private void dropPassedVotes(long blockTime) {
+		mempool.dropVotesBefore(state.roundAt(blockTime));
 	}
 
 	/* The due mints come first, then what waits in the mempool. The block is cut after the checks, so a due mint
@@ -184,10 +205,12 @@ public final class Ledger implements ConsensusApp {
 			throw new InvalidBlockException(rejection.get());
 		}
 
+		final long now = clock.getAsLong();
+
 		log.append(block);
 		state.apply(block);
-		state.askAuthorityAt(clock.getAsLong());
-		mempool.removeCommitted(block, state);
+		state.askAuthorityAt(now);
+		mempool.removeCommitted(block, judgedAt(now));
 	}
 
 	/* Up to `max` committed blocks from the height `from`, in order, for a node that is behind, and never more than
@@ -239,8 +262,9 @@ public final class Ledger implements ConsensusApp {
 		return state.chainId();
 	}
 
+	/* The round of this node's clock, which is the round of the next block it would make: what a vote is signed for */
 	public synchronized long round() {
-		return state.round();
+		return state.roundAt(blockTimeFor(clock.getAsLong()));
 	}
 
 	public synchronized long balanceOf(Address key) {
@@ -289,6 +313,7 @@ public final class Ledger implements ConsensusApp {
 
 	/* What of that a block could take now, oldest first, at most `max` of it */
 	synchronized List<Transaction> waitingForABlock(int max) {
+		dropPassedVotes(blockTimeFor(clock.getAsLong()));
 		return mempool.proposable(max, state);
 	}
 
