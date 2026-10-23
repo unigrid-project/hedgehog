@@ -86,6 +86,12 @@ public class VestingStorage extends GridSpork implements Serializable {
 			return data;
 		}
 
+		@Override
+		public boolean amountsAreWithinBounds() {
+			return Objects.isNull(vestingAddresses) || SporkAmount.areWithinBounds(vestingAddresses.values()
+				.stream().filter(Objects::nonNull).map(Vesting::getAmount).toList());
+		}
+
 		public void validate() {
 			Validate.isTrue(Objects.nonNull(vestingAddresses), "vestingAddresses is required");
 			Validate.isTrue(vestingAddresses.size() <= MAX_ENTRIES, "vestingAddresses holds at most %d entries",

@@ -44,13 +44,27 @@ import picocli.CommandLine.ParameterException;
 final class SporkDatabaseFile {
 	static final int SHOWN_HEX = 16;
 
+	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown */
 	static SporkDatabase load(CommandSpec spec, Path file) {
+		final SporkDatabase database;
+
 		try {
-			return SporkDatabase.load(file);
+			database = SporkDatabase.load(file);
 		} catch (IOException | ClassCastException | SerializationException ex) {
-			throw new ParameterException(spec.commandLine(), "Cannot read the spork database " + file + ": "
-				+ TerminalText.printable(String.valueOf(ex.getMessage())), ex);
+			throw unreadable(spec, file, TerminalText.printable(String.valueOf(ex.getMessage())), ex);
 		}
+
+		sporksOf(database).stream().filter(spork -> !spork.isWithinBounds()).findFirst().ifPresent(spork -> {
+			throw unreadable(spec, file, "the " + spork.getType() + " spork holds an amount beyond the bounds of"
+				+ " the wire", null);
+		});
+
+		return database;
+	}
+
+	private static ParameterException unreadable(CommandSpec spec, Path file, String reason, Exception cause) {
+		return new ParameterException(spec.commandLine(), "Cannot read the spork database " + file + ": " + reason,
+			cause);
 	}
 
 	static List<Type> types() {

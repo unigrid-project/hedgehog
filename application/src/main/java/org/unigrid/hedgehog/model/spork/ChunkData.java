@@ -35,4 +35,10 @@ import java.io.Serializable;
 public interface ChunkData extends Serializable {
 	/* Empty on purpose */
 	ChunkData empty();
+
+	/* Whether every amount stays within the bounds of the wire (SporkAmount), which a file read from disk need not.
+	   Named as no property, so that the JSON of the data leaves it out. */
+	default boolean amountsAreWithinBounds() {
+		return true;
+	}
 }

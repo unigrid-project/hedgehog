@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.spork;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Arrays;
 import java.util.Objects;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -58,6 +59,11 @@ public class LedgerFee extends GridSpork implements Serializable {
 		@Override
 		public SporkData empty() {
 			return new SporkData();
+		}
+
+		@Override
+		public boolean amountsAreWithinBounds() {
+			return SporkAmount.areWithinBounds(Arrays.asList(minimumTransferFee, minimumNewAccountAmount));
 		}
 
 		public void validate() {

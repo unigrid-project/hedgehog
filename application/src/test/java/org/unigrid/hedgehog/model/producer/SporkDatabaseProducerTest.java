@@ -227,6 +227,27 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		}
 	}
 
+	/* Written out, the amount is a billion digits: the node judges it before it encodes anything, also for a warning */
+	@Example
+	@SneakyThrows
+	public void shouldDropASporkThatHoldsAnAmountBeyondTheBoundsOfTheWireWithoutWritingItOut() {
+		final GridSpork beyond = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+		final MintSupply.SporkData previous = new MintSupply.SporkData();
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		fakeTheBoard(new Signature(), new Signature());
+		previous.setMaxSupply(new BigDecimal("1E+999999999"));
+		beyond.setPreviousData(previous);
+		stored.set(beyond);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = Files.createDirectories(fs.getPath("/data")).resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			assertThat(produced(holding(fs.getPath("/data"))), equalTo(SporkDatabase.builder().build()));
+		}
+	}
+
 	/* One key that the board no longer holds signed them, so a node that upgrades from 0.0.7 holds none of them and
 	   takes the versions that the current board signed from its peers */
 	@Example

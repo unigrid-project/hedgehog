@@ -172,6 +172,23 @@ public class GridSporkProvenanceTest {
 		assertThat(untyped.isTakenByTheNetwork(), is(false));
 	}
 
+	/* An amount beyond the bounds of the wire writes out as up to gigabytes, and is judged before anything is encoded,
+	   whoever signed it */
+	@SneakyThrows
+	@Example
+	public void shouldRefuseASporkThatHoldsAnAmountBeyondTheBoundsOfTheWire() {
+		final MintSupply.SporkData beyond = new MintSupply.SporkData();
+		final GridSpork overPrevious = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+
+		beyond.setMaxSupply(new BigDecimal("1E+20"));
+		overPrevious.setData(supplyOf(10));
+		overPrevious.setPreviousData(beyond);
+		overPrevious.sign(FIRST.getPrivateKey());
+		overPrevious.cosign(SECOND.getPrivateKey());
+
+		assertThat(overPrevious.isTakenByTheNetwork(), is(false));
+	}
+
 	@Example
 	public void shouldRefuseASporkWhoseDataChangedAfterItWasSigned() {
 		final GridSpork spork = stored(null, 10);

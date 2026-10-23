@@ -101,6 +101,10 @@ public class SporkDatabaseProducer {
 	}
 
 	private static String reasonOf(GridSpork spork) {
+		if (!spork.isWithinBounds()) {
+			return "it holds an amount beyond the bounds of the wire";
+		}
+
 		try {
 			return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
 				: "two different current network keys did not sign it";

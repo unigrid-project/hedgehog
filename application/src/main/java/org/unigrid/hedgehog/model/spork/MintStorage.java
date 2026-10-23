@@ -130,6 +130,11 @@ public class MintStorage extends GridSpork implements Serializable {
 			return data;
 		}
 
+		@Override
+		public boolean amountsAreWithinBounds() {
+			return Objects.isNull(mints) || SporkAmount.areWithinBounds(mints.values());
+		}
+
 		public void validate() {
 			Validate.isTrue(Objects.nonNull(mints), "mints is required");
 			Validate.isTrue(mints.size() <= MAX_ENTRIES, "mints holds at most %d entries", MAX_ENTRIES);

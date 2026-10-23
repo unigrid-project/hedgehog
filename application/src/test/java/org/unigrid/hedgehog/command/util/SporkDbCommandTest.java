@@ -289,6 +289,35 @@ public class SporkDbCommandTest {
 		}
 	}
 
+	/* An amount beyond the bounds of the wire writes out as up to gigabytes, so it is refused before any spork of the
+	   file is digested, encoded or shown: the one that is signed and the one before it alike */
+	@Example
+	@SneakyThrows
+	public void refusesAFileThatHoldsAnAmountBeyondTheBoundsOfTheWire() {
+		for (String amount : List.of("1E+20", "1E+999999999")) {
+			final GridSpork spork = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+			final MintSupply.SporkData beyond = new MintSupply.SporkData();
+
+			beyond.setMaxSupply(new BigDecimal(amount));
+			spork.setData(supplyOf(10));
+			spork.setPreviousData(beyond);
+
+			try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+				final String file = written(fs, "beyond.db", spork).toString();
+
+				for (HedgehogCli.Result result : List.of(run(fs, "validate", file), run(fs, "import", file),
+					sign(fs, fs.getPath(file), "/out.db", FIRST))) {
+
+					assertThat(amount, result.exitCode(), equalTo(2));
+					assertThat(amount, result.err(), containsString("Cannot read the spork database " + file
+						+ ": the MINT_SUPPLY spork holds an amount beyond the bounds of the wire"));
+					assertThat(amount, Files.exists(fs.getPath("/out.db")), is(false));
+					assertThat(amount, Files.exists(fs.getPath(NODE)), is(false));
+				}
+			}
+		}
+	}
+
 	/* A crafted file can name a class whose readObject runs code on the machine that holds the board key */
 	@Example
 	@SneakyThrows

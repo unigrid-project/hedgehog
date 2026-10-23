@@ -22,6 +22,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.CorruptedFrameException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -51,6 +53,11 @@ public final class SporkAmount {
 		final BigDecimal stripped = amount.stripTrailingZeros();
 
 		return stripped.scale() <= MAX_DECIMALS && stripped.precision() - stripped.scale() <= MAX_INTEGER_DIGITS;
+	}
+
+	/* An amount that is not there writes out as nothing */
+	public static boolean areWithinBounds(final Collection<BigDecimal> amounts) {
+		return amounts.stream().allMatch(amount -> Objects.isNull(amount) || isWithinBounds(amount));
 	}
 
 	public static BigDecimal read(final ByteBuf in) {

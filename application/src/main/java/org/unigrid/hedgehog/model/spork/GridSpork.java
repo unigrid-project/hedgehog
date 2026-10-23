@@ -318,16 +318,24 @@ public class GridSpork implements Serializable, Signable {
 	* current keys signed. A single signature, as builds from before co-signatures made, never counts: one key alone
 	* could make it. A board member builds on such a spork only, so that nothing between the node and the network can
 	* have them sign on top of a version no board made, and a node keeps no other. A spork that cannot be encoded to
-	* check its signatures over, as one of no known type, is none the network took.
+	* check its signatures over, as one of no known type, is none the network took, and nor is one that holds an amount
+	* beyond the bounds of the wire, which no node sends.
 	*/
 	@JsonIgnore
 	public boolean isTakenByTheNetwork() {
 		try {
-			return isDoublySigned() && isNewerThanLog()
+			return isWithinBounds() && isDoublySigned() && isNewerThanLog()
 				&& getSignatureLog().isValidFrom(0, NetworkKey.getLogKeys());
 		} catch (RuntimeException ex) {
 			return false;
 		}
+	}
+
+	/* An amount beyond the bounds of the wire writes out as up to gigabytes, so it is judged before the spork is
+	   encoded, digested or shown */
+	@JsonIgnore
+	public boolean isWithinBounds() {
+		return Stream.of(data, previousData).filter(Objects::nonNull).allMatch(ChunkData::amountsAreWithinBounds);
 	}
 
 	/**
