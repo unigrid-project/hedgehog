@@ -21,8 +21,12 @@ package org.unigrid.hedgehog.command.util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -78,11 +82,45 @@ public class SporkDbSign implements Runnable {
 	@Override
 	public void run() {
 		final String key = boardKey.resolve(NetworkKey::isTrusted);
+		final FileChannel created = created();
+		boolean written = false;
 
-		if (Files.exists(output)) {
-			throw refused("--output " + output + " exists and is not overwritten");
+		try (FileChannel channel = created) {
+			SporkDatabase.write(channel, signed(key));
+			written = true;
+		} catch (IOException ex) {
+			throw refused("Cannot write the spork database " + output + ": " + ex.getMessage());
+		} finally {
+			if (!written) {
+				removeOutput();
+			}
 		}
 
+		System.out.println("output: " + output);
+	}
+
+	/* Made new and never through a link, in one step with the check that nothing is there: a link could lead
+	   anywhere, and a file put there after a check would be written over */
+	private FileChannel created() {
+		try {
+			return FileChannel.open(output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
+				LinkOption.NOFOLLOW_LINKS);
+		} catch (FileAlreadyExistsException ex) {
+			throw refused("--output " + output + " exists and is not overwritten");
+		} catch (IOException ex) {
+			throw refused("Cannot make the spork database " + output + ": " + ex.getMessage());
+		}
+	}
+
+	private void removeOutput() {
+		try {
+			Files.deleteIfExists(output);
+		} catch (IOException ex) {
+			System.err.println("Could not remove the unfinished " + output + ": " + ex.getMessage());
+		}
+	}
+
+	private SporkDatabase signed(String key) {
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
 		final List<GridSpork> versions = new ArrayList<>();
 
@@ -101,8 +139,7 @@ public class SporkDbSign implements Runnable {
 			database.set(version);
 		}
 
-		write(database);
-		System.out.println("output: " + output);
+		return database;
 	}
 
 	/* A spork that a board key signed once is co-signed only in the shape this command gives a first version, which
@@ -200,14 +237,6 @@ public class SporkDbSign implements Runnable {
 		} catch (SigningException ex) {
 			throw refused("Nothing was signed: the " + version.getType() + " spork cannot be signed: "
 				+ ex.getMessage());
-		}
-	}
-
-	private void write(SporkDatabase database) {
-		try {
-			SporkDatabase.persist(output, database);
-		} catch (IOException ex) {
-			throw refused("Cannot write the spork database " + output + ": " + ex.getMessage());
 		}
 	}
 

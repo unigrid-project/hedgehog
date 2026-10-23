@@ -39,6 +39,7 @@ import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -219,6 +220,36 @@ public class SporkDbCommandTest {
 			assertThat(linesOf(result), equalTo(List.of(unsigned(database.getMintStorage()),
 				unsigned(database.getMintSupply()), "VESTING_STORAGE: absent", "STORAGE: absent",
 				"LEDGER_BLACKLIST: absent", "LEDGER_FEE: absent", "STATISTICS_PUBKEY: absent", "valid: no")));
+		}
+	}
+
+	/* A link at the output, even one that leads nowhere, is no place to write to: what it leads to could be anything */
+	@Example
+	@SneakyThrows
+	public void refusesAnOutputThatIsALink() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			Files.createSymbolicLink(fs.getPath("/out.db"), fs.getPath("/elsewhere.db"));
+
+			final HedgehogCli.Result result = sign(fs, fixture(fs, LEGACY), "/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("--output /out.db exists and is not overwritten"));
+			assertThat(result.out(), not(containsString("data:")));
+			assertThat(Files.isSymbolicLink(fs.getPath("/out.db")), is(true));
+			assertThat(Files.exists(fs.getPath("/elsewhere.db")), is(false));
+		}
+	}
+
+	/* Nothing is left at the output when the signing fails after it was made */
+	@Example
+	@SneakyThrows
+	public void leavesNoOutputWhenItSignsNothing() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = sign(fs, written(fs, "once.db", supply(supplyOf(10), FIRST)),
+				"/out.db", FIRST);
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(Files.exists(fs.getPath("/out.db"), LinkOption.NOFOLLOW_LINKS), is(false));
 		}
 	}
 

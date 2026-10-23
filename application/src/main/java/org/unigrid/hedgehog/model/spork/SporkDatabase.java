@@ -114,13 +114,18 @@ public class SporkDatabase implements Serializable {
 		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
 			StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
 
-			/* Closing the stream would close the channel before it can be forced to disk */
-			final ObjectOutputStream stream = new ObjectOutputStream(Channels.newOutputStream(channel));
-
-			stream.writeObject(sporkDatabase);
-			stream.flush();
-			channel.force(true);
+			write(channel, sporkDatabase);
 		}
+	}
+
+	/* Into a file the caller opened, and on to the disk; the caller closes it */
+	public static void write(FileChannel channel, SporkDatabase sporkDatabase) throws IOException {
+		/* Closing the stream would close the channel before it can be forced to disk */
+		final ObjectOutputStream stream = new ObjectOutputStream(Channels.newOutputStream(channel));
+
+		stream.writeObject(sporkDatabase);
+		stream.flush();
+		channel.force(true);
 	}
 
 	private static void removeTemporary(Path temporary, Throwable failure) {
