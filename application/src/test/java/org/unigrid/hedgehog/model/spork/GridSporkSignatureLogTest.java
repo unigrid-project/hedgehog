@@ -291,14 +291,30 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 		assertThat(older.canReplace(newer), is(false));
 	}
 
+	/* A longer log wins only when it goes on with the stored version, as a branch over a sibling of it could carry a
+	   version that no board made in its place */
 	@Example
-	public void shouldLetTheLongerBranchWin() {
+	public void shouldLetOnlyTheLongerBranchOverTheStoredVersionWin() {
 		final MintSupply base = signedSupply(trusted);
+		final MintSupply first = next(base, 1);
 		final MintSupply sibling = next(base, 3);
-		final MintSupply branch = next(next(base, 1), 2);
+		final MintSupply branch = next(first, 2);
 
-		assertThat(branch.canReplace(sibling), is(true));
+		assertThat(branch.canReplace(first), is(true));
+		assertThat(branch.canReplace(sibling), is(false));
 		assertThat(sibling.canReplace(branch), is(false));
+	}
+
+	@Example
+	public void shouldNotTakeALogThatGoesOnWithAnotherHeadThanTheStoredOne() {
+		final MintSupply stored = next(signedSupply(trusted), 1);
+		final MintSupply extended = next(stored, 2);
+		final List<SignatureLogEntry> entries = new ArrayList<>(extended.getSignatureLog().getEntries());
+		final SignatureLogEntry head = entries.getLast();
+
+		entries.set(entries.size() - 1, head.toBuilder().cosigner(null).cosignature(null).build());
+		assertThat(resigned(extended, new SignatureLog(entries)).canReplace(stored), is(false));
+		assertThat(resigned(extended, extended.getSignatureLog()).canReplace(stored), is(true));
 	}
 
 	@SneakyThrows

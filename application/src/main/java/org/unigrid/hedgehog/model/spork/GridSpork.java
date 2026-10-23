@@ -251,8 +251,8 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Decides whether this spork, received from the network, may replace the stored one. It must be signed
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
-	* known keys, and either extend the log or win against a sibling signed on top of the same log by being
-	* newer.
+	* known keys, and either extend the log, with the stored spork as the first entry it adds, or win against
+	* a sibling signed on top of the same log by being newer.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -351,8 +351,24 @@ public class GridSpork implements Serializable, Signable {
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
 		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored);
+		final boolean isLater = log.size() > storedLog.size() && goesOnWithTheHeadOf(stored, storedLog.size());
 
-		return (log.size() > storedLog.size() || isNewerSibling) && storedLog.isPrefixOf(log);
+		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
+	}
+
+	/* Known keys signed every entry, retired ones among them, so a version that no board made could follow the stored
+	   log as an entry signed once by a retired key, and a version over it would pass for one over the stored spork. A
+	   node that missed versions still finds its own head where its log ends. */
+	private boolean goesOnWithTheHeadOf(GridSpork stored, int index) {
+		if (Objects.isNull(stored)) {
+			return true;
+		}
+
+		final SignatureLogEntry next = getSignatureLog().getEntries().get(index);
+
+		return Arrays.equals(next.getSignature(), stored.signature)
+			&& Arrays.equals(next.getCosignature(), stored.cosignature)
+			&& Arrays.equals(next.getDigest(), DigestUtils.sha512(stored.getSignable()));
 	}
 
 	private boolean isNewerThanLog() {
