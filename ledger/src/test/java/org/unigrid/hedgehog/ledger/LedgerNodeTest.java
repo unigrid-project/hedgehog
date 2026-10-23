@@ -779,6 +779,32 @@ public class LedgerNodeTest {
 		}
 	}
 
+	/* A node at rest wakes by its own clock once the time of a round that holds votes is over, and the block it makes
+	   then closes the round, though nothing else waits */
+	@Example
+	public void shouldWakeOnATickAtTheEndOfARoundThatHoldsVotesAndCloseIt() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final long round = 60_000;
+			final AtomicLong clock = new AtomicLong(START);
+			final Ledger ledger = new Ledger(state(round, ANY_MINT, SOLO), BlockLog.open(blocksOf(fileSystem, "a")),
+				clock::get);
+			final LedgerNode node = node(ledger, 1, signStateOf(fileSystem, "a"), clock::get);
+
+			node.start();
+			node.submit(Vote.signed(seed(1), key(201), Vote.Action.ADD, 0, ledger.chainId()));
+			node.onWork();
+			clock.set(GENESIS_TIME + round - 1);
+			node.tick();
+			assertThat(ledger.height(), equalTo(1L));
+
+			clock.set(GENESIS_TIME + round);
+			node.tick();
+			assertThat(ledger.height(), equalTo(2L));
+			assertThat(ledger.block(2).orElseThrow().getTransactions(), is(empty()));
+			assertThat(ledger.validators().contains(key(201)), is(true));
+		}
+	}
+
 	private static List<Schedule> schedulesIn(List<Action> actions) {
 		return actions.stream().filter(Schedule.class::isInstance).map(Schedule.class::cast).toList();
 	}

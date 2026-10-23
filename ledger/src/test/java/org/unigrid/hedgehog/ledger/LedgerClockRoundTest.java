@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -100,13 +101,8 @@ public class LedgerClockRoundTest {
 	public void shouldJudgeAVoteByTheSetThatTheRoundThatPassedElected() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {
 			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
-			final Ledger ledger = open(fileSystem, clock);
+			final Ledger ledger = withVotesInRoundZero(fileSystem, clock);
 
-			for (final byte[] voter : FOUNDATION) {
-				ledger.submit(add(ledger, voter, GRIDNODE, 0));
-			}
-
-			seal(ledger, clock.get());
 			clock.set(startOf(1));
 
 			assertThat(ledger.validators().contains(Ed25519.publicKey(GRIDNODE)), is(false));
@@ -143,6 +139,76 @@ public class LedgerClockRoundTest {
 
 			assertThat(ledger.hasWork(clock.get()), is(false));
 			assertThat(ledger.pending(), equalTo(0));
+		}
+	}
+
+	/* The foundation votes the gridnode in, in a block of round 0 */
+	private static Ledger withVotesInRoundZero(FileSystem fileSystem, AtomicLong clock) throws IOException {
+		final Ledger ledger = open(fileSystem, clock);
+
+		for (final byte[] voter : FOUNDATION) {
+			ledger.submit(add(ledger, voter, GRIDNODE, 0));
+		}
+
+		seal(ledger, clock.get());
+		return ledger;
+	}
+
+	@Example
+	public void shouldHaveWorkOnceTheTimeOfARoundThatHoldsVotesIsOver() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final Ledger ledger = withVotesInRoundZero(fileSystem, new AtomicLong(startOf(0) + 1));
+
+			assertThat(ledger.hasWork(startOf(1) - 1), is(false));
+			assertThat(ledger.hasWork(startOf(1)), is(true));
+		}
+	}
+
+	/* Nothing waits, so the block that closes the round is empty, dated by the clock of its proposer */
+	@Example
+	public void shouldProposeTheEmptyBlockThatClosesTheRoundAndNoMore() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = withVotesInRoundZero(fileSystem, clock);
+
+			clock.set(startOf(1) + 7);
+
+			final Block closing = proposed(ledger, clock.get());
+
+			assertThat(closing.getTransactions(), is(empty()));
+			assertThat(closing.getTime(), equalTo(startOf(1) + 7));
+			assertThat(ledger.validate(closing), equalTo(Optional.empty()));
+			ledger.commit(certify(closing, ledger, FOUNDATION));
+			assertThat(ledger.validators().contains(Ed25519.publicKey(GRIDNODE)), is(true));
+			assertThat(ledger.hasWork(clock.get()), is(false));
+			assertThat(proposal(ledger, startOf(3)), equalTo(Optional.empty()));
+		}
+	}
+
+	@Example
+	public void shouldHaveNoWorkWhenARoundWithoutVotesEnds() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = open(fileSystem, clock);
+
+			ledger.submit(mint(1, 5));
+			seal(ledger, clock.get());
+
+			assertThat(ledger.hasWork(startOf(1)), is(false));
+			assertThat(proposal(ledger, startOf(5)), equalTo(Optional.empty()));
+		}
+	}
+
+	/* A validator judges the time of the block that closes a round as it judges any other */
+	@Example
+	public void shouldRefuseABlockThatClosesTheRoundWhenItIsDatedTooFarAheadOfItsClock() throws IOException {
+		try (FileSystem fileSystem = newFileSystem()) {
+			final AtomicLong clock = new AtomicLong(startOf(0) + 1);
+			final Ledger ledger = withVotesInRoundZero(fileSystem, clock);
+
+			clock.set(startOf(1) - Ledger.MAX_CLOCK_SKEW_MILLIS - 1);
+
+			assertThat(ledger.validate(proposed(ledger, startOf(1))).orElse(""), containsString("ahead"));
 		}
 	}
 

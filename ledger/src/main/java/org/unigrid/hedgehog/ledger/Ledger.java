@@ -117,8 +117,8 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	/* Empty when it is not the turn of this proposer in this view of the next height, or when nothing needs a block:
-	   no transaction that can go in one, no mint that is due and no fee to pay out. The block has no endorsements,
-	   the engine collects them. */
+	   no transaction that can go in one, no mint that is due, no fee to pay out and no round with votes whose time is
+	   over. The block has no endorsements, the engine collects them. */
 	@Override
 	public synchronized Optional<Block> propose(long height, int view, AccountKey proposer, long time) {
 		if (height != state.height() + 1 || !proposer.equals(state.validators().proposerAt(height, view))) {
@@ -131,7 +131,7 @@ public final class Ledger implements ConsensusApp {
 
 		final List<Transaction> transactions = applicableAt(blockTime);
 
-		if (transactions.isEmpty() && state.pool() == 0) {
+		if (transactions.isEmpty() && !emptyBlockIsDue(blockTime)) {
 			return Optional.empty();
 		}
 
@@ -142,15 +142,23 @@ public final class Ledger implements ConsensusApp {
 	}
 
 	/* The same test that propose makes, at the same time, so a quiet chain is one where no block could be made. The
-	   engine asks it every second of a quiet chain, so when there is no fee to pay out, nothing waiting and no mint
-	   due, the answer is given without the copy of the state that the check of a block makes. */
+	   engine asks it every second of a quiet chain, so when there is no fee to pay out, no round with votes whose
+	   time is over, nothing waiting and no mint due, the answer is given without the copy of the state that the check
+	   of a block makes. The end of a round that holds votes is work by this node's clock, which is how a node at rest
+	   wakes to close it. */
 	@Override
 	public synchronized boolean hasWork(long time) {
 		final long blockTime = blockTimeFor(time);
 
 		dropPassedVotes(blockTime);
 		state.askAuthorityAt(blockTime);
-		return !isPlainlyQuiet(blockTime) && (state.pool() > 0 || !applicableAt(blockTime).isEmpty());
+		return emptyBlockIsDue(blockTime) || !isPlainlyQuiet(blockTime) && !applicableAt(blockTime).isEmpty();
+	}
+
+	/* A block of this time is due even with nothing in it, to pay out the fees that wait or to close a round that
+	   holds votes */
+	private boolean emptyBlockIsDue(long blockTime) {
+		return state.pool() > 0 || state.closesRoundWithVotes(blockTime);
 	}
 
 	private boolean isPlainlyQuiet(long blockTime) {
