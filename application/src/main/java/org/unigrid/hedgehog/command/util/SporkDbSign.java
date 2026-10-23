@@ -80,14 +80,16 @@ public class SporkDbSign implements Runnable {
 
 	@Spec private CommandSpec spec;
 
+	/* The key is judged by the board keys of the file, which a change of them may have added it to */
 	@Override
 	public void run() {
+		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
 		final String key = boardKey.resolve(NetworkKey::isTrusted);
 		final FileChannel created = created();
 		boolean written = false;
 
 		try (FileChannel channel = created) {
-			SporkDatabase.write(channel, signed(key));
+			SporkDatabase.write(channel, signed(database, key));
 			written = true;
 		} catch (IOException ex) {
 			throw refused("Cannot write the spork database " + output + ": " + ex.getMessage());
@@ -125,8 +127,7 @@ public class SporkDbSign implements Runnable {
 	}
 
 	/* Everything is judged, and the text of each spork made, before anything is shown or signed */
-	private SporkDatabase signed(String key) {
-		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
+	private SporkDatabase signed(SporkDatabase database, String key) {
 		final List<Version> versions = new ArrayList<>();
 
 		for (GridSpork spork : SporkDatabaseFile.sporksOf(database)) {

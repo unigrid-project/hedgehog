@@ -28,6 +28,7 @@ import java.util.function.Supplier;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.ledger.FileLockedException;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import picocli.CommandLine.Command;
@@ -71,14 +72,20 @@ public class SporkDbImport implements Callable<Integer> {
 			+ " and writes them over the file when it saves");
 
 		final SporkDatabase database = SporkDatabaseFile.load(spec, file);
+		final Path target = dataDirectory.get().resolve(SporkDatabase.SPORK_DB_FILE);
+
+		if (!carriesOnTheChainOf(target, database)) {
+			System.err.println("Nothing was imported: the board keys of " + file + " do not carry on the"
+				+ " chain of board keys of the node, which would take the node back to keys that the board"
+				+ " switched off, or onto a fork");
+			return 1;
+		}
 
 		if (!SporkDatabaseFile.report(database)) {
 			System.err.println("Nothing was imported: two current board keys did not sign every spork of " + file
 				+ ", or the content of one does not hold");
 			return 1;
 		}
-
-		final Path target = dataDirectory.get().resolve(SporkDatabase.SPORK_DB_FILE);
 
 		try (ExclusiveLock lock = SporkDatabaseLock.take(dataDirectory.get(), locker)) {
 			System.out.println("backup: " + backup(target).map(Path::toString)
@@ -94,6 +101,25 @@ public class SporkDbImport implements Callable<Integer> {
 
 		System.out.println("imported: " + target);
 		return 0;
+	}
+
+	/* A node goes by the chain of board keys of its database, so one whose chain does not hold the chain that the node
+	   holds would take the node back to keys that the board switched off, or onto a fork. A database of the node that
+	   cannot be read, or whose chain does not hold, holds no chain the node goes by. */
+	private static boolean carriesOnTheChainOf(Path target, SporkDatabase database) {
+		final Optional<BoardKeys> held = boardKeysHeldIn(target);
+
+		return held.isEmpty()
+			|| database.getBoardKeys() instanceof BoardKeys keys && keys.holdsTheChainOf(held.get());
+	}
+
+	private static Optional<BoardKeys> boardKeysHeldIn(Path target) {
+		try {
+			return Files.exists(target) ? Optional.ofNullable(SporkDatabase.load(target).getBoardKeys())
+				.filter(keys -> keys.chainKeys().isPresent()) : Optional.empty();
+		} catch (IOException | RuntimeException ex) {
+			return Optional.empty();
+		}
 	}
 
 	/* A copy, so that the node keeps its database should the install fail */

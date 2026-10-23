@@ -29,6 +29,7 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.SerializationException;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -64,7 +65,15 @@ final class SporkDatabaseFile {
 				+ " the wire", null);
 		});
 
+		goByTheBoardKeysOf(database);
 		return database;
+	}
+
+	/* The sporks of a database are judged, and signed, by the keys that the chain of its board keys makes active, once
+	   the chain holds from the root of this machine, whoever signed the board keys spork itself: the approvals of the
+	   board make a chain, and the spork of a chain that a change just extended is signed with the keys it adds */
+	private static void goByTheBoardKeysOf(SporkDatabase database) {
+		Optional.ofNullable(database.getBoardKeys()).ifPresent(BoardKeysAuthority::install);
 	}
 
 	private static ParameterException unreadable(CommandSpec spec, Path file, String reason, Exception cause) {
@@ -127,9 +136,18 @@ final class SporkDatabaseFile {
 		return spork.getType() + ": made " + spork.getTimeStamp() + ", digest "
 			+ StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX) + ", signer "
 			+ keyOf(spork, spork.getSignature()) + ", co-signer " + keyOf(spork, spork.getCosignature())
-			+ ", log entries " + spork.getSignatureLog().size() + ", "
-			+ (spork.isTakenByTheNetwork() ? "signed by the board" : "not signed by the board") + ", content "
+			+ ", log entries " + spork.getSignatureLog().size() + ", " + signingOf(spork) + ", content "
 			+ contentProblem(spork).map(problem -> "not valid: " + problem).orElse("valid");
+	}
+
+	/* A spork that keys signed which the board switched off since counts for nothing until it is signed again */
+	private static String signingOf(GridSpork spork) {
+		if (spork.isTakenByTheNetwork()) {
+			return "signed by the board";
+		}
+
+		return spork.wasTakenByTheNetwork() ? "signed by board keys that are switched off"
+			: "not signed by the board";
 	}
 
 	/* A line for each type, and whether every spork that the database holds is one that a node takes from it */
