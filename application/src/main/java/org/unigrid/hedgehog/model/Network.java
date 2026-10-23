@@ -30,13 +30,24 @@ public class Network {
 	   connection settled on it is what tells a node that the other end speaks the ledger. */
 	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.1";
 
+	/* Offered by every node of this release ahead of what earlier releases offer, so that a connection that settled on
+	   it, or on the ledger protocol, tells a node that the other end reads every spork type of this release */
+	public static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
+
 	private static final String[] EARLIER_PROTOCOLS = {
 		"hedgehog/0.0.4",
 		"gridspork/0.0.4"
 	};
 
+	private static final String[] PROTOCOLS = {
+		SPORK_PROTOCOL,
+		EARLIER_PROTOCOLS[0],
+		EARLIER_PROTOCOLS[1]
+	};
+
 	private static final String[] LEDGER_PROTOCOLS = {
 		LEDGER_PROTOCOL,
+		SPORK_PROTOCOL,
 		EARLIER_PROTOCOLS[0],
 		EARLIER_PROTOCOLS[1]
 	};
@@ -59,9 +70,9 @@ public class Network {
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
 
-	/* Only a node that runs a ledger offers its protocol: one that did not opt in behaves as the earlier release */
+	/* Only a node that runs a ledger offers its protocol: one that did not opt in speaks no ledger */
 	public static String[] getProtocols() {
-		return hasLedger() ? LEDGER_PROTOCOLS : EARLIER_PROTOCOLS;
+		return hasLedger() ? LEDGER_PROTOCOLS : PROTOCOLS;
 	}
 
 	public static boolean hasLedger() {
