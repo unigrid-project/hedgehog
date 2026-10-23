@@ -1,7 +1,10 @@
 # Ledger rehearsal
 
 `ledger-rehearsal.sh` runs four ledger validators from the built jar on one machine and checks the whole path:
-keys, genesis, sporks, a mint reaching every node, and a transfer with its fee. It builds the jar when there is none.
+keys, genesis, sporks, a mint reaching every node, and a transfer with its fee. It then changes the board keys:
+a third key comes in and the first is switched off, the change reaches every node, keys that stay sign the sporks
+again, a second transfer goes through under them, and the switched-off key signs nothing. It builds the jar when
+there is none.
 
     JAVA_HOME=~/.jdks/jdk-25.0.3+9 rehearsal/ledger-rehearsal.sh [snapshot]
 
