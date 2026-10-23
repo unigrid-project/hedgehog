@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,9 @@ public class SporkClient {
 
 	/* The stored spork of a type, once it is known to be one the network took. One stamped further ahead than clocks
 	   drift apart would make the next version as far ahead, which no node takes. */
-	public Optional<GridSpork> stored(GridSpork.Type type) throws ResponseOddityException, UntrustedSporkException {
+	public Optional<GridSpork> stored(GridSpork.Type type) throws ResponseOddityException, UntrustedSporkException,
+		IOException {
+
 		final Optional<GridSpork> stored = sporkIn(rest.get(WIRE + "/" + type.name()));
 
 		if (stored.isPresent() && (stored.get().getType() != type || !stored.get().isTakenByTheNetwork())) {
@@ -66,7 +69,7 @@ public class SporkClient {
 	}
 
 	/* A proposal as the node hands it out, which is for the caller to judge with requireProposalOver() */
-	public Optional<GridSpork> proposal(String digest) throws ResponseOddityException {
+	public Optional<GridSpork> proposal(String digest) throws ResponseOddityException, IOException {
 		return sporkIn(rest.get(PENDING + "/" + digest));
 	}
 
@@ -81,7 +84,7 @@ public class SporkClient {
 			return Optional.empty();
 		}
 
-		for (JsonNode listing : JSON.readTree(listed.readEntity(String.class))) {
+		for (JsonNode listing : JSON.readTree(bodyOf(listed))) {
 			if (type.name().equals(listing.path("type").asText())) {
 				final Optional<GridSpork> proposal = proposal(listing.path("digest").asText());
 
@@ -124,11 +127,26 @@ public class SporkClient {
 		return rest.post(WIRE, Entity.entity(SporkWire.encode(spork), MediaType.APPLICATION_OCTET_STREAM));
 	}
 
-	private static Optional<GridSpork> sporkIn(Response response) {
+	private static Optional<GridSpork> sporkIn(Response response) throws IOException {
 		if (response.getStatus() != Status.OK.getStatusCode()) {
 			return Optional.empty();
 		}
 
-		return Optional.of(SporkWire.decode(response.readEntity(byte[].class)));
+		return Optional.of(SporkWire.decode(bodyOf(response)));
+	}
+
+	/* A node answers with a spork or with the list of its proposals, one of each type, so an answer bigger than a
+	   spork is refused once that much is read, before any of it is decoded */
+	private static byte[] bodyOf(Response response) throws IOException {
+		try (InputStream body = response.readEntity(InputStream.class)) {
+			final byte[] bytes = body.readNBytes(SporkWire.MAX_SIZE + 1);
+
+			if (bytes.length > SporkWire.MAX_SIZE) {
+				throw new IllegalArgumentException("The node answered with more than " + SporkWire.MAX_SIZE
+					+ " bytes, which no spork takes");
+			}
+
+			return bytes;
+		}
 	}
 }

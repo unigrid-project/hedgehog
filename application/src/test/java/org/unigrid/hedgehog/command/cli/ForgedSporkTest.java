@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -39,6 +40,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.RETIRED;
@@ -54,6 +56,7 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
@@ -314,6 +317,47 @@ public class ForgedSporkTest {
 
 		assertThat(shown, containsString("x2J"));
 		assertThat(shown, isPrintable(shown), is(true));
+	}
+
+	/* An answer that never ends, which counts what was read of it */
+	private static final class Endless extends InputStream {
+		private long read;
+
+		@Override
+		public int read() {
+			read++;
+			return 0;
+		}
+
+		@Override
+		public int read(byte[] bytes, int offset, int length) {
+			read += length;
+			return length;
+		}
+	}
+
+	/* A spork is no bigger than its wire form allows, so no more than that is read of what a node answers, whether it
+	   hands out a spork or lists its proposals */
+	@Example
+	public void readsNoMoreOfWhatTheNodeAnswersThanASporkTakes() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+
+		for (String flooded : List.of(FakeSporkNode.WIRE + "/" + Type.MINT_SUPPLY, FakeSporkNode.PENDING,
+			FakeSporkNode.PENDING + "/" + "00".repeat(64))) {
+
+			final Endless endless = new Endless();
+			final FakeSporkNode node = new FakeSporkNode().holding(stored)
+				.handingOut(proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER));
+			final RestCommandFixture.Answer flooding = request -> flooded.equals(request.location())
+				? Response.ok(endless).build() : node.respond(request);
+			final Runnable command = flooded.startsWith(FakeSporkNode.PENDING + "/") ? cosign("00".repeat(64))
+				: set(30);
+			final Result result = RestCommandFixture.run(command, flooding);
+
+			assertThat(flooded, result.out() + result.err(), containsString("more than " + SporkWire.MAX_SIZE));
+			assertThat(flooded, endless.read, lessThanOrEqualTo(SporkWire.MAX_SIZE + 1L));
+			assertThat(flooded, node.submitted(), empty());
+		}
 	}
 
 	@Example

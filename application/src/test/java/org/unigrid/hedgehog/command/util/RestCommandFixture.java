@@ -153,14 +153,22 @@ public final class RestCommandFixture {
 			@Mock public Object readEntity(Invocation invocation, Class<?> type) {
 				final Object entity = invocation.<Response>getInvokedInstance().getEntity();
 
-				return type == InputStream.class
-					? new ByteArrayInputStream(entity.toString().getBytes(StandardCharsets.UTF_8)) : entity;
+				return type == InputStream.class ? streamOf(entity) : entity;
 			}
 
 			@Mock public Object readEntity(Invocation invocation, GenericType<?> type) {
 				return invocation.<Response>getInvokedInstance().getEntity();
 			}
 		};
+	}
+
+	private static InputStream streamOf(Object entity) {
+		if (entity instanceof InputStream stream) {
+			return stream;
+		}
+
+		return new ByteArrayInputStream(entity instanceof byte[] bytes ? bytes
+			: entity.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static final class FakeClient extends MockUp<RestClient> {
