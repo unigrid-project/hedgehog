@@ -58,6 +58,7 @@ import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
 import org.unigrid.hedgehog.model.util.Reflection;
 
 public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
@@ -198,6 +199,52 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 				assertThat(Files.readAllBytes(file), equalTo(original));
 				assertThat(warningsOf(log), containsInAnyOrder(containsString("LEDGER_FEE"),
 					containsString("MINT_STORAGE")));
+			} finally {
+				logger.detachAppender(log);
+			}
+		}
+	}
+
+	/* What a file holds in the slot of a type is read as that type, so a spork the board signed as another one, or
+	   with the data of another, would stand for what it is not */
+	@Example
+	@SneakyThrows
+	public void shouldDropASporkThatSitsInTheSlotOfAnotherType() {
+		final Signature first = new Signature();
+		final Signature second = new Signature();
+		final ListAppender<ILoggingEvent> log = new ListAppender<>();
+		final Logger logger = (Logger) LoggerFactory.getLogger(SporkDatabaseProducer.class);
+
+		fakeTheBoard(first, second);
+
+		final MintStorage feeAsMints = new MintStorage();
+		final StatisticsPubKey feeAsKey = new StatisticsPubKey();
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		for (GridSpork spork : List.of(feeAsMints, feeAsKey)) {
+			spork.setType(GridSpork.Type.LEDGER_FEE);
+			spork.setData(new LedgerFee.SporkData());
+			spork.archive();
+			spork.sign(first.getPrivateKey());
+			spork.cosign(second.getPrivateKey());
+			assertThat(spork.isTakenByTheNetwork(), is(true));
+		}
+
+		stored.setMintStorage(feeAsMints);
+		stored.setStatisticsPubKey(feeAsKey);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = Files.createDirectories(fs.getPath("/data")).resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			log.start();
+			logger.addAppender(log);
+
+			try {
+				assertThat(produced(holding(fs.getPath("/data"))), equalTo(SporkDatabase.builder().build()));
+				assertThat(warningsOf(log), containsInAnyOrder(containsString("MINT_STORAGE"),
+					containsString("STATISTICS_PUBKEY")));
+				assertThat(warningsOf(log), everyItem(containsString("the slot of another type")));
 			} finally {
 				logger.detachAppender(log);
 			}

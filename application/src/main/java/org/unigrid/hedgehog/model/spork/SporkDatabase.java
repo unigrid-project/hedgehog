@@ -32,9 +32,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -150,6 +152,23 @@ public class SporkDatabase implements Serializable {
 
 	public void clear(Type gridSporkType) {
 		slotOf(gridSporkType).writer().accept(this, null);
+	}
+
+	/* A file ties nothing in a slot to its type: a spork there can carry another type, and data of another type, which
+	   a node would then hand out and read as what it is not */
+	public boolean holdsAnotherSporkIn(Type gridSporkType) {
+		final GridSpork spork = get(gridSporkType);
+
+		if (Objects.isNull(spork)) {
+			return false;
+		}
+
+		final GridSpork model = GridSpork.create(gridSporkType);
+		final Class<?> data = model.getData().getClass();
+
+		return spork.getType() != gridSporkType || spork.getClass() != model.getClass()
+			|| Stream.of(spork.getData(), spork.getPreviousData()).filter(Objects::nonNull)
+				.anyMatch(held -> held.getClass() != data);
 	}
 
 	private static Slot slotOf(Type gridSporkType) {

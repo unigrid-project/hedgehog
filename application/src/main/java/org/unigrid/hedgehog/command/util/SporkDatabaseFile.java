@@ -54,6 +54,11 @@ final class SporkDatabaseFile {
 			throw unreadable(spec, file, TerminalText.printable(String.valueOf(ex.getMessage())), ex);
 		}
 
+		types().stream().filter(database::holdsAnotherSporkIn).findFirst().ifPresent(type -> {
+			throw unreadable(spec, file, "the " + type + " slot holds a spork that is no " + type + " spork",
+				null);
+		});
+
 		sporksOf(database).stream().filter(spork -> !spork.isWithinBounds()).findFirst().ifPresent(spork -> {
 			throw unreadable(spec, file, "the " + spork.getType() + " spork holds an amount beyond the bounds of"
 				+ " the wire", null);

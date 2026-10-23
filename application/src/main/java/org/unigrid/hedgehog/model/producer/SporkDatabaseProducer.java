@@ -90,9 +90,10 @@ public class SporkDatabaseProducer {
 	   as first versions. The file keeps the rest until the node saves. */
 	private static SporkDatabase signedByTheBoard(SporkDatabase database) {
 		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
-			.filter(type -> Objects.nonNull(database.get(type)) && !database.get(type).isTakenByTheNetwork())
+			.filter(type -> database.holdsAnotherSporkIn(type) || Objects.nonNull(database.get(type))
+				&& !database.get(type).isTakenByTheNetwork())
 			.forEach(type -> {
-				log.atWarn().addArgument(type).addArgument(reasonOf(database.get(type)))
+				log.atWarn().addArgument(type).addArgument(reasonOf(database, type))
 					.log("The stored {} spork is left out: {}");
 				database.clear(type);
 			});
@@ -100,7 +101,13 @@ public class SporkDatabaseProducer {
 		return database;
 	}
 
-	private static String reasonOf(GridSpork spork) {
+	private static String reasonOf(SporkDatabase database, GridSpork.Type type) {
+		final GridSpork spork = database.get(type);
+
+		if (database.holdsAnotherSporkIn(type)) {
+			return "it sits in the slot of another type";
+		}
+
 		if (!spork.isWithinBounds()) {
 			return "it holds an amount beyond the bounds of the wire";
 		}

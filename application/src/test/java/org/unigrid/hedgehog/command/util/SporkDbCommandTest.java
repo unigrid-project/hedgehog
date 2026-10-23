@@ -71,6 +71,8 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -314,6 +316,37 @@ public class SporkDbCommandTest {
 					assertThat(amount, Files.exists(fs.getPath("/out.db")), is(false));
 					assertThat(amount, Files.exists(fs.getPath(NODE)), is(false));
 				}
+			}
+		}
+	}
+
+	/* Signed by the board as a fee, but held where the mints are, so a node would read it as mints */
+	@Example
+	@SneakyThrows
+	public void refusesAFileThatHoldsASporkInTheSlotOfAnotherType() {
+		final MintStorage feeAsMints = new MintStorage();
+		final SporkDatabase database = SporkDatabase.builder().build();
+
+		feeAsMints.setType(Type.LEDGER_FEE);
+		feeAsMints.setData(new LedgerFee.SporkData());
+		feeAsMints.archive();
+		feeAsMints.sign(FIRST.getPrivateKey());
+		feeAsMints.cosign(SECOND.getPrivateKey());
+		database.setMintStorage(feeAsMints);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = fs.getPath("/misplaced.db");
+
+			SporkDatabase.persist(file, database);
+
+			for (HedgehogCli.Result result : List.of(run(fs, "validate", file.toString()),
+				run(fs, "import", file.toString()), sign(fs, file, "/out.db", FIRST))) {
+
+				assertThat(result.exitCode(), equalTo(2));
+				assertThat(result.err(), containsString("Cannot read the spork database /misplaced.db: the"
+					+ " MINT_STORAGE slot holds a spork that is no MINT_STORAGE spork"));
+				assertThat(Files.exists(fs.getPath("/out.db")), is(false));
+				assertThat(Files.exists(fs.getPath(NODE)), is(false));
 			}
 		}
 	}
