@@ -191,7 +191,7 @@ public final class LedgerState {
 		return tipCertificate;
 	}
 
-	/* The round of the tip: the one the votes held are for, and the one a vote must name to be taken now */
+	/* The round of the tip: the one the votes held are for, and the one a vote must name for this state to take it */
 	public long round() {
 		return round;
 	}

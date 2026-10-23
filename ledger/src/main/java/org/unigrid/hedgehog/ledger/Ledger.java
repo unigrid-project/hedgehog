@@ -245,12 +245,9 @@ public final class Ledger implements ConsensusApp {
 			throw new InvalidBlockException(rejection.get());
 		}
 
-		final long now = clock.getAsLong();
-
 		log.append(block);
 		state.apply(block);
-		state.askAuthorityAt(now);
-		mempool.removeCommitted(block, judgedAt(now));
+		mempool.removeCommitted(block, judgedAt(clock.getAsLong()));
 	}
 
 	/* Up to `max` committed blocks from the height `from`, in order, for a node that is behind, and never more than
