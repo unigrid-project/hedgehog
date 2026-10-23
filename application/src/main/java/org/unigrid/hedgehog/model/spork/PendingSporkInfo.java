@@ -20,16 +20,16 @@ package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
-import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
-/* The signer is null when no current network key signed the proposal */
+/* The signer is null when no key that signs the proposal signed it: a current board key, or for the board keys one
+   that their chain makes active */
 public record PendingSporkInfo(GridSpork.Type type, @JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp,
 	@JsonFormat(shape = JsonFormat.Shape.STRING) Instant expires, String signer, String digest, ChunkData data) {
 
 	public static PendingSporkInfo of(GridSpork spork) {
 		return new PendingSporkInfo(spork.getType(), spork.getTimeStamp(),
-			spork.getTimeStamp().plus(PendingSporks.LIFETIME), NetworkKey.signerOf(spork).orElse(null),
-			PendingSporks.digestOf(spork), spork.getData()
+			spork.getTimeStamp().plus(PendingSporks.LIFETIME),
+			spork.signerOfHead(spork.getSignature()).orElse(null), PendingSporks.digestOf(spork), spork.getData()
 		);
 	}
 }

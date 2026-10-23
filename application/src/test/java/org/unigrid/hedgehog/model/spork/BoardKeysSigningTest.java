@@ -88,6 +88,15 @@ public class BoardKeysSigningTest {
 		assertThrows(SigningException.class, () -> signed(chainOf(ADDING, SWITCHING_OFF), key(0), key(1)));
 	}
 
+	/* A key that the chain adds signs a proposal of it before the node goes by the chain, and is named as its signer */
+	@Example
+	public void shouldNameTheKeyThatAChangeAddsAsTheSignerOfItsProposal() {
+		final BoardKeys proposal = signed(chainOf(ADDING, SWITCHING_OFF), key(2), key(1));
+
+		proposal.setCosignature(null);
+		assertThat(PendingSporkInfo.of(proposal).signer(), is(key(2).getPublicKey()));
+	}
+
 	@Example
 	public void shouldTakeNoHeadOverAChainThatDoesNotHold() {
 		final KeyChange unapproved = change(ROOT, List.of(), keys(0, 1, 2), keys(0, 2));

@@ -144,6 +144,24 @@ public class BoardKeysSporkTest {
 		}
 	}
 
+	/* The key that the change adds proposes it, which the co-signer sees named */
+	@Example
+	@SneakyThrows
+	public void showsTheCosignerTheKeyThatTheChangeAddsAsItsProposer() {
+		try (FileSystem fs = holdingTheChange()) {
+			final FakeSporkNode node = new FakeSporkNode();
+
+			RestCommandFixture.run(set(fs, key(2), "--first-version"), node);
+
+			final String digest = PendingSporks.digestOf(node.proposalOf(Type.BOARD_KEYS).orElseThrow());
+			final GridSporkCosign cosign = new GridSporkCosign();
+
+			new CommandLine(cosign).parseArgs("-k", key(1).getPrivateKey(), digest);
+			assertThat(RestCommandFixture.run(cosign, node).out(), allOf(containsString("signed by "
+				+ key(2).getPublicKey()), containsString("Co-signed " + digest)));
+		}
+	}
+
 	@Example
 	@SneakyThrows
 	public void refusesAKeyThatTheChangeSwitchesOff() {

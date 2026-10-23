@@ -171,7 +171,7 @@ public class GridSporkCosign implements Runnable {
 	private static void show(GridSpork proposal, String digest, Optional<GridSpork> stored)
 		throws JsonProcessingException {
 
-		final String signer = NetworkKey.signerOf(proposal).orElse("no current board key");
+		final String signer = proposal.signerOfHead(proposal.getSignature()).orElse("no current board key");
 
 		System.out.println("Proposal " + digest + " of " + proposal.getType() + ", made at "
 			+ proposal.getTimeStamp() + " and signed by " + signer);
