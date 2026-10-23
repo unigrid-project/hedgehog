@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.schedule;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -25,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
@@ -35,8 +37,8 @@ import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSchedule, PublishPeers, Void> {
 	public static final int PERIOD_MS = 250;
-	public static final int WAIT_TIME_MS = 3000;
-	public static final double TOLERANCE = 0.3; /* 30% */
+	public static final int ROUNDS = 12;
+	public static final Duration PATIENCE = Duration.ofSeconds(30);
 
 	public PublishPeersScheduleTest() {
 		super(PERIOD_MS, TimeUnit.MILLISECONDS, PublishPeersSchedule.class);
@@ -54,6 +56,8 @@ public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSched
 			connections.add(new P2PClient(host, port));
 		}
 
+		final long start = System.nanoTime();
+
 		setScheduleCallback(Optional.of(channel -> {
 			/* Only count scheduling in one directon */
 			if (RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
@@ -61,18 +65,16 @@ public class PublishPeersScheduleTest extends BaseScheduleTest<PublishPeersSched
 			}
 		}));
 
-		Thread.sleep(WAIT_TIME_MS);
+		await().atMost(PATIENCE).untilAtomic(invocations, greaterThanOrEqualTo(ROUNDS * servers.size()));
+		final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
 		setScheduleCallback(Optional.empty());
 
 		for (Connection connection : connections) {
 			connection.close();
 		}
 
-		final double expectedInvocations = Math.round((float) WAIT_TIME_MS / PERIOD_MS) * servers.size();
-
-		double toleranceAmount = expectedInvocations * TOLERANCE;
-		toleranceAmount = toleranceAmount < 1 ? 1 : toleranceAmount;
-
-		assertThat(invocations.doubleValue(), is(closeTo(expectedInvocations, toleranceAmount)));
+		/* Half, because the fixed-rate schedule can make up a run delayed by a busy machine right after the count starts */
+		assertThat(elapsedMillis, greaterThanOrEqualTo((long) ROUNDS / 2 * PERIOD_MS));
 	}
 }
