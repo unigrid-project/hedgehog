@@ -78,7 +78,7 @@ public class GenesisFileTest {
 		final Arbitrary<List<AccountKey>> keys = Arbitraries.integers().map(GenesisFileTest::keyOf).list()
 			.ofMinSize(1).ofMaxSize(20).uniqueElements();
 
-		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs().greaterOrEqual(1),
+		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs().greaterOrEqual(60_000),
 			keys, Arbitraries.bytes().array(byte[].class).ofSize(Digests.HASH_SIZE),
 			Arbitraries.longs().greaterOrEqual(0)
 		).as((time, round, validators, hash, total) -> new LedgerGenesis(time, round, new ValidatorSet(validators),
@@ -123,7 +123,8 @@ public class GenesisFileTest {
 			new Damage("time", "{}"), new Damage("time", "-1"), new Damage("time", "9223372036854775808"),
 			new Damage("roundMillis", quoted("3600000")), new Damage("roundMillis", "3600000.0"),
 			new Damage("roundMillis", "null"), new Damage("roundMillis", "[]"), new Damage("roundMillis", "0"),
-			new Damage("roundMillis", "-1"), new Damage("roundMillis", "9223372036854775808"),
+			new Damage("roundMillis", "-1"), new Damage("roundMillis", "59999"),
+			new Damage("roundMillis", "9223372036854775808"),
 			new Damage("validators", quoted(FIRST_KEY)), new Damage("validators", "{}"),
 			new Damage("validators", "5"), new Damage("validators", "null"), new Damage("validators", "[]"),
 			new Damage("validators[0]", "validators", "[5]"), new Damage("validators[0]", "validators", "[null]"),
@@ -275,6 +276,15 @@ public class GenesisFileTest {
 	@Example
 	public void shouldReadTheDocumentedFormat() {
 		assertThat(loaded(document(validFields())), equalTo(bundled()));
+	}
+
+	/* A block may be dated half a minute ahead of a validator's clock, so a shorter round would have votes race its
+	   end; a minute is the least */
+	@Example
+	public void shouldTakeARoundOfAMinuteAndNothingShorter() {
+		assertThat(loaded(documentWith("roundMillis", "60000")).getRoundMillis(), equalTo(60_000L));
+		assertThat(messageOfLoading(documentWith("roundMillis", "59999")),
+			containsString("'roundMillis' must be a whole number from 60000"));
 	}
 
 	/* A round is milliseconds, so a round of over 25 days does not fit an int and must still be read whole */

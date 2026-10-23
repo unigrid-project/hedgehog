@@ -49,6 +49,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.Ed25519;
+import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;
 import org.unigrid.hedgehog.ledger.ValidatorSet;
 
@@ -57,16 +58,20 @@ import org.unigrid.hedgehog.ledger.ValidatorSet;
    {"time": 1700000000000, "roundMillis": 3600000, "validators": ["<64 hex>", ...], "snapshotHash": "<128 hex>",
     "snapshotTotal": 12345678900000000}
 
-   time is Unix milliseconds and starts the first validator round, roundMillis the length of a round in milliseconds,
-   validators are the Ed25519 public keys in the order that decides who proposes, snapshotHash is the SHA-512 of the
-   bootstrap snapshot and snapshotTotal the sum of its balances in units of 1e-8 coins. A field that is missing,
-   repeated or not in the list is refused, so that a typo cannot pass. It is read from the file given with
-   --ledger-genesis, else from the bundled resource /ledger-genesis.json when the build holds one.
+   time is Unix milliseconds and starts the first validator round, roundMillis the length of a round in milliseconds
+   and at least a minute, validators are the Ed25519 public keys in the order that decides who proposes, snapshotHash
+   is the SHA-512 of the bootstrap snapshot and snapshotTotal the sum of its balances in units of 1e-8 coins. A field
+   that is missing, repeated or not in the list is refused, so that a typo cannot pass. It is read from the file
+   given with --ledger-genesis, else from the bundled resource /ledger-genesis.json when the build holds one.
 
    Messages name the file and the field and never copy the content: the file is public, but an operator can point
    the option at the wrong file, such as a key file. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class GenesisFile {
+	/* A validator takes a block dated up to MAX_CLOCK_SKEW_MILLIS ahead of its clock, so in a shorter round a vote
+	   would race the end of its round against the clocks of the others */
+	public static final long MIN_ROUND_MILLIS = 2 * Ledger.MAX_CLOCK_SKEW_MILLIS;
+
 	private static final String BUNDLED = "/ledger-genesis.json";
 	/* A genesis of 1000 validators is about 70 KB, so this leaves room and still stops a file that is no genesis */
 	private static final int MAX_BYTES = 1 << 20;
@@ -178,8 +183,8 @@ public final class GenesisFile {
 		LedgerGenesis genesis() {
 			requireKnownFields();
 
-			return new LedgerGenesis(whole(TIME, 0, Long.MAX_VALUE), whole(ROUND_MILLIS, 1, Long.MAX_VALUE),
-				validators(),
+			return new LedgerGenesis(whole(TIME, 0, Long.MAX_VALUE),
+				whole(ROUND_MILLIS, MIN_ROUND_MILLIS, Long.MAX_VALUE), validators(),
 				bytes(SNAPSHOT_HASH, field(SNAPSHOT_HASH), Digests.HASH_SIZE),
 				whole(SNAPSHOT_TOTAL, 0, Long.MAX_VALUE)
 			);

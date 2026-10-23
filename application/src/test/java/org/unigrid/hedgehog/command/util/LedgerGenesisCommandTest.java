@@ -204,14 +204,28 @@ public class LedgerGenesisCommandTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldRefuseARoundOfNoTime() {
+	public void shouldRefuseARoundShorterThanAMinute() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), 0, "--validator", VALIDATOR);
+			final HedgehogCli.Result result = run(fs, fs.getPath(SNAPSHOT), 59_999, "--validator", VALIDATOR);
 
 			assertThat(result.exitCode(), equalTo(2));
-			assertThat(result.err(), containsString("--round-millis is at least 1 millisecond"));
+			assertThat(result.err(), containsString("--round-millis is at least 60000, found 59999"));
 			result.assertNoStackTrace();
 			assertThat(result.out(), emptyString());
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldTakeARoundOfAMinute() {
+		final Path snapshot = AddressSnapshots.write(Map.of("11".repeat(20), UNITS));
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HedgehogCli.Result result = run(fs, snapshot, 60_000, "--validator", VALIDATOR);
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(GenesisFile.load(Optional.of(fs.getPath(OUTPUT))).orElseThrow().getRoundMillis(),
+				equalTo(60_000L));
 		}
 	}
 }

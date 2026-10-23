@@ -64,7 +64,8 @@ public class LedgerGenesisCommand implements Runnable {
 	private long time;
 
 	@Option(names = "--round-millis", paramLabel = "<ms>", required = true,
-		description = "The length of a validator round in milliseconds, at least 1; the first starts at --time."
+		description = "The length of a validator round in milliseconds, at least 60000; the first starts at"
+			+ " --time."
 	)
 	private long roundMillis;
 
@@ -83,9 +84,9 @@ public class LedgerGenesisCommand implements Runnable {
 			throw new ParameterException(spec.commandLine(), "--time is 0 or more, found " + time);
 		}
 
-		if (roundMillis < 1) {
-			throw new ParameterException(spec.commandLine(), "--round-millis is at least 1 millisecond, found "
-				+ roundMillis);
+		if (roundMillis < GenesisFile.MIN_ROUND_MILLIS) {
+			throw new ParameterException(spec.commandLine(), "--round-millis is at least "
+				+ GenesisFile.MIN_ROUND_MILLIS + ", found " + roundMillis);
 		}
 
 		if (Files.exists(output)) {
