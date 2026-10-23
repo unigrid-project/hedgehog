@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Parameters;
@@ -79,7 +80,7 @@ public class GridSporkCosign implements Runnable {
 		} catch (ResponseOddityException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 		} catch (UntrustedSporkException | SigningException | IllegalArgumentException | IOException ex) {
-			System.out.println("Co-signing " + digest + " refused: " + ex.getMessage());
+			System.out.println("Co-signing " + digest + " refused: " + TerminalText.printable(ex.getMessage()));
 		}
 	}
 
@@ -97,7 +98,7 @@ public class GridSporkCosign implements Runnable {
 		final Response answer = sporks.submit(proposal);
 
 		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
-			: "Co-signing " + digest + " refused: " + answer.readEntity(String.class);
+			: "Co-signing " + digest + " refused: " + TerminalText.printable(answer.readEntity(String.class));
 	}
 
 	/* A proposal holds all the data that it sets, the changes of the proposals it replaced among it, so the whole of

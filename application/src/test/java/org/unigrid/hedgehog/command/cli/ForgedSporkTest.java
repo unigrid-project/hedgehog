@@ -19,6 +19,8 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -36,6 +38,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.RETIRED;
@@ -49,10 +52,13 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine;
@@ -276,6 +282,38 @@ public class ForgedSporkTest {
 			assertThat(how, setting.err(), containsString(how));
 			assertThat(how, node.submitted(), empty());
 		});
+	}
+
+	private static boolean isPrintable(String text) {
+		return text.codePoints().allMatch(point -> point == '\n' || !Character.isISOControl(point));
+	}
+
+	/* A terminal acts on control characters, which a node can put in what it answers and in the data it holds */
+	@Example
+	public void showsNoControlCharacterThatTheNodeSends() {
+		final String hostile = "\u001b]0;taken\u0007\u001b[2J\u009b31m\rrefused";
+		final MintStorage.SporkData mints = new MintStorage().getData();
+
+		mints.getMints().put(new Location(new Address("x\u009b2J\u001b[8m"), 1), BigDecimal.ONE);
+
+		final GridSpork stored = stored(Type.MINT_STORAGE, mints);
+		final GridSpork proposal = proposal(Type.MINT_STORAGE, stored, mints, PROPOSER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored, stored(Type.MINT_SUPPLY, supplyOf(10)))
+			.waitingOn(proposal);
+		final RestCommandFixture.Answer refusing = request -> HttpMethod.POST.equals(request.method())
+			? Response.status(Status.CONFLICT).entity(hostile).build() : node.respond(request);
+
+		for (Result result : List.of(RestCommandFixture.run(set(30), refusing),
+			RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), refusing))) {
+
+			assertThat(result.out(), containsString("refused"));
+			assertThat(result.out(), isPrintable(result.out()), is(true));
+		}
+
+		final String shown = RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), node).out();
+
+		assertThat(shown, containsString("x2J"));
+		assertThat(shown, isPrintable(shown), is(true));
 	}
 
 	@Example

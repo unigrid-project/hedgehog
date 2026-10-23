@@ -42,6 +42,7 @@ import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine;
 import picocli.CommandLine.ParameterException;
 
@@ -75,14 +76,15 @@ public final class SporkProposal {
 		} catch (UntrustedSporkException ex) {
 			System.err.println("Nothing was signed: " + ex.getMessage());
 		} catch (SigningException | IllegalArgumentException ex) {
-			System.err.println("The spork was not proposed: " + ex.getMessage());
+			System.err.println("The spork was not proposed: " + TerminalText.printable(ex.getMessage()));
 		}
 	}
 
 	/* The data of a spork as a whole, so that whoever signs sees every change, those carried over among them */
 	public static void show(String heading, Optional<GridSpork> spork) throws JsonProcessingException {
 		System.out.println(heading);
-		System.out.println(spork.isPresent() ? JSON.writeValueAsString(spork.get().getData()) : "none");
+		System.out.println(spork.isPresent() ? TerminalText.printable(JSON.writeValueAsString(spork.get().getData()))
+			: "none");
 	}
 
 	/* What is signed over, short enough to hold against what a second node holds: a node can hand out a head that
@@ -114,19 +116,20 @@ public final class SporkProposal {
 		try {
 			SporkContent.validate(spork, stored);
 		} catch (IllegalArgumentException ex) {
-			throw new ParameterException(commandLine, "The spork was not proposed: " + ex.getMessage(), ex);
+			throw new ParameterException(commandLine, "The spork was not proposed: "
+				+ TerminalText.printable(ex.getMessage()), ex);
 		}
 	}
 
 	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes */
 	public static void print(Response response) {
-		System.out.println(response.getStatusInfo());
+		System.out.println(TerminalText.printable(String.valueOf(response.getStatusInfo())));
 
 		if (response.hasEntity()) {
 			final String answer = response.readEntity(String.class);
 			final boolean held = response.getStatus() == Status.ACCEPTED.getStatusCode();
 
-			System.out.println(held ? Json.parse(answer) : answer);
+			System.out.println(held ? Json.parse(answer) : TerminalText.printable(answer));
 		}
 	}
 }
