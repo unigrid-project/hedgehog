@@ -33,23 +33,29 @@ import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 /* Where a spork may be sent. A node of release 0.0.8 reads the two bytes of the type of a spork, and for a type it
    does not know it logs an error and leaves the rest of the frame unread, which it then reads on as more types:
    hundreds of error lines for one spork, a chance of taking garbage for a spork, and with an odd frame length the next
-   frame is read out of step. The sporks of the ledger, the blacklist and the fee, and the board keys are therefore
-   sent only over a stream whose connection settled on the ledger protocol (LedgerProtocol), which a node of an earlier
-   release never does. This holds for everything that writes a spork to a stream: the schedule and the new streams,
-   the relay of a spork that came in, and the REST resources. A node that runs without --ledger does not offer the
-   protocol either, so it neither sends nor relays these sporks; it may still store one that a peer sent it. A spork
-   that is not set is not sent at all. */
+   frame is read out of step. The sporks of the ledger, the blacklist and the fee, are therefore sent only over a
+   stream whose connection settled on the ledger protocol (LedgerProtocol), which a node of an earlier release never
+   does, and the board keys only over one whose connection settled on that or on the protocol of this release
+   (SporkProtocol), which every node of this release offers first. This holds for everything that writes a spork to a
+   stream: the schedule and the new streams, the relay of a spork that came in, and the REST resources. A node that
+   runs without --ledger does not offer the ledger protocol either, so it neither sends nor relays the sporks of the
+   ledger; it may still store one that a peer sent it. A spork that is not set is not sent at all. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkRecipients {
-	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE, Type.BOARD_KEYS);
+	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE);
+	private static final Set<Type> OF_THIS_RELEASE = Set.of(Type.BOARD_KEYS);
 
 	public static boolean needsLedgerProtocol(final Type type) {
 		return LEDGER_ONLY.contains(type);
 	}
 
+	public static boolean needsThisRelease(final Type type) {
+		return OF_THIS_RELEASE.contains(type);
+	}
+
 	public static boolean mayReceive(final Channel stream, final GridSpork spork) {
-		return Objects.nonNull(spork)
-			&& (!needsLedgerProtocol(spork.getType()) || LedgerProtocol.negotiatedOn(stream));
+		return Objects.nonNull(spork) && (needsLedgerProtocol(spork.getType()) ? LedgerProtocol.negotiatedOn(stream)
+			: !needsThisRelease(spork.getType()) || SporkProtocol.negotiatedOn(stream));
 	}
 
 	public static void write(final Channel stream, final GridSpork spork) {

@@ -54,7 +54,8 @@ public final class LedgerProtocol {
 		return Boolean.TRUE.equals(settled.get());
 	}
 
-	private static Optional<String> agreedOn(final Channel connection) {
+	/* The protocol that the handshake of a QUIC connection settled on, once it has */
+	public static Optional<String> agreedOn(final Channel connection) {
 		if (connection instanceof QuicChannel quic) {
 			return Optional.ofNullable(quic.sslEngine()).map(SSLEngine::getApplicationProtocol)
 				.filter(protocol -> !protocol.isEmpty());

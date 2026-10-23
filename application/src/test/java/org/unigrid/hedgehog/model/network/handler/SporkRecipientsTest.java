@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Arrays;
 import java.util.List;
@@ -38,6 +39,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
 public class SporkRecipientsTest {
 	/* The types that release 0.0.8 knows: it cannot read any other, and a frame of one wrecks its stream */
@@ -65,12 +67,39 @@ public class SporkRecipientsTest {
 		return database;
 	}
 
+	/* One end of a connection between two nodes of this release, of which neither runs a ledger */
+	private static EmbeddedChannel streamOfThisRelease() {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+
+		connection.attr(LedgerProtocol.NEGOTIATED_KEY).set(false);
+		connection.attr(SporkProtocol.NEGOTIATED_KEY).set(true);
+		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false);
+	}
+
 	@Example
-	public void shouldNeedTheLedgerProtocolForEveryTypeThatTheEarlierReleaseCannotRead() {
+	public void shouldNeedAProtocolOfThisReleaseForEveryTypeThatTheEarlierReleaseCannotRead() {
 		for (final Type type : Type.values()) {
-			assertThat(type.toString(), SporkRecipients.needsLedgerProtocol(type),
-				is(!KNOWN_TO_RELEASE_0_0_8.contains(type)));
+			assertThat(type.toString(), SporkRecipients.needsLedgerProtocol(type)
+				|| SporkRecipients.needsThisRelease(type), is(!KNOWN_TO_RELEASE_0_0_8.contains(type)));
 		}
+
+		assertThat(SporkRecipients.needsLedgerProtocol(Type.BOARD_KEYS), is(false));
+	}
+
+	/* A node of release 0.0.8 cannot read the board keys, and every node of this release can */
+	@Example
+	public void shouldWriteTheBoardKeysOnlyToAStreamOfThisRelease() {
+		final EmbeddedChannel release = streamOfThisRelease();
+		final EmbeddedChannel ledger = stream(true);
+		final EmbeddedChannel earlier = stream(false);
+
+		for (final EmbeddedChannel stream : List.of(release, ledger, earlier)) {
+			SporkRecipients.write(stream, spork(Type.BOARD_KEYS));
+		}
+
+		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS));
+		assertThat(sporkTypesWrittenTo(ledger), contains(Type.BOARD_KEYS));
+		assertThat(sporkTypesWrittenTo(earlier), empty());
 	}
 
 	@Example
@@ -113,17 +142,22 @@ public class SporkRecipientsTest {
 		assertThat(SporkRecipients.mayReceive(ledger, null), is(false));
 	}
 
+	/* The board keys first, as every other spork is judged by the keys they make active */
 	@Example
-	public void shouldGiveTheScheduleAndTheNewStreamsTheLedgerSporksOnlyOnTheLedgerProtocol() {
+	public void shouldGiveTheScheduleAndTheNewStreamsEachSporkThatTheOtherEndReads() {
 		final SporkDatabase database = databaseWithEverySpork();
 		final EmbeddedChannel ledger = stream(true);
+		final EmbeddedChannel release = streamOfThisRelease();
 		final EmbeddedChannel earlier = stream(false);
 
-		PublishSporkSchedule.writeAndFlush(ledger, database, new PendingSporks());
-		PublishSporkSchedule.writeAndFlush(earlier, database, new PendingSporks());
+		for (final EmbeddedChannel stream : List.of(ledger, release, earlier)) {
+			PublishSporkSchedule.writeAndFlush(stream, database, new PendingSporks());
+		}
 
-		assertThat(sporkTypesWrittenTo(ledger), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE,
-			Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
+		assertThat(sporkTypesWrittenTo(ledger), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
+			Type.VESTING_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
+		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
+			Type.VESTING_STORAGE, Type.STORAGE));
 		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE,
 			Type.STORAGE));
 	}
