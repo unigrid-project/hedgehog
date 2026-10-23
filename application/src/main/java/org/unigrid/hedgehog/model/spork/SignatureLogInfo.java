@@ -31,8 +31,10 @@ public record SignatureLogInfo(List<Entry> entries, Head head) {
 		String digest, String signature, String cosignature) {
 	}
 
-	/* A signer is null when no known network key made that signature, or when there is no such signature */
-	public record Head(@JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp, String signer, String cosigner) {
+	/* A signer is null when no known network key made that signature, or when there is no such signature. The digest
+	   is the one the signing commands print the start of, so that a head one node shows can be held against another */
+	public record Head(@JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp, String signer, String cosigner,
+		String digest) {
 	}
 
 	public static SignatureLogInfo of(GridSpork spork) {
@@ -43,7 +45,7 @@ public record SignatureLogInfo(List<Entry> entries, Head head) {
 			).toList();
 		final byte[] digest = DigestUtils.sha512(spork.getSignable());
 		final Head head = new Head(spork.getTimeStamp(), signerOf(digest, spork.getSignature()),
-			signerOf(digest, spork.getCosignature())
+			signerOf(digest, spork.getCosignature()), Hex.encodeHexString(digest)
 		);
 
 		return new SignatureLogInfo(entries, head);
