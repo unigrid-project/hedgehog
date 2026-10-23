@@ -127,7 +127,7 @@ public class LedgerClockRoundTest {
 		}
 	}
 
-	/* A vote that missed the end of its round could only be refused by every block from then on */
+	/* A vote that missed the end of its round would be refused by every block this node makes from then on */
 	@Example
 	public void shouldDropAWaitingVoteOnceItsRoundHasPassed() throws IOException {
 		try (FileSystem fileSystem = newFileSystem()) {

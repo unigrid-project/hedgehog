@@ -223,7 +223,13 @@ public final class Ledger implements ConsensusApp {
 
 	/* What a validator checks before it votes for a block, a vote being a promise that the block is right: the
 	   time of the block against the clock of this node, then the block against the next height. This node's own
-	   policy counts. Nothing is changed. */
+	   policy counts. Nothing is changed.
+
+	   The clock bounds the time of a block from above only; the tip bounds it from below. A block that more than 2/3
+	   prevoted for is put forward again in a later view with the time it was made at, which a bound by the clock
+	   would refuse once enough time passed, and the validators locked on it could then vote for nothing else: the
+	   height would stall. So a proposer whose clock runs behind may date its block in a round that has passed for the
+	   others, and with it take votes signed for that round. */
 	@Override
 	public synchronized Optional<String> validate(Block block) {
 		if (block.getTime() > clock.getAsLong() + MAX_CLOCK_SKEW_MILLIS) {

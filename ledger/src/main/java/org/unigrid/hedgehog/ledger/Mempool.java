@@ -242,7 +242,8 @@ public final class Mempool {
 		return pending.values().stream().anyMatch(Vote.class::isInstance);
 	}
 
-	/* A vote counts only in a block of its own round, so once that round has passed no block can ever take it */
+	/* A vote counts only in a block of its own round, and a node dates the blocks it makes by its clock, so once the
+	   round has passed for the node that holds the vote, no block of its own can take it */
 	public synchronized void dropVotesBefore(long round) {
 		pending.values().removeIf(waiting -> waiting instanceof Vote vote && vote.round() < round);
 	}

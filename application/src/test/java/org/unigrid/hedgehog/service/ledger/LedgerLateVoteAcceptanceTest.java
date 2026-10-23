@@ -29,11 +29,13 @@ import org.unigrid.hedgehog.ledger.Vote;
 
 /* A vote that misses the end of its round, on a running network that cannot make a block in the meantime: two of the
    four validators are stopped, so the vote waits in the others until the clock of the fleet moves past the end of its
-   round, and from then on no node keeps it or takes it in. The validators stay stopped, so the class has a fleet of
+   round, and from then on no node whose clock is past that end keeps it or takes it in. A proposer whose clock ran
+   behind could still put it in a block dated in its round, as the time of a block has no lower bound but the tip;
+   the nodes of a fleet share one clock, so here none does. The validators stay stopped, so the class has a fleet of
    its own. */
 public class LedgerLateVoteAcceptanceTest extends BaseLedgerAcceptanceTest {
 	@Example
-	public void shouldDropAVoteThatMissedTheEndOfItsRoundAndRefuseItEverywhere() {
+	public void shouldDropAVoteThatMissedTheEndOfItsRoundAndRefuseItOnceTheClockIsPastIt() {
 		final AccountKey candidate = account();
 
 		awaitSigning();
