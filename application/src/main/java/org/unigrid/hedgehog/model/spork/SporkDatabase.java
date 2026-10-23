@@ -124,6 +124,10 @@ public class SporkDatabase implements Serializable {
 		slotOf(gridSpork.getType()).writer().accept(this, gridSpork);
 	}
 
+	public void clear(Type gridSporkType) {
+		slotOf(gridSporkType).writer().accept(this, null);
+	}
+
 	private static Slot slotOf(Type gridSporkType) {
 		return Optional.ofNullable(SLOTS.get(gridSporkType)).orElseThrow(
 			() -> new IllegalArgumentException("Unsupported spork type for the database")

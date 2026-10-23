@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -35,6 +36,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -50,7 +52,7 @@ public class SporkDatabaseProducer {
 	});
 
 	private Path path() {
-		return Path.of(applicationDirectory.getUserDataDir().toString(), SporkDatabase.SPORK_DB_FILE);
+		return applicationDirectory.getUserDataDir().resolve(SporkDatabase.SPORK_DB_FILE);
 	}
 
 	/* The database is saved by one timer of its own, as often as sporks are sent, and not by every stream that sends
@@ -71,7 +73,8 @@ public class SporkDatabaseProducer {
 	private SporkDatabase loaded(Path path) {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
-			return Files.exists(path) ? SporkDatabase.load(path) : SporkDatabase.builder().build();
+			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path))
+				: SporkDatabase.builder().build();
 
 		} catch (IOException | ClassCastException | SerializationException ex) {
 			log.atWarn().addArgument(path).addArgument(movedAside(path)).addArgument(ex.getMessage())
@@ -80,6 +83,26 @@ public class SporkDatabaseProducer {
 			log.atTrace().log(() -> ex.toString());
 			return SporkDatabase.builder().build();
 		}
+	}
+
+	/* A node hands out what it holds as what the network took, so of its own file it keeps only what the current
+	   board signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers
+	   as first versions. The file keeps the rest until the node saves. */
+	private static SporkDatabase signedByTheBoard(SporkDatabase database) {
+		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
+			.filter(type -> Objects.nonNull(database.get(type)) && !database.get(type).isTakenByTheNetwork())
+			.forEach(type -> {
+				log.atWarn().addArgument(type).addArgument(reasonOf(database.get(type)))
+					.log("The stored {} spork is left out: {}");
+				database.clear(type);
+			});
+
+		return database;
+	}
+
+	private static String reasonOf(GridSpork spork) {
+		return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
+			: "two different current network keys did not sign it";
 	}
 
 	private static String movedAside(Path path) {
