@@ -288,6 +288,31 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 
 	private record Invalid(byte[] wire, String reason) { }
 
+	/* A proposal is answered with JSON, and a refusal says why in plain text, which is what it is */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldSayWhyASporkIsRefusedInPlainText(@ForAll("provideSignature") Signature signature) {
+		final GridSpork proposal = next(Type.LEDGER_FEE, (LedgerFee.SporkData data) -> data.setMinimumTransferFee(
+			new BigDecimal("0.5")), signature);
+
+		pendingSporks.remove(Type.LEDGER_FEE);
+
+		final Response held = submit(proposal);
+		final Response again = submit(proposal);
+		final Response unsigned = submit(next(Type.LEDGER_FEE, data -> { }, STRANGER));
+		final Response undecodable = new GridSporkWireResource().submit(new byte[] { 1, 2, 3 });
+
+		assertThat(held.getMediaType().isCompatible(MediaType.APPLICATION_JSON_TYPE), is(true));
+
+		for (Response refusal : List.of(again, unsigned, undecodable)) {
+			assertThat(String.valueOf(refusal.getMediaType()), startsWith(MediaType.TEXT_PLAIN));
+		}
+
+		assertThat(statusOf(again), equalTo(Status.CONFLICT));
+		assertThat(statusOf(unsigned), equalTo(Status.UNAUTHORIZED));
+		assertThat(statusOf(undecodable), equalTo(Status.BAD_REQUEST));
+	}
+
 	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldRefuseAnOlderSporkReplayedOverTheStoredOne(@ForAll("provideSignature") Signature signature) {
