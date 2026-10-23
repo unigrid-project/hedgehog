@@ -193,15 +193,50 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 			try {
 				final SporkDatabase db = produced(holding(fs.getPath("/data")));
 
+				final List<Path> copies = unsignedCopiesIn(fs.getPath("/data"));
+
 				assertThat(db.getMintSupply().getSignature(), equalTo(taken.getSignature()));
 				assertThat(db.get(GridSpork.Type.LEDGER_FEE), nullValue());
 				assertThat(db.getMintStorage(), nullValue());
 				assertThat(Files.readAllBytes(file), equalTo(original));
+				assertThat(copies, hasSize(1));
+				assertThat(Files.readAllBytes(copies.getFirst()), equalTo(original));
 				assertThat(warningsOf(log), containsInAnyOrder(containsString("LEDGER_FEE"),
 					containsString("MINT_STORAGE")));
+				assertThat(warningsOf(log), everyItem(containsString("kept as " + copies.getFirst())));
 			} finally {
 				logger.detachAppender(log);
 			}
+		}
+	}
+
+	@SneakyThrows
+	private static List<Path> unsignedCopiesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.filter(file -> file.getFileName().toString().startsWith(SporkDatabase.SPORK_DB_FILE
+				+ ".unsigned-")).toList();
+		}
+	}
+
+	/* The next save writes only what the node keeps, and the board signs what it left out from the copy */
+	@Example
+	@SneakyThrows
+	public void shouldKeepNoCopyWhenItKeepsEverySpork() {
+		final Signature first = new Signature();
+		final Signature second = new Signature();
+		final MintSupply.SporkData supply = new MintSupply.SporkData();
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		fakeTheBoard(first, second);
+		supply.setMaxSupply(BigDecimal.TEN);
+		stored.set(signed(GridSpork.Type.MINT_SUPPLY, supply, first, second));
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = Files.createDirectories(fs.getPath("/data")).resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			assertThat(produced(holding(fs.getPath("/data"))).getMintSupply(), notNullValue());
+			assertThat(unsignedCopiesIn(fs.getPath("/data")), hasSize(0));
 		}
 	}
 

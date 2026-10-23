@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -73,7 +74,7 @@ public class SporkDatabaseProducer {
 	private SporkDatabase loaded(Path path) {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
-			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path))
+			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
 				: SporkDatabase.builder().build();
 
 		} catch (IOException | ClassCastException | SerializationException ex) {
@@ -87,18 +88,36 @@ public class SporkDatabaseProducer {
 
 	/* A node hands out what it holds as what the network took, so of its own file it keeps only what the current
 	   board signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers
-	   as first versions. The file keeps the rest until the node saves. */
-	private static SporkDatabase signedByTheBoard(SporkDatabase database) {
-		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
+	   as first versions. The next save writes only what the node keeps, so the file as it was is copied aside first,
+	   as it is what the board signs again with util spork-db sign. */
+	private static SporkDatabase signedByTheBoard(SporkDatabase database, Path path) {
+		final List<GridSpork.Type> leftOut = Arrays.stream(GridSpork.Type.values())
+			.filter(type -> type != GridSpork.Type.UNDEFINED)
 			.filter(type -> database.holdsAnotherSporkIn(type) || Objects.nonNull(database.get(type))
-				&& !database.get(type).isTakenByTheNetwork())
-			.forEach(type -> {
-				log.atWarn().addArgument(type).addArgument(reasonOf(database, type))
-					.log("The stored {} spork is left out: {}");
+				&& !database.get(type).isTakenByTheNetwork()).toList();
+
+		if (!leftOut.isEmpty()) {
+			final String copy = keptAside(path);
+
+			leftOut.forEach(type -> {
+				log.atWarn().addArgument(type).addArgument(reasonOf(database, type)).addArgument(copy)
+					.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
 				database.clear(type);
 			});
+		}
 
 		return database;
+	}
+
+	private static String keptAside(Path path) {
+		final Path copy = path.resolveSibling(path.getFileName() + ".unsigned-" + Instant.now().getEpochSecond());
+
+		try {
+			return Files.copy(path, copy).toString();
+		} catch (IOException ex) {
+			log.atWarn().addArgument(path).addArgument(ex.getMessage()).log("Could not copy {} aside: {}");
+			return "no copy";
+		}
 	}
 
 	private static String reasonOf(SporkDatabase database, GridSpork.Type type) {
