@@ -288,6 +288,55 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 
 	private record Invalid(byte[] wire, String reason) { }
 
+	/* A proposal is answered with JSON, and a refusal says why in plain text, which is what it is */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldSayWhyASporkIsRefusedInPlainText(@ForAll("provideSignature") Signature signature) {
+		final GridSpork proposal = next(Type.LEDGER_FEE, (LedgerFee.SporkData data) -> data.setMinimumTransferFee(
+			new BigDecimal("0.5")), signature);
+
+		pendingSporks.remove(Type.LEDGER_FEE);
+
+		final Response held = submit(proposal);
+		final Response again = submit(proposal);
+		final Response unsigned = submit(next(Type.LEDGER_FEE, data -> { }, STRANGER));
+		final Response undecodable = new GridSporkWireResource().submit(new byte[] { 1, 2, 3 });
+
+		assertThat(held.getMediaType().isCompatible(MediaType.APPLICATION_JSON_TYPE), is(true));
+
+		for (Response refusal : List.of(again, unsigned, undecodable)) {
+			assertThat(String.valueOf(refusal.getMediaType()), startsWith(MediaType.TEXT_PLAIN));
+		}
+
+		assertThat(statusOf(again), equalTo(Status.CONFLICT));
+		assertThat(statusOf(unsigned), equalTo(Status.UNAUTHORIZED));
+		assertThat(statusOf(undecodable), equalTo(Status.BAD_REQUEST));
+	}
+
+	/* A peer keeps a proposal held over the version it stores as long as it may still be co-signed over it, so the
+	   node does the same with a version it is handed */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldKeepAProposalThatGoesOnFromTheSporkItStores(@ForAll("provideSignature") Signature signature) {
+		pendingSporks.remove(Type.LEDGER_FEE);
+
+		final GridSpork stored = sporkDatabase.getLedgerFee();
+		final GridSpork version = next(Type.LEDGER_FEE, (LedgerFee.SporkData data) -> data.setMinimumTransferFee(
+			new BigDecimal("0.25")), signature);
+
+		version.cosign(COSIGNER.getPrivateKey());
+
+		final GridSpork over = GridSpork.nextVersion(Type.LEDGER_FEE, version, Optional.empty());
+
+		over.<LedgerFee.SporkData>getData().setMinimumTransferFee(new BigDecimal("0.125"));
+		over.sign(signature.getPrivateKey());
+
+		assertThat(pendingSporks.offer(over, stored), is(true));
+		assertThat(statusOf(submit(version)), equalTo(Status.OK));
+		assertThat(pendingSporks.proposalOf(Type.LEDGER_FEE).map(PendingSporks::digestOf),
+			equalTo(Optional.of(PendingSporks.digestOf(over))));
+	}
+
 	@SneakyThrows
 	@Property(tries = 1)
 	public void shouldRefuseAnOlderSporkReplayedOverTheStoredOne(@ForAll("provideSignature") Signature signature) {

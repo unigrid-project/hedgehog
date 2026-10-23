@@ -21,7 +21,9 @@ package org.unigrid.hedgehog.model;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.util.TerminalText;
 
+/* The commands show what a node answers with this, on a terminal */
 @Slf4j
 public class Json {
 	public static <T> String parse(T object) {
@@ -35,9 +37,9 @@ public class Json {
 				json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(object);
 			}
 		} catch (JsonProcessingException ex) {
-			log.atError().log("Failed to process JSON for {}", object);
+			log.atError().log("Failed to process JSON for {}", TerminalText.printable(String.valueOf(object)));
 		}
 
-		return json;
+		return TerminalText.printable(json);
 	}
 }

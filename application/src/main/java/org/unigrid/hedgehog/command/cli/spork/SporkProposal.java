@@ -23,10 +23,12 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Consumer;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
@@ -34,10 +36,13 @@ import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.SporkContent;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine;
 import picocli.CommandLine.ParameterException;
 
@@ -50,6 +55,8 @@ public final class SporkProposal {
 	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
 		.writerWithDefaultPrettyPrinter();
 
+	private static final int SHOWN_HEX = 16;
+
 	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change, String key) {
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
@@ -59,6 +66,7 @@ public final class SporkProposal {
 
 			change.accept(spork);
 			requireValid(commandLine, spork, stored.orElse(null));
+			showHead(stored);
 			show("Stored " + type + " data:", stored);
 			show("Proposed " + type + " data, signed now:", Optional.of(spork));
 			spork.sign(key);
@@ -68,14 +76,38 @@ public final class SporkProposal {
 		} catch (UntrustedSporkException ex) {
 			System.err.println("Nothing was signed: " + ex.getMessage());
 		} catch (SigningException | IllegalArgumentException ex) {
-			System.err.println("The spork was not proposed: " + ex.getMessage());
+			System.err.println("The spork was not proposed: " + TerminalText.printable(ex.getMessage()));
 		}
 	}
 
 	/* The data of a spork as a whole, so that whoever signs sees every change, those carried over among them */
 	public static void show(String heading, Optional<GridSpork> spork) throws JsonProcessingException {
 		System.out.println(heading);
-		System.out.println(spork.isPresent() ? JSON.writeValueAsString(spork.get().getData()) : "none");
+		System.out.println(spork.isPresent() ? TerminalText.printable(JSON.writeValueAsString(spork.get().getData()))
+			: "none");
+	}
+
+	/* What is signed over, short enough to hold against what a second node holds: a node can hand out a head that
+	   passes for one the network took, signed once by a key the board has retired in the form of a build from
+	   before co-signatures, and only another node tells whether it is the one the network holds */
+	public static void showHead(Optional<GridSpork> stored) {
+		stored.ifPresent(spork -> System.out.println("Stored " + spork.getType() + " made at " + spork.getTimeStamp()
+			+ ", digest " + StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX)
+			+ ", " + signersOf(spork)));
+	}
+
+	private static String signersOf(GridSpork spork) {
+		final String signer = keyOf(spork, spork.getSignature());
+
+		return spork.isOfAnEarlierBuild()
+			? "signed once by " + signer + ", in the form of a build from before co-signatures"
+			: "signed by " + signer + " and " + keyOf(spork, spork.getCosignature());
+	}
+
+	private static String keyOf(GridSpork spork, byte[] signature) {
+		return spork.knownSignerOfHead(signature).map(key -> StringUtils.left(key, SHOWN_HEX)
+			+ (Arrays.asList(NetworkKey.getPublicKeys()).contains(key) ? "" : " (retired key)")
+		).orElse("no known key");
 	}
 
 	/* What the data of the command asks for is judged with the stored spork, so it is refused like data that does
@@ -84,19 +116,26 @@ public final class SporkProposal {
 		try {
 			SporkContent.validate(spork, stored);
 		} catch (IllegalArgumentException ex) {
-			throw new ParameterException(commandLine, "The spork was not proposed: " + ex.getMessage(), ex);
+			throw new ParameterException(commandLine, "The spork was not proposed: "
+				+ TerminalText.printable(ex.getMessage()), ex);
 		}
 	}
 
-	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes */
-	public static void print(Response response) {
-		System.out.println(response.getStatusInfo());
+	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes. The status says
+	   whether the node took the spork, so an answer too big to read is only said to be so. */
+	public static void print(Response response) throws IOException {
+		System.out.println(TerminalText.printable(String.valueOf(response.getStatusInfo())));
 
 		if (response.hasEntity()) {
-			final String answer = response.readEntity(String.class);
 			final boolean held = response.getStatus() == Status.ACCEPTED.getStatusCode();
 
-			System.out.println(held ? Json.parse(answer) : answer);
+			try {
+				final String answer = SporkClient.textOf(response);
+
+				System.out.println(held ? Json.parse(answer) : TerminalText.printable(answer));
+			} catch (IllegalArgumentException ex) {
+				System.out.println(ex.getMessage());
+			}
 		}
 	}
 }

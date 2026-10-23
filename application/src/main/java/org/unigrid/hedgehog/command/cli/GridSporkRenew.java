@@ -29,8 +29,10 @@ import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 
@@ -44,7 +46,7 @@ public class GridSporkRenew implements Runnable {
 
 	@Override
 	public void run() {
-		final String key = boardKey.resolve();
+		final String key = boardKey.resolve(NetworkKey::isTrusted);
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
@@ -60,7 +62,8 @@ public class GridSporkRenew implements Runnable {
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 		} catch (UntrustedSporkException | SigningException | IllegalArgumentException ex) {
-			System.err.println("Renewing refused, nothing was proposed: " + ex.getMessage());
+			System.err.println("Renewing refused, nothing was proposed: "
+				+ TerminalText.printable(ex.getMessage()));
 		}
 	}
 
@@ -78,6 +81,7 @@ public class GridSporkRenew implements Runnable {
 		}
 
 		for (GridSpork spork : stored) {
+			SporkProposal.showHead(Optional.of(spork));
 			SporkProposal.show("Renewing " + spork.getType() + " with its data unchanged, signed now:",
 				Optional.of(spork));
 		}

@@ -251,8 +251,9 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Decides whether this spork, received from the network, may replace the stored one. It must be signed
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
-	* known keys, and either extend the log or win against a sibling signed on top of the same log by being
-	* newer.
+	* known keys, and either extend the log, with the stored spork as the first entry it adds, or win against
+	* a sibling made over the same version by being newer, when it makes the same change or comes within the
+	* lifetime of a proposal after it.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -304,13 +305,16 @@ public class GridSpork implements Serializable, Signable {
 		final Optional<String> signer = knownSignerOfHead(signature);
 		final Optional<String> cosigner = knownSignerOfHead(cosignature);
 
-		/* A build from before co-signatures signed once, and over the Java serialization of the spork */
-		final boolean isOfAnEarlierBuild = !isWireSignable() && isPending();
-
-		return signer.isPresent() && (isOfAnEarlierBuild || cosigner.isPresent() && !cosigner.equals(signer));
+		return signer.isPresent() && (isOfAnEarlierBuild() || cosigner.isPresent() && !cosigner.equals(signer));
 	}
 
-	private Optional<String> knownSignerOfHead(byte[] headSignature) {
+	/* A build from before co-signatures signed once, and over the Java serialization of the spork */
+	@JsonIgnore
+	public boolean isOfAnEarlierBuild() {
+		return !isWireSignable() && isPending();
+	}
+
+	public Optional<String> knownSignerOfHead(byte[] headSignature) {
 		return Objects.isNull(headSignature) ? Optional.empty()
 			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature);
 	}
@@ -350,9 +354,48 @@ public class GridSpork implements Serializable, Signable {
 
 	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
-		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored);
+		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
+			&& mayTakeThePlaceOf(stored);
+		final boolean isLater = log.size() > storedLog.size() && goesOnWithTheHeadOf(stored, storedLog.size());
 
-		return (log.size() > storedLog.size() || isNewerSibling) && storedLog.isPrefixOf(log);
+		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
+	}
+
+	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
+	   change unseen: a node that hands out the version before the stored one has a board member sign over it a
+	   sibling that every node takes. Two co-signers racing over one version make siblings only while a proposal
+	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
+	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
+	   as two renewals do, settle by time, and so does the first version, which follows nothing. */
+	private boolean mayTakeThePlaceOf(GridSpork stored) {
+		if (Objects.isNull(stored)) {
+			return true;
+		}
+
+		final boolean isOverTheSameVersion = Objects.equals(previousData, stored.previousData)
+			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
+
+		return isOverTheSameVersion && (Objects.equals(data, stored.data) || isWithinAProposalsLifetimeOf(stored));
+	}
+
+	private boolean isWithinAProposalsLifetimeOf(GridSpork stored) {
+		return Objects.nonNull(stored.timeStamp)
+			&& !timeStamp.isAfter(stored.timeStamp.plus(PendingSporks.LIFETIME));
+	}
+
+	/* Known keys signed every entry, retired ones among them, so a version that no board made could follow the stored
+	   log as an entry signed once by a retired key, and a version over it would pass for one over the stored spork. A
+	   node that missed versions still finds its own head where its log ends. */
+	private boolean goesOnWithTheHeadOf(GridSpork stored, int index) {
+		if (Objects.isNull(stored)) {
+			return true;
+		}
+
+		final SignatureLogEntry next = getSignatureLog().getEntries().get(index);
+
+		return Arrays.equals(next.getSignature(), stored.signature)
+			&& Arrays.equals(next.getCosignature(), stored.cosignature)
+			&& Arrays.equals(next.getDigest(), DigestUtils.sha512(stored.getSignable()));
 	}
 
 	private boolean isNewerThanLog() {

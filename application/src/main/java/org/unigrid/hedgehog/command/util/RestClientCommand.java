@@ -33,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import org.unigrid.hedgehog.server.rest.RestToken;
 
 @RequiredArgsConstructor
@@ -139,7 +140,7 @@ public class RestClientCommand implements Runnable {
 				.formatted(missing.getFile());
 		}
 
-		return ex.getMessage();
+		return TerminalText.printable(String.valueOf(ex.getMessage()));
 	}
 
 	public void setHeaders(MultivaluedMap<String, Object> headers) {

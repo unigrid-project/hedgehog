@@ -19,9 +19,16 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
+import java.io.InputStream;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
@@ -32,8 +39,12 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.RETIRED;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
@@ -44,9 +55,14 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintStorage;
+import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import picocli.CommandLine;
@@ -172,6 +188,53 @@ public class ForgedSporkTest {
 		});
 	}
 
+	private static String shortly(String hex) {
+		return hex.substring(0, 16);
+	}
+
+	/* What a build from before co-signatures stored: signed once, over its Java serialization */
+	private static GridSpork signedOnceByAnEarlierBuild(Signature signer) {
+		final GridSpork spork = GridSpork.create(Type.MINT_SUPPLY);
+
+		spork.setData(supplyOf(10));
+		spork.setPreviousData(supplyOf(0));
+		spork.setTimeStamp(Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(60));
+		spork.setPreviousTimeStamp(Instant.EPOCH);
+		spork.setSignature(SporkCommands.signatureOf(signer, spork));
+		return spork;
+	}
+
+	/* A node may hand out a head that passes for one the network took and is not the one it holds, which only a
+	   second node tells, so the head is shown short enough to hold against it before anything is signed over it */
+	@Example
+	public void showsTheStoredHeadBeforeSigningOverIt() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+		final Result result = RestCommandFixture.run(set(20), node);
+
+		assertThat(result.out(), containsString("made at " + stored.getTimeStamp()));
+		assertThat(result.out(), containsString("digest " + shortly(PendingSporks.digestOf(stored))));
+		assertThat(result.out(), containsString("signed by " + shortly(PROPOSER.getPublicKey()) + " and "
+			+ shortly(COSIGNER.getPublicKey())));
+		assertThat(result.out(), not(containsString("retired")));
+		assertThat(node.submitted(), hasSize(1));
+	}
+
+	/* A retired key and the single signature of a build from before co-signatures are what a forged head needs */
+	@Example
+	public void marksAHeadSignedOnceByARetiredKeyWhereverItIsSignedOver() {
+		final GridSpork stored = signedOnceByAnEarlierBuild(RETIRED);
+		final String head = "signed once by " + shortly(RETIRED.getPublicKey()) + " (retired key), in the form "
+			+ "of a build from before co-signatures";
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER);
+
+		assertThat(RestCommandFixture.run(set(20), new FakeSporkNode().holding(stored)).out(),
+			containsString(head));
+		assertThat(RestCommandFixture.run(renew(), new FakeSporkNode().holding(stored)).out(), containsString(head));
+		assertThat(RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)),
+			new FakeSporkNode().holding(stored).waitingOn(proposal)).out(), containsString(head));
+	}
+
 	@Example
 	public void coSignsNothingOverAStoredSporkThatTheNetworkDidNotTake() {
 		final GridSpork over = proposal(Type.MINT_SUPPLY, null, supplyOf(20), PROPOSER);
@@ -183,5 +246,161 @@ public class ForgedSporkTest {
 			assertThat(how, result.out(), containsString(UNTRUSTED_STORED));
 			assertThat(how, node.submitted(), empty());
 		});
+	}
+
+	/* The next version over a stored spork with the time stamp given, signed by the keys given */
+	private static GridSpork signedAt(Instant stamp, GridSpork stored, long maxSupply, Signature... signers) {
+		final GridSpork spork = GridSpork.nextVersion(Type.MINT_SUPPLY, stored, Optional.empty());
+
+		spork.setData(supplyOf(maxSupply));
+		spork.setTimeStamp(stamp);
+		SporkCommands.sign(spork, signers[0]);
+
+		if (signers.length > 1) {
+			spork.setCosignature(SporkCommands.signatureOf(signers[1], spork));
+		}
+
+		return spork;
+	}
+
+	/* An honest node drops a proposal once it is older than a proposal waits and takes none stamped further ahead
+	   than clocks drift apart, so one outside that span is replayed or forged */
+	@Example
+	public void coSignsNoProposalOlderThanAProposalWaitsOrAheadOfTheClock() {
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork stored = signedAt(now.minus(PendingSporks.LIFETIME).minusSeconds(3600), null, 10, PROPOSER,
+			COSIGNER);
+		final Map<String, GridSpork> outOfTime = Map.of(
+			"longer ago than a proposal waits",
+			signedAt(now.minus(PendingSporks.LIFETIME).minusSeconds(60), stored, 20, PROPOSER),
+			"stamped ahead of the clock of this machine",
+			signedAt(now.plus(PendingSporks.LEEWAY).plusSeconds(60), stored, 20, PROPOSER));
+
+		outOfTime.forEach((how, proposal) -> {
+			final FakeSporkNode node = new FakeSporkNode().holding(stored).handingOut(proposal);
+			final Result cosigning = RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), node);
+			final Result setting = RestCommandFixture.run(set(30), node);
+
+			assertThat(how, cosigning.out(), containsString("refused: The MINT_SUPPLY proposal"));
+			assertThat(how, cosigning.out(), containsString(how));
+			assertThat(how, setting.err(), containsString(how));
+			assertThat(how, node.submitted(), empty());
+		});
+	}
+
+	private static boolean isPrintable(String text) {
+		return text.codePoints().allMatch(point -> point == '\n' || !Character.isISOControl(point));
+	}
+
+	/* A terminal acts on control characters, which a node can put in what it answers and in the data it holds */
+	@Example
+	public void showsNoControlCharacterThatTheNodeSends() {
+		final String hostile = "\u001b]0;taken\u0007\u001b[2J\u009b31m\rrefused";
+		final MintStorage.SporkData mints = new MintStorage().getData();
+
+		mints.getMints().put(new Location(new Address("x\u009b2J\u001b[8m"), 1), BigDecimal.ONE);
+
+		final GridSpork stored = stored(Type.MINT_STORAGE, mints);
+		final GridSpork proposal = proposal(Type.MINT_STORAGE, stored, mints, PROPOSER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored, stored(Type.MINT_SUPPLY, supplyOf(10)))
+			.waitingOn(proposal);
+		final RestCommandFixture.Answer refusing = request -> HttpMethod.POST.equals(request.method())
+			? Response.status(Status.CONFLICT).entity(hostile).build() : node.respond(request);
+
+		for (Result result : List.of(RestCommandFixture.run(set(30), refusing),
+			RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), refusing))) {
+
+			assertThat(result.out(), containsString("refused"));
+			assertThat(result.out(), isPrintable(result.out()), is(true));
+		}
+
+		final String shown = RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)), node).out();
+
+		assertThat(shown, containsString("x2J"));
+		assertThat(shown, isPrintable(shown), is(true));
+	}
+
+	/* An answer that never ends, which counts what was read of it */
+	private static final class Endless extends InputStream {
+		private long read;
+
+		@Override
+		public int read() {
+			read++;
+			return 0;
+		}
+
+		@Override
+		public int read(byte[] bytes, int offset, int length) {
+			read += length;
+			return length;
+		}
+	}
+
+	/* A spork is no bigger than its wire form allows, so no more than that is read of what a node answers, whether it
+	   hands out a spork or lists its proposals */
+	@Example
+	public void readsNoMoreOfWhatTheNodeAnswersThanASporkTakes() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+
+		for (String flooded : List.of(FakeSporkNode.WIRE + "/" + Type.MINT_SUPPLY, FakeSporkNode.PENDING,
+			FakeSporkNode.PENDING + "/" + "00".repeat(64))) {
+
+			final Endless endless = new Endless();
+			final FakeSporkNode node = new FakeSporkNode().holding(stored)
+				.handingOut(proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER));
+			final RestCommandFixture.Answer flooding = request -> flooded.equals(request.location())
+				? Response.ok(endless).build() : node.respond(request);
+			final Runnable command = flooded.startsWith(FakeSporkNode.PENDING + "/") ? cosign("00".repeat(64))
+				: set(30);
+			final Result result = RestCommandFixture.run(command, flooding);
+
+			assertThat(flooded, result.out() + result.err(), containsString("more than " + SporkWire.MAX_SIZE));
+			assertThat(flooded, endless.read, lessThanOrEqualTo(SporkWire.MAX_SIZE + 1L));
+			assertThat(flooded, node.submitted(), empty());
+		}
+	}
+
+	/* What the node answers a signed spork with is read no further either, whether it took the spork or not; the
+	   status still says which */
+	@Example
+	public void readsNoMoreOfTheAnswerToASignedSporkThanASporkTakes() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(10));
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER);
+
+		for (Status status : List.of(Status.ACCEPTED, Status.CONFLICT)) {
+			final List<Endless> answers = new ArrayList<>();
+			final FakeSporkNode node = new FakeSporkNode().holding(stored).waitingOn(proposal);
+			final RestCommandFixture.Answer flooding = request -> {
+				if (HttpMethod.POST.equals(request.method())) {
+					answers.add(new Endless());
+					return Response.status(status).entity(answers.getLast()).build();
+				}
+
+				return node.respond(request);
+			};
+
+			for (Runnable command : List.of(set(30), renew(), cosign(PendingSporks.digestOf(proposal)))) {
+				final Result result = RestCommandFixture.run(command, flooding);
+
+				assertThat(status.toString(), result.out() + result.err(), containsString("more than "
+					+ SporkWire.MAX_SIZE));
+			}
+
+			assertThat(status.toString(), answers, hasSize(3));
+			assertThat(status.toString(), answers.stream().allMatch(answer -> answer.read <= SporkWire.MAX_SIZE + 1L),
+				is(true));
+		}
+	}
+
+	@Example
+	public void signsNothingOverAStoredSporkStampedAheadOfTheClock() {
+		final Instant ahead = Instant.now().plus(PendingSporks.LEEWAY).plusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork stored = signedAt(ahead, null, 10, PROPOSER, COSIGNER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored);
+
+		assertThat(RestCommandFixture.run(set(20), node).err(), containsString("stamped ahead of the clock"));
+		assertThat(RestCommandFixture.run(renew(), node).err(), containsString("stamped ahead of the clock"));
+		assertThat(node.submitted(), empty());
 	}
 }

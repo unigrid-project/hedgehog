@@ -26,6 +26,7 @@ import org.unigrid.hedgehog.command.Bootstrap;
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.Util;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.VersionProvider;
 import org.unigrid.hedgehog.model.util.ApplicationLogLevel;
 import picocli.CommandLine;
@@ -62,6 +63,10 @@ public class Hedgehog {
 		ApplicationLogLevel.configure(0); /* Start quiet, if any -v are defined, the setter above is called */
 
 		System.setOut(stdout);
-		System.exit(new CommandLine(Hedgehog.class).execute(args));
+		System.exit(commandLine().execute(args));
+	}
+
+	public static CommandLine commandLine() {
+		return new CommandLine(Hedgehog.class).setParameterExceptionHandler(BoardKeyOptions::reportWithoutKeys);
 	}
 }

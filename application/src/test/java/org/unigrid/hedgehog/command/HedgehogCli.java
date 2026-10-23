@@ -44,7 +44,7 @@ public final class HedgehogCli {
 	}
 
 	public static Result run(String... args) {
-		return run(() -> new CommandLine(Hedgehog.class), args);
+		return run(Hedgehog::commandLine, args);
 	}
 
 	/* Picocli binds its own error output to the streams of the moment, so the line is made once they are captured */

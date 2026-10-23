@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+package org.unigrid.hedgehog.model.spork.content;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -33,7 +33,16 @@ import static org.hamcrest.Matchers.containsString;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.spork.StorageSporkTest;
+import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 public class SporkContentTest {

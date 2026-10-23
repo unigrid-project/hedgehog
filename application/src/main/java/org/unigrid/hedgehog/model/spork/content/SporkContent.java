@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.model.spork;
+package org.unigrid.hedgehog.model.spork.content;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -29,8 +29,17 @@ import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
+import org.unigrid.hedgehog.model.spork.ChunkData;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
+import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
+import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.SporkAmount;
+import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 /* What a spork may hold beyond what its wire form bounds, by its type. The command line checks a spork by these rules
@@ -38,7 +47,8 @@ import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
    can act on is refused when it is made, not found out by every node when it is due. Of a spork with entries, only
    the entries that the new version adds or changes are judged: those of the stored version were taken when it was
    made, under the rules of that time, and are no part of the change. The answer is an IllegalArgumentException that
-   says what is wrong. */
+   says what is wrong. The mints are judged as the ledger reads them, which the snapshot model knows, so the rules
+   sit above both the sporks and that model. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkContent {
 	private static final String AMOUNT_BOUNDS = "at most " + SporkAmount.MAX_DECIMALS + " decimals and "

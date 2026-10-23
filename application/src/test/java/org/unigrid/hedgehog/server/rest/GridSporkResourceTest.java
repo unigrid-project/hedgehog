@@ -205,6 +205,30 @@ public class GridSporkResourceTest extends BaseRestClientTest {
 	}
 
 	@SneakyThrows
+	private JsonNode mintSupplyLog() {
+		return new ObjectMapper().readTree(client.get("/gridspork/log").readEntity(String.class))
+			.get(GridSpork.Type.MINT_SUPPLY.name());
+	}
+
+	/* A board member holds the head that the signing commands show against the log of a second node: its digest is
+	   the one they print the start of, and the one the next version enters in its log */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldShowTheDigestOfTheHead(@ForAll("provideSignature") Signature signature) {
+		final Signature retiredSignature = keyPair();
+
+		retire(retiredSignature);
+		seedMintSupplySignedBy(retiredSignature);
+		renewAndCosign(signature);
+
+		final String head = mintSupplyLog().get("head").get("digest").asText();
+
+		assertThat(head, equalTo(PendingSporks.digestOf(sporkDatabase.getMintSupply())));
+		renewAndCosign(signature);
+		assertThat(mintSupplyLog().get("entries").get(1).get("digest").asText(), equalTo(head));
+	}
+
+	@SneakyThrows
 	@Property(tries = 2)
 	public void shouldShowBothSignersOfEachVersion(@ForAll("provideSignature") Signature signature) {
 		final Signature retiredSignature = keyPair();

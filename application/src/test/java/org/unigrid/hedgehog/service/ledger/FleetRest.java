@@ -29,7 +29,7 @@ import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.SporkContent;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
 import org.unigrid.hedgehog.server.rest.RestServer;
 
 /* A spork as the foundation puts it out: built and signed with the first network key where the command line runs,

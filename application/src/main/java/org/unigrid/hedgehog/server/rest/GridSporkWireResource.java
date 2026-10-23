@@ -37,9 +37,9 @@ import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
-import org.unigrid.hedgehog.model.spork.SporkContent;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.model.spork.content.SporkContent;
 
 /* The sporks as a board member signs them on their own machine: the command line reads the stored spork and the
    proposal it builds on in the form peers exchange, so that what it signs covers the bytes every node reads, and it
@@ -94,11 +94,11 @@ public class GridSporkWireResource extends CDIBridgeResource {
 			spork = SporkWire.decode(wire);
 			SporkContent.validate(spork, sporkDatabase.get(spork.getType()));
 		} catch (IllegalArgumentException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).entity(ex.getMessage()).build();
+			return refused(Response.Status.BAD_REQUEST, ex.getMessage());
 		}
 
 		if (!isSignedByTheBoard(spork)) {
-			return Response.status(Response.Status.UNAUTHORIZED).entity(UNSIGNED).build();
+			return refused(Response.Status.UNAUTHORIZED, UNSIGNED);
 		}
 
 		/* Before any decision, as a spork from a peer is, so that a spork this node turns down still tells it that
@@ -113,7 +113,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 
 	private Response hold(GridSpork spork) {
 		if (!pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
-			return Response.status(Response.Status.CONFLICT).entity(NOT_NEWER).build();
+			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 
 		SporkRecipients.sendAll(spork, topology);
@@ -122,13 +122,18 @@ public class GridSporkWireResource extends CDIBridgeResource {
 
 	private Response store(GridSpork spork) {
 		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
-			return Response.status(Response.Status.CONFLICT).entity(NOT_NEWER).build();
+			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 
 		sporkDatabase.set(spork);
-		pendingSporks.remove(spork.getType());
+		pendingSporks.retainProposalsOver(spork);
 		SporkRecipients.sendAll(spork, topology);
 		return Response.ok().build();
+	}
+
+	/* A held proposal is answered with JSON, while a reason is plain text, which the command line shows as it is */
+	private static Response refused(Response.Status status, String reason) {
+		return Response.status(status).entity(reason).type(MediaType.TEXT_PLAIN_TYPE).build();
 	}
 
 	private static Response wire(GridSpork spork) {
