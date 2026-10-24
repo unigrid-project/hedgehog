@@ -99,7 +99,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		}
 
 		turn.giveBack();
-		return commit(spork, db, pendingSporks);
+		return commit(spork, stored, db, pendingSporks);
 	}
 
 	private static boolean given(SporkLag.Turn turn, boolean isTaken) {
@@ -115,12 +115,16 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			: spork.canReplace(stored, turn);
 	}
 
-	private static boolean commit(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks) {
+	private static boolean commit(GridSpork spork, GridSpork judged, SporkDatabase db, PendingSporks pendingSporks) {
 		if (spork instanceof BoardKeys boardKeys) {
 			return BoardKeysAuthority.commit(boardKeys, db, pendingSporks);
 		}
 
-		db.set(spork);
+		if (!db.replace(judged, spork)) {
+			log.atDebug().log("Dropped a {} spork that a version stored meanwhile outdates", spork.getType());
+			return false;
+		}
+
 		pendingSporks.retainProposalsOver(spork);
 		return true;
 	}

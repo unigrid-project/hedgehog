@@ -163,6 +163,23 @@ public class SporkDatabase implements Serializable {
 		slotOf(gridSpork.getType()).writer().accept(this, gridSpork);
 	}
 
+	/**
+	* Stores a co-signed spork in the place of the one it was judged against, if that is still the one stored, or if
+	* it can replace what is stored by then. Judging checks signatures, which takes too long to hold a lock for, so two
+	* versions of a type that come in at once are judged side by side, and storing the one judged last as it is could
+	* leave the node on the older one. Returns whether the spork was stored.
+	*/
+	public synchronized boolean replace(GridSpork judged, GridSpork spork) {
+		final GridSpork stored = get(spork.getType());
+
+		if (stored != judged && !spork.canReplace(stored)) {
+			return false;
+		}
+
+		set(spork);
+		return true;
+	}
+
 	public void clear(Type gridSporkType) {
 		slotOf(gridSporkType).writer().accept(this, null);
 	}

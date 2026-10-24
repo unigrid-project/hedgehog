@@ -143,11 +143,12 @@ public class GridSporkWireResource extends CDIBridgeResource {
 			return BoardKeysAuthority.accept(boardKeys, sporkDatabase, pendingSporks, () -> true);
 		}
 
-		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+		final GridSpork stored = sporkDatabase.get(spork.getType());
+
+		if (!spork.canReplace(stored) || !sporkDatabase.replace(stored, spork)) {
 			return false;
 		}
 
-		sporkDatabase.set(spork);
 		pendingSporks.retainProposalsOver(spork);
 		return true;
 	}
