@@ -20,9 +20,16 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
@@ -53,6 +60,7 @@ public class BoardKeysRecordTest {
 	private static final KeyChange ADDING = change(ROOT, List.of(), keys(0, 1, 2), keys(0, 1, 2));
 	private static final KeyChange SWITCHING_OFF = change(ROOT, List.of(ADDING), keys(1, 2), keys(1, 2));
 	private static final KeyChange ELSEWHERE = change(ROOT, List.of(), keys(0, 1, 3), keys(0, 1, 3));
+	private static final Duration WAIT = Duration.ofMillis(300);
 
 	private Path directory;
 
@@ -166,6 +174,41 @@ public class BoardKeysRecordTest {
 		assertThat(keep(chain(ADDING, SWITCHING_OFF)).isPresent(), is(true));
 		assertThat(recorded().size(), is(2));
 		assertThat(BoardKeyChain.digestOf(recorded().getLast()), equalTo(BoardKeyChain.digestOf(SWITCHING_OFF)));
+	}
+
+	/* Two runs that keep a chain at once, one a longer chain than the other, leave the longer one recorded: the run
+	   that read the record first holds it until it has written, and the other one reads it again */
+	@Example
+	@SneakyThrows
+	public void shouldNeverShortenTheRecordWhenTwoRunsKeepAChainAtOnce() {
+		final KeyChange third = change(ROOT, List.of(ADDING, SWITCHING_OFF), keys(1, 2, 3), keys(1, 2, 3));
+		final ExecutorService other = Executors.newSingleThreadExecutor();
+		final AtomicReference<Future<Optional<String>>> longer = new AtomicReference<>();
+
+		keep(chain(ADDING));
+
+		try {
+			BoardKeysRecord.ofThisMachine(() -> {
+				longer.set(other.submit(() -> keep(chain(ADDING, SWITCHING_OFF, third))));
+				waitAWhileFor(longer.get());
+			}).keep(chain(ADDING, SWITCHING_OFF), "the node");
+
+			longer.get().get();
+		} finally {
+			other.shutdownNow();
+		}
+
+		assertThat(recorded().size(), is(3));
+	}
+
+	/* The other run is held back by the lock of the record while this one holds it, and done otherwise */
+	@SneakyThrows
+	private static void waitAWhileFor(Future<?> run) {
+		try {
+			run.get(WAIT.toMillis(), TimeUnit.MILLISECONDS);
+		} catch (TimeoutException ex) {
+			assertThat(run.isDone(), is(false));
+		}
 	}
 
 	/* A record of another network, of keys of its own, is kept apart */

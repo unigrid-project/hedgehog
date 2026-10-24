@@ -21,8 +21,11 @@ package org.unigrid.hedgehog.model.spork;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -50,13 +53,20 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 public final class BoardKeysRecord {
 	private static final String FILE = "board-keys-%s.seen";
 	private static final int SHOWN_HEX = 16;
+	private static final Object LOCK = new Object();
 
 	@Getter private final Path file;
+	private final Runnable afterRead;
 
 	public static BoardKeysRecord ofThisMachine() {
+		return ofThisMachine(() -> { });
+	}
+
+	/* With what a test runs between reading the record and writing it, where another run may come in */
+	static BoardKeysRecord ofThisMachine(Runnable afterRead) {
 		final String root = StringUtils.left(Hex.encodeHexString(BoardKeyChain.root()), SHOWN_HEX);
 
-		return new BoardKeysRecord(directory().resolve(FILE.formatted(root)));
+		return new BoardKeysRecord(directory().resolve(FILE.formatted(root)), afterRead);
 	}
 
 	static Path directory() {
@@ -67,12 +77,36 @@ public final class BoardKeysRecord {
 	* Judges a chain that holds from the root of this machine, as a node or a file holds it, by the record: it has to
 	* hold the recorded chain whole, and a longer one takes its place. The text returned shows each change that the
 	* record took on; no board keys, or no change of them, records nothing.
+	*
+	* <p>The record is read, judged and written under a lock of a file beside it, which another run of the command line
+	* or of a util command waits for, and under one of this process, which a file lock does not keep its own threads
+	* out of: a run that read the record before another one wrote a longer chain would write a shorter one over it.
 	*/
 	public Optional<String> keep(Optional<List<KeyChange>> chain, String holder) throws RecordedChainException,
 		IOException {
 
+		final Path absolute = file.toAbsolutePath();
+
+		Files.createDirectories(absolute.getParent());
+
+		final Path lockFile = absolute.resolveSibling(absolute.getFileName() + ".lock");
+
+		synchronized (LOCK) {
+			try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
+				StandardOpenOption.WRITE); FileLock lock = channel.lock()) {
+
+				return keepLocked(chain, holder);
+			}
+		}
+	}
+
+	private Optional<String> keepLocked(Optional<List<KeyChange>> chain, String holder)
+		throws RecordedChainException, IOException {
+
 		final List<KeyChange> recorded = read().orElse(List.of());
 		final List<KeyChange> held = chain.orElse(List.of());
+
+		afterRead.run();
 
 		if (!recorded.isEmpty()) {
 			requireHeld(chain, recorded, holder);
@@ -192,7 +226,6 @@ public final class BoardKeysRecord {
 	}
 
 	private void write(List<KeyChange> chain) throws IOException {
-		Files.createDirectories(file.toAbsolutePath().getParent());
 		SporkDatabase.replace(file, channel -> {
 			channel.write(ByteBuffer.wrap(BoardKeyChain.encoded(chain)));
 			channel.force(true);
