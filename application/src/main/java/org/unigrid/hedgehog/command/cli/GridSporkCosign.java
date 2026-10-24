@@ -65,10 +65,10 @@ public class GridSporkCosign implements Runnable {
 	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
 	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
 
-	@Option(names = "--first-version", description = "Co-sign the first version of a spork when the node holds none"
-		+ " of its type. A first version takes the place of the one the network holds, so give this only for a spork"
-		+ " the network has none of.")
-	private boolean firstVersion;
+	@Option(names = "--first-version", paramLabel = "<type>", description = "The type of a spork whose first version"
+		+ " is co-signed when the node holds none of it; give it once for each such type. A first version takes the"
+		+ " place of the one the network holds, so give this only for a type the network has none of.")
+	private Set<GridSpork.Type> firstVersions = EnumSet.noneOf(GridSpork.Type.class);
 
 	@Spec
 	private CommandSpec spec;
@@ -171,14 +171,15 @@ public class GridSporkCosign implements Runnable {
 	}
 
 	/* A node that holds none of the type may be one that never got it, or one that hides it, and what is co-signed over
-	   nothing takes the place of whatever the network holds, so it is co-signed only by name, as it is proposed */
+	   nothing takes the place of whatever the network holds, so it is co-signed only by the name of its type, as it is
+	   proposed: many digests are co-signed in one run, and a type that the node hides among them is not named */
 	private void requireFirstVersionByName(GridSpork.Type type, Optional<GridSpork> stored)
 		throws UntrustedSporkException {
 
-		if (stored.isEmpty() && !firstVersion) {
+		if (stored.isEmpty() && !firstVersions.contains(type)) {
 			throw new UntrustedSporkException("the node holds no " + type + " spork, and a version over nothing"
-				+ " takes the place of the one the network holds; give --first-version to co-sign the first"
-				+ " version of it");
+				+ " takes the place of the one the network holds; give --first-version " + type
+				+ " to co-sign the first version of it");
 		}
 	}
 

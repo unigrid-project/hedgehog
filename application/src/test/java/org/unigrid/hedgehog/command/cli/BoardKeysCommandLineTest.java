@@ -99,7 +99,7 @@ public class BoardKeysCommandLineTest {
 
 	/* Of the first version that setSupply() proposes, as the node holds no supply */
 	private static GridSporkCosign cosign(Signature key, String digest) {
-		return parsed(new GridSporkCosign(), "-k", key.getPrivateKey(), "--first-version", digest);
+		return parsed(new GridSporkCosign(), "-k", key.getPrivateKey(), "--first-version", "MINT_SUPPLY", digest);
 	}
 
 	/* Signed by the two keys whether or not they are active, as anyone who holds them can */

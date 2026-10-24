@@ -116,15 +116,33 @@ public class ForgedVersionCommandTest {
 
 		assertThat(RestCommandFixture.run(cosign(laundered), node).out(), allOf(containsString("refused"),
 			containsString("--first-version")));
-		assertThat(RestCommandFixture.run(cosignWith(laundered, "--first-version"), node).out(), allOf(
-			containsString("refused"), containsString("not one that a current board key made")));
+		assertThat(RestCommandFixture.run(cosignWith(laundered, "--first-version", "MINT_SUPPLY"), node).out(),
+			allOf(containsString("refused"), containsString("not one that a current board key made")));
 		assertThat(node.submitted(), empty());
 
 		final FakeSporkNode fresh = new FakeSporkNode().holding(boardKeys).waitingOn(first);
 
 		assertThat(RestCommandFixture.run(cosign(first), fresh).out(), containsString("--first-version"));
-		assertThat(RestCommandFixture.run(cosignWith(first, "--first-version"), fresh).out(), containsString(
-			"Co-signed " + PendingSporks.digestOf(first)));
+		assertThat(RestCommandFixture.run(cosignWith(first, "--first-version", "MINT_SUPPLY"), fresh).out(),
+			containsString("Co-signed " + PendingSporks.digestOf(first)));
+	}
+
+	/* Many digests are co-signed in one run, so a first version is co-signed of the types named only, and none of a
+	   type that the node hides among them */
+	@Example
+	public void coSignsAFirstVersionOfTheTypesNamedOnly() {
+		final GridSpork first = GridSpork.nextVersion(Type.MINT_SUPPLY, null, Optional.empty());
+
+		first.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.TEN);
+		SporkCommands.sign(first, key(2));
+
+		final FakeSporkNode fresh = new FakeSporkNode().holding(boardKeys).waitingOn(first);
+
+		assertThat(RestCommandFixture.run(cosignWith(first, "--first-version", "LEDGER_FEE"), fresh).out(), allOf(
+			containsString("refused"), containsString("--first-version MINT_SUPPLY")));
+		assertThat(fresh.submitted(), empty());
+		assertThat(RestCommandFixture.run(cosignWith(first, "--first-version", "LEDGER_FEE", "--first-version",
+			"MINT_SUPPLY"), fresh).out(), containsString("Co-signed " + PendingSporks.digestOf(first)));
 	}
 
 	/* Over a version that switched-off keys signed, which may be forged, only its renewal is signed again */

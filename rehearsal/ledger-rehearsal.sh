@@ -123,7 +123,8 @@ node 1 gridspork-grow mint-storage --address "$(cat alice.pub)" --time 157783680
 DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
 [ "$(echo "$DIGESTS" | wc -w)" -eq 4 ] || fail "expected four proposals, found: $DIGESTS"
 # shellcheck disable=SC2086
-node 1 gridspork-cosign -k "$BOARD2_PRIVATE" --first-version $DIGESTS > /dev/null
+node 1 gridspork-cosign -k "$BOARD2_PRIVATE" --first-version MINT_SUPPLY --first-version LEDGER_FEE \
+	--first-version LEDGER_BLACKLIST --first-version MINT_STORAGE $DIGESTS > /dev/null
 
 balance_is() { node "$1" ledger balance "$2" | grep -q "\"balance\" : \"$3\""; }
 
@@ -163,7 +164,7 @@ node 1 gridspork-set board-keys -D "$WORK/change.json" --first-version --allow-u
 DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
 [ "$(echo "$DIGESTS" | wc -w)" -eq 1 ] || fail "expected the change of the board keys to wait, found: $DIGESTS"
 # shellcheck disable=SC2086
-node 1 gridspork-cosign -k "$BOARD3_PRIVATE" --first-version $DIGESTS > /dev/null
+node 1 gridspork-cosign -k "$BOARD3_PRIVATE" --first-version BOARD_KEYS $DIGESTS > /dev/null
 
 goes_by_the_new_board() {
 	local shown
