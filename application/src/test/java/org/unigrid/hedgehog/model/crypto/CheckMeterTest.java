@@ -44,10 +44,12 @@ public class CheckMeterTest {
 		final byte[] signature = signer.sign(DATA);
 		final AtomicInteger charged = new AtomicInteger();
 
+		final byte[] another = signer.sign(DATA);
+
 		CheckMeter.charging(() -> charged.incrementAndGet() > 0, () -> {
 			Signature.isSignedBy(signer.getPublicKey(), DATA, signature);
 			Signature.isSignedBy(signer.getPublicKey(), DATA, new byte[signature.length]);
-			return verifies(DigestUtils.sha512(DATA), signature, signer.getPublicKey());
+			return verifies(DigestUtils.sha512(DATA), another, signer.getPublicKey());
 		});
 
 		assertThat(charged.get(), is(3));

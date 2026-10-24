@@ -91,9 +91,11 @@ public class SporkLagTest {
 		return proposal(new MintSupply(), stamp, proposer);
 	}
 
+	/* Co-signing checks both signatures, which a node that hears the spork from a peer has not */
 	@SneakyThrows
 	private static <S extends GridSpork> S agreed(S spork) {
 		spork.cosign(cosigner.getPrivateKey());
+		NetworkKey.reset();
 		return spork;
 	}
 

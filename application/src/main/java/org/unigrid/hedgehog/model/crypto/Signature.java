@@ -45,6 +45,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.ObjectUtils;
 
 public class Signature {
 	private static final String KEYPAIR_NAME = "EC";
@@ -136,7 +138,15 @@ public class Signature {
 		return verify(DIGEST_SIGNATURE_NAME, digest, signatureData);
 	}
 
+	/* A signature over a digest is one over what was digested, so it is remembered as the same signature */
 	private boolean verify(String algorithm, byte[] data, byte[] signatureData) throws VerifySignatureException {
+		final byte[] digest = DIGEST_SIGNATURE_NAME.equals(algorithm) ? data : DigestUtils.sha512(data);
+		final String key = getPublicKey();
+
+		if (VerifiedSignatures.isKnown(key, digest, signatureData)) {
+			return true;
+		}
+
 		CheckMeter.charge();
 
 		try {
@@ -144,7 +154,7 @@ public class Signature {
 
 			signature.initVerify(publicKey);
 			signature.update(data);
-			return signature.verify(signatureData);
+			return remembered(key, digest, signatureData, signature.verify(signatureData));
 
 		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
 			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
@@ -165,6 +175,16 @@ public class Signature {
 	/* The key is not kept for the next check: the keys of gossiped entries are anyone's to make, and would fill the
 	   cache that holds the few keys the network signs with */
 	public static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData) {
+		if (ObjectUtils.anyNull(publicKeyHex, data, signatureData)) {
+			return false;
+		}
+
+		final byte[] digest = DigestUtils.sha512(data);
+
+		if (VerifiedSignatures.isKnown(publicKeyHex, digest, signatureData)) {
+			return true;
+		}
+
 		CheckMeter.charge();
 
 		try {
@@ -172,12 +192,20 @@ public class Signature {
 
 			signature.initVerify(publicKeyOf(publicKeyHex));
 			signature.update(data);
-			return signature.verify(signatureData);
+			return remembered(publicKeyHex, digest, signatureData, signature.verify(signatureData));
 
 		} catch (GeneralSecurityException | RuntimeException ex) {
 			/* Whatever the provider objects to in a hostile key or signature, the answer is: not signed */
 			return false;
 		}
+	}
+
+	private static boolean remembered(String key, byte[] digest, byte[] signature, boolean verifies) {
+		if (verifies) {
+			VerifiedSignatures.remember(key, digest, signature);
+		}
+
+		return verifies;
 	}
 
 	/* A point of the curve, in lower-case hex of the length that getPublicKey() gives, so that a key has one spelling

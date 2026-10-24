@@ -97,10 +97,12 @@ public class NetworkKey {
 		return Objects.isNull(installed) ? 0 : installed.length();
 	}
 
-	/* A process that starts over goes by the built-in keys again, as each test of a process does */
+	/* A process that starts over goes by the built-in keys again and has checked no signature, as each test of a
+	   process does */
 	public static void reset() {
 		INSTALLED.set(null);
 		GENERATION.incrementAndGet();
+		VerifiedSignatures.forget();
 	}
 
 	public static Optional<String> signerOf(Signable signable) {
@@ -111,8 +113,10 @@ public class NetworkKey {
 		return signerOf(digest, signature, Arrays.asList(getPublicKeys()));
 	}
 
+	/* A signature that verified before names its signer for nothing, before any key is tried that did not make it */
 	public static Optional<String> signerOf(byte[] digest, byte[] signature, Collection<String> keys) {
-		return keys.stream().filter(key -> verifies(digest, signature, key)).findFirst();
+		return keys.stream().filter(key -> VerifiedSignatures.isKnown(key, digest, signature)).findFirst()
+			.or(() -> keys.stream().filter(key -> verifies(digest, signature, key)).findFirst());
 	}
 
 	private static boolean verifies(byte[] digest, byte[] signature, String key) {
