@@ -85,13 +85,21 @@ public class MeteredCommitTest {
 		return proposal;
 	}
 
-	/* What checking that the spork may be taken costs, as a node that holds nothing checks it */
+	/* What checking that the spork may be taken costs, as a node that holds nothing and has checked none of its
+	   signatures checks it */
 	private static int checksToTake(BoardKeys spork) {
 		final AtomicInteger checks = new AtomicInteger();
 
+		forgetTheChecks();
 		CheckMeter.charging(() -> checks.incrementAndGet() > 0, () -> SerializationUtils.clone(spork)
 			.canReplace(null, () -> true));
+		forgetTheChecks();
 		return checks.get();
+	}
+
+	private static void forgetTheChecks() {
+		NetworkKey.reset();
+		LikelySigners.forget();
 	}
 
 	/* The source holds as many checks as taking the spork costs and one more, which the decision to check it asks for
@@ -100,8 +108,8 @@ public class MeteredCommitTest {
 		final Signature signer = key(7);
 
 		lag.turnOf(Type.BOARD_KEYS, SOURCE).charging(() -> {
-			IntStream.range(0, VerifySlots.BURST - checks).forEach(n -> Signature.isSignedBy(signer.getPublicKey(),
-				DATA, new byte[0]));
+			IntStream.range(0, VerifySlots.shareOf(SporkLag.Pool.OTHER) - checks).forEach(n -> Signature.isSignedBy(
+				signer.getPublicKey(), DATA, new byte[0]));
 			return true;
 		});
 	}

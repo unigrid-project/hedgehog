@@ -56,6 +56,9 @@ import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
 public class BoardKeysTurnTest {
 	private static final String SOURCE = "198.51.100.7";
 
+	/* What the bucket of an inbound peer holds, and fills by in a second */
+	private static final int SHARE = VerifySlots.shareOf(SporkLag.Pool.OTHER);
+
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private final SporkDatabase database = SporkDatabase.builder().build();
 	private final PendingSporks pending = new PendingSporks();
@@ -91,11 +94,11 @@ public class BoardKeysTurnTest {
 		final int approvals = chain.stream().mapToInt(change -> change.getApprovals().size()).sum();
 		int seconds = 0;
 
-		while (database.getBoardKeys() == null && seconds < 2 * approvals / VerifySlots.SHARE) {
+		while (database.getBoardKeys() == null && seconds < 2 * approvals / SHARE) {
 			final double before = lag.left(Type.BOARD_KEYS, SOURCE);
 
 			handler.receive(SerializationUtils.clone(spork), database, pending, lag, SOURCE);
-			assertThat(before - lag.left(Type.BOARD_KEYS, SOURCE), lessThanOrEqualTo((double) VerifySlots.BURST));
+			assertThat(before - lag.left(Type.BOARD_KEYS, SOURCE), lessThanOrEqualTo((double) SHARE));
 			now = now.plusSeconds(1);
 			seconds++;
 		}

@@ -47,9 +47,9 @@ public class SporkReceptionTest {
 	private static final String PEER = "198.51.100.7";
 	private static final String ANOTHER_PEER = "203.0.113.9";
 
-	/* The checks a peer pays for in a flood: the 32 of its bucket, and the 8 a second it fills by over a flood that
-	   may cross into a second and a third second. The keys are asked for at most once for each check. */
-	private static final int MOST_CHECKS = 32 + 2 * 8;
+	/* The checks an inbound peer pays for in a flood: the 8 of its bucket, and the 8 a second it fills by over a flood
+	   that may cross into a second and a third second. The keys are asked for at most once for each check. */
+	private static final int MOST_CHECKS = 8 + 2 * 8;
 
 	private static Signature proposer;
 	private static Signature cosigner;

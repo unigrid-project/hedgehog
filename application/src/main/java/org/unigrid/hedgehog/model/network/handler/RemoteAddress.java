@@ -29,6 +29,9 @@ import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 public final class RemoteAddress {
 	private static final AttributeKey<Integer> LISTEN_PORT_KEY = AttributeKey.valueOf("LISTEN_PORT");
 
+	/* Set by this node on a connection that it opens itself, as it opens it */
+	public static final AttributeKey<Boolean> DIALED_KEY = AttributeKey.valueOf("DIALED");
+
 	private RemoteAddress() {
 		/* Static helpers only */
 	}
@@ -58,6 +61,13 @@ public final class RemoteAddress {
 			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress())
 				.or(() -> connected.or(() -> learned).map(socket -> listening(connection, socket)));
 		});
+	}
+
+	/* Whether this node dialed the peer of the stream. Only a connection that the node opened is marked so, and nothing
+	   that a peer sends or says of itself marks one: anyone can connect to a node, while the peers that it dials are of
+	   its own choosing. */
+	public static boolean isDialed(final Channel stream) {
+		return Objects.nonNull(stream.parent()) && Boolean.TRUE.equals(stream.parent().attr(DIALED_KEY).get());
 	}
 
 	/* What a peer is called by anything that limits it: the name the ledger gives its peer, or the stream when the

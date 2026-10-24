@@ -19,101 +19,115 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Supplier;
+import java.util.OptionalLong;
+import java.util.function.LongSupplier;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.SporkLag.Pool;
 
 /**
-* Pays for the checks of signatures that a spork causes, which are costly and may be caused by anyone. A source, which
-* is the peer that sent the spork, pays from a bucket of its own for each type, which holds at most {@link #BURST}
-* checks and fills by {@link #SHARE} a second, so a peer that sends forged sporks spends only its own and leaves the
-* genuine spork of another peer its checks. Of a type at most {@link #CEILING} checks are paid for in a second whoever
-* pays, so that many sources cost a bounded amount of work. A spork is charged each check as it is made, never less.
+* Pays for the checks of signatures that the sporks from peers cause, which are costly and which anyone can cause. A
+* source pays for each check as it is made, from a bucket of its own for the type, which fills by the share of its pool
+* a second and holds no more than that. The checks of a second are held to a ceiling for each type and to one for the
+* node, and of each ceiling the peers that this node dialed itself ({@link Pool#TRUSTED}) share three quarters, every
+* other peer the quarter left: anyone can open streams to a node from as many addresses as they like, and so spend
+* that quarter, while the peers that a node dials are of its own choosing.
 *
-* <p>Only a bucket that is not full is remembered, so what is held never exceeds the sources that paid while their
-* buckets fill again, however many sources there are.
+* <p>A second is one of the monotonic clock, so that no clock that is set back opens a second again, and what a
+* genuine spork was charged is given back to the second it was charged in only. Only a bucket that is not full is
+* remembered, so what is held never exceeds the sources that paid while their buckets fill again.
 */
 final class VerifySlots {
-	/* A check of a signature is milliseconds of one core, so a few dozen a second for each type cost nothing that
-	   is noticed. A genuine spork is sent by every honest peer again and again, and needs only one of them to
-	   be checked. */
-	static final int CEILING = 32;
+	/* A check of a P-521 signature takes about a millisecond of one core. A node spends at most a quarter of a core on
+	   checking what peers send it, and the sporks of one type at most half of that, so that a flood of one type leaves
+	   the others room. */
+	static final int NODE_CEILING = 256;
+	static final int TYPE_CEILING = 128;
 
-	/* What the bucket of a source fills by in a second, so that one peer that keeps sending leaves three quarters of a
-	   second to the others */
-	static final int SHARE = CEILING / 4;
+	private static final int QUARTERS = 4;
+	private static final int TRUSTED_QUARTERS = 3;
+	private static final long NANOS_PER_SECOND = Duration.ofSeconds(1).toNanos();
 
-	/* What the bucket of a source holds at most */
-	static final int BURST = CEILING;
-
-	private static final double MILLIS_PER_SECOND = Duration.ofSeconds(1).toMillis();
-
-	private record Slot(Type type, String source) {
+	private record Slot(Type type, Pool pool, String source) {
 	}
 
-	private record Window(Instant start, int taken) {
+	private record Window(long second, int taken) {
 	}
 
-	private record Bucket(double checks, Instant at) {
-		private Bucket filledUntil(final Instant now) {
-			final double filled = Duration.between(at, now).toMillis() * SHARE / MILLIS_PER_SECOND;
+	private record Bucket(double checks, long at) {
+		private Bucket filledUntil(final long now, final Pool pool) {
+			final double filled = (double) Math.max(0, now - at) * shareOf(pool) / NANOS_PER_SECOND;
 
-			return new Bucket(Math.min(BURST, checks + Math.max(0, filled)), now);
-		}
-
-		private boolean isFull() {
-			return checks >= BURST;
+			return new Bucket(Math.min(shareOf(pool), checks + filled), now);
 		}
 	}
 
-	private final Supplier<Instant> clock;
+	private final LongSupplier nanos;
 	private final Map<Slot, Bucket> buckets = new HashMap<>();
-	private final Map<Type, Window> windows = new EnumMap<>(Type.class);
-	private Instant sweptAt;
+	private final Map<Type, Map<Pool, Window>> typeWindows = new EnumMap<>(Type.class);
+	private final Map<Pool, Window> nodeWindows = new EnumMap<>(Pool.class);
+	private long sweptIn = Long.MIN_VALUE;
 
-	VerifySlots(final Supplier<Instant> clock) {
-		this.clock = clock;
+	VerifySlots(final LongSupplier nanos) {
+		this.nanos = nanos;
 	}
 
-	/* Whether the source can pay for one check more, and the type has one left in this second */
-	synchronized boolean hasLeft(final Type type, final String source) {
-		final Instant now = clock.get();
-
-		return bucketOf(new Slot(type, source), now).checks() >= 1 && windowOf(type, now).taken() < CEILING;
+	/* What the peers of a pool may spend of a ceiling */
+	static int ceilingOf(final Pool pool, final int ceiling) {
+		return pool == Pool.TRUSTED ? ceiling * TRUSTED_QUARTERS / QUARTERS : ceiling / QUARTERS;
 	}
 
-	/* The lock is held for the payment only, never while a signature is checked. What costs more than the source
-	   holds, or than the second has left, is not paid for at all. */
-	synchronized boolean take(final Type type, final String source, final int checks) {
-		final Instant now = clock.get();
-		final Slot slot = new Slot(type, source);
+	/* What the bucket of a source fills by in a second and holds at most: a quarter of what its pool spends on a type,
+	   so that a source that floods leaves three quarters of a second to the others of its pool */
+	static int shareOf(final Pool pool) {
+		return ceilingOf(pool, TYPE_CEILING) / QUARTERS;
+	}
+
+	/* Whether the source can pay for one check more, and its pool has one left in this second */
+	synchronized boolean hasLeft(final Type type, final Pool pool, final String source) {
+		final long now = nanos.getAsLong();
+
+		return bucketOf(new Slot(type, pool, source), now).checks() >= 1 && hasRoom(type, pool, secondOf(now));
+	}
+
+	/* One check, paid for by the source, or nothing at all; the second it was paid in. The lock is held for the
+	   payment only, never while a signature is checked. */
+	synchronized OptionalLong take(final Type type, final Pool pool, final String source) {
+		final long now = nanos.getAsLong();
+		final long second = secondOf(now);
+		final Slot slot = new Slot(type, pool, source);
 		final Bucket bucket = bucketOf(slot, now);
-		final Window window = windowOf(type, now);
 
-		sweep(now);
+		sweep(second, now);
 
-		if (bucket.checks() >= checks && window.taken() + checks <= CEILING) {
-			buckets.put(slot, new Bucket(bucket.checks() - checks, now));
-			windows.put(type, new Window(window.start(), window.taken() + checks));
-			return true;
+		if (bucket.checks() < 1 || !hasRoom(type, pool, second)) {
+			return OptionalLong.empty();
 		}
 
-		return false;
+		buckets.put(slot, new Bucket(bucket.checks() - 1, now));
+		windowsOf(type).put(pool, new Window(second, windowOf(windowsOf(type), pool, second).taken() + 1));
+		nodeWindows.put(pool, new Window(second, windowOf(nodeWindows, pool, second).taken() + 1));
+		return OptionalLong.of(second);
 	}
 
-	/* What was paid for a genuine spork is given back, so a peer that sends several in a row has each of them
-	   checked, and only checks that fail cost a peer */
-	synchronized void giveBack(final Type type, final String source, final int checks) {
-		final Instant now = clock.get();
-		final Slot slot = new Slot(type, source);
+	/* What was paid for a genuine spork is given back to its source whole, so that a peer that sends several in a row
+	   has each of them checked, and to the second it was paid in, as long as that second lasts: a second that has
+	   passed holds no checks to give back, and the one after it holds none of them */
+	synchronized void giveBack(final Type type, final Pool pool, final String source, final int checks,
+		final long paidIn, final int checksOfThatSecond) {
 
-		buckets.put(slot, new Bucket(Math.min(BURST, bucketOf(slot, now).checks() + checks), now));
-		windows.computeIfPresent(type, (key, window) -> new Window(window.start(),
-			Math.max(0, window.taken() - checks)));
+		final long now = nanos.getAsLong();
+		final Slot slot = new Slot(type, pool, source);
+
+		buckets.put(slot, new Bucket(Math.min(shareOf(pool), bucketOf(slot, now).checks() + checks), now));
+
+		if (secondOf(now) == paidIn) {
+			lessen(windowsOf(type), pool, paidIn, checksOfThatSecond);
+			lessen(nodeWindows, pool, paidIn, checksOfThatSecond);
+		}
 	}
 
 	synchronized int tracked() {
@@ -121,30 +135,45 @@ final class VerifySlots {
 	}
 
 	/* What the bucket of a source holds now; a source that has not paid since its bucket filled holds the most */
-	synchronized double left(final Type type, final String source) {
-		return bucketOf(new Slot(type, source), clock.get()).checks();
+	synchronized double left(final Type type, final Pool pool, final String source) {
+		return bucketOf(new Slot(type, pool, source), nanos.getAsLong()).checks();
 	}
 
-	private Bucket bucketOf(final Slot slot, final Instant now) {
+	private boolean hasRoom(final Type type, final Pool pool, final long second) {
+		return windowOf(windowsOf(type), pool, second).taken() < ceilingOf(pool, TYPE_CEILING)
+			&& windowOf(nodeWindows, pool, second).taken() < ceilingOf(pool, NODE_CEILING);
+	}
+
+	private Bucket bucketOf(final Slot slot, final long now) {
 		final Bucket bucket = buckets.get(slot);
 
-		return Objects.isNull(bucket) ? new Bucket(BURST, now) : bucket.filledUntil(now);
+		return Objects.isNull(bucket) ? new Bucket(shareOf(slot.pool()), now) : bucket.filledUntil(now, slot.pool());
 	}
 
-	private Window windowOf(final Type type, final Instant now) {
-		final Window window = windows.get(type);
-
-		return Objects.isNull(window) || hasPassed(window.start(), now) ? new Window(now, 0) : window;
+	private Map<Pool, Window> windowsOf(final Type type) {
+		return typeWindows.computeIfAbsent(type, key -> new EnumMap<>(Pool.class));
 	}
 
-	private void sweep(final Instant now) {
-		if (hasPassed(sweptAt, now)) {
-			buckets.values().removeIf(bucket -> bucket.filledUntil(now).isFull());
-			sweptAt = now;
+	private static Window windowOf(final Map<Pool, Window> windows, final Pool pool, final long second) {
+		final Window window = windows.get(pool);
+
+		return Objects.isNull(window) || window.second() != second ? new Window(second, 0) : window;
+	}
+
+	private static void lessen(final Map<Pool, Window> windows, final Pool pool, final long second, final int checks) {
+		windows.computeIfPresent(pool, (key, window) -> window.second() == second
+			? new Window(second, Math.max(0, window.taken() - checks)) : window);
+	}
+
+	private void sweep(final long second, final long now) {
+		if (second != sweptIn) {
+			buckets.entrySet().removeIf(entry -> entry.getValue().filledUntil(now, entry.getKey().pool())
+				.checks() >= shareOf(entry.getKey().pool()));
+			sweptIn = second;
 		}
 	}
 
-	private static boolean hasPassed(final Instant since, final Instant now) {
-		return Objects.isNull(since) || !now.isBefore(since.plus(SporkLag.VERIFY_GAP));
+	private static long secondOf(final long now) {
+		return Math.floorDiv(now, NANOS_PER_SECOND);
 	}
 }

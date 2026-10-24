@@ -63,6 +63,7 @@ import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -113,6 +114,7 @@ public class P2PClient extends ConnectionContainer {
 		final InetSocketAddress address = new InetSocketAddress(hostname, port);
 		final QuicChannel quicChannel = QuicChannel.newBootstrap(channelBootstrap)
 			.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY, address)
+			.attr(RemoteAddress.DIALED_KEY, Boolean.TRUE)
 			.handler(new ProtocolMismatchHandler())
 			.streamHandler(new ChannelInboundHandlerAdapter())
 			.remoteAddress(address)

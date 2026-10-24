@@ -47,6 +47,10 @@ public class SporkLagTest {
 	private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
 	private static final String PEER = "198.51.100.7";
 
+	/* What the bucket of an inbound peer holds, and what inbound peers may spend on a type in a second */
+	private static final int SHARE = VerifySlots.shareOf(SporkLag.Pool.OTHER);
+	private static final int CEILING = VerifySlots.ceilingOf(SporkLag.Pool.OTHER, VerifySlots.TYPE_CEILING);
+
 	private static Signature proposer;
 	private static Signature cosigner;
 
@@ -342,19 +346,18 @@ public class SporkLagTest {
 
 	/* What a source has paid for the checks of the sporks of a type that it sent */
 	private double paidBy(Type type, String source) {
-		return VerifySlots.BURST - lag.left(type, source);
+		return SHARE - lag.left(type, source);
 	}
 
 	/* Forged sporks of the source, each one new, as many as it takes to spend its bucket and more */
 	private void spendTheBucketOf(String source) {
-		IntStream.range(0, VerifySlots.BURST).forEach(n -> lag.record(forged(ago(Duration.ofMinutes(9))), database,
-			source));
+		IntStream.range(0, SHARE).forEach(n -> lag.record(forged(ago(Duration.ofMinutes(9))), database, source));
 	}
 
 	@Example
 	public void checksTheSporksOfASourceAsFarAsItsBucketPaysAndAgainOnceItFillsAndTheTypesCountApart() {
 		spendTheBucketOf(PEER);
-		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) VerifySlots.BURST));
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) SHARE));
 
 		lag.record(agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer)), database, PEER);
 		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(true));
@@ -396,13 +399,13 @@ public class SporkLagTest {
 
 		sources.forEach(source -> lag.record(heard(forged), database, source));
 		assertThat(sources.stream().mapToDouble(source -> paidBy(Type.MINT_SUPPLY, source)).sum(),
-			is((double) VerifySlots.CEILING));
+			is((double) CEILING));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
 		keyLookups = 0;
 		sources.forEach(source -> lag.record(heard(forged), database, source));
 		assertThat(keyLookups > 0, is(true));
-		assertThat(keyLookups <= VerifySlots.CEILING, is(true));
+		assertThat(keyLookups <= CEILING, is(true));
 	}
 
 	@Example
@@ -447,14 +450,14 @@ public class SporkLagTest {
 		assertThat(refused.charging(agreement(ago(Duration.ofMinutes(5)))::isDoublySigned), is(false));
 
 		refused.giveBack();
-		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) VerifySlots.BURST));
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) SHARE));
 	}
 
 	@Example
 	public void countsTheCeilingForEachTypeApart() {
 		final MintSupply supply = forged(ago(Duration.ofMinutes(9)));
 
-		IntStream.range(0, 2 * VerifySlots.CEILING).forEach(n -> lag.record(heard(supply), database,
+		IntStream.range(0, 2 * CEILING).forEach(n -> lag.record(heard(supply), database,
 			"source-" + n));
 		assertThat(lag.turnOf(Type.MINT_SUPPLY, "another").getAsBoolean(), is(false));
 

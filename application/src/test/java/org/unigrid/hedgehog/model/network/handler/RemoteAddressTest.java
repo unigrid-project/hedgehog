@@ -48,6 +48,22 @@ public class RemoteAddressTest {
 		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false);
 	}
 
+	/* Only a connection that this node opened is marked as dialed, and what a peer says of itself marks none */
+	@Example
+	public void takesAPeerForOneThisNodeDialedByTheConnectionThatItOpenedOnly() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final EmbeddedChannel inbound = new EmbeddedChannel();
+		final Channel listening = streamOf(inbound);
+
+		dialed.attr(RemoteAddress.DIALED_KEY).set(Boolean.TRUE);
+		inbound.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
+		RemoteAddress.listensOn(listening, PORT);
+
+		assertThat(RemoteAddress.isDialed(streamOf(dialed)), equalTo(true));
+		assertThat(RemoteAddress.isDialed(listening), equalTo(false));
+		assertThat(RemoteAddress.isDialed(new EmbeddedChannel()), equalTo(false));
+	}
+
 	@Example
 	public void readsTheAddressTheServerLearnedOfTheConnection() {
 		final EmbeddedChannel connection = new EmbeddedChannel();

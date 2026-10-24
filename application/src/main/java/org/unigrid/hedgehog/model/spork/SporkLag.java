@@ -26,13 +26,14 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BinaryOperator;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.crypto.CheckMeter;
 import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
@@ -52,9 +53,10 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * stored spork. Nothing else is trusted, so a peer without a network key cannot make a node wait. Anyone can
 * send a frame and a check costs a signature verification, so the check is made only for a spork newer than the
 * stored one (an older one cannot make the node behind), and each check is paid for by the sending peer from its
-* bucket for the type ({@link VerifySlots}), no more than {@link VerifySlots#CEILING} a second ({@link #VERIFY_GAP})
-* for a type whoever sends. A flood of forged sporks from one peer spends only the bucket of that peer, and the
-* sporks that were turned away are sent again.
+* bucket for the type, in the pool of the peers it is among ({@link VerifySlots}). Inbound peers that flood forged
+* sporks spend the quarter of the checks that inbound peers share, and a peer that this node dialed still has a
+* version that moved on checked, so the node learns from it that it is behind; the sporks that were turned away are
+* sent again.
 *
 * <p>What is remembered is bounded: a time stamp more than {@link #FUTURE_ALLOWANCE} ahead of this node's
 * clock is recorded as that far ahead. A spork stays remembered until the stored spork catches up. The memory is
@@ -65,8 +67,6 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * lock is held while a signature is verified.
 */
 @ApplicationScoped
-@NoArgsConstructor
-@AllArgsConstructor(access = AccessLevel.PACKAGE)
 public class SporkLag {
 	public static final Duration FUTURE_ALLOWANCE = Duration.ofMinutes(10);
 	public static final Duration VERIFY_GAP = Duration.ofSeconds(1);
@@ -76,16 +76,38 @@ public class SporkLag {
 
 	private static final BinaryOperator<Instant> LATER = BinaryOperator.maxBy(Comparator.naturalOrder());
 
-	private InstantSource clock = InstantSource.system();
+	/**
+	* The peers that pay for the checks of what they send from a share of their own: those that this node dialed
+	* itself, which no one else chooses, and every other peer, which anyone can open streams as from as many addresses
+	* as they like. A peer is among those that this node dialed by the connection that it opened, never by what the
+	* peer says of itself.
+	*/
+	public enum Pool {
+		TRUSTED, OTHER
+	}
+
+	private final InstantSource clock;
 	private final Map<Type, Instant> agreed = new ConcurrentHashMap<>();
-	private final VerifySlots slots = new VerifySlots(() -> clock.instant());
+	private final VerifySlots slots;
+
+	public SporkLag() {
+		this(InstantSource.system(), System::nanoTime);
+	}
+
+	/* A clock that a test moves on, which the seconds of the checks follow too */
+	SporkLag(InstantSource clock) {
+		this(clock, () -> TimeUnit.MILLISECONDS.toNanos(clock.millis()));
+	}
+
+	private SporkLag(InstantSource clock, LongSupplier nanos) {
+		this.clock = clock;
+		this.slots = new VerifySlots(nanos);
+	}
 
 	/**
-	* Notes what a spork that came in tells of the network. Verifying is the costly part and anyone can send a frame,
-	* so a spork is checked only if it could make the node behind, which a spork no newer than the stored one cannot,
-	* and if it would move the record. The source is the peer that sent it: it may have one spork of a type checked
-	* a second, so a peer that floods forged sporks holds up no other peer, and one that is turned away for coming
-	* too soon is not recorded: a later one will be, as every peer sends the sporks again and again.
+	* Notes what a spork that came in tells of the network, as an inbound peer sends it. Verifying is the costly part
+	* and anyone can send a frame, so a spork is checked only if it could make the node behind, which a spork no newer
+	* than the stored one cannot, and if it would move the record.
 	*/
 	public void record(GridSpork spork, SporkDatabase db, String source) {
 		record(spork, db, turnOf(spork.getType(), source));
@@ -93,7 +115,7 @@ public class SporkLag {
 
 	/**
 	* Notes what a spork that came in tells of the network, as {@link #record(GridSpork, SporkDatabase, String)} does,
-	* with the turn its source was given for it.
+	* with the turn its source was given for it, which pays for its checks.
 	*/
 	public void record(GridSpork spork, SporkDatabase db, Turn turn) {
 		if (couldMakeBehind(spork, db)) {
@@ -107,29 +129,37 @@ public class SporkLag {
 		}
 	}
 
+	/* The turn of an inbound peer, or of what is handed to this node over REST */
 	public Turn turnOf(Type type, String source) {
-		return new Turn(type, source);
+		return turnOf(type, source, Pool.OTHER);
+	}
+
+	public Turn turnOf(Type type, String source, Pool pool) {
+		return new Turn(type, source, pool);
 	}
 
 	/**
 	* The account of the source of one spork that came in, which pays for each check of its signatures as it is made,
-	* from the bucket of the source for the type (VerifySlots). A spork whose source has nothing left is not checked,
-	* one that fails a cheaper test first costs nothing, and a chain of board keys that costs more than the source
-	* holds is checked as far as it pays, the changes that hold being remembered for the next time it comes. What a
-	* spork was charged is given back when it proves genuine.
+	* from the bucket of the source for the type in its pool (VerifySlots). A spork whose source has nothing left is
+	* not checked, one that fails a cheaper test first costs nothing, and a chain of board keys that costs more than
+	* the source holds is checked as far as it pays, what verified of it being remembered for the next time it comes.
+	* What a spork was charged is given back when it proves genuine, to the second it was charged in only.
 	*/
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 	public final class Turn implements BooleanSupplier {
 		private final Type type;
 		@Getter private final String source;
+		private final Pool pool;
 		private int charged;
+		private long second;
+		private int chargedThatSecond;
 
 		/* Whether the source can pay for a check, which is asked right before the first one. What is handed to this
 		   node over REST is not limited: it comes from a holder of the REST token, not from anyone who can send a
 		   frame. */
 		@Override
 		public boolean getAsBoolean() {
-			return LOCAL.equals(source) || slots.hasLeft(type, source);
+			return isLocal() || slots.hasLeft(type, pool, source);
 		}
 
 		/* The work, each of its checks paid for by the source; work that the source cannot pay for in full answers
@@ -143,24 +173,47 @@ public class SporkLag {
 		}
 
 		private boolean pay() {
-			final boolean isPaid = LOCAL.equals(source) || slots.take(type, source, 1);
+			if (isLocal()) {
+				return true;
+			}
 
-			charged += isPaid && !LOCAL.equals(source) ? 1 : 0;
-			return isPaid;
+			final OptionalLong paidIn = slots.take(type, pool, source);
+
+			paidIn.ifPresent(this::paidIn);
+			return paidIn.isPresent();
+		}
+
+		private void paidIn(long check) {
+			if (charged == 0 || check != second) {
+				second = check;
+				chargedThatSecond = 0;
+			}
+
+			charged++;
+			chargedThatSecond++;
 		}
 
 		/* A spork that passed its checks was genuine, so its source gets back what it paid for the next one */
 		public void giveBack() {
 			if (charged > 0) {
-				slots.giveBack(type, source, charged);
+				slots.giveBack(type, pool, source, charged, second, chargedThatSecond);
 				charged = 0;
+				chargedThatSecond = 0;
 			}
+		}
+
+		private boolean isLocal() {
+			return LOCAL.equals(source);
 		}
 	}
 
-	/* What the bucket of the source holds for the type */
+	/* What the bucket of an inbound source holds for the type */
 	double left(Type type, String source) {
-		return slots.left(type, source);
+		return left(type, Pool.OTHER, source);
+	}
+
+	double left(Type type, Pool pool, String source) {
+		return slots.left(type, pool, source);
 	}
 
 	private static boolean couldMakeBehind(GridSpork spork, SporkDatabase db) {

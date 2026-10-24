@@ -49,11 +49,13 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		}
 
 		final String source = RemoteAddress.idOf(ctx.channel());
+		final SporkLag.Pool pool = RemoteAddress.isDialed(ctx.channel()) ? SporkLag.Pool.TRUSTED
+			: SporkLag.Pool.OTHER;
 
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
 				CDIUtil.resolveAndRun(SporkLag.class, lag -> {
-					if (receive(spork, db, pendingSporks, lag, source)) {
+					if (receive(spork, db, pendingSporks, lag, source, pool)) {
 						CDIUtil.resolveAndRun(Topology.class, topology -> {
 							SporkRecipients.sendAll(spork, topology);
 						});
@@ -66,7 +68,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	/**
 	* Stores a co-signed spork that may replace the stored one, or holds a spork signed once as a proposal.
 	* Returns whether the spork was new to this node, and should therefore travel further. The source is the peer
-	* that sent it, as {@link RemoteAddress#idOf} names it.
+	* that sent it, as {@link RemoteAddress#idOf} names it, which pays as a peer that this node did not dial.
 	*
 	* <p>Anyone can send a frame and checking a signature is the costly part, so each signature of a spork is checked
 	* on the account of its source ({@link SporkLag.Turn}), as it is checked. A peer that floods forged sporks spends
@@ -77,8 +79,18 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
 		String source) {
 
+		return receive(spork, db, pendingSporks, lag, source, SporkLag.Pool.OTHER);
+	}
+
+	/**
+	* Stores or holds a spork as {@link #receive(GridSpork, SporkDatabase, PendingSporks, SporkLag, String)} does, on
+	* the account of a source in the pool given: a peer that this node dialed, or any other ({@link SporkLag.Pool}).
+	*/
+	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
+		String source, SporkLag.Pool pool) {
+
 		final GridSpork stored = db.get(spork.getType());
-		final SporkLag.Turn turn = lag.turnOf(spork.getType(), source);
+		final SporkLag.Turn turn = lag.turnOf(spork.getType(), source, pool);
 
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
 		lag.record(spork, db, turn);

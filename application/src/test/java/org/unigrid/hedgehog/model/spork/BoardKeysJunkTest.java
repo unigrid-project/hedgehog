@@ -61,6 +61,9 @@ public class BoardKeysJunkTest {
 	/* What checking the junk costs: the approvals of keys 0 and 1, which verify, and the one of key 2, which does not */
 	private static final int CHECKS_OF_JUNK = 3;
 
+	/* What the bucket of an inbound peer holds */
+	private static final int SHARE = VerifySlots.shareOf(SporkLag.Pool.OTHER);
+
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private final SporkDatabase database = SporkDatabase.builder().build();
 	private final PendingSporks pending = new PendingSporks();
@@ -98,7 +101,7 @@ public class BoardKeysJunkTest {
 	@Example
 	public void shouldChargeASourceWhatCheckingItsSporkCost() {
 		receive(junk(), JUNK_SOURCE);
-		assertThat(VerifySlots.BURST - lag.left(Type.BOARD_KEYS, JUNK_SOURCE), is((double) CHECKS_OF_JUNK));
+		assertThat(SHARE - lag.left(Type.BOARD_KEYS, JUNK_SOURCE), is((double) CHECKS_OF_JUNK));
 	}
 
 	@Example
@@ -119,7 +122,7 @@ public class BoardKeysJunkTest {
 			now = now.plusSeconds(1);
 		}
 
-		assertThat(junkChecks, lessThanOrEqualTo(VerifySlots.BURST + (seconds - 1) * VerifySlots.SHARE));
+		assertThat(junkChecks, lessThanOrEqualTo(seconds * SHARE));
 		assertThat(database.getBoardKeys(), notNullValue());
 		assertThat(database.getBoardKeys().getSignable(), equalTo(honest.getSignable()));
 	}
@@ -128,6 +131,6 @@ public class BoardKeysJunkTest {
 	@Example
 	public void shouldGiveBackWhatAGenuineSporkCost() {
 		assertThat(receive(signed(chainOf(adding), key(0), key(1)), HONEST_SOURCE), is(true));
-		assertThat(lag.left(Type.BOARD_KEYS, HONEST_SOURCE), is((double) VerifySlots.BURST));
+		assertThat(lag.left(Type.BOARD_KEYS, HONEST_SOURCE), is((double) SHARE));
 	}
 }
