@@ -72,7 +72,8 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	*
 	* <p>Anyone can send a frame and checking a signature is the costly part, so each signature of a spork is checked
 	* on the account of its source ({@link SporkLag.Turn}), as it is checked. A peer that floods forged sporks spends
-	* its own checks and no other peer's, and a genuine spork gives back what it cost for the next one. What the
+	* its own checks and no other peer's, and a genuine co-signed spork gives back what it cost for the next one,
+	* while a proposal gives back nothing, as one key alone makes as many as it likes. What the
 	* node does once it took a co-signed spork, storing it and dropping the proposals it outdates, is its own work and
 	* is paid for by no one, so a source whose checks run out right then leaves the node whole.
 	*/
@@ -95,9 +96,9 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
 		lag.record(spork, db, turn);
 
+		/* One active key makes as many genuine proposals as it likes, so what one cost is never given back */
 		if (spork.isPending()) {
-			return given(turn, turn.charging(() -> pendingSporks.offer(spork, () -> db.get(spork.getType()),
-				turn)));
+			return turn.charging(() -> pendingSporks.offer(spork, () -> db.get(spork.getType()), turn));
 		}
 
 		if (pendingSporks.isAheadOfTime(spork)) {
@@ -112,14 +113,6 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 
 		turn.giveBack();
 		return commit(spork, stored, db, pendingSporks);
-	}
-
-	private static boolean given(SporkLag.Turn turn, boolean isTaken) {
-		if (isTaken) {
-			turn.giveBack();
-		}
-
-		return isTaken;
 	}
 
 	private static boolean mayReplace(GridSpork spork, GridSpork stored, SporkDatabase db, SporkLag.Turn turn) {

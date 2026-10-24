@@ -24,15 +24,15 @@ import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.NoArgsConstructor;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -41,10 +41,12 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * Holds sporks signed by one network key while they wait for a second key to co-sign them. They live in
 * memory only, one per spork type, and every node drops them once their time stamp is further than
 * {@link #LIFETIME} away, so an abandoned proposal disappears from the whole network at the same time.
+*
+* <p>Every proposal that one active key makes is genuine, and every node checks each one it is sent, so a node takes
+* no more than {@link #MOST_PROPOSALS_A_MINUTE} proposals of a type from one key in a minute of its monotonic clock,
+* and sends no more on: one key holds no node to checking proposals without end.
 */
 @ApplicationScoped
-@NoArgsConstructor
-@AllArgsConstructor(access = AccessLevel.PACKAGE)
 public class PendingSporks {
 	public static final Duration LIFETIME = Duration.ofMinutes(60);
 
@@ -52,8 +54,32 @@ public class PendingSporks {
 	   time came; a proposal is taken no further ahead than clocks that are set right drift apart */
 	public static final Duration LEEWAY = Duration.ofMinutes(2);
 
-	private InstantSource clock = InstantSource.system();
+	/* A board member who proposes, finds a mistake and proposes again does so a few times a minute at most */
+	public static final int MOST_PROPOSALS_A_MINUTE = 12;
+
+	private static final long NANOS_PER_MINUTE = Duration.ofMinutes(1).toNanos();
+
+	private record Taken(long minute, int proposals) {
+	}
+
+	private final InstantSource clock;
+	private final LongSupplier nanos;
 	private final Map<Type, GridSpork> proposals = new EnumMap<>(Type.class);
+	private final Map<Type, Map<String, Taken>> takenBySigner = new EnumMap<>(Type.class);
+
+	public PendingSporks() {
+		this(InstantSource.system(), System::nanoTime);
+	}
+
+	/* A clock that a test moves on, which the minutes of the proposals taken follow too */
+	PendingSporks(InstantSource clock) {
+		this(clock, () -> TimeUnit.MILLISECONDS.toNanos(clock.millis()));
+	}
+
+	private PendingSporks(InstantSource clock, LongSupplier nanos) {
+		this.clock = clock;
+		this.nanos = nanos;
+	}
 
 	public static String digestOf(GridSpork spork) {
 		return DigestUtils.sha512Hex(spork.getSignable());
@@ -92,14 +118,43 @@ public class PendingSporks {
 			return false;
 		}
 
+		/* Named for nothing, as the signature was checked just now */
+		final Optional<String> signer = spork.signerOfHead(spork.getSignature());
+
 		synchronized (this) {
-			if (isUnchanged(generation, over, stored) && mayTakeThePlaceOfTheHeld(spork)) {
+			if (isUnchanged(generation, over, stored) && mayTakeThePlaceOfTheHeld(spork)
+				&& signer.filter(key -> mayTakeOneMoreOf(spork.getType(), key)).isPresent()) {
+
 				proposals.put(spork.getType(), spork);
+				tookOneMoreOf(spork.getType(), signer.get());
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	private boolean mayTakeOneMoreOf(Type type, String signer) {
+		return takenOf(type, signer, minuteNow()).proposals() < MOST_PROPOSALS_A_MINUTE;
+	}
+
+	/* What was taken in a minute that has passed is forgotten, so what is held stays within the keys of the board */
+	private void tookOneMoreOf(Type type, String signer) {
+		final long minute = minuteNow();
+		final Map<String, Taken> taken = takenBySigner.computeIfAbsent(type, key -> new HashMap<>());
+
+		taken.put(signer, new Taken(minute, takenOf(type, signer, minute).proposals() + 1));
+		taken.values().removeIf(earlier -> earlier.minute() != minute);
+	}
+
+	private Taken takenOf(Type type, String signer, long minute) {
+		final Taken taken = takenBySigner.getOrDefault(type, Map.of()).get(signer);
+
+		return Objects.isNull(taken) || taken.minute() != minute ? new Taken(minute, 0) : taken;
+	}
+
+	private long minuteNow() {
+		return Math.floorDiv(nanos.getAsLong(), NANOS_PER_MINUTE);
 	}
 
 	private static boolean isUnchanged(long generation, GridSpork over, Supplier<GridSpork> stored) {
