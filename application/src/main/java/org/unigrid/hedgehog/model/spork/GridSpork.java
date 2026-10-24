@@ -29,7 +29,9 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -296,9 +298,7 @@ public class GridSpork implements Serializable, Signable {
 			return known.isDoublySigned();
 		}
 
-		final Set<String> keys = headKeys();
-		final boolean isDoublySigned = isPair(signerOf(digest, signature, keys),
-			signerOf(digest, cosignature, keys));
+		final boolean isDoublySigned = isDoublySignedBy(digest, headKeys());
 
 		/* Copies, as the arrays are the spork's own and may be written to in place */
 		headCheck = new HeadCheck(generation, digest, ArrayUtils.clone(signature), ArrayUtils.clone(cosignature),
@@ -306,12 +306,20 @@ public class GridSpork implements Serializable, Signable {
 		return isDoublySigned;
 	}
 
-	private static Optional<String> signerOf(byte[] digest, byte[] headSignature, Set<String> keys) {
-		return Objects.isNull(headSignature) ? Optional.empty() : NetworkKey.signerOf(digest, headSignature, keys);
+	private boolean isDoublySignedBy(Set<String> keys) {
+		return isDoublySignedBy(DigestUtils.sha512(getSignable()), keys);
 	}
 
-	private boolean isDoublySignedBy(Set<String> keys) {
-		return isPair(signerOfHead(signature, keys), signerOfHead(cosignature, keys));
+	/* The co-signature is of another key than the signature, and is tried only once a key made the signature, so that
+	   a head that no key signed is tried against each key once */
+	private boolean isDoublySignedBy(byte[] digest, Set<String> keys) {
+		final Optional<String> signer = signerAmong(digest, signature, keys);
+
+		return signer.isPresent() && signerAmong(digest, cosignature, othersThan(signer, keys)).isPresent();
+	}
+
+	private static List<String> othersThan(Optional<String> signer, Collection<String> keys) {
+		return keys.stream().filter(key -> !signer.map(key::equals).orElse(false)).toList();
 	}
 
 	private static boolean isPair(Optional<String> signer, Optional<String> cosigner) {
@@ -323,9 +331,22 @@ public class GridSpork implements Serializable, Signable {
 		return signerOfHead(headSignature, headKeys());
 	}
 
-	private Optional<String> signerOfHead(byte[] headSignature, Set<String> keys) {
+	private Optional<String> signerOfHead(byte[] headSignature, Collection<String> keys) {
 		return Objects.isNull(headSignature) ? Optional.empty()
-			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature, keys);
+			: signerAmong(DigestUtils.sha512(getSignable()), headSignature, keys);
+	}
+
+	/* Tried against the keys that signed this type last first (LikelySigners) */
+	private Optional<String> signerAmong(byte[] digest, byte[] headSignature, Collection<String> keys) {
+		if (Objects.isNull(headSignature)) {
+			return Optional.empty();
+		}
+
+		final Optional<String> signer = NetworkKey.signerOf(digest, headSignature,
+			LikelySigners.ordered(type, keys));
+
+		signer.ifPresent(key -> LikelySigners.signed(type, key));
+		return signer;
 	}
 
 	/* The keys that sign the head of the spork: the board keys that are active now */
@@ -456,7 +477,7 @@ public class GridSpork implements Serializable, Signable {
 
 	private Standing judgedBy(long generation, Set<String> keys) {
 		final Optional<String> signer = signerOfHead(signature, keys);
-		final Optional<String> cosigner = signerOfHead(cosignature, keys);
+		final Optional<String> cosigner = signerOfHead(cosignature, othersThan(signer, keys));
 
 		return new Standing(generation, isPair(signer, cosigner), signer.isPresent() || cosigner.isPresent());
 	}
