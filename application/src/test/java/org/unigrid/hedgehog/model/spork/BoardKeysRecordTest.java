@@ -33,11 +33,15 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import org.apache.commons.lang3.StringUtils;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.approve;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 
@@ -77,7 +81,7 @@ public class BoardKeysRecordTest {
 		assertThat(keep(Optional.empty()), is(Optional.empty()));
 		assertThat(keep(chain()), is(Optional.empty()));
 		assertThat(Files.exists(BoardKeysRecord.ofThisMachine().getFile()), is(false));
-		assertThat(keep(chain(ADDING)).orElseThrow(), allOf(containsString("1 change"),
+		assertThat(keep(chain(ADDING)).orElseThrow(), allOf(containsString("change 0"),
 			containsString(BoardKeysRecord.ofThisMachine().getFile().toString())));
 		assertThat(BoardKeysRecord.ofThisMachine().getFile().getParent(), equalTo(directory));
 		assertThat(recorded().size(), is(1));
@@ -93,12 +97,50 @@ public class BoardKeysRecordTest {
 			final RecordedChainException refused = assertThrows(RecordedChainException.class,
 				() -> BoardKeysRecord.ofThisMachine().keep(held, "the node"));
 
-			assertThat(refused.getMessage(), allOf(containsString("The node holds"), containsString("the chain of 2"),
+			assertThat(refused.getMessage(), allOf(containsString("The node holds"),
 				containsString(BoardKeysRecord.ofThisMachine().getFile().toString()),
-				containsString("start over")));
+				containsString("start over"), not(containsString("hides"))));
 		}
 
 		assertThat(recorded().size(), is(2));
+	}
+
+	private static String shortly(Signature key) {
+		return StringUtils.left(key.getPublicKey(), 16);
+	}
+
+	/* What the record moves on to is told change by change, so that what this machine goes by never changes unseen */
+	@Example
+	public void shouldShowEachChangeThatItRecords() {
+		keep(chain(ADDING));
+
+		assertThat(keep(chain(ADDING, SWITCHING_OFF)).orElseThrow(), allOf(containsString("change 1"),
+			containsString(SWITCHING_OFF.getMadeAt().toString()), containsString("switches off " + shortly(key(0))),
+			containsString("approved by " + shortly(key(1))), not(containsString("change 0"))));
+	}
+
+	/* Two chains that part tell where, and what each side holds there; which one the board made is for the operator
+	   to find out */
+	@Example
+	public void shouldShowWhereAChainPartsFromTheRecordedOne() {
+		keep(chain(ADDING));
+
+		final RecordedChainException refused = assertThrows(RecordedChainException.class,
+			() -> BoardKeysRecord.ofThisMachine().keep(chain(ELSEWHERE), "the node"));
+
+		assertThat(refused.getMessage(), allOf(containsString("parts from"), containsString("at change 0"),
+			containsString("adds " + shortly(key(2))), containsString("adds " + shortly(key(3))),
+			containsString("start over"), not(containsString("hides"))));
+	}
+
+	@Example
+	public void shouldNameTheChangesOfEachSideOfAShorterChain() {
+		keep(chain(ADDING, SWITCHING_OFF));
+
+		final RecordedChainException refused = assertThrows(RecordedChainException.class,
+			() -> BoardKeysRecord.ofThisMachine().keep(chain(ADDING), "the node"));
+
+		assertThat(refused.getMessage(), allOf(containsString("1 change"), containsString("2 changes")));
 	}
 
 	@Example
@@ -121,7 +163,7 @@ public class BoardKeysRecordTest {
 
 		approve(reapproved, keys(0, 1, 2));
 		assertThat(keep(chain(reapproved)), is(Optional.empty()));
-		assertThat(keep(chain(ADDING, SWITCHING_OFF)), is(Optional.empty()));
+		assertThat(keep(chain(ADDING, SWITCHING_OFF)).isPresent(), is(true));
 		assertThat(recorded().size(), is(2));
 		assertThat(BoardKeyChain.digestOf(recorded().getLast()), equalTo(BoardKeyChain.digestOf(SWITCHING_OFF)));
 	}

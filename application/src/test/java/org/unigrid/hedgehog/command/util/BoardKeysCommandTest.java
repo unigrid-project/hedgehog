@@ -316,7 +316,7 @@ public class BoardKeysCommandTest {
 
 	private static void assertRefused(HedgehogCli.Result result, String why) {
 		assertThat(result.exitCode(), equalTo(2));
-		assertThat(result.err(), allOf(containsString(why), containsString("that this machine verified before"),
+		assertThat(result.err(), allOf(containsString(why), containsString("this machine verified"),
 			containsString("only to start over")));
 	}
 
@@ -332,7 +332,7 @@ public class BoardKeysCommandTest {
 			final HedgehogCli.Result recorded = sign(fs, chained(fs, "/chained.db", first), "/signed.db");
 
 			assertSucceeded(recorded);
-			assertThat(recorded.out(), containsString("Recorded the chain of 1 change"));
+			assertThat(recorded.out(), containsString("Recorded in"));
 
 			final Path none = withSupply(fs, key(0), key(1));
 
@@ -342,7 +342,7 @@ public class BoardKeysCommandTest {
 			assertRefused(approve(fs, key(1)), "holds no board keys");
 			assertRefused(run(fs, "board-keys", "apply", none.toString(), "--change", "/change.json", "--output",
 				"/changed.db"), "holds no board keys");
-			assertRefused(sign(fs, chained(fs, "/other.db", other), "/other-signed.db"), "does not hold");
+			assertRefused(sign(fs, chained(fs, "/other.db", other), "/other-signed.db"), "parts at change 0");
 			assertThat(Files.exists(fs.getPath("/none.db")), is(false));
 		}
 	}
@@ -357,8 +357,7 @@ public class BoardKeysCommandTest {
 
 			assertSucceeded(sign(fs, chained(fs, "/first.db", first), "/first-signed.db"));
 			assertSucceeded(sign(fs, chained(fs, "/second.db", first, second), "/second-signed.db"));
-			assertRefused(sign(fs, chained(fs, "/again.db", first), "/again-signed.db"), "fewer than the chain of"
-				+ " 2 changes");
+			assertRefused(sign(fs, chained(fs, "/again.db", first), "/again-signed.db"), "fewer than the 2 changes");
 		}
 	}
 

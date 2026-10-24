@@ -91,7 +91,8 @@ public class BoardKeysRecordCommandTest {
 		final Result first = cosignOn(nodeOf(key(0), key(1), ADDING));
 		final Result again = cosignOn(nodeOf(key(0), key(1), ADDING));
 
-		assertThat(first.out(), allOf(containsString("Recorded the chain of 1 change"), containsString(NOTHING_AWAITS)));
+		assertThat(first.out(), allOf(containsString("Recorded in"), containsString("change 0, made at "
+			+ ADDING.getMadeAt()), containsString(NOTHING_AWAITS)));
 		assertThat(again.out(), equalTo(NOTHING_AWAITS + "\n"));
 		assertThat(again.err(), equalTo(""));
 	}
@@ -105,8 +106,8 @@ public class BoardKeysRecordCommandTest {
 
 			final Result refused = cosignOn(node);
 
-			assertThat(refused.err(), allOf(containsString("Nothing was co-signed"), containsString("the chain of 2"
-				+ " changes that this machine verified before"), containsString("only to start over")));
+			assertThat(refused.err(), allOf(containsString("Nothing was co-signed"), containsString("this machine"
+				+ " verified"), containsString("only to start over"), not(containsString("hides"))));
 			assertThat(refused.out(), not(containsString(NOTHING_AWAITS)));
 		}
 	}
@@ -117,8 +118,9 @@ public class BoardKeysRecordCommandTest {
 
 		final Result longer = cosignOn(nodeOf(key(1), key(2), ADDING, SWITCHING_OFF));
 
-		assertThat(longer.out(), equalTo(NOTHING_AWAITS + "\n"));
+		assertThat(longer.out(), allOf(containsString("change 1, made at " + SWITCHING_OFF.getMadeAt()),
+			not(containsString("change 0")), containsString(NOTHING_AWAITS)));
 		assertThat(cosignOn(nodeOf(key(0), key(1), ADDING)).err(), containsString("1 change of the board keys,"
-			+ " fewer than the chain of 2 changes"));
+			+ " fewer than the 2 changes"));
 	}
 }
