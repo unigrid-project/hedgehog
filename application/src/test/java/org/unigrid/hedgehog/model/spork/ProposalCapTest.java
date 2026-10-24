@@ -90,6 +90,13 @@ public class ProposalCapTest {
 		assertThat(offered(key(0)), is(true));
 	}
 
+	/* What a holder of the REST token hands in costs no one else checks, and the peers it goes on to count it */
+	@Example
+	public void shouldTakeEveryProposalThatIsHandedInOverRest() {
+		IntStream.rangeClosed(0, PendingSporks.MOST_PROPOSALS_A_MINUTE).forEach(n -> assertThat(pending
+			.offerOfThisMachine(proposal(key(0)), () -> null), is(true)));
+	}
+
 	@Example
 	public void shouldGiveNothingBackOfWhatCheckingAProposalThatWasTakenCost() {
 		final SporkLag lag = new SporkLag(() -> now);

@@ -111,6 +111,19 @@ public class PendingSporks {
 	* failed its check, and comes again from the peers that hold it.
 	*/
 	public boolean offer(GridSpork spork, Supplier<GridSpork> stored, BooleanSupplier mayVerify) {
+		return offer(spork, stored, mayVerify, true);
+	}
+
+	/**
+	* Holds a proposal that is handed to this node over REST as {@link #offer(GridSpork, Supplier, BooleanSupplier)}
+	* holds one from a peer, however many proposals of the type its key made in the minute: it comes from a holder of
+	* the REST token, whose checks are its own, and the peers that it is sent on to hold it to the count.
+	*/
+	public boolean offerOfThisMachine(GridSpork spork, Supplier<GridSpork> stored) {
+		return offer(spork, stored, () -> true, false);
+	}
+
+	private boolean offer(GridSpork spork, Supplier<GridSpork> stored, BooleanSupplier mayVerify, boolean isCounted) {
 		final long generation = NetworkKey.getGeneration();
 		final GridSpork over = stored.get();
 
@@ -123,7 +136,7 @@ public class PendingSporks {
 
 		synchronized (this) {
 			if (isUnchanged(generation, over, stored) && mayTakeThePlaceOfTheHeld(spork)
-				&& signer.filter(key -> mayTakeOneMoreOf(spork.getType(), key)).isPresent()) {
+				&& signer.filter(key -> !isCounted || mayTakeOneMoreOf(spork.getType(), key)).isPresent()) {
 
 				proposals.put(spork.getType(), spork);
 				tookOneMoreOf(spork.getType(), signer.get());
