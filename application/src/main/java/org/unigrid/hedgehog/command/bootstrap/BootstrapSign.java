@@ -32,6 +32,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -55,6 +56,10 @@ public class BootstrapSign implements Callable<Integer> {
 			System.err.println("There is no snapshot at " + snapshot);
 			return 1;
 		}
+
+		/* The board keys of the release are those of the chain that it ships, which may have switched off a key that
+		   is built in */
+		BoardKeysAuthority.installTheRelease();
 
 		if (!NetworkKey.isTrusted(key)) {
 			System.err.println("That key is not one the network trusts, so nothing would accept"
