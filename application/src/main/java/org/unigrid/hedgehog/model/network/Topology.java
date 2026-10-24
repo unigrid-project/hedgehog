@@ -188,6 +188,12 @@ public class Topology {
 
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeNode(Node node) {
+		return nodes.remove(node);
+	}
+
+	/* A node that the operator removes, which is no longer configured either */
+	@Protected @Lock(LockMode.WRITE)
+	public boolean removeConfigured(Node node) {
 		configured.remove(node);
 		return nodes.remove(node);
 	}

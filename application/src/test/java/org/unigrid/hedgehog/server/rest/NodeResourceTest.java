@@ -107,6 +107,18 @@ public class NodeResourceTest extends BaseRestClientTest {
 		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
 	}
 
+	/* What the operator configured, the operator removes */
+	@Example
+	@SneakyThrows
+	public void shouldConfigureNoLongerANodeThatTheOperatorRemoves() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.13", 1234)).build();
+
+		postAssert("/node", node);
+		assertThat(Status.fromStatusCode(client.delete("/node" + node.getURI()).getStatus()), equalTo(Status.OK));
+		assertThat(topology.cloneConfigured(), not(hasItem(node)));
+		assertThat(topology.cloneNodes(), not(hasItem(node)));
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldAnswerAConflictForANodeThatIsConfiguredAlready() {

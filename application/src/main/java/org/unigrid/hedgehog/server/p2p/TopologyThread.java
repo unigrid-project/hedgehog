@@ -92,9 +92,11 @@ public class TopologyThread extends Thread {
 			}
 		}
 
-		/* A node that cannot be dialed but holds a stream that it opened to this one is still reached on that */
+		/* A node that cannot be dialed but holds a stream that it opened to this one is still reached on that, and
+		   one that an operator configured is the operator's to remove: it is dialed again in the next round */
 		private void forget(Node node) {
-			if (node.getInbound().filter(inbound -> inbound.getChannel().isActive()).isPresent()) {
+			if (configured.contains(node) || node.getInbound().filter(inbound -> inbound.getChannel().isActive())
+				.isPresent()) {
 				topology.modifyNode(node, n -> n.setConnection(Optional.empty()));
 			} else {
 				topology.removeNode(node);

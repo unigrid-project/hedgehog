@@ -191,6 +191,29 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
 	}
 
+	/* A node that the operator configured stays one when it cannot be dialed for a while, and is dialed again, while one
+	   that a peer told of goes */
+	@Example
+	public void shouldKeepAConfiguredNodeThatCouldNotBeDialed() {
+		final Node configured = at("83.0.0.1");
+		final Node told = at("84.0.0.1");
+
+		new MockUp<P2PClient>() {
+			@Mock
+			public void $init(String hostname, int port, Dialed why) {
+				throw new IllegalStateException("No answer from " + hostname);
+			}
+		};
+
+		topology.addConfigured(configured);
+		topology.addNode(told);
+		topologyThread.new NodeConnectionHandler(topology, Set.of(configured)).accept(configured);
+		topologyThread.new NodeConnectionHandler(topology, Set.of(configured)).accept(told);
+
+		assertThat(topology.cloneNodes(), allOf(hasItem(configured), not(hasItem(told))));
+		assertThat(topology.cloneConfigured(), hasItem(configured));
+	}
+
 	/* A stream that a peer opened to this node and said hello on, which no one dialed */
 	private static Connection helloStream() {
 		return LedgerStreams.connection(LedgerStreams.stream(true));

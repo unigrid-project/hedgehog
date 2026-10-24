@@ -119,7 +119,7 @@ public class NodeResource extends CDIBridgeResource {
 					topology.getChannels().remove(connection.getChannel());
 				});
 
-			topology.removeNode(nodeToFind);
+			topology.removeConfigured(nodeToFind);
 			return Response.ok().build();
 
 		} catch (URISyntaxException | UnknownHostException ex) {
