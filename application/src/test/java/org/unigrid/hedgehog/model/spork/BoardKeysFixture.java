@@ -86,7 +86,7 @@ public final class BoardKeysFixture {
 
 	/* The release as it is, which a class that stands in another one in a test goes back to before every other one */
 	public static void asReleased() {
-		BoardKeyChain.setRelease(BoardKeyChain.THE_RELEASE);
+		BoardKeyChain.setRelease(null);
 	}
 
 	public static byte[] rootOf(List<Signature> builtIn) {

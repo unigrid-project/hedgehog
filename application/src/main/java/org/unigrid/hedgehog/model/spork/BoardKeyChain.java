@@ -21,9 +21,7 @@ package org.unigrid.hedgehog.model.spork;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -109,12 +107,15 @@ public final class BoardKeyChain {
 
 	/* The chain of board keys that the release ships, and the board keys built into it */
 	record Release(List<KeyChange> chain, Set<String> builtInKeys) {
-		/* The chain in the form it travels in, of a resource or of a record of this machine (BoardKeysRecord) */
+		/* The chain in the form it travels in. A release whose chain does not read is broken, and nothing starts
+		   from it; the decoder may object in any way to what it cannot read. */
 		static Release read(InputStream in, Set<String> builtInKeys) {
 			try (in) {
 				return new Release(decoded(in.readNBytes(MAX_BYTES + 1)), builtInKeys);
-			} catch (IOException ex) {
-				throw new UncheckedIOException(ex);
+			} catch (Exception ex) {
+				throw new IllegalStateException("The chain of board keys that this release ships, "
+					+ Network.BOARD_KEYS_RESOURCE + ", does not read, so the release is broken: "
+					+ ex.getMessage(), ex);
 			}
 		}
 	}
@@ -122,9 +123,10 @@ public final class BoardKeyChain {
 	/* A chain of the most changes, each of the most keys and approvals, with room to spare */
 	static final int MAX_BYTES = 1 << 20;
 
-	static final Release THE_RELEASE = shippedWithTheRelease();
-
-	private static volatile Release release = THE_RELEASE;
+	/* Read when the chain that the release ships is first asked for, which a node, a command line and a util command
+	   do before anything else, and not when the class loads: a release whose chain does not read then says why, each
+	   time it is asked. A test stands in a release of its own. */
+	private static volatile Release release;
 
 	/*
 	    Root format, of which the root is the SHA-512 digest:
@@ -180,7 +182,7 @@ public final class BoardKeyChain {
 	* of keys of its own goes without it.
 	*/
 	public static List<KeyChange> shipped() {
-		final Release vouching = release;
+		final Release vouching = release();
 
 		return vouching.chain().isEmpty() || !isBuiltInto(vouching) ? List.of() : vouching.chain();
 	}
@@ -197,7 +199,20 @@ public final class BoardKeyChain {
 		return Objects.isNull(resource) ? new Release(List.of(), builtIn) : Release.read(resource, builtIn);
 	}
 
-	/* What a test stands in for the release, which goes back with THE_RELEASE */
+	private static Release release() {
+		final Release vouching = release;
+
+		if (Objects.nonNull(vouching)) {
+			return vouching;
+		}
+
+		final Release read = shippedWithTheRelease();
+
+		release = read;
+		return read;
+	}
+
+	/* What a test stands in for the release; nothing goes back to the one that the release ships */
 	static void setRelease(Release vouching) {
 		release = vouching;
 	}

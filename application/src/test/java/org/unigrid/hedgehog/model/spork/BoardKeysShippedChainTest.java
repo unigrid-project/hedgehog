@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.ByteArrayInputStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import net.jqwik.api.Example;
@@ -27,12 +28,14 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.asReleased;
@@ -128,6 +131,20 @@ public class BoardKeysShippedChainTest {
 
 		assertThat(read.chain().size(), is(2));
 		assertThat(BoardKeyChain.holds(read.chain(), List.of(ADDING, SWITCHING_OFF)), is(true));
-		assertThat(BoardKeyChain.THE_RELEASE.chain(), is(empty()));
+
+		asReleased();
+		assertThat(BoardKeyChain.shipped(), is(empty()));
+	}
+
+	/* A release whose chain does not read is broken, which the node says when it starts, naming what it ships */
+	@Example
+	public void shouldNameTheChainOfAReleaseThatDoesNotRead() {
+		final byte[] encoded = BoardKeyChain.encoded(List.of(ADDING, SWITCHING_OFF));
+
+		for (byte[] broken : List.of(new byte[] { 1, 2, 3 }, Arrays.copyOf(encoded, encoded.length - 1))) {
+			assertThat(assertThrows(IllegalStateException.class, () -> BoardKeyChain.Release.read(
+				new ByteArrayInputStream(broken), Set.of())).getMessage(), allOf(containsString(
+				Network.BOARD_KEYS_RESOURCE), containsString("the release is broken")));
+		}
 	}
 }

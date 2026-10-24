@@ -102,7 +102,8 @@ public final class BoardKeysAuthority {
 	/**
 	* Goes by the chain that the release ships ({@link BoardKeyChain#shipped()}) before anything else, so that a node,
 	* a command line or a util command that holds no chain goes by that one and never by the keys built into the
-	* release alone. A release whose chain does not hold from its own root is broken, and nothing starts from it.
+	* release alone. A release whose chain does not read, or does not hold from its own root, is broken, and nothing
+	* starts from it.
 	*/
 	public static void installTheRelease() {
 		final List<KeyChange> shipped = BoardKeyChain.shipped();
