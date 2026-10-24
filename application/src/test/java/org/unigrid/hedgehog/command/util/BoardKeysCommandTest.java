@@ -182,8 +182,11 @@ public class BoardKeysCommandTest {
 				assertSucceeded(approve(fs, approver));
 			}
 
-			assertSucceeded(run(fs, "board-keys", "apply", "/spork.db", "--change", "/change.json", "--output",
-				"/changed.db"));
+			final HedgehogCli.Result applied = run(fs, "board-keys", "apply", "/spork.db", "--change",
+				"/change.json", "--output", "/changed.db");
+
+			assertSucceeded(applied);
+			assertThat(applied.out(), containsString("board keys: 1 change" + System.lineSeparator()));
 			assertSucceeded(run(fs, "spork-db", "sign", "/changed.db", "--output", "/once.db", "-k",
 				key(1).getPrivateKey()));
 			assertSucceeded(run(fs, "spork-db", "sign", "/once.db", "--output", "/twice.db", "-k",

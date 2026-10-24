@@ -81,7 +81,7 @@ public class BoardKeysApply implements Callable<Integer> {
 		changed.<BoardKeys.SporkData>getData().setChanges(chain);
 		database.set(GridSpork.firstVersionOf(changed));
 		SporkDatabaseFile.writeNew(spec, output, () -> database);
-		System.out.println("board keys: " + chain.size() + " changes");
+		System.out.println("board keys: " + chain.size() + (chain.size() == 1 ? " change" : " changes"));
 		keys.active().forEach(key -> System.out.println("active: " + key));
 		System.out.println("output: " + output);
 		return 0;
