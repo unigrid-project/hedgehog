@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.crypto;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -86,6 +87,23 @@ public class VerifiedSignaturesTest {
 		assertThat(checksOf(() -> Signature.isSignedBy(other.getPublicKey(), DATA, signature)), is(1));
 		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), "another".getBytes(
 			StandardCharsets.UTF_8), signature)), is(1));
+	}
+
+	/* The same digits in their fullwidth forms, which a number reads as they are */
+	private static String fullwidth(String hex) {
+		return hex.chars().mapToObj(c -> String.valueOf((char) (Character.isDigit(c) ? '０' + c - '0'
+			: 'ａ' + c - 'a'))).collect(Collectors.joining());
+	}
+
+	/* A key spelled in digits of another script reads as the same point, and is never taken for another key */
+	@Example
+	@SneakyThrows
+	public void shouldTakeNoSignatureOfOneKeyForOneOfAnotherWhateverDigitsTheKeysAreSpelledIn() {
+		final Signature other = keyPair();
+		final byte[] signature = SIGNER.sign(DATA);
+
+		assertThat(Signature.isSignedBy(fullwidth(SIGNER.getPublicKey()), DATA, signature), is(true));
+		assertThat(Signature.isSignedBy(fullwidth(other.getPublicKey()), DATA, signature), is(false));
 	}
 
 	@Example

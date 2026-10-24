@@ -53,12 +53,17 @@ final class VerifiedSignatures {
 		}
 	);
 
+	/* A key is known in its one spelling only (Signature.isPublicKey): a number reads digits of other scripts as
+	   theirs, which in bytes of US-ASCII would all read as one key */
 	static boolean isKnown(String key, byte[] digest, byte[] signature) {
-		return Objects.nonNull(signature) && Objects.nonNull(VERIFIED.get(idOf(key, digest, signature)));
+		return Objects.nonNull(signature) && Signature.isPublicKey(key)
+			&& Objects.nonNull(VERIFIED.get(idOf(key, digest, signature)));
 	}
 
 	static void remember(String key, byte[] digest, byte[] signature) {
-		VERIFIED.put(idOf(key, digest, signature), Boolean.TRUE);
+		if (Signature.isPublicKey(key)) {
+			VERIFIED.put(idOf(key, digest, signature), Boolean.TRUE);
+		}
 	}
 
 	/* A process that starts over has checked nothing, as each test of a process has not */
