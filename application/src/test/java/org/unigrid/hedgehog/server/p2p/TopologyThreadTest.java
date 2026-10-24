@@ -214,6 +214,31 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(topology.cloneConfigured(), hasItem(configured));
 	}
 
+	/* A node that connected to this one, and that the operator then configures, is dialed as a configured node in the
+	   next round, whose connection is marked so (P2PClient) and pays from a share of its own among the dialed peers */
+	@Example
+	public void shouldDialAsConfiguredANodeThatHeldOnlyAStreamItOpenedOnceTheOperatorConfiguresIt() {
+		final Node said = Node.builder().address(new InetSocketAddress("85.0.0.1", 1234))
+			.inbound(Optional.of(helloStream())).build();
+		final List<Dialed> dialed = new ArrayList<>();
+
+		new MockUp<P2PClient>() {
+			@Mock
+			public void $init(String hostname, int port, Dialed why) {
+				dialed.add(why);
+			}
+		};
+
+		topology.addNode(said);
+		assertThat(topology.addConfigured(said), is(Topology.Configured.PROMOTED));
+
+		final Set<Node> configured = topology.cloneConfigured();
+
+		TopologyThread.inTurn(topology.cloneNodes(), configured).stream().filter(said::equals)
+			.forEach(topologyThread.new NodeConnectionHandler(topology, configured));
+		assertThat(dialed, contains(Dialed.CONFIGURED));
+	}
+
 	/* A stream that a peer opened to this node and said hello on, which no one dialed */
 	private static Connection helloStream() {
 		return LedgerStreams.connection(LedgerStreams.stream(true));
