@@ -29,8 +29,9 @@ import org.apache.commons.codec.digest.DigestUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
-/* A signature that verified is never checked again, whichever way it is checked, over what it signs or over the
-   digest of that, while one that did not verify is checked each time, as anyone can make another */
+/* A signature of a board key that verified is never checked again, whichever way it is checked, over what it signs or
+   over the digest of that, while one that did not verify is checked each time, as anyone can make another, and so is
+   one of a key that anyone can make */
 public class VerifiedSignaturesTest {
 	private static final byte[] DATA = "a spork".getBytes(StandardCharsets.UTF_8);
 	private static final Signature SIGNER = keyPair();
@@ -62,17 +63,29 @@ public class VerifiedSignaturesTest {
 	public void shouldCheckASignatureThatVerifiedOnceWhicheverWayItIsChecked() {
 		final byte[] signature = SIGNER.sign(DATA);
 
-		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), DATA, signature)), is(1));
-		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), DATA, signature)
-			&& verifiesDigest(signature)), is(0));
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, signature)), is(1));
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, signature)
+			&& Signature.isSignedBy(SIGNER.getPublicKey(), DATA, signature) && verifiesDigest(signature)), is(0));
 	}
 
 	@Example
 	public void shouldCheckASignatureThatDidNotVerifyEachTime() {
 		final byte[] forged = new byte[DATA.length];
 
-		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), DATA, forged)
-			|| Signature.isSignedBy(SIGNER.getPublicKey(), DATA, forged)), is(2));
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, forged)
+			|| Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, forged)), is(2));
+	}
+
+	/* Anyone can make a key, and signatures with it that verify, as the announcements of gridnodes hold, so a check of
+	   one is not remembered, and pushes out none of the board */
+	@Example
+	@SneakyThrows
+	public void shouldRememberNoSignatureOfAKeyThatAnyoneCanMake() {
+		final Signature anyone = keyPair();
+		final byte[] signature = anyone.sign(DATA);
+
+		assertThat(Signature.isSignedBy(anyone.getPublicKey(), DATA, signature), is(true));
+		assertThat(checksOf(() -> Signature.isSignedBy(anyone.getPublicKey(), DATA, signature)), is(1));
 	}
 
 	/* A signature is known by its key and what it signs as well as by its bytes */
@@ -82,10 +95,10 @@ public class VerifiedSignaturesTest {
 		final byte[] signature = SIGNER.sign(DATA);
 		final Signature other = keyPair();
 
-		Signature.isSignedBy(SIGNER.getPublicKey(), DATA, signature);
+		Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, signature);
 
-		assertThat(checksOf(() -> Signature.isSignedBy(other.getPublicKey(), DATA, signature)), is(1));
-		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), "another".getBytes(
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(other.getPublicKey(), DATA, signature)), is(1));
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(SIGNER.getPublicKey(), "another".getBytes(
 			StandardCharsets.UTF_8), signature)), is(1));
 	}
 
@@ -102,8 +115,8 @@ public class VerifiedSignaturesTest {
 		final Signature other = keyPair();
 		final byte[] signature = SIGNER.sign(DATA);
 
-		assertThat(Signature.isSignedBy(fullwidth(SIGNER.getPublicKey()), DATA, signature), is(true));
-		assertThat(Signature.isSignedBy(fullwidth(other.getPublicKey()), DATA, signature), is(false));
+		assertThat(Signature.isSignedByBoardKey(fullwidth(SIGNER.getPublicKey()), DATA, signature), is(true));
+		assertThat(Signature.isSignedByBoardKey(fullwidth(other.getPublicKey()), DATA, signature), is(false));
 	}
 
 	@Example
@@ -111,7 +124,7 @@ public class VerifiedSignaturesTest {
 	public void shouldRememberSoManyAndNoMore() {
 		final byte[] first = SIGNER.sign(DATA);
 
-		Signature.isSignedBy(SIGNER.getPublicKey(), DATA, first);
+		Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, first);
 
 		for (int i = 0; i < VerifiedSignatures.CAPACITY; i++) {
 			VerifiedSignatures.remember(SIGNER.getPublicKey(), DigestUtils.sha512(DATA), new byte[] {
@@ -119,6 +132,6 @@ public class VerifiedSignaturesTest {
 			});
 		}
 
-		assertThat(checksOf(() -> Signature.isSignedBy(SIGNER.getPublicKey(), DATA, first)), is(1));
+		assertThat(checksOf(() -> Signature.isSignedByBoardKey(SIGNER.getPublicKey(), DATA, first)), is(1));
 	}
 }

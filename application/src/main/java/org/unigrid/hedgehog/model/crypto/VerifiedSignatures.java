@@ -35,8 +35,9 @@ import org.apache.commons.codec.digest.DigestUtils;
 * signs, in copies of other bytes around it, so one that verified is never checked again: the head of a version, its
 * co-signature and the approvals of a change of the board keys alike. A signature that did not verify is not
 * remembered, as anyone can make another one of other bytes, which would only push out those in use. So many are
-* remembered and no more, the one used least recently going first; only the board makes signatures that verify, so
-* nothing that anyone else sends pushes one out.
+* remembered and no more, the one used least recently going first. Only the checks against board keys are remembered:
+* anyone can make a key and signatures with it that verify, as the announcements of gridnodes hold, and those are
+* checked without remembering them ({@link Signature#isSignedBy}), so nothing that anyone else sends pushes one out.
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class VerifiedSignatures {

@@ -199,9 +199,19 @@ public class Signature {
 		return verifier(key).verifyDigest(digest, signatureData);
 	}
 
-	/* The key is not kept for the next check: the keys of gossiped entries are anyone's to make, and would fill the
-	   cache that holds the few keys the network signs with */
+	/* As isSignedBy() answers, for a key of the board, whose signatures that verify are remembered */
+	public static boolean isSignedByBoardKey(String publicKeyHex, byte[] data, byte[] signatureData) {
+		return isSignedBy(publicKeyHex, data, signatureData, true);
+	}
+
+	/* Neither the key nor what verified is kept for the next check: the keys of gossiped entries are anyone's to make,
+	   and signatures with them that verify, which would fill the caches that hold the few keys the network signs with,
+	   and what those signed */
 	public static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData) {
+		return isSignedBy(publicKeyHex, data, signatureData, false);
+	}
+
+	private static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData, boolean isRemembered) {
 		if (ObjectUtils.anyNull(publicKeyHex, data, signatureData)) {
 			return false;
 		}
@@ -219,7 +229,10 @@ public class Signature {
 
 			signature.initVerify(publicKeyOf(publicKeyHex));
 			signature.update(data);
-			return remembered(publicKeyHex, digest, signatureData, signature.verify(signatureData));
+
+			final boolean verifies = signature.verify(signatureData);
+
+			return isRemembered ? remembered(publicKeyHex, digest, signatureData, verifies) : verifies;
 
 		} catch (GeneralSecurityException | RuntimeException ex) {
 			/* Whatever the provider objects to in a hostile key or signature, the answer is: not signed */

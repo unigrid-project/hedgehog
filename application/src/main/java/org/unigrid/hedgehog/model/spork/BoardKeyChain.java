@@ -419,7 +419,7 @@ public final class BoardKeyChain {
 		/* The approvals of the keys before it first, as a change that a quorum of them did not make fails on the
 		   first one that does not verify, before any approval of a key it adds is checked */
 		Validate.isTrue(change.getApprovals().stream().sorted(Comparator.comparing(approval -> added.contains(
-			approval.getKey()))).allMatch(approval -> Signature.isSignedBy(approval.getKey(), signable,
+			approval.getKey()))).allMatch(approval -> Signature.isSignedByBoardKey(approval.getKey(), signable,
 			approval.getSignature())), "an approval does not verify");
 	}
 
