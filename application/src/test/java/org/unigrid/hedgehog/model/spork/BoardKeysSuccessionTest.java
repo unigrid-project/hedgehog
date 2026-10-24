@@ -126,7 +126,7 @@ public class BoardKeysSuccessionTest {
 		final BoardKeys stored = signed(chainOf(ADDING), key(0), key(1));
 		final KeyChange approvedAgain = SerializationUtils.clone(ADDING);
 
-		approvedAgain.getApprovals().get(0).setSignature(key(0).sign(ADDING.getSignable()));
+		approvedAgain.getApprovals().get(0).setSignature(key(0).signInOneForm(ADDING.getSignable()));
 		approvedAgain.getApprovals().sort(Comparator.comparing(KeyChange.Approval::getKey));
 		assertThat(approvedAgain.equals(ADDING), is(false));
 		assertThat(later(chainOf(approvedAgain, SWITCHING_OFF)).canReplace(stored), is(true));

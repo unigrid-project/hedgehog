@@ -269,7 +269,9 @@ public class GridSpork implements Serializable, Signable {
 
 	private byte[] signatureOf(String privateKeyHex) throws SigningException {
 		try {
-			return new Signature(Optional.of(privateKeyHex), Optional.empty()).sign(getSignable());
+			final Signature signer = new Signature(Optional.of(privateKeyHex), Optional.empty());
+
+			return isSignedInOneForm() ? signer.signInOneForm(getSignable()) : signer.sign(getSignable());
 		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new SigningException("Failed to sign spork with given private key", ex);
 		}
@@ -336,9 +338,15 @@ public class GridSpork implements Serializable, Signable {
 			: signerAmong(DigestUtils.sha512(getSignable()), headSignature, keys);
 	}
 
+	/* Whether the head is new data, which takes signatures in their one form only (Signature.isInOneForm): earlier
+	   releases signed the heads of the types they knew in either form */
+	protected boolean isSignedInOneForm() {
+		return false;
+	}
+
 	/* Tried against the keys that signed this type last first (LikelySigners) */
 	private Optional<String> signerAmong(byte[] digest, byte[] headSignature, Collection<String> keys) {
-		if (Objects.isNull(headSignature)) {
+		if (Objects.isNull(headSignature) || isSignedInOneForm() && !Signature.isInOneForm(headSignature)) {
 			return Optional.empty();
 		}
 

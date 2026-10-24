@@ -94,7 +94,7 @@ public class BoardKeyChainTest {
 	private static void approve(KeyChange change, Collection<Signature> approvers) {
 		for (Signature approver : approvers.stream().sorted(Comparator.comparing(Signature::getPublicKey)).toList()) {
 			change.getApprovals().add(new KeyChange.Approval(approver.getPublicKey(),
-				approver.sign(change.getSignable())));
+				approver.signInOneForm(change.getSignable())));
 		}
 	}
 
@@ -195,7 +195,8 @@ public class BoardKeyChainTest {
 
 	/* Which keys approved a change, and in which of its two valid forms each signature is, decide whether it holds and
 	   not which change it is: whoever holds it can drop an approval beyond the quorum or turn a signature s into n - s,
-	   and the change that follows still follows on it */
+	   and the change that follows still follows on it. A signature turned into its other form is refused, and the
+	   copy that holds it with it. */
 	@Example
 	public void shouldLinkTheNextChangeToWhatAChangeDecidesWhateverItsApprovals() {
 		final KeyChange first = change(0, ROOT, builtInAnd(KEYS.get(4)), builtInAnd(KEYS.get(4)));
@@ -212,8 +213,13 @@ public class BoardKeyChainTest {
 
 		for (KeyChange copy : List.of(first, dropped, malleated)) {
 			assertThat(BoardKeyChain.digestOf(copy), equalTo(BoardKeyChain.digestOf(first)));
+		}
+
+		for (KeyChange copy : List.of(first, dropped)) {
 			assertThat(verify(copy, second).length(), is(2));
 		}
+
+		assertThat(refusal(malleated), containsString("one form"));
 	}
 
 	@Example
@@ -346,7 +352,7 @@ public class BoardKeyChainTest {
 		final KeyChange forged = addingTheFifthKey();
 		final KeyChange.Approval approval = forged.getApprovals().get(0);
 
-		approval.setSignature(new Signature().sign(forged.getSignable()));
+		approval.setSignature(new Signature().signInOneForm(forged.getSignable()));
 		assertThat(refusal(forged), containsString("does not verify"));
 	}
 
@@ -359,9 +365,9 @@ public class BoardKeyChainTest {
 		final KeyChange other = addingTheFifthKey();
 		final KeyChange later = addingTheFifthKey();
 
-		untagged.getApprovals().get(0).setSignature(KEYS.get(0).sign(ArrayUtils.subarray(untagged.getSignable(),
-			KeyChange.TAG.length, untagged.getSignable().length)));
-		other.getApprovals().get(0).setSignature(KEYS.get(0).sign(other.toBytes()));
+		untagged.getApprovals().get(0).setSignature(KEYS.get(0).signInOneForm(ArrayUtils.subarray(
+			untagged.getSignable(), KeyChange.TAG.length, untagged.getSignable().length)));
+		other.getApprovals().get(0).setSignature(KEYS.get(0).signInOneForm(other.toBytes()));
 		later.setMadeAt(later.getMadeAt().plusMillis(1));
 
 		assertThat(refusal(untagged), containsString("does not verify"));

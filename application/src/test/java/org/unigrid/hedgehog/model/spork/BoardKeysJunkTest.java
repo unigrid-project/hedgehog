@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -82,12 +83,14 @@ public class BoardKeysJunkTest {
 		return handler.receive(SerializationUtils.clone(spork), database, pending, lag, source);
 	}
 
+	/* The forged approval is a signature in its one form, as one in another form costs no check */
+	@SneakyThrows
 	private BoardKeys junk() {
 		final List<KeyChange.Approval> approvals = new ArrayList<>(adding.getApprovals().subList(0, 2));
-		final byte[] forged = new byte[adding.getApprovals().get(2).getSignature().length];
+		final byte[] other = new byte[Long.BYTES];
 
-		RANDOM.nextBytes(forged);
-		approvals.add(new KeyChange.Approval(adding.getApprovals().get(2).getKey(), forged));
+		RANDOM.nextBytes(other);
+		approvals.add(new KeyChange.Approval(adding.getApprovals().get(2).getKey(), key(2).signInOneForm(other)));
 		return signedAnyway(chainOf(new KeyChange(adding.getSequence(), adding.getMadeAt(), adding.getPrevious(),
 			new ArrayList<>(adding.getActive()), approvals)), key(0), key(1));
 	}

@@ -109,7 +109,8 @@ public class BoardKeysReceptionCostTest {
 		final byte[] signable = change.getSignable();
 
 		for (int forged : List.of(6, 7)) {
-			change.getApprovals().add(new KeyChange.Approval(key(forged).getPublicKey(), key(0).sign(signable)));
+			change.getApprovals().add(new KeyChange.Approval(key(forged).getPublicKey(),
+				key(0).signInOneForm(signable)));
 		}
 
 		return change;

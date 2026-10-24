@@ -366,6 +366,9 @@ public final class BoardKeyChain {
 		Validate.isTrue(approved >= quorum, "%d of the %d keys before it approved it, %d have to", approved,
 			before.size(), quorum);
 		Validate.isTrue(approvers.containsAll(added), "a key that it adds did not approve it");
+		Validate.isTrue(change.getApprovals().stream().allMatch(approval -> Signature.isInOneForm(
+			approval.getSignature())), "an approval is not in the one form of a signature, the shortest DER with"
+			+ " the lower of the two values of s");
 		return added;
 	}
 

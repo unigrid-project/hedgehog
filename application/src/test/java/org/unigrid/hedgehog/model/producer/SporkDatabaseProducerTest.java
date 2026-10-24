@@ -145,7 +145,7 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		spork.sign(signers[0].getPrivateKey());
 
 		if (signers.length > 1) {
-			spork.setCosignature(signers[1].sign(spork.getSignable()));
+			spork.setCosignature(signers[1].signInOneForm(spork.getSignable()));
 		}
 
 		return spork;

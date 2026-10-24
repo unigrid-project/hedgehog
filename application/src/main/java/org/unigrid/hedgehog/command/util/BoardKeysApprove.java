@@ -107,7 +107,7 @@ public class BoardKeysApprove implements Callable<Integer> {
 	private void approve(KeyChange change, String key, Set<String> approvers) {
 		try {
 			final byte[] signable = change.getSignable();
-			final byte[] signature = new Signature(Optional.of(key), Optional.empty()).sign(signable);
+			final byte[] signature = new Signature(Optional.of(key), Optional.empty()).signInOneForm(signable);
 			final String approver = approvers.stream()
 				.filter(candidate -> Signature.isSignedBy(candidate, signable, signature)).findFirst()
 				.orElseThrow();

@@ -108,7 +108,7 @@ public final class BoardKeysFixture {
 	public static void approve(KeyChange change, Collection<Signature> approvers) {
 		for (Signature approver : approvers.stream().sorted(Comparator.comparing(Signature::getPublicKey)).toList()) {
 			change.getApprovals().add(new KeyChange.Approval(approver.getPublicKey(),
-				approver.sign(change.getSignable())));
+				approver.signInOneForm(change.getSignable())));
 		}
 
 		change.getApprovals().sort(Comparator.comparing(KeyChange.Approval::getKey));
@@ -138,7 +138,7 @@ public final class BoardKeysFixture {
 		final BoardKeys spork = (BoardKeys) GridSpork.firstVersionOf(withChain(chain));
 
 		spork.sign(signer.getPrivateKey());
-		spork.setCosignature(cosigner.sign(spork.getSignable()));
+		spork.setCosignature(cosigner.signInOneForm(spork.getSignable()));
 		return spork;
 	}
 

@@ -70,6 +70,13 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return chainKeys().map(ActiveKeys::known).orElse(Set.of());
 	}
 
+	/* No release before this one signed the board keys, so their head takes signatures in their one form only, as the
+	   approvals of their changes do: a copy of other bytes would be another version of the same */
+	@Override
+	protected boolean isSignedInOneForm() {
+		return true;
+	}
+
 	/* The keys that sign the board keys are those of their own chain, so a version of them is taken or nothing */
 	@Override
 	public boolean wasTakenByTheNetwork() {

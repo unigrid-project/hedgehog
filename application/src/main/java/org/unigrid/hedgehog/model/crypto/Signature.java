@@ -40,6 +40,7 @@ import java.security.spec.ECPublicKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.InvalidParameterSpecException;
 import java.security.spec.KeySpec;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -54,6 +55,7 @@ public class Signature {
 	private static final String DIGEST_SIGNATURE_NAME = "NONEwithECDSA";
 	private static final String EC_SEC_NAME = "secp521r1"; /* P‐521 */
 	private static final ECParameterSpec CURVE = curve();
+	private static final BigInteger HALF_ORDER = CURVE.getOrder().shiftRight(1);
 
 	public static final int PRIVATE_KEY_SIZE = 520;
 	public static final int PRIVATE_KEY_HEX_SIZE = 65;
@@ -127,6 +129,31 @@ public class Signature {
 		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
 			throw new SigningException("Failed to sign data", ex);
 		}
+	}
+
+	/**
+	* Signs in the one form of a signature ({@link #isInOneForm}), as what is new data is signed: of the two values of
+	* s that verify, the lower one is taken.
+	*/
+	public byte[] signInOneForm(byte[] data) throws SigningException {
+		final byte[] signature = sign(data);
+		final BigInteger[] rs = SignatureDer.decoded(signature).orElseThrow(
+			() -> new SigningException("The provider made a signature that is no DER of two integers")
+		);
+
+		return rs[1].compareTo(HALF_ORDER) > 0 ? SignatureDer.encoded(rs[0], CURVE.getOrder().subtract(rs[1]))
+			: signature;
+	}
+
+	/**
+	* Whether a signature is in its one form: DER of the shortest length, of an r and an s within the order of the
+	* curve, and of the lower of the two values of s that verify. Whoever holds a signature can write it in another
+	* form that verifies the same, a copy of other bytes, so what is new data takes a signature in no other form.
+	*/
+	public static boolean isInOneForm(byte[] signature) {
+		return SignatureDer.decoded(signature).filter(rs -> rs[0].signum() > 0
+			&& rs[0].compareTo(CURVE.getOrder()) < 0 && rs[1].signum() > 0 && rs[1].compareTo(HALF_ORDER) <= 0)
+			.filter(rs -> Arrays.equals(SignatureDer.encoded(rs[0], rs[1]), signature)).isPresent();
 	}
 
 	public boolean verify(byte[] data, byte[] signatureData) throws VerifySignatureException {

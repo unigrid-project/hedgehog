@@ -92,7 +92,7 @@ public class BoardKeysLoadingTest {
 		spork.archive();
 		spork.setTimeStamp(Instant.now().minusSeconds(60));
 		spork.sign(signer.getPrivateKey());
-		spork.setCosignature(cosigner.sign(spork.getSignable()));
+		spork.setCosignature(cosigner.signInOneForm(spork.getSignable()));
 		return spork;
 	}
 
