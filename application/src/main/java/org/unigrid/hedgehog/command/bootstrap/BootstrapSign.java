@@ -23,9 +23,11 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.command.util.SporkDatabaseFile;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
@@ -34,7 +36,9 @@ import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Spec;
 
 @Command(name = "sign",
 	description = "Sign a snapshot so others can verify it came from the foundation."
@@ -48,6 +52,14 @@ public class BootstrapSign implements Callable<Integer> {
 	@Option(names = "--force", description = "Replace an existing signature.")
 	private boolean force;
 
+	@Option(names = "--spork-db", paramLabel = "<file>", description = "A spork database whose chain of board keys"
+		+ " the key is judged by, as the util commands judge it, when it holds more of the chain than this machine"
+		+ " verified before.")
+	private Path sporkDb;
+
+	@Spec
+	private CommandSpec spec;
+
 	@Override
 	public Integer call() throws IOException, SigningException {
 		final Path snapshot = SnapshotOptions.getSnapshot();
@@ -57,9 +69,7 @@ public class BootstrapSign implements Callable<Integer> {
 			return 1;
 		}
 
-		/* The board keys of the release are those of the chain that it ships, which may have switched off a key that
-		   is built in */
-		BoardKeysAuthority.installTheRelease();
+		goByTheBoardKeys();
 
 		if (!NetworkKey.isTrusted(key)) {
 			System.err.println("That key is not one the network trusts, so nothing would accept"
@@ -83,6 +93,17 @@ public class BootstrapSign implements Callable<Integer> {
 		SnapshotSignature.signAndAppend(snapshot, key);
 		System.out.println("Signed " + snapshot);
 		return 0;
+	}
+
+	/* The board keys are those of the longest chain of them that this machine knows: the one the release ships, the
+	   one it verified since, or that of the database given, as the util commands judge it, since the board may have
+	   switched a key off or added one after the release */
+	private void goByTheBoardKeys() throws IOException {
+		BoardKeysAuthority.installTheRecordOfThisMachine();
+
+		if (Objects.nonNull(sporkDb)) {
+			SporkDatabaseFile.requireRecorded(spec, SporkDatabaseFile.load(spec, sporkDb), sporkDb);
+		}
 	}
 
 	/*

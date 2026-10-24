@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -119,6 +120,16 @@ public final class BoardKeysAuthority {
 					+ " hold from its root: " + ex.getMessage(), ex);
 			}
 		}
+	}
+
+	/**
+	* Goes by the longer of the chain that the release ships and the one that this machine verified before
+	* ({@link BoardKeysRecord}), as a command that judges a key by the board keys does when it holds no node: the board
+	* changes its keys after a release, and a key that it added since signs, while one that it switched off does not.
+	*/
+	public static void installTheRecordOfThisMachine() throws IOException {
+		installTheRelease();
+		BoardKeysRecord.ofThisMachine().read().flatMap(BoardKeyChain::verified).ifPresent(NetworkKey::install);
 	}
 
 	/* Checked last, on the turn of the source, so that only a chain that two keys signed is told of */

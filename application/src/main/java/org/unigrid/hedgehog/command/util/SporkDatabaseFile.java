@@ -51,13 +51,14 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
 
 /* A spork database as the spork-db commands read it and judge each spork in it: by who signed it, as a node judges
-   the database it loads, and by what holds for the spork as a whole */
+   the database it loads, and by what holds for the spork as a whole. Other commands that take a spork database read
+   it so too. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-final class SporkDatabaseFile {
+public final class SporkDatabaseFile {
 	static final int SHOWN_HEX = 16;
 
 	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown */
-	static SporkDatabase load(CommandSpec spec, Path file) {
+	public static SporkDatabase load(CommandSpec spec, Path file) {
 		final SporkDatabase database;
 
 		try {
@@ -139,7 +140,7 @@ final class SporkDatabaseFile {
 	   whose chain does not hold from the root of this machine, through the chain that the release ships, or that
 	   holds less than the chain that this machine verified before is refused, and one that holds more of it is
 	   recorded (BoardKeysRecord) */
-	static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
+	public static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
 		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
 			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());
 

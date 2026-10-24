@@ -43,6 +43,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 
 public class BootstrapSignTest {
 	private static final String KEY = "0123456789abcdef";
@@ -55,6 +56,7 @@ public class BootstrapSignTest {
 	public void beforeTry() {
 		signings.clear();
 		snapshot = BootstrapCli.snapshotInMemory();
+		BoardKeysRecordFixture.inMemory();
 		keyIsTrusted(true);
 		signatureIsPresent(false);
 		inspectorFinds(SignatureStatus.UNSIGNED, null);
