@@ -141,6 +141,22 @@ public final class SporkDatabaseFile {
 	   holds less than the chain that this machine verified before is refused, and one that holds more of it is
 	   recorded (BoardKeysRecord) */
 	public static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
+		judgedByTheRecord(spec, database, file, (record, chain) -> record.keep(chain, "the file " + file)
+			.ifPresent(System.out::println));
+	}
+
+	/* As requireRecorded() judges a file, writing nothing to the record: for a file that is kept only once it is
+	   taken, which records its chain then */
+	static void requireHeldByTheRecord(CommandSpec spec, SporkDatabase database, Path file) {
+		judgedByTheRecord(spec, database, file, (record, chain) -> record.check(chain, "the file " + file));
+	}
+
+	private interface RecordStep {
+		void take(BoardKeysRecord record, Optional<List<KeyChange>> chain)
+			throws RecordedChainException, IOException;
+	}
+
+	private static void judgedByTheRecord(CommandSpec spec, SporkDatabase database, Path file, RecordStep step) {
 		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
 			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());
 
@@ -153,7 +169,7 @@ public final class SporkDatabaseFile {
 		}
 
 		try {
-			BoardKeysRecord.ofThisMachine().keep(chain, "the file " + file).ifPresent(System.out::println);
+			step.take(BoardKeysRecord.ofThisMachine(), chain);
 		} catch (RecordedChainException | IOException ex) {
 			throw new ParameterException(spec.commandLine(), TerminalText.printable(ex.getMessage()), ex);
 		}

@@ -100,6 +100,15 @@ public final class BoardKeysRecord {
 		}
 	}
 
+	/* Judges a chain by the record as keep() does, and writes nothing: for what is to be kept only once it is taken */
+	public void check(Optional<List<KeyChange>> chain, String holder) throws RecordedChainException, IOException {
+		final List<KeyChange> recorded = read().orElse(List.of());
+
+		if (!recorded.isEmpty()) {
+			requireHeld(chain, recorded, holder);
+		}
+	}
+
 	private Optional<String> keepLocked(Optional<List<KeyChange>> chain, String holder)
 		throws RecordedChainException, IOException {
 

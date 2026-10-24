@@ -42,6 +42,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.Hedgehog;
@@ -206,6 +207,22 @@ public class SporkDbBoardKeysTest {
 
 			assertThat(run(fs, "import", written(fs.getPath("/same.db"), ofTheNewBoard(), supply(key(1), key(2)))
 				.toString()).exitCode(), equalTo(0));
+		}
+	}
+
+	/* A file that is not imported moves the record of this machine nowhere, whatever its chain holds */
+	@Example
+	@SneakyThrows
+	public void leavesTheRecordAsItWasWhenADatabaseIsNotImported() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path unsigned = written(fs.getPath("/unsigned.db"), ofTheNewBoard(), supply(key(0), key(3)));
+
+			Files.createDirectories(fs.getPath(NODE));
+			OptionsCli.parse(List.of("util"), BOARD);
+			BoardKeysRecord.ofThisMachine().keep(Optional.of(List.of(ADDING)), "a test");
+
+			assertThat(run(fs, "import", unsigned.toString()).exitCode(), equalTo(1));
+			assertThat(BoardKeysRecord.ofThisMachine().read().orElseThrow(), hasSize(1));
 		}
 	}
 

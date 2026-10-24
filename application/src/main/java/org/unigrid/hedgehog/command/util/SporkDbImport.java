@@ -84,7 +84,7 @@ public class SporkDbImport implements Callable<Integer> {
 			return 1;
 		}
 
-		SporkDatabaseFile.requireRecorded(spec, database, file);
+		SporkDatabaseFile.requireHeldByTheRecord(spec, database, file);
 
 		if (!SporkDatabaseFile.report(database)) {
 			System.err.println("Nothing was imported: two current board keys did not sign every spork of " + file
@@ -105,6 +105,7 @@ public class SporkDbImport implements Callable<Integer> {
 		}
 
 		System.out.println("imported: " + target);
+		SporkDatabaseFile.requireRecorded(spec, database, file);
 		return 0;
 	}
 
