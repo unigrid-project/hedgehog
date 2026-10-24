@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.server.p2p;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -29,6 +28,7 @@ import java.util.stream.Stream;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
@@ -64,6 +64,8 @@ public class TopologyThread extends Thread {
 		public void accept(Node node) {
 			log.atTrace().log("Handling connection {}", node);
 			node.getConnection().filter(c -> !c.getChannel().isActive()).ifPresent(c -> drop(node, c));
+			node.getInbound().filter(c -> !c.getChannel().isActive()).ifPresent(c -> topology.modifyNode(node,
+				n -> n.setInbound(Optional.empty())));
 
 			try {
 				if (!node.getConnection().isPresent()) {
@@ -86,6 +88,15 @@ public class TopologyThread extends Thread {
 					topology.getChannels().remove(connection.getChannel());
 				});
 
+				forget(node);
+			}
+		}
+
+		/* A node that cannot be dialed but holds a stream that it opened to this one is still reached on that */
+		private void forget(Node node) {
+			if (node.getInbound().filter(inbound -> inbound.getChannel().isActive()).isPresent()) {
+				topology.modifyNode(node, n -> n.setConnection(Optional.empty()));
+			} else {
 				topology.removeNode(node);
 				log.atTrace().log("Removed node {} from topology", node);
 			}
@@ -99,33 +110,38 @@ public class TopologyThread extends Thread {
 		}
 	}
 
-	private long getReconnectionTime(long connections) {
+	/* The nodes that peers tell of, and that say hello, are anyone's to make, so no more of them than the node dials
+	   draw out a round */
+	static long reconnectionTime(long nodes) {
 		return (BASE_SECONDS_BETWEEN_RECONNECTS
-			+ (ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE * (connections + 1)))
+			+ (ADDITIONAL_SECONDS_BETWEEN_RECONNECTS_PER_NODE * (Math.min(nodes, MAX_OUTBOUND) + 1)))
 			* 1000;
 	}
 
-	/* The connected nodes are looked after first, so a closed connection is dropped, and then new connections are made
-	   to the nodes that an operator configured and to other nodes in a random order until the node holds MAX_OUTBOUND:
-	   peers choose what the topology holds, and a node that connected to all of it would hand them its sockets and
-	   threads. Of the nodes that no operator configured, one is dialed in each network group, which the address dialed
-	   decides: anyone can tell a node of as many addresses as they like, and those that it dials are the peers whose
-	   checks it pays the most of (PublishSporkChannelHandler). */
+	/* The dialed nodes are looked after first, so a closed connection is dropped, and then the nodes that an operator
+	   configured are dialed, and other nodes in a random order until the node dialed MAX_OUTBOUND of them: peers choose
+	   what the topology holds, and a node that connected to all of it would hand them its sockets and threads. Only a
+	   connection that this node dialed counts, as anyone can connect to it as often as they like. Of the nodes that no
+	   operator configured, one is dialed in each network group, which the address dialed decides: anyone can tell a
+	   node of as many addresses as they like, and those that it dials are the peers whose checks it pays the most of
+	   (PublishSporkChannelHandler). */
 	static List<Node> inTurn(Set<Node> nodes, Set<Node> configured) {
-		final List<Node> connected = nodes.stream().filter(node -> node.getConnection().isPresent()).toList();
-		final Set<String> groups = connected.stream().filter(node -> !configured.contains(node))
-			.map(TopologyThread::groupOf).collect(Collectors.toSet());
-		final List<Node> others = new ArrayList<>(nodes.stream().filter(node -> node.getConnection().isEmpty())
-			.toList());
+		final List<Node> dialed = nodes.stream().filter(TopologyThread::isDialed).toList();
+		final List<Node> chosen = dialed.stream().filter(node -> !configured.contains(node)).toList();
+		final Set<String> groups = chosen.stream().map(TopologyThread::groupOf).collect(Collectors.toSet());
+		final List<Node> others = new ArrayList<>(nodes.stream().filter(node -> !isDialed(node)).toList());
 
 		Collections.shuffle(others);
-		others.sort(Comparator.comparing(node -> !configured.contains(node)));
 
-		final Stream<Node> diverse = others.stream().filter(node -> configured.contains(node)
-			|| groups.add(groupOf(node)));
+		final Stream<Node> diverse = others.stream().filter(node -> !configured.contains(node))
+			.filter(node -> groups.add(groupOf(node))).limit(Math.max(0, MAX_OUTBOUND - chosen.size()));
 
-		return Stream.concat(connected.stream(), diverse.limit(Math.max(0, MAX_OUTBOUND - connected.size())))
-			.toList();
+		return Stream.of(dialed.stream(), others.stream().filter(configured::contains), diverse)
+			.flatMap(Function.identity()).toList();
+	}
+
+	private static boolean isDialed(Node node) {
+		return node.getConnection().map(Connection::getChannel).flatMap(Dialed::of).isPresent();
 	}
 
 	private static String groupOf(Node node) {
@@ -152,7 +168,7 @@ public class TopologyThread extends Thread {
 
 				synchronized (lock) {
 					try {
-						lock.wait(getReconnectionTime(nodes.size()));
+						lock.wait(reconnectionTime(nodes.size()));
 					} catch (InterruptedException ex) {
 						return; /* At this point we know we are done and can just bail out */
 					}

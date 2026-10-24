@@ -99,6 +99,21 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 		assertThat(forgetNodeAt(port), is(true));
 	}
 
+	/* The stream that a peer said hello on is sent on, and is no connection that this node dialed, so the node that
+	   said it is still one to dial */
+	@Example
+	public void keepsTheStreamOfAHelloApartFromTheConnectionsThisNodeDialed() throws Exception {
+		new HelloChannelHandler().typedChannelRead(context, Hello.builder().port(ASSUMED_PORT + 3).build());
+
+		final Node said = topology.cloneNodes().stream().filter(node -> node.getAddress().getPort() == ASSUMED_PORT + 3)
+			.findFirst().orElseThrow();
+
+		assertThat(said.getConnection(), equalTo(Optional.empty()));
+		assertThat(said.getInbound().isPresent(), is(true));
+		assertThat(said.link(), equalTo(said.getInbound()));
+		forgetNodeAt(ASSUMED_PORT + 3);
+	}
+
 	@Example
 	public void keepsTheFirstHelloOfAConnection() throws Exception {
 		final HelloChannelHandler handler = new HelloChannelHandler();

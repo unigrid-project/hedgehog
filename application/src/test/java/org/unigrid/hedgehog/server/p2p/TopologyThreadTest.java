@@ -142,11 +142,19 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 			.connection(connection).build();
 	}
 
-	/* Peers choose what the topology holds, so the node looks after what it is connected to, then tries the seeds,
-	   and opens no more connections than it may hold */
+	/* A connection that this node dialed, as it marks the ones it opens */
+	private static Connection dialed() {
+		final EmbeddedChannel stream = LedgerStreams.stream(true);
+
+		stream.parent().attr(Dialed.KEY).set(Dialed.CHOSEN);
+		return LedgerStreams.connection(stream);
+	}
+
+	/* Peers choose what the topology holds, so the node looks after what it dialed, then tries the seeds, and dials no
+	   more than it may hold besides them */
 	@Example
-	public void shouldTurnToTheConnectedThenTheSeedsAndNoMoreThanItMayHold(@Mocked Connection connection) {
-		final List<Node> connected = List.of(node(0, Optional.of(connection)), node(1, Optional.of(connection)));
+	public void shouldTurnToTheConnectedThenTheSeedsAndNoMoreThanItMayHold() {
+		final List<Node> connected = List.of(node(0, Optional.of(dialed())), node(1, Optional.of(dialed())));
 		final Set<Node> seeds = Set.of(node(2, Optional.empty()), node(3, Optional.empty()));
 		final Set<Node> nodes = new HashSet<>(connected);
 
@@ -158,7 +166,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 
 		final List<Node> turns = TopologyThread.inTurn(nodes, seeds);
 
-		assertThat(turns, hasSize(TopologyThread.MAX_OUTBOUND));
+		assertThat(turns, hasSize(TopologyThread.MAX_OUTBOUND + seeds.size()));
 		assertThat(turns.subList(0, 2), containsInAnyOrder(connected.toArray()));
 		assertThat(turns.subList(2, 4), containsInAnyOrder(seeds.toArray()));
 	}
@@ -181,6 +189,35 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		topology.addSeeds();
 		assertThat(topology.cloneConfigured(), hasItem(told));
 		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
+	}
+
+	/* A stream that a peer opened to this node and said hello on, which no one dialed */
+	private static Connection helloStream() {
+		return LedgerStreams.connection(LedgerStreams.stream(true));
+	}
+
+	/* Peers that connect to a node and say hello hold no place among the nodes that it dials: a flood of them from one
+	   address leaves it dialing its seeds, the node its operator added, and as many others as it dials, one in each
+	   network group, and their number draws out no round of dialing */
+	@Example
+	public void shouldDialItsSeedsConfiguredNodesAndAsManyOthersAsItDialsWhateverPeersSaidHello() {
+		final List<Node> hellos = IntStream.range(0, 1000).mapToObj(port -> Node.builder()
+			.address(new InetSocketAddress("45.0.0.1", 1000 + port)).inbound(Optional.of(helloStream())).build())
+			.toList();
+		final Set<Node> configured = Set.of(at("81.0.0.1"), at("81.1.0.1"), at("82.0.0.1"));
+		final Set<Node> nodes = new HashSet<>(hellos);
+
+		nodes.addAll(configured);
+		IntStream.range(0, 40).forEach(n -> nodes.add(at("90." + n + ".0.1")));
+
+		final List<Node> turns = TopologyThread.inTurn(nodes, configured);
+
+		assertThat(turns, hasItems(configured.toArray(Node[]::new)));
+		assertThat(turns.stream().filter(node -> !configured.contains(node)).count(),
+			is((long) TopologyThread.MAX_OUTBOUND));
+		assertThat(turns.stream().filter(hellos::contains).count(), lessThanOrEqualTo(1L));
+		assertThat(TopologyThread.reconnectionTime(hellos.size()), is(TopologyThread.reconnectionTime(
+			TopologyThread.MAX_OUTBOUND)));
 	}
 
 	private static Node at(String address) {

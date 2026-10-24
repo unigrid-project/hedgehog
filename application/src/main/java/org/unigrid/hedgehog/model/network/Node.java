@@ -51,10 +51,20 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 public class Node {
 
 	private InetSocketAddress address;
+
+	/* The connection that this node dialed to the node */
 	@JsonIgnore
 	@Builder.Default
 	@ToString.Exclude
 	private Optional<Connection> connection = Optional.empty();
+
+	/* A stream that the node opened to this one and said hello on. It is sent on until this node dials the node, and
+	   holds no place among the nodes it dials: anyone can connect, as often as they like. */
+	@JsonIgnore
+	@Builder.Default
+	@ToString.Exclude
+	private Optional<Connection> inbound = Optional.empty();
+
 	@Builder.Default
 	private Details details = new Details();
 	private long nsPing;
@@ -115,10 +125,16 @@ public class Node {
 		}
 	}
 
+	/* What this node sends to the node on: the connection it dialed, or else the stream the node opened to it */
+	@JsonIgnore
+	public Optional<Connection> link() {
+		return connection.or(() -> inbound);
+	}
+
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
 		log.atDebug().log("Send all packet " + packet.toString());
-		if (node.getConnection().isPresent()) {
-			final ChannelFuture out = node.getConnection().get().getChannel().writeAndFlush(packet);
+		if (node.link().isPresent()) {
+			final ChannelFuture out = node.link().get().getChannel().writeAndFlush(packet);
 
 			out.addListener(f -> {
 				consumer.ifPresent(c -> {

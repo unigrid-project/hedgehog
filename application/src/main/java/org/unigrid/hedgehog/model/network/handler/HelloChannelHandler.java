@@ -52,7 +52,7 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 
 			topology.addNode(Node.builder()
 				.address(new InetSocketAddress(address.getAddress(), hello.getPort()))
-				.connection(Optional.of(container))
+				.inbound(Optional.of(container))
 				.build()
 			);
 		});

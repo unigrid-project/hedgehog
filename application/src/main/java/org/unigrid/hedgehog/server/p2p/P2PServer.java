@@ -46,7 +46,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.ConnectionLimiter;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -86,6 +88,9 @@ public class P2PServer extends AbstractServer {
 
 	@Inject
 	private EncryptedTokenHandler encryptedTokenHandler;
+
+	@Inject
+	private Topology topology;
 
 	@PostConstruct @SneakyThrows
 	private void init() {
@@ -172,9 +177,11 @@ public class P2PServer extends AbstractServer {
 		return channel;
 	}
 
+	/* The connections that this node dialed are closed with it, as peers hold them for streams of a node that runs */
 	@PreDestroy
 	private void destroy() {
 		topologyThread.exit();
+		topology.forEach(node -> node.getConnection().ifPresent(Connection::closeDirty));
 		channel.close();
 		group.shutdownGracefully();
 	}
