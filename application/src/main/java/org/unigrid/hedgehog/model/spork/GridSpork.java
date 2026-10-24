@@ -45,6 +45,7 @@ import lombok.ToString;
 import lombok.experimental.Tolerate;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
+import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -426,7 +427,8 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	/* The generation is read before the keys, so a standing worked out over keys that changed meanwhile is worked out
-	   again. A spork that cannot be encoded to check its signatures over has no signer. */
+	   again. A spork that cannot be encoded to check its signatures over has no signer, while one whose checks were
+	   not paid for has no standing yet. */
 	private Standing standing() {
 		final long generation = NetworkKey.getGeneration();
 		final Standing known = standing;
@@ -439,6 +441,8 @@ public class GridSpork implements Serializable, Signable {
 
 		try {
 			judged = judgedBy(generation, headKeys());
+		} catch (ChecksSpentException ex) {
+			throw ex;
 		} catch (RuntimeException ex) {
 			judged = new Standing(generation, false, false);
 		}

@@ -114,11 +114,6 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return lengthOf(this);
 	}
 
-	/* What checking the chain costs, as far as the checks that cost no signature tell (BoardKeyChain.checksToVerify) */
-	public int checksToVerify() {
-		return changesOf(this).map(BoardKeyChain::checksToVerify).orElse(0);
-	}
-
 	@Data
 	public static class SporkData implements ChunkData {
 		private static final long serialVersionUID = 6815529384750267513L;

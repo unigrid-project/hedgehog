@@ -333,46 +333,6 @@ public final class BoardKeyChain {
 		return added;
 	}
 
-	private record Step(int checks, ActiveKeys after, byte[] head) {
-	}
-
-	/**
-	* The signatures that verifying the chain from the root of this node would check, by the checks that cost none: the
-	* approvals of each change, in order, that is not remembered and holds its link, its keys and its approvers, up to
-	* the first change that is remembered as not holding or fails one of those, where verifying would stop.
-	*/
-	public static int checksToVerify(List<KeyChange> changes) {
-		Step step = new Step(0, ActiveKeys.of(builtInKeys()), root());
-		int checks = 0;
-
-		for (int i = 0; i < Math.min(changes.size(), MAX_CHANGES) && Objects.nonNull(step.after()); i++) {
-			step = stepOf(changes.get(i), i, step);
-			checks += step.checks();
-		}
-
-		return checks;
-	}
-
-	private static Step stepOf(KeyChange change, int index, Step before) {
-		try {
-			requireLink(change, index, before.head());
-
-			final String id = DigestUtils.sha512Hex(change.toBytes());
-			final ActiveKeys remembered = VERIFIED.get(id);
-
-			if (Objects.nonNull(remembered) || REJECTED.containsKey(id)) {
-				return new Step(0, remembered, digestOf(change));
-			}
-
-			requireKeys(change.getActive(), before.after().active());
-			requireApprovers(change, before.after().active());
-			return new Step(change.getApprovals().size(), before.after().after(change.getActive()),
-				digestOf(change));
-		} catch (IllegalArgumentException | NullPointerException ex) {
-			return new Step(0, null, null);
-		}
-	}
-
 	/* At most so many, the one used least recently going first, so that what a node is sent again and again stays */
 	private static <V> Map<String, V> remembering(int capacity) {
 		return Collections.synchronizedMap(new LinkedHashMap<>(capacity, LOAD_FACTOR, true) {

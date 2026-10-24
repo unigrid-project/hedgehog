@@ -137,6 +137,8 @@ public class Signature {
 	}
 
 	private boolean verify(String algorithm, byte[] data, byte[] signatureData) throws VerifySignatureException {
+		CheckMeter.charge();
+
 		try {
 			final java.security.Signature signature = java.security.Signature.getInstance(algorithm);
 
@@ -163,6 +165,8 @@ public class Signature {
 	/* The key is not kept for the next check: the keys of gossiped entries are anyone's to make, and would fill the
 	   cache that holds the few keys the network signs with */
 	public static boolean isSignedBy(String publicKeyHex, byte[] data, byte[] signatureData) {
+		CheckMeter.charge();
+
 		try {
 			final java.security.Signature signature = java.security.Signature.getInstance(SIGNATURE_NAME);
 

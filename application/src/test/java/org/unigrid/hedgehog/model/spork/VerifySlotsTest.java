@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
@@ -26,102 +27,92 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
+/* Each source pays for the checks it causes from a bucket of its own, which holds at most the ceiling of a second and
+   fills by a share of it each second, and the checks of a type in a second stay within the ceiling, whoever pays */
 public class VerifySlotsTest {
 	private static final Type TYPE = Type.MINT_SUPPLY;
 
 	private Instant now = Instant.parse("2026-10-16T12:00:00Z");
 	private final VerifySlots slots = new VerifySlots(() -> now);
 
-	private long taken(final Type type, final String prefix, final int sources) {
-		return IntStream.range(0, sources).filter(n -> slots.take(type, prefix + n)).count();
+	/* The checks that each of the sources given could pay for, one at a time, as many as it asks for */
+	private long checks(final Type type, final String prefix, final int sources, final int asked) {
+		return IntStream.range(0, sources).mapToLong(n -> IntStream.range(0, asked)
+			.filter(check -> slots.take(type, prefix + n, 1)).count()).sum();
 	}
 
 	@Example
-	public void givesASourceOneSlotAtATimeForEachType() {
-		assertThat(slots.take(TYPE, "peer"), is(true));
-		assertThat(slots.take(TYPE, "peer"), is(false));
-		assertThat(slots.take(Type.LEDGER_FEE, "peer"), is(true));
-
-		now = now.plus(SporkLag.VERIFY_GAP).minusMillis(1);
-		assertThat(slots.take(TYPE, "peer"), is(false));
-
-		now = now.plusMillis(1);
-		assertThat(slots.take(TYPE, "peer"), is(true));
-	}
-
-	@Example
-	public void keepsTheSourcesApart() {
-		assertThat(slots.take(TYPE, "peer"), is(true));
-		assertThat(slots.take(TYPE, "another"), is(true));
-		assertThat(slots.take(TYPE, "peer"), is(false));
-	}
-
-	@Example
-	public void givesAtMostTheCeilingOfATypeInASecondAndTheNextSecondAgain() {
-		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING));
-		assertThat(taken(Type.LEDGER_FEE, "peer-", 1000), is((long) VerifySlots.CEILING));
+	public void letsASourcePayForItsBurstAndThenForItsShareEachSecond() {
+		assertThat(checks(TYPE, "peer", 1, 1000), is((long) VerifySlots.BURST));
+		assertThat(slots.hasLeft(TYPE, "peer"), is(false));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
-		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING));
+		assertThat(checks(TYPE, "peer", 1, 1000), is((long) VerifySlots.SHARE));
+
+		now = now.plus(SporkLag.VERIFY_GAP.dividedBy(2));
+		assertThat(checks(TYPE, "peer", 1, 1000), is((long) VerifySlots.SHARE / 2));
+	}
+
+	/* A spork that costs more than a source holds waits until its bucket has filled, and is charged in full */
+	@Example
+	public void chargesWhatACheckCostsInFullOrNothing() {
+		assertThat(slots.take(TYPE, "peer", VerifySlots.BURST + 1), is(false));
+		assertThat(slots.take(TYPE, "peer", VerifySlots.BURST), is(true));
+		assertThat(slots.take(TYPE, "peer", 1), is(false));
+
+		now = now.plus(Duration.ofSeconds(1));
+		assertThat(slots.take(TYPE, "peer", VerifySlots.SHARE + 1), is(false));
+		assertThat(slots.take(TYPE, "peer", VerifySlots.SHARE), is(true));
 	}
 
 	@Example
-	public void doesNotSpendTheCeilingOnASourceThatIsTurnedAway() {
-		IntStream.range(0, 1000).forEach(n -> slots.take(TYPE, "peer"));
-
-		assertThat(taken(TYPE, "another-", 1000), is((long) VerifySlots.CEILING - 1));
-	}
-
-	@Example
-	public void givesASlotThatIsGivenBackAgainAtOnce() {
-		assertThat(slots.take(TYPE, "peer"), is(true));
-
-		slots.giveBack(TYPE, "peer");
-		assertThat(slots.take(TYPE, "peer"), is(true));
-		assertThat(slots.take(TYPE, "peer"), is(false));
-	}
-
-	@Example
-	public void returnsASlotThatIsGivenBackToTheCeiling() {
-		assertThat(taken(TYPE, "peer-", VerifySlots.CEILING), is((long) VerifySlots.CEILING));
-		assertThat(slots.take(TYPE, "another"), is(false));
-
-		slots.giveBack(TYPE, "peer-0");
-		slots.giveBack(TYPE, "peer-0");
-		assertThat(slots.take(TYPE, "another"), is(true));
-		assertThat(slots.take(TYPE, "yet another"), is(false));
-	}
-
-	/* A spork that costs more than one check, as one of the board keys does, is charged as many, but never more than
-	   the share of a source, so that one peer leaves the rest of a second to the others */
-	@Example
-	public void chargesASporkForTheChecksItCostsAndNeverMoreThanTheShareOfASource() {
-		assertThat(slots.take(TYPE, "peer", 5), is(true));
-		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - 5));
+	public void keepsTheSourcesAndTheTypesApart() {
+		assertThat(checks(TYPE, "peer", 1, 1000), is((long) VerifySlots.BURST));
+		assertThat(slots.hasLeft(TYPE, "peer"), is(false));
+		assertThat(slots.hasLeft(Type.LEDGER_FEE, "peer"), is(true));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
-		assertThat(slots.take(TYPE, "costly", 1000), is(true));
-		slots.giveBack(TYPE, "costly");
-		assertThat(slots.take(TYPE, "costly", 1000), is(true));
-		assertThat(taken(TYPE, "peer-", 1000), is((long) VerifySlots.CEILING - VerifySlots.SHARE));
+		assertThat(slots.hasLeft(TYPE, "another"), is(true));
 	}
 
 	@Example
-	public void givesBackNothingForASlotThatWasNotGiven() {
-		assertThat(taken(TYPE, "peer-", VerifySlots.CEILING), is((long) VerifySlots.CEILING));
+	public void paysForAtMostTheCeilingOfATypeInASecondWhoeverPays() {
+		assertThat(checks(TYPE, "peer-", 1000, 1), is((long) VerifySlots.CEILING));
+		assertThat(checks(Type.LEDGER_FEE, "peer-", 1000, 1), is((long) VerifySlots.CEILING));
+		assertThat(slots.hasLeft(TYPE, "another"), is(false));
 
-		slots.giveBack(TYPE, "another");
-		assertThat(slots.take(TYPE, "another"), is(false));
+		now = now.plus(SporkLag.VERIFY_GAP);
+		assertThat(checks(TYPE, "other-", 1000, 1), is((long) VerifySlots.CEILING));
+	}
+
+	/* The checks of a genuine spork are given back, so a peer that sends several in a row has each of them checked */
+	@Example
+	public void givesBackWhatAGenuineSporkWasChargedToItsSourceAndToTheSecond() {
+		assertThat(slots.take(TYPE, "peer", VerifySlots.BURST), is(true));
+		assertThat(slots.hasLeft(TYPE, "another"), is(false));
+
+		slots.giveBack(TYPE, "peer", VerifySlots.BURST);
+		assertThat(slots.hasLeft(TYPE, "another"), is(true));
+		assertThat(slots.take(TYPE, "peer", VerifySlots.BURST), is(true));
 	}
 
 	@Example
-	public void holdsNoMoreSourcesThanTheSlotsOfTwoSeconds() {
+	public void givesBackNoMoreThanABucketHolds() {
+		slots.giveBack(TYPE, "peer", 1000);
+		assertThat(checks(TYPE, "peer", 1, 1000), is((long) VerifySlots.BURST));
+	}
+
+	/* A bucket that has filled again is no different from one that was never used, and is forgotten */
+	@Example
+	public void holdsNoMoreSourcesThanThoseThatPaidWhileTheirBucketsFill() {
 		IntStream.range(0, 30).forEach(second -> {
-			taken(TYPE, "peer-" + second + "-", 1000);
-			taken(Type.LEDGER_FEE, "peer-" + second + "-", 1000);
+			checks(TYPE, "peer-" + second + "-", 1000, 1);
+			checks(Type.LEDGER_FEE, "peer-" + second + "-", 1000, 1);
 			now = now.plus(SporkLag.VERIFY_GAP);
 		});
 
-		assertThat(slots.tracked(), lessThanOrEqualTo(2 * 2 * VerifySlots.CEILING));
+		final long secondsToFill = VerifySlots.BURST / VerifySlots.SHARE + 1;
+
+		assertThat((long) slots.tracked(), lessThanOrEqualTo(2 * secondsToFill * VerifySlots.CEILING));
 	}
 }

@@ -338,34 +338,36 @@ public class SporkLagTest {
 		assertThat(keyLookups, is(LOOKUPS_PER_CHECK));
 	}
 
-	@Example
-	public void verifiesAgainWhenASecondHasPassedAndTheTypesCountApart() {
-		final MintSupply first = forged(ago(Duration.ofMinutes(9)));
-		final MintSupply second = forged(ago(Duration.ofMinutes(8)));
-		final LedgerFee otherType = agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer));
-		final MintSupply tooSoon = forged(ago(Duration.ofMinutes(6)));
-		final MintSupply afterAGap = forged(ago(Duration.ofMinutes(5)));
+	/* What a source has paid for the checks of the sporks of a type that it sent */
+	private double paidBy(Type type, String source) {
+		return VerifySlots.BURST - lag.left(type, source);
+	}
 
-		keyLookups = 0;
-		lag.record(first, database, PEER);
-		lag.record(second, database, PEER);
-		assertThat(keyLookups, is(LOOKUPS_PER_CHECK));
-
-		lag.record(otherType, database, PEER);
-		assertThat(keyLookups, is(2 * LOOKUPS_PER_CHECK));
-
-		now = now.plus(SporkLag.VERIFY_GAP).minusMillis(1);
-		lag.record(tooSoon, database, PEER);
-		assertThat(keyLookups, is(2 * LOOKUPS_PER_CHECK));
-
-		now = now.plusMillis(1);
-		lag.record(afterAGap, database, PEER);
-		assertThat(keyLookups, is(3 * LOOKUPS_PER_CHECK));
+	/* Forged sporks of the source, each one new, as many as it takes to spend its bucket and more */
+	private void spendTheBucketOf(String source) {
+		IntStream.range(0, VerifySlots.BURST).forEach(n -> lag.record(forged(ago(Duration.ofMinutes(9))), database,
+			source));
 	}
 
 	@Example
-	public void doesNotRememberASporkThatWasTurnedAwayForComingTooSoonButTheNextOneIsHeard() {
-		lag.record(forged(ago(Duration.ofMinutes(9))), database, PEER);
+	public void checksTheSporksOfASourceAsFarAsItsBucketPaysAndAgainOnceItFillsAndTheTypesCountApart() {
+		spendTheBucketOf(PEER);
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) VerifySlots.BURST));
+
+		lag.record(agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer)), database, PEER);
+		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(true));
+
+		lag.record(agreement(ago(Duration.ofMinutes(5))), database, PEER);
+		assertThat(isBehind(), is(false));
+
+		now = now.plus(SporkLag.VERIFY_GAP);
+		lag.record(agreement(ago(Duration.ofMinutes(5))), database, PEER);
+		assertThat(isBehind(), is(true));
+	}
+
+	@Example
+	public void doesNotRememberASporkThatItsSourceCouldNotPayForButTheNextOneIsHeard() {
+		spendTheBucketOf(PEER);
 		lag.record(agreement(ago(Duration.ofMinutes(5))), database, PEER);
 		assertThat(isBehind(), is(false));
 
@@ -386,16 +388,19 @@ public class SporkLagTest {
 	}
 
 	@Example
-	public void verifiesAtMostTheCeilingOfSporksOfATypeInASecondHoweverManySourcesSendThem() {
+	public void paysForAtMostTheCeilingOfChecksOfATypeInASecondHoweverManySourcesSendThem() {
 		final MintSupply forged = forged(ago(Duration.ofMinutes(9)));
+		final List<String> sources = IntStream.range(0, 1000).mapToObj(n -> "2001:db8:" + n + "::/64").toList();
 
-		keyLookups = 0;
-		IntStream.range(0, 1000).forEach(n -> lag.record(heard(forged), database, "2001:db8:" + n + "::/64"));
-		assertThat(keyLookups, is(VerifySlots.CEILING * LOOKUPS_PER_CHECK));
+		sources.forEach(source -> lag.record(heard(forged), database, source));
+		assertThat(sources.stream().mapToDouble(source -> paidBy(Type.MINT_SUPPLY, source)).sum(),
+			is((double) VerifySlots.CEILING));
 
 		now = now.plus(SporkLag.VERIFY_GAP);
-		IntStream.range(0, 1000).forEach(n -> lag.record(heard(forged), database, "2001:db8:" + n + "::/64"));
-		assertThat(keyLookups, is(2 * VerifySlots.CEILING * LOOKUPS_PER_CHECK));
+		keyLookups = 0;
+		sources.forEach(source -> lag.record(heard(forged), database, source));
+		assertThat(keyLookups > 0, is(true));
+		assertThat(keyLookups <= VerifySlots.CEILING, is(true));
 	}
 
 	@Example
@@ -410,16 +415,16 @@ public class SporkLagTest {
 		assertThat(isBehind(), is(true));
 	}
 
+	/* What a genuine spork cost its source is given back whole, however many checks it took */
 	@Example
-	public void givesOneSporkOneSlotHoweverManyChecksAskForIt() {
+	public void chargesATurnForEachCheckItPaysForAndGivesItAllBack() {
 		final SporkLag.Turn turn = lag.turnOf(Type.MINT_SUPPLY, PEER);
 
-		assertThat(turn.getAsBoolean(), is(true));
-		assertThat(turn.getAsBoolean(), is(true));
-		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(false));
+		assertThat(turn.charging(agreement(ago(Duration.ofMinutes(5)))::isDoublySigned), is(true));
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER) >= 2, is(true));
 
 		turn.giveBack();
-		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(true));
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is(0.0));
 	}
 
 	@Example
@@ -431,28 +436,28 @@ public class SporkLagTest {
 	}
 
 	@Example
-	public void givesBackNoTurnThatWasRefused() {
-		final SporkLag.Turn taken = lag.turnOf(Type.MINT_SUPPLY, PEER);
+	public void givesBackNothingForChecksThatWereNotPaidFor() {
+		spendTheBucketOf(PEER);
+
 		final SporkLag.Turn refused = lag.turnOf(Type.MINT_SUPPLY, PEER);
 
-		assertThat(taken.getAsBoolean(), is(true));
 		assertThat(refused.getAsBoolean(), is(false));
+		assertThat(refused.charging(agreement(ago(Duration.ofMinutes(5)))::isDoublySigned), is(false));
 
 		refused.giveBack();
-		assertThat(lag.turnOf(Type.MINT_SUPPLY, PEER).getAsBoolean(), is(false));
+		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) VerifySlots.BURST));
 	}
 
 	@Example
 	public void countsTheCeilingForEachTypeApart() {
 		final MintSupply supply = forged(ago(Duration.ofMinutes(9)));
-		final LedgerFee fee = agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer));
 
-		keyLookups = 0;
 		IntStream.range(0, 2 * VerifySlots.CEILING).forEach(n -> lag.record(heard(supply), database,
 			"source-" + n));
-		lag.record(fee, database, "source-0");
+		assertThat(lag.turnOf(Type.MINT_SUPPLY, "another").getAsBoolean(), is(false));
 
-		assertThat(keyLookups, is((VerifySlots.CEILING + 1) * LOOKUPS_PER_CHECK));
+		lag.record(agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer)), database, "source-0");
+		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(true));
 	}
 
 	@SneakyThrows

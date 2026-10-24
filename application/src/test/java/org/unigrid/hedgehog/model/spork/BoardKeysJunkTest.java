@@ -18,11 +18,11 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -31,37 +31,46 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.notNullValue;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.KEYS;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
 
-/* A spork of the board keys that anyone can make, of a change that follows on nothing and carries as many approvals as
-   a change can, costs nothing to turn down, so one peer that sends it every second takes no turn from an honest spork.
-   The release builds in keys 0 and 1, and the honest change adds key 2. */
+/* A spork of the board keys that anyone can make costs what checking it costs and no more, which its source pays for
+   from its own bucket. The junk here holds the change that adds key 2, with the approvals of keys 0 and 1 copied from
+   the board and one of key 2 that is new bytes each time, so it holds up to its last check and is never remembered.
+   The release builds in keys 0 and 1. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class BoardKeysJunkTest {
 	private static final String JUNK_SOURCE = "203.0.113.9";
 	private static final String HONEST_SOURCE = "198.51.100.7";
+	private static final SecureRandom RANDOM = new SecureRandom();
+
+	/* What checking the junk costs: the approvals of keys 0 and 1, which verify, and the one of key 2, which does not */
+	private static final int CHECKS_OF_JUNK = 3;
 
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 	private final SporkDatabase database = SporkDatabase.builder().build();
 	private final PendingSporks pending = new PendingSporks();
 	private Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 	private final SporkLag lag = new SporkLag(() -> now);
+	private KeyChange adding;
 
 	@BeforeTry
 	public void before() {
 		buildIn(keys(0, 1));
+		adding = change(rootOf(keys(0, 1)), List.of(), keys(0, 1, 2), keys(0, 1, 2));
 	}
 
 	@AfterTry
@@ -73,35 +82,49 @@ public class BoardKeysJunkTest {
 		return handler.receive(SerializationUtils.clone(spork), database, pending, lag, source);
 	}
 
-	/* One change of the most approvals, with no signatures, following on nothing */
-	private static BoardKeys junk() {
-		final List<KeyChange.Approval> approvals = new ArrayList<>();
-		final BoardKeys spork = new BoardKeys();
+	private BoardKeys junk() {
+		final List<KeyChange.Approval> approvals = new ArrayList<>(adding.getApprovals().subList(0, 2));
+		final byte[] forged = new byte[adding.getApprovals().get(2).getSignature().length];
 
-		IntStream.range(0, BoardKeyChain.MAX_APPROVALS).forEach(i -> approvals.add(new KeyChange.Approval(
-			key(i % KEYS.size()).getPublicKey(), new byte[0])));
-
-		spork.setTimeStamp(Instant.now());
-		spork.setData(chainOf(new KeyChange(0, Instant.now(), new byte[KeyChange.DIGEST_SIZE],
-			new ArrayList<>(List.of(publicKeysOf(keys(0, 1, 2)))), approvals)));
-		spork.setSignature(new byte[0]);
-		spork.setCosignature(new byte[0]);
-		return spork;
+		RANDOM.nextBytes(forged);
+		approvals.add(new KeyChange.Approval(adding.getApprovals().get(2).getKey(), forged));
+		return signedAnyway(chainOf(new KeyChange(adding.getSequence(), adding.getMadeAt(), adding.getPrevious(),
+			new ArrayList<>(adding.getActive()), approvals)), key(0), key(1));
 	}
 
 	@Example
-	public void shouldCheckAndTakeAnHonestSporkWhileOnePeerSendsJunkEverySecond() {
-		final BoardKeys honest = signed(chainOf(change(rootOf(keys(0, 1)), List.of(), keys(0, 1, 2),
-			keys(0, 1, 2))), key(0), key(1));
-		final BoardKeys junk = junk();
+	public void shouldChargeASourceWhatCheckingItsSporkCost() {
+		receive(junk(), JUNK_SOURCE);
+		assertThat(VerifySlots.BURST - lag.left(Type.BOARD_KEYS, JUNK_SOURCE), is((double) CHECKS_OF_JUNK));
+	}
 
-		for (int second = 0; second < 3; second++) {
-			receive(junk, JUNK_SOURCE);
+	@Example
+	public void shouldSpendNoMoreThanTheBucketOfOneSourceThatSendsJunkAndCheckAndTakeAnHonestSpork() {
+		final BoardKeys honest = signed(chainOf(adding), key(0), key(1));
+		final int seconds = 5;
+		int junkChecks = 0;
+
+		for (int second = 0; second < seconds; second++) {
+			for (int n = 0; n < 20; n++) {
+				final double before = lag.left(Type.BOARD_KEYS, JUNK_SOURCE);
+
+				receive(junk(), JUNK_SOURCE);
+				junkChecks += (int) Math.round(before - lag.left(Type.BOARD_KEYS, JUNK_SOURCE));
+			}
+
 			receive(honest, HONEST_SOURCE);
 			now = now.plusSeconds(1);
 		}
 
+		assertThat(junkChecks, lessThanOrEqualTo(VerifySlots.BURST + (seconds - 1) * VerifySlots.SHARE));
 		assertThat(database.getBoardKeys(), notNullValue());
 		assertThat(database.getBoardKeys().getSignable(), equalTo(honest.getSignable()));
+	}
+
+	/* What a genuine spork cost is given back to its source */
+	@Example
+	public void shouldGiveBackWhatAGenuineSporkCost() {
+		assertThat(receive(signed(chainOf(adding), key(0), key(1)), HONEST_SOURCE), is(true));
+		assertThat(lag.left(Type.BOARD_KEYS, HONEST_SOURCE), is((double) VerifySlots.BURST));
 	}
 }

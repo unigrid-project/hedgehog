@@ -29,12 +29,13 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BinaryOperator;
 import java.util.function.BooleanSupplier;
-import java.util.function.IntSupplier;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.model.crypto.CheckMeter;
+import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 /**
@@ -50,10 +51,10 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 * is a rival version of the history, and the node should wait for that to settle instead of acting on the
 * stored spork. Nothing else is trusted, so a peer without a network key cannot make a node wait. Anyone can
 * send a frame and a check costs a signature verification, so the check is made only for a spork newer than the
-* stored one (an older one cannot make the node behind) and by {@link VerifySlots}: one check a second for each
-* type and sending peer ({@link #VERIFY_GAP}), and no more than {@link VerifySlots#CEILING} a second for a type
-* whoever sends. A flood of forged sporks from one peer takes only the slots of that peer, and the sporks that
-* were turned away are sent again.
+* stored one (an older one cannot make the node behind), and each check is paid for by the sending peer from its
+* bucket for the type ({@link VerifySlots}), no more than {@link VerifySlots#CEILING} a second ({@link #VERIFY_GAP})
+* for a type whoever sends. A flood of forged sporks from one peer spends only the bucket of that peer, and the
+* sporks that were turned away are sent again.
 *
 * <p>What is remembered is bounded: a time stamp more than {@link #FUTURE_ALLOWANCE} ahead of this node's
 * clock is recorded as that far ahead. A spork stays remembered until the stored spork catches up. The memory is
@@ -99,7 +100,7 @@ public class SporkLag {
 			final Instant stamp = cappedAhead(spork.getTimeStamp());
 
 			if (isLaterThan(agreed.get(spork.getType()), stamp) && turn.getAsBoolean()
-				&& spork.isDoublySigned()) {
+				&& turn.charging(spork::isDoublySigned)) {
 
 				agreed.merge(spork.getType(), stamp, LATER);
 			}
@@ -107,46 +108,59 @@ public class SporkLag {
 	}
 
 	public Turn turnOf(Type type, String source) {
-		return new Turn(type, source, () -> 1);
-	}
-
-	/* A spork of the board keys costs a check for each approval that verifying its chain would check, and the head one
-	   more, as any other spork does */
-	public Turn turnOf(GridSpork spork, String source) {
-		return new Turn(spork.getType(), source, () -> spork instanceof BoardKeys boardKeys
-			? 1 + boardKeys.checksToVerify() : 1);
+		return new Turn(type, source);
 	}
 
 	/**
-	* The right of one spork that came in to have its signatures checked. It is taken from the slots of its source
-	* when the first check is about to be made and is kept for every later check of the same spork, so a spork costs
-	* its source one turn at most, charged by the checks it can cost, and a spork that fails a cheaper test first
-	* costs none.
+	* The account of the source of one spork that came in, which pays for each check of its signatures as it is made,
+	* from the bucket of the source for the type (VerifySlots). A spork whose source has nothing left is not checked,
+	* one that fails a cheaper test first costs nothing, and a chain of board keys that costs more than the source
+	* holds is checked as far as it pays, the changes that hold being remembered for the next time it comes. What a
+	* spork was charged is given back when it proves genuine.
 	*/
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 	public final class Turn implements BooleanSupplier {
 		private final Type type;
 		@Getter private final String source;
-		private final IntSupplier checks;
-		private Boolean given;
+		private int charged;
 
-		/* What is handed to this node over REST is not limited: it comes from a holder of the REST token, not from
-		   anyone who can send a frame */
+		/* Whether the source can pay for a check, which is asked right before the first one. What is handed to this
+		   node over REST is not limited: it comes from a holder of the REST token, not from anyone who can send a
+		   frame. */
 		@Override
 		public boolean getAsBoolean() {
-			if (Objects.isNull(given)) {
-				given = LOCAL.equals(source) || slots.take(type, source, checks.getAsInt());
-			}
-
-			return given;
+			return LOCAL.equals(source) || slots.hasLeft(type, source);
 		}
 
-		/* A spork that passed its checks was genuine, so its source keeps its turn for the next one */
+		/* The work, each of its checks paid for by the source; work that the source cannot pay for in full answers
+		   false, and the spork is checked again when it comes again */
+		public boolean charging(BooleanSupplier work) {
+			try {
+				return CheckMeter.charging(this::pay, work::getAsBoolean);
+			} catch (ChecksSpentException ex) {
+				return false;
+			}
+		}
+
+		private boolean pay() {
+			final boolean isPaid = LOCAL.equals(source) || slots.take(type, source, 1);
+
+			charged += isPaid && !LOCAL.equals(source) ? 1 : 0;
+			return isPaid;
+		}
+
+		/* A spork that passed its checks was genuine, so its source gets back what it paid for the next one */
 		public void giveBack() {
-			if (Boolean.TRUE.equals(given) && !LOCAL.equals(source)) {
-				slots.giveBack(type, source);
+			if (charged > 0) {
+				slots.giveBack(type, source, charged);
+				charged = 0;
 			}
 		}
+	}
+
+	/* What the bucket of the source holds for the type */
+	double left(Type type, String source) {
+		return slots.left(type, source);
 	}
 
 	private static boolean couldMakeBehind(GridSpork spork, SporkDatabase db) {

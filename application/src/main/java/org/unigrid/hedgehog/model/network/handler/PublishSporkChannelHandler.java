@@ -68,20 +68,20 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	* Returns whether the spork was new to this node, and should therefore travel further. The source is the peer
 	* that sent it, as {@link RemoteAddress#idOf} names it.
 	*
-	* <p>Anyone can send a frame and checking a signature is the costly part, so the signatures of a spork are
-	* checked only on a turn of its source ({@link SporkLag.Turn}). A peer that floods forged sporks spends its own
-	* turns and no other peer's, and a genuine spork gives its turn back for the next one.
+	* <p>Anyone can send a frame and checking a signature is the costly part, so each signature of a spork is checked
+	* on the account of its source ({@link SporkLag.Turn}), as it is checked. A peer that floods forged sporks spends
+	* its own checks and no other peer's, and a genuine spork gives back what it cost for the next one.
 	*/
 	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
 		String source) {
 
 		final GridSpork stored = db.get(spork.getType());
-		final SporkLag.Turn turn = lag.turnOf(spork, source);
+		final SporkLag.Turn turn = lag.turnOf(spork.getType(), source);
 
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
 		lag.record(spork, db, turn);
 
-		if (isTaken(spork, stored, db, pendingSporks, turn)) {
+		if (turn.charging(() -> isTaken(spork, stored, db, pendingSporks, turn))) {
 			turn.giveBack();
 			return true;
 		}
