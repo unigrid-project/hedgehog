@@ -44,6 +44,7 @@ import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Tolerate;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.SerializationUtils;
 import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -299,7 +300,9 @@ public class GridSpork implements Serializable, Signable {
 		final boolean isDoublySigned = isPair(signerOf(digest, signature, keys),
 			signerOf(digest, cosignature, keys));
 
-		headCheck = new HeadCheck(generation, digest, signature, cosignature, isDoublySigned);
+		/* Copies, as the arrays are the spork's own and may be written to in place */
+		headCheck = new HeadCheck(generation, digest, ArrayUtils.clone(signature), ArrayUtils.clone(cosignature),
+			isDoublySigned);
 		return isDoublySigned;
 	}
 
