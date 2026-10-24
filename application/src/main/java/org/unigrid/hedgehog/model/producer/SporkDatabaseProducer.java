@@ -114,8 +114,7 @@ public class SporkDatabaseProducer {
 			final String copy = keptAside(path);
 
 			leftOut.forEach(type -> {
-				log.atWarn().addArgument(type).addArgument(reasonOf(database, type, now)).addArgument(copy)
-					.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
+				logLeftOut(database, type, now, copy);
 				database.clear(type);
 			});
 		}
@@ -132,6 +131,24 @@ public class SporkDatabaseProducer {
 			log.atWarn().addArgument(path).addArgument(ex.getMessage()).log("Could not copy {} aside: {}");
 			return "no copy";
 		}
+	}
+
+	/* A spork that this node stored, stamped ahead of its clock, is more likely a clock of this machine that is
+	   behind than a forgery, and the node then refuses every honest version too, so that is said where an operator
+	   looks */
+	private static void logLeftOut(SporkDatabase database, GridSpork.Type type, Instant now, String copy) {
+		final GridSpork spork = database.get(type);
+
+		if (!database.holdsAnotherSporkIn(type) && PendingSporks.isAheadOf(now, spork)) {
+			log.atError().addArgument(type).addArgument(spork.getTimeStamp()).addArgument(now).addArgument(copy)
+				.log("The stored {} spork is stamped at {}, further ahead of the clock of this machine,"
+					+ " {}, than clocks drift apart: the clock of this machine may be behind. The"
+					+ " spork is left out, and the file as it was is kept as {}");
+			return;
+		}
+
+		log.atWarn().addArgument(type).addArgument(reasonOf(database, type, now)).addArgument(copy)
+			.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
 	}
 
 	/* A spork stamped further ahead than clocks drift apart would hold off every version the board makes until its

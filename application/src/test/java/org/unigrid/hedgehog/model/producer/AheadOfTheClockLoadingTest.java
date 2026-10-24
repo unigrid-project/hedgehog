@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -39,6 +40,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -88,7 +90,7 @@ public class AheadOfTheClockLoadingTest {
 		return spork;
 	}
 
-	private record Loaded(SporkDatabase database, List<String> warnings, long copiesAside) {
+	private record Loaded(SporkDatabase database, List<String> warnings, List<String> errors, long copiesAside) {
 	}
 
 	@SneakyThrows
@@ -117,6 +119,8 @@ public class AheadOfTheClockLoadingTest {
 
 			try (Stream<Path> files = Files.list(directory)) {
 				return new Loaded(database, log.list.stream().map(ILoggingEvent::getFormattedMessage).toList(),
+					log.list.stream().filter(event -> event.getLevel() == Level.ERROR)
+					.map(ILoggingEvent::getFormattedMessage).toList(),
 					files.filter(file -> file.getFileName().toString().contains(".unsigned-")).count());
 			}
 		} finally {
@@ -136,8 +140,8 @@ public class AheadOfTheClockLoadingTest {
 		final Loaded loaded = loaded(supply(10, IN_2100));
 
 		assertThat(loaded.database().getMintSupply(), nullValue());
-		assertThat(loaded.warnings(), hasItem(containsString("MINT_SUPPLY")));
-		assertThat(loaded.warnings(), hasItem(containsString("ahead of the clock")));
+		assertThat(loaded.errors(), hasItem(allOf(containsString("MINT_SUPPLY"), containsString(IN_2100.toString()),
+			containsString("clock of this machine may be behind"), containsString(".unsigned-"))));
 		assertThat(loaded.copiesAside(), is(1L));
 		assertThat(loaded(supply(10, Instant.now().minusSeconds(1))).database().getMintSupply(), notNullValue());
 	}
