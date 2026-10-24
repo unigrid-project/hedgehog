@@ -36,6 +36,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.ipv4Mapped;
 
@@ -58,13 +59,29 @@ public class RemoteAddressTest {
 		final EmbeddedChannel inbound = new EmbeddedChannel();
 		final Channel listening = streamOf(inbound);
 
-		dialed.attr(RemoteAddress.DIALED_KEY).set(RemoteAddress.Dialed.CHOSEN);
+		dialed.attr(Dialed.KEY).set(Dialed.CHOSEN);
 		inbound.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
 		RemoteAddress.listensOn(listening, PORT);
 
-		assertThat(RemoteAddress.isDialed(streamOf(dialed)), equalTo(true));
-		assertThat(RemoteAddress.isDialed(listening), equalTo(false));
-		assertThat(RemoteAddress.isDialed(new EmbeddedChannel()), equalTo(false));
+		assertThat(Dialed.of(streamOf(dialed)), equalTo(Optional.of(Dialed.CHOSEN)));
+		assertThat(Dialed.of(listening), equalTo(Optional.empty()));
+		assertThat(Dialed.of(new EmbeddedChannel()), equalTo(Optional.empty()));
+	}
+
+	/* A node that an operator configures after this node dialed it as one it chose is one it dialed as configured,
+	   while a peer that connected to this node is none that it dialed whatever is configured */
+	@Example
+	public void marksAConnectionThatThisNodeDialedAsOneToAConfiguredNodeOnly() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final Channel inbound = streamOf(new EmbeddedChannel());
+		final Channel stream = streamOf(dialed);
+
+		dialed.attr(Dialed.KEY).set(Dialed.CHOSEN);
+		Dialed.configure(stream);
+		Dialed.configure(inbound);
+
+		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
+		assertThat(Dialed.of(inbound), equalTo(Optional.empty()));
 	}
 
 	private static String groupOf(final String address) {

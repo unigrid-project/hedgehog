@@ -23,6 +23,7 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
@@ -72,7 +73,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	   network draw one share however many of them the node dialed, while a peer that an operator configured has a share
 	   of its own. Every other peer pays from the pool of the rest, by its network group too. */
 	static Account accountOf(Channel stream) {
-		return RemoteAddress.dialedOf(stream).map(dialed -> new Account(dialed == RemoteAddress.Dialed.CONFIGURED
+		return Dialed.of(stream).map(dialed -> new Account(dialed == Dialed.CONFIGURED
 			? RemoteAddress.idOf(stream) : RemoteAddress.groupOf(stream), SporkLag.Pool.TRUSTED))
 			.orElseGet(() -> new Account(RemoteAddress.groupOf(stream), SporkLag.Pool.OTHER));
 	}

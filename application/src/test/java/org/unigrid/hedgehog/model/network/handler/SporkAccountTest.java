@@ -27,7 +27,7 @@ import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
-import org.unigrid.hedgehog.model.network.handler.RemoteAddress.Dialed;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.spork.SporkLag.Pool;
 
 /* What a stream pays the checks of the sporks it sends from. A peer that this node dialed pays from the pool of those,
@@ -38,7 +38,7 @@ public class SporkAccountTest {
 		final EmbeddedChannel connection = new EmbeddedChannel();
 
 		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress(address, 1000));
-		dialed.ifPresent(why -> connection.attr(RemoteAddress.DIALED_KEY).set(why));
+		dialed.ifPresent(why -> connection.attr(Dialed.KEY).set(why));
 		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false);
 	}
 

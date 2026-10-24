@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.server.p2p;
 
 import io.netty.channel.Channel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -45,11 +46,13 @@ import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.util.Reflection;
 import org.unigrid.hedgehog.server.TestServer;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 @WeldSetup({ TestServer.class, TopologyThread.class })
 public class TopologyThreadTest extends BaseMockedWeldTest {
@@ -117,11 +120,11 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	@SneakyThrows
 	public void shouldConnectToTheAddressAsGiven() {
 		final List<String> hosts = new ArrayList<>();
-		final List<RemoteAddress.Dialed> dialed = new ArrayList<>();
+		final List<Dialed> dialed = new ArrayList<>();
 
 		new MockUp<P2PClient>() {
 			@Mock
-			public void $init(String hostname, int port, RemoteAddress.Dialed why) {
+			public void $init(String hostname, int port, Dialed why) {
 				hosts.add(hostname);
 				dialed.add(why);
 			}
@@ -131,7 +134,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		topologyThread.new NodeConnectionHandler(topology, Set.of(Node.fromAddress("127.0.0.1:52884")))
 			.accept(Node.fromAddress("127.0.0.1:52884"));
 		assertThat(hosts, contains("127.0.0.1", "127.0.0.1"));
-		assertThat(dialed, contains(RemoteAddress.Dialed.CHOSEN, RemoteAddress.Dialed.CONFIGURED));
+		assertThat(dialed, contains(Dialed.CHOSEN, Dialed.CONFIGURED));
 	}
 
 	private static Node node(int n, Optional<Connection> connection) {
@@ -158,6 +161,26 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(turns, hasSize(TopologyThread.MAX_OUTBOUND));
 		assertThat(turns.subList(0, 2), containsInAnyOrder(connected.toArray()));
 		assertThat(turns.subList(2, 4), containsInAnyOrder(seeds.toArray()));
+	}
+
+	/* A seed that a peer told of first, as an attacker may to keep it from the operator, is configured all the same once
+	   the seeds are resolved, and the connection that was dialed to it is one to a configured node from then on */
+	@Example
+	public void shouldConfigureASeedThatAPeerToldOfFirst() {
+		final EmbeddedChannel stream = LedgerStreams.stream(true);
+		final Node told = Node.builder().address(new InetSocketAddress("45.9.9.12", 1234))
+			.connection(Optional.of(LedgerStreams.connection(stream))).build();
+
+		stream.parent().attr(Dialed.KEY).set(Dialed.CHOSEN);
+		topology.addNode(told);
+
+		new Expectations() {{
+			Network.getSeeds(); result = new String[] { "45.9.9.12:1234" };
+		}};
+
+		topology.addSeeds();
+		assertThat(topology.cloneConfigured(), hasItem(told));
+		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
 	}
 
 	private static Node at(String address) {

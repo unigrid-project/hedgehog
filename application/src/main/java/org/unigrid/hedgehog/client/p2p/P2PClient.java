@@ -47,6 +47,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
@@ -63,7 +64,6 @@ import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -74,12 +74,12 @@ import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
 public class P2PClient extends ConnectionContainer {
 	public P2PClient(String hostname, int port) throws ExecutionException, InterruptedException, TimeoutException {
-		this(hostname, port, RemoteAddress.Dialed.CHOSEN);
+		this(hostname, port, Dialed.CHOSEN);
 	}
 
 	/* The connection is marked with why this node dialed the peer, which decides what the checks of what it sends are
 	   paid from */
-	public P2PClient(String hostname, int port, RemoteAddress.Dialed dialed)
+	public P2PClient(String hostname, int port, Dialed dialed)
 		throws ExecutionException, InterruptedException, TimeoutException {
 
 		super();
@@ -96,7 +96,7 @@ public class P2PClient extends ConnectionContainer {
 	}
 
 	private static QuicStreamChannel connect(EventLoopGroup group, String hostname, int port,
-		RemoteAddress.Dialed dialed) throws ExecutionException, InterruptedException, TimeoutException {
+		Dialed dialed) throws ExecutionException, InterruptedException, TimeoutException {
 
 		final String[] protocols = Network.getProtocols();
 		final boolean ledger = Network.hasLedger(protocols);
@@ -122,7 +122,7 @@ public class P2PClient extends ConnectionContainer {
 		final InetSocketAddress address = new InetSocketAddress(hostname, port);
 		final QuicChannel quicChannel = QuicChannel.newBootstrap(channelBootstrap)
 			.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY, address)
-			.attr(RemoteAddress.DIALED_KEY, dialed)
+			.attr(Dialed.KEY, dialed)
 			.handler(new ProtocolMismatchHandler())
 			.streamHandler(new ChannelInboundHandlerAdapter())
 			.remoteAddress(address)

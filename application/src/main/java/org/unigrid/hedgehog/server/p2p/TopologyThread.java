@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.server.p2p;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +35,7 @@ import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
@@ -67,8 +67,7 @@ public class TopologyThread extends Thread {
 
 			try {
 				if (!node.getConnection().isPresent()) {
-					final RemoteAddress.Dialed why = configured.contains(node)
-						? RemoteAddress.Dialed.CONFIGURED : RemoteAddress.Dialed.CHOSEN;
+					final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
 					final P2PClient client = new P2PClient(node.getAddress().getHostString(),
 						node.getAddress().getPort(), why
 					);
@@ -142,9 +141,10 @@ public class TopologyThread extends Thread {
 					topology.repopulate();
 				}
 
-				final Set<Node> configured = new HashSet<>(topology.addSeeds());
+				topology.addSeeds();
 
-				configured.addAll(topology.cloneConfigured());
+				final Set<Node> configured = topology.cloneConfigured();
+
 				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
 
 				final Set<Node> nodes = topology.cloneNodes();

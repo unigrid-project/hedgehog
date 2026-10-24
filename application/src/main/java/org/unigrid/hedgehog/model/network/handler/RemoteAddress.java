@@ -34,15 +34,6 @@ public final class RemoteAddress {
 	private static final int UNIQUE_LOCAL = 0xfc;
 	private static final int UNIQUE_LOCAL_MASK = 0xfe;
 
-	/* Why this node dialed a peer: one that an operator configured, as a seed or over REST, or one that it chose among
-	   those that peers told it of */
-	public enum Dialed {
-		CONFIGURED, CHOSEN
-	}
-
-	/* Set by this node on a connection that it opens itself, as it opens it */
-	public static final AttributeKey<Dialed> DIALED_KEY = AttributeKey.valueOf("DIALED");
-
 	private RemoteAddress() {
 		/* Static helpers only */
 	}
@@ -72,17 +63,6 @@ public final class RemoteAddress {
 			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress())
 				.or(() -> connected.or(() -> learned).map(socket -> listening(connection, socket)));
 		});
-	}
-
-	/* Whether this node dialed the peer of the stream. Only a connection that the node opened is marked so, and nothing
-	   that a peer sends or says of itself marks one: anyone can connect to a node, while the peers that it dials are of
-	   its own choosing. */
-	public static boolean isDialed(final Channel stream) {
-		return dialedOf(stream).isPresent();
-	}
-
-	public static Optional<Dialed> dialedOf(final Channel stream) {
-		return Optional.ofNullable(stream.parent()).map(connection -> connection.attr(DIALED_KEY).get());
 	}
 
 	/**
