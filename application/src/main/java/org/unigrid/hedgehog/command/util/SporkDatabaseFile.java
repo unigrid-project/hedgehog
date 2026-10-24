@@ -90,6 +90,7 @@ final class SporkDatabaseFile {
 	   the chain holds from the root of this machine, whoever signed the board keys spork itself: the approvals of the
 	   board make a chain, and the spork of a chain that a change just extended is signed with the keys it adds */
 	private static void goByTheBoardKeysOf(SporkDatabase database) {
+		BoardKeysAuthority.installTheRelease();
 		Optional.ofNullable(database.getBoardKeys()).ifPresent(BoardKeysAuthority::install);
 	}
 
@@ -135,9 +136,9 @@ final class SporkDatabaseFile {
 	}
 
 	/* A board member signs and approves by the keys that the chain of board keys of the file makes active, so a file
-	   whose chain does not hold from the root of this machine, through the checkpoint of the release, or that holds
-	   less than the chain that this machine verified before is refused, and one that holds more of it is recorded
-	   (BoardKeysRecord) */
+	   whose chain does not hold from the root of this machine, through the chain that the release ships, or that
+	   holds less than the chain that this machine verified before is refused, and one that holds more of it is
+	   recorded (BoardKeysRecord) */
 	static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
 		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
 			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());

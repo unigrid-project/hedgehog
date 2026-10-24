@@ -49,23 +49,24 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.util.Reflection;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.asReleased;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.shipping;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.withoutCheckpoint;
 
 /* A node goes by the board keys of the database it loads before it judges the other sporks in it. The release builds
    in keys 0 and 1; the first change adds key 2, and the second switches keys 0 and 1 off and adds key 3. */
@@ -78,7 +79,7 @@ public class BoardKeysLoadingTest {
 	@BeforeTry
 	public void before() {
 		buildIn(keys(0, 1));
-		withoutCheckpoint();
+		asReleased();
 	}
 
 	@AfterTry
@@ -145,10 +146,14 @@ public class BoardKeysLoadingTest {
 			key(1)));
 	}
 
-	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	/* A release that ships the first change takes no chain that goes another way from the root, and a node that starts
+	   with no file goes by the shipped chain */
 	@Example
-	public void shouldLeaveOutBoardKeysThatDoNotHoldTheCheckpointOfTheRelease() {
-		checkpointAt(List.of(ADDING), true);
+	public void shouldGoByTheShippedChainAndLeaveOutBoardKeysThatDoNotHoldIt() {
+		shipping(List.of(ADDING), true);
+		assertThat(loaded(SporkDatabase.builder().build()).getBoardKeys(), nullValue());
+		assertThat(NetworkKey.getActiveKeys().active(), equalTo(Set.of(publicKeysOf(keys(0, 1, 2)))));
+
 		assertLeftOut(signedAnyway(chainOf(change(ROOT, List.of(), keys(0, 1, 5), keys(0, 1, 5))), key(0),
 			key(1)));
 	}
@@ -166,7 +171,7 @@ public class BoardKeysLoadingTest {
 			assertThat(loaded(stored).getBoardKeys(), nullValue());
 			assertThat(log.list.stream().map(ILoggingEvent::getFormattedMessage).toList(),
 				hasItem(containsString("BOARD_KEYS")));
-			assertThat(NetworkKey.getActiveKeys().length(), is(0));
+			assertThat(NetworkKey.getActiveKeys().length(), is(BoardKeyChain.shipped().size()));
 		} finally {
 			logger.detachAppender(log);
 		}

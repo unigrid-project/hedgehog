@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
@@ -91,6 +92,24 @@ public final class BoardKeysAuthority {
 	/* Whether the chain of the spork is now the one the node goes by */
 	public static boolean install(BoardKeys spork) {
 		return spork.chainKeys().map(NetworkKey::install).orElse(false);
+	}
+
+	/**
+	* Goes by the chain that the release ships ({@link BoardKeyChain#shipped()}) before anything else, so that a node,
+	* a command line or a util command that holds no chain goes by that one and never by the keys built into the
+	* release alone. A release whose chain does not hold from its own root is broken, and nothing starts from it.
+	*/
+	public static void installTheRelease() {
+		final List<KeyChange> shipped = BoardKeyChain.shipped();
+
+		if (!shipped.isEmpty()) {
+			try {
+				NetworkKey.install(BoardKeyChain.verify(shipped));
+			} catch (IllegalArgumentException ex) {
+				throw new IllegalStateException("The chain of board keys that this release ships does not"
+					+ " hold from its root: " + ex.getMessage(), ex);
+			}
+		}
 	}
 
 	/* Checked last, on the turn of the source, so that only a chain that two keys signed is told of */

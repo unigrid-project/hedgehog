@@ -18,23 +18,18 @@
 
 package org.unigrid.hedgehog.model.spork;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 /**
@@ -48,9 +43,6 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 public final class BoardKeysRecord {
 	private static final String FILE = "board-keys-%s.seen";
 	private static final int SHOWN_HEX = 16;
-
-	/* A chain of the most changes, each of the most keys and approvals, with room to spare */
-	private static final int MAX_BYTES = 1 << 20;
 
 	@Getter private final Path file;
 
@@ -130,38 +122,25 @@ public final class BoardKeysRecord {
 		return count + (count == 1 ? " change" : " changes");
 	}
 
-	/* The record was verified when it was written, so a file that does not read back whole is no record to go by */
+	/* The record was verified when it was written, so a file that does not read back whole is no record to go by. A
+	   machine that has no record yet starts from the chain that its release ships. */
 	public Optional<List<KeyChange>> read() throws IOException {
 		if (!Files.exists(file)) {
-			return Optional.empty();
+			return Optional.of(BoardKeyChain.shipped()).filter(shipped -> !shipped.isEmpty());
 		}
 
 		try (InputStream in = Files.newInputStream(file)) {
-			return Optional.of(chainIn(in.readNBytes(MAX_BYTES + 1)));
+			return Optional.of(BoardKeyChain.decoded(in.readNBytes(BoardKeyChain.MAX_BYTES + 1)));
 		} catch (RuntimeException ex) {
 			throw new IOException("The record of the board keys " + file + " cannot be read: " + ex.getMessage()
 				+ "; delete it only to start over from the keys built into the release", ex);
 		}
 	}
 
-	@SneakyThrows
-	private static List<KeyChange> chainIn(byte[] read) {
-		Validate.isTrue(read.length <= MAX_BYTES, "it is larger than a chain of board keys is");
-
-		final ByteBuf bytes = Unpooled.wrappedBuffer(read);
-		final List<KeyChange> chain = new BoardKeysDecoder().decodeChunk(null, bytes).orElseThrow().getChanges();
-
-		Validate.isTrue(!bytes.isReadable(), "it holds more than a chain of board keys");
-		return chain;
-	}
-
 	private void write(List<KeyChange> chain) throws IOException {
-		final BoardKeys.SporkData data = new BoardKeys.SporkData();
-
-		data.setChanges(new ArrayList<>(chain));
 		Files.createDirectories(file.toAbsolutePath().getParent());
 		SporkDatabase.replace(file, channel -> {
-			channel.write(ByteBuffer.wrap(SporkContentEncoder.encode(GridSpork.Type.BOARD_KEYS, data)));
+			channel.write(ByteBuffer.wrap(BoardKeyChain.encoded(chain)));
 			channel.force(true);
 		});
 	}

@@ -73,6 +73,8 @@ public class SporkClient {
 	* this machine verified before ({@link BoardKeysRecord}).
 	*/
 	public void installBoardKeys() throws ResponseOddityException, UntrustedSporkException, IOException {
+		BoardKeysAuthority.installTheRelease();
+
 		final Optional<GridSpork> held = sporkIn(rest.get(WIRE + "/" + GridSpork.Type.BOARD_KEYS.name()));
 
 		if (held.isPresent() && !(held.get() instanceof BoardKeys chain && chain.isTakenByTheNetwork())) {

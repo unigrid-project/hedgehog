@@ -21,8 +21,12 @@ package org.unigrid.hedgehog.model.spork;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -37,6 +41,7 @@ import java.util.TreeSet;
 import java.util.stream.IntStream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.Validate;
@@ -63,8 +68,8 @@ import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 * which follow on every change before it and on the root. So many are remembered and no more, the one used least
 * recently going first, so that copies of a change signed again, each of other bytes, push out none that is in use.
 *
-* <p>A release that vouches for the chain up to a change ({@link Network#BOARD_KEYS_CHECKPOINT}) takes no chain from
-* its root that does not hold that change.
+* <p>A release that ships the chain up to a change ({@link #shipped()}) takes no chain from its root that does not
+* hold it, compared by what the changes decide.
 */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class BoardKeyChain {
@@ -80,15 +85,26 @@ public final class BoardKeyChain {
 	private static final Map<String, String> REJECTED = remembering(MAX_REMEMBERED);
 	private static final Map<String, String> REJECTED_CHAINS = remembering(MAX_REMEMBERED);
 
-	/* The checkpoint that the release vouches for, and the board keys built into it */
-	record Release(Optional<Network.Checkpoint> checkpoint, Set<String> builtInKeys) {
+	private static final Map<String, ActiveKeys> VERIFIED = remembering(MAX_REMEMBERED);
+
+	/* The chain of board keys that the release ships, and the board keys built into it */
+	record Release(List<KeyChange> chain, Set<String> builtInKeys) {
+		/* The chain in the form it travels in, of a resource or of a record of this machine (BoardKeysRecord) */
+		static Release read(InputStream in, Set<String> builtInKeys) {
+			try (in) {
+				return new Release(decoded(in.readNBytes(MAX_BYTES + 1)), builtInKeys);
+			} catch (IOException ex) {
+				throw new UncheckedIOException(ex);
+			}
+		}
 	}
 
-	static final Release THE_RELEASE = new Release(Network.BOARD_KEYS_CHECKPOINT,
-		Set.of(NetOptions.RELEASE_NETWORK_KEYS.split(",")));
+	/* A chain of the most changes, each of the most keys and approvals, with room to spare */
+	static final int MAX_BYTES = 1 << 20;
+
+	static final Release THE_RELEASE = shippedWithTheRelease();
 
 	private static volatile Release release = THE_RELEASE;
-	private static final Map<String, ActiveKeys> VERIFIED = remembering(MAX_REMEMBERED);
 
 	/*
 	    Root format, of which the root is the SHA-512 digest:
@@ -124,31 +140,41 @@ public final class BoardKeyChain {
 		return Arrays.asList(NetworkKey.getBuiltInKeys());
 	}
 
-	/* As verify() answers, from the root of this node and through the checkpoint of its release */
+	/* As verify() answers, from the root of this node and through the chain that its release ships */
 	public static ActiveKeys verify(List<KeyChange> changes) {
-		checkpoint().ifPresent(point -> Validate.isTrue(holds(changes, point), "The chain of board keys does not"
-			+ " hold change %d of the chain of the board, which is the checkpoint of this release",
-			point.length() - 1));
+		final List<KeyChange> shipped = shipped();
+
+		Validate.isTrue(holds(changes, shipped), "The chain of board keys does not hold the %d changes of the chain"
+			+ " of the board that this release ships", shipped.size());
 
 		return verify(root(), builtInKeys(), changes);
 	}
 
 	public static Optional<ActiveKeys> verified(List<KeyChange> changes) {
-		return checkpoint().filter(point -> !holds(changes, point)).isPresent() ? Optional.empty()
-			: verified(root(), builtInKeys(), changes);
+		return holds(changes, shipped()) ? verified(root(), builtInKeys(), changes) : Optional.empty();
 	}
 
-	/* The checkpoint of the release, which a network of keys of its own goes without */
-	private static Optional<Network.Checkpoint> checkpoint() {
+	/**
+	* The chain of board keys that the release ships ({@link Network#BOARD_KEYS_RESOURCE}), which a node that goes by
+	* the keys built into the release goes by when it holds no chain, and which every chain it takes holds. A network
+	* of keys of its own goes without it.
+	*/
+	public static List<KeyChange> shipped() {
 		final Release vouching = release;
 
-		return vouching.checkpoint().filter(point -> isBuiltInto(vouching));
+		return vouching.chain().isEmpty() || !isBuiltInto(vouching) ? List.of() : vouching.chain();
 	}
 
-	/* Whether the node goes by the board keys built into the release, rather than by keys of a network of its own */
 	private static boolean isBuiltInto(Release vouching) {
 		return Optional.ofNullable(NetworkKey.getBuiltInKeys()).map(keys -> Set.copyOf(Arrays.asList(keys))
 			.equals(vouching.builtInKeys())).orElse(false);
+	}
+
+	private static Release shippedWithTheRelease() {
+		final Set<String> builtIn = Set.of(NetOptions.RELEASE_NETWORK_KEYS.split(","));
+		final InputStream resource = BoardKeyChain.class.getResourceAsStream(Network.BOARD_KEYS_RESOURCE);
+
+		return Objects.isNull(resource) ? new Release(List.of(), builtIn) : Release.read(resource, builtIn);
 	}
 
 	/* What a test stands in for the release, which goes back with THE_RELEASE */
@@ -156,13 +182,23 @@ public final class BoardKeyChain {
 		release = vouching;
 	}
 
-	private static boolean holds(List<KeyChange> changes, Network.Checkpoint checkpoint) {
-		try {
-			return changes.size() >= checkpoint.length() && (checkpoint.length() == 0 || Hex.encodeHexString(
-				digestOf(changes.get(checkpoint.length() - 1))).equals(checkpoint.digest()));
-		} catch (IllegalArgumentException | NullPointerException ex) {
-			return false;
-		}
+	/* A chain in the form it travels in, which a node reads from its peers and a release and a record hold */
+	public static byte[] encoded(List<KeyChange> chain) {
+		final BoardKeys.SporkData data = new BoardKeys.SporkData();
+
+		data.setChanges(new ArrayList<>(chain));
+		return SporkContentEncoder.encode(GridSpork.Type.BOARD_KEYS, data);
+	}
+
+	@SneakyThrows
+	static List<KeyChange> decoded(byte[] read) {
+		Validate.isTrue(read.length <= MAX_BYTES, "it is larger than a chain of board keys is");
+
+		final ByteBuf bytes = Unpooled.wrappedBuffer(read);
+		final List<KeyChange> chain = new BoardKeysDecoder().decodeChunk(null, bytes).orElseThrow().getChanges();
+
+		Validate.isTrue(!bytes.isReadable(), "it holds more than a chain of board keys");
+		return chain;
 	}
 
 	public static int quorumOf(int keys) {

@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
@@ -49,16 +50,17 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.asReleased;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.shipping;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signedAnyway;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.withoutCheckpoint;
 import picocli.CommandLine;
 
 /* The commands that sign sporks go by the board keys of the node, once they hold from the root of this machine. The
@@ -72,7 +74,7 @@ public class BoardKeysCommandLineTest {
 	@BeforeTry
 	public void before() {
 		buildIn(keys(0, 1));
-		withoutCheckpoint();
+		asReleased();
 		SporkCommands.environmentKey(null);
 	}
 
@@ -159,19 +161,23 @@ public class BoardKeysCommandLineTest {
 		assertThat(NetworkKey.getActiveKeys().length(), is(0));
 	}
 
-	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	/* A release that ships the first change takes no chain that goes another way from the root, and a node that holds
+	   no board keys holds less than that chain */
 	@Example
-	public void signsNothingOverBoardKeysThatDoNotHoldTheCheckpointOfTheRelease() {
+	public void signsNothingOverBoardKeysThatDoNotHoldTheShippedChainOrOverNone() {
 		final KeyChange elsewhere = change(ROOT, List.of(), keys(0, 1, 5), keys(0, 1, 5));
-		final FakeSporkNode node = new FakeSporkNode().holding(signedAnyway(chainOf(elsewhere), key(0), key(1)));
+		final FakeSporkNode forked = new FakeSporkNode().holding(signedAnyway(chainOf(elsewhere), key(0), key(1)));
+		final FakeSporkNode hiding = new FakeSporkNode();
 
-		checkpointAt(List.of(ADDING), true);
+		shipping(List.of(ADDING), true);
 
-		final Result result = RestCommandFixture.run(setSupply(key(0)), node);
+		for (FakeSporkNode node : List.of(forked, hiding)) {
+			final Result result = RestCommandFixture.run(setSupply(key(0)), node);
 
-		assertThat(result.err(), containsString("board keys"));
-		assertThat(node.submitted(), empty());
-		assertThat(NetworkKey.getActiveKeys().length(), is(0));
+			assertThat(result.err(), containsString("board keys"));
+			assertThat(node.submitted(), empty());
+			assertThat(NetworkKey.getActiveKeys().active(), equalTo(Set.of(publicKeysOf(keys(0, 1, 2)))));
+		}
 	}
 
 	@Example

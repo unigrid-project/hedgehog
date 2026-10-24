@@ -74,8 +74,11 @@ public class SporkDatabaseProducer {
 	}
 
 	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
-	   would write over it, and what it held is the operator's to look at and the network's to send again */
+	   would write over it, and what it held is the operator's to look at and the network's to send again. The chain
+	   that the release ships is gone by before anything of the file is judged. */
 	private SporkDatabase loaded(Path path) {
+		BoardKeysAuthority.installTheRelease();
+
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
 			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
@@ -157,8 +160,8 @@ public class SporkDatabaseProducer {
 		}
 
 		return spork instanceof BoardKeys boardKeys && boardKeys.chainKeys().isEmpty()
-			? "its chain of board keys does not hold from the root of this node, through the checkpoint of its"
-			+ " release" : signingOf(spork);
+			? "its chain of board keys does not hold from the root of this node, through the chain that its"
+			+ " release ships" : signingOf(spork);
 	}
 
 	private static String signingOf(GridSpork spork) {

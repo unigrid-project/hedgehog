@@ -63,11 +63,11 @@ import org.unigrid.hedgehog.model.spork.ProposedKeyChange;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
-import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.checkpointAt;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.shipping;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 import picocli.CommandLine;
 
@@ -89,7 +89,7 @@ public class BoardKeysCommandTest {
 
 		OptionsCli.parse(List.of("util"), BOARD);
 		BoardKeysRecordFixture.inMemory();
-		BoardKeysFixture.withoutCheckpoint();
+		BoardKeysFixture.asReleased();
 	}
 
 	@AfterTry
@@ -362,22 +362,27 @@ public class BoardKeysCommandTest {
 		}
 	}
 
-	/* A release that vouches for the first change takes no chain that goes another way from the root */
+	/* A release that ships the first change takes no chain that goes another way from the root, and a file of no board
+	   keys holds less than that chain, while this machine has no record yet */
 	@Example
 	@SneakyThrows
-	public void signsNothingOverAFileWhoseChainDoesNotHoldTheCheckpointOfTheRelease() {
+	public void signsNothingOverAFileWhoseChainDoesNotHoldTheShippedChainOrOverNone() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
 			final byte[] root = rootOf(keys(0, 1));
 			final KeyChange first = change(root, List.of(), keys(1, 2), keys(0, 1, 2));
 			final Path other = chained(fs, "/other.db", change(root, List.of(), keys(0, 1, 3), keys(0, 1, 3)));
+			final Path none = withSupply(fs, key(1), key(2));
 
-			checkpointAt(List.of(first), true);
+			shipping(List.of(first), true);
 
-			final HedgehogCli.Result refused = sign(fs, other, "/other-signed.db");
+			final HedgehogCli.Result forked = sign(fs, other, "/other-signed.db");
+			final HedgehogCli.Result fewer = sign(fs, none, "/none-signed.db");
 
-			assertThat(refused.exitCode(), equalTo(2));
-			assertThat(refused.err(), containsString("checkpoint"));
+			assertThat(forked.exitCode(), equalTo(2));
+			assertThat(forked.err(), containsString("ships"));
+			assertRefused(fewer, "holds no board keys");
 			assertThat(Files.exists(fs.getPath("/other-signed.db")), is(false));
+			assertThat(Files.exists(fs.getPath("/none-signed.db")), is(false));
 			assertSucceeded(sign(fs, chained(fs, "/first.db", first), "/first-signed.db"));
 		}
 	}
