@@ -39,6 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
@@ -67,6 +68,8 @@ import org.unigrid.hedgehog.model.spork.KeyChange.Approval;
 * with a change added that does not hold, so a change that verified is remembered by the digest of all of its bytes,
 * which follow on every change before it and on the root. So many are remembered and no more, the one used least
 * recently going first, so that copies of a change signed again, each of other bytes, push out none that is in use.
+* The chain that the node goes by and the one that its release ships are held as they are besides ({@link #pin}),
+* so a longer chain that begins with their very bytes is verified for what it adds only, whatever was pushed out.
 *
 * <p>A release that ships the chain up to a change ({@link #shipped()}) takes no chain from its root that does not
 * hold it, compared by what the changes decide.
@@ -86,6 +89,23 @@ public final class BoardKeyChain {
 	private static final Map<String, String> REJECTED_CHAINS = remembering(MAX_REMEMBERED);
 
 	private static final Map<String, ActiveKeys> VERIFIED = remembering(MAX_REMEMBERED);
+
+	/* A chain as it was verified, from a root and the keys built in, and the keys it makes active */
+	private record Pin(byte[] root, Set<String> builtInKeys, List<byte[]> changes, ActiveKeys keys) {
+		private boolean begins(byte[] chainRoot, Collection<String> chainBuiltInKeys, List<KeyChange> chain) {
+			return chain.size() >= changes.size() && Arrays.equals(root, chainRoot)
+				&& builtInKeys.equals(Set.copyOf(chainBuiltInKeys)) && IntStream.range(0, changes.size())
+				.allMatch(i -> Arrays.equals(changes.get(i), bytesOf(chain.get(i))));
+		}
+	}
+
+	private record Start(int index, ActiveKeys keys, byte[] previous) {
+	}
+
+	/* The chain that this node goes by and the one that its release ships, as they are: whatever copies of other bytes
+	   push out of what is remembered, a longer chain that begins with either is checked only for what it adds */
+	private static volatile Pin installed;
+	private static volatile Pin shippedAsItIs;
 
 	/* The chain of board keys that the release ships, and the board keys built into it */
 	record Release(List<KeyChange> chain, Set<String> builtInKeys) {
@@ -266,10 +286,11 @@ public final class BoardKeyChain {
 		Validate.isTrue(changes.size() <= MAX_CHANGES, "A chain of board keys holds at most %d changes; a longer"
 			+ " one takes a release with a new root", MAX_CHANGES);
 
-		ActiveKeys keys = ActiveKeys.of(builtInKeys);
-		byte[] previous = root;
+		final Start start = startOf(root, builtInKeys, changes);
+		ActiveKeys keys = start.keys();
+		byte[] previous = start.previous();
 
-		for (int i = 0; i < changes.size(); i++) {
+		for (int i = start.index(); i < changes.size(); i++) {
 			final KeyChange change = changes.get(i);
 
 			try {
@@ -283,6 +304,43 @@ public final class BoardKeyChain {
 		}
 
 		return keys;
+	}
+
+	/* Where verifying a chain starts: after the longest of the chains held as they are that it begins with, byte for
+	   byte, or at its root */
+	private static Start startOf(byte[] root, Collection<String> builtInKeys, List<KeyChange> changes) {
+		return Stream.of(installed, shippedAsItIs).filter(Objects::nonNull)
+			.filter(pin -> pin.begins(root, builtInKeys, changes))
+			.max(Comparator.comparingInt(pin -> pin.changes().size()))
+			.map(pin -> new Start(pin.changes().size(), pin.keys(), headOf(root, changes.subList(0,
+				pin.changes().size()))))
+			.orElseGet(() -> new Start(0, ActiveKeys.of(builtInKeys), root));
+	}
+
+	/**
+	* Holds the chain that this node goes by from now on as it is, so that a longer chain that begins with its very
+	* bytes is verified only for the changes it adds. A chain that decides the same in other bytes is verified whole.
+	*/
+	public static void pin(List<KeyChange> chain, ActiveKeys keys) {
+		installed = pinOf(chain, keys);
+	}
+
+	/* As pin() holds the chain this node goes by, for the chain that its release ships */
+	static void pinTheShipped(ActiveKeys keys) {
+		shippedAsItIs = pinOf(shipped(), keys);
+	}
+
+	private static Pin pinOf(List<KeyChange> chain, ActiveKeys keys) {
+		return new Pin(root(), Set.copyOf(builtInKeys()), chain.stream().map(BoardKeyChain::bytesOf).toList(), keys);
+	}
+
+	/* A change that cannot be written is the beginning of no chain held */
+	private static byte[] bytesOf(KeyChange change) {
+		try {
+			return change.toBytes();
+		} catch (IllegalArgumentException | NullPointerException ex) {
+			return new byte[0];
+		}
 	}
 
 	/* As verify() answers, or nothing when the chain does not hold */
@@ -370,6 +428,11 @@ public final class BoardKeyChain {
 			approval.getSignature())), "an approval is not in the one form of a signature, the shortest DER with"
 			+ " the lower of the two values of s");
 		return added;
+	}
+
+	/* What a test stands in for copies of other bytes that push out every change and chain that was judged */
+	static void forget() {
+		List.of(VERIFIED, REJECTED, REJECTED_CHAINS).forEach(Map::clear);
 	}
 
 	/* At most so many, the one used least recently going first, so that what a node is sent again and again stays */

@@ -19,12 +19,14 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
@@ -89,9 +91,12 @@ public final class BoardKeysAuthority {
 		return true;
 	}
 
-	/* Whether the chain of the spork is now the one the node goes by */
+	/* Whether the chain of the spork is now the one the node goes by, which it holds as it is from then on */
 	public static boolean install(BoardKeys spork) {
-		return spork.chainKeys().map(NetworkKey::install).orElse(false);
+		final Optional<ActiveKeys> keys = spork.chainKeys().filter(NetworkKey::install);
+
+		keys.ifPresent(installed -> BoardKeyChain.pin(spork.changes(), installed));
+		return keys.isPresent();
 	}
 
 	/**
@@ -104,7 +109,10 @@ public final class BoardKeysAuthority {
 
 		if (!shipped.isEmpty()) {
 			try {
-				NetworkKey.install(BoardKeyChain.verify(shipped));
+				final ActiveKeys keys = BoardKeyChain.verify(shipped);
+
+				BoardKeyChain.pinTheShipped(keys);
+				NetworkKey.install(keys);
 			} catch (IllegalArgumentException ex) {
 				throw new IllegalStateException("The chain of board keys that this release ships does not"
 					+ " hold from its root: " + ex.getMessage(), ex);

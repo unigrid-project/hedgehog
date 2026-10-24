@@ -53,6 +53,11 @@ public class BoardKeys extends GridSpork implements Serializable {
 		return changesOf(this).isPresent();
 	}
 
+	/* The changes of the chain, none for a spork that holds no chain */
+	List<KeyChange> changes() {
+		return changesOf(this).orElse(List.of());
+	}
+
 	private static Optional<List<KeyChange>> changesOf(GridSpork spork) {
 		return Optional.ofNullable(spork.<SporkData>getData()).map(SporkData::getChanges)
 			.filter(changes -> changes.stream().allMatch(Objects::nonNull));
