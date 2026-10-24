@@ -86,7 +86,7 @@ public final class BoardKeysAuthority {
 			install(spork);
 		}
 
-		pendingSporks.retainProposalsOver(spork);
+		pendingSporks.retainProposalsOver(Type.BOARD_KEYS, () -> database.get(Type.BOARD_KEYS));
 		pendingSporks.retainProposalsOfActiveKeys();
 		return true;
 	}

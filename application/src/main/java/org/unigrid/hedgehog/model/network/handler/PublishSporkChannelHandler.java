@@ -130,7 +130,7 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return false;
 		}
 
-		pendingSporks.retainProposalsOver(spork);
+		pendingSporks.retainProposalsOver(spork.getType(), () -> db.get(spork.getType()));
 		return true;
 	}
 }

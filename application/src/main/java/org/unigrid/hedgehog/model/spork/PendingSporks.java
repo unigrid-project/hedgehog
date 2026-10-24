@@ -191,10 +191,26 @@ public class PendingSporks {
 
 	/* Judged without the lock, as an offer is, and dropped only if it is still the proposal held */
 	public void retainProposalsOver(GridSpork stored) {
-		final GridSpork held = heldOf(stored.getType());
+		retainProposalsOver(stored.getType(), () -> stored);
+	}
 
-		if (Objects.nonNull(held) && !held.isProposalOver(stored)) {
-			drop(held);
+	/**
+	* Drops the proposal of the type that is no proposal over the spork stored by now, which {@code stored} reads. A
+	* node drops the proposals that a version outdates with no lock held that another thread waits for to store a
+	* version of its own, so the proposal is judged by what is stored when the cleanup comes, and dropped only if that
+	* is still stored and the proposal still held: one over a version that another thread stored meanwhile is a
+	* proposal over the version stored.
+	*/
+	public void retainProposalsOver(Type type, Supplier<GridSpork> stored) {
+		final GridSpork over = stored.get();
+		final GridSpork held = heldOf(type);
+
+		if (Objects.nonNull(held) && !held.isProposalOver(over)) {
+			synchronized (this) {
+				if (stored.get() == over) {
+					proposals.remove(type, held);
+				}
+			}
 		}
 	}
 

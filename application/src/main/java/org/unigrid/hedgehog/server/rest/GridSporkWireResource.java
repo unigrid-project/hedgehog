@@ -149,7 +149,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 			return false;
 		}
 
-		pendingSporks.retainProposalsOver(spork);
+		pendingSporks.retainProposalsOver(spork.getType(), () -> sporkDatabase.get(spork.getType()));
 		return true;
 	}
 
