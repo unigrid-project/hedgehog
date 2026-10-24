@@ -55,6 +55,9 @@ public class Topology {
 	private HashSet<Node> nodes;
 	private HashMap<String, Gridnode> gridnodes;
 
+	/* The nodes that the operator added over REST, which are dialed as the seeds are, whatever peers tell */
+	private final Set<Node> configured = new HashSet<>();
+
 	@Inject
 	@Getter private ChannelMap channels;
 
@@ -148,8 +151,25 @@ public class Topology {
 		return false;
 	}
 
+	/* A node that the operator adds, let in past MAX_NODES as the seeds are */
+	@Protected @Lock(LockMode.WRITE)
+	public boolean addConfigured(Node node) {
+		if (!node.getAddress().isUnresolved() && !nodes.contains(node) && !node.isMe()) {
+			configured.add(node);
+			return nodes.add(node);
+		}
+
+		return false;
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public Set<Node> cloneConfigured() {
+		return new HashSet<>(configured);
+	}
+
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeNode(Node node) {
+		configured.remove(node);
 		return nodes.remove(node);
 	}
 

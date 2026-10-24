@@ -21,9 +21,11 @@ package org.unigrid.hedgehog.server.p2p;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -36,6 +38,7 @@ import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 
 @Slf4j
 public class TopologyThread extends Thread {
@@ -50,6 +53,13 @@ public class TopologyThread extends Thread {
 	public class NodeConnectionHandler implements Consumer<Node> {
 		private final Topology topology;
 
+		/* The nodes that an operator configured, as seeds or over REST, whose connections are marked so */
+		private final Set<Node> configured;
+
+		public NodeConnectionHandler(Topology topology) {
+			this(topology, Set.of());
+		}
+
 		@Override
 		public void accept(Node node) {
 			log.atTrace().log("Handling connection {}", node);
@@ -57,8 +67,10 @@ public class TopologyThread extends Thread {
 
 			try {
 				if (!node.getConnection().isPresent()) {
+					final RemoteAddress.Dialed why = configured.contains(node)
+						? RemoteAddress.Dialed.CONFIGURED : RemoteAddress.Dialed.CHOSEN;
 					final P2PClient client = new P2PClient(node.getAddress().getHostString(),
-						node.getAddress().getPort()
+						node.getAddress().getPort(), why
 					);
 
 					topology.modifyNode(node, n -> {
@@ -95,18 +107,30 @@ public class TopologyThread extends Thread {
 	}
 
 	/* The connected nodes are looked after first, so a closed connection is dropped, and then new connections are made
-	   to the seeds and to other nodes in a random order until the node holds MAX_OUTBOUND: peers choose what the
-	   topology holds, and a node that connected to all of it would hand them its sockets and threads */
-	static List<Node> inTurn(Set<Node> nodes, Set<Node> seeds) {
+	   to the nodes that an operator configured and to other nodes in a random order until the node holds MAX_OUTBOUND:
+	   peers choose what the topology holds, and a node that connected to all of it would hand them its sockets and
+	   threads. Of the nodes that no operator configured, one is dialed in each network group, which the address dialed
+	   decides: anyone can tell a node of as many addresses as they like, and those that it dials are the peers whose
+	   checks it pays the most of (PublishSporkChannelHandler). */
+	static List<Node> inTurn(Set<Node> nodes, Set<Node> configured) {
 		final List<Node> connected = nodes.stream().filter(node -> node.getConnection().isPresent()).toList();
+		final Set<String> groups = connected.stream().filter(node -> !configured.contains(node))
+			.map(TopologyThread::groupOf).collect(Collectors.toSet());
 		final List<Node> others = new ArrayList<>(nodes.stream().filter(node -> node.getConnection().isEmpty())
 			.toList());
 
 		Collections.shuffle(others);
-		others.sort(Comparator.comparing(node -> !seeds.contains(node)));
+		others.sort(Comparator.comparing(node -> !configured.contains(node)));
 
-		return Stream.concat(connected.stream(), others.stream().limit(Math.max(0, MAX_OUTBOUND - connected.size())))
+		final Stream<Node> diverse = others.stream().filter(node -> configured.contains(node)
+			|| groups.add(groupOf(node)));
+
+		return Stream.concat(connected.stream(), diverse.limit(Math.max(0, MAX_OUTBOUND - connected.size())))
 			.toList();
+	}
+
+	private static String groupOf(Node node) {
+		return RemoteAddress.groupOf(node.getAddress());
 	}
 
 	@Override
@@ -118,12 +142,13 @@ public class TopologyThread extends Thread {
 					topology.repopulate();
 				}
 
-				final Set<Node> seeds = topology.addSeeds();
+				final Set<Node> configured = new HashSet<>(topology.addSeeds());
 
+				configured.addAll(topology.cloneConfigured());
 				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
 
 				final Set<Node> nodes = topology.cloneNodes();
-				inTurn(nodes, seeds).forEach(new NodeConnectionHandler(topology));
+				inTurn(nodes, configured).forEach(new NodeConnectionHandler(topology, configured));
 
 				synchronized (lock) {
 					try {

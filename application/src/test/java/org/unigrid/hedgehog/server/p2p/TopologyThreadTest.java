@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Expectations;
 import mockit.Mock;
@@ -46,6 +47,7 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.util.Reflection;
 import org.unigrid.hedgehog.server.TestServer;
 
@@ -89,7 +91,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 
 		topology.addNode(node);
 		topology.getChannels().set(channel, node);
-		topologyThread.new NodeConnectionHandler(topology).accept(node);
+		topologyThread.new NodeConnectionHandler(topology, Set.of()).accept(node);
 
 		new Verifications() {{
 			connection.closeDirty(); times = 1;
@@ -115,16 +117,21 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	@SneakyThrows
 	public void shouldConnectToTheAddressAsGiven() {
 		final List<String> hosts = new ArrayList<>();
+		final List<RemoteAddress.Dialed> dialed = new ArrayList<>();
 
 		new MockUp<P2PClient>() {
 			@Mock
-			public void $init(String hostname, int port) {
+			public void $init(String hostname, int port, RemoteAddress.Dialed why) {
 				hosts.add(hostname);
+				dialed.add(why);
 			}
 		};
 
-		topologyThread.new NodeConnectionHandler(topology).accept(Node.fromAddress("127.0.0.1:52883"));
-		assertThat(hosts, contains("127.0.0.1"));
+		topologyThread.new NodeConnectionHandler(topology, Set.of()).accept(Node.fromAddress("127.0.0.1:52883"));
+		topologyThread.new NodeConnectionHandler(topology, Set.of(Node.fromAddress("127.0.0.1:52884")))
+			.accept(Node.fromAddress("127.0.0.1:52884"));
+		assertThat(hosts, contains("127.0.0.1", "127.0.0.1"));
+		assertThat(dialed, contains(RemoteAddress.Dialed.CHOSEN, RemoteAddress.Dialed.CONFIGURED));
 	}
 
 	private static Node node(int n, Optional<Connection> connection) {
@@ -151,5 +158,33 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(turns, hasSize(TopologyThread.MAX_OUTBOUND));
 		assertThat(turns.subList(0, 2), containsInAnyOrder(connected.toArray()));
 		assertThat(turns.subList(2, 4), containsInAnyOrder(seeds.toArray()));
+	}
+
+	private static Node at(String address) {
+		return Node.builder().address(new InetSocketAddress(address, 1)).build();
+	}
+
+	/* Anyone can tell a node of as many addresses as they like, so of the nodes that no operator configured it dials one
+	   in each network group, which the address dialed decides: an attacker that announces 200 addresses in four /16
+	   networks gets four connections, honest nodes in other networks are dialed beside them, and so is a seed in one of
+	   the networks of the attacker */
+	@Example
+	public void shouldDialOneNodeInEachNetworkGroupOfThoseThatNoOperatorConfigured() {
+		final List<Node> attacker = IntStream.range(0, 200).mapToObj(n -> at("45." + n % 4 + "." + n / 4 + ".1"))
+			.toList();
+		final List<Node> honest = IntStream.range(0, 10).mapToObj(n -> at("80." + n + ".0.1")).toList();
+		final Node seed = at("45.0.250.1");
+		final Set<Node> nodes = new HashSet<>(attacker);
+
+		nodes.addAll(honest);
+		nodes.add(seed);
+
+		final List<Node> turns = TopologyThread.inTurn(nodes, Set.of(seed));
+
+		assertThat(turns, hasItem(seed));
+		assertThat(turns, hasItems(honest.toArray(Node[]::new)));
+		assertThat(turns.stream().filter(attacker::contains).map(node -> RemoteAddress.groupOf(node.getAddress()))
+			.toList(), allOf(hasSize(lessThanOrEqualTo(4)), equalTo(turns.stream().filter(attacker::contains)
+			.map(node -> RemoteAddress.groupOf(node.getAddress())).distinct().toList())));
 	}
 }

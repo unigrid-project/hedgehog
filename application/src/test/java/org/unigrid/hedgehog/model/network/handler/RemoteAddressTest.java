@@ -23,6 +23,7 @@ import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.net.Inet4Address;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -34,6 +35,8 @@ import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.ipv4Mapped;
 
 public class RemoteAddressTest {
@@ -55,13 +58,32 @@ public class RemoteAddressTest {
 		final EmbeddedChannel inbound = new EmbeddedChannel();
 		final Channel listening = streamOf(inbound);
 
-		dialed.attr(RemoteAddress.DIALED_KEY).set(Boolean.TRUE);
+		dialed.attr(RemoteAddress.DIALED_KEY).set(RemoteAddress.Dialed.CHOSEN);
 		inbound.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
 		RemoteAddress.listensOn(listening, PORT);
 
 		assertThat(RemoteAddress.isDialed(streamOf(dialed)), equalTo(true));
 		assertThat(RemoteAddress.isDialed(listening), equalTo(false));
 		assertThat(RemoteAddress.isDialed(new EmbeddedChannel()), equalTo(false));
+	}
+
+	private static String groupOf(final String address) {
+		return RemoteAddress.groupOf(new InetSocketAddress(address, PORT));
+	}
+
+	/* One who holds a network holds every address in it, so a peer is counted with its /16 or its IPv6 /32, while an
+	   address of this host or of a private network stands for itself, as many nodes of one operator share them */
+	@Example
+	public void groupsAPeerByItsNetwork() {
+		assertThat(groupOf("45.10.200.7"), equalTo(groupOf("45.10.3.99")));
+		assertThat(groupOf("45.10.200.7"), not(equalTo(groupOf("45.11.200.7"))));
+		assertThat(groupOf("::ffff:45.10.0.1"), equalTo(groupOf("45.10.200.7")));
+		assertThat(groupOf("2001:db8:1:2::1"), equalTo(groupOf("2001:db8:ffff::9")));
+		assertThat(groupOf("2001:db8:1:2::1"), not(equalTo(groupOf("2001:db9:1:2::1"))));
+
+		for (String own : List.of("127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "fd00::1", "fe80::1")) {
+			assertThat(own, groupOf(own), equalTo(NettyLedgerPeer.idOf(new InetSocketAddress(own, PORT))));
+		}
 	}
 
 	@Example

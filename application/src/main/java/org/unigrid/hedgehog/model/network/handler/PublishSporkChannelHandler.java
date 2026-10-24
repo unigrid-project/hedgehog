@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import lombok.extern.slf4j.Slf4j;
@@ -48,14 +49,12 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return;
 		}
 
-		final String source = RemoteAddress.idOf(ctx.channel());
-		final SporkLag.Pool pool = RemoteAddress.isDialed(ctx.channel()) ? SporkLag.Pool.TRUSTED
-			: SporkLag.Pool.OTHER;
+		final Account account = accountOf(ctx.channel());
 
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
 			CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
 				CDIUtil.resolveAndRun(SporkLag.class, lag -> {
-					if (receive(spork, db, pendingSporks, lag, source, pool)) {
+					if (receive(spork, db, pendingSporks, lag, account.source(), account.pool())) {
 						CDIUtil.resolveAndRun(Topology.class, topology -> {
 							SporkRecipients.sendAll(spork, topology);
 						});
@@ -63,6 +62,19 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 				});
 			});
 		});
+	}
+
+	/* What the checks of the sporks of a stream are paid from */
+	record Account(String source, SporkLag.Pool pool) {
+	}
+
+	/* A peer that this node dialed pays from the pool of those, by its network group, so that the addresses of one
+	   network draw one share however many of them the node dialed, while a peer that an operator configured has a share
+	   of its own. Every other peer pays from the pool of the rest, by its network group too. */
+	static Account accountOf(Channel stream) {
+		return RemoteAddress.dialedOf(stream).map(dialed -> new Account(dialed == RemoteAddress.Dialed.CONFIGURED
+			? RemoteAddress.idOf(stream) : RemoteAddress.groupOf(stream), SporkLag.Pool.TRUSTED))
+			.orElseGet(() -> new Account(RemoteAddress.groupOf(stream), SporkLag.Pool.OTHER));
 	}
 
 	/**

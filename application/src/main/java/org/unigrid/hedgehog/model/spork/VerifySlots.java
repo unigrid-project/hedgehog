@@ -34,7 +34,8 @@ import org.unigrid.hedgehog.model.spork.SporkLag.Pool;
 * a second and holds no more than that. The checks of a second are held to a ceiling for each type and to one for the
 * node, and of each ceiling the peers that this node dialed itself ({@link Pool#TRUSTED}) share three quarters, every
 * other peer the quarter left: anyone can open streams to a node from as many addresses as they like, and so spend
-* that quarter, while the peers that a node dials are of its own choosing.
+* that quarter, while the peers that a node dials are of its own choosing, one in each network group. The handler
+* names a source by its network group, so that the addresses of one network draw one share.
 *
 * <p>A second is one of the monotonic clock, so that no clock that is set back opens a second again, and what a
 * genuine spork was charged is given back to the second it was charged in only. Only a bucket that is not full is
@@ -49,6 +50,7 @@ final class VerifySlots {
 
 	private static final int QUARTERS = 4;
 	private static final int TRUSTED_QUARTERS = 3;
+	private static final int TRUSTED_SHARES = 8;
 	private static final long NANOS_PER_SECOND = Duration.ofSeconds(1).toNanos();
 
 	private record Slot(Type type, Pool pool, String source) {
@@ -80,10 +82,12 @@ final class VerifySlots {
 		return pool == Pool.TRUSTED ? ceiling * TRUSTED_QUARTERS / QUARTERS : ceiling / QUARTERS;
 	}
 
-	/* What the bucket of a source fills by in a second and holds at most: a quarter of what its pool spends on a type,
-	   so that a source that floods leaves three quarters of a second to the others of its pool */
+	/* What the bucket of a source fills by in a second and holds at most. A source is a network group, or a peer that
+	   an operator configured, and draws an eighth of what the dialed peers spend on a type, so that an attacker has to
+	   hold eight of the networks that a node dials to hold up the others, and a quarter of what every other peer
+	   spends, so that a group that floods leaves three quarters to the rest. */
 	static int shareOf(final Pool pool) {
-		return ceilingOf(pool, TYPE_CEILING) / QUARTERS;
+		return ceilingOf(pool, TYPE_CEILING) / (pool == Pool.TRUSTED ? TRUSTED_SHARES : QUARTERS);
 	}
 
 	/* Whether the source can pay for one check more, and its pool has one left in this second */

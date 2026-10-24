@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -39,6 +40,7 @@ import static org.hamcrest.Matchers.sameInstance;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkLag.Pool;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.KEYS;
@@ -107,13 +109,21 @@ public class TrustedPoolTest {
 
 	/* Each inbound peer sends far more junk in the second than its share pays for */
 	private void flood() {
+		floodFrom(INBOUND, Pool.OTHER);
+	}
+
+	private void floodFrom(List<String> sources, Pool pool) {
 		int n = 0;
 
-		for (String source : INBOUND) {
-			for (int i = 0; i < 20; i++) {
-				handler.receive(junk(n++), database, pending, lag, source, Pool.OTHER);
+		for (String source : sources) {
+			for (int i = 0; i < 40; i++) {
+				handler.receive(junk(n++), database, pending, lag, source, pool);
 			}
 		}
+	}
+
+	private static String groupOf(String address) {
+		return RemoteAddress.groupOf(new InetSocketAddress(address, 1));
 	}
 
 	@Example
@@ -132,6 +142,28 @@ public class TrustedPoolTest {
 		lag.record(SerializationUtils.clone(honest), database, lag.turnOf(Type.MINT_SUPPLY, DIALED, Pool.TRUSTED));
 
 		assertThat(lag.isBehind(Type.MINT_SUPPLY, database), is(true));
+	}
+
+	/* An attacker that announces addresses in four networks is dialed once in each, and those peers run junk at full
+	   rate on the shares of their network groups, while honest dialed peers in other networks, and a seed in a network
+	   of the attacker, which has a share of its own, still have a version taken */
+	@Example
+	public void shouldTakeHonestVersionsFromDialedPeersWhileTheDialedPeersOfAnAttackerSendJunk() {
+		final List<String> hostile = IntStream.range(0, 4).mapToObj(n -> groupOf("45." + n + ".0.1")).toList();
+		final int share = VerifySlots.shareOf(Pool.TRUSTED);
+
+		floodFrom(hostile, Pool.TRUSTED);
+
+		final double spent = hostile.stream().mapToDouble(group -> share - lag.left(Type.MINT_SUPPLY, Pool.TRUSTED,
+			group)).sum();
+		final GridSpork fromAnotherNetwork = SerializationUtils.clone(honest);
+		final GridSpork fromTheSeed = SerializationUtils.clone(version(honest, 30, now.minusSeconds(20)));
+
+		assertThat(spent, lessThanOrEqualTo((double) hostile.size() * share));
+		assertThat(handler.receive(fromAnotherNetwork, database, pending, lag, groupOf("80.1.0.1"), Pool.TRUSTED),
+			is(true));
+		assertThat(handler.receive(fromTheSeed, database, pending, lag, "45.0.250.1", Pool.TRUSTED), is(true));
+		assertThat(database.getMintSupply(), sameInstance(fromTheSeed));
 	}
 
 	/* What inbound peers spend in a second, however many they are */

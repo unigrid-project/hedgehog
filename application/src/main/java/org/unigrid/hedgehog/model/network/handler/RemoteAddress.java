@@ -20,17 +20,28 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 
 public final class RemoteAddress {
 	private static final AttributeKey<Integer> LISTEN_PORT_KEY = AttributeKey.valueOf("LISTEN_PORT");
+	private static final int IPV6_GROUP_BYTES = 4;
+	private static final int UNIQUE_LOCAL = 0xfc;
+	private static final int UNIQUE_LOCAL_MASK = 0xfe;
+
+	/* Why this node dialed a peer: one that an operator configured, as a seed or over REST, or one that it chose among
+	   those that peers told it of */
+	public enum Dialed {
+		CONFIGURED, CHOSEN
+	}
 
 	/* Set by this node on a connection that it opens itself, as it opens it */
-	public static final AttributeKey<Boolean> DIALED_KEY = AttributeKey.valueOf("DIALED");
+	public static final AttributeKey<Dialed> DIALED_KEY = AttributeKey.valueOf("DIALED");
 
 	private RemoteAddress() {
 		/* Static helpers only */
@@ -67,7 +78,45 @@ public final class RemoteAddress {
 	   that a peer sends or says of itself marks one: anyone can connect to a node, while the peers that it dials are of
 	   its own choosing. */
 	public static boolean isDialed(final Channel stream) {
-		return Objects.nonNull(stream.parent()) && Boolean.TRUE.equals(stream.parent().attr(DIALED_KEY).get());
+		return dialedOf(stream).isPresent();
+	}
+
+	public static Optional<Dialed> dialedOf(final Channel stream) {
+		return Optional.ofNullable(stream.parent()).map(connection -> connection.attr(DIALED_KEY).get());
+	}
+
+	/**
+	* The network group of a peer: its IPv4 /16, or its IPv6 /32. Whoever holds a network holds every address in it,
+	* so what is limited by group holds an attacker with many addresses to the few networks they are in. An address of
+	* this host or of a private network stands for itself, as {@link #idOf} names it: the nodes of one operator share
+	* those, and none of them is anyone's to hand out.
+	*/
+	public static String groupOf(final InetSocketAddress socket) {
+		if (socket.isUnresolved()) {
+			return socket.getHostString();
+		}
+
+		final InetAddress address = NettyLedgerPeer.plain(socket.getAddress());
+		final byte[] bytes = address.getAddress();
+
+		if (isOfItsOwn(address)) {
+			return NettyLedgerPeer.idOf(socket);
+		}
+
+		return bytes.length == Integer.BYTES
+			? Byte.toUnsignedInt(bytes[0]) + "." + Byte.toUnsignedInt(bytes[1]) + ".0.0/16"
+			: HexFormat.of().formatHex(bytes, 0, IPV6_GROUP_BYTES) + "/32";
+	}
+
+	/* The group of the peer of a stream, by the address it is connected from, never by what it says of itself */
+	public static String groupOf(final Channel stream) {
+		return of(stream).map(RemoteAddress::groupOf).orElseGet(() -> stream.id().asLongText());
+	}
+
+	private static boolean isOfItsOwn(final InetAddress address) {
+		return address.isLoopbackAddress() || address.isSiteLocalAddress() || address.isLinkLocalAddress()
+			|| address.isAnyLocalAddress() || address.getAddress().length > Integer.BYTES
+			&& (address.getAddress()[0] & UNIQUE_LOCAL_MASK) == UNIQUE_LOCAL;
 	}
 
 	/* What a peer is called by anything that limits it: the name the ledger gives its peer, or the stream when the

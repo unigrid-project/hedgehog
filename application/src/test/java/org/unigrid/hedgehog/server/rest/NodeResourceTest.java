@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
@@ -43,10 +44,14 @@ import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 
 public class NodeResourceTest extends BaseRestClientTest {
 	@Mocked
 	private Connection emptyConnection;
+
+	@Inject
+	private Topology topology;
 
 	@Provide
 	public Arbitrary<InetSocketAddress> provideAddress(@ForAll @IntRange(min = 1024, max = 65535) int port) {
@@ -66,6 +71,16 @@ public class NodeResourceTest extends BaseRestClientTest {
 		);
 
 		return response;
+	}
+
+	/* A node that the operator adds is dialed as the seeds are, whatever peers tell this node */
+	@Example
+	@SneakyThrows
+	public void shouldTakeANodeAddedOverRestForOneThatTheOperatorConfigured() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.9", 1234)).build();
+
+		postAssert("/node", node);
+		assertThat(topology.cloneConfigured(), hasItem(node));
 	}
 
 	@SneakyThrows

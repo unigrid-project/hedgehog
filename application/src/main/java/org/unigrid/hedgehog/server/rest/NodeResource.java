@@ -90,7 +90,7 @@ public class NodeResource extends CDIBridgeResource {
 				return Response.status(Response.Status.CONFLICT).build();
 			}
 
-			if (topology.addNode(node)) {
+			if (topology.addConfigured(node)) {
 				return Response.created(node.getURI()).build();
 			} else {
 				return Response.notModified().build();
