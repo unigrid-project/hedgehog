@@ -166,6 +166,41 @@ public class TrustedPoolTest {
 		assertThat(database.getMintSupply(), sameInstance(fromTheSeed));
 	}
 
+	/* A first version of the type with signatures that no key made of it, which each node it reaches tries: of the
+	   board keys in the one form of a signature, as they are refused in any other before they are tried */
+	@SneakyThrows
+	private GridSpork junkOf(Type type, int n) {
+		final GridSpork junk = GridSpork.nextVersion(type, null, Optional.empty());
+		final byte[] forged = type == Type.BOARD_KEYS ? key(0).signInOneForm(forged()) : forged();
+
+		junk.setTimeStamp(now.minusSeconds(10).plusMillis(n));
+		junk.setSignature(forged);
+		junk.setCosignature(forged.clone());
+		return junk;
+	}
+
+	/* Two dialed peers in networks of their own send junk of every type at once at full rate, which spends no more of
+	   what the dialed peers share on the node than their two accounts hold, and an honest version from a peer in a third
+	   network is still checked and taken */
+	@Example
+	public void shouldTakeAnHonestVersionFromADialedPeerWhileTwoOthersSendJunkOfEveryType() {
+		final List<String> flooding = List.of(groupOf("45.0.0.1"), groupOf("45.1.0.1"));
+		int n = 0;
+
+		for (Type type : Type.values()) {
+			for (String source : flooding) {
+				for (int i = 0; i < 40 && type != Type.UNDEFINED; i++) {
+					handler.receive(junkOf(type, n++), database, pending, lag, source, Pool.TRUSTED);
+				}
+			}
+		}
+
+		final GridSpork heard = SerializationUtils.clone(honest);
+
+		assertThat(handler.receive(heard, database, pending, lag, groupOf("80.1.0.1"), Pool.TRUSTED), is(true));
+		assertThat(database.getMintSupply(), sameInstance(heard));
+	}
+
 	/* What inbound peers spend in a second, however many they are */
 	@Example
 	public void shouldSpendNoMoreOnInboundPeersInASecondThanTheirQuarter() {

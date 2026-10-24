@@ -61,12 +61,21 @@ public class VerifySlotsTest {
 
 	@Example
 	public void keepsTheSourcesTheTypesAndThePoolsApart() {
+		assertThat(checks(TYPE, Pool.TRUSTED, "peer", 1, 1000), is((long) VerifySlots.shareOf(Pool.TRUSTED)));
+		assertThat(slots.hasLeft(TYPE, Pool.TRUSTED, "peer"), is(false));
+		assertThat(slots.hasLeft(Type.LEDGER_FEE, Pool.TRUSTED, "peer"), is(true));
+		assertThat(slots.hasLeft(TYPE, Pool.OTHER, "peer"), is(true));
+		assertThat(slots.hasLeft(TYPE, Pool.TRUSTED, "another"), is(true));
+		assertThat(checks(TYPE, Pool.OTHER, "inbound", 1, 1000), is((long) VerifySlots.shareOf(Pool.OTHER)));
+	}
+
+	/* An inbound source draws as much from its bucket for every type as from the one of a type, so a type that it
+	   spent leaves it nothing for the others */
+	@Example
+	public void leavesAnInboundSourceThatSpentOneTypeNothingForAnother() {
 		assertThat(checks(TYPE, Pool.OTHER, "peer", 1, 1000), is((long) VerifySlots.shareOf(Pool.OTHER)));
-		assertThat(slots.hasLeft(TYPE, Pool.OTHER, "peer"), is(false));
-		assertThat(slots.hasLeft(Type.LEDGER_FEE, Pool.OTHER, "peer"), is(true));
-		assertThat(slots.hasLeft(TYPE, Pool.TRUSTED, "peer"), is(true));
-		assertThat(slots.hasLeft(TYPE, Pool.OTHER, "another"), is(true));
-		assertThat(checks(TYPE, Pool.TRUSTED, "dialed", 1, 1000), is((long) VerifySlots.shareOf(Pool.TRUSTED)));
+		assertThat(slots.hasLeft(Type.LEDGER_FEE, Pool.OTHER, "peer"), is(false));
+		assertThat(slots.hasLeft(Type.LEDGER_FEE, Pool.OTHER, "another"), is(true));
 	}
 
 	/* However many inbound peers there are, they spend their quarter, and the peers that this node dialed the rest */
@@ -91,6 +100,21 @@ public class VerifySlotsTest {
 
 		assertThat(paid, is((long) VerifySlots.ceilingOf(Pool.OTHER, VerifySlots.NODE_CEILING)));
 		assertThat(slots.hasLeft(Type.LEDGER_FEE, Pool.TRUSTED, "dialed"), is(true));
+	}
+
+	/* An account pays for the checks of every type from one bucket besides, which holds an eighth of what its pool may
+	   spend on the node in a second, so that it takes eight accounts to spend that, whatever types they send */
+	@Example
+	public void holdsAnAccountToAnEighthOfWhatItsPoolSpendsOnTheNodeOverEveryType() {
+		for (Pool pool : Pool.values()) {
+			final long paid = Arrays.stream(Type.values()).mapToLong(type -> checks(type, pool, "flood", 1, 1000))
+				.sum();
+
+			assertThat(pool.name(), paid, is((long) VerifySlots.ceilingOf(pool, VerifySlots.NODE_CEILING) / 8));
+		}
+
+		Arrays.stream(Type.values()).forEach(type -> checks(type, Pool.TRUSTED, "another flood", 1, 1000));
+		assertThat(Arrays.stream(Type.values()).allMatch(type -> slots.hasLeft(type, Pool.TRUSTED, "honest")), is(true));
 	}
 
 	/* What a genuine spork was charged is given back, so a peer that sends several in a row has each of them checked */

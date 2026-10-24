@@ -359,7 +359,11 @@ public class SporkLagTest {
 		spendTheBucketOf(PEER);
 		assertThat(paidBy(Type.MINT_SUPPLY, PEER), is((double) SHARE));
 
+		/* What an inbound source holds for every type it spent with one, while the type holds checks for others */
 		lag.record(agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer)), database, PEER);
+		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(false));
+
+		lag.record(agreed(proposal(new LedgerFee(), ago(Duration.ofMinutes(7)), proposer)), database, "203.0.113.9");
 		assertThat(lag.isBehind(Type.LEDGER_FEE, database), is(true));
 
 		lag.record(agreement(ago(Duration.ofMinutes(5))), database, PEER);
