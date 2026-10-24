@@ -98,6 +98,10 @@ public class RemoteAddressTest {
 		assertThat(groupOf("2001:db8:1:2::1"), equalTo(groupOf("2001:db8:ffff::9")));
 		assertThat(groupOf("2001:db8:1:2::1"), not(equalTo(groupOf("2001:db9:1:2::1"))));
 
+		assertThat(groupOf("2002:2d0a:0101::1"), equalTo(groupOf("45.10.1.1")));
+		assertThat(groupOf("2002:2d0a:0101::1"), equalTo(groupOf("2002:2d0a:ffff::9")));
+		assertThat(groupOf("2002:2d0b::1"), not(equalTo(groupOf("45.10.1.1"))));
+
 		for (String own : List.of("127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "fd00::1", "fe80::1")) {
 			assertThat(own, groupOf(own), equalTo(NettyLedgerPeer.idOf(new InetSocketAddress(own, PORT))));
 		}
