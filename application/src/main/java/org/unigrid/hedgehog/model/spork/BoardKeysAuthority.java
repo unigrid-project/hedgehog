@@ -53,11 +53,27 @@ public final class BoardKeysAuthority {
 	public static boolean accept(BoardKeys spork, SporkDatabase database, PendingSporks pendingSporks,
 		BooleanSupplier mayVerify) {
 
+		return mayAccept(spork, database, mayVerify) && commit(spork, database, pendingSporks);
+	}
+
+	/* Whether the version may take the place of the stored one, which is what checks cost and what the source of a
+	   version that came from a peer pays for */
+	public static boolean mayAccept(BoardKeys spork, SporkDatabase database, BooleanSupplier mayVerify) {
 		if (!spork.canReplace(database.get(Type.BOARD_KEYS), mayVerify)) {
 			reportFork(spork, database.get(Type.BOARD_KEYS), mayVerify);
 			return false;
 		}
 
+		return true;
+	}
+
+	/**
+	* Stores a version that {@link #mayAccept} took, goes by its chain and drops the proposals that it outdates, which is
+	* work of the node that no source pays for, so that none whose checks run out can leave it half done. Under the
+	* lock the version is judged again, by what costs no signature, against what is stored by then. Returns whether it
+	* was stored.
+	*/
+	public static boolean commit(BoardKeys spork, SporkDatabase database, PendingSporks pendingSporks) {
 		synchronized (LOCK) {
 			if (!spork.followsOn(database.get(Type.BOARD_KEYS))) {
 				return false;
@@ -65,10 +81,11 @@ public final class BoardKeysAuthority {
 
 			database.set(spork);
 			install(spork);
-			pendingSporks.retainProposalsOver(spork);
-			pendingSporks.retainProposalsOfActiveKeys();
-			return true;
 		}
+
+		pendingSporks.retainProposalsOver(spork);
+		pendingSporks.retainProposalsOfActiveKeys();
+		return true;
 	}
 
 	/* Whether the chain of the spork is now the one the node goes by */

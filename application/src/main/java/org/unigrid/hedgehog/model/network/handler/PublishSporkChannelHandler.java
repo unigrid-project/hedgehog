@@ -70,7 +70,9 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	*
 	* <p>Anyone can send a frame and checking a signature is the costly part, so each signature of a spork is checked
 	* on the account of its source ({@link SporkLag.Turn}), as it is checked. A peer that floods forged sporks spends
-	* its own checks and no other peer's, and a genuine spork gives back what it cost for the next one.
+	* its own checks and no other peer's, and a genuine spork gives back what it cost for the next one. What the
+	* node does once it took a co-signed spork, storing it and dropping the proposals it outdates, is its own work and
+	* is paid for by no one, so a source whose checks run out right then leaves the node whole.
 	*/
 	public boolean receive(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks, SporkLag lag,
 		String source) {
@@ -81,19 +83,9 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 		/* Before any decision, so a spork this node turns down still tells it the network has moved on */
 		lag.record(spork, db, turn);
 
-		if (turn.charging(() -> isTaken(spork, stored, db, pendingSporks, turn))) {
-			turn.giveBack();
-			return true;
-		}
-
-		return false;
-	}
-
-	private static boolean isTaken(GridSpork spork, GridSpork stored, SporkDatabase db, PendingSporks pendingSporks,
-		SporkLag.Turn turn) {
-
 		if (spork.isPending()) {
-			return pendingSporks.offer(spork, () -> db.get(spork.getType()), turn);
+			return given(turn, turn.charging(() -> pendingSporks.offer(spork, () -> db.get(spork.getType()),
+				turn)));
 		}
 
 		if (pendingSporks.isAheadOfTime(spork)) {
@@ -101,17 +93,35 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return false;
 		}
 
+		if (!turn.charging(() -> mayReplace(spork, stored, db, turn))) {
+			log.atDebug().log("Dropped a {} spork that cannot replace the stored one", spork.getType());
+			return false;
+		}
+
+		turn.giveBack();
+		return commit(spork, db, pendingSporks);
+	}
+
+	private static boolean given(SporkLag.Turn turn, boolean isTaken) {
+		if (isTaken) {
+			turn.giveBack();
+		}
+
+		return isTaken;
+	}
+
+	private static boolean mayReplace(GridSpork spork, GridSpork stored, SporkDatabase db, SporkLag.Turn turn) {
+		return spork instanceof BoardKeys boardKeys ? BoardKeysAuthority.mayAccept(boardKeys, db, turn)
+			: spork.canReplace(stored, turn);
+	}
+
+	private static boolean commit(GridSpork spork, SporkDatabase db, PendingSporks pendingSporks) {
 		if (spork instanceof BoardKeys boardKeys) {
-			return BoardKeysAuthority.accept(boardKeys, db, pendingSporks, turn);
+			return BoardKeysAuthority.commit(boardKeys, db, pendingSporks);
 		}
 
-		if (spork.canReplace(stored, turn)) {
-			db.set(spork);
-			pendingSporks.retainProposalsOver(spork);
-			return true;
-		}
-
-		log.atDebug().log("Dropped a {} spork that cannot replace the stored one", spork.getType());
-		return false;
+		db.set(spork);
+		pendingSporks.retainProposalsOver(spork);
+		return true;
 	}
 }
