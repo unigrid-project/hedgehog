@@ -40,13 +40,16 @@ import picocli.CommandLine.Spec;
 /* A node takes nothing of its own database that the board did not sign, so only a database that holds no such spork
    is installed. A running node holds its database in memory and writes it over the file as it saves, so the import
    refuses while the node holds the lock of its database; a node of an earlier release takes none, and has to be
-   stopped all the same. The database it replaces is copied aside first, and the new one moved over it in one step. */
+   stopped all the same. The database it replaces is copied aside first, and the new one moved over it in one step.
+   A node that holds no database has no chain of board keys to judge the file by, so the chain of the file is judged
+   by the record of this machine too, as the other util commands judge theirs (BoardKeysRecord). */
 @Command(name = "import",
 	description = "Installs a spork database that two current board keys signed as the spork database of the node"
 		+ " of this machine, and keeps the one it replaces beside it as spork.db.<epoch seconds>. Stop the node"
 		+ " first: it keeps its sporks in memory and writes them over the file when it saves. Exits with 1 when"
 		+ " the database holds a spork that is not signed by the board or does not hold, and with 2 when it cannot"
-		+ " be read or installed."
+		+ " be read or installed, or holds less of the chain of board keys than this machine verified before, or"
+		+ " another chain."
 )
 public class SporkDbImport implements Callable<Integer> {
 	@Parameters(index = "0", paramLabel = "<file>", description = "The signed spork database to install.")
@@ -80,6 +83,8 @@ public class SporkDbImport implements Callable<Integer> {
 				+ " switched off, or onto a fork");
 			return 1;
 		}
+
+		SporkDatabaseFile.requireRecorded(spec, database, file);
 
 		if (!SporkDatabaseFile.report(database)) {
 			System.err.println("Nothing was imported: two current board keys did not sign every spork of " + file

@@ -28,6 +28,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -52,6 +54,7 @@ import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
 import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.KeyChange;
@@ -200,6 +203,39 @@ public class SporkDbBoardKeysTest {
 				assertThat(result.err(), containsString("chain of board keys of the node"));
 				assertThat(Files.readAllBytes(node), equalTo(held));
 			}
+
+			assertThat(run(fs, "import", written(fs.getPath("/same.db"), ofTheNewBoard(), supply(key(1), key(2)))
+				.toString()).exitCode(), equalTo(0));
+		}
+	}
+
+	/* A node that holds no database yet holds no chain to judge a file by, while this machine verified both changes
+	   before: a file that holds less of the chain, another chain or none is refused as the other commands refuse it */
+	@Example
+	@SneakyThrows
+	public void importsNoDatabaseThatHoldsLessThanTheRecordOfThisMachineOrPartsFromIt() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path node = fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE);
+			final KeyChange beyondTheFork = change(ROOT, List.of(FORKING), keys(1, 3), keys(1, 3));
+			final Path shorter = written(fs.getPath("/shorter.db"), signed(chainOf(ADDING), key(0), key(1)));
+			final Path forked = written(fs.getPath("/forked.db"), signed(chainOf(FORKING, beyondTheFork), key(1),
+				key(3)));
+			final Path none = written(fs.getPath("/none.db"), supply(key(1), key(2)));
+
+			Files.createDirectories(node.getParent());
+			OptionsCli.parse(List.of("util"), BOARD);
+			BoardKeysRecord.ofThisMachine().keep(Optional.of(List.of(ADDING, SWITCHING_OFF)), "a test");
+
+			final Map<Path, String> refusals = Map.of(shorter, "fewer than the 2 changes", forked,
+				"parts at change 0", none, "holds no board keys");
+
+			refusals.forEach((file, refusal) -> {
+				final HedgehogCli.Result result = run(fs, "import", file.toString());
+
+				assertThat(file.toString(), result.exitCode(), equalTo(2));
+				assertThat(result.err(), containsString(refusal));
+				assertThat(Files.exists(node), is(false));
+			});
 
 			assertThat(run(fs, "import", written(fs.getPath("/same.db"), ofTheNewBoard(), supply(key(1), key(2)))
 				.toString()).exitCode(), equalTo(0));
