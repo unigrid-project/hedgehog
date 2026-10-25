@@ -92,10 +92,6 @@ public class SporkSignableTest extends BaseCodecTest<PublishSpork> {
 			@Mock public /* static */ String[] getPublicKeys() {
 				return new String[] { proposer.getPublicKey(), cosigner.getPublicKey() };
 			}
-
-			@Mock public /* static */ String[] getRetiredPublicKeys() {
-				return new String[0];
-			}
 		};
 	}
 

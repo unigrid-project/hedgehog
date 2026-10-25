@@ -92,7 +92,8 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			return Optional.of(gridSpork);
 		}
 
-		log.atError().log("Unable to handle spork chunk of type {}", type);
+		/* A peer of a later release sends types this node does not know, which is no fault of either */
+		log.atDebug().log("Unable to handle spork chunk of type {}", type);
 		return Optional.empty();
 	}
 

@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.spork;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
@@ -33,7 +34,9 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -50,21 +53,17 @@ public class GridSporkProvenanceTest {
 		return new Signature();
 	}
 
-	private static void board(List<Signature> current, List<Signature> retired) {
+	private static void board(List<Signature> current) {
 		new MockUp<NetworkKey>() {
 			@Mock public String[] getPublicKeys() {
 				return current.stream().map(Signature::getPublicKey).toArray(String[]::new);
-			}
-
-			@Mock public String[] getRetiredPublicKeys() {
-				return retired.stream().map(Signature::getPublicKey).toArray(String[]::new);
 			}
 		};
 	}
 
 	@BeforeTry
 	public void fakeTheBoard() {
-		board(List.of(FIRST, SECOND), List.of());
+		board(List.of(FIRST, SECOND));
 	}
 
 	private static MintSupply.SporkData supplyOf(long maxSupply) {
@@ -104,24 +103,44 @@ public class GridSporkProvenanceTest {
 		assertThat(stored(first, 20).isTakenByTheNetwork(), is(true));
 	}
 
+	/* A key the board no longer holds could sign anything, so the current board signs the spork again */
 	@Example
-	public void shouldTakeASporkOfABoardThatHasSinceBeenReplaced() {
+	public void shouldRefuseASporkOfABoardThatHasSinceBeenReplaced() {
 		final GridSpork spork = stored(null, 10);
 
-		board(List.of(STRANGER), List.of(FIRST, SECOND));
-		assertThat(spork.isTakenByTheNetwork(), is(true));
+		board(List.of(STRANGER));
+		assertThat(spork.isTakenByTheNetwork(), is(false));
 	}
 
-	/* What an earlier build stored was signed once, over its Java serialization */
+	/* What an earlier build stored was signed once, over its Java serialization, which one key alone can make */
 	@Example
-	public void shouldTakeASporkThatAnEarlierBuildSignedOnce() {
+	public void shouldRefuseASporkThatAnEarlierBuildSignedOnce() {
 		final GridSpork spork = GridSpork.create(GridSpork.Type.MINT_SUPPLY);
 
 		spork.setData(supplyOf(10));
 		spork.setTimeStamp(Instant.parse("2025-01-01T00:00:00Z"));
 		spork.setSignature(signatureOf(FIRST, spork));
 
-		assertThat(spork.isTakenByTheNetwork(), is(true));
+		assertThat(spork.isTakenByTheNetwork(), is(false));
+	}
+
+	/* Made now, as a stamp ahead of the clock would win over every version the board makes until that time comes */
+	@Example
+	public void shouldStampAFirstVersionNowAndRefuseOneOverASporkStampedAhead() {
+		final GridSpork earlier = stored(null, 10);
+		final GridSpork ahead = stored(null, 10);
+
+		earlier.setTimeStamp(Instant.parse("2023-06-23T10:38:54.983Z"));
+		ahead.setTimeStamp(Instant.now().plusSeconds(3600));
+
+		final Instant before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork first = GridSpork.firstVersionOf(earlier);
+
+		assertThat(first.getTimeStamp().isBefore(before), is(false));
+		assertThat(first.getTimeStamp().isAfter(Instant.now()), is(false));
+		assertThat(first.getPreviousTimeStamp(), equalTo(Instant.EPOCH));
+		assertThat(first.getData(), equalTo(earlier.getData()));
+		assertThrows(IllegalArgumentException.class, () -> GridSpork.firstVersionOf(ahead));
 	}
 
 	@Example
@@ -138,6 +157,36 @@ public class GridSporkProvenanceTest {
 		for (GridSpork forged : List.of(once, strangerCosigned, selfCosigned, strangerSigned)) {
 			assertThat(forged.isTakenByTheNetwork(), is(false));
 		}
+	}
+
+	/* A file can hold a spork of no type a node knows, which cannot be encoded to check its signatures over */
+	@Example
+	public void shouldRefuseASporkThatCannotBeEncoded() {
+		final GridSpork undefined = stored(null, 10);
+		final GridSpork untyped = stored(null, 10);
+
+		undefined.setType((short) 0);
+		untyped.setType((GridSpork.Type) null);
+
+		assertThat(undefined.isTakenByTheNetwork(), is(false));
+		assertThat(untyped.isTakenByTheNetwork(), is(false));
+	}
+
+	/* An amount beyond the bounds of the wire writes out as up to gigabytes, and is judged before anything is encoded,
+	   whoever signed it */
+	@SneakyThrows
+	@Example
+	public void shouldRefuseASporkThatHoldsAnAmountBeyondTheBoundsOfTheWire() {
+		final MintSupply.SporkData beyond = new MintSupply.SporkData();
+		final GridSpork overPrevious = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+
+		beyond.setMaxSupply(new BigDecimal("1E+20"));
+		overPrevious.setData(supplyOf(10));
+		overPrevious.setPreviousData(beyond);
+		overPrevious.sign(FIRST.getPrivateKey());
+		overPrevious.cosign(SECOND.getPrivateKey());
+
+		assertThat(overPrevious.isTakenByTheNetwork(), is(false));
 	}
 
 	@Example

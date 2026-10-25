@@ -57,10 +57,6 @@ public class PublishSporkScheduleTest {
 			@Mock public static String[] getPublicKeys() {
 				return new String[] { proposer.getPublicKey() };
 			}
-
-			@Mock public static String[] getRetiredPublicKeys() {
-				return new String[0];
-			}
 		};
 
 		data.setMaxSupply(BigDecimal.TEN);

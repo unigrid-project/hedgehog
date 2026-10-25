@@ -44,7 +44,6 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
-import static org.unigrid.hedgehog.command.cli.SporkCommands.RETIRED;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
@@ -110,7 +109,8 @@ public class ForgedSporkTest {
 		return result.requests().stream().map(Request::method).toList();
 	}
 
-	/* Signed once with a key of the board, co-signed by no board key or by the same one, or changed once signed */
+	/* Signed once with a key of the board, as such or in the form of a build from before co-signatures, co-signed by
+	   no board key or by the same one, or changed once signed */
 	private static Map<String, GridSpork> forgedStoredSporks() {
 		final GridSpork once = proposal(Type.MINT_SUPPLY, null, supplyOf(10), PROPOSER);
 		final GridSpork byAStranger = proposal(Type.MINT_SUPPLY, null, supplyOf(10), STRANGER);
@@ -121,7 +121,7 @@ public class ForgedSporkTest {
 		byAStranger.setCosignature(SporkCommands.signatureOf(COSIGNER, byAStranger));
 		changed.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.valueOf(1_000_000));
 		return Map.of("signed once", once, "co-signed by itself", selfCosigned, "signed by a stranger", byAStranger,
-			"changed once signed", changed);
+			"changed once signed", changed, "signed once by an earlier build", signedOnceByAnEarlierBuild(PROPOSER));
 	}
 
 	@Example
@@ -218,21 +218,6 @@ public class ForgedSporkTest {
 			+ shortly(COSIGNER.getPublicKey())));
 		assertThat(result.out(), not(containsString("retired")));
 		assertThat(node.submitted(), hasSize(1));
-	}
-
-	/* A retired key and the single signature of a build from before co-signatures are what a forged head needs */
-	@Example
-	public void marksAHeadSignedOnceByARetiredKeyWhereverItIsSignedOver() {
-		final GridSpork stored = signedOnceByAnEarlierBuild(RETIRED);
-		final String head = "signed once by " + shortly(RETIRED.getPublicKey()) + " (retired key), in the form "
-			+ "of a build from before co-signatures";
-		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(20), PROPOSER);
-
-		assertThat(RestCommandFixture.run(set(20), new FakeSporkNode().holding(stored)).out(),
-			containsString(head));
-		assertThat(RestCommandFixture.run(renew(), new FakeSporkNode().holding(stored)).out(), containsString(head));
-		assertThat(RestCommandFixture.run(cosign(PendingSporks.digestOf(proposal)),
-			new FakeSporkNode().holding(stored).waitingOn(proposal)).out(), containsString(head));
 	}
 
 	@Example

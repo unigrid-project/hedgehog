@@ -48,20 +48,19 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 
-/* A node that a board member reads from may hand out a forged stored spork in place of the true head: signed once, in
-   the form of a build from before co-signatures, by a key that the board has since retired, and carrying the log of
-   the true head. A version made over it carries that log and adds an entry of the forgery, which a known key signed,
-   so every peer that holds the true head would take it but for the head itself: the entry that follows the stored
-   log has to be the stored spork. */
+/* A node that a board member reads from may hand out a forged stored spork in place of the true head: signed once by
+   a board key, in the form of a build from before co-signatures, and carrying the log of the true head. The command
+   line no longer takes such a head for one the network took, and a version made over it all the same carries that log
+   and adds an entry of the forgery, which a current key signed, so every peer that holds the true head would take it
+   but for the head itself: the entry that follows the stored log has to be the stored spork. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class ForgedHeadReceptionTest {
 	private static final String PEER = "198.51.100.7";
-	private static final Instant EARLIER_BUILD = Instant.now().truncatedTo(ChronoUnit.MILLIS)
+	private static final Instant FIRST_MADE_AT = Instant.now().truncatedTo(ChronoUnit.MILLIS)
 		.minus(PendingSporks.LIFETIME.multipliedBy(3));
 
 	private static final Signature FIRST = keyPair();
 	private static final Signature SECOND = keyPair();
-	private static final Signature RETIRED = keyPair();
 
 	private final PublishSporkChannelHandler handler = new PublishSporkChannelHandler();
 
@@ -75,10 +74,6 @@ public class ForgedHeadReceptionTest {
 		new MockUp<NetworkKey>() {
 			@Mock public String[] getPublicKeys() {
 				return new String[] { FIRST.getPublicKey(), SECOND.getPublicKey() };
-			}
-
-			@Mock public String[] getRetiredPublicKeys() {
-				return new String[] { RETIRED.getPublicKey() };
 			}
 		};
 	}
@@ -112,8 +107,7 @@ public class ForgedHeadReceptionTest {
 		return data;
 	}
 
-	/* What a build from before co-signatures stored: signed once by the board of its time, over its Java
-	   serialization */
+	/* What a build from before co-signatures stored: signed once, over its Java serialization */
 	@SneakyThrows
 	private static GridSpork ofAnEarlierBuild(GridSpork spork, Signature signer) {
 		spork.setFlags((short) 0);
@@ -123,13 +117,7 @@ public class ForgedHeadReceptionTest {
 	}
 
 	private static GridSpork firstVersion() {
-		final GridSpork spork = GridSpork.create(Type.MINT_SUPPLY);
-
-		spork.setData(supplyOf(10));
-		spork.setPreviousData(supplyOf(0));
-		spork.setTimeStamp(EARLIER_BUILD);
-		spork.setPreviousTimeStamp(Instant.EPOCH);
-		return ofAnEarlierBuild(spork, RETIRED);
+		return cosigned(proposalOver(null, 10, FIRST_MADE_AT));
 	}
 
 	/* The next version as the command line makes it, at the time given or else now */
@@ -155,7 +143,7 @@ public class ForgedHeadReceptionTest {
 		return spork;
 	}
 
-	/* The versions the network took, one over the other, the first of them stored by a build from before */
+	/* The versions the network took, one over the other */
 	private static List<GridSpork> versions(int count) {
 		final List<GridSpork> versions = new ArrayList<>(List.of(firstVersion()));
 
@@ -172,7 +160,7 @@ public class ForgedHeadReceptionTest {
 
 		forged.setData(supplyOf(1_000_000_000));
 		forged.setTimeStamp(head.getTimeStamp().plusMillis(1));
-		return ofAnEarlierBuild(forged, RETIRED);
+		return ofAnEarlierBuild(forged, FIRST);
 	}
 
 	@Example
@@ -182,7 +170,7 @@ public class ForgedHeadReceptionTest {
 		final GridSpork proposal = proposalOver(forged, 20);
 		final Node node = new Node(head);
 
-		assertThat(forged.isTakenByTheNetwork(), is(true));
+		assertThat(forged.isTakenByTheNetwork(), is(false));
 		assertThat(node.receive(proposal), is(false));
 		assertThat(node.pending.list(), empty());
 		assertThat(node.receive(cosigned(proposal)), is(false));
@@ -289,6 +277,19 @@ public class ForgedHeadReceptionTest {
 		assertThat(new Node(older).receive(newer), is(true));
 		assertThat(new Node(newer).receive(older), is(false));
 		assertThat(new Node(older).receive(muchLater), is(true));
+	}
+
+	/* The board signs the data of a database again as first versions, which two board members can make on two
+	   machines hours apart. There is no version before them that the later one could undo, so the newer wins. */
+	@Example
+	public void shouldSettleFirstVersionsMadeFarApartByTheirTimeStamps() {
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final GridSpork older = cosigned(proposalOver(null, 10, now.minus(PendingSporks.LIFETIME.multipliedBy(3))));
+		final GridSpork newer = cosigned(proposalOver(null, 20, now));
+
+		assertThat(new Node(older).receive(newer), is(true));
+		assertThat(new Node(newer).receive(older), is(false));
+		assertThat(new Node(older).stored().getSignable(), equalTo(older.getSignable()));
 	}
 
 	@Example

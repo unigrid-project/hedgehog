@@ -41,7 +41,8 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	private static Signature trusted;
 	private static Signature cosigner;
-	private static Signature retired;
+	/* A key of an earlier board, which no longer counts */
+	private static Signature earlier;
 	private static String[] currentKeys;
 
 	@SneakyThrows
@@ -49,16 +50,12 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 	public void before() {
 		trusted = new Signature();
 		cosigner = new Signature();
-		retired = new Signature();
+		earlier = new Signature();
 		currentKeys = new String[] { trusted.getPublicKey(), cosigner.getPublicKey() };
 
 		new MockUp<NetworkKey>() {
 			@Mock public static String[] getPublicKeys() {
 				return currentKeys;
-			}
-
-			@Mock public static String[] getRetiredPublicKeys() {
-				return new String[] { retired.getPublicKey() };
 			}
 		};
 	}
@@ -117,29 +114,37 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@SneakyThrows
 	@Example
-	public void shouldLogARetiredSigner() {
-		final MintSupply spork = signedSupply(retired);
+	public void shouldRefuseToSignOverAnUnknownSigner() {
+		for (Signature unknown : List.of(new Signature(), earlier)) {
+			final MintSupply spork = signedSupply(unknown);
 
-		spork.renew();
-		spork.sign(trusted.getPrivateKey());
+			spork.renew();
 
-		assertThat(spork.getSignatureLog().getEntries().getFirst().getSigner(), equalTo(retired.getPublicKey()));
-		assertThat(spork.isValidSignature(), is(true));
+			try {
+				spork.sign(trusted.getPrivateKey());
+				assertThat("Signing should have been refused", false);
+			} catch (SigningException ex) {
+				assertThat(spork.getSignatureLog().isEmpty(), is(true));
+			}
+		}
 	}
 
+	/* A key the board no longer holds could sign any history, so only the current keys vouch for a log */
 	@SneakyThrows
 	@Example
-	public void shouldRefuseToSignOverAnUnknownSigner() {
-		final MintSupply spork = signedSupply(new Signature());
+	public void shouldNotTakeASporkWhoseLogAKeyOfAnEarlierBoardSigned() {
+		final MintSupply version = signedSupply(earlier);
+		final SignatureLogEntry entry = SignatureLogEntry.builder().timeStamp(SIGNED_AT)
+			.signer(earlier.getPublicKey()).digest(DigestUtils.sha512(version.getSignable()))
+			.signature(version.getSignature()).build();
+		final MintSupply spork = signedSupply(trusted);
 
-		spork.renew();
+		spork.setTimeStamp(SIGNED_AT.plusSeconds(1));
 
-		try {
-			spork.sign(trusted.getPrivateKey());
-			assertThat("Signing should have been refused", false);
-		} catch (SigningException ex) {
-			assertThat(spork.getSignatureLog().isEmpty(), is(true));
-		}
+		final MintSupply resigned = resigned(spork, new SignatureLog(List.of(entry)));
+
+		assertThat(resigned.isTakenByTheNetwork(), is(false));
+		assertThat(resigned.canReplace(null), is(false));
 	}
 
 	@SneakyThrows
@@ -167,7 +172,7 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@Example
 	public void shouldBreakTheSignatureWhenAnEntryIsDropped() {
-		final MintSupply spork = renewedTwice(retired);
+		final MintSupply spork = renewedTwice(trusted);
 
 		spork.setSignatureLog(new SignatureLog(spork.getSignatureLog().getEntries().subList(1, 2)));
 		assertThat(spork.isValidSignature(), is(false));
@@ -175,7 +180,7 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@Example
 	public void shouldBreakTheSignatureWhenEntriesAreReordered() {
-		final MintSupply spork = renewedTwice(retired);
+		final MintSupply spork = renewedTwice(trusted);
 		final List<SignatureLogEntry> entries = new ArrayList<>(spork.getSignatureLog().getEntries());
 
 		spork.setSignatureLog(new SignatureLog(entries.reversed()));
@@ -185,10 +190,10 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 	@SneakyThrows
 	@Example
 	public void shouldBreakTheSignatureWhenASignerIsRewritten() {
-		final MintSupply spork = renewedTwice(retired);
+		final MintSupply spork = renewedTwice(trusted);
 		final List<SignatureLogEntry> entries = new ArrayList<>(spork.getSignatureLog().getEntries());
 
-		entries.set(0, entries.getFirst().toBuilder().signer(trusted.getPublicKey()).build());
+		entries.set(0, entries.getFirst().toBuilder().signer(cosigner.getPublicKey()).build());
 		spork.setSignatureLog(new SignatureLog(entries));
 		assertThat(spork.isValidSignature(), is(false));
 	}
@@ -219,8 +224,8 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@SneakyThrows
 	@Example
-	public void shouldNotAcceptAHeadSignedByARetiredKey() {
-		final MintSupply spork = signedSupply(retired);
+	public void shouldNotAcceptAHeadSignedByAKeyOfAnEarlierBoard() {
+		final MintSupply spork = signedSupply(earlier);
 
 		spork.setCosignature(cosigner.sign(spork.getSignable()));
 		assertThat(spork.canReplace(null), is(false));
@@ -229,13 +234,6 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 	@Example
 	public void shouldReplaceTheVersionItExtends() {
 		final MintSupply stored = signedSupply(trusted);
-
-		assertThat(next(stored, 1).canReplace(stored), is(true));
-	}
-
-	@Example
-	public void shouldReplaceAVersionSignedBeforeTheKeyChange() {
-		final MintSupply stored = signedSupply(retired);
 
 		assertThat(next(stored, 1).canReplace(stored), is(true));
 	}
@@ -380,10 +378,10 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@SneakyThrows
 	@Example
-	public void shouldNotAcceptARetiredCosigner() {
+	public void shouldNotAcceptACosignerOfAnEarlierBoard() {
 		final MintSupply spork = signedSupply(trusted);
 
-		spork.setCosignature(retired.sign(spork.getSignable()));
+		spork.setCosignature(earlier.sign(spork.getSignable()));
 		assertThat(spork.canReplace(null), is(false));
 	}
 
@@ -419,19 +417,6 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 	@SneakyThrows
 	@Example
-	public void shouldAcceptARenewalOfAVersionSignedByARetiredKey() {
-		final MintSupply stored = signedSupply(retired);
-		final MintSupply renewed = SerializationUtils.clone(stored);
-
-		renewed.renew();
-		renewed.sign(cosigner.getPrivateKey());
-		renewed.cosign(trusted.getPrivateKey());
-
-		assertThat(renewed.canReplace(stored), is(true));
-	}
-
-	@SneakyThrows
-	@Example
 	public void shouldAcceptAPendingSuccessorAsAProposal() {
 		final MintSupply stored = cosigned(signedSupply(trusted));
 		final MintSupply proposed = SerializationUtils.clone(stored);
@@ -441,6 +426,6 @@ public class GridSporkSignatureLogTest extends BaseMockedWeldTest {
 
 		assertThat(proposed.canBeProposedOver(stored), is(true));
 		assertThat(stored.canBeProposedOver(null), is(false));
-		assertThat(signedSupply(retired).canBeProposedOver(null), is(false));
+		assertThat(signedSupply(earlier).canBeProposedOver(null), is(false));
 	}
 }

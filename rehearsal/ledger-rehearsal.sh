@@ -109,14 +109,15 @@ for n in $(seq 2 "$NODES"); do
 	node "$n" node-add "127.0.0.1:$((P2P_BASE + 1))" > /dev/null
 done
 
-# What the foundation does: two board keys, the second co-signing what the first proposes
+# What the foundation does: two board keys, the second co-signing what the first proposes. The network holds no
+# sporks yet, so each is the first version of its spork.
 log "setting the sporks"
 : > blacklist.txt
-node 1 gridspork-set mint-supply -D 1000000000 -k "$BOARD1_PRIVATE" > /dev/null
-node 1 gridspork-set ledger-fee -D 0.001 -k "$BOARD1_PRIVATE" > /dev/null
-node 1 gridspork-set ledger-blacklist -D "$WORK/blacklist.txt" -k "$BOARD1_PRIVATE" > /dev/null
+node 1 gridspork-set mint-supply -D 1000000000 -k "$BOARD1_PRIVATE" --first-version > /dev/null
+node 1 gridspork-set ledger-fee -D 0.001 -k "$BOARD1_PRIVATE" --first-version > /dev/null
+node 1 gridspork-set ledger-blacklist -D "$WORK/blacklist.txt" -k "$BOARD1_PRIVATE" --first-version > /dev/null
 node 1 gridspork-grow mint-storage --address "$(cat alice.pub)" --time 1577836800 --allow-past -D 1000 \
-	-k "$BOARD1_PRIVATE" > /dev/null
+	-k "$BOARD1_PRIVATE" --first-version > /dev/null
 DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
 [ "$(echo "$DIGESTS" | wc -w)" -eq 4 ] || fail "expected four proposals, found: $DIGESTS"
 # shellcheck disable=SC2086

@@ -65,6 +65,22 @@ public class SporkDatabasePersistTest {
 		}
 	}
 
+	/* The node and an import each write a database of their own, so neither writes into the file of the other */
+	@Example
+	public void shouldLeaveTheTemporaryFileOfAnotherWriterAlone() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path path = databaseIn(fileSystem);
+			final Path another = path.resolveSibling(SporkDatabase.SPORK_DB_FILE + ".tmp");
+
+			Files.writeString(another, "being written by another");
+			SporkDatabase.persist(path, databaseWith(BigDecimal.TEN));
+
+			assertThat(Files.readString(another), equalTo("being written by another"));
+			assertThat(SporkDatabase.load(path).getMintSupply().<MintSupply.SporkData>getData().getMaxSupply(),
+				equalTo(BigDecimal.TEN));
+		}
+	}
+
 	@Example
 	public void shouldLoadWhatWasPersisted() throws IOException {
 		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {

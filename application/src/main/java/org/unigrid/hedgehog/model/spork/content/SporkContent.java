@@ -21,13 +21,16 @@ package org.unigrid.hedgehog.model.spork.content;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -38,17 +41,20 @@ import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.SporkAmount;
+import org.unigrid.hedgehog.model.spork.StatisticsPubKey;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.spork.VestingStorage;
 import org.unigrid.hedgehog.model.spork.VestingStorage.SporkData.Vesting;
 
 /* What a spork may hold beyond what its wire form bounds, by its type. The command line checks a spork by these rules
-   before it signs it, and a node checks one it is handed before it holds it or sends it on, so a change that no node
-   can act on is refused when it is made, not found out by every node when it is due. Of a spork with entries, only
-   the entries that the new version adds or changes are judged: those of the stored version were taken when it was
-   made, under the rules of that time, and are no part of the change. The answer is an IllegalArgumentException that
-   says what is wrong. The mints are judged as the ledger reads them, which the snapshot model knows, so the rules
-   sit above both the sporks and that model. */
+   before it signs it, and a node checks one that is handed to it over REST before it holds it or sends it on, so a
+   change that no node can act on is refused when it is made, not found out by every node when it is due. A spork
+   from a peer is not judged again: two board keys signed it, and a node of a later release with stricter rules would
+   otherwise refuse what the network carries. Of a spork with entries, only the entries that the new version adds or
+   changes are judged: those of the stored version were taken when it was made, under the rules of that time, and
+   are no part of the change. The answer is an IllegalArgumentException that says what is wrong. The mints are
+   judged as the ledger reads them, which the snapshot model knows, so the rules sit above both the sporks and that
+   model. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkContent {
 	private static final String AMOUNT_BOUNDS = "at most " + SporkAmount.MAX_DECIMALS + " decimals and "
@@ -61,8 +67,11 @@ public final class SporkContent {
 		Type.VESTING_STORAGE, SporkContent::vestingStorage,
 		Type.STORAGE, (data, stored) -> ((StorageSpork.SporkData) data).validate(),
 		Type.LEDGER_BLACKLIST, (data, stored) -> ((LedgerBlacklist.SporkData) data).validate(),
-		Type.LEDGER_FEE, (data, stored) -> ((LedgerFee.SporkData) data).validate()
+		Type.LEDGER_FEE, (data, stored) -> ((LedgerFee.SporkData) data).validate(),
+		Type.STATISTICS_PUBKEY, (data, stored) -> statisticsKey((StatisticsPubKey.SporkData) data)
 	);
+
+	private static final Pattern HEX = Pattern.compile("\\p{XDigit}+");
 
 	public static void validate(GridSpork spork, GridSpork stored) {
 		Validate.isTrue(Objects.nonNull(spork.getData()), "A spork of type %s holds no data", spork.getType());
@@ -70,9 +79,15 @@ public final class SporkContent {
 			Objects.isNull(stored) ? null : stored.getData());
 	}
 
-	/* The public key of the statistics is checked by those who use it */
+	/* A type with no rules of its own */
 	private static void unchecked(ChunkData data, ChunkData stored) {
 		/* Empty on purpose */
+	}
+
+	/* The key is shown to whoever signs it, so it is no text that could hide a character from them */
+	private static void statisticsKey(StatisticsPubKey.SporkData data) {
+		Validate.isTrue(Objects.nonNull(data.getPublicKey()) && HEX.matcher(data.getPublicKey()).matches(),
+			"The public key of the statistics is hexadecimal digits and nothing else");
 	}
 
 	/* The entries that are new to the stored data or differ from what it holds */
@@ -130,10 +145,15 @@ public final class SporkContent {
 			entry.getValue()));
 	}
 
-	/* The start and the duration have no empty form on the wire, so a vesting without them cannot be signed */
+	/* The start and the duration have no empty form on the wire, so a vesting without them cannot be signed. What vests
+	   to an address that no ledger knows vests to no one, and such an address can hide a character from whoever signs
+	   it, so the address is one that a mint could go to. */
 	private static void requireVestable(Address address, Vesting vesting) {
 		final String of = "The vesting of " + address.getWif() + " ";
 
+		Validate.isTrue(Optional.ofNullable(address.getWif()).flatMap(LedgerText::address).isPresent(), "%sis to an"
+			+ " address that is neither an old-style Unigrid address nor a ledger account of 64 lower-case"
+			+ " hexadecimal characters", of);
 		Validate.isTrue(Objects.nonNull(vesting.getAmount()) && SporkAmount.isWithinBounds(vesting.getAmount()),
 			"%shas an amount of %s", of, AMOUNT_BOUNDS);
 		Validate.isTrue(Objects.nonNull(vesting.getStart()), "%shas a start", of);

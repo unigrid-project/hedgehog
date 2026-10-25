@@ -22,6 +22,7 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitrary;
@@ -33,6 +34,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -131,7 +133,7 @@ public class MintSupplyTest {
 	@Example
 	public void refusesASupplyThatNoNodeCanHoldBeforeSigningIt() {
 		for (String supply : List.of("-1", "0.123456789", "1E+13", "ten")) {
-			final FakeSporkNode node = new FakeSporkNode();
+			final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf("10")));
 
 			assertThat(supply, assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(
 				set(supply, PROPOSER.getPrivateKey(), false), node)).getMessage(), containsString("supply"));
@@ -152,13 +154,32 @@ public class MintSupplyTest {
 		}
 	}
 
+	/* A node can say it holds nothing, and a first version takes the place of any other however old, so one is made
+	   only when the operator says so */
+	@Example
+	public void makesAFirstVersionOnlyWhenToldTo() {
+		final FakeSporkNode node = new FakeSporkNode();
+
+		assertThat(assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(
+			set("7", PROPOSER.getPrivateKey(), true), node)).getMessage(), allOf(
+			containsString("The node holds no MINT_SUPPLY spork"), containsString("--first-version")));
+		assertThat(node.submitted(), empty());
+
+		final Result result = RestCommandFixture.run(subcommand(new GridSporkSet(), NAME, "-D", "7", "-k",
+			PROPOSER.getPrivateKey(), "--first-version"), node);
+
+		assertThat(proposed(result, node, Type.MINT_SUPPLY).getPreviousTimeStamp(), equalTo(Instant.EPOCH));
+		assertThat(result.out(), containsString("Making the first version of the MINT_SUPPLY spork, as the node holds"
+			+ " none"));
+	}
+
 	@Example
 	public void takesTheKeyFromTheEnvironment() {
 		final FakeSporkNode node = new FakeSporkNode();
 
 		SporkCommands.environmentKey(PROPOSER.getPrivateKey());
-		proposed(RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", "7", NAME), node), node,
-			Type.MINT_SUPPLY);
+		proposed(RestCommandFixture.run(subcommand(new GridSporkSet(), "-D", "7", "--first-version", NAME), node),
+			node, Type.MINT_SUPPLY);
 
 		assertThat(refusal(set("7", PROPOSER.getPrivateKey(), true)), containsString("-k and $HEDGEHOG_BOARD_KEY"));
 	}

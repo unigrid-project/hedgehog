@@ -123,7 +123,7 @@ public class GridSporkRenewTest {
 		assertThat(methods(result), equalTo(Collections.nCopies((int) TYPES, HttpMethod.GET)));
 	}
 
-	/* A version that no known key signed cannot enter the signature log, and then nothing is renewed at all */
+	/* A version that no current key signed cannot enter the signature log, and then nothing is renewed at all */
 	@Example
 	public void proposesNothingWhenOneSporkCannotBeRenewed() {
 		final GridSpork supply = stored(Type.MINT_SUPPLY, supplyOf(10));

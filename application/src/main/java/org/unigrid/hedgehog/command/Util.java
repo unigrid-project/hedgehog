@@ -24,15 +24,17 @@ import org.unigrid.hedgehog.command.util.KeySign;
 import org.unigrid.hedgehog.command.util.KeyValidate;
 import org.unigrid.hedgehog.command.util.LedgerGenesisCommand;
 import org.unigrid.hedgehog.command.util.LedgerKeyGenerate;
+import org.unigrid.hedgehog.command.util.SporkDbCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 
 @Command(name = "util",
 	subcommands = { KeyGenerate.class, KeySign.class, KeyValidate.class, LedgerKeyGenerate.class,
-		LedgerGenesisCommand.class },
+		LedgerGenesisCommand.class, SporkDbCommand.class },
 	description = "Helpful utility functionality to facilitate network administrators, node runners and users."
 )
 public class Util {
-	/* Reading a signed snapshot, as the genesis does, checks its signature against the network keys */
+	/* Reading a signed snapshot, as the genesis does, and judging the sporks of a spork database check signatures
+	   against the network keys */
 	@Mixin private NetOptions netOptions;
 }

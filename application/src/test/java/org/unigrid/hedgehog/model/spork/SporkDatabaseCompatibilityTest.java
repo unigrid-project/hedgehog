@@ -29,8 +29,10 @@ import net.jqwik.api.Example;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.SigningException;
 
 /* The fixture was written by a build from before the classes pinned their serialVersionUID */
 public class SporkDatabaseCompatibilityTest {
@@ -70,19 +72,10 @@ public class SporkDatabaseCompatibilityTest {
 		assertThat(Signature.verify(database.getMintSupply(), FIXTURE_PUBLIC_KEY), is(true));
 	}
 
-	@SneakyThrows
-	private static GridSpork renewed(GridSpork stored, Signature proposer, Signature cosigner) {
-		final GridSpork spork = SerializationUtils.clone(stored);
-
-		spork.renew();
-		spork.sign(proposer.getPrivateKey());
-		spork.cosign(cosigner.getPrivateKey());
-		return spork;
-	}
-
+	/* Signed once, by a key the board no longer holds */
 	@SneakyThrows
 	@Example
-	public void shouldAcceptADoublySignedRenewalOfEarlierBuildsSporks() {
+	public void shouldCountSporksOfEarlierBuildsAsUnsigned() {
 		final SporkDatabase database = legacyDatabase();
 		final Signature proposer = new Signature();
 		final Signature cosigner = new Signature();
@@ -93,18 +86,14 @@ public class SporkDatabaseCompatibilityTest {
 			@Mock public static String[] getPublicKeys() {
 				return networkKeys;
 			}
-
-			@Mock public static String[] getRetiredPublicKeys() {
-				return new String[] { FIXTURE_PUBLIC_KEY };
-			}
 		};
 
 		for (GridSpork stored : List.of(database.getMintStorage(), database.getMintSupply())) {
-			final GridSpork spork = renewed(stored, proposer, cosigner);
+			final GridSpork renewed = SerializationUtils.clone(stored);
 
-			assertThat(spork.getSignatureLog().last().getSigner(), equalTo(FIXTURE_PUBLIC_KEY));
-			assertThat(spork.canReplace(stored), is(true));
-			assertThat(renewed(spork, cosigner, proposer).canReplace(spork), is(true));
+			renewed.renew();
+			assertThat(stored.isTakenByTheNetwork(), is(false));
+			assertThrows(SigningException.class, () -> renewed.sign(proposer.getPrivateKey()));
 		}
 	}
 }

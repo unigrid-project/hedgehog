@@ -93,7 +93,10 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 @WeldSetup(TestServer.class)
 public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
-	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
+	private static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
+	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
+		EARLIER_RELEASE[1] };
+	private static final String[] WITHOUT_THE_LEDGER = { SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
 	private static final AtomicReference<String[]> OFFERED = new AtomicReference<>(THIS_RELEASE);
 	private static final String EARLIER_PROTOCOL = "hedgehog/0.0.4";
 	private static final int NEW = 0;
@@ -438,6 +441,33 @@ public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 		assertThat(callsOf(newDriver).stream().filter(call -> "onStatus".equals(call.method())).map(Call::argument)
 			.toList(), contains(LedgerWireFixtures.status(2)));
 		assertThat(isOpen(other), is(true));
+	}
+
+	/* Two nodes of this release settle on its protocol when one of them runs no ledger, which tells each that the
+	   other reads every spork type of this release, and they speak no ledger */
+	@Example
+	public void settlesOnTheProtocolOfThisReleaseWhenANewNodeWithoutTheLedgerDialsANewNode() {
+		final P2PClient client = whileOffering(WITHOUT_THE_LEDGER, () -> within(DIALLER, () -> dial(NEW)));
+
+		assertThat(agreedOn(client.getChannel()), equalTo(SPORK_PROTOCOL));
+		assertThat(LedgerProtocol.negotiatedOn(client.getChannel()), is(false));
+		assertAnswersAPing(client);
+		await().until(() -> streamsAcceptedByNew().size() == 1);
+
+		final Channel accepted = streamsAcceptedByNew().get(0);
+
+		assertThat(agreedOn(accepted), equalTo(SPORK_PROTOCOL));
+		assertThat(LedgerProtocol.negotiatedOn(accepted), is(false));
+	}
+
+	/* A node of the earlier release offers nothing of this one, so the two settle on what it offers first */
+	@Example
+	public void fallsBackToTheEarlierProtocolWhenANewNodeWithoutTheLedgerDialsANodeOfTheEarlierRelease() {
+		final P2PClient client = whileOffering(WITHOUT_THE_LEDGER, () -> within(DIALLER, () -> dial(OLD)));
+
+		assertThat(agreedOn(client.getChannel()), equalTo(EARLIER_PROTOCOL));
+		assertAnswersAPing(client);
+		assertThat(isOpen(client), is(true));
 	}
 
 	@Example

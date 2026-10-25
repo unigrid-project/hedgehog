@@ -100,7 +100,7 @@ public class MintStorage implements Runnable {
 
 		SporkProposal.propose(spec.commandLine(), GridSpork.Type.MINT_STORAGE,
 			spork -> spork.<SporkData>getData().getMints().put(location, amount),
-			grow.getBoardKey().resolve(NetworkKey::isTrusted)
+			grow.getBoardKey().resolve(NetworkKey::isTrusted), grow.isFirstVersion()
 		);
 	}
 

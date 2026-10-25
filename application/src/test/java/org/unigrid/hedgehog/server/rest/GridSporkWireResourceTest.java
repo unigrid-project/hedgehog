@@ -51,6 +51,7 @@ import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Address;
+import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -252,6 +253,7 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 		@ForAll("provideSignature") Signature signature) {
 
 		final EmbeddedChannel peer = peer();
+		final String vested = LegacyAddress.encode(new byte[20]);
 		final Vesting unbounded = Vesting.builder().start(Instant.EPOCH).duration(Duration.ofDays(30)).parts(1).build();
 		final byte[] fee = SporkWire.encode(next(Type.LEDGER_FEE, data -> { }, signature));
 		final byte[] blacklist = SporkWire.encode(next(Type.LEDGER_BLACKLIST, data -> { }, signature));
@@ -261,8 +263,8 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 			Type.MINT_SUPPLY, new Invalid(SporkWire.encode(next(Type.MINT_SUPPLY, (MintSupply.SporkData data) ->
 				data.setMaxSupply(BigDecimal.ONE.negate()), signature)), "maximum supply"),
 			Type.VESTING_STORAGE, new Invalid(SporkWire.encode(next(Type.VESTING_STORAGE,
-				(VestingStorage.SporkData data) -> data.getVestingAddresses().put(new Address("garbage"), unbounded),
-				signature)), "garbage has an amount"),
+				(VestingStorage.SporkData data) -> data.getVestingAddresses().put(new Address(vested), unbounded),
+				signature)), vested + " has an amount"),
 			Type.STORAGE, new Invalid(SporkWire.encode(next(Type.STORAGE, (StorageSpork.SporkData data) ->
 				data.setManifestCopies(0), signature)), "manifestCopies"),
 			Type.LEDGER_FEE, new Invalid(ByteBuffer.wrap(fee).putLong(CONTENT, LedgerFee.SporkData.MAX_UNITS + 1)

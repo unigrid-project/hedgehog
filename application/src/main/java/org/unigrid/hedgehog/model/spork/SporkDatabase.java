@@ -18,8 +18,10 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InvalidClassException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.channels.Channels;
@@ -30,16 +32,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Cleanup;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 @Slf4j
@@ -61,16 +64,40 @@ public class SporkDatabase implements Serializable {
 
 	private volatile StatisticsPubKey statisticsPubKey;
 
+	/* Read through a filter of the classes a spork database holds, as the file may come from anyone */
 	public static SporkDatabase load(Path path) throws IOException {
-		@Cleanup final InputStream stream = Files.newInputStream(path, StandardOpenOption.READ);
-		return SerializationUtils.deserialize(stream);
+		final SporkDatabaseFilter filter = new SporkDatabaseFilter();
+
+		try (ObjectInputStream stream = new ObjectInputStream(new BufferedInputStream(Files.newInputStream(path,
+			StandardOpenOption.READ)))) {
+
+			stream.setObjectInputFilter(filter);
+
+			if (stream.readObject() instanceof SporkDatabase database) {
+				return database;
+			}
+
+			throw new InvalidClassException("The file holds no spork database");
+		} catch (InvalidClassException ex) {
+			throw filter.refusal().map(reason -> refused(reason, ex)).orElse(ex);
+		} catch (ClassNotFoundException ex) {
+			throw new SerializationException(ex);
+		}
+	}
+
+	private static InvalidClassException refused(String reason, InvalidClassException cause) {
+		final InvalidClassException refused = new InvalidClassException(reason);
+
+		refused.initCause(cause);
+		return refused;
 	}
 
 	/* The content is written beside the real file and moved over it in one atomic step, so a crash leaves the old
-	   database or the new one, never a truncated mix. Saves take turns, as they share the name of the temporary file. */
+	   database or the new one, never a truncated mix. Each save writes a file of its own, made new, so that a node and
+	   an import never write into each other's, and saves of one process take turns, so the last one stays. */
 	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
 		final Path file = path.toAbsolutePath();
-		final Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", ".tmp");
 
 		try {
 			write(temporary, sporkDatabase);
@@ -87,13 +114,18 @@ public class SporkDatabase implements Serializable {
 		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
 			StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
 
-			/* Closing the stream would close the channel before it can be forced to disk */
-			final ObjectOutputStream stream = new ObjectOutputStream(Channels.newOutputStream(channel));
-
-			stream.writeObject(sporkDatabase);
-			stream.flush();
-			channel.force(true);
+			write(channel, sporkDatabase);
 		}
+	}
+
+	/* Into a file the caller opened, and on to the disk; the caller closes it */
+	public static void write(FileChannel channel, SporkDatabase sporkDatabase) throws IOException {
+		/* Closing the stream would close the channel before it can be forced to disk */
+		final ObjectOutputStream stream = new ObjectOutputStream(Channels.newOutputStream(channel));
+
+		stream.writeObject(sporkDatabase);
+		stream.flush();
+		channel.force(true);
 	}
 
 	private static void removeTemporary(Path temporary, Throwable failure) {
@@ -122,6 +154,27 @@ public class SporkDatabase implements Serializable {
 
 	public void set(GridSpork gridSpork) {
 		slotOf(gridSpork.getType()).writer().accept(this, gridSpork);
+	}
+
+	public void clear(Type gridSporkType) {
+		slotOf(gridSporkType).writer().accept(this, null);
+	}
+
+	/* A file ties nothing in a slot to its type: a spork there can carry another type, and data of another type, which
+	   a node would then hand out and read as what it is not */
+	public boolean holdsAnotherSporkIn(Type gridSporkType) {
+		final GridSpork spork = get(gridSporkType);
+
+		if (Objects.isNull(spork)) {
+			return false;
+		}
+
+		final GridSpork model = GridSpork.create(gridSporkType);
+		final Class<?> data = model.getData().getClass();
+
+		return spork.getType() != gridSporkType || spork.getClass() != model.getClass()
+			|| Stream.of(spork.getData(), spork.getPreviousData()).filter(Objects::nonNull)
+				.anyMatch(held -> held.getClass() != data);
 	}
 
 	private static Slot slotOf(Type gridSporkType) {

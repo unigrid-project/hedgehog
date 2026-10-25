@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.spork;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.Collections;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -49,6 +50,11 @@ public class MintSupply extends GridSpork implements Serializable {
 
 			data.setMaxSupply(BigDecimal.ZERO);
 			return data;
+		}
+
+		@Override
+		public boolean amountsAreWithinBounds() {
+			return SporkAmount.areWithinBounds(Collections.singletonList(maxSupply));
 		}
 	}
 }
