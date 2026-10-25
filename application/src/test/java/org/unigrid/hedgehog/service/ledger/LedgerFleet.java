@@ -228,6 +228,8 @@ public final class LedgerFleet implements AutoCloseable {
 			nodes.stream().allMatch(node -> ledgerPeers(node.index()).size() == nodes.size() - 1));
 	}
 
+	/* A node that dialed this one first is known by the stream it opened alone, and takes the connection as well, as
+	   the round of dialing of the server would dial it again otherwise */
 	private void dial(final FleetNode from, final FleetNode to) {
 		within(from.container(), () -> {
 			final Topology topology = bean(from.container(), Topology.class);
@@ -235,10 +237,7 @@ public final class LedgerFleet implements AutoCloseable {
 			final P2PClient client = client(to);
 			final boolean added = topology.addNode(node);
 
-			if (added) {
-				topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
-			}
-
+			topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
 			dials.add(new Dial(from, client, added ? node : null));
 			return null;
 		});
@@ -351,6 +350,12 @@ public final class LedgerFleet implements AutoCloseable {
 	/* The ids of the peers of the ledger of a node, which are the other nodes by the port each listens on */
 	public List<String> ledgerPeers(final int node) {
 		return gatewayOf(node).network().peers().stream().map(LedgerPeer::id).toList();
+	}
+
+	/* How many nodes a node holds a connection to that it dialed itself */
+	public long dialedBy(final int node) {
+		return bean(node(node).container(), Topology.class).cloneNodes().stream()
+			.filter(held -> held.getConnection().isPresent()).count();
 	}
 
 	/* Where the node hears its peers: a test can speak to the driver of the node as a peer does */

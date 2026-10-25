@@ -166,7 +166,8 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 
 	/* The way a node dials another: the topology holds the node with the stream. A node that dialled this one is in the
 	   topology already, with the stream it opened, and then the new stream is the second one between the two, as it
-	   is when both dial at once. */
+	   is when both dial at once; the node takes it as the connection that this one dialed, as the round of dialing of
+	   the server would dial it again otherwise, between the tries, when no container is given the port of its own. */
 	@SneakyThrows
 	private Dial connect(final Station from, final Station to) {
 		return within(from.container(), () -> {
@@ -176,10 +177,7 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 			final boolean added = topology.addNode(node);
 			final Dial dial = new Dial(from, client, added ? node : null);
 
-			if (added) {
-				topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
-			}
-
+			topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
 			dials.add(dial);
 			return dial;
 		});
