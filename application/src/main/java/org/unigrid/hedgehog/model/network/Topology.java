@@ -191,6 +191,15 @@ public class Topology {
 		return nodes.remove(node);
 	}
 
+	/* A stream that a node opened to this one is let go once it closed, and with it a node known by that stream alone:
+	   one that no operator configured and that this node holds no connection to */
+	@Protected @Lock(LockMode.WRITE)
+	public void letGoOfClosedStreams() {
+		nodes.removeIf(node -> node.getConnection().isEmpty() && !configured.contains(node)
+			&& node.getInbound().filter(inbound -> !inbound.getChannel().isActive()).isPresent());
+		nodes.forEach(node -> node.setInbound(node.getInbound().filter(inbound -> inbound.getChannel().isActive())));
+	}
+
 	/* A node that the operator removes, which is no longer configured either */
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeConfigured(Node node) {

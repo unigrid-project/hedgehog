@@ -64,8 +64,6 @@ public class TopologyThread extends Thread {
 		public void accept(Node node) {
 			log.atTrace().log("Handling connection {}", node);
 			node.getConnection().filter(c -> !c.getChannel().isActive()).ifPresent(c -> drop(node, c));
-			node.getInbound().filter(c -> !c.getChannel().isActive()).ifPresent(c -> topology.modifyNode(node,
-				n -> n.setInbound(Optional.empty())));
 
 			try {
 				if (!node.getConnection().isPresent()) {
@@ -164,6 +162,10 @@ public class TopologyThread extends Thread {
 				final Set<Node> configured = topology.cloneConfigured();
 
 				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
+
+				/* Every node first, as one that said hello is handed to the round only while it has a slot
+				   to be dialed in */
+				topology.letGoOfClosedStreams();
 
 				final Set<Node> nodes = topology.cloneNodes();
 				inTurn(nodes, configured).forEach(new NodeConnectionHandler(topology, configured));

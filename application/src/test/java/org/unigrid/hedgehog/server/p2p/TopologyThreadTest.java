@@ -244,6 +244,35 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		return LedgerStreams.connection(LedgerStreams.stream(true));
 	}
 
+	/* A node that said hello is handed to a round only while there is a slot to dial it in, so every round first lets go
+	   of the streams that peers opened and that closed, and of the nodes known by such a stream alone: they would hold
+	   their places in the topology, and a node that connects again takes its new stream (HelloChannelHandler) */
+	@Example
+	public void shouldLetGoOfTheClosedStreamsThatPeersOpenedInEveryRound() {
+		final Connection closed = helloStream();
+		final Node said = Node.builder().address(new InetSocketAddress("46.0.0.1", 1)).inbound(Optional.of(closed))
+			.build();
+		final Node dialedToo = Node.builder().address(new InetSocketAddress("47.0.0.1", 1))
+			.connection(Optional.of(dialed())).inbound(Optional.of(closed)).build();
+		final Node configuredToo = Node.builder().address(new InetSocketAddress("48.0.0.1", 1))
+			.inbound(Optional.of(closed)).build();
+		final Node told = at("49.0.0.1");
+
+		new MockUp<TopologyThread.NodeConnectionHandler>() {
+			@Mock
+			public void accept(Node node) { }
+		};
+
+		closed.close();
+		List.of(said, dialedToo, told).forEach(topology::addNode);
+		topology.addConfigured(configuredToo);
+		topologyThread.start();
+		await().until(() -> !topology.containsNode(said));
+
+		assertThat(topology.cloneNodes(), hasItems(dialedToo, configuredToo, told));
+		assertThat(topology.cloneNodes().stream().flatMap(node -> node.getInbound().stream()).toList(), empty());
+	}
+
 	/* Peers that connect to a node and say hello hold no place among the nodes that it dials: a flood of them from one
 	   address leaves it dialing its seeds, the node its operator added, and as many others as it dials, one in each
 	   network group, and their number draws out no round of dialing */
