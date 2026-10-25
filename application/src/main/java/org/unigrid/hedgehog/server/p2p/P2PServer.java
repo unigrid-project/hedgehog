@@ -22,6 +22,8 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.logging.LogLevel;
@@ -31,6 +33,7 @@ import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import io.netty.util.concurrent.GlobalEventExecutor;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
 import jakarta.annotation.PostConstruct;
@@ -81,8 +84,11 @@ import org.unigrid.hedgehog.server.AbstractServer;
 @Slf4j
 @Eager @ApplicationScoped
 public class P2PServer extends AbstractServer {
+	private static final long CLOSE_WAIT_MILLIS = 2_000;
+
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
 	private final ConnectionLimiter limiter = new ConnectionLimiter();
+	private final ChannelGroup connections = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 	private TopologyThread topologyThread;
 	private Channel channel;
 
@@ -115,6 +121,7 @@ public class P2PServer extends AbstractServer {
 			.handler(new ChannelInitializer<QuicChannel>() {
 				@Override
 				protected void initChannel(QuicChannel quicChannel) {
+					connections.add(quicChannel);
 					quicChannel.pipeline().addLast(new ProtocolMismatchHandler());
 					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
 				}
@@ -177,10 +184,15 @@ public class P2PServer extends AbstractServer {
 		return channel;
 	}
 
-	/* The connections that this node dialed are closed with it, as peers hold them for streams of a node that runs */
+	/* A peer drops a connection only once it is closed, and holds one that is not until it idles out, minutes later, so
+	   every connection is closed with the node, each way, before its socket: the peer then dials the node again once it
+	   is back. A peer that does not answer holds up the stop for no longer than the wait. */
 	@PreDestroy
-	private void destroy() {
+	void destroy() {
 		topologyThread.exit();
+		topology.forEach(node -> node.getConnection().map(Connection::getChannel).map(Channel::parent)
+			.ifPresent(connections::add));
+		connections.close().awaitUninterruptibly(CLOSE_WAIT_MILLIS);
 		topology.forEach(node -> node.getConnection().ifPresent(Connection::closeDirty));
 		channel.close();
 		group.shutdownGracefully();
