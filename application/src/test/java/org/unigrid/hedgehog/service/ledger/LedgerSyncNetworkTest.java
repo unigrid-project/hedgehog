@@ -54,6 +54,7 @@ import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.Heartbeat;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.ledger.Transaction;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.server.BaseServerTest;
@@ -149,11 +150,16 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 		});
 	}
 
+	/* A node that stops closes the connections that it dialed (P2PServer), as its next round of dialing may have
+	   dialed back a node that connected to it, while its server runs on here for the other tests */
 	private void stop(final Station station) {
 		within(station.container(), () -> {
+			final Topology topology = bean(station.container(), Topology.class);
+
 			station.gateway().detach();
 			station.node().close();
-			bean(station.container(), Topology.class).clear();
+			topology.forEach(node -> node.getConnection().ifPresent(Connection::closeDirty));
+			topology.clear();
 			return null;
 		});
 	}
