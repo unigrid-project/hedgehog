@@ -60,6 +60,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
 import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
@@ -140,6 +141,7 @@ public class P2PClient extends ConnectionContainer {
 	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets */
 	static List<ChannelHandler> handlers(final boolean ledger) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
+			new PeerActivityHandler(),
 			new LoggingHandler(LogLevel.DEBUG),
 			new FrameDecoder(),
 			new HelloEncoder(),

@@ -38,7 +38,8 @@ public class Ping extends Packet implements Serializable {
 
 	/* A QUIC stream is reliable, so a ping that gets no answer was not lost: the peer is gone or wedged, as one that
 	   crashed sends no close. Three in a row, about a minute, still let through a long pause for garbage collection
-	   or a peer that is busy. */
+	   or a peer that is busy. Anything else that arrives on the stream counts as an answer, as one can wait behind a
+	   large frame (PeerActivityHandler). */
 	public static final int MISSED_PINGS_BEFORE_CLOSE = 3;
 	public static final AttributeKey<Integer> MISSED_PINGS_KEY = AttributeKey.valueOf("MISSED_PINGS");
 

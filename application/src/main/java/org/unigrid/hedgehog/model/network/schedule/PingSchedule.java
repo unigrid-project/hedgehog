@@ -37,9 +37,9 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 		super(Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS, true);
 	}
 
-	/* A ping still unanswered when the next is due is missed, and an answer starts the count again
-	   (PingChannelHandler). A peer that crashed sends no close, so its connection would otherwise stay open until it
-	   idles out; closed here, the topology lets go of it as of any closed one. */
+	/* A ping still unanswered when the next is due is missed, and anything that arrives on the stream, an answer among
+	   it, starts the count again (PeerActivityHandler). A peer that crashed sends no close, so its connection would
+	   otherwise stay open until it idles out; closed here, the topology lets go of it as of any closed one. */
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {

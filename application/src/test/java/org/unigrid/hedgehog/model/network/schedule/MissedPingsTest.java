@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.schedule;
 
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -34,15 +35,18 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
 import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
-/* The pings that a peer leaves unanswered, counted by the schedule that sends them and started again by the handler
-   that takes an answer, on a stream of its own whose parent stands for the QUIC connection. The network examples of
-   PingScheduleTest and PingChannelHandlerTest fail once another example of their class has run before them, so these
-   are kept apart. */
+/* The pings that a peer leaves unanswered, counted by the schedule that sends them and started again by anything that
+   arrives on the stream, an answer among it, on a stream of its own whose parent stands for the QUIC connection and
+   whose pipeline starts as a node's does. The network examples of PingScheduleTest and PingChannelHandlerTest fail
+   once another example of their class has run before them, so these are kept apart. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class MissedPingsTest {
+	private static final int DATA_BYTES = 1024;
+
 	/* The round trip of an answer goes to the node in the topology, which a stream of its own is in none of */
 	@BeforeTry
 	public void withoutATopology() {
@@ -52,11 +56,18 @@ public class MissedPingsTest {
 	}
 
 	private static EmbeddedChannel streamOf(EmbeddedChannel connection) {
-		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false, new PingChannelHandler());
+		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false, new PeerActivityHandler(),
+			new PingChannelHandler());
 	}
 
 	private static void answer(EmbeddedChannel stream) {
 		stream.writeInbound(Ping.builder().response(true).build());
+	}
+
+	/* A piece of a frame, as the bytes of one arrive while it streams in */
+	private static void receive(EmbeddedChannel stream) {
+		stream.writeInbound(Unpooled.wrappedBuffer(new byte[DATA_BYTES]));
+		stream.releaseInbound();
 	}
 
 	@Example
@@ -128,15 +139,39 @@ public class MissedPingsTest {
 		assertThat(connection.isOpen(), is(true));
 	}
 
-	/* A request is answered and counts nothing, whatever this node still waits for */
+	/* An answer can wait on the stream behind a large frame, whose bytes show meanwhile that the peer is there */
 	@Example
-	public void leavesTheCountAsItIsOnARequest() {
-		final EmbeddedChannel stream = streamOf(new EmbeddedChannel());
+	public void keepsTheConnectionOfAPeerThatSendsAnythingBetweenMisses() {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+		final EmbeddedChannel stream = streamOf(connection);
+		final Consumer<Channel> ping = new PingSchedule().getConsumer();
 
-		stream.attr(Ping.MISSED_PINGS_KEY).set(1);
-		stream.writeInbound(Ping.builder().build());
+		for (int sent = 0; sent < Ping.MISSED_PINGS_BEFORE_CLOSE * 4; sent++) {
+			ping.accept(stream);
+			receive(stream);
+			assertThat(stream.attr(Ping.MISSED_PINGS_KEY).get(), is(0));
+		}
 
-		assertThat(stream.attr(Ping.MISSED_PINGS_KEY).get(), is(1));
-		assertThat(((Ping) stream.readOutbound()).isResponse(), is(true));
+		assertThat(connection.isOpen(), is(true));
+		assertThat(stream.isOpen(), is(true));
+	}
+
+	@Example
+	public void closesTheConnectionOfAPeerThatSendsNothingForThreeRounds() {
+		final EmbeddedChannel connection = new EmbeddedChannel();
+		final EmbeddedChannel stream = streamOf(connection);
+		final Consumer<Channel> ping = new PingSchedule().getConsumer();
+
+		ping.accept(stream);
+		receive(stream);
+
+		for (int sent = 1; sent < Ping.MISSED_PINGS_BEFORE_CLOSE; sent++) {
+			ping.accept(stream);
+		}
+
+		assertThat(connection.isOpen(), is(true));
+		ping.accept(stream);
+		assertThat(connection.isOpen(), is(false));
+		assertThat(stream.isOpen(), is(false));
 	}
 }
