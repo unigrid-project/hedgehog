@@ -28,6 +28,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
@@ -35,6 +36,14 @@ import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 public class P2PServerPipelineTest {
 	private static List<Class<?>> classesOf(final List<? extends ChannelHandler> handlers) {
 		return handlers.stream().<Class<?>>map(ChannelHandler::getClass).toList();
+	}
+
+	/* Every read shows the peer is there, also one of a piece of a frame that is still streaming in */
+	@Example
+	public void takesEachReadAsASignOfThePeerBeforeAnyFrameIsDecoded() {
+		for (boolean ledger : List.of(false, true)) {
+			assertThat(classesOf(P2PServer.handlers(ledger)).getFirst(), equalTo(PeerActivityHandler.class));
+		}
 	}
 
 	@Example

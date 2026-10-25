@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.util.OwnerOnlyFile;
@@ -48,10 +49,15 @@ import picocli.CommandLine.UnmatchedArgumentException;
 public class BoardKeyOptions {
 	public static final String ENVIRONMENT = "HEDGEHOG_BOARD_KEY";
 
-	/* The hex of a key, a line ending and room for stray blanks: a bigger file holds no key */
-	private static final int MAX_FILE_BYTES = 260;
+	/* What util key-generate writes, its line endings and room for stray blanks: a bigger file holds no key */
+	private static final int MAX_FILE_BYTES = 512;
 
-	private static final Pattern KEY = Pattern.compile("(?<![0-9a-fA-F])[0-9a-fA-F]{130,132}(?![0-9a-fA-F])");
+	private static final String KEY_HEX = "[0-9a-fA-F]{130,132}";
+	private static final Pattern KEY = Pattern.compile("(?<![0-9a-fA-F])" + KEY_HEX + "(?![0-9a-fA-F])");
+	private static final Pattern PRIVATE_KEY_LINE = Pattern.compile("Private Key:\\s*(" + KEY_HEX + ")");
+	private static final Pattern PUBLIC_KEY_LINE = Pattern.compile("Public Key:\\s*[0-9a-fA-F]+");
+	private static final String KEY_FILE_FORM = "it takes the private board key in hex, or the lines that util"
+		+ " key-generate writes";
 
 	@Option(names = { "-k", "--key" }, scope = CommandLine.ScopeType.INHERIT, paramLabel = "<hex>",
 		description = "The private board key in hex. Other users of this machine can read it in the list of "
@@ -60,7 +66,8 @@ public class BoardKeyOptions {
 	private String key;
 
 	@Option(names = "--key-file", scope = CommandLine.ScopeType.INHERIT, paramLabel = "<path>",
-		description = "A file that holds the private board key in hex and that only its owner can read."
+		description = "A file that only its owner can read and that holds the private board key in hex, or what"
+			+ " util key-generate writes."
 	)
 	private String keyFile;
 
@@ -167,7 +174,7 @@ public class BoardKeyOptions {
 			}
 
 			OwnerOnlyFile.require(file);
-			return readBounded(file).strip();
+			return keyIn(name, readBounded(file));
 		} catch (NoSuchFileException ex) {
 			throw refused("There is no board key file " + name);
 		} catch (IOException ex) {
@@ -175,6 +182,34 @@ public class BoardKeyOptions {
 		} catch (IllegalArgumentException ex) {
 			throw refused(ex.getMessage());
 		}
+	}
+
+	/* A file holds the key alone, or the lines that util key-generate writes, as board members keep it, of which the
+	   public key is left aside. Nothing of the file is repeated in a refusal, as it may hold a key. */
+	private String keyIn(String name, String content) {
+		final String held = content.strip();
+
+		if (KEY.matcher(held).matches()) {
+			return held;
+		}
+
+		final List<String> lines = held.lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+
+		if (!lines.stream().allMatch(line -> PRIVATE_KEY_LINE.matcher(line).matches()
+			|| PUBLIC_KEY_LINE.matcher(line).matches())) {
+
+			throw refused(name + " cannot be read as a board key; " + KEY_FILE_FORM);
+		}
+
+		final List<String> keys = lines.stream().map(PRIVATE_KEY_LINE::matcher).filter(Matcher::matches)
+			.map(line -> line.group(1)).toList();
+
+		if (keys.size() != 1) {
+			throw refused(name + (keys.isEmpty() ? " holds no private board key; "
+				: " holds more than one private key; ") + KEY_FILE_FORM);
+		}
+
+		return keys.getFirst();
 	}
 
 	/* The size a file claims cannot be trusted (a device says 0), so what is read is bounded instead */

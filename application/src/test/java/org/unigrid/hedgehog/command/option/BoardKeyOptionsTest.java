@@ -20,9 +20,11 @@ package org.unigrid.hedgehog.command.option;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Optional;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -33,6 +35,7 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
@@ -140,6 +143,64 @@ public class BoardKeyOptionsTest {
 		}
 	}
 
+	private static String generatedKeysOf(Signature keys) {
+		return "Private Key: " + keys.getPrivateKey() + "\nPublic Key: " + keys.getPublicKey() + "\n";
+	}
+
+	private static String valueOf(String printed, String label) {
+		return printed.lines().filter(line -> line.startsWith(label)).findFirst().orElseThrow()
+			.substring(label.length());
+	}
+
+	/* Board members keep their keys in the files that util key-generate wrote */
+	@Example
+	@SneakyThrows
+	public void shouldTakeThePrivateKeyFromWhatKeyGenerateWrites() {
+		final String generated = HedgehogCli.run("util", "key-generate").out();
+		final String publicKey = valueOf(generated, "Public Key: ");
+		final byte[] data = "a spork".getBytes(StandardCharsets.UTF_8);
+
+		new MockUp<NetworkKey>() {
+			@Mock public String[] getPublicKeys() {
+				return new String[] { publicKey };
+			}
+		};
+
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			LedgerKeyFixtures.write(fs, KEY_FILE, generated, OWNER_ONLY);
+
+			final String resolved = run(fs, "--key-file", KEY_FILE).resolved();
+			final byte[] signed = new Signature(Optional.of(resolved), Optional.empty()).sign(data);
+
+			assertThat(resolved, equalTo(valueOf(generated, "Private Key: ")));
+			assertThat(new Signature(Optional.empty(), Optional.of(publicKey)).verify(data, signed), is(true));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAFileThatHoldsNoPrivateKeyOrMoreThanOne() {
+		final String expected = "it takes the private board key in hex, or the lines that util key-generate writes";
+		final String bothPrivate = "Private Key: " + BOARD.getPrivateKey() + "\nPrivate Key: "
+			+ STRANGER.getPrivateKey() + "\n";
+
+		for (List<String> refusal : List.of(List.of("Public Key: " + BOARD.getPublicKey() + "\n", "holds no private"),
+			List.of(BOARD.getPublicKey() + "\n", "cannot be read as a board key"),
+			List.of(bothPrivate, "holds more than one private key"),
+			List.of("Private Key: not hex at all\n", "cannot be read as a board key"),
+			List.of(generatedKeysOf(BOARD) + "Comment: kept by the treasurer\n", "cannot be read as a board key"))) {
+
+			try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+				LedgerKeyFixtures.write(fs, KEY_FILE, refusal.getFirst(), OWNER_ONLY);
+
+				final Outcome outcome = run(fs, "--key-file", KEY_FILE);
+
+				assertRefused(outcome, KEY_FILE + " " + refusal.getLast());
+				assertThat(outcome.err(), containsString(expected));
+			}
+		}
+	}
+
 	@Example
 	public void shouldRefuseWhenNoSourceGivesAKey() {
 		assertRefused(run(), "A board key is needed");
@@ -165,9 +226,11 @@ public class BoardKeyOptionsTest {
 	@SneakyThrows
 	public void shouldRefuseAFileThatOthersCanRead() {
 		for (String mode : List.of("rw-r-----", "rw----r--", "rw-r--r--", "rwxrwxrwx")) {
-			try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
-				LedgerKeyFixtures.write(fs, KEY_FILE, BOARD.getPrivateKey() + "\n", mode);
-				assertRefused(run(fs, "--key-file", KEY_FILE), "chmod 600");
+			for (String content : List.of(BOARD.getPrivateKey() + "\n", generatedKeysOf(BOARD))) {
+				try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+					LedgerKeyFixtures.write(fs, KEY_FILE, content, mode);
+					assertRefused(run(fs, "--key-file", KEY_FILE), "chmod 600");
+				}
 			}
 		}
 	}
@@ -219,9 +282,11 @@ public class BoardKeyOptionsTest {
 		assertRefused(run("-k", "not hex at all"), reason);
 		assertRefused(run("-k", ""), reason);
 
-		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
-			LedgerKeyFixtures.write(fs, KEY_FILE, STRANGER.getPrivateKey(), OWNER_ONLY);
-			assertRefused(run(fs, "--key-file", KEY_FILE), reason);
+		for (String content : List.of(STRANGER.getPrivateKey(), generatedKeysOf(STRANGER))) {
+			try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+				LedgerKeyFixtures.write(fs, KEY_FILE, content, OWNER_ONLY);
+				assertRefused(run(fs, "--key-file", KEY_FILE), reason);
+			}
 		}
 	}
 }
