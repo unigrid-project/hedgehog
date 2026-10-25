@@ -20,10 +20,12 @@ package org.unigrid.hedgehog.model.network;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.SneakyThrows;
 import mockit.Capturing;
@@ -46,6 +48,7 @@ import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.server.TestServer;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class NodeTest extends BaseMockedWeldTest {
 	@Mocked private Network network;
@@ -165,5 +168,24 @@ public class NodeTest extends BaseMockedWeldTest {
 			topology.addNode(node);
 			assertThat(topology.cloneNodes().size(), is(originalSize + 1));
 		}
+	}
+
+	private static Node linkedBy(EmbeddedChannel dialed, EmbeddedChannel opened) {
+		return Node.builder().address(new InetSocketAddress("127.0.100.1", 1000))
+			.connection(Optional.of(LedgerStreams.connection(dialed)))
+			.inbound(Optional.of(LedgerStreams.connection(opened))).build();
+	}
+
+	/* A connection that closed is dropped in the next round of dialing only, and until then the node is reached on the
+	   stream that it opened; while both are open, on the connection that this node dialed */
+	@Example
+	public void shouldLinkToANodeByAnOpenStreamBeforeOneThatClosed() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final Node node = linkedBy(dialed, opened);
+
+		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(dialed)));
+		dialed.close();
+		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(opened)));
 	}
 }

@@ -125,10 +125,15 @@ public class Node {
 		}
 	}
 
-	/* What this node sends to the node on: the connection it dialed, or else the stream the node opened to it */
+	/* What this node sends to the node on: the connection it dialed, or else the stream the node opened to it, and one
+	   that is open before one that closed, which the next round of dialing drops */
 	@JsonIgnore
 	public Optional<Connection> link() {
-		return connection.or(() -> inbound);
+		return open(connection).or(() -> open(inbound)).or(() -> connection.or(() -> inbound));
+	}
+
+	private static Optional<Connection> open(Optional<Connection> link) {
+		return link.filter(held -> held.getChannel().isActive());
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
