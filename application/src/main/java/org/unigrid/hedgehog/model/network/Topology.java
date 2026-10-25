@@ -212,17 +212,13 @@ public class Topology {
 		sendAll(packet, topology, channel -> true, consumer);
 	}
 
-	/* Only to the nodes whose stream the predicate takes, for a packet that not every node could read */
+	/* Only on the streams that the predicate takes, for a packet that not every node could read */
 	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 
 		log.atDebug().log("Send all packet " + packet.toString());
-		topology.forEach(node -> {
-			if (node.relay().map(Connection::getChannel).filter(recipients).isPresent()) {
-				Node.send(packet, node, consumer);
-			}
-		});
+		topology.forEach(node -> Node.send(packet, node, recipients, consumer));
 	}
 
 	public static void sendAllExcept(Packet packet, Topology topology, Optional<Node> excluded) {

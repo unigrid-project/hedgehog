@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model.network;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
 import jakarta.ws.rs.core.UriBuilder;
@@ -32,9 +33,12 @@ import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -132,12 +136,16 @@ public class Node {
 		return open(connection).or(() -> open(inbound)).or(() -> connection.or(() -> inbound));
 	}
 
-	/* What this node relays to the node: the stream that the node opened to it while that is open, as the node pays for
-	   what comes on a connection that it dialed from the share of the peers it chose, and for what comes on one that
-	   this node dialed from the share of anyone (PublishSporkChannelHandler) */
+	/* What this node relays to the node: each link that is open, or else the link. The node pays for what comes on a
+	   connection that it dialed from the share of the peers it chose, and for what comes on one that this node dialed
+	   from the share of anyone (PublishSporkChannelHandler), while the stream that it opened is known as its own by
+	   its address and the port it said alone, which another one behind that address can say as well. What goes on
+	   both reaches the node either way, and a peer passes on nothing it has seen before. */
 	@JsonIgnore
-	public Optional<Connection> relay() {
-		return open(inbound).or(this::link);
+	public List<Connection> relays() {
+		final List<Connection> open = Stream.of(open(connection), open(inbound)).flatMap(Optional::stream).toList();
+
+		return open.isEmpty() ? link().stream().toList() : open;
 	}
 
 	private static Optional<Connection> open(Optional<Connection> link) {
@@ -145,16 +153,23 @@ public class Node {
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
+		send(packet, node, channel -> true, consumer);
+	}
+
+	/* Only on the streams that the predicate takes, for a packet that not every node could read */
+	public static void send(Packet packet, Node node, Predicate<Channel> recipients,
+		Optional<BiConsumer<Node, Future>> consumer) {
+
 		log.atDebug().log("Send all packet " + packet.toString());
-		if (node.relay().isPresent()) {
-			final ChannelFuture out = node.relay().get().getChannel().writeAndFlush(packet);
+		node.relays().stream().map(Connection::getChannel).filter(recipients).forEach(channel -> {
+			final ChannelFuture out = channel.writeAndFlush(packet);
 
 			out.addListener(f -> {
 				consumer.ifPresent(c -> {
 					c.accept(node, f);
 				});
 			});
-		}
+		});
 	}
 
 	/* A node made by hand is refused when its host does not resolve, rather than stored under a name that may never

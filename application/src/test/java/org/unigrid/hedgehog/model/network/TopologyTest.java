@@ -176,9 +176,9 @@ public class TopologyTest extends BaseMockedWeldTest {
 		}};
 	}
 
-	/* Whether a node may be sent a packet that not every node could read is judged by the stream it is relayed on */
+	/* A packet that not every node could read goes on those of the streams of a node that take it */
 	@Example
-	public void shouldJudgeTheRecipientsOfAPacketByTheStreamItIsRelayedOn() {
+	public void shouldSendAPacketThatNotEveryNodeCouldReadOnTheStreamsThatTakeIt() {
 		final EmbeddedChannel dialed = new EmbeddedChannel();
 		final EmbeddedChannel opened = new EmbeddedChannel();
 		final Node node = Node.builder().address(new InetSocketAddress("127.0.100.3", 1000))
@@ -188,10 +188,11 @@ public class TopologyTest extends BaseMockedWeldTest {
 
 		assertThat(topology.addNode(node), is(true));
 		Topology.sendAll(packet, topology, channel -> channel == dialed, Optional.empty());
-		assertThat(dialed.<Packet>readOutbound(), nullValue());
+		assertThat(dialed.<Packet>readOutbound(), is(packet));
 		assertThat(opened.<Packet>readOutbound(), nullValue());
 
 		Topology.sendAll(packet, topology, channel -> channel == opened, Optional.empty());
+		assertThat(dialed.<Packet>readOutbound(), nullValue());
 		assertThat(opened.<Packet>readOutbound(), is(packet));
 		topology.removeNode(node);
 	}

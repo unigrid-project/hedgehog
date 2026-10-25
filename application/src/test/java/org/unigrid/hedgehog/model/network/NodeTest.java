@@ -191,22 +191,28 @@ public class NodeTest extends BaseMockedWeldTest {
 	}
 
 	/* A node that dialed this one pays for what comes on that connection from the share of the peers it chose, and for
-	   what comes on one that this node dialed from the share of anyone (PublishSporkChannelHandler), so what is relayed
-	   to it goes on the stream it opened while that is open; the ledger goes by the connection that this node dialed */
+	   what comes on one that this node dialed from the share of anyone (PublishSporkChannelHandler), while the stream
+	   that it opened is known as its own by its address and the port it said alone, which another one behind that
+	   address can say as well: what is relayed goes on both while both are open, and on the one that is open else */
 	@Example
-	public void shouldRelayToANodeOnTheStreamItOpenedWhileThatIsOpen() {
+	public void shouldRelayToANodeOnEveryLinkThatIsOpen() {
 		final EmbeddedChannel dialed = new EmbeddedChannel();
 		final EmbeddedChannel opened = new EmbeddedChannel();
+		final EmbeddedChannel reopened = new EmbeddedChannel();
 		final Node node = linkedBy(dialed, opened);
 		final Packet packet = PublishGridnode.builder().build();
 
 		Node.send(packet, node, Optional.empty());
+		assertThat(dialed.<Packet>readOutbound(), is(packet));
 		assertThat(opened.<Packet>readOutbound(), is(packet));
-		assertThat(dialed.<Packet>readOutbound(), nullValue());
-		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(dialed)));
 
 		opened.close();
 		Node.send(packet, node, Optional.empty());
 		assertThat(dialed.<Packet>readOutbound(), is(packet));
+
+		dialed.close();
+		node.setInbound(Optional.of(LedgerStreams.connection(reopened)));
+		Node.send(packet, node, Optional.empty());
+		assertThat(reopened.<Packet>readOutbound(), is(packet));
 	}
 }
