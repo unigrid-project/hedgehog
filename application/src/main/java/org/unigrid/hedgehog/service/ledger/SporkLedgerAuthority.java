@@ -207,10 +207,11 @@ public final class SporkLedgerAuthority implements LedgerAuthority {
 			.map(spork -> spork.<LedgerFee.SporkData>getData());
 	}
 
-	/* The spork, or nothing when it is not set or a newer one is known. The lag is asked first: a spork stored
-	   in between is then read in its newer form, which the lag has no reason to hold back. */
+	/* The spork, or nothing when it is not set, a newer one is known or a key that signed it is switched off. The lag
+	   is asked first: a spork stored in between is then read in its newer form, which the lag has no reason to hold
+	   back. */
 	private Optional<GridSpork> known(SporkDatabase database, Type type) {
-		return lag.isBehind(type, database) ? Optional.empty() : Optional.ofNullable(database.get(type));
+		return lag.isBehind(type, database) ? Optional.empty() : Optional.ofNullable(database.counting(type));
 	}
 
 	/* How many units more may be made on this supply before the maximum supply is passed, not known while the

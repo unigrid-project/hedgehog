@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Starts four ledger validators from the built jar on this machine, sets the sporks of a private network and follows
-# a coin from a mint to a transfer. The nodes dial no seeds, trust board keys made here and bind to the loopback, so
-# nothing touches the real network. Usage: rehearsal/ledger-rehearsal.sh [snapshot]
+# Starts four ledger validators from the built jar on this machine, sets the sporks of a private network, follows
+# a coin from a mint to a transfer, and changes the board keys while the network runs. The nodes dial no seeds, trust
+# board keys made here and bind to the loopback, so nothing touches the real network.
+# Usage: rehearsal/ledger-rehearsal.sh [snapshot]
 # The snapshot defaults to ~/hedgehog-release/bootstrap.dat. A copy of it is made and signed with a test key, because
 # a node uses only a snapshot that its own board keys have signed. The hash in the genesis does not change by that.
 set -euo pipefail
@@ -32,7 +33,8 @@ if [ -z "$JAR" ]; then
 	JAR=$(ls -t "$ROOT"/application/target/hedgehog-*-jar-with-dependencies.jar | head -1)
 fi
 
-hedgehog() { "$JAVA" -jar "$JAR" "$@" 2> >(grep -v '^WARNING\|^SLF4J' >&2); }
+# The command line keeps a record of the board keys it verified in its data directory, which is one of the rehearsal
+hedgehog() { XDG_DATA_HOME="$WORK/cli" "$JAVA" -jar "$JAR" "$@" 2> >(grep -v '^WARNING\|^SLF4J' >&2); }
 
 # node <n> <command>: a cli command against node n. The board keys are those of this network, as a spork is signed by
 # the command line, which checks the key it is given against them.
@@ -121,7 +123,8 @@ node 1 gridspork-grow mint-storage --address "$(cat alice.pub)" --time 157783680
 DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
 [ "$(echo "$DIGESTS" | wc -w)" -eq 4 ] || fail "expected four proposals, found: $DIGESTS"
 # shellcheck disable=SC2086
-node 1 gridspork-cosign -k "$BOARD2_PRIVATE" $DIGESTS > /dev/null
+node 1 gridspork-cosign -k "$BOARD2_PRIVATE" --first-version MINT_SUPPLY --first-version LEDGER_FEE \
+	--first-version LEDGER_BLACKLIST --first-version MINT_STORAGE $DIGESTS > /dev/null
 
 balance_is() { node "$1" ledger balance "$2" | grep -q "\"balance\" : \"$3\""; }
 
@@ -137,10 +140,71 @@ for n in $(seq "$NODES"); do
 	balance_is "$n" "$(cat alice.pub)" 989.99900000 || fail "node $n holds another balance for the sender"
 done
 
+# A change of the board keys while the network runs: a third key comes in and the first is switched off. The two keys
+# of the board approve it, and so does the key it adds; a key that the change keeps proposes it and the new key
+# co-signs it. The change follows on the chain of a spork database of a node, which holds none yet, so the first save
+# of one is waited for.
+log "changing the board keys: board key 3 comes in, board key 1 is switched off"
+hedgehog util key-generate > board3.txt
+BOARD1_PUBLIC=$(field 'Public Key' board1.txt)
+BOARD3_PRIVATE=$(field 'Private Key' board3.txt)
+BOARD3_PUBLIC=$(field 'Public Key' board3.txt)
+until_true 240 "the first save of the spork database of node 1" test -f n1/hedgehog/spork.db
+cp n1/hedgehog/spork.db before-the-change.db
+hedgehog util board-keys propose --network-keys "$NETWORK_KEYS" --spork-db before-the-change.db \
+	--activate "$BOARD3_PUBLIC" --deactivate "$BOARD1_PUBLIC" --output change.json > /dev/null
+for key in "$BOARD1_PRIVATE" "$BOARD2_PRIVATE" "$BOARD3_PRIVATE"; do
+	hedgehog util board-keys approve change.json --spork-db before-the-change.db --network-keys "$NETWORK_KEYS" \
+		-k "$key" > /dev/null
+done
+
+# The sporks that board key 1 signed count for nothing from the change on, until keys that stay sign them again
+node 1 gridspork-set board-keys -D "$WORK/change.json" --first-version --allow-uncounted -k "$BOARD2_PRIVATE" \
+	> /dev/null
+DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
+[ "$(echo "$DIGESTS" | wc -w)" -eq 1 ] || fail "expected the change of the board keys to wait, found: $DIGESTS"
+# shellcheck disable=SC2086
+node 1 gridspork-cosign -k "$BOARD3_PRIVATE" --first-version BOARD_KEYS $DIGESTS > /dev/null
+
+goes_by_the_new_board() {
+	local shown
+	shown=$(node "$1" gridspork-get board-keys) || return 1
+	grep -q "^  \"active\" : .*$BOARD3_PUBLIC" <<< "$shown" && grep -q "^  \"inactive\" : .*$BOARD1_PUBLIC" <<< "$shown"
+}
+for n in $(seq "$NODES"); do
+	until_true 120 "the change of the board keys on node $n" goes_by_the_new_board "$n"
+done
+
+log "the sporks signed again by keys that stay, the new key among them"
+SWITCHED_OFF=(--switched-off MINT_STORAGE --switched-off MINT_SUPPLY --switched-off LEDGER_BLACKLIST
+	--switched-off LEDGER_FEE)
+node 1 gridspork-renew -k "$BOARD3_PRIVATE" "${SWITCHED_OFF[@]}" > /dev/null
+DIGESTS=$(node 1 gridspork-pending | awk '/"digest" :/ { gsub(/[",]/, "", $3); print $3 }')
+[ "$(echo "$DIGESTS" | wc -w)" -eq 5 ] || fail "expected five renewals, found: $DIGESTS"
+# shellcheck disable=SC2086
+node 1 gridspork-cosign -k "$BOARD2_PRIVATE" "${SWITCHED_OFF[@]}" $DIGESTS > /dev/null
+
+fee_counts() { node "$1" gridspork-get ledger-fee | grep -q '"counting" : true'; }
+for n in $(seq "$NODES"); do
+	until_true 120 "the fee signed again on node $n" fee_counts "$n"
+done
+
+log "a transfer under the sporks that the new board signed"
+node 2 ledger transfer --key alice.key --to "$(cat bob.pub)" --amount 5 > /dev/null
+for n in $(seq "$NODES"); do
+	until_true 120 "the second transfer on node $n" balance_is "$n" "$(cat bob.pub)" 15.00000000
+done
+
+log "the switched-off board key signs nothing"
+if node 1 gridspork-set ledger-fee -D 0.002 -k "$BOARD1_PRIVATE" > refused.txt 2>&1; then
+	fail "the switched-off board key 1 proposed a spork"
+fi
+until_true 5 "the refusal of board key 1" grep -q "not one of the current board keys" refused.txt
+
 log "every node is on one chain"
 CHAIN=$(sed -n 's/^chainId: //p' genesis.txt)
 for n in $(seq "$NODES"); do
 	node "$n" ledger info | grep -q "$CHAIN" || fail "node $n is on another chain than the genesis"
 done
 
-log "PASS: $NODES validators, one chain, mint and transfer seen on every node"
+log "PASS: $NODES validators, one chain, mint and transfers seen on every node, the board keys changed on every node"

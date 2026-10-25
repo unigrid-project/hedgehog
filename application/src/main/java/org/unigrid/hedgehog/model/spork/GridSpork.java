@@ -29,9 +29,12 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -40,9 +43,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import lombok.experimental.Tolerate;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.SerializationUtils;
+import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signable;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -74,6 +80,27 @@ public class GridSpork implements Serializable, Signable {
 	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE)
 	private transient SignatureLogEntry retiringHead;
 
+	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE) @ToString.Exclude
+	private transient volatile Standing standing;
+
+	/* Which of the keys active now signed the head, worked out once until the keys that the node goes by change: the
+	   policy of a spork is read thousands of times a second, and a spork that a node holds is replaced whole and never
+	   changed in place */
+	private record Standing(long generation, boolean counting, boolean anchoring) {
+	}
+
+	@Getter(AccessLevel.NONE) @Setter(AccessLevel.NONE) @ToString.Exclude
+	private transient volatile HeadCheck headCheck;
+
+	private record HeadCheck(long generation, byte[] digest, byte[] signature, byte[] cosignature,
+		boolean isDoublySigned) {
+
+		private boolean isOf(long other, byte[] otherDigest, byte[] otherSignature, byte[] otherCosignature) {
+			return generation == other && Arrays.equals(digest, otherDigest)
+				&& Arrays.equals(signature, otherSignature) && Arrays.equals(cosignature, otherCosignature);
+		}
+	}
+
 	@AllArgsConstructor
 	public enum Flag {
 		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
@@ -91,7 +118,7 @@ public class GridSpork implements Serializable, Signable {
 		MINT_STORAGE((short) 1000, MintStorage::new), MINT_SUPPLY((short) 1010, MintSupply::new),
 		VESTING_STORAGE((short) 1020, VestingStorage::new), STORAGE((short) 1030, StorageSpork::new),
 		LEDGER_BLACKLIST((short) 1040, LedgerBlacklist::new), LEDGER_FEE((short) 1050, LedgerFee::new),
-		STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new);
+		STATISTICS_PUBKEY((short) 2001, StatisticsPubKey::new), BOARD_KEYS((short) 3000, BoardKeys::new);
 
 		@Getter private final short value;
 		private final Supplier<GridSpork> factory;
@@ -234,7 +261,7 @@ public class GridSpork implements Serializable, Signable {
 
 		cosignature = signatureOf(privateKeyHex);
 
-		if (!isDoublySigned()) {
+		if (!isDoublySignedBy(headKeys())) {
 			cosignature = null;
 			throw new SigningException("A second, different network key has to co-sign the spork");
 		}
@@ -242,7 +269,9 @@ public class GridSpork implements Serializable, Signable {
 
 	private byte[] signatureOf(String privateKeyHex) throws SigningException {
 		try {
-			return new Signature(Optional.of(privateKeyHex), Optional.empty()).sign(getSignable());
+			final Signature signer = new Signature(Optional.of(privateKeyHex), Optional.empty());
+
+			return isSignedInOneForm() ? signer.signInOneForm(getSignable()) : signer.sign(getSignable());
 		} catch (InvalidAlgorithmParameterException | InvalidKeySpecException | NoSuchAlgorithmException ex) {
 			throw new SigningException("Failed to sign spork with given private key", ex);
 		}
@@ -258,18 +287,84 @@ public class GridSpork implements Serializable, Signable {
 		return signerOfHead(signature).isPresent();
 	}
 
+	/* The decisions that a spork from a peer goes through each ask this, and the answer costs a signature for each
+	   active key that a signature is tried against, so it is worked out once for a head, its signatures and the keys
+	   the node goes by */
 	@JsonIgnore
 	public boolean isDoublySigned() {
-		final Optional<String> signer = signerOfHead(signature);
-		final Optional<String> cosigner = signerOfHead(cosignature);
+		final long generation = NetworkKey.getGeneration();
+		final byte[] digest = DigestUtils.sha512(getSignable());
+		final HeadCheck known = headCheck;
 
+		if (Objects.nonNull(known) && known.isOf(generation, digest, signature, cosignature)) {
+			return known.isDoublySigned();
+		}
+
+		final boolean isDoublySigned = isDoublySignedBy(digest, headKeys());
+
+		/* Copies, as the arrays are the spork's own and may be written to in place */
+		headCheck = new HeadCheck(generation, digest, ArrayUtils.clone(signature), ArrayUtils.clone(cosignature),
+			isDoublySigned);
+		return isDoublySigned;
+	}
+
+	private boolean isDoublySignedBy(Set<String> keys) {
+		return isDoublySignedBy(DigestUtils.sha512(getSignable()), keys);
+	}
+
+	/* The co-signature is of another key than the signature, and is tried only once a key made the signature, so that
+	   a head that no key signed is tried against each key once */
+	private boolean isDoublySignedBy(byte[] digest, Set<String> keys) {
+		final Optional<String> signer = signerAmong(digest, signature, keys);
+
+		return signer.isPresent() && signerAmong(digest, cosignature, othersThan(signer, keys)).isPresent();
+	}
+
+	private static List<String> othersThan(Optional<String> signer, Collection<String> keys) {
+		return keys.stream().filter(key -> !signer.map(key::equals).orElse(false)).toList();
+	}
+
+	private static boolean isPair(Optional<String> signer, Optional<String> cosigner) {
 		return signer.isPresent() && cosigner.isPresent() && !signer.equals(cosigner);
 	}
 
 	/* The current network key that made a signature of this spork, if any did */
 	public Optional<String> signerOfHead(byte[] headSignature) {
+		return signerOfHead(headSignature, headKeys());
+	}
+
+	private Optional<String> signerOfHead(byte[] headSignature, Collection<String> keys) {
 		return Objects.isNull(headSignature) ? Optional.empty()
-			: NetworkKey.signerOf(DigestUtils.sha512(getSignable()), headSignature);
+			: signerAmong(DigestUtils.sha512(getSignable()), headSignature, keys);
+	}
+
+	/* Whether the head is new data, which takes signatures in their one form only (Signature.isInOneForm): earlier
+	   releases signed the heads of the types they knew in either form */
+	protected boolean isSignedInOneForm() {
+		return false;
+	}
+
+	/* Tried against the keys that signed this type last first (LikelySigners) */
+	private Optional<String> signerAmong(byte[] digest, byte[] headSignature, Collection<String> keys) {
+		if (Objects.isNull(headSignature) || isSignedInOneForm() && !Signature.isInOneForm(headSignature)) {
+			return Optional.empty();
+		}
+
+		final Optional<String> signer = NetworkKey.signerOf(digest, headSignature,
+			LikelySigners.ordered(type, keys));
+
+		signer.ifPresent(key -> LikelySigners.signed(type, key));
+		return signer;
+	}
+
+	/* The keys that sign the head of the spork: the board keys that are active now */
+	protected Set<String> headKeys() {
+		return Set.copyOf(Arrays.asList(NetworkKey.getPublicKeys()));
+	}
+
+	/* The keys that its signature log may name */
+	protected Set<String> logKeys() {
+		return NetworkKey.getLogKeys();
 	}
 
 	/**
@@ -277,7 +372,8 @@ public class GridSpork implements Serializable, Signable {
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
 	* current keys, and either extend the log, with the stored spork as the first entry it adds, or win against
 	* a sibling made over the same version by being newer, when it makes the same change or comes within the
-	* lifetime of a proposal after it.
+	* lifetime of a proposal after it. A stored spork that no active key signed ({@link #isAnchoring()}) is taken over
+	* by any version newer than it and than every version in its log.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -323,12 +419,75 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean isTakenByTheNetwork() {
+		return isTakenBy(headKeys());
+	}
+
+	/**
+	* Decides as {@link #isTakenByTheNetwork()} does, but takes two keys that were ever active for the head: a spork
+	* that keys signed which the board switched off since is still one the network carried. A node keeps it where it
+	* is, and it counts for nothing ({@link #isCounting()}) until the board signs it again.
+	*/
+	@JsonIgnore
+	public boolean wasTakenByTheNetwork() {
+		return isTakenBy(logKeys());
+	}
+
+	private boolean isTakenBy(Set<String> keys) {
 		try {
-			return isWithinBounds() && isDoublySigned() && isNewerThanLog()
-				&& getSignatureLog().isValidFrom(0, NetworkKey.getLogKeys());
+			return isWithinBounds() && isDoublySignedBy(keys) && isNewerThanLog()
+				&& getSignatureLog().isValidFrom(0, logKeys());
 		} catch (RuntimeException ex) {
 			return false;
 		}
+	}
+
+	/**
+	* Whether the policy of this spork holds: two different keys that are active now signed it. A spork whose signer
+	* the board switched off since stays where it is, but decides nothing and is not sent on until the board signs it
+	* again.
+	*/
+	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
+	public boolean isCounting() {
+		return standing().counting();
+	}
+
+	/* Whether a new version has to follow on this one. One that no active key signed holds nothing back, so the version
+	   that the board signs again takes its place, while one that an active key signed still keeps older versions out. */
+	@JsonIgnore
+	public boolean isAnchoring() {
+		return standing().anchoring();
+	}
+
+	/* The generation is read before the keys, so a standing worked out over keys that changed meanwhile is worked out
+	   again. A spork that cannot be encoded to check its signatures over has no signer, while one whose checks were
+	   not paid for has no standing yet. */
+	private Standing standing() {
+		final long generation = NetworkKey.getGeneration();
+		final Standing known = standing;
+
+		if (Objects.nonNull(known) && known.generation() == generation) {
+			return known;
+		}
+
+		Standing judged;
+
+		try {
+			judged = judgedBy(generation, headKeys());
+		} catch (ChecksSpentException ex) {
+			throw ex;
+		} catch (RuntimeException ex) {
+			judged = new Standing(generation, false, false);
+		}
+
+		standing = judged;
+		return judged;
+	}
+
+	private Standing judgedBy(long generation, Set<String> keys) {
+		final Optional<String> signer = signerOfHead(signature, keys);
+		final Optional<String> cosigner = signerOfHead(cosignature, othersThan(signer, keys));
+
+		return new Standing(generation, isPair(signer, cosigner), signer.isPresent() || cosigner.isPresent());
 	}
 
 	/* An amount beyond the bounds of the wire writes out as up to gigabytes, so it is judged before the spork is
@@ -341,37 +500,121 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Decides whether this spork, handed out as the proposal that waits on the stored one, is what a current network
 	* key proposed over it: it may wait for its co-signature over the stored spork, and it was made from it, as its
-	* next version or as its renewal. The stored spork is one the network took ({@link #isTakenByTheNetwork()}).
+	* next version or as its renewal, with the stored head as the last entry of its log. A co-signed version from a peer
+	* is judged by {@link #canReplace(GridSpork)} instead, as a node that missed versions takes one that logs several.
 	*/
 	@JsonIgnore
 	public boolean isProposalOver(GridSpork stored) {
-		return canBeProposedOver(stored) && isMadeFrom(stored);
+		return isProposalOver(stored, () -> true);
 	}
 
+	/**
+	* Decides as {@link #isProposalOver(GridSpork)} does, asking {@code mayVerify} as
+	* {@link #canReplace(GridSpork, BooleanSupplier)} does.
+	*/
+	@JsonIgnore
+	public boolean isProposalOver(GridSpork stored, BooleanSupplier mayVerify) {
+		return isPending() && isMadeFrom(stored) && succeeds(stored, mayVerify, this::isValidSignature);
+	}
+
+	/**
+	* Decides whether this spork is the stored one moved to a new point in time and nothing else: the same data over the
+	* same version, and the log of the stored spork with its head appended.
+	*/
+	@JsonIgnore
+	public boolean isRenewalOf(GridSpork stored) {
+		final SignatureLog storedLog = stored.getSignatureLog();
+
+		return isRenewalOver(stored) && getSignatureLog().size() == storedLog.size() + 1
+			&& storedLog.isPrefixOf(getSignatureLog()) && endsWithTheHeadOf(stored);
+	}
+
+	/* The previous data and time stamp of a version over a forged one, renewed, are those of the stored spork, so what
+	   it was made from is told by the head that its log ends with, which is the stored head for every version that
+	   archive() or renew() made from it. Over nothing that is a log of nothing, as a renewal of a forged first version
+	   has no previous version either. */
 	private boolean isMadeFrom(GridSpork stored) {
 		if (Objects.isNull(stored)) {
-			return Instant.EPOCH.equals(previousTimeStamp);
+			return Instant.EPOCH.equals(previousTimeStamp) && getSignatureLog().isEmpty();
 		}
 
-		final boolean isNextVersion = Objects.equals(previousTimeStamp, stored.timeStamp)
-			&& Objects.equals(previousData, stored.data);
-		final boolean isRenewal = Objects.equals(data, stored.data)
-			&& Objects.equals(previousData, stored.previousData)
-			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
+		final boolean isNextVersion = isSameVersion(previousTimeStamp, previousData, stored.timeStamp, stored.data);
 
-		return isNextVersion || isRenewal;
+		return (isNextVersion || isRenewalOver(stored)) && endsWithTheHeadOf(stored);
+	}
+
+	private boolean isRenewalOver(GridSpork stored) {
+		return Arrays.equals(encoded(data), encoded(stored.data))
+			&& isSameVersion(previousTimeStamp, previousData, stored.previousTimeStamp, stored.previousData);
+	}
+
+	private boolean endsWithTheHeadOf(GridSpork stored) {
+		final SignatureLog log = getSignatureLog();
+
+		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.timeStamp)
+			&& goesOnWithTheHeadOf(stored, log.size() - 1);
+	}
+
+	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
+	   the scale it was written with and a time stamp its nanoseconds, while the wire carries units and milliseconds */
+	private boolean isSameVersion(Instant stamp, ChunkData chunk, Instant otherStamp, ChunkData otherChunk) {
+		return millisOf(stamp) == millisOf(otherStamp) && Arrays.equals(encoded(chunk), encoded(otherChunk));
+	}
+
+	private static long millisOf(Instant stamp) {
+		return Objects.requireNonNullElse(stamp, Instant.EPOCH).toEpochMilli();
+	}
+
+	private byte[] encoded(ChunkData chunk) {
+		return SporkContentEncoder.encode(type, Objects.requireNonNullElseGet(chunk,
+			() -> create(type).<ChunkData>getData().empty()));
 	}
 
 	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {
-		final SignatureLog storedLog = Objects.isNull(stored) ? new SignatureLog() : stored.getSignatureLog();
+		final GridSpork anchor = anchorAmong(stored);
+		final SignatureLog storedLog = logOf(anchor);
 
 		/* Head first, so a forged log costs one verification rather than one per entry */
-		return isSuccessorOf(stored, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
+		return followsOn(stored, anchor, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
 			&& isSignedHead.getAsBoolean()
-			&& getSignatureLog().isValidFrom(storedLog.size(), NetworkKey.getLogKeys());
+			&& getSignatureLog().isValidFrom(firstUncheckedEntry(storedLog), logKeys());
 	}
 
-	private boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
+	private static GridSpork anchorAmong(GridSpork stored) {
+		return Objects.nonNull(stored) && stored.isAnchoring() ? stored : null;
+	}
+
+	private static SignatureLog logOf(GridSpork spork) {
+		return Objects.isNull(spork) ? new SignatureLog() : spork.getSignatureLog();
+	}
+
+	/* A stored spork that no active key signed is no anchor: the version that the board signs again takes its place
+	   without carrying its log on. It still holds its place in time, so that version is newer than it and than every
+	   version in its log, and is none of them: a version that someone kept cannot take its data back. */
+	private boolean followsOn(GridSpork stored, GridSpork anchor, SignatureLog storedLog) {
+		return (anchor == stored || isLaterThanAllOf(stored)) && isSuccessorOf(anchor, storedLog);
+	}
+
+	private boolean isLaterThanAllOf(GridSpork stored) {
+		final byte[] digest = DigestUtils.sha512(getSignable());
+
+		return Objects.nonNull(timeStamp) && isNewerThan(stored)
+			&& !Arrays.equals(digest, DigestUtils.sha512(stored.getSignable()))
+			&& stored.getSignatureLog().getEntries().stream().allMatch(entry -> isLaterThan(entry, digest));
+	}
+
+	private boolean isLaterThan(SignatureLogEntry entry, byte[] digest) {
+		return timeStamp.isAfter(entry.getTimeStamp()) && !Arrays.equals(entry.getDigest(), digest);
+	}
+
+	/* The entries of the stored log were checked when the stored spork was taken; a log that does not carry it on is
+	   checked whole */
+	private int firstUncheckedEntry(SignatureLog storedLog) {
+		return storedLog.isPrefixOf(getSignatureLog()) ? storedLog.size() : 0;
+	}
+
+	/* Whether this spork may follow on the stored one, judged by what costs no signature */
+	protected boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
 		final SignatureLog log = getSignatureLog();
 		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
 			&& mayTakeThePlaceOf(stored);
@@ -450,10 +693,12 @@ public class GridSpork implements Serializable, Signable {
 		}
 	}
 
+	/* By any key that the log may name, so that a version that a key signed before it was switched off is signed again
+	   with its history */
 	private String retiringSignerOf(byte[] headSignature) throws SigningException {
-		return NetworkKey.signerOf(retiringHead.getDigest(), headSignature).orElseThrow(() -> new SigningException(
-			"No current network key signed the version being replaced"
-		));
+		return NetworkKey.signerOf(retiringHead.getDigest(), headSignature, logKeys()).orElseThrow(
+			() -> new SigningException("No board key signed the version being replaced")
+		);
 	}
 
 	/**

@@ -120,6 +120,12 @@ public class ForgedHeadReceptionTest {
 		return cosigned(proposalOver(null, 10, FIRST_MADE_AT));
 	}
 
+	/* Hours ago, so that siblings made a proposal's lifetime and more after it are not stamped ahead of the clock,
+	   which no node takes */
+	private static GridSpork secondVersionHoursAgo() {
+		return cosigned(proposalOver(firstVersion(), 20, FIRST_MADE_AT.plusSeconds(1)));
+	}
+
 	/* The next version as the command line makes it, at the time given or else now */
 	@SneakyThrows
 	private static GridSpork proposalOver(GridSpork stored, long maxSupply, Instant at) {
@@ -201,6 +207,7 @@ public class ForgedHeadReceptionTest {
 		}
 	}
 
+	/* A proposal is held over the version it was made from only, which a node that is behind takes first */
 	@Example
 	public void shouldCatchUpOverSeveralVersionsAtOnce() {
 		final List<GridSpork> versions = versions(5);
@@ -209,9 +216,10 @@ public class ForgedHeadReceptionTest {
 		for (GridSpork behind : versions.subList(0, versions.size() - 1)) {
 			final Node node = new Node(behind);
 
-			assertThat(node.receive(proposal), is(true));
+			assertThat(node.receive(proposal), is(false));
 			assertThat(node.receive(versions.getLast()), is(true));
 			assertThat(node.stored().getSignable(), equalTo(versions.getLast().getSignable()));
+			assertThat(node.receive(proposal), is(true));
 		}
 	}
 
@@ -237,7 +245,7 @@ public class ForgedHeadReceptionTest {
 	   one it replaces. */
 	@Example
 	public void shouldConvergeOnTheNewerOfTwoVersionsCosignedOverTheSameVersion() {
-		final GridSpork base = versions(2).getLast();
+		final GridSpork base = secondVersionHoursAgo();
 		final GridSpork older = cosigned(proposalOver(base, 30, base.getTimeStamp().plusSeconds(1)));
 		final GridSpork newer = cosigned(proposalOver(base, 40, older.getTimeStamp().plus(PendingSporks.LIFETIME)));
 		final GridSpork tooLate = cosigned(proposalOver(base, 50, older.getTimeStamp().plus(PendingSporks.LIFETIME)
@@ -269,7 +277,7 @@ public class ForgedHeadReceptionTest {
 	   far apart they were made */
 	@Example
 	public void shouldSettleSiblingsThatMakeTheSameChangeByTheirTimeStamps() {
-		final GridSpork head = versions(2).getLast();
+		final GridSpork head = secondVersionHoursAgo();
 		final GridSpork older = renewalOf(head, head.getTimeStamp().plusMillis(1));
 		final GridSpork newer = renewalOf(head, head.getTimeStamp().plusMillis(2));
 		final GridSpork muchLater = renewalOf(head, older.getTimeStamp().plus(PendingSporks.LIFETIME.multipliedBy(2)));

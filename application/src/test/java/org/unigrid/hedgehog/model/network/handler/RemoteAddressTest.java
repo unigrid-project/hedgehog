@@ -23,6 +23,7 @@ import io.netty.channel.DefaultChannelId;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.net.Inet4Address;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -34,6 +35,9 @@ import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.model.network.Dialed;
+import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 import static org.unigrid.hedgehog.service.ledger.LedgerWireFixtures.ipv4Mapped;
 
 public class RemoteAddressTest {
@@ -46,6 +50,61 @@ public class RemoteAddressTest {
 
 	private static Channel streamOf(final Channel connection) {
 		return new EmbeddedChannel(connection, DefaultChannelId.newInstance(), true, false);
+	}
+
+	/* Only a connection that this node opened is marked as dialed, and what a peer says of itself marks none */
+	@Example
+	public void takesAPeerForOneThisNodeDialedByTheConnectionThatItOpenedOnly() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final EmbeddedChannel inbound = new EmbeddedChannel();
+		final Channel listening = streamOf(inbound);
+
+		dialed.attr(Dialed.KEY).set(Dialed.CHOSEN);
+		inbound.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress("10.0.0.1", PORT));
+		RemoteAddress.listensOn(listening, PORT);
+
+		assertThat(Dialed.of(streamOf(dialed)), equalTo(Optional.of(Dialed.CHOSEN)));
+		assertThat(Dialed.of(listening), equalTo(Optional.empty()));
+		assertThat(Dialed.of(new EmbeddedChannel()), equalTo(Optional.empty()));
+	}
+
+	/* A node that an operator configures after this node dialed it as one it chose is one it dialed as configured,
+	   while a peer that connected to this node is none that it dialed whatever is configured */
+	@Example
+	public void marksAConnectionThatThisNodeDialedAsOneToAConfiguredNodeOnly() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final Channel inbound = streamOf(new EmbeddedChannel());
+		final Channel stream = streamOf(dialed);
+
+		dialed.attr(Dialed.KEY).set(Dialed.CHOSEN);
+		Dialed.configure(stream);
+		Dialed.configure(inbound);
+
+		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
+		assertThat(Dialed.of(inbound), equalTo(Optional.empty()));
+	}
+
+	private static String groupOf(final String address) {
+		return RemoteAddress.groupOf(new InetSocketAddress(address, PORT));
+	}
+
+	/* One who holds a network holds every address in it, so a peer is counted with its /16 or its IPv6 /32, while an
+	   address of this host or of a private network stands for itself, as many nodes of one operator share them */
+	@Example
+	public void groupsAPeerByItsNetwork() {
+		assertThat(groupOf("45.10.200.7"), equalTo(groupOf("45.10.3.99")));
+		assertThat(groupOf("45.10.200.7"), not(equalTo(groupOf("45.11.200.7"))));
+		assertThat(groupOf("::ffff:45.10.0.1"), equalTo(groupOf("45.10.200.7")));
+		assertThat(groupOf("2001:db8:1:2::1"), equalTo(groupOf("2001:db8:ffff::9")));
+		assertThat(groupOf("2001:db8:1:2::1"), not(equalTo(groupOf("2001:db9:1:2::1"))));
+
+		assertThat(groupOf("2002:2d0a:0101::1"), equalTo(groupOf("45.10.1.1")));
+		assertThat(groupOf("2002:2d0a:0101::1"), equalTo(groupOf("2002:2d0a:ffff::9")));
+		assertThat(groupOf("2002:2d0b::1"), not(equalTo(groupOf("45.10.1.1"))));
+
+		for (String own : List.of("127.0.0.1", "10.1.2.3", "192.168.1.1", "172.16.0.1", "fd00::1", "fe80::1")) {
+			assertThat(own, groupOf(own), equalTo(NettyLedgerPeer.idOf(new InetSocketAddress(own, PORT))));
+		}
 	}
 
 	@Example

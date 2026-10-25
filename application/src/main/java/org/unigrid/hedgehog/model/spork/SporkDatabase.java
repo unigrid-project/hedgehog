@@ -63,6 +63,7 @@ public class SporkDatabase implements Serializable {
 	private volatile LedgerFee ledgerFee;
 
 	private volatile StatisticsPubKey statisticsPubKey;
+	private volatile BoardKeys boardKeys;
 
 	/* Read through a filter of the classes a spork database holds, as the file may come from anyone */
 	public static SporkDatabase load(Path path) throws IOException {
@@ -96,25 +97,31 @@ public class SporkDatabase implements Serializable {
 	   database or the new one, never a truncated mix. Each save writes a file of its own, made new, so that a node and
 	   an import never write into each other's, and saves of one process take turns, so the last one stays. */
 	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
+		replace(path, channel -> write(channel, sporkDatabase));
+	}
+
+	interface ChannelWriter {
+		void write(FileChannel channel) throws IOException;
+	}
+
+	/* As persist() writes a database, any content that the writer puts into the channel and forces to the disk */
+	static void replace(Path path, ChannelWriter writer) throws IOException {
 		final Path file = path.toAbsolutePath();
 		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", ".tmp");
 
 		try {
-			write(temporary, sporkDatabase);
+			try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
+				StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+
+				writer.write(channel);
+			}
+
 			Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 			forceDirectory(file);
 
 		} catch (IOException | RuntimeException ex) {
 			removeTemporary(temporary, ex);
 			throw ex;
-		}
-	}
-
-	private static void write(Path temporary, SporkDatabase sporkDatabase) throws IOException {
-		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
-			StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
-
-			write(channel, sporkDatabase);
 		}
 	}
 
@@ -156,8 +163,30 @@ public class SporkDatabase implements Serializable {
 		slotOf(gridSpork.getType()).writer().accept(this, gridSpork);
 	}
 
+	/**
+	* Stores a co-signed spork in the place of the one it was judged against, if that is still the one stored, or if
+	* it can replace what is stored by then. Judging checks signatures, which takes too long to hold a lock for, so two
+	* versions of a type that come in at once are judged side by side, and storing the one judged last as it is could
+	* leave the node on the older one. Returns whether the spork was stored.
+	*/
+	public synchronized boolean replace(GridSpork judged, GridSpork spork) {
+		final GridSpork stored = get(spork.getType());
+
+		if (stored != judged && !spork.canReplace(stored)) {
+			return false;
+		}
+
+		set(spork);
+		return true;
+	}
+
 	public void clear(Type gridSporkType) {
 		slotOf(gridSporkType).writer().accept(this, null);
+	}
+
+	/* The spork of a type as what acts on a spork reads it: only while two active keys vouch for it (isCounting) */
+	public GridSpork counting(Type gridSporkType) {
+		return Optional.ofNullable(get(gridSporkType)).filter(GridSpork::isCounting).orElse(null);
 	}
 
 	/* A file ties nothing in a slot to its type: a spork there can carry another type, and data of another type, which
@@ -200,6 +229,8 @@ public class SporkDatabase implements Serializable {
 		Type.LEDGER_FEE, new Slot(db -> db.ledgerFee,
 			(db, spork) -> db.ledgerFee = (LedgerFee) spork),
 		Type.STATISTICS_PUBKEY, new Slot(db -> db.statisticsPubKey,
-			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork)
+			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork),
+		Type.BOARD_KEYS, new Slot(db -> db.boardKeys,
+			(db, spork) -> db.boardKeys = (BoardKeys) spork)
 	);
 }

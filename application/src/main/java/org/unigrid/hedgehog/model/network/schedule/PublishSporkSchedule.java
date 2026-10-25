@@ -27,6 +27,7 @@ import lombok.EqualsAndHashCode;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -48,11 +49,13 @@ public class PublishSporkSchedule extends AbstractSchedule implements Schedulabl
 		};
 	}
 
-	/* A spork that is not set is not sent, and the sporks of the ledger only over the ledger protocol */
+	/* A spork that is not set is not sent, nor one that does not count, which no node of the board as it is now
+	   takes; and each only to a peer that reads it (SporkRecipients). The board keys go first, as every other spork is
+	   judged by the keys they make active. */
 	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase, PendingSporks pendingSporks) {
-		Stream.of(sporkDatabase.getMintStorage(), sporkDatabase.getMintSupply(), sporkDatabase.getVestingStorage(),
-			sporkDatabase.getStorageSpork(), sporkDatabase.getLedgerBlacklist(), sporkDatabase.getLedgerFee())
-			.forEach(spork -> SporkRecipients.write(channel, spork));
+		Stream.of(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE, Type.STORAGE,
+			Type.LEDGER_BLACKLIST, Type.LEDGER_FEE)
+			.forEach(type -> SporkRecipients.write(channel, sporkDatabase.counting(type)));
 
 		pendingSporks.list().forEach(spork -> SporkRecipients.write(channel, spork));
 	}

@@ -34,6 +34,8 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -48,6 +50,8 @@ import org.unigrid.hedgehog.model.spork.content.SporkContent;
 public class GridSporkWireResource extends CDIBridgeResource {
 	private static final String UNSIGNED = "No current board key signed the spork, or no second one co-signed it";
 	private static final String NOT_NEWER = "The spork does not follow on the stored spork and the proposal held";
+	private static final String AHEAD = "The spork is stamped further ahead of the clock of this node than clocks"
+		+ " drift apart";
 
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
@@ -82,7 +86,8 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	* co-signature is held as a proposal (202), and either is sent on to the peers. The data is judged before any
 	* signature is, so content that no node can act on is never held or sent (400). A spork that no current board key
 	* signed, or whose co-signature is not of a second one, is refused (401), and so is one that does not follow on
-	* the stored spork or the proposal held for its type (409).
+	* the stored spork or the proposal held for its type, or that is stamped further ahead than clocks drift apart
+	* (409).
 	*/
 	@Path("/wire") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
@@ -112,7 +117,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response hold(GridSpork spork) {
-		if (!pendingSporks.offer(spork, sporkDatabase.get(spork.getType()))) {
+		if (!pendingSporks.offerOfThisMachine(spork, () -> sporkDatabase.get(spork.getType()))) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 
@@ -121,14 +126,31 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response store(GridSpork spork) {
-		if (!spork.canReplace(sporkDatabase.get(spork.getType()))) {
+		if (pendingSporks.isAheadOfTime(spork)) {
+			return refused(Response.Status.CONFLICT, AHEAD);
+		}
+
+		if (!isStored(spork)) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
 
-		sporkDatabase.set(spork);
-		pendingSporks.retainProposalsOver(spork);
 		SporkRecipients.sendAll(spork, topology);
 		return Response.ok().build();
+	}
+
+	private boolean isStored(GridSpork spork) {
+		if (spork instanceof BoardKeys boardKeys) {
+			return BoardKeysAuthority.accept(boardKeys, sporkDatabase, pendingSporks, () -> true);
+		}
+
+		final GridSpork stored = sporkDatabase.get(spork.getType());
+
+		if (!spork.canReplace(stored) || !sporkDatabase.replace(stored, spork)) {
+			return false;
+		}
+
+		pendingSporks.retainProposalsOver(spork.getType(), () -> sporkDatabase.get(spork.getType()));
+		return true;
 	}
 
 	/* A held proposal is answered with JSON, while a reason is plain text, which the command line shows as it is */

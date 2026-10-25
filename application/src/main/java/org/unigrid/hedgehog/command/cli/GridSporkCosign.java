@@ -22,8 +22,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
@@ -32,14 +34,17 @@ import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
+import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
@@ -57,21 +62,52 @@ public class GridSporkCosign implements Runnable {
 	@Parameters(arity = "1..*", description = "Digests of the sporks to co-sign.")
 	private List<String> digests;
 
+	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
+	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
+
+	@Option(names = "--first-version", paramLabel = "<type>", description = "The type of a spork whose first version"
+		+ " is co-signed when the node holds none of it; give it once for each such type. A first version takes the"
+		+ " place of the one the network holds, so give this only for a type the network has none of.")
+	private Set<GridSpork.Type> firstVersions = EnumSet.noneOf(GridSpork.Type.class);
+
 	@Spec
 	private CommandSpec spec;
 
+	/* The key is judged once the board keys of the node are known, and by those that a change of the board keys which
+	   waits on the node makes active: a key that the change adds co-signs it */
 	@Override
 	public void run() {
-		final String key = boardKey.resolve(NetworkKey::isTrusted);
+		final String given = boardKey.resolve();
 
 		requireDigests();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
 
+			sporks.installBoardKeys();
+
+			final String key = boardKey.requireBoardKey(given, candidate -> NetworkKey.isTrusted(candidate)
+				|| NetworkKey.isOneOf(candidate, proposedBoardKeys(sporks)));
+
 			digests.forEach(digest -> cosign(sporks, digest, key));
-		} catch (IOException ex) {
+		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
+		} catch (UntrustedSporkException ex) {
+			System.err.println("Nothing was co-signed: " + TerminalText.printable(ex.getMessage()));
+		}
+	}
+
+	/* A change that is not what a current board key proposed adds no key; nor does one that the node cannot hand out,
+	   which leaves the node to say what is wrong for each digest */
+	private static Set<String> proposedBoardKeys(SporkClient sporks) {
+		try {
+			final Optional<GridSpork> stored = sporks.stored(GridSpork.Type.BOARD_KEYS);
+
+			return sporks.proposalOf(GridSpork.Type.BOARD_KEYS, stored.orElse(null))
+				.flatMap(proposal -> ((BoardKeys) proposal).chainKeys()).map(ActiveKeys::active)
+				.orElse(Set.of());
+		} catch (ResponseOddityException | UntrustedSporkException | IOException | IllegalArgumentException ex) {
+			return Set.of();
 		}
 	}
 
@@ -85,7 +121,7 @@ public class GridSporkCosign implements Runnable {
 	}
 
 	/* Each digest is tried on its own, so one that fails leaves the others to be co-signed */
-	private static void cosign(SporkClient sporks, String digest, String key) {
+	private void cosign(SporkClient sporks, String digest, String key) {
 		try {
 			final Optional<GridSpork> proposal = sporks.proposal(digest);
 
@@ -105,13 +141,26 @@ public class GridSporkCosign implements Runnable {
 	}
 
 	/* The proposal is co-signed only once it is known to be what a current board key made from the stored spork,
-	   which in turn is known to be what the network took */
-	private static String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
+	   which in turn is known to be what the network took. A stored spork that a key signed which the board switched
+	   off since is signed again only by name, by the second board member as by the first. */
+	private String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
 		throws ResponseOddityException, UntrustedSporkException, SigningException, IOException {
 
-		final Optional<GridSpork> stored = sporks.stored(proposal.getType());
+		final GridSpork.Type type = proposal.getType();
+		final Optional<GridSpork> stored = sporks.held(type);
+		final boolean isSwitchedOff = stored.isPresent() && !stored.get().isTakenByTheNetwork();
 
-		SporkClient.requireProposalOver(proposal, proposal.getType(), stored.orElse(null));
+		if (isSwitchedOff) {
+			requireRenewalByName(proposal, stored.get());
+		}
+
+		requireFirstVersionByName(type, stored);
+		SporkClient.requireProposalOver(proposal, type, stored.orElse(null));
+
+		if (isSwitchedOff) {
+			SporkProposal.showSwitchedOff(stored.get());
+		}
+
 		show(proposal, digest, stored);
 		proposal.cosign(key);
 
@@ -121,12 +170,43 @@ public class GridSporkCosign implements Runnable {
 			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer));
 	}
 
+	/* A node that holds none of the type may be one that never got it, or one that hides it, and what is co-signed over
+	   nothing takes the place of whatever the network holds, so it is co-signed only by the name of its type, as it is
+	   proposed: many digests are co-signed in one run, and a type that the node hides among them is not named */
+	private void requireFirstVersionByName(GridSpork.Type type, Optional<GridSpork> stored)
+		throws UntrustedSporkException {
+
+		if (stored.isEmpty() && !firstVersions.contains(type)) {
+			throw new UntrustedSporkException("the node holds no " + type + " spork, and a version over nothing"
+				+ " takes the place of the one the network holds; give --first-version " + type
+				+ " to co-sign the first version of it");
+		}
+	}
+
+	/* Two stolen keys that the board switched off can forge the stored spork, so nothing is co-signed over it but the
+	   very version that the node holds, renewed */
+	private void requireRenewalByName(GridSpork proposal, GridSpork stored) throws UntrustedSporkException {
+		final GridSpork.Type type = stored.getType();
+
+		if (!switchedOff.contains(type)) {
+			throw new UntrustedSporkException("the " + type + " spork that the node holds is "
+				+ SporkClient.signingOf(stored) + "; give --switched-off " + type
+				+ " to co-sign a renewal of it");
+		}
+
+		if (!proposal.isRenewalOf(stored)) {
+			throw new UntrustedSporkException("the " + type + " proposal is no renewal of the spork that the"
+				+ " node holds, which is " + SporkClient.signingOf(stored)
+				+ ", and only a renewal is co-signed over it");
+		}
+	}
+
 	/* A proposal holds all the data that it sets, the changes of the proposals it replaced among it, so the whole of
 	   it and the whole of what the node holds are shown: that is every change that the co-signature accepts */
 	private static void show(GridSpork proposal, String digest, Optional<GridSpork> stored)
 		throws JsonProcessingException {
 
-		final String signer = NetworkKey.signerOf(proposal).orElse("no current board key");
+		final String signer = proposal.signerOfHead(proposal.getSignature()).orElse("no current board key");
 
 		System.out.println("Proposal " + digest + " of " + proposal.getType() + ", made at "
 			+ proposal.getTimeStamp() + " and signed by " + signer);

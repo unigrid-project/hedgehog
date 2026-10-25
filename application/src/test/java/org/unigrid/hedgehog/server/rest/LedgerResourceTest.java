@@ -87,6 +87,7 @@ import org.unigrid.hedgehog.ledger.Transfer;
 import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.network.codec.LedgerCodecs;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -315,6 +316,13 @@ public class LedgerResourceTest extends BaseRestClientTest {
 		waited.clear();
 		held.clear();
 		sporkDatabase.setLedgerFee(null);
+
+		/* The fee sporks of these tests are signed by no one, and stand for sporks that count */
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return true;
+			}
+		};
 
 		new MockUp<LedgerService>() {
 			@Mock

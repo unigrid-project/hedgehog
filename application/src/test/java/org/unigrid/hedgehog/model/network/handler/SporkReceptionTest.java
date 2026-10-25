@@ -47,12 +47,9 @@ public class SporkReceptionTest {
 	private static final String PEER = "198.51.100.7";
 	private static final String ANOTHER_PEER = "203.0.113.9";
 
-	/* A flood comes within the second of one turn, or two when it happens to cross into the next */
-	private static final int MOST_TURNS = 2;
-
-	/* How often the current network keys were asked for, which is once for each signature that is checked: twice
-	   for the lag and twice for the stored spork when a received spork is signed twice */
-	private static final int LOOKUPS_PER_TURN = 4;
+	/* The checks an inbound peer pays for in a flood: the 8 of its bucket, and the 8 a second it fills by over a flood
+	   that may cross into a second and a third second. The keys are asked for at most once for each check. */
+	private static final int MOST_CHECKS = 8 + 2 * 8;
 
 	private static Signature proposer;
 	private static Signature cosigner;
@@ -121,20 +118,20 @@ public class SporkReceptionTest {
 	}
 
 	@Example
-	public void shouldCheckAFloodOfForgedProposalsFromOnePeerNoMoreThanItsTurnsAllow() {
+	public void shouldCheckAFloodOfForgedProposalsFromOnePeerNoMoreThanItsBucketPaysFor() {
 		final MintSupply forged = forged(proposal(new MintSupply()));
 
-		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_TURNS * LOOKUPS_PER_TURN));
+		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_CHECKS));
 		assertThat(pendingSporks.list(), empty());
 	}
 
 	@Example
-	public void shouldCheckAFloodOfForgedSporksFromOnePeerNoMoreThanItsTurnsAllow() {
+	public void shouldCheckAFloodOfForgedSporksFromOnePeerNoMoreThanItsBucketPaysFor() {
 		final MintSupply forged = forged(proposal(new MintSupply()));
 
 		forged.setCosignature(forged.getSignature());
 
-		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_TURNS * LOOKUPS_PER_TURN));
+		assertThat(lookupsOfAFlood(forged), lessThanOrEqualTo(MOST_CHECKS));
 		assertThat(sporkDatabase.getMintSupply(), is(nullValue()));
 	}
 
@@ -215,13 +212,16 @@ public class SporkReceptionTest {
 		assertThat(pendingSporks.list(), empty());
 	}
 
+	/* A proposal is held over the version it was made from only, so a node that has yet to store that version takes
+	   it once a peer sends it again, which sends its stored sporks before its proposals */
 	@Example
 	public void shouldKeepAProposalOnTopOfTheStoredSpork() {
 		final MintSupply stored = cosigned(proposal(new MintSupply()));
 		final MintSupply spork = proposal(stored);
 
-		receive(spork);
-		receive(stored);
+		assertThat(receive(spork), is(false));
+		assertThat(receive(stored), is(true));
+		assertThat(receive(spork), is(true));
 
 		assertThat(sporkDatabase.getMintSupply(), equalTo(stored));
 		assertThat(pendingSporks.list(), contains(spork));

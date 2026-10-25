@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,7 +38,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 @Slf4j
@@ -70,8 +74,11 @@ public class SporkDatabaseProducer {
 	}
 
 	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
-	   would write over it, and what it held is the operator's to look at and the network's to send again */
+	   would write over it, and what it held is the operator's to look at and the network's to send again. The chain
+	   that the release ships is gone by before anything of the file is judged. */
 	private SporkDatabase loaded(Path path) {
+		BoardKeysAuthority.installTheRelease();
+
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
 			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
@@ -86,22 +93,28 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	/* A node hands out what it holds as what the network took, so of its own file it keeps only what the current
-	   board signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers
-	   as first versions. The next save writes only what the node keeps, so the file as it was is copied aside first,
-	   as it is what the board signs again with util spork-db sign. */
+	/* A node hands out what it holds as what the network took, so of its own file it keeps only what board keys
+	   signed: a tampered or stale file injects nothing, and the versions the board signed come from the peers as first
+	   versions. The board keys of the file come first, as the other sporks are judged by the keys they make active,
+	   and a spork that keys signed which they switched off is kept, counting for nothing. The next save writes only
+	   what the node keeps, so the file as it was is copied aside first, as it is what the board signs again with util
+	   spork-db sign. */
 	private static SporkDatabase signedByTheBoard(SporkDatabase database, Path path) {
+		final Instant now = Instant.now();
+
+		Optional.ofNullable(database.getBoardKeys()).filter(GridSpork::isTakenByTheNetwork)
+			.filter(boardKeys -> !PendingSporks.isAheadOf(now, boardKeys))
+			.ifPresent(BoardKeysAuthority::install);
+
 		final List<GridSpork.Type> leftOut = Arrays.stream(GridSpork.Type.values())
 			.filter(type -> type != GridSpork.Type.UNDEFINED)
-			.filter(type -> database.holdsAnotherSporkIn(type) || Objects.nonNull(database.get(type))
-				&& !database.get(type).isTakenByTheNetwork()).toList();
+			.filter(type -> isLeftOut(database, type, now)).toList();
 
 		if (!leftOut.isEmpty()) {
 			final String copy = keptAside(path);
 
 			leftOut.forEach(type -> {
-				log.atWarn().addArgument(type).addArgument(reasonOf(database, type)).addArgument(copy)
-					.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
+				logLeftOut(database, type, now, copy);
 				database.clear(type);
 			});
 		}
@@ -120,20 +133,58 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	private static String reasonOf(SporkDatabase database, GridSpork.Type type) {
+	/* A spork that this node stored, stamped ahead of its clock, is more likely a clock of this machine that is
+	   behind than a forgery, and the node then refuses every honest version too, so that is said where an operator
+	   looks */
+	private static void logLeftOut(SporkDatabase database, GridSpork.Type type, Instant now, String copy) {
+		final GridSpork spork = database.get(type);
+
+		if (!database.holdsAnotherSporkIn(type) && PendingSporks.isAheadOf(now, spork)) {
+			log.atError().addArgument(type).addArgument(spork.getTimeStamp()).addArgument(now).addArgument(copy)
+				.log("The stored {} spork is stamped at {}, further ahead of the clock of this machine,"
+					+ " {}, than clocks drift apart: the clock of this machine may be behind. The"
+					+ " spork is left out, and the file as it was is kept as {}");
+			return;
+		}
+
+		log.atWarn().addArgument(type).addArgument(reasonOf(database, type, now)).addArgument(copy)
+			.log("The stored {} spork is left out: {}. The file as it was is kept as {}");
+	}
+
+	/* A spork stamped further ahead than clocks drift apart would hold off every version the board makes until its
+	   time came, as one from a peer would */
+	private static boolean isLeftOut(SporkDatabase database, GridSpork.Type type, Instant now) {
+		final GridSpork spork = database.get(type);
+
+		return database.holdsAnotherSporkIn(type) || Objects.nonNull(spork)
+			&& (!spork.wasTakenByTheNetwork() || PendingSporks.isAheadOf(now, spork));
+	}
+
+	private static String reasonOf(SporkDatabase database, GridSpork.Type type, Instant now) {
 		final GridSpork spork = database.get(type);
 
 		if (database.holdsAnotherSporkIn(type)) {
 			return "it sits in the slot of another type";
 		}
 
+		if (PendingSporks.isAheadOf(now, spork)) {
+			return "it is stamped at " + spork.getTimeStamp() + ", further ahead of the clock than clocks drift"
+				+ " apart";
+		}
+
 		if (!spork.isWithinBounds()) {
 			return "it holds an amount beyond the bounds of the wire";
 		}
 
+		return spork instanceof BoardKeys boardKeys && boardKeys.chainKeys().isEmpty()
+			? "its chain of board keys does not hold from the root of this node, through the chain that its"
+			+ " release ships" : signingOf(spork);
+	}
+
+	private static String signingOf(GridSpork spork) {
 		try {
-			return spork.isDoublySigned() ? "its signature log is not one that current network keys signed"
-				: "two different current network keys did not sign it";
+			return spork.isDoublySigned() ? "its signature log is not one that board keys signed"
+				: "two different board keys did not sign it";
 		} catch (RuntimeException ex) {
 			return "it cannot be encoded to check its signatures: " + ex.getMessage();
 		}

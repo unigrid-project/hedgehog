@@ -20,14 +20,20 @@ package org.unigrid.hedgehog.model.network.handler;
 
 import io.netty.channel.Channel;
 import io.netty.util.AttributeKey;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.service.ledger.NettyLedgerPeer;
 
 public final class RemoteAddress {
 	private static final AttributeKey<Integer> LISTEN_PORT_KEY = AttributeKey.valueOf("LISTEN_PORT");
+	private static final int IPV6_GROUP_BYTES = 4;
+	private static final byte[] SIX_TO_FOUR = { 0x20, 0x02 };
+	private static final int UNIQUE_LOCAL = 0xfc;
+	private static final int UNIQUE_LOCAL_MASK = 0xfe;
 
 	private RemoteAddress() {
 		/* Static helpers only */
@@ -58,6 +64,51 @@ public final class RemoteAddress {
 			return learned.filter(socket -> !socket.getAddress().isLoopbackAddress())
 				.or(() -> connected.or(() -> learned).map(socket -> listening(connection, socket)));
 		});
+	}
+
+	/**
+	* The network group of a peer: its IPv4 /16, or its IPv6 /32. Whoever holds a network holds every address in it,
+	* so what is limited by group holds an attacker with many addresses to the few networks they are in. An address of
+	* this host or of a private network stands for itself, as {@link #idOf} names it: the nodes of one operator share
+	* those, and none of them is anyone's to hand out.
+	*/
+	public static String groupOf(final InetSocketAddress socket) {
+		if (socket.isUnresolved()) {
+			return socket.getHostString();
+		}
+
+		final InetAddress address = NettyLedgerPeer.plain(socket.getAddress());
+		final byte[] bytes = address.getAddress();
+
+		if (isOfItsOwn(address)) {
+			return NettyLedgerPeer.idOf(socket);
+		}
+
+		final int ipv4 = startOfIpv4(bytes);
+
+		return ipv4 >= 0 ? Byte.toUnsignedInt(bytes[ipv4]) + "." + Byte.toUnsignedInt(bytes[ipv4 + 1]) + ".0.0/16"
+			: HexFormat.of().formatHex(bytes, 0, IPV6_GROUP_BYTES) + "/32";
+	}
+
+	/* Where the IPv4 address that an address holds begins: an IPv4 address, or a 6to4 one (2002:XXYY:ZZWW::/48),
+	   which whoever holds the IPv4 address holds, and so adds no group to the one of that address; or none */
+	private static int startOfIpv4(final byte[] bytes) {
+		if (bytes.length == Integer.BYTES) {
+			return 0;
+		}
+
+		return bytes[0] == SIX_TO_FOUR[0] && bytes[1] == SIX_TO_FOUR[1] ? SIX_TO_FOUR.length : -1;
+	}
+
+	/* The group of the peer of a stream, by the address it is connected from, never by what it says of itself */
+	public static String groupOf(final Channel stream) {
+		return of(stream).map(RemoteAddress::groupOf).orElseGet(() -> stream.id().asLongText());
+	}
+
+	private static boolean isOfItsOwn(final InetAddress address) {
+		return address.isLoopbackAddress() || address.isSiteLocalAddress() || address.isLinkLocalAddress()
+			|| address.isAnyLocalAddress() || address.getAddress().length > Integer.BYTES
+			&& (address.getAddress()[0] & UNIQUE_LOCAL_MASK) == UNIQUE_LOCAL;
 	}
 
 	/* What a peer is called by anything that limits it: the name the ledger gives its peer, or the stream when the

@@ -44,7 +44,10 @@ import java.util.stream.LongStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -608,6 +611,32 @@ public class SporkLedgerAuthorityTest {
 
 		rig.database.setLedgerBlacklist(null);
 		assertThat(rig.authority.authorizes(claim), is(false));
+	}
+
+	/* The board switched off a key that signed the sporks, which then decide nothing until it signs them again */
+	@Example
+	public void shouldDecideNothingByASporkThatDoesNotCount() {
+		final Rig rig = Rig.open();
+
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return false;
+			}
+		};
+
+		assertThat(rig.authority.authorizes(claimOfKey(3)), is(false));
+		assertThat(rig.authority.leastNewAccountAmount(), is(0L));
+		assertThat(rig.authority.due(FAR_FUTURE), empty());
+	}
+
+	/* The sporks of these tests are signed by no one, and stand for sporks that count */
+	@BeforeTry
+	public void countEverySpork() {
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return true;
+			}
+		};
 	}
 
 	@Example

@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.network.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.incubator.codec.quic.QuicChannel;
@@ -27,6 +28,7 @@ import io.netty.util.AttributeKey;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -45,10 +47,12 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.network.ChannelMap;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.server.TestServer;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 @WeldSetup(value = { Topology.class, ChannelMap.class, ProtectedInterceptor.class }, scan = false)
 public class HelloChannelHandlerTest extends BaseMockedWeldTest {
@@ -99,6 +103,21 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 		assertThat(forgetNodeAt(port), is(true));
 	}
 
+	/* The stream that a peer said hello on is sent on, and is no connection that this node dialed, so the node that
+	   said it is still one to dial */
+	@Example
+	public void keepsTheStreamOfAHelloApartFromTheConnectionsThisNodeDialed() throws Exception {
+		new HelloChannelHandler().typedChannelRead(context, Hello.builder().port(ASSUMED_PORT + 3).build());
+
+		final Node said = topology.cloneNodes().stream().filter(node -> node.getAddress().getPort() == ASSUMED_PORT + 3)
+			.findFirst().orElseThrow();
+
+		assertThat(said.getConnection(), equalTo(Optional.empty()));
+		assertThat(said.getInbound().isPresent(), is(true));
+		assertThat(said.link(), equalTo(said.getInbound()));
+		forgetNodeAt(ASSUMED_PORT + 3);
+	}
+
 	@Example
 	public void keepsTheFirstHelloOfAConnection() throws Exception {
 		final HelloChannelHandler handler = new HelloChannelHandler();
@@ -109,6 +128,37 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 		assertThat(RemoteAddress.of(stream), equalTo(Optional.of(new InetSocketAddress(LOCAL, ASSUMED_PORT + 1))));
 		forgetNodeAt(ASSUMED_PORT + 1);
 		forgetNodeAt(ASSUMED_PORT + 2);
+	}
+
+	/* A node that connects again says hello on a new stream, which is sent on once the one it opened before closed, and
+	   a node that this node dialed takes it as well; a stream that is still open stays the one */
+	@Example
+	public void attachesTheStreamOfAHelloToAKnownNodeWhoseStreamClosedOrThatHeldNone() throws Exception {
+		final EmbeddedChannel closed = new EmbeddedChannel();
+		final EmbeddedChannel open = new EmbeddedChannel();
+
+		closed.close();
+		topology.addNode(at(ASSUMED_PORT + 4).inbound(Optional.of(LedgerStreams.connection(closed))).build());
+		topology.addNode(at(ASSUMED_PORT + 5).connection(Optional.of(LedgerStreams.connection(open))).build());
+		topology.addNode(at(ASSUMED_PORT + 6).inbound(Optional.of(LedgerStreams.connection(open))).build());
+
+		for (int port = ASSUMED_PORT + 4; port <= ASSUMED_PORT + 6; port++) {
+			new HelloChannelHandler().typedChannelRead(context, Hello.builder().port(port).build());
+		}
+
+		assertThat(inboundAt(ASSUMED_PORT + 4), equalTo(Optional.of(stream)));
+		assertThat(inboundAt(ASSUMED_PORT + 5), equalTo(Optional.of(stream)));
+		assertThat(inboundAt(ASSUMED_PORT + 6), equalTo(Optional.of(open)));
+		IntStream.rangeClosed(ASSUMED_PORT + 4, ASSUMED_PORT + 6).forEach(this::forgetNodeAt);
+	}
+
+	private static Node.NodeBuilder at(final int port) {
+		return Node.builder().address(new InetSocketAddress(LOCAL, port));
+	}
+
+	private Optional<Channel> inboundAt(final int port) {
+		return topology.cloneNodes().stream().filter(node -> node.getAddress().getPort() == port).findFirst()
+			.flatMap(Node::getInbound).map(Connection::getChannel);
 	}
 
 	private boolean forgetNodeAt(final int port) {

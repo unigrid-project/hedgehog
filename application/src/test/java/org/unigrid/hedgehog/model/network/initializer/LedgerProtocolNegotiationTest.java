@@ -296,7 +296,7 @@ public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	/* The streams that the nodes which dialled opened to a node, as its topology holds them after their hello */
 	private List<Channel> streamsAcceptedBy(final int index) {
 		return within(index, () -> bean(index, Topology.class).cloneNodes().stream()
-			.flatMap(node -> node.getConnection().stream()).map(connection -> connection.getChannel())
+			.flatMap(node -> node.getInbound().stream()).map(connection -> connection.getChannel())
 			.filter(Channel::isActive).toList());
 	}
 

@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
+import org.unigrid.hedgehog.model.spork.BoardKeysInfo;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -61,6 +62,11 @@ public class GridSporkResource extends CDIBridgeResource {
 
 		storedSporks().forEach(spork -> logs.put(spork.getType(), SignatureLogInfo.of(spork)));
 		return logs.isEmpty() ? Response.noContent().build() : Response.ok().entity(logs).build();
+	}
+
+	@Path("/board-keys") @GET
+	public Response boardKeys() {
+		return Response.ok().entity(BoardKeysInfo.of(sporkDatabase.getBoardKeys())).build();
 	}
 
 	@Path("/pending") @GET

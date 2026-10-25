@@ -22,9 +22,13 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -36,14 +40,69 @@ import org.unigrid.hedgehog.command.option.NetOptions;
 
 @Slf4j
 public class NetworkKey {
-	public static String[] getPublicKeys() {
+	/* What the chain of the board keys spork that this node holds makes of the board keys. The options are read for as
+	   long as nothing is installed, so a network started with keys of its own goes by them until its board changes
+	   them. */
+	private static final AtomicReference<ActiveKeys> INSTALLED = new AtomicReference<>();
+
+	/* Counts every change of what is installed, so that what is judged by the keys can be kept until they change */
+	private static final AtomicLong GENERATION = new AtomicLong();
+
+	/* The board keys of the release, or of a private network that gives its own, which the chain of changes to the
+	   board keys is rooted in */
+	public static String[] getBuiltInKeys() {
 		return NetOptions.getNetworkKeys();
 	}
 
-	/* The keys a signature log may name. A log is checked against a set of its own, so that it can differ from the
-	   keys that sign a head. */
+	/* One read, so that a decision over two signatures is made against one set of keys */
+	public static ActiveKeys getActiveKeys() {
+		return Objects.requireNonNullElseGet(INSTALLED.get(), () -> ActiveKeys.of(Arrays.asList(getBuiltInKeys())));
+	}
+
+	public static String[] getPublicKeys() {
+		return getActiveKeys().active().toArray(String[]::new);
+	}
+
+	/* The keys a signature log may name: every key that was ever active, as a version that a key signed before it was
+	   switched off is history that stays readable. A log only grows under a head that two active keys signed, so a key
+	   that was switched off adds nothing to one. */
 	public static Set<String> getLogKeys() {
-		return new LinkedHashSet<>(Arrays.asList(getPublicKeys()));
+		final ActiveKeys installed = INSTALLED.get();
+
+		return Objects.isNull(installed) ? new LinkedHashSet<>(Arrays.asList(getPublicKeys())) : installed.known();
+	}
+
+	/**
+	* Goes by the keys of a chain from now on when it is longer than the one installed, and says whether it is. A chain
+	* that a node holds only grows, so a chain no longer than the installed one is one the node has moved past, or a
+	* fork of it that came later.
+	*/
+	public static boolean install(ActiveKeys keys) {
+		final ActiveKeys before = INSTALLED.get();
+		final boolean isInstalled = INSTALLED.updateAndGet(installed -> keys.length() > lengthOf(installed) ? keys
+			: installed) == keys;
+
+		if (isInstalled && before != keys) {
+			GENERATION.incrementAndGet();
+		}
+
+		return isInstalled;
+	}
+
+	public static long getGeneration() {
+		return GENERATION.get();
+	}
+
+	private static int lengthOf(ActiveKeys installed) {
+		return Objects.isNull(installed) ? 0 : installed.length();
+	}
+
+	/* A process that starts over goes by the built-in keys again and has checked no signature, as each test of a
+	   process does */
+	public static void reset() {
+		INSTALLED.set(null);
+		GENERATION.incrementAndGet();
+		VerifiedSignatures.forget();
 	}
 
 	public static Optional<String> signerOf(Signable signable) {
@@ -51,7 +110,13 @@ public class NetworkKey {
 	}
 
 	public static Optional<String> signerOf(byte[] digest, byte[] signature) {
-		return Arrays.stream(getPublicKeys()).filter(key -> verifies(digest, signature, key)).findFirst();
+		return signerOf(digest, signature, Arrays.asList(getPublicKeys()));
+	}
+
+	/* A signature that verified before names its signer for nothing, before any key is tried that did not make it */
+	public static Optional<String> signerOf(byte[] digest, byte[] signature, Collection<String> keys) {
+		return keys.stream().filter(key -> VerifiedSignatures.isKnown(key, digest, signature)).findFirst()
+			.or(() -> keys.stream().filter(key -> verifies(digest, signature, key)).findFirst());
 	}
 
 	private static boolean verifies(byte[] digest, byte[] signature, String key) {
@@ -73,6 +138,19 @@ public class NetworkKey {
 		}
 
 		return false;
+	}
+
+	/* Whether the private key is that of one of the public keys given */
+	public static boolean isOneOf(String privateKey, Collection<String> publicKeys) {
+		try {
+			final RandomSignableData signed = RandomSignableData.create(privateKey);
+			final byte[] digest = DigestUtils.sha512(signed.getSignable());
+
+			return signerOf(digest, signed.getSignature(), publicKeys).isPresent();
+		} catch (SigningException ex) {
+			log.atTrace().log(ex.getMessage());
+			return false;
+		}
 	}
 
 	@RequiredArgsConstructor(access = AccessLevel.PRIVATE)

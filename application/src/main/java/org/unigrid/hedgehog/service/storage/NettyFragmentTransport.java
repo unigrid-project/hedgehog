@@ -145,7 +145,7 @@ public class NettyFragmentTransport implements FragmentTransport {
 			return Optional.of(wanted).filter(NettyFragmentTransport::isResolved)
 				.flatMap(node -> nodes.get().stream().filter(NettyFragmentTransport::isResolved)
 					.filter(node::equals).findFirst())
-				.flatMap(Node::getConnection).map(Connection::getChannel);
+				.flatMap(Node::link).map(Connection::getChannel);
 		} catch (URISyntaxException | UnknownHostException | IllegalArgumentException ex) {
 			return Optional.empty();
 		}

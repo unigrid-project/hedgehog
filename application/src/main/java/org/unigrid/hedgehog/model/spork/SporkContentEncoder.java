@@ -23,7 +23,6 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
@@ -59,11 +58,7 @@ public final class SporkContentEncoder {
 	    [                    << spork delta data >>                    ]
 	*/
 	public static void encode(GridSpork spork, ByteBuf out) throws Exception {
-		final Optional<ChunkEncoder> encoder = Encoders.INSTANCE.getOptional(spork.getType());
-
-		if (encoder.isEmpty()) {
-			throw new IllegalArgumentException("Unable to encode a spork of type " + spork.getType());
-		}
+		final ChunkEncoder encoder = encoderOf(spork.getType());
 
 		out.writeShort(spork.getType().getValue());
 		out.writeShort(spork.getFlags());
@@ -72,16 +67,36 @@ public final class SporkContentEncoder {
 		out.writeLong(Objects.requireNonNullElse(spork.getPreviousTimeStamp(), Instant.EPOCH).toEpochMilli());
 		out.writeZero(8 /* 64 bits */);
 
-		encoder.get().encodeChunk(null, orEmpty(spork, spork.getData()), out);
-		encoder.get().encodeChunk(null, orEmpty(spork, spork.getPreviousData()), out);
+		encoder.encodeChunk(null, orEmpty(spork, spork.getData()), out);
+		encoder.encodeChunk(null, orEmpty(spork, spork.getPreviousData()), out);
 	}
 
 	@SneakyThrows
 	public static byte[] encode(GridSpork spork) {
+		return bytesOf(out -> encode(spork, out));
+	}
+
+	/* The data of a spork of the type, as it travels within the spork */
+	@SneakyThrows
+	public static byte[] encode(GridSpork.Type type, ChunkData data) {
+		return bytesOf(out -> encoderOf(type).encodeChunk(null, data, out));
+	}
+
+	private static ChunkEncoder encoderOf(GridSpork.Type type) {
+		return Encoders.INSTANCE.getOptional(type).orElseThrow(
+			() -> new IllegalArgumentException("Unable to encode a spork of type " + type)
+		);
+	}
+
+	private interface Writer {
+		void write(ByteBuf out) throws Exception;
+	}
+
+	private static byte[] bytesOf(Writer writer) throws Exception {
 		final ByteBuf out = Unpooled.buffer();
 
 		try {
-			encode(spork, out);
+			writer.write(out);
 			return ByteBufUtil.getBytes(out);
 		} finally {
 			out.release();

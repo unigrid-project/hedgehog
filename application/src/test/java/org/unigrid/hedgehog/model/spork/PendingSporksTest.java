@@ -164,17 +164,27 @@ public class PendingSporksTest {
 		assertThat(pendingSporks.list(), empty());
 	}
 
+	/* One over nothing, held before a first version was stored, is no proposal over that version, and nothing would
+	   co-sign it over it */
 	@SneakyThrows
 	@Example
-	public void shouldKeepAProposalTheStoredSporkDoesNotSupersede() {
-		final MintSupply stored = proposal(Duration.ofMinutes(1));
-		final MintSupply spork = proposal(Duration.ZERO);
+	public void shouldKeepAProposalMadeFromTheStoredSporkAndNoOther() {
+		final MintSupply stored = proposal(Duration.ofMinutes(2));
 
-		pendingSporks.offer(spork, null);
 		stored.cosign(cosigner.getPrivateKey());
-		pendingSporks.retainProposalsOver(stored);
 
-		assertThat(pendingSporks.list(), contains(spork));
+		final GridSpork over = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.empty());
+
+		over.setTimeStamp(NOW);
+		over.sign(proposer.getPrivateKey());
+		assertThat(pendingSporks.offer(over, stored), is(true));
+		pendingSporks.retainProposalsOver(stored);
+		assertThat(pendingSporks.list(), contains(over));
+
+		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
+		pendingSporks.offer(proposal(Duration.ofMinutes(1)), null);
+		pendingSporks.retainProposalsOver(stored);
+		assertThat(pendingSporks.list(), empty());
 	}
 
 	@Example

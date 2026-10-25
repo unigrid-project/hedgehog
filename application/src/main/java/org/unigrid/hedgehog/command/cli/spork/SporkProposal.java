@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
@@ -32,9 +33,11 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.ChunkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -58,13 +61,35 @@ public final class SporkProposal {
 	static final String FIRST_VERSION = "Make the first version of the spork when the node holds none. A first version"
 		+ " takes the place of the one the network holds, so give this only for a spork the network has none of.";
 
+	/* What a command judges with the node before anything is signed; an IllegalArgumentException says what is wrong */
+	@FunctionalInterface
+	public interface Check {
+		void check(SporkClient sporks) throws ResponseOddityException, UntrustedSporkException, IOException;
+	}
+
+	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+		BoardKeyOptions boardKey, boolean firstVersion) {
+
+		propose(commandLine, type, change, boardKey, NetworkKey::isTrusted, sporks -> { }, firstVersion);
+	}
+
 	/* A node can answer that it holds no spork of a type when the network holds one, and a first version takes the place
-	   of any other first version however old, so one is made only when the operator says so */
-	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change, String key,
-		boolean firstVersion) {
+	   of any other first version however old, so one is made only when the operator says so. The key is judged once the
+	   board keys of the node are known, as a key that the board added since the release is one of them. */
+	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+		BoardKeyOptions boardKey, Predicate<String> isSigner, Check check, boolean firstVersion) {
+
+		final String given = boardKey.resolve();
 
 		try (RestClient rest = RestClientCommand.connect()) {
 			final SporkClient sporks = new SporkClient(rest);
+
+			sporks.installBoardKeys();
+
+			final String key = boardKey.requireBoardKey(given, isSigner);
+
+			check.check(sporks);
+
 			final Optional<GridSpork> stored = sporks.stored(type);
 
 			if (stored.isEmpty()) {
@@ -113,6 +138,18 @@ public final class SporkProposal {
 			+ ", digest " + StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX) + ", signed by "
 			+ keyOf(spork, spork.getSignature()) + " and " + keyOf(spork, spork.getCosignature())));
 	}
+
+	/* A spork that a key signed which the board switched off since counts for nothing, and the node may hand out one
+	   that two stolen keys forged, so whoever signs it again sees who signed it and when */
+	public static void showSwitchedOff(GridSpork stored) {
+		System.out.println("Stored " + stored.getType() + " is " + SporkClient.signingOf(stored) + ", made at "
+			+ stored.getTimeStamp() + ", and counts for nothing until it is signed again");
+	}
+
+	/* The help of the option that a command names such a spork with */
+	public static final String SWITCHED_OFF = "The type of a stored spork that a board key signed which the board"
+		+ " switched off since, like MINT_SUPPLY, to sign again: it counts for nothing until then. Give it once for"
+		+ " each such type.";
 
 	private static String keyOf(GridSpork spork, byte[] signature) {
 		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, SHOWN_HEX)).orElse("no board key");

@@ -20,19 +20,27 @@ package org.unigrid.hedgehog.model.spork;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
-public record SignatureLogInfo(List<Entry> entries, Head head) {
+/* The keys that the log and the head name, of which switchedOff lists those that the board switched off since: they
+   signed what they did when they were active, and sign nothing that counts now */
+public record SignatureLogInfo(List<Entry> entries, Head head, Set<String> switchedOff) {
 	public record Entry(@JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp, String signer, String cosigner,
 		String digest, String signature, String cosignature) {
 	}
 
-	/* A signer is null when no current network key made that signature, or when there is no such signature. The digest
-	   is the one the signing commands print the start of, so that a head one node shows can be held against another */
+	/* A signer is null when no key that was ever a board key made that signature, or when there is no such signature.
+	   The digest is the one the signing commands print the start of, so that a head one node shows can be held against
+	   another */
 	public record Head(@JsonFormat(shape = JsonFormat.Shape.STRING) Instant timeStamp, String signer, String cosigner,
 		String digest) {
 	}
@@ -44,15 +52,24 @@ public record SignatureLogInfo(List<Entry> entries, Head head) {
 				hexOrNull(entry.getCosignature()))
 			).toList();
 		final byte[] digest = DigestUtils.sha512(spork.getSignable());
-		final Head head = new Head(spork.getTimeStamp(), signerOf(digest, spork.getSignature()),
-			signerOf(digest, spork.getCosignature()), Hex.encodeHexString(digest)
+		final Set<String> known = NetworkKey.getLogKeys();
+		final Head head = new Head(spork.getTimeStamp(), signerOf(digest, spork.getSignature(), known),
+			signerOf(digest, spork.getCosignature(), known), Hex.encodeHexString(digest)
 		);
 
-		return new SignatureLogInfo(entries, head);
+		return new SignatureLogInfo(entries, head, switchedOff(entries, head, known));
 	}
 
-	private static String signerOf(byte[] digest, byte[] signature) {
-		return Objects.isNull(signature) ? null : NetworkKey.signerOf(digest, signature).orElse(null);
+	private static String signerOf(byte[] digest, byte[] signature, Set<String> known) {
+		return Objects.isNull(signature) ? null : NetworkKey.signerOf(digest, signature, known).orElse(null);
+	}
+
+	private static Set<String> switchedOff(List<Entry> entries, Head head, Set<String> known) {
+		final Set<String> active = Set.copyOf(Arrays.asList(NetworkKey.getPublicKeys()));
+
+		return Stream.concat(entries.stream().flatMap(entry -> Stream.of(entry.signer(), entry.cosigner())),
+			Stream.of(head.signer(), head.cosigner())).filter(Objects::nonNull).filter(known::contains)
+			.filter(key -> !active.contains(key)).collect(Collectors.toCollection(TreeSet::new));
 	}
 
 	private static String hexOrNull(byte[] bytes) {

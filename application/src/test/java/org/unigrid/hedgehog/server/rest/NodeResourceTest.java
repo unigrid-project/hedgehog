@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import io.netty.channel.embedded.EmbeddedChannel;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
@@ -42,11 +44,17 @@ import static org.unigrid.hedgehog.command.option.NetOptions.DEFAULT_PORT;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class NodeResourceTest extends BaseRestClientTest {
 	@Mocked
 	private Connection emptyConnection;
+
+	@Inject
+	private Topology topology;
 
 	@Provide
 	public Arbitrary<InetSocketAddress> provideAddress(@ForAll @IntRange(min = 1024, max = 65535) int port) {
@@ -66,6 +74,59 @@ public class NodeResourceTest extends BaseRestClientTest {
 		);
 
 		return response;
+	}
+
+	/* A node that the operator adds is dialed as the seeds are, whatever peers tell this node */
+	@Example
+	@SneakyThrows
+	public void shouldTakeANodeAddedOverRestForOneThatTheOperatorConfigured() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.9", 1234)).build();
+
+		postAssert("/node", node);
+		assertThat(topology.cloneConfigured(), hasItem(node));
+	}
+
+	/* A peer that tells of an address first, as an attacker may to keep it from the operator, leaves it to be configured
+	   all the same: the node says that it knew it, and the connection that it dialed to it is one to a configured node
+	   from then on */
+	@Example
+	@SneakyThrows
+	public void shouldConfigureANodeThatAPeerToldOfFirst() {
+		final EmbeddedChannel stream = LedgerStreams.stream(true);
+		final Node told = Node.builder().address(new InetSocketAddress("45.9.9.10", 1234))
+			.connection(Optional.of(LedgerStreams.connection(stream))).build();
+
+		stream.parent().attr(Dialed.KEY).set(Dialed.CHOSEN);
+		topology.addNode(told);
+
+		final Response response = client.post("/node", Entity.text("45.9.9.10:1234"));
+
+		assertThat(Status.fromStatusCode(response.getStatus()), equalTo(Status.OK));
+		assertThat(response.readEntity(String.class), containsString("already"));
+		assertThat(topology.cloneConfigured(), hasItem(told));
+		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
+	}
+
+	/* What the operator configured, the operator removes */
+	@Example
+	@SneakyThrows
+	public void shouldConfigureNoLongerANodeThatTheOperatorRemoves() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.13", 1234)).build();
+
+		postAssert("/node", node);
+		assertThat(Status.fromStatusCode(client.delete("/node" + node.getURI()).getStatus()), equalTo(Status.OK));
+		assertThat(topology.cloneConfigured(), not(hasItem(node)));
+		assertThat(topology.cloneNodes(), not(hasItem(node)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldAnswerAConflictForANodeThatIsConfiguredAlready() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.11", 1234)).build();
+
+		postAssert("/node", node);
+		assertThat(Status.fromStatusCode(client.post("/node", Entity.text("45.9.9.11:1234")).getStatus()),
+			equalTo(Status.CONFLICT));
 	}
 
 	@SneakyThrows

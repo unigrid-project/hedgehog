@@ -194,7 +194,7 @@ public class NettyLedgerNetwork implements LedgerNetwork {
 	}
 
 	private static Stream<Dialled> openStreamOf(final Node node) {
-		return node.getConnection().map(Connection::getChannel).filter(Channel::isActive)
+		return node.link().map(Connection::getChannel).filter(Channel::isActive)
 			.map(channel -> new Dialled(String.valueOf(node.getAddress()), node, channel)).stream();
 	}
 

@@ -55,6 +55,9 @@ public class Topology {
 	private HashSet<Node> nodes;
 	private HashMap<String, Gridnode> gridnodes;
 
+	/* The seeds and the nodes that the operator added over REST, which are dialed whatever peers tell */
+	private final Set<Node> configured = new HashSet<>();
+
 	@Inject
 	@Getter private ChannelMap channels;
 
@@ -77,7 +80,8 @@ public class Topology {
 	}
 
 	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
-	   nothing but what they chose to tell it. Gives the seeds that resolve. */
+	   nothing but what they chose to tell it. Each is configured as the operator's, also when a peer told of it first.
+	   Gives the seeds that resolve. */
 	@Protected @Lock(LockMode.WRITE)
 	public Set<Node> addSeeds() {
 		final Set<Node> seeds = new HashSet<>();
@@ -86,9 +90,8 @@ public class Topology {
 			try {
 				final Node node = Node.fromAddress(address);
 
-				if (!node.isMe()) {
+				if (addConfigured(node) != Configured.REFUSED) {
 					seeds.add(node);
-					nodes.add(node);
 				}
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
@@ -148,8 +151,59 @@ public class Topology {
 		return false;
 	}
 
+	/* What configuring a node did: it was added, it was known and is configured from now on, it was configured before,
+	   or it is no node to dial */
+	public enum Configured {
+		ADDED, PROMOTED, BEFORE, REFUSED
+	}
+
+	/**
+	* Configures a node that the operator gives, as a seed or over REST, which is let in past MAX_NODES and dialed
+	* whatever peers tell. A node that a peer told of first, as an attacker may to keep it from being the operator's, is
+	* configured all the same, and a connection that was dialed to it is one to a configured node from then on: nothing
+	* that a peer sends makes a node configured, or less so.
+	*/
+	@Protected @Lock(LockMode.WRITE)
+	public Configured addConfigured(Node node) {
+		if (node.getAddress().isUnresolved() || node.isMe()) {
+			return Configured.REFUSED;
+		}
+
+		final boolean isNew = configured.add(node);
+		final Optional<Node> known = nodes.stream().filter(node::equals).findFirst();
+
+		if (known.isEmpty()) {
+			nodes.add(node);
+			return Configured.ADDED;
+		}
+
+		known.get().getConnection().map(Connection::getChannel).ifPresent(Dialed::configure);
+		return isNew ? Configured.PROMOTED : Configured.BEFORE;
+	}
+
+	@Protected @Lock(LockMode.READ)
+	public Set<Node> cloneConfigured() {
+		return new HashSet<>(configured);
+	}
+
 	@Protected @Lock(LockMode.WRITE)
 	public boolean removeNode(Node node) {
+		return nodes.remove(node);
+	}
+
+	/* A stream that a node opened to this one is let go once it closed, and with it a node known by that stream alone:
+	   one that no operator configured and that this node holds no connection to */
+	@Protected @Lock(LockMode.WRITE)
+	public void letGoOfClosedStreams() {
+		nodes.removeIf(node -> node.getConnection().isEmpty() && !configured.contains(node)
+			&& node.getInbound().filter(inbound -> !inbound.getChannel().isActive()).isPresent());
+		nodes.forEach(node -> node.setInbound(node.getInbound().filter(inbound -> inbound.getChannel().isActive())));
+	}
+
+	/* A node that the operator removes, which is no longer configured either */
+	@Protected @Lock(LockMode.WRITE)
+	public boolean removeConfigured(Node node) {
+		configured.remove(node);
 		return nodes.remove(node);
 	}
 
@@ -158,17 +212,13 @@ public class Topology {
 		sendAll(packet, topology, channel -> true, consumer);
 	}
 
-	/* Only to the nodes whose stream the predicate takes, for a packet that not every node could read */
+	/* Only on the streams that the predicate takes, for a packet that not every node could read */
 	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 
 		log.atDebug().log("Send all packet " + packet.toString());
-		topology.forEach(node -> {
-			if (node.getConnection().map(Connection::getChannel).filter(recipients).isPresent()) {
-				Node.send(packet, node, consumer);
-			}
-		});
+		topology.forEach(node -> Node.send(packet, node, recipients, consumer));
 	}
 
 	public static void sendAllExcept(Packet packet, Topology topology, Optional<Node> excluded) {

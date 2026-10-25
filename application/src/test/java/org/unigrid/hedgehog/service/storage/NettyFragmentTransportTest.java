@@ -180,6 +180,18 @@ public class NettyFragmentTransportTest {
 		assertThat(deleted.join(), sameInstance(ack));
 	}
 
+	/* A gridnode that dialed this node, and that this node did not dial back, is reached on the stream it opened */
+	@Property(tries = 10)
+	public void reachesAGridnodeOnTheStreamThatItOpenedToThisNode(@ForAll @Size(max = 64) byte[] fragment) {
+		final EmbeddedChannel channel = new EmbeddedChannel();
+		final Node node = nodeWith(channel, TARGET);
+
+		node.setInbound(node.getConnection());
+		node.setConnection(Optional.empty());
+		remote(Set.of(node), new PendingRequests()).store(TARGET, fragment);
+		assertThat(channel.<StoreFragment>readOutbound().getFragment(), equalTo(fragment));
+	}
+
 	@SneakyThrows
 	@Property(tries = 10)
 	public void failsForGridnodesWithoutAConnection(@ForAll boolean known) {

@@ -19,19 +19,31 @@
 package org.unigrid.hedgehog.command.util;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.SerializationException;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.spork.BoardKeyChain;
+import org.unigrid.hedgehog.model.spork.BoardKeys;
+import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
+import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
+import org.unigrid.hedgehog.model.spork.RecordedChainException;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
 import org.unigrid.hedgehog.model.util.TerminalText;
@@ -39,13 +51,14 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
 
 /* A spork database as the spork-db commands read it and judge each spork in it: by who signed it, as a node judges
-   the database it loads, and by what holds for the spork as a whole */
+   the database it loads, and by what holds for the spork as a whole. Other commands that take a spork database read
+   it so too. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-final class SporkDatabaseFile {
+public final class SporkDatabaseFile {
 	static final int SHOWN_HEX = 16;
 
 	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown */
-	static SporkDatabase load(CommandSpec spec, Path file) {
+	public static SporkDatabase load(CommandSpec spec, Path file) {
 		final SporkDatabase database;
 
 		try {
@@ -64,7 +77,102 @@ final class SporkDatabaseFile {
 				+ " the wire", null);
 		});
 
+		Optional.ofNullable(database.getBoardKeys()).filter(boardKeys -> !boardKeys.holdsAChain())
+			.ifPresent(boardKeys -> {
+				throw unreadable(spec, file, "the " + Type.BOARD_KEYS + " spork holds no chain of changes",
+					null);
+			});
+
+		goByTheBoardKeysOf(database);
 		return database;
+	}
+
+	/* The sporks of a database are judged, and signed, by the keys that the chain of its board keys makes active, once
+	   the chain holds from the root of this machine, whoever signed the board keys spork itself: the approvals of the
+	   board make a chain, and the spork of a chain that a change just extended is signed with the keys it adds */
+	private static void goByTheBoardKeysOf(SporkDatabase database) {
+		BoardKeysAuthority.installTheRelease();
+		Optional.ofNullable(database.getBoardKeys()).ifPresent(BoardKeysAuthority::install);
+	}
+
+	/* Into a file made new and never through a link, in one step with the check that nothing is there: a link could
+	   lead anywhere, and a file put there after a check would be written over. The database is made once the file is,
+	   and a file that is not written whole is removed again. */
+	static void writeNew(CommandSpec spec, Path output, Supplier<SporkDatabase> database) {
+		final FileChannel created = created(spec, output);
+		boolean written = false;
+
+		try (FileChannel channel = created) {
+			SporkDatabase.write(channel, database.get());
+			written = true;
+		} catch (IOException ex) {
+			throw new ParameterException(spec.commandLine(), "Cannot write the spork database " + output + ": "
+				+ ex.getMessage());
+		} finally {
+			if (!written) {
+				removeUnfinished(output);
+			}
+		}
+	}
+
+	private static FileChannel created(CommandSpec spec, Path output) {
+		try {
+			return FileChannel.open(output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
+				LinkOption.NOFOLLOW_LINKS);
+		} catch (FileAlreadyExistsException ex) {
+			throw new ParameterException(spec.commandLine(), "--output " + output
+				+ " exists and is not overwritten");
+		} catch (IOException ex) {
+			throw new ParameterException(spec.commandLine(), "Cannot make the spork database " + output + ": "
+				+ ex.getMessage());
+		}
+	}
+
+	private static void removeUnfinished(Path output) {
+		try {
+			Files.deleteIfExists(output);
+		} catch (IOException ex) {
+			System.err.println("Could not remove the unfinished " + output + ": " + ex.getMessage());
+		}
+	}
+
+	/* A board member signs and approves by the keys that the chain of board keys of the file makes active, so a file
+	   whose chain does not hold from the root of this machine, through the chain that the release ships, or that
+	   holds less than the chain that this machine verified before is refused, and one that holds more of it is
+	   recorded (BoardKeysRecord) */
+	public static void requireRecorded(CommandSpec spec, SporkDatabase database, Path file) {
+		judgedByTheRecord(spec, database, file, (record, chain) -> record.keep(chain, "the file " + file)
+			.ifPresent(System.out::println));
+	}
+
+	/* As requireRecorded() judges a file, writing nothing to the record: for a file that is kept only once it is
+	   taken, which records its chain then */
+	static void requireHeldByTheRecord(CommandSpec spec, SporkDatabase database, Path file) {
+		judgedByTheRecord(spec, database, file, (record, chain) -> record.check(chain, "the file " + file));
+	}
+
+	private interface RecordStep {
+		void take(BoardKeysRecord record, Optional<List<KeyChange>> chain)
+			throws RecordedChainException, IOException;
+	}
+
+	private static void judgedByTheRecord(CommandSpec spec, SporkDatabase database, Path file, RecordStep step) {
+		final Optional<List<KeyChange>> chain = Optional.ofNullable(database.getBoardKeys())
+			.map(boardKeys -> boardKeys.<BoardKeys.SporkData>getData().getChanges());
+
+		try {
+			chain.ifPresent(BoardKeyChain::verify);
+		} catch (IllegalArgumentException ex) {
+			throw new ParameterException(spec.commandLine(), "The chain of board keys of " + file
+				+ " does not hold from the root of this machine: " + TerminalText.printable(ex.getMessage()),
+				ex);
+		}
+
+		try {
+			step.take(BoardKeysRecord.ofThisMachine(), chain);
+		} catch (RecordedChainException | IOException ex) {
+			throw new ParameterException(spec.commandLine(), TerminalText.printable(ex.getMessage()), ex);
+		}
 	}
 
 	private static ParameterException unreadable(CommandSpec spec, Path file, String reason, Exception cause) {
@@ -127,9 +235,18 @@ final class SporkDatabaseFile {
 		return spork.getType() + ": made " + spork.getTimeStamp() + ", digest "
 			+ StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX) + ", signer "
 			+ keyOf(spork, spork.getSignature()) + ", co-signer " + keyOf(spork, spork.getCosignature())
-			+ ", log entries " + spork.getSignatureLog().size() + ", "
-			+ (spork.isTakenByTheNetwork() ? "signed by the board" : "not signed by the board") + ", content "
+			+ ", log entries " + spork.getSignatureLog().size() + ", " + signingOf(spork) + ", content "
 			+ contentProblem(spork).map(problem -> "not valid: " + problem).orElse("valid");
+	}
+
+	/* A spork that keys signed which the board switched off since counts for nothing until it is signed again */
+	private static String signingOf(GridSpork spork) {
+		if (spork.isTakenByTheNetwork()) {
+			return "signed by the board";
+		}
+
+		return spork.wasTakenByTheNetwork() ? "signed by board keys that are switched off"
+			: "not signed by the board";
 	}
 
 	/* A line for each type, and whether every spork that the database holds is one that a node takes from it */

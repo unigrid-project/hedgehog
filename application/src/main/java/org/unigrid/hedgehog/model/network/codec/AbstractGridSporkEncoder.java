@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model.network.codec;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import java.util.Objects;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -61,7 +62,8 @@ public abstract class AbstractGridSporkEncoder<T extends Packet> extends Abstrac
 
 			SporkContentEncoder.encode(spork, data);
 
-			writeSized(data, spork.getSignature());
+			/* A spork that no one signed yet, as util board-keys apply makes one, travels with no signature */
+			writeSized(data, Objects.requireNonNullElse(spork.getSignature(), new byte[0]));
 			writeSized(data, spork.isPending() ? new byte[0] : spork.getCosignature());
 
 			data.writeInt(spork.getSignatureLog().size());

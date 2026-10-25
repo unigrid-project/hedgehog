@@ -21,7 +21,10 @@ package org.unigrid.hedgehog.model.spork;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -36,7 +39,14 @@ public class SporkDatabaseInfo implements Serializable {
 	private Overview<BigDecimal, String> mintSupply = new Overview(BigDecimal.ZERO, LASTCHANGED_NEVER);
 	private Overview<Integer, String> vestingStoragEntries = new Overview(0, LASTCHANGED_NEVER);
 
+	/* The sporks that the node holds and that count for nothing, as a key that signed them is switched off */
+	private Set<GridSpork.Type> notCounting = new TreeSet<>();
+
 	public SporkDatabaseInfo(SporkDatabase sporkDatabase) {
+		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
+			.filter(type -> Objects.nonNull(sporkDatabase.get(type)))
+			.filter(type -> Objects.isNull(sporkDatabase.counting(type))).forEach(notCounting::add);
+
 		ExceptionUtil.swallow(() -> {
 			if (Objects.nonNull(sporkDatabase.getMintStorage())) {
 				final MintStorage.SporkData data = sporkDatabase.getMintStorage().getData();

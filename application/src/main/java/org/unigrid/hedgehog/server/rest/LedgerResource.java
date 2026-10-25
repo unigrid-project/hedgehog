@@ -53,6 +53,7 @@ import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.network.codec.LedgerCodecs;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.rest.entity.LedgerAccount;
@@ -224,11 +225,12 @@ public class LedgerResource extends CDIBridgeResource {
 		return ledger.read(reading).orElseGet(() -> error(Status.SERVICE_UNAVAILABLE, LedgerDriver.NOT_RUNNING));
 	}
 
-	/* Unset is not zero: a node with no fee spork refuses every transfer, whatever the fee. A fee the spork cannot
-	   tell is left out as well, so that a spork failing its own validation does not take the status down with it */
+	/* Unset is not zero: a node with no fee spork that counts refuses every transfer, whatever the fee. A fee the
+	   spork cannot tell is left out as well, so that a spork failing its own validation does not take the status down
+	   with it */
 	private String minimumFee() {
 		try {
-			return Optional.ofNullable(sporkDatabase.getLedgerFee())
+			return Optional.ofNullable(sporkDatabase.counting(GridSpork.Type.LEDGER_FEE))
 				.map(spork -> spork.<LedgerFee.SporkData>getData()).map(LedgerFee.SporkData::units)
 				.map(LedgerText::coins).orElse(null);
 		} catch (IllegalArgumentException ex) {

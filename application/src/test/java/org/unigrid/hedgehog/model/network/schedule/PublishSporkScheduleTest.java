@@ -70,9 +70,46 @@ public class PublishSporkScheduleTest {
 		assertThat(published(channel), hasItem(proposal));
 	}
 
+	/* The stored sporks of these tests are signed by no one, and stand for sporks that count */
+	private static void countEverySpork() {
+		new MockUp<GridSpork>() {
+			@Mock public boolean isCounting() {
+				return true;
+			}
+		};
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldPublishNoStoredSporkThatDoesNotCount() {
+		final EmbeddedChannel channel = LedgerStreams.stream(true);
+		final Signature switchedOff = new Signature();
+		final Signature active = new Signature();
+		final MintSupply supply = new MintSupply();
+
+		proposer = active;
+
+		new MockUp<NetworkKey>() {
+			@Mock public static String[] getPublicKeys() {
+				return new String[] { proposer.getPublicKey() };
+			}
+		};
+
+		supply.archive();
+		supply.sign(switchedOff.getPrivateKey());
+		supply.setCosignature(active.sign(supply.getSignable()));
+
+		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().mintSupply(supply).build(),
+			new PendingSporks());
+
+		assertThat(published(channel), empty());
+	}
+
 	@Example
 	public void shouldPublishTheStoredLedgerBlacklist() {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
+
+		countEverySpork();
 		final LedgerBlacklist blacklist = new LedgerBlacklist();
 
 		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerBlacklist(blacklist).build(),
@@ -86,6 +123,7 @@ public class PublishSporkScheduleTest {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerFee fee = new LedgerFee();
 
+		countEverySpork();
 		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
 			new PendingSporks());
 
@@ -96,6 +134,7 @@ public class PublishSporkScheduleTest {
 	public void shouldKeepTheStoredLedgerSporksFromAStreamThatDidNotSettleOnTheLedgerProtocol() {
 		final EmbeddedChannel channel = LedgerStreams.stream(false);
 
+		countEverySpork();
 		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
 			.ledgerBlacklist(new LedgerBlacklist()).mintSupply(new MintSupply()).build(), new PendingSporks());
 

@@ -54,6 +54,7 @@ import org.unigrid.hedgehog.ledger.LedgerDriver.DriverOptions;
 import org.unigrid.hedgehog.ledger.Heartbeat;
 import org.unigrid.hedgehog.ledger.LedgerPeer;
 import org.unigrid.hedgehog.ledger.Transaction;
+import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.server.BaseServerTest;
@@ -149,18 +150,24 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 		});
 	}
 
+	/* A node that stops closes the connections that it dialed (P2PServer), as its next round of dialing may have
+	   dialed back a node that connected to it, while its server runs on here for the other tests */
 	private void stop(final Station station) {
 		within(station.container(), () -> {
+			final Topology topology = bean(station.container(), Topology.class);
+
 			station.gateway().detach();
 			station.node().close();
-			bean(station.container(), Topology.class).clear();
+			topology.forEach(node -> node.getConnection().ifPresent(Connection::closeDirty));
+			topology.clear();
 			return null;
 		});
 	}
 
 	/* The way a node dials another: the topology holds the node with the stream. A node that dialled this one is in the
 	   topology already, with the stream it opened, and then the new stream is the second one between the two, as it
-	   is when both dial at once. */
+	   is when both dial at once; the node takes it as the connection that this one dialed, as the round of dialing of
+	   the server would dial it again otherwise, between the tries, when no container is given the port of its own. */
 	@SneakyThrows
 	private Dial connect(final Station from, final Station to) {
 		return within(from.container(), () -> {
@@ -170,10 +177,7 @@ public class LedgerSyncNetworkTest extends BaseServerTest {
 			final boolean added = topology.addNode(node);
 			final Dial dial = new Dial(from, client, added ? node : null);
 
-			if (added) {
-				topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
-			}
-
+			topology.modifyNode(node, held -> held.setConnection(Optional.of(client)));
 			dials.add(dial);
 			return dial;
 		});

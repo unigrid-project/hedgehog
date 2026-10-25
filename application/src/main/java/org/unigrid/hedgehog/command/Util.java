@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command;
 
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.util.BoardKeysCommand;
 import org.unigrid.hedgehog.command.util.KeyGenerate;
 import org.unigrid.hedgehog.command.util.KeySign;
 import org.unigrid.hedgehog.command.util.KeyValidate;
@@ -30,7 +31,7 @@ import picocli.CommandLine.Mixin;
 
 @Command(name = "util",
 	subcommands = { KeyGenerate.class, KeySign.class, KeyValidate.class, LedgerKeyGenerate.class,
-		LedgerGenesisCommand.class, SporkDbCommand.class },
+		LedgerGenesisCommand.class, SporkDbCommand.class, BoardKeysCommand.class },
 	description = "Helpful utility functionality to facilitate network administrators, node runners and users."
 )
 public class Util {

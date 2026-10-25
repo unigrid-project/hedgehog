@@ -173,14 +173,12 @@ public class LedgerFeeSporkCommandTest {
 		assertThat(result.err(), containsString("at most 8 decimals"));
 	}
 
+	/* A key that the board added since the release is one of them, so a key is judged by the board keys of the node */
 	@Example
-	public void refusesAKeyThatIsNoBoardKeyThroughTheTree() {
-		final HedgehogCli.Result result = setThroughTheTree("0.001");
-
-		assertThat(result.exitCode(), equalTo(2));
-		assertThat(result.err(), containsString("not one of the current board keys"));
-		assertThat(result.err(), containsString("Usage"));
-		result.assertNoStackTrace();
+	public void refusesAKeyThatIsNoBoardKeyOnceItKnowsTheBoardKeysOfTheNode() {
+		assertThat(SporkCommands.refusalOnceAsked(subcommand(new GridSporkSet(), "--data=0.001", "-k",
+			SporkCommands.STRANGER.getPrivateKey(), NAME), new FakeSporkNode()),
+			containsString("not one of the current board keys"));
 	}
 
 	@Example

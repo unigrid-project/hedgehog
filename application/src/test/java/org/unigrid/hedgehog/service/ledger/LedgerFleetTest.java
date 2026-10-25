@@ -84,6 +84,17 @@ public class LedgerFleetTest extends BaseLedgerFleetTest {
 		});
 	}
 
+	/* Every node holds the connection it dialed to every other, also to one that dialed it first, so that the round of
+	   dialing of a node dials none of the fleet again: the server of a node would dial between the examples, when no
+	   container is given the port of its own, and a peer would take the stream for a node of another port */
+	@Example
+	public void shouldHoldTheConnectionThatEachNodeDialedToEveryOther() {
+		final LedgerFleet fleet = fleet();
+
+		IntStream.range(0, fleet.size()).forEach(node ->
+			assertThat("node " + node, fleet.dialedBy(node), is((long) fleet.size() - 1)));
+	}
+
 	@Example
 	public void shouldKeepTheFilesOfEveryNodeInADirectoryOfItsOwn() {
 		final LedgerFleet fleet = fleet();

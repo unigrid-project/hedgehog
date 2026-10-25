@@ -104,9 +104,12 @@ public final class SnapshotSignature implements Signable {
 		}
 	}
 
+	/* A snapshot is signed history, as an entry of a signature log is, so a key that signed it and that the board
+	   switched off since still vouches for it: a node that holds the change would otherwise refuse the snapshot it
+	   starts from. Any key that was ever a board key does, and the ledger pins the snapshot by its genesis anyway. */
 	@Override
 	public boolean isValidSignature() {
-		for (final String key : NetworkKey.getPublicKeys()) {
+		for (final String key : NetworkKey.getLogKeys()) {
 			try {
 				if (Signature.verify(this, key)) {
 					return true;

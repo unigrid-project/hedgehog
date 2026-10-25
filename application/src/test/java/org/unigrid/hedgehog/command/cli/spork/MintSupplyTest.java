@@ -186,8 +186,14 @@ public class MintSupplyTest {
 
 	@Example
 	public void refusesWithoutAKeyOfTheBoardBeforeAskingTheNode() {
-		assertThat(refusal(set("1", STRANGER.getPrivateKey(), false)), containsString("not one of the current"));
 		assertThat(refusal(subcommand(new GridSporkSet(), "-D", "1", NAME)), containsString("A board key is needed"));
+	}
+
+	/* A key that the board added since the release is one of them, so a key is judged by the board keys of the node */
+	@Example
+	public void refusesAKeyThatIsNoBoardKeyOnceItKnowsTheBoardKeysOfTheNode() {
+		assertThat(SporkCommands.refusalOnceAsked(set("1", STRANGER.getPrivateKey(), false), new FakeSporkNode()),
+			containsString("not one of the current"));
 	}
 
 	@Example

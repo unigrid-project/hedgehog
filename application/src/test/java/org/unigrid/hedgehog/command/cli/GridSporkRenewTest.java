@@ -62,6 +62,9 @@ import picocli.CommandLine;
 public class GridSporkRenewTest {
 	private static final long TYPES = Arrays.stream(Type.values()).filter(type -> type != Type.UNDEFINED).count();
 
+	/* The board keys of the node, which the key is judged by, and then the stored spork of every type */
+	private static final int READS = (int) TYPES + 1;
+
 	@BeforeTry
 	public void fakeTheBoard() {
 		SporkCommands.fakeTheBoard();
@@ -92,7 +95,7 @@ public class GridSporkRenewTest {
 		final FakeSporkNode node = new FakeSporkNode().holding(supply, fee);
 		final Result result = RestCommandFixture.run(renew(PROPOSER.getPrivateKey()), node);
 
-		assertThat(methods(result), equalTo(Stream.concat(Collections.nCopies((int) TYPES, HttpMethod.GET).stream(),
+		assertThat(methods(result), equalTo(Stream.concat(Collections.nCopies(READS, HttpMethod.GET).stream(),
 			Stream.of(HttpMethod.POST, HttpMethod.POST)).toList()));
 
 		/* As the node holds them: an amount of the fee travels in units, and so comes back with eight decimals */
@@ -120,7 +123,7 @@ public class GridSporkRenewTest {
 		final Result result = RestCommandFixture.run(renew(PROPOSER.getPrivateKey()), new FakeSporkNode());
 
 		assertThat(result.out().lines().toList(), equalTo(List.of("No sporks to renew")));
-		assertThat(methods(result), equalTo(Collections.nCopies((int) TYPES, HttpMethod.GET)));
+		assertThat(methods(result), equalTo(Collections.nCopies(READS, HttpMethod.GET)));
 	}
 
 	/* A version that no current key signed cannot enter the signature log, and then nothing is renewed at all */
@@ -150,6 +153,11 @@ public class GridSporkRenewTest {
 
 		new CommandLine(command).parseArgs();
 		assertThat(SporkCommands.refusal(command), containsString("A board key is needed"));
-		assertThat(SporkCommands.refusal(renew(STRANGER.getPrivateKey())), containsString("not one of the current"));
+	}
+
+	@Example
+	public void refusesAKeyThatIsNoBoardKeyOnceItKnowsTheBoardKeysOfTheNode() {
+		assertThat(SporkCommands.refusalOnceAsked(renew(STRANGER.getPrivateKey()), new FakeSporkNode()),
+			containsString("not one of the current"));
 	}
 }

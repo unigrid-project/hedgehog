@@ -125,6 +125,11 @@ public class GridSporkProvider {
 
 				data.setMinimumTransferFee(BigDecimal.valueOf(RandomUtils.nextLong(0, 100_000_001L), 8));
 				return data;
+			} case BOARD_KEYS: {
+				final Random random = new Random(RandomUtils.nextLong());
+
+				return BoardKeysSporkIntegrityTest.chainOf(random, random.nextInt(4), 2 + random.nextInt(4),
+					random.nextInt(6));
 			}
 		}
 

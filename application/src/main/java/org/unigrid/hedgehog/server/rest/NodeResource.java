@@ -42,6 +42,9 @@ import org.unigrid.hedgehog.model.network.Topology;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class NodeResource extends CDIBridgeResource {
+	private static final String ALREADY_KNOWN = "The node was already known, as a peer told of it, and is configured"
+		+ " from now on";
+
 	@CDIBridgeInject
 	private Topology topology;
 
@@ -81,20 +84,20 @@ public class NodeResource extends CDIBridgeResource {
 		}
 	}
 
+	/* A node that a peer told of first is the operator's all the same, and only one that the operator configured before
+	   is a conflict */
 	@POST
 	public Response add(@NotNull String address) {
 		try {
 			final Node node = Node.fromAddress(address);
 
-			if (topology.containsNode(node)) {
-				return Response.status(Response.Status.CONFLICT).build();
-			}
-
-			if (topology.addNode(node)) {
-				return Response.created(node.getURI()).build();
-			} else {
-				return Response.notModified().build();
-			}
+			return switch (topology.addConfigured(node)) {
+				case ADDED -> Response.created(node.getURI()).build();
+				case PROMOTED -> Response.ok(ALREADY_KNOWN, MediaType.TEXT_PLAIN_TYPE)
+					.location(node.getURI()).build();
+				case BEFORE -> Response.status(Response.Status.CONFLICT).build();
+				case REFUSED -> Response.notModified().build();
+			};
 
 		} catch (URISyntaxException | UnknownHostException ex) {
 			return Response.status(Response.Status.BAD_REQUEST).build();
@@ -116,7 +119,7 @@ public class NodeResource extends CDIBridgeResource {
 					topology.getChannels().remove(connection.getChannel());
 				});
 
-			topology.removeNode(nodeToFind);
+			topology.removeConfigured(nodeToFind);
 			return Response.ok().build();
 
 		} catch (URISyntaxException | UnknownHostException ex) {
