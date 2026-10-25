@@ -258,4 +258,29 @@ public class SporkDbBoardKeysTest {
 				.toString()).exitCode(), equalTo(0));
 		}
 	}
+
+	/* A database that was installed is imported, also when its chain cannot be recorded then: the record may not be
+	   written, as here where a directory stands in the way of its lock, or another run may have recorded more of the
+	   chain, or another chain, since the file was judged */
+	@Example
+	@SneakyThrows
+	public void importsADatabaseThatWasInstalledWhenItsChainCannotBeRecordedThen() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path node = fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE);
+			final Path file = written(fs.getPath("/new.db"), ofTheNewBoard(), supply(key(1), key(2)));
+
+			Files.createDirectories(node.getParent());
+			OptionsCli.parse(List.of("util"), BOARD);
+
+			final Path record = BoardKeysRecord.ofThisMachine().getFile();
+
+			Files.createDirectories(record.resolveSibling(record.getFileName() + ".lock"));
+
+			final HedgehogCli.Result result = run(fs, "import", file.toString());
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(result.err(), containsString("was not recorded"));
+			assertThat(Files.exists(node), is(true));
+		}
+	}
 }

@@ -105,7 +105,15 @@ public class SporkDbImport implements Callable<Integer> {
 		}
 
 		System.out.println("imported: " + target);
-		SporkDatabaseFile.requireRecorded(spec, database, file);
+
+		/* The database is installed whatever the record makes of it now: another run may have recorded more of the
+		   chain, or another chain, since the file was judged, or the record cannot be written */
+		try {
+			SporkDatabaseFile.requireRecorded(spec, database, file);
+		} catch (ParameterException ex) {
+			System.err.println("The chain of board keys of " + file + " was not recorded: " + ex.getMessage());
+		}
+
 		return 0;
 	}
 
