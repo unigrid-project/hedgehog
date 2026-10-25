@@ -112,21 +112,24 @@ final class VerifySlots {
 
 	/* Whether the source can pay for one check more, and its pool has one left in this second */
 	synchronized boolean hasLeft(final Type type, final Pool pool, final String source) {
-		final long now = nanos.getAsLong();
+		return hasLeft(type, pool, source, nanos.getAsLong());
+	}
 
+	private boolean hasLeft(final Type type, final Pool pool, final String source, final long now) {
 		return bucketOf(new Slot(type, pool, source), now).checks() >= 1
 			&& bucketOf(Slot.ofEveryType(pool, source), now).checks() >= 1 && hasRoom(type, pool, secondOf(now));
 	}
 
-	/* One check, paid for by the source, or nothing at all; the second it was paid in. The lock is held for the
-	   payment only, never while a signature is checked. */
+	/* One check, paid for by the source, or nothing at all; the second it was paid in, which is the one whose ceiling
+	   it was judged by, as the clock is read once. The lock is held for the payment only, never while a signature is
+	   checked. */
 	synchronized OptionalLong take(final Type type, final Pool pool, final String source) {
 		final long now = nanos.getAsLong();
 		final long second = secondOf(now);
 
 		sweep(second, now);
 
-		if (!hasLeft(type, pool, source)) {
+		if (!hasLeft(type, pool, source, now)) {
 			return OptionalLong.empty();
 		}
 

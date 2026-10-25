@@ -93,6 +93,18 @@ public class VerifySlotsTest {
 		assertThat(slots.hasLeft(TYPE, Pool.OTHER, "another"), is(true));
 	}
 
+	/* A check is paid for in the second whose ceiling it was judged by, also when the clock reads the next second
+	   before the payment is made */
+	@Example
+	public void paysForNoCheckBeyondTheCeilingOfTheSecondItWasJudgedIn() {
+		final VerifySlots ticking = new VerifySlots(() -> now++);
+		final int ceiling = VerifySlots.ceilingOf(Pool.OTHER, VerifySlots.TYPE_CEILING);
+
+		IntStream.range(0, ceiling).forEach(n -> ticking.take(TYPE, Pool.OTHER, "peer-" + n));
+		now = 1001 * SECOND - 1;
+		assertThat(ticking.take(TYPE, Pool.OTHER, "another"), is(OptionalLong.empty()));
+	}
+
 	@Example
 	public void paysForAtMostTheShareOfAPoolOfTheCeilingOfTheNodeInASecondOverEveryType() {
 		final long paid = Arrays.stream(Type.values()).mapToLong(type -> checks(type, Pool.OTHER, "peer-", 1000, 1))
