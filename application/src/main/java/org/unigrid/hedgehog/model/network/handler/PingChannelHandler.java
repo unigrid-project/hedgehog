@@ -39,10 +39,11 @@ public class PingChannelHandler extends AbstractInboundHandler<Ping> {
 			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
 		} else {
 			/* Only an answer to the ping this node sent counts, and only once: a peer may answer what was never
-			   asked, or answer twice */
+			   asked, or answer twice. The answer starts the count of missed pings again (PingSchedule). */
 			final Long sentAt = ctx.channel().attr(Ping.PING_TIME_KEY).getAndSet(null);
 
 			if (Objects.nonNull(sentAt)) {
+				ctx.channel().attr(Ping.MISSED_PINGS_KEY).set(0);
 				CDIUtil.resolveAndRun(Topology.class, topology -> topology.getChannels().get(ctx.channel())
 					.ifPresent(node -> node.setNsPing(System.nanoTime() - sentAt)));
 			}
