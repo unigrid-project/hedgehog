@@ -47,6 +47,7 @@ import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
@@ -187,5 +188,25 @@ public class NodeTest extends BaseMockedWeldTest {
 		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(dialed)));
 		dialed.close();
 		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(opened)));
+	}
+
+	/* A node that dialed this one pays for what comes on that connection from the share of the peers it chose, and for
+	   what comes on one that this node dialed from the share of anyone (PublishSporkChannelHandler), so what is relayed
+	   to it goes on the stream it opened while that is open; the ledger goes by the connection that this node dialed */
+	@Example
+	public void shouldRelayToANodeOnTheStreamItOpenedWhileThatIsOpen() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final Node node = linkedBy(dialed, opened);
+		final Packet packet = PublishGridnode.builder().build();
+
+		Node.send(packet, node, Optional.empty());
+		assertThat(opened.<Packet>readOutbound(), is(packet));
+		assertThat(dialed.<Packet>readOutbound(), nullValue());
+		assertThat(node.link().map(Connection::getChannel), equalTo(Optional.of(dialed)));
+
+		opened.close();
+		Node.send(packet, node, Optional.empty());
+		assertThat(dialed.<Packet>readOutbound(), is(packet));
 	}
 }

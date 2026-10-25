@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.util.Optional;
@@ -41,6 +42,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.TestServer;
+import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.copyOf;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.signed;
 
@@ -172,5 +174,25 @@ public class TopologyTest extends BaseMockedWeldTest {
 			firstChannel.writeAndFlush(packet); times = 0;
 			secondChannel.writeAndFlush(packet); times = 1;
 		}};
+	}
+
+	/* Whether a node may be sent a packet that not every node could read is judged by the stream it is relayed on */
+	@Example
+	public void shouldJudgeTheRecipientsOfAPacketByTheStreamItIsRelayedOn() {
+		final EmbeddedChannel dialed = new EmbeddedChannel();
+		final EmbeddedChannel opened = new EmbeddedChannel();
+		final Node node = Node.builder().address(new InetSocketAddress("127.0.100.3", 1000))
+			.connection(Optional.of(LedgerStreams.connection(dialed)))
+			.inbound(Optional.of(LedgerStreams.connection(opened))).build();
+		final Packet packet = PublishGridnode.builder().build();
+
+		assertThat(topology.addNode(node), is(true));
+		Topology.sendAll(packet, topology, channel -> channel == dialed, Optional.empty());
+		assertThat(dialed.<Packet>readOutbound(), nullValue());
+		assertThat(opened.<Packet>readOutbound(), nullValue());
+
+		Topology.sendAll(packet, topology, channel -> channel == opened, Optional.empty());
+		assertThat(opened.<Packet>readOutbound(), is(packet));
+		topology.removeNode(node);
 	}
 }

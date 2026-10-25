@@ -132,14 +132,22 @@ public class Node {
 		return open(connection).or(() -> open(inbound)).or(() -> connection.or(() -> inbound));
 	}
 
+	/* What this node relays to the node: the stream that the node opened to it while that is open, as the node pays for
+	   what comes on a connection that it dialed from the share of the peers it chose, and for what comes on one that
+	   this node dialed from the share of anyone (PublishSporkChannelHandler) */
+	@JsonIgnore
+	public Optional<Connection> relay() {
+		return open(inbound).or(this::link);
+	}
+
 	private static Optional<Connection> open(Optional<Connection> link) {
 		return link.filter(held -> held.getChannel().isActive());
 	}
 
 	public static void send(Packet packet, Node node, Optional<BiConsumer<Node, Future>> consumer) {
 		log.atDebug().log("Send all packet " + packet.toString());
-		if (node.link().isPresent()) {
-			final ChannelFuture out = node.link().get().getChannel().writeAndFlush(packet);
+		if (node.relay().isPresent()) {
+			final ChannelFuture out = node.relay().get().getChannel().writeAndFlush(packet);
 
 			out.addListener(f -> {
 				consumer.ifPresent(c -> {

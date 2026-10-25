@@ -210,7 +210,7 @@ public class Topology {
 
 		log.atDebug().log("Send all packet " + packet.toString());
 		topology.forEach(node -> {
-			if (node.link().map(Connection::getChannel).filter(recipients).isPresent()) {
+			if (node.relay().map(Connection::getChannel).filter(recipients).isPresent()) {
 				Node.send(packet, node, consumer);
 			}
 		});
