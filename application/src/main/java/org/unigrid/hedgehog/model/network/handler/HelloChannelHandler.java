@@ -50,11 +50,17 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 				.channel((QuicStreamChannel) ctx.channel())
 				.build();
 
-			topology.addNode(Node.builder()
+			final Node said = Node.builder()
 				.address(new InetSocketAddress(address.getAddress(), hello.getPort()))
 				.inbound(Optional.of(container))
-				.build()
-			);
+				.build();
+
+			/* A node that is known already takes the stream while it holds no open one: it connects again once
+			   the stream it opened before closed, or it is one that this node dialed */
+			if (!topology.addNode(said)) {
+				topology.modifyNode(said, known -> known.setInbound(known.getInbound()
+					.filter(inbound -> inbound.getChannel().isActive()).or(said::getInbound)));
+			}
 		});
 	}
 }
