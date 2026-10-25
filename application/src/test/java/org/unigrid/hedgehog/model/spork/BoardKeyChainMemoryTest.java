@@ -53,7 +53,7 @@ public class BoardKeyChainMemoryTest {
 
 		/* Each check is made here, by a key of its own, as a fake that handed it on would run into itself */
 		new MockUp<Signature>() {
-			@Mock boolean isSignedBy(String key, byte[] data, byte[] signature) {
+			@Mock boolean isSignedByBoardKey(String key, byte[] data, byte[] signature) {
 				checks++;
 
 				try {

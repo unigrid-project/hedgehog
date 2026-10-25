@@ -77,7 +77,7 @@ public class BoardKeysReceptionCostTest {
 				return new Signature(Optional.empty(), Optional.of(key)).verifyDigest(digest, signature);
 			}
 
-			@Mock boolean isSignedBy(String key, byte[] data, byte[] signature) {
+			@Mock boolean isSignedByBoardKey(String key, byte[] data, byte[] signature) {
 				checks++;
 
 				try {
