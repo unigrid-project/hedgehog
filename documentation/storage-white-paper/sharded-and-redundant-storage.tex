@@ -65,9 +65,11 @@ the work. An outer layer, whose structure only the owner knows, protects the fil
 An inner layer lets gridnodes verify and rebuild every chunk on their own, without learning, except in short
 stripes, which chunks belong together. At default settings a large file costs about 2.3 times its size, a chunk
 survives the loss of any 8 of its 24 fragments, and a full stripe of 48 chunks survives the loss of any 16 of them.
-Stiftelsen The Unigrid Foundation governs every parameter through a signed \emph{StorageSpork}. Each file records
-the layout it was written with, and a format identifier travels with the fingerprint, the manifest and every
-fragment, so the network can evolve without breaking what it already holds. This paper describes the design as
+Stiftelsen The Unigrid Foundation sets the storage parameters through a \emph{StorageSpork} that two of its four
+board keys must sign; the keys take no part in storing, reading, repairing or deleting a file. Each file records its
+layout, and a format identifier travels with the fingerprint, the manifest and every fragment. Parameters and formats
+can therefore change for new uploads, within limits, while every stored file stays readable and repairable in the
+layout and format it was written with. This paper describes the design as
 implemented, explains the reasons behind it, and analyses its durability, cost and security, including its known
 limits.
 \end{abstract}
@@ -77,11 +79,11 @@ limits.
 \section{Introduction}
 \label{sec:intro}
 
-The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that lock collateral and give
-the network storage space, communication channels and compute cycles. The idea descends from the masternodes of
-Darkcoin~\cite{darkcoin2014}. Hedgehog is the Java implementation of the network's node software. This paper
-describes its storage layer: how a file is cut up, encrypted, coded, placed, found again, repaired and deleted, and
-what every participant can and cannot learn along the way.
+The Unigrid Network~\cite{unigrid-whitepaper} is built on gridnodes: service nodes that give the network storage
+space, communication channels and compute cycles, and that are meant to lock collateral. The idea descends from the
+masternodes of Darkcoin~\cite{darkcoin2014}. Hedgehog is the reference implementation of the network's node
+software. This paper describes its storage layer: how a file is cut up, encrypted, coded, placed, found again,
+repaired and deleted, and what every participant can and cannot learn along the way.
 
 Storing data on machines that strangers run is hard for four reasons:
 
@@ -104,24 +106,48 @@ owner. The owner keeps a single string of 50 characters, the fingerprint, and no
 
 The core of the design is the split of the erasure code into two layers. The owner applies an outer code across
 many chunks and keeps its structure to itself. The network applies an inner code within each chunk, and that code
-is public. Repair then needs only public information, and it reveals nothing that links chunks into files. Other
-systems that erasure-code data across untrusted nodes leave repair to the owner, to a client that holds a
-capability for the file, or to a coordinator that knows which pieces form each file
-(Section~\ref{sec:related}). Hedgehog needs none of them.
+is public, so repair needs only public information.
+
+The paper makes three contributions:
+
+\begin{itemize}
+	\item \textbf{Repair without the owner, a capability or a coordinator.} Other systems that erasure-code data
+	      across untrusted nodes leave repair to the owner, to a client that holds a capability for the file, or to
+	      a coordinator that knows which pieces form each file (Section~\ref{sec:related}). In Hedgehog the gridnodes
+	      repair every chunk themselves, with no key and, apart from the short stripes of Section~\ref{sec:security},
+	      without knowing which chunks form a file.
+	\item \textbf{One secret and no owner record.} A single random fingerprint locates, decrypts and controls a
+	      file. The network keeps no account, no index and nothing that identifies the uploader, and two uploads of
+	      the same file share nothing.
+	\item \textbf{Fragments that stay verifiable through repair.} The owner signs a Merkle root over every fragment
+	      slot of a chunk, extras included. Anyone can check any fragment, and the fragments that a repairer rebuilds
+	      carry valid proofs although the repairer holds no key.
+\end{itemize}
 
 The storage layer is deliberately low level. It stores opaque files and returns a fingerprint; it knows nothing
-about names, folders or buckets. An object-storage interface in the style of S3 is planned as a separate layer on
-top of it. This paper describes the protocol as implemented in Hedgehog. Every constant in it is the value the
-implementation uses at default settings, and Stiftelsen The Unigrid Foundation can change most of them
+about names, folders or buckets. A separate layer serves it to S3 clients: an endpoint of its own, authenticated
+with AWS Signature Version 4, that stores every object as one or more files of this layer and keeps its bucket and
+key index in the network as well, as immutable files reached from a single secret root fingerprint. This paper
+describes the protocol as implemented in Hedgehog. Every constant in it is the value the implementation uses at
+default settings, and Stiftelsen The Unigrid Foundation can change most of them
 (Section~\ref{sec:governance}).
 
+Hedgehog is written in Java 25, but the format does not depend on the language: its structures are byte layouts,
+given in this paper, and another implementation can read and repair what Hedgehog stores. Three properties of the
+platform matter to storage. Gridnodes parse fragments and packets that strangers send, and in a memory-safe language
+a malformed length or index raises an exception instead of overwriting memory. Hedgehog ships as one executable per
+platform, a launcher built with GraalVM Native Image~\cite{graalvm} that carries its own Java runtime, so an operator
+installs nothing else. And the platform reaches vector instructions and native libraries~\cite{jep508,jep454}, which
+the field arithmetic could use (Section~\ref{sec:performance}).
+
 Section~\ref{sec:background} introduces the building blocks, and Section~\ref{sec:goals} states the goals, the
-trust assumptions and the threat model. Section~\ref{sec:overview} gives an overview of the design and follows one
-file through its life. Sections~\ref{sec:keys} to~\ref{sec:versioning} describe the formats: keys, encryption,
-coding, fragments, placement and the manifest. Sections~\ref{sec:operations} to~\ref{sec:protocol} describe the
-operations, ownership, repair, quotas, governance and the wire protocol. Sections~\ref{sec:analysis}
-and~\ref{sec:security} analyse durability, cost, performance and security. Section~\ref{sec:related} compares the
-design with related systems, and Section~\ref{sec:future} lists future work.
+trust assumptions, the threat model and the incentives. Section~\ref{sec:overview} gives an overview of the design
+and follows one file through its life. Sections~\ref{sec:keys} to~\ref{sec:versioning} describe the formats: keys,
+encryption, coding, fragments, placement and the manifest. Sections~\ref{sec:operations} to~\ref{sec:protocol}
+describe the operations, ownership, repair, quotas, governance and the wire protocol. Sections~\ref{sec:analysis}
+and~\ref{sec:security} analyse durability, cost, performance and security, and Section~\ref{sec:jurisdiction} gives
+the facts that bear on data protection. Section~\ref{sec:related} compares the design with related systems, and
+Section~\ref{sec:future} lists future work.
 
 \section{Building blocks}
 \label{sec:background}
@@ -209,63 +235,175 @@ The design has six goals:
 	      \emph{unlinkable} when an observer cannot tell whether they are related any better than it could without
 	      seeing them~\cite{pfitzmann2010}.
 	\item \textbf{Self-verification.} Anyone can check that a fragment is genuine without knowing a secret.
-	\item \textbf{Governance.} The foundation tunes the network through one signed spork, and every file keeps the
-	      layout it was written with.
+	\item \textbf{Governance.} The foundation tunes storage through a spork that two of its board keys must sign,
+	      and every file keeps the layout it was written with.
 	\item \textbf{Evolvability.} A format identifier travels with the fingerprint, the manifest and every fragment,
-	      so a later format can live beside the current one.
+	      so a later format can live beside the current one. A new format, such as one that encrypts outer parity
+	      under keys of its own (Section~\ref{sec:future}), gets a new identifier. Neither a new format nor a spork
+	      that keeps sizes within the limits of Section~\ref{sec:governance} breaks a stored file: its fingerprint
+	      still resolves and decrypts, its fragments still verify and are repaired in their own format, and nothing
+	      stored is rewritten.
 \end{enumerate}
 
 \subsection{Trust}
+\label{sec:trust}
 
-The design trusts three kinds of party, each for a different purpose:
-
-\begin{description}
-	\item[The owner's node.] A user stores and reads files through the REST interface of their own Hedgehog node,
-	      which listens on localhost by default. That node sees the plaintext and the fingerprint. It is the user's own
-	      software and is trusted like any other program that handles the file.
-	\item[Gridnodes.] Gridnodes store, check and repair fragments. None of them is trusted: each may be curious,
-	      lazy or malicious. Gridnodes lock collateral~\cite{unigrid-whitepaper}, which makes large numbers of them
-	      expensive to run and so limits Sybil attacks~\cite{douceur2002}. Section~\ref{sec:durability} shows how
-	      many losses the design tolerates.
-	\item[Stiftelsen The Unigrid Foundation.] The foundation signs the StorageSpork. Its key plays no part in encryption,
-	      placement or deletion. It sets the parameters of new uploads, but it cannot read, find or delete a file.
-\end{description}
-
-\subsection{Threat model}
-
-Table~\ref{tab:threats} lists what each party can see or do, and what the design denies it. Censuses, tombstones
-and spot checks are described in Sections~\ref{sec:ownership} and~\ref{sec:repair}.
+No single gridnode needs to be trusted, but storage is not free of trust. A user stores and reads files through the
+REST interface of their own Hedgehog node, which listens on localhost by default and sees the plaintext and the
+fingerprint. Gridnodes store, check and repair fragments, and each of them may be curious, lazy or malicious.
+Gridnodes are meant to lock collateral~\cite{unigrid-whitepaper}, which would make large numbers of them expensive
+to run and so limit Sybil attacks~\cite{douceur2002}; Hedgehog does not enforce collateral yet
+(Section~\ref{sec:security}). Two of the four board keys of Stiftelsen The Unigrid Foundation set the storage
+parameters (Section~\ref{sec:signers}). Table~\ref{tab:trust} lists what a user still relies on, for what, and what
+follows when that trust fails.
 
 \begin{table}[H]
 \centering
 \small
-\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.6cm}LL@{}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{2.7cm}>{\hsize=0.9\hsize}L>{\hsize=0.75\hsize}L
+	>{\hsize=1.35\hsize}L@{}}
 \toprule
-Party & Sees or can do & Cannot \\
+Relied on & For & Not for & If it fails \\
 \midrule
-Curious gridnode & Its own fragments, one signed descriptor per fragment, the node that sent each request and
-when, and any fragment it fetches by group identifier & Read plaintext: any chunk it assembles is ciphertext. Apart
-from the limits of Section~\ref{sec:security}, it cannot link two groups or learn a file's size \\
-Repairing gridnode & The ciphertext of one chunk and the gridnodes that hold its fragments & Decrypt that chunk or
-find the other chunks of the same file \\
-Fragment forger & Send made-up or corrupted fragments & Have them stored or used: every fragment is checked
-against its group identifier, a signed descriptor and a Merkle proof \\
-Lying census peer & Answer repair queries falsely & Delete a group: a tombstone claim must carry the owner's signed
-proof. False claims of holding a fragment can delay repair, and random spot checks catch them over time \\
-Passive network observer & Encrypted QUIC traffic and its timing & Read packet contents \\
-Active network attacker & Intercept connections, because peers do not authenticate each other yet & Learn more
-than a curious gridnode, or have forged fragments accepted \\
-Spork signer & Sign new storage parameters & Read, find or delete a file, or change the layout of a stored file \\
-Fingerprint holder & Find, read and delete the file & --- \\
+The owner's node and the Hedgehog software & Everything: it sees the plaintext and the fingerprint & --- & The file
+and its fingerprint are exposed. The node runs on the user's own machine, and its source is public \\
+\addlinespace
+The cryptography: AES-256-GCM, SHA-256, Ed25519, HKDF & Confidentiality, integrity and the right to delete & --- &
+The property that the broken primitive carries is lost. The format identifier lets a later format replace it
+(Section~\ref{sec:versioning}) \\
+\addlinespace
+The gridnodes as a whole & Durability, availability and the effect of deletes & Confidentiality and integrity & Files
+are lost when a large share of gridnodes fails, or drops data, together (Section~\ref{sec:durability}). A holder that
+ignores a delete keeps serving its fragment (Section~\ref{sec:incentives}) \\
+\addlinespace
+Any single gridnode & Nothing & Anything & Its fragments are missing or rejected, and repair replaces them \\
+\addlinespace
+The list of active gridnodes & Placement: which gridnodes hold a group & Confidentiality and integrity & An attacker
+who controls a node's view can steer its uploads to its own gridnodes (Section~\ref{sec:security}) \\
+\addlinespace
+Board keys, two of four & The storage parameters, and whether storage runs at all & Reading, finding, deleting
+or changing a stored file & Storage stops on every node, or old groups decay under badly chosen sizes
+(Section~\ref{sec:security}) \\
 \bottomrule
 \end{tabularx}
-\caption{What each party can and cannot learn or do.}
+\caption{What a user of storage still trusts.}
+\label{tab:trust}
+\end{table}
+
+Storage thus replaces trust in a provider with trust in public software and cryptography, and in a population of
+gridnodes of which a small share may fail or cheat without harm (Table~\ref{tab:loss}).
+
+\subsection{Threat model}
+
+Table~\ref{tab:threats} lists, for each party, what it can learn about a file and what it can do to it. Every
+gridnode, whatever else it does, sees its own fragments with one signed descriptor each, the node that sent each
+request and when, and any fragment it fetches by group identifier; any chunk it assembles from them is ciphertext. A
+repairer also learns which gridnodes hold the fragments of the group it repairs. Censuses, tombstones and spot
+checks are described in Sections~\ref{sec:ownership} and~\ref{sec:repair}.
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\newcommand{\no}{No}
+\newcommand{\yes}{\textbf{Yes}}
+\newcommand{\pt}[1]{Partly$^{#1}$}
+\begin{tabularx}{\linewidth}{@{}L*{9}{>{\centering\arraybackslash}p{1.2cm}}@{}}
+\toprule
+& \multicolumn{4}{c}{Can learn} & \multicolumn{5}{c}{Can do} \\
+\cmidrule(lr){2-5} \cmidrule(l){6-10}
+Party & Content & File size & Link groups & Who stored it & Forge or alter & Delete & Delay repair & Destroy & Tune storage \\
+\midrule
+Curious gridnode & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \no & \pt{3} & \no \\
+Repairing gridnode & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \no & \no & \no \\
+Lying census peer & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \pt{4} & \pt{4} & \no \\
+Gridnode coalition & \no & \pt{1} & \pt{1} & \pt{2} & \no & \no & \pt{4} & \pt{7} & \no \\
+\addlinespace
+Fragment forger & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+Malicious uploader$^8$ & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+\addlinespace
+Passive observer & \no & \pt{5} & \pt{5} & \pt{5} & \no & \no & \no & \no & \no \\
+On-path attacker & \no & \pt{5} & \pt{1} & \pt{2} & \no & \no & \pt{6} & \pt{6} & \no \\
+\addlinespace
+Board key, alone & \no & \no & \no & \no & \no & \no & \no & \no & \no \\
+Board keys, two of four & \no & \no & \no & \no & \no & \no & \pt{9} & \pt{9} & \yes \\
+\addlinespace
+Fingerprint holder & \yes & \yes & \yes & --- & --- & \yes & --- & \yes & \no \\
+\bottomrule
+\end{tabularx}
+\caption{What each party can learn about a file, and what it can do to it. ``Partly'' holds within the limits of
+the numbered notes below.}
 \label{tab:threats}
 \end{table}
+
+{\small
+\begin{enumerate}[label=\arabic*., leftmargin=*, itemsep=1pt]
+	\item Through the content links of short stripes and the order and timing of traffic
+	      (Section~\ref{sec:security}). The groups of full stripes cannot be linked by their content.
+	\item It sees which node sent each request, but nothing stored ties a fragment to that node.
+	\item It can drop its own fragments, at most one per group, and repair replaces them.
+	\item False claims of holding a fragment delay repair, and random spot checks catch them over time. Five or more
+	      colluding liars in one window can let a group be lost before repair starts (Section~\ref{sec:repair}). A
+	      tombstone claim needs the owner's signed proof, so lying cannot delete a group.
+	\item It sees which nodes exchange how much encrypted QUIC traffic, and when. The volume of an upload hints at
+	      the size of the file.
+	\item Peers do not authenticate each other yet, so it can intercept connections and drop or answer requests on
+	      them, as a lying census peer or a gridnode that drops data would. Forged fragments still fail verification.
+	\item By dropping all its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its
+	      share of the gridnodes.
+	\item It can store any content under its own fingerprint, harmful or not, but cannot read, alter or delete anyone
+	      else's file; its fragments only compete for quota (Section~\ref{sec:quotas}). See \emph{Malicious content}
+	      below.
+	\item Together they can stop storage, lengthen the repair interval, or set sizes under which old groups decay
+	      (Sections~\ref{sec:governance} and~\ref{sec:security}).
+\end{enumerate}
+}
+
+\paragraph{Malicious content.} A fragment is opaque data. Gridnodes never execute, decompress or interpret what it
+carries. They check its descriptor, signature and Merkle proof before they store it, and a repairer computes
+Reed-Solomon combinations of fragment data, which treat the bytes as numbers and nothing else. The decoders of
+storage packets check counts, lengths and key sizes against fixed bounds before they allocate memory
+(Section~\ref{sec:protocol}). A fragment that does not verify is never stored, and since a holder serves its stored
+bytes without checking them again, every reader and repairer verifies what it receives. Data disguised as a fragment
+is therefore rejected, whatever it contains, unless the fingerprint holder committed to it. The design does not
+judge content, though. A reader gets back exactly the bytes that the fingerprint holder stored, and neither the
+network nor the reader's node can tell whether they are safe. Integrity here means only that the file is the one
+that was stored, and a file fetched from the network deserves the care due to any download.
 
 Out of scope are an attacker that controls a large share of all gridnodes, global traffic analysis, attacks on the
 owner's own node, and denial of service beyond what the per-node quotas limit. Section~\ref{sec:durability} shows
 how quickly losses grow with the share of gridnodes that fail, or drop their data, together.
+
+\subsection{Incentives and misbehaviour}
+\label{sec:incentives}
+
+The storage layer neither pays a gridnode for the fragments it keeps nor punishes one that cheats. What limits
+misbehaviour today is the structure of the design:
+
+\begin{itemize}
+	\item \textbf{Hoarding.} Honest uploaders and repairers send a gridnode only fragments of groups whose window it
+	      belongs to, at most one per group, and its quota caps how many it keeps. It can also fetch the fragments of
+	      any group whose identifier it knows and keep whole chunks, as a repairer does, but these are ciphertext and
+	      tell it no more than repair would. Keeping a fragment after a delete gains it nothing either: without the
+	      fingerprint the fragment is unreadable, and gridnodes that keep the tombstone refuse the group
+	      (Section~\ref{sec:ownership}). Deletion does rest on holders that obey it, though. A gridnode that
+	      ignores a delete still serves its fragment, and while enough such fragments survive, a fingerprint holder
+	      can still read the file.
+	\item \textbf{Withholding and false claims.} A gridnode that drops fragments, or claims ones it no longer has, is
+	      found out by censuses and spot checks, and repair restores what it lost (Section~\ref{sec:repair}). A failed
+	      spot check only discounts that claim for the visit; nothing records it against the gridnode.
+	\item \textbf{Free riding.} A gridnode can announce itself and then refuse every store. Uploads move on to the
+	      next spare, and repair stores on other members of the window.
+	\item \textbf{Scale.} The harm one party can do grows with the share of gridnodes it runs
+	      (Table~\ref{tab:loss}). Collateral is meant to make that share expensive, but Hedgehog does not enforce it
+	      yet.
+\end{itemize}
+
+Three mechanisms would add incentives on top of this structure, and all of them are future work: collateral bound to
+each gridnode key, so that running many gridnodes costs stake that can be lost; a reputation that records failed
+spot checks and refused stores; and payment for storage held over time, once the network has a ledger to settle it.
+How gridnodes are rewarded is a question for the Unigrid network as a whole, and the orange paper describes the
+intent~\cite{unigrid-orangepaper}.
 
 \section{Design overview}
 \label{sec:overview}
@@ -318,39 +456,79 @@ Five terms recur through this paper:
 	      window, and a gridnode that stores one of them is a \emph{holder} of the group.
 \end{description}
 
+Figure~\ref{fig:hierarchy} shows how these pieces nest for the file of Section~\ref{sec:life}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+	box/.style={draw, rounded corners=2pt, align=center, font=\scriptsize, inner sep=3pt, minimum height=8mm},
+	zoom/.style={draw=black!35, dashed},
+	level/.style={align=left, anchor=west, font=\small, text width=3cm},
+	sub/.style={font=\scriptsize, anchor=north, fill=white, inner sep=1pt}]
+	\node[level] at (-3.4, 0) {\textbf{File}\\{\scriptsize 100\,MiB}};
+	\node[level] at (-3.4, -1.6) {\textbf{Stripes}\\{\scriptsize 4, known only to the owner}};
+	\node[level] at (-3.4, -3.4) {\textbf{Chunks}\\{\scriptsize 155 of 1\,MiB, each a public group}};
+	\node[level] at (-3.4, -5.4) {\textbf{Fragments}\\{\scriptsize 24 + 8 of 64\,KiB per group}};
+	\node[level] at (-3.4, -7.4) {\textbf{Gridnodes}\\{\scriptsize one fragment of a group each}};
+	\node[box, minimum width=11.6cm] (file) at (5.8, 0) {100\,MiB file, encrypted on the owner's node into 101 data
+		chunks};
+	\foreach \t [count=\i] in {32 + 16, 32 + 16, 32 + 16, 5 + 3} {
+		\pgfmathtruncatemacro{\s}{\i - 1}
+		\node[box, minimum width=2.1cm, fill=blue!5] (s\i) at (\i*2.35 - 1.15, -1.6) {Stripe \s\\\t\ chunks};
+		\draw (file.south) -- (s\i.north);
+	}
+	\node[box, minimum width=2.1cm] (man) at (10.6, -1.6) {Manifest\\3 copies};
+	\draw (file.south) -- (man.north);
+	\foreach \i in {0,...,6} \node[cell, fill=blue!10] (b\i) at (0.3 + \i*0.55, -3.4) {};
+	\node at (4.15, -3.4) {$\cdots$};
+	\node[cell, fill=blue!10] (blast) at (4.7, -3.4) {};
+	\foreach \i in {0,...,3} \node[cell, fill=orange!25] (o\i) at (5.45 + \i*0.55, -3.4) {};
+	\node at (7.65, -3.4) {$\cdots$};
+	\node[cell, fill=orange!25] (olast) at (8.2, -3.4) {};
+	\node[cell, fill=blue!10, very thick] (pick) at (b2) {};
+	\node[sub] at (2.5, -3.75) {32 data chunks};
+	\node[sub] at (6.825, -3.75) {16 parity chunks};
+	\begin{scope}[on background layer]
+		\draw[zoom] (s1.south west) -- (b0.north west);
+		\draw[zoom] (s1.south east) -- (olast.north east);
+	\end{scope}
+	\foreach \i in {0,...,5} \node[cell, fill=blue!10] (f\i) at (0.3 + \i*0.55, -5.4) {};
+	\node at (3.6, -5.4) {$\cdots$};
+	\node[cell, fill=blue!10] (flast) at (4.15, -5.4) {};
+	\foreach \i in {0,...,2} \node[cell, fill=orange!25] (g\i) at (4.9 + \i*0.55, -5.4) {};
+	\node at (6.55, -5.4) {$\cdots$};
+	\node[cell, fill=orange!25] (glast) at (7.1, -5.4) {};
+	\foreach \i in {0,...,2} \node[cell, dashed, fill=orange!8] (x\i) at (7.85 + \i*0.55, -5.4) {};
+	\node at (9.5, -5.4) {$\cdots$};
+	\node[cell, dashed, fill=orange!8] (xlast) at (10.05, -5.4) {};
+	\node[sub] at (2.225, -5.75) {16 data};
+	\node[sub] at (5.75, -5.75) {8 guaranteed parity};
+	\node[sub] at (8.95, -5.75) {8 extra};
+	\begin{scope}[on background layer]
+		\draw[zoom] (pick.south west) -- (f0.north west);
+		\draw[zoom] (pick.south east) -- (xlast.north east);
+	\end{scope}
+	\foreach \i in {0,...,17} \node[hash] (n\i) at (0.3 + \i*0.6, -7.4) {};
+	\foreach \f/\n in {f0/n3, f1/n0, flast/n8, glast/n12, x0/n16} {
+		\node[hash, fill=blue!10] at (\n) {};
+		\draw[-{Stealth[length=1.6mm]}] (\f.south) -- (\n.north);
+	}
+	\node[font=\scriptsize, anchor=west] at (10.8, -7.4) {$\cdots$};
+\end{tikzpicture}
+\caption{How the 100\,MiB file of Section~\ref{sec:life} breaks up. The owner's node arranges its 101 data chunks
+into four stripes, and the outer code adds 51 parity chunks; with the 3 manifest copies that makes 155 chunks of
+1\,MiB. Each chunk is one group on the network. The inner code cuts it into 16 fragments of 64\,KiB and adds 8
+guaranteed and 8 extra parity fragments, each stored on a different gridnode of the group's window. The outer code
+spans a stripe that only the owner can reconstruct; the inner code spans one chunk and is visible to every gridnode
+that stores it.}
+\label{fig:hierarchy}
+\end{figure}
+
 The split into two layers is the core of the design. The owner applies the outer code across whole chunks and keeps
 the grouping to itself. Gridnodes see only single chunks, each coded again into fragments that they can rebuild on
 their own. A repairer therefore holds at most one chunk of ciphertext, and, apart from the short stripes of
 Section~\ref{sec:security}, nothing in the group tells it which other chunks belong to the same file
-(Figure~\ref{fig:layers}).
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}
-	\foreach \i in {0,...,5} \node[cell, fill=blue!10] at (\i*0.55, 0) {};
-	\node at (3.6, 0) {$\cdots$};
-	\node[cell, fill=blue!10] (dlast) at (4.2, 0) {};
-	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (5.0+\i*0.55, 0) {};
-	\node at (7.4, 0) {$\cdots$};
-	\node[cell, fill=orange!25] (plast) at (8.0, 0) {};
-	\node[font=\small, anchor=south] at (2.1, 0.35) {32 data chunks};
-	\node[font=\small, anchor=south] at (6.5, 0.35) {16 parity chunks};
-	\node[font=\small, anchor=east] at (-0.4, 0) {Stripe (secret)};
-	\node[cell, fill=blue!10, very thick] (pick) at (1.1, 0) {};
-	\foreach \i in {0,...,7} \node[cell, fill=blue!10] at (\i*0.55-0.8, -2.2) {};
-	\node at (3.75, -2.2) {$\cdots$};
-	\foreach \i in {0,...,3} \node[cell, fill=orange!25] at (4.4+\i*0.55, -2.2) {};
-	\foreach \i in {0,...,3} \node[cell, dashed, fill=orange!8] at (7.4+\i*0.55, -2.2) {};
-	\node[font=\small, anchor=north] at (1.4, -2.55) {16 data fragments};
-	\node[font=\small, anchor=north] at (5.2, -2.55) {8 guaranteed parity};
-	\node[font=\small, anchor=north] at (8.25, -2.55) {8 extra parity};
-	\node[font=\small, anchor=east] at (-1.2, -2.2) {Group (public)};
-	\draw[flow] (pick.south) -- (1.1, -1.85) node[midway, right, font=\small] {inner code, per chunk};
-\end{tikzpicture}
-\caption{Two-level coding at default settings. The outer code spans a stripe that only the owner can reconstruct;
-the inner code spans one chunk and is visible to every gridnode that stores it.}
-\label{fig:layers}
-\end{figure}
+(Figure~\ref{fig:hierarchy}).
 
 \subsection{Why two layers}
 \label{sec:why-two}
@@ -1316,10 +1494,12 @@ place.
 
 Sporks are signed messages that switch or tune network behaviour without a software release. Unigrid inherits them
 from Dash~\cite{dashref2017} and extends them into gridnode sporks that carry structured data~\cite{unigrid-whitepaper}.
-Stiftelsen The Unigrid Foundation controls storage through a signed spork of type 1030, distributed like every other
-spork. Its
-40-byte data chunk holds the fields in Table~\ref{tab:spork} and six reserved bytes. A spork that fails validation is
-treated as absent, which disables storage on that node rather than running it with bad values.
+Stiftelsen The Unigrid Foundation sets the storage parameters through a spork of type 1030, distributed like every
+other spork. Its 40 bytes of data hold the fields in Table~\ref{tab:spork} and six reserved bytes. A spork whose
+parameters fail validation is treated as absent: rather than run with bad values, the node then stores, reads,
+deletes and repairs nothing, although it still serves the fragments it holds and answers censuses about them. A
+spork whose signatures fail never
+replaces the stored one.
 
 \begin{table}[H]
 \centering
@@ -1351,6 +1531,28 @@ $\mathit{maxOuterDataChunks} + \mathrm{pct}(\mathit{maxOuterDataChunks}, \mathit
 New values apply to new uploads at once. Existing files keep the layout their manifest records. Repair uses each
 group's own slot count from its signed descriptor, together with the current slack and threshold, and the growth
 limits of Section~\ref{sec:repair} follow the current spork as well.
+
+\subsection{Who signs, and what the spork does not do}
+\label{sec:signers}
+
+A spork takes effect only when two different network keys have signed it. By default these are the four keys of
+the foundation's board members, so no single board member, and no single stolen key, can change a parameter. A
+change starts as a proposal signed by one key and becomes a spork when a second key co-signs exactly the same bytes.
+Every version also records a signed digest of the version it replaced. The digests form a chain, so a node can show
+who signed each earlier version, and rewriting that history breaks the current signatures. Sporks are signed with
+ECDSA over the P-521 curve and SHA-512~\cite{fips1865}.
+
+Every node checks a spork itself when it arrives and keeps the newest correctly signed one of each type. The network
+keys are a default of the node's configuration: an operator can name others with \code{--network-keys}, at the price
+of following different parameters from the rest of the network. For some sporks the foundation may instead put a
+change to a vote of the network. Hedgehog does not implement such votes yet, and the StorageSpork is a settings spork
+that the board keys sign.
+
+The spork carries parameters and nothing else. The board keys sign no file, group or fragment, and they take no part
+in uploads, reads, repair or deletes. No storage operation contacts the foundation or waits for a signature: every
+node reads the parameters from the spork it already holds. Storage therefore costs the foundation nothing per file,
+and it keeps working while the foundation is offline. What two board keys acting together can do is listed in
+Section~\ref{sec:security}.
 
 \subsection{Changing parameters safely}
 
@@ -1589,9 +1791,9 @@ authentication tag. For large files the outer and inner parity each add 50\,\%, 
 chunk for the inner code, which seals all 32 slots at once, and up to 16 rows per stripe for the outer code. Decoding
 inverts a $k \times k$ matrix, at most $32 \times 32$, then recomputes every data shard from $k$ surviving shards,
 even the shards that arrived intact, and re-encodes all parity. Its cost is therefore the same whether one shard or
-eight are missing, two to three times that of encoding. Retrieval skips the outer decode when every data chunk
-arrived, but it always runs the inner decode. AES-GCM runs in hardware on processors with AES instructions. Hashing
-adds one SHA-256 pass over each fragment for its Merkle leaf.
+eight are missing, about two to three times that of encoding (Table~\ref{tab:throughput}). Retrieval skips the
+outer decode when every data chunk arrived, but it always runs the inner decode. AES-GCM runs in hardware on
+processors with AES instructions. Hashing adds one SHA-256 pass over each fragment for its Merkle leaf.
 
 \paragraph{Memory.} An upload or download holds one stripe at a time: up to 32 pieces of plaintext beside the 48
 chunks of 1\,MiB, about 80\,MiB, plus the fragments of the group being sealed or decoded. Memory therefore does not
@@ -1615,9 +1817,12 @@ grow with file size, but it does grow with the number of concurrent requests.
 	      and as many replies. It answers about as many queries from other gridnodes.
 \end{itemize}
 
-\paragraph{Measured throughput.} Table~\ref{tab:throughput} gives single-threaded measurements on one core of a
-1.7\,GHz Intel server processor with AES instructions, running Java 17. Each figure is the median of five runs of
-at least 64\,MiB after warm-up, counted in input data. They are indicative, within about 10\,\%.
+\paragraph{Measured throughput.} Table~\ref{tab:throughput} gives single-threaded measurements on one core of an
+Intel server processor with AES instructions, rated at 1.7\,GHz and clocking up to 2.9\,GHz, running Temurin 25.0.3,
+the runtime that Hedgehog ships. Each figure is the median of three passes, and each pass the median of five runs
+of at least 64\,MiB after warm-up, counted in input data. The machine was shared with other work, so the figures are
+indicative, within about 15\,\%. With the Graal compiler of GraalVM 25 instead of HotSpot, the Reed-Solomon figures
+come out 10 to 30\,\% lower.
 
 \begin{table}[H]
 \centering
@@ -1626,14 +1831,14 @@ at least 64\,MiB after warm-up, counted in input data. They are indicative, with
 \toprule
 Operation & MiB/s \\
 \midrule
-Inner code encode, 16 + 16 fragments of 64\,KiB, as a chunk is sealed & 81 \\
-Inner code decode, 16 + 16 fragments, 8 data fragments missing & 41 \\
-Outer code encode, 32 + 16 chunks of 1\,MiB & 78 \\
-Outer code decode, 16 data chunks missing & 26 \\
-AES-256-GCM encrypt, 1\,MiB chunk & 1\,002 \\
-AES-256-GCM decrypt, 1\,MiB chunk & 1\,027 \\
-Store of a 64\,MiB file, 48 simulated gridnodes in one process & 13.2 \\
-Retrieve of the same file, no fragment missing & 26.7 \\
+Inner code encode, 16 + 16 fragments of 64\,KiB, as a chunk is sealed & 68 \\
+Inner code decode, 16 + 16 fragments, 8 data fragments missing & 38 \\
+Outer code encode, 32 + 16 chunks of 1\,MiB & 64 \\
+Outer code decode, 16 data chunks missing & 22 \\
+AES-256-GCM encrypt, 1\,MiB chunk & 971 \\
+AES-256-GCM decrypt, 1\,MiB chunk & 848 \\
+Store of a 64\,MiB file, 48 simulated gridnodes in one process & 13.6 \\
+Retrieve of the same file, no fragment missing & 27.2 \\
 \bottomrule
 \end{tabular}
 \caption{Single-threaded throughput, in memory, without network or disk.}
@@ -1646,8 +1851,9 @@ trees, every gridnode's verification and every store. On a real network this wor
 an upload is bounded by the uploader's bandwidth, since it sends about three times the file.
 
 Three improvements would raise these figures without any change to the format: split-table or vector
-$\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, a decode path that skips the work when all data shards are
-present, and placing and fetching several groups at once.
+$\mathrm{GF}(2^8)$ multiplication~\cite{plank2013,isal}, through the Vector API of the platform or a native call
+into such a library~\cite{jep508,jep454}; a decode path that skips the work when all data shards are present; and
+placing and fetching several groups at once.
 
 \section{Security analysis and known limits}
 \label{sec:security}
@@ -1702,21 +1908,76 @@ The design meets its goals against the parties of Table~\ref{tab:threats}, with 
 	      Section~\ref{sec:repair}.
 	\item[Coalitions] An attacker that runs a large share of the gridnodes holds a similar share of every window.
 	      By dropping its fragments at once it causes the losses of Table~\ref{tab:loss}, with $q$ equal to its share:
-	      a fifth of the gridnodes already threatens small files and manifests. Collateral makes gridnodes expensive
-	      to run and so limits Sybil attacks~\cite{douceur2002}; the storage layer relies on it and on the list of
-	      active gridnodes.
+	      a fifth of the gridnodes already threatens small files and manifests. Collateral is meant to make
+	      gridnodes expensive to run and so limit Sybil attacks~\cite{douceur2002}, but nothing enforces it yet (see
+	      \emph{Eclipse}).
 	\item[Eclipse] Placement trusts each node's view of the active gridnodes. An attacker that controls that view,
 	      as in an eclipse attack~\cite{singh2006}, could steer a node's uploads to its own gridnodes.
 	      Announcements of gridnodes are signed with the gridnode's own key and expire after thirty minutes
 	      without a fresh signature, so a peer can neither forge nor revive an entry; it can still withhold
-	      entries from a node whose connections it controls. Nothing yet ties a key to collateral, so anyone
-	      can announce as many gridnodes as they like.
-	\item[Spork key] The holder of the foundation's spork key can stop new uploads, disable storage with a spork
-	      that fails validation, or set sizes under which old groups can no longer be stored or rebuilt
-	      (Section~\ref{sec:governance}). It cannot read, find or delete a file.
+	      entries from a node whose connections it controls. An expired entry stays in a node's view, and can be
+	      ranked, until the node's next sweep of its gridnode list. Nothing yet ties a key to collateral, so anyone
+	      can announce as many gridnodes as they like. A node keeps at most 10\,000 of them and refuses new ones
+	      once its list is full, so a flood of announcements can also keep real gridnodes out of its view.
+	\item[Board keys] Two of the foundation's board keys acting together can stop storage on every node, with
+	      parameters that fail validation, or set sizes under which old groups can no longer be stored or rebuilt
+	      (Section~\ref{sec:governance}). Stopped storage halts uploads, reads, deletes and repair alike. One key
+	      alone can do none of this, and no number of them can read, find or delete a file.
 	\item[Tombstones on plain nodes] Any Hedgehog node that receives a valid delete keeps the tombstone until it
 	      expires, bounded by its tombstone budget, although a node that sits in no window has no use for it.
 \end{description}
+
+\section{Data protection and jurisdiction}
+\label{sec:jurisdiction}
+
+Storage on machines that strangers run raises legal questions as well as technical ones: whose data a gridnode
+holds, whether a file can be erased, and in which country its pieces lie. This section states the technical facts
+that a legal assessment needs. It is not legal advice and draws no legal conclusions.
+
+\paragraph{What a gridnode holds.} A gridnode holds AES-256-GCM ciphertext, or parity computed from it, with signed
+descriptors and Merkle proofs (Sections~\ref{sec:encryption} and~\ref{sec:fragments}). It holds no key and no
+fingerprint, and nothing it stores names the owner or ties a fragment to the node that sent it
+(Section~\ref{sec:ownership}). Under the GDPR, whether a person is identifiable from information depends on all the
+means reasonably likely to be used to identify them~\cite{gdpr2016}. In a case under Regulation (EU) 2018/1725,
+whose definition of personal data it reads in the same way as the GDPR's, the Court of Justice has held that
+pseudonymised data are not personal data in all cases and for every person: where the measures in fact prevent a
+recipient from identifying the people concerned, even by cross-checking with other data, the data may not be
+personal for that recipient~\cite{cjeu2025srb}. The draft guidelines of the European Data Protection Board treat
+pseudonymised data as personal data and count cryptographic keys among the pseudonymisation secrets; their final
+version is still pending~\cite{edpb2025pseudo}. Whether
+fragments are personal data for a gridnode operator is therefore a legal assessment of the stored file and of the
+means open to that operator. The design keeps those means as small as it can: the key exists only in the
+fingerprint, which never leaves the owner's node unless the owner shares it.
+
+\paragraph{Erasure.} The fingerprint holder can delete a file at any time. Gridnodes drop their fragments on a valid
+delete, and holders that missed it learn of it within about $W$ epochs, 40 hours by default
+(Section~\ref{sec:ownership}). Three cases fall short of erasure. Nobody can delete a file whose fingerprint is
+lost, because nobody can sign the delete, and its groups stay stored (Section~\ref{sec:security}). A gridnode that
+ignores deletes keeps its fragments and still serves them (Section~\ref{sec:incentives}). And holders that return
+after every tombstone has expired, or a manifest copy outside the data window, can escape a delete
+(\emph{Resurrection} in Section~\ref{sec:security}). In each case what remains
+is ciphertext whose key exists only in the fingerprint, so destroying every copy of the fingerprint leaves the file
+unreadable for as long as AES-256 holds.
+
+\paragraph{Location.} Placement ranks gridnodes by a hash and nothing else (Section~\ref{sec:placement}). It knows
+nothing of where gridnodes run, so the fragments of a file may lie in any country with gridnodes, inside or outside
+the European Union, and the design gives no guarantee of residency. Rules on transfers of personal data to third
+countries may matter wherever stored data counts as personal data for someone involved~\cite{gdpr2016}. Stiftelsen
+The Unigrid Foundation, which sets the storage parameters, is a Swedish foundation under the supervision of a county
+administrative board~\cite{stiftelselag}.
+
+\paragraph{Checks at the protocol layer.} Gridnodes cannot flag data that falls under particular rules, such as
+personal data or data bound to a country, because they never see content. A protocol that let them would break the
+confidentiality the design exists for. Any classification has to come from the owner, before upload.
+
+\paragraph{Owner-chosen placement.} The natural extension would let an owner restrict where a file's fragments go,
+for example to gridnodes in the European Union. Gridnodes would claim a region in their signed announcements, and
+placement would rank only the gridnodes whose claims match. A reader needs the restriction before it can find the
+manifest, so the restriction would travel with the fingerprint under a new format identifier. Such claims cannot be
+proven: a gridnode can lie about where it runs, and measurements of network delay locate a machine only roughly and
+can be deceived~\cite{gill2010}. The claims would carry weight only through collateral and the accountability of
+whoever runs the gridnode. A restriction also concentrates a file in one region, where a power or network outage,
+or a legal order, strikes many of its fragments at once (Section~\ref{sec:durability}). This is future work.
 
 \section{Related work}
 \label{sec:related}
@@ -1759,7 +2020,8 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 \label{sec:future}
 
 \begin{itemize}
-	\item An object-storage layer with buckets and keys, in the style of S3, built on top of this layer.
+	\item Several nodes writing one namespace of the S3 layer, which today has a single writer.
+	\item Anchoring the root fingerprint of an S3 namespace in the ledger.
 	\item Breaking the linear links between the groups of a stripe, for example by encrypting outer parity chunks
 	      under keys of their own, so that no group can be tied to another by its content.
 	\item Renewing outer redundancy: a node that finds a lost group while reading a file could seal and store it
@@ -1772,6 +2034,10 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 	\item Moving fragment verification and disk access off the network event loops.
 	\item Proof of collateral for a gridnode's key, so that a signed announcement also shows that the gridnode is
 	      paid for.
+	\item A reputation built from failed spot checks and refused stores, and payment for storage once the network
+	      has a ledger (Section~\ref{sec:incentives}).
+	\item Placement restricted by the owner, for example to gridnodes in one region, carried with the fingerprint
+	      under a new format identifier (Section~\ref{sec:jurisdiction}).
 	\item Faster field arithmetic, and codes with cheaper repair~\cite{dimakis2010}.
 	\item Stronger storage challenges than spot checks~\cite{ateniese2007,juels2007}.
 \end{itemize}
@@ -1779,21 +2045,25 @@ small set of shards. Hedgehog's inner code plays that local role, for privacy as
 \section{Conclusion}
 \label{sec:conclusion}
 
-Hedgehog stores files on gridnodes that nobody needs to trust. One random fingerprint names, decrypts and controls a
-file, and nothing else about the file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner
-knows from what the network needs: the owner's outer code spans many chunks and stays secret, while the public inner
+Hedgehog stores files on gridnodes, none of which needs to be trusted on its own. No gridnode and no foundation key
+can read, alter or delete a file, and durability rests on the gridnodes as a whole; what a user still trusts is
+listed in Section~\ref{sec:trust}. One random fingerprint names, decrypts and controls a file, and nothing else about
+the file is kept anywhere. Two layers of Reed-Solomon coding separate what the owner knows from what the network
+needs: the owner's outer code spans many chunks and stays secret, while the public inner
 code lets gridnodes check, repair and move each chunk on their own. Signed descriptors and Merkle proofs make every
-fragment self-verifying, rendezvous hashing places fragments without a directory, and a signed spork tunes the
-network while every file keeps the layout it was written with. The known limits are stated plainly in
+fragment self-verifying, rendezvous hashing places fragments without a directory, and a spork signed by two board
+keys tunes storage while every file keeps the layout it was written with. The known limits are stated plainly in
 Section~\ref{sec:security}: linked groups in short stripes, traffic that reveals structure, a transport without peer
-authentication, and outer redundancy that is never renewed. Each has a remedy in Section~\ref{sec:future}, and the
-format identifier lets the network adopt those that change stored structures beside the current format.
+authentication, collateral that is not yet enforced, and outer redundancy that is never renewed. Each has a remedy
+in Section~\ref{sec:future}, and the format identifier lets the network adopt those that change stored structures
+beside the current format.
 
 \appendix
 
 \section{Glossary}
 
 \begin{description}
+	\item[Board keys] The four keys of the foundation's board; two of them must sign a spork before nodes accept it.
 	\item[Census] The duty holder's query of every window member about one group.
 	\item[Chunk] A fixed-size piece of AES-GCM ciphertext or outer parity.
 	\item[Descriptor] The signed 136-byte header that describes a group and commits to its fragments.
@@ -1931,6 +2201,14 @@ format identifier lets the network adopt those that change stored structures bes
 	\href{https://www.usenix.org/conference/atc12/technical-sessions/presentation/huang}{www.usenix.org},
 	2012.
 
+\bibitem{cjeu2025srb}
+	Court of Justice of the European Union (First Chamber),
+	\emph{"Judgment of 4 September 2025, European Data Protection Supervisor (EDPS) v Single Resolution Board (SRB),
+	Case C-413/23 P"},
+	ECLI:EU:C:2025:645, paragraphs 77 and 86,
+	\href{https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:62023CJ0413}{eur-lex.europa.eu},
+	2025.
+
 \bibitem{boneh2009}
 	Dan Boneh, David Freeman, Jonathan Katz \& Brent Waters,
 	\emph{"Signing a Linear Subspace: Signature Schemes for Network Coding"},
@@ -2013,11 +2291,33 @@ format identifier lets the network adopt those that change stored structures bes
 	\href{https://sia.tech/whitepaper.pdf}{sia.tech},
 	2014.
 
+\bibitem{edpb2025pseudo}
+	European Data Protection Board,
+	\emph{"Guidelines 01/2025 on Pseudonymisation"},
+	adopted 16 January 2025, version for public consultation,
+	\href{https://www.edpb.europa.eu/system/files/2025-01/edpb_guidelines_202501_pseudonymisation_en.pdf}{www.edpb.europa.eu},
+	2025.
+
+\bibitem{gdpr2016}
+	European Parliament and Council of the European Union,
+	\emph{"Regulation (EU) 2016/679 on the protection of natural persons with regard to the processing of personal
+	data and on the free movement of such data (General Data Protection Regulation)"},
+	OJ L 119, 4.5.2016, pp.~1--88, recital 26 and Article 44,
+	\href{https://eur-lex.europa.eu/eli/reg/2016/679/oj}{eur-lex.europa.eu},
+	2016.
+
 \bibitem{darkcoin2014}
 	Evan Duffield \& Kyle Hagan, The Darkcoin Developers,
 	\emph{"Darkcoin: Peer-to-Peer Crypto-Currency with Anonymous Blockchain Transactions and an Improved Proof-of-Work System"},
 	\href{https://dashpay.atlassian.net/wiki/download/attachments/132120878/Darkcoin\%20Whitepaper.pdf}{dashpay.atlassian.net},
 	2014.
+
+\bibitem{unigrid-orangepaper}
+	Evan Green \& Adam Waldenberg, Stiftelsen The Unigrid Foundation,
+	\emph{"Unigrid: The Next Internet Revolution"},
+	orange paper,
+	\href{https://github.com/unigrid-project/documentation-orange-paper}{github.com},
+	\the\year{}.
 
 \bibitem{macwilliams1977}
 	F. Jessie MacWilliams \& Neil J. A. Sloane,
@@ -2269,11 +2569,39 @@ format identifier lets the network adopt those that change stored structures bes
 	\href{https://doi.org/10.6028/NIST.FIPS.180-4}{doi.org},
 	2015.
 
+\bibitem{fips1865}
+	National Institute of Standards and Technology,
+	\emph{"Digital Signature Standard (DSS)"},
+	Federal Information Processing Standards Publication 186-5,
+	\href{https://doi.org/10.6028/NIST.FIPS.186-5}{doi.org},
+	2023.
+
 \bibitem{netty}
 	The Netty Project,
 	\emph{"Netty: an asynchronous event-driven network application framework"},
 	\href{https://netty.io/}{netty.io},
 	\the\year{}.
+
+\bibitem{jep454}
+	OpenJDK,
+	\emph{"JEP 454: Foreign Function \& Memory API"},
+	JDK Enhancement Proposal, delivered in JDK 22,
+	\href{https://openjdk.org/jeps/454}{openjdk.org},
+	2024.
+
+\bibitem{jep508}
+	OpenJDK,
+	\emph{"JEP 508: Vector API (Tenth Incubator)"},
+	JDK Enhancement Proposal, delivered in JDK 25,
+	\href{https://openjdk.org/jeps/508}{openjdk.org},
+	2025.
+
+\bibitem{graalvm}
+	Oracle,
+	\emph{"Native Image"},
+	GraalVM for JDK 25 Reference Manual,
+	\href{https://www.graalvm.org/jdk25/reference-manual/native-image/}{www.graalvm.org},
+	2025.
 
 \bibitem{maymounkov2002}
 	Petar Maymounkov \& David Mazi\`{e}res,
@@ -2295,6 +2623,13 @@ format identifier lets the network adopt those that change stored structures bes
 	9th ACM Conference on Computer and Communications Security (CCS '02), pp.~98--107,
 	\href{https://doi.org/10.1145/586110.586125}{doi.org},
 	2002.
+
+\bibitem{gill2010}
+	Phillipa Gill, Yashar Ganjali, Bernard Wong \& David Lie,
+	\emph{"Dude, where's that IP? Circumventing measurement-based IP geolocation"},
+	19th USENIX Security Symposium,
+	\href{https://www.usenix.org/conference/usenixsecurity10/dude-wheres-ip-circumventing-measurement-based-ip-geolocation}{www.usenix.org},
+	2010.
 
 \bibitem{filecoin2017}
 	Protocol Labs,
@@ -2378,6 +2713,13 @@ format identifier lets the network adopt those that change stored structures bes
 	3rd Symposium on Networked Systems Design and Implementation (NSDI 06),
 	\href{https://www.usenix.org/conference/nsdi-06/subtleties-tolerating-correlated-failures-wide-area-storage-systems}{www.usenix.org},
 	2006.
+
+\bibitem{stiftelselag}
+	Sveriges riksdag,
+	\emph{"Stiftelselag (1994:1220)"},
+	SFS 1994:1220, chapter 9, section 1,
+	\href{https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/stiftelselag-19941220_sfs-1994-1220/}{www.riksdagen.se},
+	1994.
 
 \bibitem{estrada2018}
 	Vero Estrada-Gali\~{n}anes, Ethan Miller, Pascal Felber \& Jehan-Fran\c{c}ois P\^{a}ris,
