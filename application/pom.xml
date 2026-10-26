@@ -12,7 +12,6 @@
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<jersey.version>3.0.18</jersey.version>
 		<surefireArgLine />
 	</properties>
 	<profiles>
@@ -74,6 +73,11 @@
 		<dependency>
 			<groupId>org.unigrid.hedgehog</groupId>
 			<artifactId>hedgehog-ledger</artifactId>
+			<version>0.0.9-SNAPSHOT</version>
+		</dependency>
+		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-s3</artifactId>
 			<version>0.0.9-SNAPSHOT</version>
 		</dependency>
 		<dependency>
@@ -284,10 +288,21 @@
 			<version>2.20.0</version>
 			<scope>test</scope>
 		</dependency>
+		<!-- The synchronous client is enough, and the asynchronous one would bring a second Netty -->
 		<dependency>
-			<groupId>io.findify</groupId>
-			<artifactId>s3mock_2.13</artifactId>
-			<version>0.2.6</version>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>apache5-client</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<!-- Great library for analyzing modules
@@ -406,6 +421,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.p2p=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.s3=weld.core.impl
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl

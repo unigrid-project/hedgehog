@@ -33,6 +33,7 @@ import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import picocli.CommandLine.Option;
 
@@ -42,7 +43,8 @@ import picocli.CommandLine.Option;
 */
 public class RestoreOptionsHook implements AroundTryHook {
 	private static final List<Field> OPTIONS = Stream.of(GridnodeOptions.class, LedgerOptions.class, NetOptions.class,
-		RestOptions.class, SnapshotOptions.class).flatMap(type -> Arrays.stream(type.getDeclaredFields()))
+		RestOptions.class, S3Options.class, SnapshotOptions.class)
+		.flatMap(type -> Arrays.stream(type.getDeclaredFields()))
 		.filter(field -> field.isAnnotationPresent(Option.class)).peek(field -> field.setAccessible(true)).toList();
 
 	@Override

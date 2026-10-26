@@ -31,6 +31,7 @@ import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
@@ -52,6 +53,7 @@ import picocli.CommandLine.Spec;
 public class Daemon extends CDIContext implements Runnable {
 	@Mixin private NetOptions netOptions;
 	@Mixin private RestOptions restOptions;
+	@Mixin private S3Options s3Options;
 	@Mixin private GridnodeOptions gridnodeOptions;
 	@Mixin private LedgerOptions ledgerOptions;
 

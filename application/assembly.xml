@@ -4,6 +4,12 @@
 		<format>jar</format>
 	</formats>
 	<includeBaseDirectory>false</includeBaseDirectory>
+	<!-- Unpacked jars share service file names, and only merged files keep the providers of every jar -->
+	<containerDescriptorHandlers>
+		<containerDescriptorHandler>
+			<handlerName>metaInf-services</handlerName>
+		</containerDescriptorHandler>
+	</containerDescriptorHandlers>
 	<dependencySets>
 		<dependencySet>
 			<outputDirectory>/</outputDirectory>

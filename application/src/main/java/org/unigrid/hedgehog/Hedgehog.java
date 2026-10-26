@@ -25,6 +25,7 @@ import lombok.SneakyThrows;
 import org.unigrid.hedgehog.command.Bootstrap;
 import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
+import org.unigrid.hedgehog.command.S3;
 import org.unigrid.hedgehog.command.Util;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.VersionProvider;
@@ -41,7 +42,7 @@ import picocli.CommandLine.Option;
 		"   /  0  .:.:.:.:.:::                         (A segmented blocktree network)",
 		"  o____._:.oO:.:.oO:'                         Under an addended AGPL3 license",
 		""
-	}, subcommands = { Bootstrap.class, CLI.class, Daemon.class, Util.class }
+	}, subcommands = { Bootstrap.class, CLI.class, Daemon.class, S3.class, Util.class }
 )
 public class Hedgehog {
 	@Getter

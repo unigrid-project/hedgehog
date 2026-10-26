@@ -36,8 +36,8 @@ import net.jqwik.api.constraints.StringLength;
 import org.unigrid.hedgehog.Hedgehog;
 import picocli.CommandLine;
 
-/* Bootstrap, CLI and Util only group their subcommands, so on their own they have nothing to run; a group inside a
-   group is named with its parents, like "cli ledger" */
+/* Bootstrap, CLI, Util and S3 only group their subcommands, so on their own they have nothing to run; a group inside
+   a group is named with its parents, like "cli ledger" */
 public class CommandGroupTest {
 	private static final Map<String, List<String>> GROUPS = Map.of(
 		"bootstrap", List.of("import", "info", "balance", "history", "sign", "fetch"),
@@ -50,7 +50,9 @@ public class CommandGroupTest {
 		"util", List.of("key-generate", "key-sign", "key-validate", "ledger-key-generate", "ledger-genesis",
 			"spork-db", "board-keys"),
 		"util spork-db", List.of("validate", "sign", "import"),
-		"util board-keys", List.of("propose", "approve", "apply")
+		"util board-keys", List.of("propose", "approve", "apply"),
+		"s3", List.of("key"),
+		"s3 key", List.of("create", "list", "delete")
 	);
 
 	private static String[] words(String group, String... more) {
