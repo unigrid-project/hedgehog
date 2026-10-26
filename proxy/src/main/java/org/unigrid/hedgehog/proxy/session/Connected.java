@@ -1,0 +1,35 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.proxy.session;
+
+import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
+import java.util.Objects;
+
+/* The exit's answer to a Connect, as the SOCKS5 reply the client hands on */
+public record Connected(Socks5CommandStatus status, SocksAddress bound) implements SealedMessage {
+	private static final int LAST_STATUS = Socks5CommandStatus.ADDRESS_UNSUPPORTED.byteValue();
+
+	public Connected {
+		Objects.requireNonNull(bound, "bound");
+
+		if (status.byteValue() < 0 || status.byteValue() > LAST_STATUS) {
+			throw new IllegalArgumentException("SOCKS5 has no reply " + status);
+		}
+	}
+}

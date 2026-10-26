@@ -32,6 +32,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.Instances;
 import org.unigrid.hedgehog.jqwik.NamedCDIProvider;
@@ -49,6 +50,9 @@ public class BaseServerTest extends BaseMockedWeldTest {
 
 	@Mocked
 	protected LedgerOptions ledgerOptions;
+
+	@Mocked
+	protected SocksOptions socksOptions;
 
 	@Inject @Instances(NUM_SERVERS)
 	private List<TestServer> servers;
@@ -88,10 +92,15 @@ public class BaseServerTest extends BaseMockedWeldTest {
 			final TestServer server = servers.get(i);
 
 			if (isolateContainers()) {
-				NamedCDIProvider.within(containerName(i), () -> TestServer.mockProperties(server));
+				NamedCDIProvider.within(containerName(i), () -> mockProperties(server));
 			} else {
-				TestServer.mockProperties(server);
+				mockProperties(server);
 			}
 		}
+	}
+
+	private static void mockProperties(TestServer server) {
+		TestServer.mockProperties(server);
+		TestServer.mockSocksProperties(server);
 	}
 }

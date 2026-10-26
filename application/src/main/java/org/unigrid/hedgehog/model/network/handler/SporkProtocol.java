@@ -44,8 +44,8 @@ public final class SporkProtocol {
 		final Attribute<Boolean> settled = connection.attr(NEGOTIATED_KEY);
 
 		if (settled.get() == null) {
-			LedgerProtocol.agreedOn(connection).ifPresent(protocol -> settled.set(Network.SPORK_PROTOCOL
-				.equals(protocol)));
+			LedgerProtocol.agreedOn(connection).ifPresent(protocol -> settled.set(
+				Network.SPORK_PROTOCOL.equals(protocol) || Network.PROXY_PROTOCOL.equals(protocol)));
 		}
 
 		return Boolean.TRUE.equals(settled.get());

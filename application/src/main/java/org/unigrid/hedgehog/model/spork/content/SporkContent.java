@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.bootstrap.MintEntry;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.ChunkData;
+import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
@@ -70,6 +71,7 @@ public final class SporkContent {
 		Type.STORAGE, (data, stored) -> ((StorageSpork.SporkData) data).validate(),
 		Type.LEDGER_BLACKLIST, (data, stored) -> ((LedgerBlacklist.SporkData) data).validate(),
 		Type.LEDGER_FEE, (data, stored) -> ((LedgerFee.SporkData) data).validate(),
+		Type.COMMUNICATION, (data, stored) -> ((CommunicationSpork.SporkData) data).validate(),
 		Type.STATISTICS_PUBKEY, (data, stored) -> statisticsKey((StatisticsPubKey.SporkData) data),
 		Type.BOARD_KEYS, (data, stored) -> BoardKeyChain.verify(((BoardKeys.SporkData) data).getChanges())
 	);

@@ -23,6 +23,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
@@ -32,8 +33,11 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
+import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.network.QuicLoopback;
 import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -80,10 +84,60 @@ public class SporkRecipientsTest {
 	public void shouldNeedAProtocolOfThisReleaseForEveryTypeThatTheEarlierReleaseCannotRead() {
 		for (final Type type : Type.values()) {
 			assertThat(type.toString(), SporkRecipients.needsLedgerProtocol(type)
-				|| SporkRecipients.needsThisRelease(type), is(!KNOWN_TO_RELEASE_0_0_8.contains(type)));
+				|| SporkRecipients.needsThisRelease(type) || SporkRecipients.needsProxyProtocol(type),
+				is(!KNOWN_TO_RELEASE_0_0_8.contains(type)));
 		}
 
 		assertThat(SporkRecipients.needsLedgerProtocol(Type.BOARD_KEYS), is(false));
+		assertThat(SporkRecipients.needsLedgerProtocol(Type.COMMUNICATION), is(false));
+		assertThat(SporkRecipients.needsThisRelease(Type.COMMUNICATION), is(false));
+	}
+
+	/* One end of a connection that agreed on a protocol, as a stream of it */
+	@SneakyThrows
+	private static List<Type> writtenOverAConnectionOf(final String[] server, final String[] client,
+		final GridSpork spork) {
+
+		try (QuicLoopback loopback = QuicLoopback.between(server, client)) {
+			final EmbeddedChannel stream = new EmbeddedChannel(loopback.clientEnd(), DefaultChannelId.newInstance(),
+				true, false);
+
+			SporkRecipients.write(stream, spork);
+			return sporkTypesWrittenTo(stream);
+		}
+	}
+
+	/* Chain traffic goes with it, so only a connection that settled on the proxy protocol, or on the ledger
+	   protocol that carries it, gets the communication spork */
+	@Example
+	public void shouldWriteTheCommunicationSporkOnlyToAConnectionThatSpeaksTheProxy() {
+		final String[] ledgerNode = { Network.LEDGER_PROTOCOL, Network.PROXY_PROTOCOL, Network.SPORK_PROTOCOL,
+			PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
+		final String[] proxyNode = { Network.PROXY_PROTOCOL, Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0],
+			PREVIOUS_RELEASE[1] };
+		final String[] withoutProxy = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
+		final GridSpork communication = spork(Type.COMMUNICATION);
+
+		assertThat(writtenOverAConnectionOf(ledgerNode, ledgerNode, communication), contains(Type.COMMUNICATION));
+		assertThat(writtenOverAConnectionOf(proxyNode, ledgerNode, communication), contains(Type.COMMUNICATION));
+		assertThat(writtenOverAConnectionOf(proxyNode, proxyNode, communication), contains(Type.COMMUNICATION));
+		assertThat(writtenOverAConnectionOf(withoutProxy, proxyNode, communication), empty());
+		assertThat(writtenOverAConnectionOf(PREVIOUS_RELEASE, proxyNode, communication), empty());
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldGiveTheScheduleTheCommunicationSporkOnlyWhereTheOtherEndTakesIt() {
+		final SporkDatabase database = databaseWithEverySpork();
+
+		try (QuicLoopback loopback = QuicLoopback.between(Network.getProtocols(), Network.getProtocols())) {
+			final EmbeddedChannel proxy = new EmbeddedChannel(loopback.clientEnd(), DefaultChannelId.newInstance(),
+				true, false);
+
+			PublishSporkSchedule.writeAndFlush(proxy, database, new PendingSporks());
+			assertThat(sporkTypesWrittenTo(proxy), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
+				Type.VESTING_STORAGE, Type.STORAGE, Type.COMMUNICATION));
+		}
 	}
 
 	/* A node of release 0.0.8 cannot read the board keys, and every node of this release can */

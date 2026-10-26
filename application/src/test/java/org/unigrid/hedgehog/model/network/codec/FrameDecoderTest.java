@@ -40,6 +40,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -123,6 +124,11 @@ public class FrameDecoderTest {
 	private static final Set<Packet.Type> FRAGMENT_TYPES = Set.of(Packet.Type.STORE_FRAGMENT,
 		Packet.Type.FRAGMENT_REPLY);
 
+	/* The types of the stream that chain traffic has to itself, which the main stream takes nothing of */
+	private static final Set<Packet.Type> CHAIN_TYPES = Set.of(Packet.Type.JOIN_CHAIN, Packet.Type.JOIN_REPLY,
+		Packet.Type.CHAIN_ENTRY, Packet.Type.CHAIN_HEADS, Packet.Type.FETCH_ENTRIES, Packet.Type.ENTRY_REFUSED,
+		Packet.Type.LEAVE_CHAIN);
+
 	/* Types that no codec reads or writes */
 	private static final Set<Packet.Type> UNREAD_TYPES = Set.of(Packet.Type.UNDEFINED,
 		Packet.Type.PUBLISH_NODE_DETAILS, Packet.Type.ASK_SPORKS, Packet.Type.GROW_SPORK);
@@ -146,6 +152,11 @@ public class FrameDecoderTest {
 	}
 
 	@Provide
+	Arbitrary<Packet.Type> chainTypes() {
+		return Arbitraries.of(CHAIN_TYPES);
+	}
+
+	@Provide
 	Arbitrary<Packet.Type> fragmentTypes() {
 		return Arbitraries.of(FRAGMENT_TYPES);
 	}
@@ -159,7 +170,25 @@ public class FrameDecoderTest {
 	@Example
 	public void boundsEveryType() {
 		Arrays.stream(Packet.Type.values()).forEach(type -> assertThat(type.toString(), Stream.of(CAPS.keySet(),
-			FRAGMENT_TYPES, UNREAD_TYPES).filter(types -> types.contains(type)).count(), equalTo(1L)));
+			FRAGMENT_TYPES, UNREAD_TYPES, CHAIN_TYPES).filter(types -> types.contains(type)).count(), equalTo(1L)));
+	}
+
+	@Property(tries = 50)
+	public void refusesAFrameOfAChainTypeOnTheMainStream(@ForAll("chainTypes") Packet.Type type,
+		@ForAll @IntRange(min = 1, max = 100_000) int size) {
+
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder());
+
+		assertThrows(TooLongFrameException.class, () -> channel.writeInbound(headerOf(type, size)));
+	}
+
+	@Property(tries = 50)
+	public void refusesAFrameOfAnyOtherTypeOnTheChainStream(@ForAll("cappedTypes") Packet.Type type) {
+		Assume.that(type != Packet.Type.PING);
+
+		final EmbeddedChannel channel = new EmbeddedChannel(FrameDecoder.forChainStream());
+
+		assertThrows(TooLongFrameException.class, () -> channel.writeInbound(headerOf(type, 1)));
 	}
 
 	@Property(tries = 50)

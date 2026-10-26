@@ -1,0 +1,29 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.service.chain;
+
+import io.netty.channel.Channel;
+import java.util.Optional;
+
+@FunctionalInterface
+public interface ChainTransport {
+	/* The stream this node holds to a gridnode for chain traffic, which is not its main stream: the gridnode's chain
+	   packets arrive on it, so a member is recognized by it. Empty while there is none or it has closed. */
+	Optional<Channel> streamTo(String gridnodeId);
+}

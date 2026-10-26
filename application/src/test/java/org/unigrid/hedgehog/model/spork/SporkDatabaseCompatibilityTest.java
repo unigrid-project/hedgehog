@@ -18,10 +18,15 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import lombok.Cleanup;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -62,6 +67,28 @@ public class SporkDatabaseCompatibilityTest {
 		assertThat(database.get(GridSpork.Type.LEDGER_BLACKLIST), nullValue());
 		assertThat(database.get(GridSpork.Type.LEDGER_FEE), nullValue());
 		assertThat(database.get(GridSpork.Type.BOARD_KEYS), nullValue());
+		assertThat(database.get(GridSpork.Type.COMMUNICATION), nullValue());
+	}
+
+	/* The file holds the serialized database, so a field added to the class must not keep an earlier file from loading
+	   or a later one from keeping what was set */
+	@SneakyThrows
+	@Example
+	public void shouldKeepACommunicationSporkAddedToAnEarlierDatabase() {
+		final Path path = Jimfs.newFileSystem(Configuration.unix()).getPath("/" + SporkDatabase.SPORK_DB_FILE);
+		@Cleanup final InputStream fixture = getClass().getResourceAsStream(FIXTURE);
+
+		Files.copy(fixture, path);
+
+		final SporkDatabase database = SporkDatabase.load(path);
+
+		database.set(new CommunicationSpork());
+		SporkDatabase.persist(path, database);
+
+		final SporkDatabase reloaded = SporkDatabase.load(path);
+
+		assertThat(reloaded.getCommunicationSpork(), notNullValue());
+		assertThat(reloaded, equalTo(database));
 	}
 
 	@SneakyThrows

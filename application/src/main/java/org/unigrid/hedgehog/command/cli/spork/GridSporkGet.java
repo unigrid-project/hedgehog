@@ -22,7 +22,7 @@ import picocli.CommandLine.Command;
 
 @Command(name = "gridspork-get",
 	subcommands = { MintSupply.class, MintStorage.class, Storage.class, LedgerBlacklist.class, LedgerFee.class,
-		BoardKeysSpork.class }
+		Communication.class, BoardKeysSpork.class }
 )
 public class GridSporkGet {
 	/* Empty on purpose */

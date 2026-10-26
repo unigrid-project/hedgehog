@@ -32,26 +32,28 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 public class NetworkTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
 	private static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
+	private static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.1";
 	private static final List<String> DAEMON = List.of("daemon");
 
-	/* The ledger protocol comes first, then the protocol of this release, and a node of an earlier release is left to
+	/* The ledger protocol comes first, then the protocols of this release, and a node of an earlier release is left to
 	   settle on the one it offers first */
 	@Example
 	public void offersTheLedgerProtocolFirstAndTheProtocolsOfTheEarlierReleaseAfterItWhileTheLedgerIsOn() {
 		OptionsCli.parse(DAEMON, "--ledger");
 
-		assertThat(Network.getProtocols(), arrayContaining("hedgehog-ledger/0.0.1", SPORK_PROTOCOL,
+		assertThat(Network.getProtocols(), arrayContaining("hedgehog-ledger/0.0.1", PROXY_PROTOCOL, SPORK_PROTOCOL,
 			EARLIER_RELEASE[0], EARLIER_RELEASE[1]));
 		assertThat(Network.LEDGER_PROTOCOL, is(Network.getProtocols()[0]));
 	}
 
-	/* A node that did not opt in offers the protocol of this release and what the earlier release did, so no ledger
+	/* A node that did not opt in offers the protocols of this release and what the earlier release did, so no ledger
 	   connection is ever settled on */
 	@Example
-	public void offersTheProtocolOfThisReleaseAndThoseOfTheEarlierReleaseWhileTheLedgerIsOff() {
+	public void offersTheProtocolsOfThisReleaseAndThoseOfTheEarlierReleaseWhileTheLedgerIsOff() {
 		OptionsCli.parse(DAEMON);
 
-		assertThat(Network.getProtocols(), arrayContaining(SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1]));
+		assertThat(Network.getProtocols(), arrayContaining(PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
+			EARLIER_RELEASE[1]));
 	}
 
 	@Example

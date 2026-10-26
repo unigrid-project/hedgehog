@@ -54,7 +54,7 @@ public class PublishSporkSchedule extends AbstractSchedule implements Schedulabl
 	   judged by the keys they make active. */
 	public static void writeAndFlush(Channel channel, SporkDatabase sporkDatabase, PendingSporks pendingSporks) {
 		Stream.of(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE, Type.STORAGE,
-			Type.LEDGER_BLACKLIST, Type.LEDGER_FEE)
+			Type.LEDGER_BLACKLIST, Type.LEDGER_FEE, Type.COMMUNICATION)
 			.forEach(type -> SporkRecipients.write(channel, sporkDatabase.counting(type)));
 
 		pendingSporks.list().forEach(spork -> SporkRecipients.write(channel, spork));

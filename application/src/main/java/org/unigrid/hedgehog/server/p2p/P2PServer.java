@@ -52,8 +52,10 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
+import org.unigrid.hedgehog.model.network.initializer.StreamRouter;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
@@ -127,8 +129,9 @@ public class P2PServer extends AbstractServer {
 					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
 				}
 			})
-			.streamHandler(new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
-				RegisterQuicChannelInitializer.Type.SERVER)).build();
+			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> handlers(ledger),
+				() -> schedulers(ledger), RegisterQuicChannelInitializer.Type.SERVER),
+				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
 
 		channel = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)

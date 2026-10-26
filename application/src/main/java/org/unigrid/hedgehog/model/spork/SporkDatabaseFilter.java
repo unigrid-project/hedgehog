@@ -45,6 +45,7 @@ final class SporkDatabaseFilter implements ObjectInputFilter {
 		StorageSpork.class, StorageSpork.SporkData.class,
 		LedgerBlacklist.class, LedgerBlacklist.SporkData.class,
 		LedgerFee.class, LedgerFee.SporkData.class,
+		CommunicationSpork.class, CommunicationSpork.SporkData.class,
 		StatisticsPubKey.class, StatisticsPubKey.SporkData.class,
 		BoardKeys.class, BoardKeys.SporkData.class, KeyChange.class, KeyChange.Approval.class
 	);

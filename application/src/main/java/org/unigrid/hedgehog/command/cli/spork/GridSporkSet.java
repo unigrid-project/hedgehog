@@ -27,15 +27,15 @@ import picocli.CommandLine.Option;
 
 @Command(name = "gridspork-set",
 	subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class, LedgerFee.class,
-		BoardKeysSpork.class },
+		Communication.class, BoardKeysSpork.class },
 	description = "Propose a new version of a spork, signed on this machine with a board key. Redefines any existing "
 		+ "definitions of the spork once a second board key co-signs it with gridspork-cosign."
 )
 public class GridSporkSet {
 	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
 		description = "JSON describing the spork data; for mint-supply the supply in coins, for ledger-blacklist "
-			+ "the file of addresses, for ledger-fee the fee in coins, for board-keys the change file that the "
-			+ "board approved.", required = true
+			+ "the file of addresses, for ledger-fee the fee in coins, for communication the parameters of the "
+			+ "proxy, for board-keys the change file that the board approved.", required = true
 	)
 	private static String data;
 

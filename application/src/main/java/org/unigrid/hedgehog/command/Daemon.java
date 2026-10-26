@@ -36,6 +36,7 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
+import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
@@ -56,6 +57,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Mixin private S3Options s3Options;
 	@Mixin private GridnodeOptions gridnodeOptions;
 	@Mixin private LedgerOptions ledgerOptions;
+	@Mixin private SocksOptions socksOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;

@@ -42,6 +42,7 @@ module org.unigrid.hedgehog {
 	requires io.netty.incubator.codec.classes.quic;
 	requires io.netty.common;
 	requires io.netty.handler;
+	requires io.netty.codec.socks;
 	requires jersey.server;
 	requires jersey.client;
 	requires jersey.container.netty.http;
@@ -64,6 +65,7 @@ module org.unigrid.hedgehog {
 	requires org.unigrid.hedgehog.common;
 	requires org.unigrid.hedgehog.ledger;
 	requires org.unigrid.hedgehog.s3;
+	requires org.unigrid.hedgehog.proxy;
 	requires org.bitcoinj.core;
 
 	opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;

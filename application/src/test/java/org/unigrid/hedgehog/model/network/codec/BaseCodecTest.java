@@ -22,17 +22,25 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.unigrid.hedgehog.jqwik.*;
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.commons.lang3.tuple.Pair;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.codec.api.PacketEncoder;
 
 public class BaseCodecTest<T> extends BaseMockedWeldTest {
+	/* The packets of the stream that chain traffic has to itself, which the main stream refuses */
+	private static final Set<Packet.Type> CHAIN_PACKETS = EnumSet.of(Packet.Type.JOIN_CHAIN, Packet.Type.JOIN_REPLY,
+		Packet.Type.CHAIN_ENTRY, Packet.Type.CHAIN_HEADS, Packet.Type.FETCH_ENTRIES, Packet.Type.ENTRY_REFUSED,
+		Packet.Type.LEAVE_CHAIN);
+
 	protected Optional<Pair<MutableInt, MutableInt>> getSizeHolder() {
 		return Optional.of(Pair.of(new MutableInt(), new MutableInt()));
 	}
@@ -49,7 +57,8 @@ public class BaseCodecTest<T> extends BaseMockedWeldTest {
 		ByteBuf encodedData = Unpooled.buffer();
 		encoder.encode(context, entity, encodedData);
 
-		final FrameDecoder frameDecoder = new FrameDecoder();
+		final FrameDecoder frameDecoder = CHAIN_PACKETS.contains(decoder.getCodecType())
+			? FrameDecoder.forChainStream() : new FrameDecoder();
 		encodedData = (ByteBuf) frameDecoder.decode(context, encodedData);
 
 		final List<Object> out = new ArrayList<>();

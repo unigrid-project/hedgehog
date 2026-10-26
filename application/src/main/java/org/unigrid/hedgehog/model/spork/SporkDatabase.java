@@ -61,6 +61,7 @@ public class SporkDatabase implements Serializable {
 	private volatile StorageSpork storageSpork;
 	private volatile LedgerBlacklist ledgerBlacklist;
 	private volatile LedgerFee ledgerFee;
+	private volatile CommunicationSpork communicationSpork;
 
 	private volatile StatisticsPubKey statisticsPubKey;
 	private volatile BoardKeys boardKeys;
@@ -228,6 +229,8 @@ public class SporkDatabase implements Serializable {
 			(db, spork) -> db.ledgerBlacklist = (LedgerBlacklist) spork),
 		Type.LEDGER_FEE, new Slot(db -> db.ledgerFee,
 			(db, spork) -> db.ledgerFee = (LedgerFee) spork),
+		Type.COMMUNICATION, new Slot(db -> db.communicationSpork,
+			(db, spork) -> db.communicationSpork = (CommunicationSpork) spork),
 		Type.STATISTICS_PUBKEY, new Slot(db -> db.statisticsPubKey,
 			(db, spork) -> db.statisticsPubKey = (StatisticsPubKey) spork),
 		Type.BOARD_KEYS, new Slot(db -> db.boardKeys,

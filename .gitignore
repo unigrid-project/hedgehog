@@ -8,6 +8,7 @@ socomo.html
 /common/target/
 /ledger/target/
 /s3/target/
+/proxy/target/
 jshell.history
 release.properties
 pom.xml.releaseBackup

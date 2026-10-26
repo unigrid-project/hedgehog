@@ -32,6 +32,8 @@ import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.GroupKey;
+import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 @ChannelCodec(priority = -10)
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
@@ -87,6 +89,30 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		Map.entry(Packet.Type.LEDGER_BLOCK_BATCH, new BodySize(Long.BYTES + Integer.BYTES,
 			Long.BYTES + Integer.BYTES + LedgerCodecs.MAX_BATCH_SIZE)));
 
+	private static final int CHAIN_ID_SIZE = ChainId.SIZE;
+	private static final int WRITER_SIZE = WriterId.SIZE;
+	private static final int HEAD_SIZE = WRITER_SIZE + 2 * Long.BYTES;
+	private static final int HEADS_SIZE = Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * HEAD_SIZE;
+	private static final int RANGE_SIZE = WRITER_SIZE + 2 * Long.BYTES;
+
+	/* The stream that chain traffic has to itself is open to any peer and takes the chain packets, and the ping that
+	   opens it, and nothing else, as the main stream takes nothing of the chain */
+	private static final Map<Packet.Type, BodySize> CHAIN_BODY_SIZES = Map.ofEntries(
+		Map.entry(Packet.Type.PING, BodySize.exactly(2 * Long.BYTES)),
+		Map.entry(Packet.Type.JOIN_CHAIN, new BodySize(Long.BYTES + WRITER_SIZE + 1,
+			Long.BYTES + WRITER_SIZE + 1 + CHAIN_ID_SIZE)),
+		Map.entry(Packet.Type.JOIN_REPLY, new BodySize(Long.BYTES + 1,
+			Long.BYTES + 1 + CHAIN_ID_SIZE + HEADS_SIZE)),
+		Map.entry(Packet.Type.CHAIN_ENTRY, new BodySize(Short.BYTES,
+			ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES)),
+		Map.entry(Packet.Type.CHAIN_HEADS, new BodySize(CHAIN_ID_SIZE + Short.BYTES, CHAIN_ID_SIZE + HEADS_SIZE)),
+		Map.entry(Packet.Type.FETCH_ENTRIES, new BodySize(CHAIN_ID_SIZE + Short.BYTES,
+			CHAIN_ID_SIZE + Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * RANGE_SIZE)),
+		Map.entry(Packet.Type.ENTRY_REFUSED, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE + Long.BYTES + 1)),
+		Map.entry(Packet.Type.LEAVE_CHAIN, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE)));
+
+	private final Map<Packet.Type, BodySize> bodySizes;
+
 	/*
 	    Packet format:
 	    0..............................................................63
@@ -94,7 +120,17 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		super(Network.MAX_DATA_SIZE, 4, 4, 0, HEADER_SIZE);
+		this(Network.MAX_DATA_SIZE, BODY_SIZES);
+	}
+
+	private FrameDecoder(final int maxFrameBytes, final Map<Packet.Type, BodySize> bodySizes) {
+		super(maxFrameBytes, 4, 4, 0, HEADER_SIZE);
+		this.bodySizes = bodySizes;
+	}
+
+	/* Frames of a limit of their own, far below the one of the main stream, header included */
+	public static FrameDecoder forChainStream() {
+		return new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES, CHAIN_BODY_SIZES);
 	}
 
 	@Override
@@ -117,6 +153,8 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			ctx.channel().attr(Packet.KEY).set(type);
 			ctx.channel().attr(PACKET_SIZE_KEY).set(size);
 
+			/* The header is read here, ahead of the superclass, so its discard mode can never run: the bytes
+			   behind a frame over the limit are dropped only because the exception closes the stream */
 			in.resetReaderIndex();
 			return super.decode(ctx, in);
 		}
@@ -124,8 +162,8 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		throw new InvalidFrameMagicNumberException();
 	}
 
-	private static void requireAllowed(final ByteBuf in, final Packet.Type type, final int size) {
-		final BodySize allowed = BODY_SIZES.getOrDefault(type, NOTHING);
+	private void requireAllowed(final ByteBuf in, final Packet.Type type, final int size) {
+		final BodySize allowed = bodySizes.getOrDefault(type, NOTHING);
 
 		if (size > allowed.most()) {
 			throw refused(in, new TooLongFrameException("A " + type + " frame holds at most " + allowed.most()

@@ -94,9 +94,12 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
 	private static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
-	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
+	private static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.1";
+	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, PROXY_PROTOCOL, SPORK_PROTOCOL,
+		EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
+	private static final String[] WITHOUT_THE_LEDGER = { PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
 		EARLIER_RELEASE[1] };
-	private static final String[] WITHOUT_THE_LEDGER = { SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
+	private static final String[] WITHOUT_THE_PROXY = { SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
 	private static final AtomicReference<String[]> OFFERED = new AtomicReference<>(THIS_RELEASE);
 	private static final String EARLIER_PROTOCOL = "hedgehog/0.0.4";
 	private static final int NEW = 0;
@@ -449,15 +452,49 @@ public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	public void settlesOnTheProtocolOfThisReleaseWhenANewNodeWithoutTheLedgerDialsANewNode() {
 		final P2PClient client = whileOffering(WITHOUT_THE_LEDGER, () -> within(DIALLER, () -> dial(NEW)));
 
-		assertThat(agreedOn(client.getChannel()), equalTo(SPORK_PROTOCOL));
+		assertThat(agreedOn(client.getChannel()), equalTo(PROXY_PROTOCOL));
 		assertThat(LedgerProtocol.negotiatedOn(client.getChannel()), is(false));
 		assertAnswersAPing(client);
 		await().until(() -> streamsAcceptedByNew().size() == 1);
 
 		final Channel accepted = streamsAcceptedByNew().get(0);
 
-		assertThat(agreedOn(accepted), equalTo(SPORK_PROTOCOL));
+		assertThat(agreedOn(accepted), equalTo(PROXY_PROTOCOL));
 		assertThat(LedgerProtocol.negotiatedOn(accepted), is(false));
+	}
+
+	/* The chain stream goes with the proxy protocol, which two nodes of this release settle on without a ledger, and
+	   with the ledger protocol, which carries it as well */
+	@Example
+	public void opensTheChainStreamTowardsANodeThatSpeaksTheProxy() {
+		final P2PClient client = whileOffering(WITHOUT_THE_LEDGER, () -> within(DIALLER, () -> dial(NEW)));
+
+		assertThat(agreedOn(client.getChannel()), equalTo(PROXY_PROTOCOL));
+		await().until(() -> client.getChainChannel().isPresent());
+		assertAnswersAPing(client);
+	}
+
+	@Example
+	public void opensTheChainStreamOnTheLedgerProtocolToo() {
+		final P2PClient client = whileOffering(THIS_RELEASE, () -> within(DIALLER, () -> dial(NEW)));
+
+		assertThat(agreedOn(client.getChannel()), equalTo(Network.LEDGER_PROTOCOL));
+		await().until(() -> client.getChainChannel().isPresent());
+	}
+
+	/* A node of the earlier release, and a node of this release that was built before the proxy, take no chain
+	   traffic, so none is sent: they would read a stream of it as a second main stream */
+	@Example
+	public void opensNoChainStreamTowardsANodeThatSpeaksNoProxy() {
+		final P2PClient early = whileOffering(WITHOUT_THE_LEDGER, () -> within(DIALLER, () -> dial(OLD)));
+		final P2PClient noProxy = whileOffering(WITHOUT_THE_PROXY, () -> within(DIALLER, () -> dial(NEW)));
+
+		assertThat(agreedOn(early.getChannel()), equalTo(EARLIER_PROTOCOL));
+		assertThat(agreedOn(noProxy.getChannel()), equalTo(SPORK_PROTOCOL));
+		assertAnswersAPing(early);
+		assertAnswersAPing(noProxy);
+		assertThat(early.getChainChannel(), equalTo(Optional.empty()));
+		assertThat(noProxy.getChainChannel(), equalTo(Optional.empty()));
 	}
 
 	/* A node of the earlier release offers nothing of this one, so the two settle on what it offers first */

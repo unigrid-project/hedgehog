@@ -19,8 +19,6 @@
 package org.unigrid.hedgehog.service.storage;
 
 import io.netty.channel.Channel;
-import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -28,9 +26,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.model.network.GridnodeChannels;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.Correlated;
@@ -45,15 +42,23 @@ import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageStatus;
 
 /* Topology never lists the node itself, so the local gridnode is answered by its own keeper in-process */
-@RequiredArgsConstructor
 public class NettyFragmentTransport implements FragmentTransport {
 	/* Runs on the calling thread; going through supplyAsync only turns a keeper failure into a failed future */
 	private static final Executor IN_PLACE = Runnable::run;
 
-	private final Supplier<Set<Node>> nodes;
+	private final GridnodeChannels channels;
 	private final PendingRequests pending;
 	private final Supplier<Optional<String>> selfId;
 	private final Supplier<FragmentKeeper> localKeeper;
+
+	public NettyFragmentTransport(final Supplier<Set<Node>> nodes, final PendingRequests pending,
+		final Supplier<Optional<String>> selfId, final Supplier<FragmentKeeper> localKeeper) {
+
+		this.channels = new GridnodeChannels(nodes);
+		this.pending = pending;
+		this.selfId = selfId;
+		this.localKeeper = localKeeper;
+	}
 
 	@Override
 	public CompletableFuture<StorageAck> store(final Gridnode target, final byte[] fragment) {
@@ -117,7 +122,7 @@ public class NettyFragmentTransport implements FragmentTransport {
 	private <T extends Correlated> CompletableFuture<T> send(final Gridnode target, final Correlated request,
 		final Class<T> type) {
 
-		final Optional<Channel> channel = channelOf(target);
+		final Optional<Channel> channel = channels.of(target);
 
 		if (channel.isEmpty()) {
 			return CompletableFuture.failedFuture(new IllegalStateException("No connection to the gridnode"));
@@ -132,27 +137,5 @@ public class NettyFragmentTransport implements FragmentTransport {
 		});
 
 		return response;
-	}
-
-	private Optional<Channel> channelOf(final Gridnode target) {
-		if (target.getHostName() == null) {
-			return Optional.empty();
-		}
-
-		try {
-			final Node wanted = Node.fromAddress(target.getHostName());
-
-			return Optional.of(wanted).filter(NettyFragmentTransport::isResolved)
-				.flatMap(node -> nodes.get().stream().filter(NettyFragmentTransport::isResolved)
-					.filter(node::equals).findFirst())
-				.flatMap(Node::link).map(Connection::getChannel);
-		} catch (URISyntaxException | UnknownHostException | IllegalArgumentException ex) {
-			return Optional.empty();
-		}
-	}
-
-	/* Node.equals compares resolved addresses and throws on a node without one */
-	private static boolean isResolved(final Node node) {
-		return node.getAddress() != null && !node.getAddress().isUnresolved();
 	}
 }

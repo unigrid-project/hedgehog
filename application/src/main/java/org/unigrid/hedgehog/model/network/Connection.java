@@ -20,9 +20,21 @@ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.incubator.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
+import java.util.Optional;
 
 public interface Connection {
+	/* Remembered by the QUIC connection that both streams belong to, while the chain stream is open */
+	AttributeKey<QuicStreamChannel> CHAIN_STREAM_KEY = AttributeKey.valueOf("CHAIN_STREAM");
+
 	Channel getChannel();
+
+	/* The stream chain traffic uses, which is not getChannel's; empty while there is none or it has closed */
+	default Optional<Channel> getChainChannel() {
+		return Optional.empty();
+	}
+
 	ChannelFuture send(Packet packet);
 	void close();
 	void closeDirty();

@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -36,14 +37,17 @@ import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
    frame is read out of step. The sporks of the ledger, the blacklist and the fee, are therefore sent only over a
    stream whose connection settled on the ledger protocol (LedgerProtocol), which a node of an earlier release never
    does, and the board keys only over one whose connection settled on that or on the protocol of this release
-   (SporkProtocol), which every node of this release offers first. This holds for everything that writes a spork to a
-   stream: the schedule and the new streams, the relay of a spork that came in, and the REST resources. A node that
-   runs without --ledger does not offer the ledger protocol either, so it neither sends nor relays the sporks of the
-   ledger; it may still store one that a peer sent it. A spork that is not set is not sent at all. */
+   (SporkProtocol), which every node of this release offers. The communication spork goes only over one whose
+   connection settled on the proxy protocol or on the ledger protocol (PeerProtocol), as only those peers take chain
+   traffic. This holds for everything that writes a spork to a stream: the schedule and the new streams, the relay of
+   a spork that came in, and the REST resources. A node that runs without --ledger does not offer the ledger
+   protocol either, so it neither sends nor relays the sporks of the ledger; it may still store one that a peer sent
+   it. A spork that is not set is not sent at all. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkRecipients {
 	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE);
 	private static final Set<Type> OF_THIS_RELEASE = Set.of(Type.BOARD_KEYS);
+	private static final Set<Type> PROXY_ONLY = Set.of(Type.COMMUNICATION);
 
 	public static boolean needsLedgerProtocol(final Type type) {
 		return LEDGER_ONLY.contains(type);
@@ -53,8 +57,13 @@ public final class SporkRecipients {
 		return OF_THIS_RELEASE.contains(type);
 	}
 
+	public static boolean needsProxyProtocol(final Type type) {
+		return PROXY_ONLY.contains(type);
+	}
+
 	public static boolean mayReceive(final Channel stream, final GridSpork spork) {
 		return Objects.nonNull(spork) && (needsLedgerProtocol(spork.getType()) ? LedgerProtocol.negotiatedOn(stream)
+			: needsProxyProtocol(spork.getType()) ? PeerProtocol.speaksProxy(stream)
 			: !needsThisRelease(spork.getType()) || SporkProtocol.negotiatedOn(stream));
 	}
 

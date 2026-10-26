@@ -81,6 +81,11 @@
 			<version>0.0.9-SNAPSHOT</version>
 		</dependency>
 		<dependency>
+			<groupId>org.unigrid.hedgehog</groupId>
+			<artifactId>hedgehog-proxy</artifactId>
+			<version>0.0.9-SNAPSHOT</version>
+		</dependency>
+		<dependency>
 			<groupId>info.picocli</groupId>
 			<artifactId>picocli</artifactId>
 			<version>${picocli.version}</version>
@@ -412,6 +417,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network=org.apache.commons.lang3
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.handler=ALL-UNNAMED
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.initializer=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.network.packet=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.spork=weld.core.impl
@@ -422,11 +428,13 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.rest=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.s3=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.server.socks=weld.core.impl
                                                 --add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service.storage=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service.ledger=weld.core.impl
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.service.chain=weld.core.impl
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.producer=org.apache.commons.lang3
 						--add-opens java.base/java.lang=ALL-UNNAMED
 						--add-opens java.base/java.math=ALL-UNNAMED

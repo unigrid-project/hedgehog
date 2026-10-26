@@ -30,9 +30,20 @@ public class Network {
 	   connection settled on it is what tells a node that the other end speaks the ledger. */
 	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.1";
 
-	/* Offered by every node of this release ahead of what earlier releases offer, so that a connection that settled on
-	   it, or on the ledger protocol, tells a node that the other end reads every spork type of this release */
+	/* Offered by every node of this release right after the ledger protocol, if it offers that, and ahead of what
+	   earlier releases offer. A connection that settled on it, or on the ledger protocol, tells a node that the other
+	   end takes chain traffic and the communication spork, which every node of this release does, the one that runs
+	   the ledger as well. */
+	public static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.1";
+
+	/* Offered by every node of this release after those, and the only one of this release that a node built before the
+	   proxy offers. A connection that settled on it, on the proxy protocol or on the ledger protocol tells a node that
+	   the other end reads every spork type of this release, though only the first two take chain traffic. */
 	public static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
+
+	/* The second stream a client opens on a connection, after the main one, which carries chain traffic: client
+	   initiated bidirectional streams are numbered 0, 4, 8, ... */
+	public static final long CHAIN_STREAM_ID = 4;
 
 	/* With the board keys built into the release, the root of the chain of changes to them (BoardKeyChain). A release
 	   that counts it up starts from its own keys again, and every change made before it is void. */
@@ -51,6 +62,7 @@ public class Network {
 	};
 
 	private static final String[] PROTOCOLS = {
+		PROXY_PROTOCOL,
 		SPORK_PROTOCOL,
 		EARLIER_PROTOCOLS[0],
 		EARLIER_PROTOCOLS[1]
@@ -58,6 +70,7 @@ public class Network {
 
 	private static final String[] LEDGER_PROTOCOLS = {
 		LEDGER_PROTOCOL,
+		PROXY_PROTOCOL,
 		SPORK_PROTOCOL,
 		EARLIER_PROTOCOLS[0],
 		EARLIER_PROTOCOLS[1]
@@ -76,7 +89,8 @@ public class Network {
 	   A frame larger than this still arrives, as the node hands out more as it reads. */
 	public static final int MAX_WINDOW_SIZE = 1024 * 1024 * 16; /* 16 MB */
 
-	/* A node opens one stream on each connection, so a peer that opens more has no use for them */
+	/* A node opens two streams on each connection, the main one and the one for chain traffic, so a peer that opens
+	   more has no use for them */
 	public static final int MAX_STREAMS = 16;
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
