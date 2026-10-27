@@ -22,7 +22,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
-import io.netty.util.AttributeKey;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.packet.Ping;

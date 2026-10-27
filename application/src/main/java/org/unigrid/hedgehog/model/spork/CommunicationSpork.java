@@ -37,7 +37,8 @@ public class CommunicationSpork extends GridSpork implements Serializable {
 
 	@Data
 	public static class SporkData implements ChunkData {
-		/* The spork database file holds the serialised class, so its version must not change when members are added */
+		/* The spork database file holds the serialised class, so its version must not change when members are
+		   added */
 		private static final long serialVersionUID = 1L;
 
 		/* Bounded by their wire fields, so the spork a signer validated is the one its peers decode */

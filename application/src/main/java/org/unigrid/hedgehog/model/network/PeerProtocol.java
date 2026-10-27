@@ -37,8 +37,8 @@ public final class PeerProtocol {
 	/* For a stream or the QUIC connection it belongs to */
 	public static boolean speaksProxy(final Channel channel) {
 		return connectionOf(channel).map(QuicChannel::sslEngine).map(SSLEngine::getApplicationProtocol)
-			.filter(protocol -> Network.PROXY_PROTOCOL.equals(protocol) || Network.LEDGER_PROTOCOL.equals(protocol))
-			.isPresent();
+			.filter(protocol -> Network.PROXY_PROTOCOL.equals(protocol)
+				|| Network.LEDGER_PROTOCOL.equals(protocol)).isPresent();
 	}
 
 	private static Optional<QuicChannel> connectionOf(final Channel channel) {

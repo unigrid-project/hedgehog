@@ -49,8 +49,11 @@ public class Communication extends SporkCommand<SporkData> {
 			parameters.validate();
 			return parameters;
 		} catch (JsonProcessingException | IllegalArgumentException ex) {
+			final String reason = ex instanceof JsonProcessingException json ? json.getOriginalMessage()
+				: ex.getMessage();
+
 			throw new ParameterException(spec().commandLine(), "The communication parameters are not accepted: "
-				+ (ex instanceof JsonProcessingException json ? json.getOriginalMessage() : ex.getMessage()), ex);
+				+ reason, ex);
 		}
 	}
 
