@@ -44,22 +44,23 @@ public final class SnapshotReader {
 	private SignatureStatus signature;
 
 	private SnapshotReader(FileChannel channel) throws IOException {
-		this.header = map(channel, 0, SnapshotFormat.HEADER_SIZE);
+		this.header = map(channel, "header", 0, SnapshotFormat.HEADER_SIZE, 1);
 		verifyFormat();
 
-		final int addressCount = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET);
-		final long entryCount = header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET);
-		final long transactionCount = header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET);
-		final long blockTimeCount = header.getInt(SnapshotFormat.TIP_HEIGHT_OFFSET) + 1L;
+		final long addressCount = nonNegative("address count", header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET));
+		final long entryCount = nonNegative("entry count", header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET));
+		final long transactionCount = nonNegative("transaction count",
+			header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET));
+		final long blockTimeCount = nonNegative("tip height", header.getInt(SnapshotFormat.TIP_HEIGHT_OFFSET)) + 1;
 
-		this.addresses = map(channel, header.getLong(SnapshotFormat.ADDRESS_TABLE_OFFSET),
-			addressCount * (long) SnapshotFormat.ADDRESS_RECORD_SIZE);
-		this.blockTimes = map(channel, header.getLong(SnapshotFormat.BLOCK_TIME_TABLE_OFFSET),
-			blockTimeCount * SnapshotFormat.BLOCK_TIME_RECORD_SIZE);
-		this.entries = map(channel, header.getLong(SnapshotFormat.ENTRY_TABLE_OFFSET),
-			entryCount * SnapshotFormat.ENTRY_RECORD_SIZE);
-		this.transactions = map(channel, header.getLong(SnapshotFormat.TRANSACTION_TABLE_OFFSET),
-			transactionCount * Hashing.HASH_SIZE);
+		this.addresses = map(channel, "address table", header.getLong(SnapshotFormat.ADDRESS_TABLE_OFFSET),
+			addressCount, SnapshotFormat.ADDRESS_RECORD_SIZE);
+		this.blockTimes = map(channel, "block time table", header.getLong(SnapshotFormat.BLOCK_TIME_TABLE_OFFSET),
+			blockTimeCount, SnapshotFormat.BLOCK_TIME_RECORD_SIZE);
+		this.entries = map(channel, "entry table", header.getLong(SnapshotFormat.ENTRY_TABLE_OFFSET),
+			entryCount, SnapshotFormat.ENTRY_RECORD_SIZE);
+		this.transactions = map(channel, "transaction table",
+			header.getLong(SnapshotFormat.TRANSACTION_TABLE_OFFSET), transactionCount, Hashing.HASH_SIZE);
 	}
 
 	public static SnapshotReader open(Path path) throws IOException {
@@ -229,9 +230,29 @@ public final class SnapshotReader {
 		}
 	}
 
-	private static ByteBuffer map(FileChannel channel, long offset, long size) throws IOException {
-		if (size > Integer.MAX_VALUE) {
-			throw new IOException("Snapshot section at " + offset + " is larger than 2 GiB");
+	private static long nonNegative(String field, long value) throws IOException {
+		if (value < 0) {
+			throw new IOException("Snapshot " + field + " is negative: " + value);
+		}
+
+		return value;
+	}
+
+	/* The header is untrusted: a count or an offset that is negative, or a table that does not fit in the file,
+	   is refused as a damaged file, as mapping it would fail in other ways than an I/O error */
+	private static ByteBuffer map(FileChannel channel, String table, long offset, long count, int recordSize)
+		throws IOException {
+
+		nonNegative(table + " offset", offset);
+
+		if (count > Integer.MAX_VALUE / recordSize) {
+			throw new IOException("Snapshot " + table + " at " + offset + " is larger than 2 GiB");
+		}
+
+		final long size = count * recordSize;
+
+		if (size > channel.size() - offset) {
+			throw new IOException("Snapshot " + table + " at " + offset + " runs past the end of the file");
 		}
 
 		return channel.map(FileChannel.MapMode.READ_ONLY, offset, size);

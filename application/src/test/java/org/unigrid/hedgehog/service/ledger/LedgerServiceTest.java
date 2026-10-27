@@ -23,9 +23,12 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -87,6 +90,7 @@ import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.model.bootstrap.AddressSnapshots;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
+import org.unigrid.hedgehog.model.bootstrap.SnapshotFormat;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
@@ -252,7 +256,7 @@ public class LedgerServiceTest {
 
 		@SneakyThrows
 		void install() {
-			Files.move(written, watched);
+			Files.move(written, watched, StandardCopyOption.REPLACE_EXISTING);
 		}
 
 		/* Where the files of the chain of the genesis are */
@@ -580,6 +584,35 @@ public class LedgerServiceTest {
 
 			assertThat(rig.events, empty());
 			assertThat(service.status(), equalTo(INACTIVE));
+			assertThat(ledgerThreads(), hasSize(2));
+			assertThat(rig.logged(Level.INFO).stream().filter(line -> line.contains("Waiting for the bootstrap "
+				+ "snapshot " + rig.watched)).toList(), hasSize(1));
+
+			rig.install();
+			eventually(() -> service.status().running());
+
+			assertThat(rig.events, contains("attach"));
+		}
+	}
+
+	/* A header that cannot be read is a snapshot that is not usable yet, as one that is not there: the service waits
+	   for the file to change instead of giving the ledger up */
+	@Example
+	@SneakyThrows
+	public void shouldKeepWaitingWhileTheHeaderOfTheSnapshotIsOutOfRangeAndStartOnceItIsReplaced() {
+		try (Rig rig = new Rig(false, 0, 0)) {
+			final byte[] corrupt = Files.readAllBytes(rig.written);
+
+			ByteBuffer.wrap(corrupt).putInt(SnapshotFormat.ADDRESS_COUNT_OFFSET, 0xFFFFFFFF);
+			Files.write(rig.watched, corrupt);
+			Files.setLastModifiedTime(rig.watched, FileTime.fromMillis(0));
+
+			final LedgerService service = rig.started(false);
+
+			Awaitility.await().during(Duration.ofMillis(400)).atMost(PATIENCE)
+				.until(() -> !service.status().running());
+
+			assertThat(rig.logged(Level.ERROR), empty());
 			assertThat(ledgerThreads(), hasSize(2));
 			assertThat(rig.logged(Level.INFO).stream().filter(line -> line.contains("Waiting for the bootstrap "
 				+ "snapshot " + rig.watched)).toList(), hasSize(1));

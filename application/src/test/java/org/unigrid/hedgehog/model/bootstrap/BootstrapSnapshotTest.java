@@ -21,8 +21,10 @@ package org.unigrid.hedgehog.model.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -112,6 +114,27 @@ public class BootstrapSnapshotTest {
 		assertThat(snapshot.getReader().isPresent(), equalTo(false));
 		assertThat(snapshot.getReader().isPresent(), equalTo(false));
 		assertThat(opens.get(), equalTo(1));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotWhoseHeaderCountsAreOutOfRangeAndPickUpItsReplacement() {
+		final Path path = snapshot();
+		final byte[] valid = Files.readAllBytes(path);
+		final byte[] corrupt = valid.clone();
+
+		ByteBuffer.wrap(corrupt).putInt(SnapshotFormat.ADDRESS_COUNT_OFFSET, 0xFFFFFFFF);
+		Files.write(path, corrupt);
+
+		final BootstrapSnapshot snapshot = new BootstrapSnapshot(path);
+
+		assertThat(snapshot.getReader().isPresent(), equalTo(false));
+		assertThat(snapshot.getReader().isPresent(), equalTo(false));
+
+		Files.write(path, valid);
+		Files.setLastModifiedTime(path, FileTime.fromMillis(Files.getLastModifiedTime(path).toMillis() + 1_000));
+
+		assertThat(snapshot.getReader().isPresent(), equalTo(true));
 	}
 
 	@Example

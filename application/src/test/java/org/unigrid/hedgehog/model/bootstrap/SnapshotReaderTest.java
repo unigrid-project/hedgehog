@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.function.Consumer;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -74,6 +75,52 @@ public class SnapshotReaderTest {
 			assertThat(expected.getMessage(), equalTo("Snapshot is format version 1, this build reads "
 				+ SnapshotFormat.VERSION + "; re-import the bootstrap"));
 		}
+	}
+
+	@Example
+	public void shouldRefuseANegativeAddressCount() {
+		final Path path = patched(header -> header.putInt(SnapshotFormat.ADDRESS_COUNT_OFFSET, 0xFFFFFFFF));
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "address count");
+	}
+
+	@Example
+	public void shouldRefuseANegativeEntryCountAndTransactionCount() {
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.ENTRY_COUNT_OFFSET, -1))), "entry count");
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET, Long.MIN_VALUE))), "transaction count");
+	}
+
+	@Example
+	public void shouldRefuseANegativeTipHeight() {
+		final Path path = patched(header -> header.putInt(SnapshotFormat.TIP_HEIGHT_OFFSET, -1));
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "tip height");
+	}
+
+	@Example
+	public void shouldRefuseANegativeTableOffset() {
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.ADDRESS_TABLE_OFFSET, -1))), "address table offset");
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.BLOCK_TIME_TABLE_OFFSET, Long.MIN_VALUE))), "block time table offset");
+	}
+
+	@Example
+	public void shouldRefuseATableThatStartsPastTheEndOfTheFile() {
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.ENTRY_TABLE_OFFSET, header.capacity() + 1L))), "entry table");
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(patched(header ->
+			header.putLong(SnapshotFormat.TRANSACTION_TABLE_OFFSET, Long.MAX_VALUE))), "transaction table");
+	}
+
+	@Example
+	public void shouldRefuseATableThatRunsPastTheEndOfTheFile() {
+		final Path path = patched(header -> header.putInt(SnapshotFormat.ADDRESS_COUNT_OFFSET,
+			header.capacity()));
+
+		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "address table");
 	}
 
 	@Example
@@ -204,6 +251,16 @@ public class SnapshotReaderTest {
 		};
 
 		return signature;
+	}
+
+	@SneakyThrows
+	private static Path patched(Consumer<ByteBuffer> patch) {
+		final Path path = validSnapshot();
+		final byte[] bytes = Files.readAllBytes(path);
+
+		patch.accept(ByteBuffer.wrap(bytes));
+		Files.write(path, bytes);
+		return path;
 	}
 
 	@SneakyThrows
