@@ -32,9 +32,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -1633,14 +1635,17 @@ public class ChainExitTest {
 
 		try (Threaded node = new Threaded()) {
 			final ChainId chain = node.chain(0);
-			final List<Entry> posted = new ArrayList<>();
+			final Queue<Entry> posted = new ConcurrentLinkedQueue<>();
 			final List<ClientSession> sessions = IntStream.range(0, 4).mapToObj(number -> new ClientSession(
 				new SessionContext(new FeedWriter(ChainFleet.key(300 + number), chain), posted::add,
 				node.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS),
 				(fingerprint, excluded) -> Optional.of(EXIT), CONNECT)).toList();
+			/* The replies of the destinations are posted from the other threads while this one hands entries over, so
+			   an entry is taken off the queue as it is offered and none can be cleared unoffered */
 			final Runnable post = () -> {
-				posted.forEach(node::offer);
-				posted.clear();
+				for (Entry entry = posted.poll(); entry != null; entry = posted.poll()) {
+					node.offer(entry);
+				}
 			};
 
 			sessions.forEach(ClientSession::open);
