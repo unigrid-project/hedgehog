@@ -34,12 +34,11 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.network.handler.SporkRecipients;
-import org.unigrid.hedgehog.model.spork.BoardKeys;
-import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporkInfo;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkIntake;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
 
@@ -126,31 +125,18 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private Response store(GridSpork spork) {
-		if (pendingSporks.isAheadOfTime(spork)) {
-			return refused(Response.Status.CONFLICT, AHEAD);
-		}
+		final SporkIntake.Outcome outcome = SporkIntake.take(spork, sporkDatabase.get(spork.getType()),
+			sporkDatabase, pendingSporks, lag.turnOf(spork.getType(), SporkLag.LOCAL)
+		);
 
-		if (!isStored(spork)) {
-			return refused(Response.Status.CONFLICT, NOT_NEWER);
-		}
-
-		SporkRecipients.sendAll(spork, topology);
-		return Response.ok().build();
-	}
-
-	private boolean isStored(GridSpork spork) {
-		if (spork instanceof BoardKeys boardKeys) {
-			return BoardKeysAuthority.accept(boardKeys, sporkDatabase, pendingSporks, () -> true);
-		}
-
-		final GridSpork stored = sporkDatabase.get(spork.getType());
-
-		if (!spork.canReplace(stored) || !sporkDatabase.replace(stored, spork)) {
-			return false;
-		}
-
-		pendingSporks.retainProposalsOver(spork.getType(), () -> sporkDatabase.get(spork.getType()));
-		return true;
+		return switch (outcome) {
+			case AHEAD -> refused(Response.Status.CONFLICT, AHEAD);
+			case NOT_NEWER -> refused(Response.Status.CONFLICT, NOT_NEWER);
+			case STORED -> {
+				SporkRecipients.sendAll(spork, topology);
+				yield Response.ok().build();
+			}
+		};
 	}
 
 	/* A held proposal is answered with JSON, while a reason is plain text, which the command line shows as it is */

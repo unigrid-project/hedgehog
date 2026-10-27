@@ -26,12 +26,11 @@ import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
-import org.unigrid.hedgehog.model.spork.BoardKeys;
-import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkIntake;
 import org.unigrid.hedgehog.model.spork.SporkLag;
 
 @Slf4j
@@ -114,36 +113,6 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 			return turn.charging(() -> pendingSporks.offer(spork, () -> db.get(spork.getType()), turn));
 		}
 
-		if (pendingSporks.isAheadOfTime(spork)) {
-			log.atDebug().log("Dropped a {} spork stamped ahead of the clock", spork.getType());
-			return false;
-		}
-
-		if (!turn.charging(() -> mayReplace(spork, stored, db, turn))) {
-			log.atDebug().log("Dropped a {} spork that cannot replace the stored one", spork.getType());
-			return false;
-		}
-
-		turn.giveBack();
-		return commit(spork, stored, db, pendingSporks);
-	}
-
-	private static boolean mayReplace(GridSpork spork, GridSpork stored, SporkDatabase db, SporkLag.Turn turn) {
-		return spork instanceof BoardKeys boardKeys ? BoardKeysAuthority.mayAccept(boardKeys, db, turn)
-			: spork.canReplace(stored, turn);
-	}
-
-	private static boolean commit(GridSpork spork, GridSpork judged, SporkDatabase db, PendingSporks pendingSporks) {
-		if (spork instanceof BoardKeys boardKeys) {
-			return BoardKeysAuthority.commit(boardKeys, db, pendingSporks);
-		}
-
-		if (!db.replace(judged, spork)) {
-			log.atDebug().log("Dropped a {} spork that a version stored meanwhile outdates", spork.getType());
-			return false;
-		}
-
-		pendingSporks.retainProposalsOver(spork.getType(), () -> db.get(spork.getType()));
-		return true;
+		return SporkIntake.take(spork, stored, db, pendingSporks, turn) == SporkIntake.Outcome.STORED;
 	}
 }
