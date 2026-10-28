@@ -23,8 +23,7 @@ import java.util.Objects;
 
 public final class Entry {
 	public static final int SIGNATURE_SIZE = 64;
-	public static final int HEADER_SIZE = ChainId.SIZE + WriterId.SIZE + 3 * Long.BYTES + Fingerprint.SIZE
-		+ Byte.BYTES + Integer.BYTES;
+	public static final int HEADER_SIZE = ChainId.SIZE + WriterId.SIZE + 3 * Long.BYTES + Tag.SIZE + Integer.BYTES;
 	public static final int TRAILER_SIZE = Long.BYTES + SIGNATURE_SIZE;
 	public static final int OVERHEAD = HEADER_SIZE + TRAILER_SIZE;
 
@@ -87,6 +86,6 @@ public final class Entry {
 
 	@Override
 	public String toString() {
-		return header.kind() + " " + header.seq() + " of " + header.writer();
+		return "Entry " + header.seq() + " of " + header.writer();
 	}
 }

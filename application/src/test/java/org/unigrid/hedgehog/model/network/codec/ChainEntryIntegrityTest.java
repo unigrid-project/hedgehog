@@ -46,19 +46,19 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryCodec;
 import org.unigrid.hedgehog.proxy.chain.EntryHeader;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 
 public class ChainEntryIntegrityTest extends BaseCodecTest<ChainEntry> {
-	private static final int KIND_OFFSET = Entry.HEADER_SIZE - Integer.BYTES - Byte.BYTES;
+	private static final int SEQ_OFFSET = ChainId.SIZE + WriterId.SIZE;
 	private static final int FIRST_ENTRY_OFFSET = Short.BYTES + Integer.BYTES;
 	private static final int LARGEST_PAYLOAD = ChainCodecs.MAX_ENTRY_BYTES - Entry.OVERHEAD;
 	private static final WriterKey KEY = new WriterKey(new byte[WriterKey.SEED_SIZE]);
 
 	private static Entry entry(final long seq, final int payloadBytes) {
-		return KEY.sign(new EntryHeader(new ChainId(new byte[ChainId.SIZE]), KEY.id(), seq, 0, 0, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[payloadBytes]);
+		return KEY.sign(new EntryHeader(new ChainId(new byte[ChainId.SIZE]), KEY.id(), seq, 0, 0,
+			new Tag(new byte[Tag.SIZE])), new byte[payloadBytes]);
 	}
 
 	private static long frameBytes(final ChainEntry batch) throws Exception {
@@ -120,13 +120,13 @@ public class ChainEntryIntegrityTest extends BaseCodecTest<ChainEntry> {
 	}
 
 	@Property(tries = 30)
-	public void decoderRefusesEntriesOfAnUnknownKind(@ForAll("entries") Entry entry,
+	public void decoderRefusesEntriesOfANegativeSequenceNumber(@ForAll("entries") Entry entry,
 		@Mocked ChannelHandlerContext context) {
 
 		final byte[] encoded = EntryCodec.encode(entry);
 		final ByteBuf in = Unpooled.buffer().writeShort(1).writeInt(encoded.length).writeBytes(encoded);
 
-		in.setByte(FIRST_ENTRY_OFFSET + KIND_OFFSET, 0);
+		in.setByte(FIRST_ENTRY_OFFSET + SEQ_OFFSET, 0x80);
 		assertThrows(IllegalArgumentException.class, () -> new ChainEntryDecoder().typedDecode(context, in));
 	}
 

@@ -32,7 +32,6 @@ import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -102,11 +101,10 @@ public class SessionAcceptTest {
 
 		final Entry answer = ends.fromExit.get(0);
 
-		assertThat(answer.header().kind(), is(EntryKind.SEALED));
 		assertThat(answer.header().chainId(), equalTo(SessionFixtures.CHAIN));
 		assertThat(answer.header().writer(), equalTo(ends.exit.writer().writer()));
 		assertThat(answer.size(), is(SMALLEST_CLASS));
-		assertThat(Session.tagOf(answer), equalTo(answerTag(initiation)));
+		assertThat(answer.header().tag(), equalTo(answerTag(initiation)));
 		assertThat(session.peer(), equalTo(ends.client.writer().writer()));
 		assertThat(session.isOpen(), is(true));
 	}
@@ -225,7 +223,7 @@ public class SessionAcceptTest {
 
 		assertThat(Arrays.copyOf(ends.fromExit.get(0).payload(), NoiseNk.KEY_SIZE),
 			not(equalTo(Arrays.copyOf(ends.fromExit.get(1).payload(), NoiseNk.KEY_SIZE))));
-		assertThat(Session.tagOf(ends.fromExit.get(0)), equalTo(Session.tagOf(ends.fromExit.get(1))));
+		assertThat(ends.fromExit.get(0).header().tag(), equalTo(ends.fromExit.get(1).header().tag()));
 	}
 
 	@Example

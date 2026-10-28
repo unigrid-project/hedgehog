@@ -51,7 +51,7 @@ public class MalformedEntryTest {
 	public void shouldRefuseAPayloadLongerThanTheBytesThatFollow(@ForAll("entries") Entry entry) {
 		final byte[] bytes = EntryCodec.encode(entry);
 
-		ByteBuffer.wrap(bytes).putInt(105, entry.payload().length + Entry.SIGNATURE_SIZE + 1);
+		ByteBuffer.wrap(bytes).putInt(104, entry.payload().length + Entry.SIGNATURE_SIZE + 1);
 
 		final InvalidEntryException thrown = Expect.assertThrows(InvalidEntryException.class,
 			() -> EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));

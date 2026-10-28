@@ -115,11 +115,6 @@ public final class Session {
 		return ByteBuffer.allocate(ChainId.SIZE + WriterId.SIZE).put(chainId.bytes()).put(client.bytes()).array();
 	}
 
-	/* The tag an entry carries in place of its fingerprint */
-	static Tag tagOf(Entry entry) {
-		return new Tag(entry.header().fingerprint().bytes());
-	}
-
 	/* The feed of the peer: the client's writer of the opening at the exit, and the writer whose answer completed the
 	   handshake at the client */
 	public WriterId peer() {
@@ -137,13 +132,13 @@ public final class Session {
 
 	/* Whether the entry is the peer's and carries its next tag, which is the only one that opens */
 	public synchronized boolean expects(Entry entry) {
-		return isOfPeer(entry) && Long.valueOf(received).equals(ahead.get(tagOf(entry)));
+		return isOfPeer(entry) && Long.valueOf(received).equals(ahead.get(entry.header().tag()));
 	}
 
 	/* Whether the entry is the peer's and carries a tag that this session still looks out for, the next one or one
 	   past it: those after the next one mean that messages before them were lost */
 	public synchronized boolean recognises(Entry entry) {
-		return isOfPeer(entry) && ahead.containsKey(tagOf(entry));
+		return isOfPeer(entry) && ahead.containsKey(entry.header().tag());
 	}
 
 	/* Whether the chain gave up on entries of the peer that carried a tag this session looks out for */

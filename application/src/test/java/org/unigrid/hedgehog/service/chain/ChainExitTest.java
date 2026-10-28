@@ -77,9 +77,7 @@ import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
@@ -172,18 +170,18 @@ public class ChainExitTest {
 
 		/* The tag of the next message of the first session, which its relay looks out for. The message is sent and
 		   never delivered, so the feed of this caller has a hole from then on. */
-		private Fingerprint nextTag() {
+		private Tag nextTag() {
 			return nextTag(session());
 		}
 
-		private Fingerprint nextTag(final ClientSession of) {
+		private Tag nextTag(final ClientSession of) {
 			of.send(new Data(new byte[] { 0 }));
-			return posted.remove(posted.size() - 1).header().fingerprint();
+			return posted.remove(posted.size() - 1).header().tag();
 		}
 
 		/* An entry of this caller's own feed, written beside its sessions */
-		private Entry write(final Fingerprint fingerprint, final EntryKind kind, final byte[] payload) {
-			return context.writer().write(rig.fleet.clock.get(), fingerprint, kind, payload);
+		private Entry write(final Tag tag, final byte[] payload) {
+			return context.writer().write(rig.fleet.clock.get(), tag, payload);
 		}
 
 		private void send() {
@@ -309,8 +307,7 @@ public class ChainExitTest {
 
 		/* What another writer posts when it copies an entry it saw on the chain */
 		private Entry copy(final Entry entry, final int writer, final ChainId chainId) {
-			return stranger(writer, chainId).write(fleet.clock.get(), entry.header().fingerprint(),
-				entry.header().kind(), entry.payload());
+			return stranger(writer, chainId).write(fleet.clock.get(), entry.header().tag(), entry.payload());
 		}
 
 		private List<Entry> entries(final ChainId chainId) {
@@ -325,16 +322,16 @@ public class ChainExitTest {
 
 		/* The entries of the chain under the answer tag of an opening sealed to the exit */
 		private List<Entry> answers(final ChainId chainId) {
-			final Set<Fingerprint> tags = openings(chainId).stream().map(opening -> ChainFleet.answerTagOf(opening,
+			final Set<Tag> tags = openings(chainId).stream().map(opening -> ChainFleet.answerTagOf(opening,
 				EXIT)).collect(Collectors.toSet());
 
-			return entries(chainId).stream().filter(entry -> tags.contains(entry.header().fingerprint())).toList();
+			return entries(chainId).stream().filter(entry -> tags.contains(entry.header().tag())).toList();
 		}
 
 		private long answers(final ChainId chainId, final Entry opening) {
-			final Fingerprint tag = ChainFleet.answerTagOf(opening, EXIT);
+			final Tag tag = ChainFleet.answerTagOf(opening, EXIT);
 
-			return entries(chainId).stream().filter(entry -> entry.header().fingerprint().equals(tag)).count();
+			return entries(chainId).stream().filter(entry -> entry.header().tag().equals(tag)).count();
 		}
 
 		private int accepts() {
@@ -426,13 +423,6 @@ public class ChainExitTest {
 		return new Reached(caller, rig.sockets.get(0).closes::get);
 	}
 
-	private static Fingerprint fingerprint() {
-		final byte[] bytes = new byte[Fingerprint.SIZE];
-
-		RANDOM.nextBytes(bytes);
-		return new Fingerprint(bytes);
-	}
-
 	private static byte[] padded(final byte[] payload) {
 		return ChainFleet.padded(payload, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
 	}
@@ -449,7 +439,7 @@ public class ChainExitTest {
 			.put(writer.writer().bytes()).array();
 		final byte[] message = NoiseNk.initiate(candidate(exitId).sealingKey(), prologue, RANDOM).message();
 
-		return writer.write(now, fingerprint(), EntryKind.SEALED, padded(message));
+		return writer.write(now, Tag.random(RANDOM), padded(message));
 	}
 
 	private static ChainEntry packet(final Entry entry) {
@@ -588,8 +578,8 @@ public class ChainExitTest {
 
 		rig.offer(rig.copy(open, 9, chain));
 		caller.session().send(new Data(new byte[] { 1 }));
-		rig.offer(rig.stranger(9, chain).write(rig.fleet.clock.get(), caller.posted.get(0).header().fingerprint(),
-			EntryKind.SEALED, padded(new byte[40])));
+		rig.offer(rig.stranger(9, chain).write(rig.fleet.clock.get(), caller.posted.get(0).header().tag(),
+			padded(new byte[40])));
 		rig.drive();
 		rig.connector.requests.get(0).listener().received(new byte[] { 2 });
 		rig.drive();
@@ -665,19 +655,19 @@ public class ChainExitTest {
 		assertThat(rig.accepts(), is(1));
 		assertThat(rig.exit.heldRelays(), is(1));
 		assertThat(other.heldRelays(), is(1));
-		assertThat(atOther.stream().filter(entry -> entry.header().fingerprint().equals(ChainFleet.answerTagOf(
+		assertThat(atOther.stream().filter(entry -> entry.header().tag().equals(ChainFleet.answerTagOf(
 			toOther, otherId))).count(), is(1L));
-		assertThat(atOther.stream().filter(entry -> entry.header().fingerprint().equals(ChainFleet.answerTagOf(
+		assertThat(atOther.stream().filter(entry -> entry.header().tag().equals(ChainFleet.answerTagOf(
 			toExit, EXIT))).count(), is(0L));
 	}
 
 	/* The writer of the chain withholds an entry, and the ones after it, under the tags given, wait for the gap until
 	   the retention window has passed, when the chain gives the gap up and tells the exit the tags they had */
-	private static void leaveAGap(final Rig rig, final FeedWriter writer, final Fingerprint... tags) {
-		writer.write(rig.fleet.clock.get(), Fingerprint.NONE, EntryKind.SEALED, padded(new byte[1]));
+	private static void leaveAGap(final Rig rig, final FeedWriter writer, final Tag... tags) {
+		writer.write(rig.fleet.clock.get(), ChainFleet.TAG, padded(new byte[1]));
 
-		for (final Fingerprint tag : tags) {
-			rig.offer(writer.write(rig.fleet.clock.get(), tag, EntryKind.SEALED, padded(new byte[1])));
+		for (final Tag tag : tags) {
+			rig.offer(writer.write(rig.fleet.clock.get(), tag, padded(new byte[1])));
 		}
 
 		rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.chainLimits().retentionMillis() + 1000);
@@ -736,10 +726,10 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
-		final Fingerprint tag = caller.nextTag();
+		final Tag tag = caller.nextTag();
 
 		leaveAGap(rig, rig.stranger(9, rig.fleet.chain()), tag);
-		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(new Tag(tag.bytes()))));
+		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(tag)));
 
 		assertThat(target.closed, is(false));
 		assertThat(rig.exit.openRelays(), is(1));
@@ -821,13 +811,13 @@ public class ChainExitTest {
 
 		early.session().open();
 
-		final Fingerprint opening = early.posted.get(0).header().fingerprint();
+		final Tag opening = early.posted.get(0).header().tag();
 
 		early.send();
 		rig.fleet.clock.incrementAndGet();
 		late.session().open();
 		late.send();
-		rig.offer(rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), opening, EntryKind.SEALED,
+		rig.offer(rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), opening,
 			new byte[40]));
 
 		rig.fleet.clock.addAndGet(ChainExit.CONNECT_ARRIVAL_MILLIS - 2);
@@ -1132,22 +1122,22 @@ public class ChainExitTest {
 
 	/* Only an entry of the session's own client under the tag of its next message is opened by the session */
 	@Property(tries = 40)
-	public void leavesASessionWholeWhateverElseTheChainCarries(@ForAll EntryKind kind,
-		@ForAll @Size(max = 96) byte[] payload, @ForAll boolean ofItsClient, @ForAll boolean underItsOpeningsTag) {
+	public void leavesASessionWholeWhateverElseTheChainCarries(@ForAll @Size(max = 96) byte[] payload,
+		@ForAll boolean ofItsClient, @ForAll boolean underItsOpeningsTag) {
 
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 
 		caller.session().open();
 
-		final Fingerprint opening = caller.posted.get(0).header().fingerprint();
+		final Tag opening = caller.posted.get(0).header().tag();
 
 		rig.drive();
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
-		final Fingerprint fingerprint = underItsOpeningsTag ? opening : fingerprint();
-		final Entry entry = ofItsClient ? caller.write(fingerprint, kind, padded(payload))
-			: rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), fingerprint, kind, padded(payload));
+		final Tag tag = underItsOpeningsTag ? opening : Tag.random(RANDOM);
+		final Entry entry = ofItsClient ? caller.write(tag, padded(payload))
+			: rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), tag, padded(payload));
 
 		rig.drive();
 		assertThat(ChainFleet.warningsWhile(() -> rig.offer(entry)), is(empty()));
@@ -1195,8 +1185,8 @@ public class ChainExitTest {
 			largest, 300, 3)));
 		final FeedWriter stranger = rig.stranger(9, rig.fleet.chain());
 
-		IntStream.range(0, 4).forEach(number -> rig.offer(stranger.write(rig.fleet.clock.get(), Fingerprint.NONE,
-			EntryKind.SEALED, ChainFleet.padded(new byte[largest - Entry.OVERHEAD], largest))));
+		IntStream.range(0, 4).forEach(number -> rig.offer(stranger.write(rig.fleet.clock.get(), ChainFleet.TAG,
+			ChainFleet.padded(new byte[largest - Entry.OVERHEAD], largest))));
 		assertThat(rig.fleet.host(EXIT).chain(rig.fleet.chain()).orElseThrow().bytes(), is(4L * largest));
 
 		final Caller caller = rig.caller(1);
@@ -1755,7 +1745,7 @@ public class ChainExitTest {
 		rig.exit.stop();
 		caller.session().send(new Data(new byte[] { 1 }));
 		rig.drive();
-		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(new Tag(caller.nextTag().bytes()))));
+		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(caller.nextTag())));
 		rig.caller(2).open();
 
 		assertThat(rig.scheduler.isShutdown(), is(true));
@@ -1818,10 +1808,10 @@ public class ChainExitTest {
 		}
 
 		private long answers(final ChainId chainId, final Entry opening) {
-			final Fingerprint tag = ChainFleet.answerTagOf(opening, EXIT);
+			final Tag tag = ChainFleet.answerTagOf(opening, EXIT);
 
 			return host.chain(chainId).orElseThrow().entries().stream()
-				.filter(entry -> entry.header().fingerprint().equals(tag)).count();
+				.filter(entry -> entry.header().tag().equals(tag)).count();
 		}
 
 		/* A thread that hands a chain entries leaves them to the delivery thread when that one drains the chain, and

@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.service.chain;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -61,9 +62,8 @@ import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostListenerTest {
@@ -498,7 +498,7 @@ public class ChainHostListenerTest {
 		final ChainFleet fleet = ChainFleet.group();
 		final List<Offered> offered = listen(fleet.host("gn-2"));
 		final Entry open = new FeedWriter(ChainFleet.key(1), fleet.chain()).write(ChainFleet.NOW,
-			new Fingerprint(new byte[Fingerprint.SIZE]), EntryKind.OPEN, padded(new byte[] { 1 }));
+			ChainFleet.TAG, padded(new byte[] { 1 }));
 
 		post(fleet, "gn-0", fleet.client("gn-0", 1), List.of(open));
 
@@ -507,20 +507,19 @@ public class ChainHostListenerTest {
 		assertThat(heard(offered), contains(open));
 	}
 
+	/* Nothing tells the host what an entry carries, so it offers entries of every size class and tag alike */
 	@Example
-	public void offersEntriesOfEveryKindAndLeavesTheOpensMarkedByKind() {
+	public void offersEntriesOfEverySizeClassAndTagAlike() {
 		final ChainFleet fleet = ChainFleet.group();
 		final List<Offered> offered = listen(fleet.host("gn-0"));
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(1), fleet.chain());
-		final List<EntryKind> kinds = List.of(EntryKind.SEALED, EntryKind.OPEN, EntryKind.ACCEPT, EntryKind.JOIN,
-			EntryKind.LEAVE, EntryKind.OPEN);
-		final List<Entry> entries = kinds.stream()
-			.map(kind -> feed.write(ChainFleet.NOW, Fingerprint.NONE, kind, padded(new byte[] { 1 }))).toList();
+		final List<Entry> entries = IntStream.of(0, 2000, 8000, 0).mapToObj(bytes -> feed.write(ChainFleet.NOW,
+			Tag.random(new SecureRandom()), padded(new byte[bytes]))).toList();
 
 		post(fleet, "gn-0", fleet.client("gn-0", 1), entries);
 
 		assertThat(heard(offered), equalTo(entries));
-		assertThat(offered.stream().map(each -> each.entry().header().kind()).toList(), equalTo(kinds));
+		assertThat(entries.stream().map(Entry::size).toList(), equalTo(List.of(1024, 4096, 16 * 1024, 1024)));
 	}
 
 	@Example

@@ -60,9 +60,8 @@ import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.Close;
 import org.unigrid.hedgehog.proxy.session.CloseReason;
@@ -121,7 +120,7 @@ public class ClientSessionsTest {
 			this(fleet, fleet.clock::get, fleet.settings::get, new SecureRandom());
 		}
 
-		/* The sessions read the time, the settings and their fingerprints from sources of their own, which a test
+		/* The sessions read the time, the settings and their randomness from sources of their own, which a test
 		   may make fail or fix */
 		private Rig(final ChainFleet fleet, final LongSupplier clock, final ProxySettingsSource settings,
 			final SecureRandom random) {
@@ -219,12 +218,11 @@ public class ClientSessionsTest {
 
 		/* A writer the client has not heard of writes three entries under the tag and the middle one never arrives,
 		   until the client's chain gives up on it */
-		private void strangerLoses(final Fingerprint tag) {
+		private void strangerLoses(final Tag tag) {
 			final ChainAttachment attachment = attachment();
 			final FeedWriter stranger = new FeedWriter(ChainFleet.key(200 + strangers++), attachment.chainId());
 			final List<Entry> written = Stream.generate(() -> stranger.write(fleet.clock.get(), tag,
-				EntryKind.SEALED, ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes())))
-				.limit(3).toList();
+				ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()))).limit(3).toList();
 
 			fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder()
 				.entries(List.of(written.get(0), written.get(2))).build());
@@ -242,7 +240,7 @@ public class ClientSessionsTest {
 		future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 	}
 
-	/* Fingerprints and keys drawn from the seed, so that a try that fails comes back the same */
+	/* Tags, keys and padding drawn from the seed, so that a try that fails comes back the same */
 	@SneakyThrows
 	private static SecureRandom seeded(final long seed) {
 		final SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
@@ -340,7 +338,7 @@ public class ClientSessionsTest {
 		final List<Entry> opens = rig.opens();
 
 		assertThat(opens.size(), is(2));
-		assertThat(opens.get(0).header().fingerprint(), not(equalTo(opens.get(1).header().fingerprint())));
+		assertThat(opens.get(0).header().tag(), not(equalTo(opens.get(1).header().tag())));
 		assertThat(Rig.exitOf(opens.get(0)), not(equalTo(Rig.exitOf(opens.get(1)))));
 		assertThat(rig.answering().received, equalTo(List.of(CONNECT)));
 	}
@@ -552,12 +550,12 @@ public class ClientSessionsTest {
 		rig.mute(true);
 		rig.sessions.open(CONNECT, listener);
 		rig.fleet.deliver();
-		rig.strangerLoses(rig.opens().get(0).header().fingerprint());
+		rig.strangerLoses(rig.opens().get(0).header().tag());
 		assertThat(listener.messages, equalTo(List.of()));
 
 		rig.mute(false);
 		rig.after(ClientSession.ACCEPT_TIMEOUT_MILLIS);
-		rig.strangerLoses(rig.opens().get(0).header().fingerprint());
+		rig.strangerLoses(rig.opens().get(0).header().tag());
 		rig.fleet.deliver();
 
 		assertThat(listener.messages, equalTo(List.of()));
@@ -904,7 +902,7 @@ public class ClientSessionsTest {
 		final ChainAttachment earlier = rig.attachment();
 		final List<Session> answered = rig.exitSessions();
 		final Entry filler = new FeedWriter(ChainFleet.key(400), earlier.chainId()).write(rig.fleet.clock.get(),
-			Fingerprint.NONE, EntryKind.SEALED, ChainFleet.padded(new byte[0], tiny.chainLimits().maxEntryBytes()));
+			ChainFleet.TAG, ChainFleet.padded(new byte[0], tiny.chainLimits().maxEntryBytes()));
 
 		/* Another writer takes the room left after the handshake, which the next session's exit needs for its
 		   Connected once both have gone past the retention window */

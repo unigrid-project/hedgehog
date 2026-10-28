@@ -57,7 +57,6 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.SizeClasses;
@@ -195,7 +194,7 @@ public class SessionTest {
 
 	/* The counter of each entry, read back from its tag */
 	private static List<Long> counters(List<Entry> entries) {
-		return entries.stream().map(entry -> CLIENT_TAGS.get(Session.tagOf(entry))).collect(Collectors.toList());
+		return entries.stream().map(entry -> CLIENT_TAGS.get(entry.header().tag())).collect(Collectors.toList());
 	}
 
 	/* A session of one end of the pair on the same writer, as the pair's own session is but on another outbox */
@@ -329,8 +328,7 @@ public class SessionTest {
 
 		pair.client.send(new Data(new byte[] { 1, 2, 3 }));
 		assertThat(pair.fromClient, hasSize(1));
-		assertThat(pair.fromClient.get(0).header().kind(), is(EntryKind.SEALED));
-		assertThat(Session.tagOf(pair.fromClient.get(0)), equalTo(clientTag(0)));
+		assertThat(pair.fromClient.get(0).header().tag(), equalTo(clientTag(0)));
 		assertThat(pair.fromClient.get(0).header().writer(), equalTo(pair.clientContext.writer().writer()));
 		assertThat(pair.fromClient.get(0).size(), is(SMALLEST_CLASS));
 	}
@@ -585,8 +583,8 @@ public class SessionTest {
 
 		assertThat(pair.exit.receive(entries.get(0)), equalTo(Optional.of(new Data(new byte[] { 0 }))));
 
-		final Entry past = stranger.post(Session.tagOf(entries.get(0)), entries.get(0).payload());
-		final Entry next = stranger.post(Session.tagOf(entries.get(1)), entries.get(1).payload());
+		final Entry past = stranger.post(entries.get(0).header().tag(), entries.get(0).payload());
+		final Entry next = stranger.post(entries.get(1).header().tag(), entries.get(1).payload());
 
 		for (Entry copy : List.of(past, next)) {
 			assertThat(pair.exit.expects(copy), is(false));
@@ -924,8 +922,7 @@ public class SessionTest {
 
 		assertThat(taken, equalTo(List.of(posted)));
 		assertThat(posted.header().timestamp(), is(SessionFixtures.NOW));
-		assertThat(posted.header().kind(), is(EntryKind.SEALED));
-		assertThat(Session.tagOf(posted), equalTo(TAG));
+		assertThat(posted.header().tag(), equalTo(TAG));
 		assertThat(posted.payload(), equalTo(new byte[] { 1 }));
 		assertThat(posted.isAuthentic(), is(true));
 	}

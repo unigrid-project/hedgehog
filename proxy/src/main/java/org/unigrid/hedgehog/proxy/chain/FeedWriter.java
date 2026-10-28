@@ -59,14 +59,13 @@ public final class FeedWriter {
 	   backwards, so a clock that goes back holds the last timestamp. The lock is the writer's own monitor so that a
 	   caller can synchronize on the writer to write and post as one step. The state moves only once the entry is
 	   signed, so a refused write leaves the writer as it was */
-	public synchronized Entry write(long nowMillis, Fingerprint fingerprint, EntryKind kind, byte[] payload) {
+	public synchronized Entry write(long nowMillis, Tag tag, byte[] payload) {
 		if (nextSeq == LAST_SEQ) {
 			throw new IllegalStateException("The writer has used every sequence number of its feed");
 		}
 
 		final long held = Math.max(timestamp, nowMillis - Math.floorMod(nowMillis, Entry.STAMP_MILLIS));
-		final Entry entry = key.sign(new EntryHeader(chainId, key.id(), nextSeq, prev, held, fingerprint, kind),
-			payload);
+		final Entry entry = key.sign(new EntryHeader(chainId, key.id(), nextSeq, prev, held, tag), payload);
 
 		timestamp = held;
 		nextSeq++;

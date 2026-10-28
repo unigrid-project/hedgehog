@@ -44,9 +44,8 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryCodec;
 import org.unigrid.hedgehog.proxy.chain.EntryHeader;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 
@@ -55,7 +54,7 @@ public class ChainCodecsTest {
 	private static final ChainId CHAIN = new ChainId(new byte[ChainId.SIZE]);
 
 	private static Entry entry(final long seq, final int payloadBytes) {
-		return KEY.sign(new EntryHeader(CHAIN, KEY.id(), seq, 0, 0, Fingerprint.NONE, EntryKind.SEALED),
+		return KEY.sign(new EntryHeader(CHAIN, KEY.id(), seq, 0, 0, new Tag(new byte[Tag.SIZE])),
 			new byte[payloadBytes]);
 	}
 

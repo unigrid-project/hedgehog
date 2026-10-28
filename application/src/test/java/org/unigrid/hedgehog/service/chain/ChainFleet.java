@@ -63,10 +63,9 @@ import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.SizeClasses;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.GroupView;
@@ -82,6 +81,9 @@ import org.unigrid.hedgehog.proxy.session.Tags;
 final class ChainFleet {
 	static final long NOW = 1_750_000_000_000L;
 	static final int MEMBERS = 4;
+
+	/* The tag of the entries `write` writes, which no session looks out for */
+	static final Tag TAG = new Tag(new byte[Tag.SIZE]);
 	private static final int MAX_ROUNDS = 100;
 	private static final int MAX_PACKETS_PER_ROUND = 1_000;
 
@@ -139,8 +141,8 @@ final class ChainFleet {
 	}
 
 	/* The tag of the answer to an opening, in the fingerprint field where entries carry it */
-	static Fingerprint answerTagOf(final Entry opening, final String member) {
-		return new Fingerprint(Tags.of(responderOf(opening, member).orElseThrow().answerTagKey(),
+	static Tag answerTagOf(final Entry opening, final String member) {
+		return new Tag(Tags.of(responderOf(opening, member).orElseThrow().answerTagKey(),
 			Direction.EXIT_TO_CLIENT, 0).bytes());
 	}
 
@@ -192,7 +194,7 @@ final class ChainFleet {
 	/* The next entries of a feed, so that one writer can write at different times. Each is of the smallest class, which
 	   every chain has, and its payload starts with its number. */
 	static List<Entry> write(final FeedWriter feed, final int count, final long timestamp) {
-		return IntStream.range(0, count).mapToObj(number -> feed.write(timestamp, Fingerprint.NONE, EntryKind.SEALED,
+		return IntStream.range(0, count).mapToObj(number -> feed.write(timestamp, TAG,
 			padded(new byte[] { (byte) number }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()))).toList();
 	}
 

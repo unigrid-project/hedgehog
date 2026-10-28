@@ -53,7 +53,7 @@ public class ChainCapacityTest {
 
 		for (int seq = 0; seq < payloadBytes.length; seq++) {
 			final Entry entry = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), seq, prev,
-				NOW + seq * Entry.STAMP_MILLIS, Fingerprint.NONE, EntryKind.SEALED),
+				NOW + seq * Entry.STAMP_MILLIS, ChainFixtures.TAG),
 				Padding.padded(new byte[payloadBytes[seq]], limits.maxEntryBytes()));
 
 			entries.add(entry);
@@ -101,7 +101,7 @@ public class ChainCapacityTest {
 	@Property(tries = 5)
 	public void shouldRefuseEntriesOnceTheChainAndItsReserveAreFull(@ForAll @IntRange(min = 1, max = 5) int attempts) {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW);
 
 		entries.subList(0, 5).forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
 
@@ -117,9 +117,8 @@ public class ChainCapacityTest {
 	public void shouldTakeTheRefusedEntryOnceTheOldOnesExpire() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, clock::get);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
-		final Entry refused = ChainFixtures.signed(WRITER, CHAIN, 5, entries.get(4).hash(), NOW + 20_000,
-			EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW);
+		final Entry refused = ChainFixtures.signed(WRITER, CHAIN, 5, entries.get(4).hash(), NOW + 20_000);
 
 		entries.forEach(chain::offer);
 		assertThat(chain.offer(refused).admission(), is(Admission.FULL));
@@ -132,11 +131,11 @@ public class ChainCapacityTest {
 	@Example
 	public void shouldRefuseALargerEntryThatIsOneByteOverTheCapacity() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE + 1), () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 3, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 3, NOW);
 		final long prev = entries.get(2).hash();
-		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3000, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
-		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3000, EntryKind.SEALED);
+		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3000, ChainFixtures.TAG),
+			new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
+		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3000);
 
 		entries.forEach(chain::offer);
 		assertThat(chain.offer(oneTooLarge).admission(), is(Admission.FULL));
@@ -148,10 +147,10 @@ public class ChainCapacityTest {
 	public void shouldLeaveNoTraceOfARefusedEntryFromAnotherWriter() {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW);
 
 		entries.forEach(chain::offer);
-		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 5000, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 5000)).admission(),
 			is(Admission.FULL));
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(4, entries.get(4).hash()))));
 		assertThat(chain.bytes(), is(5L * ENTRY_SIZE));
@@ -162,7 +161,7 @@ public class ChainCapacityTest {
 	@Example
 	public void shouldAnswerFromTheFeedBeforeRefusingForRoom() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW);
 
 		entries.forEach(chain::offer);
 		assertThat(chain.offer(entries.get(4)).admission(), is(Admission.DUPLICATE));
@@ -172,7 +171,7 @@ public class ChainCapacityTest {
 	@Example
 	public void shouldNotAnswerFullToAnEntryThatIsNotAuthentic() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW);
 		final Entry genuine = entries.get(5);
 		final Entry tampered = new Entry(genuine.header(), genuine.payload(), genuine.hash() + 1, genuine.signature());
 

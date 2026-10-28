@@ -62,10 +62,9 @@ import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -132,9 +131,8 @@ public class ChainHostReconcileTest {
 	private static List<Entry> writeAt(final ChainFleet fleet, final int writer, final long... timestamps) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), fleet.chain());
 
-		return Arrays.stream(timestamps).mapToObj(timestamp -> feed.write(timestamp, Fingerprint.NONE,
-			EntryKind.SEALED, ChainFleet.padded(new byte[] { 1 }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes())))
-			.toList();
+		return Arrays.stream(timestamps).mapToObj(timestamp -> feed.write(timestamp, ChainFleet.TAG,
+			ChainFleet.padded(new byte[] { 1 }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()))).toList();
 	}
 
 	/* Entries that take the given number of bytes in a frame, one after the other in the feed of a writer. Each must be
@@ -142,8 +140,8 @@ public class ChainHostReconcileTest {
 	private static List<Entry> writeSized(final ChainFleet fleet, final int writer, final int... encodedBytes) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), fleet.chain());
 
-		return Arrays.stream(encodedBytes).mapToObj(bytes -> feed.write(ChainFleet.NOW, Fingerprint.NONE,
-			EntryKind.SEALED, new byte[bytes - Integer.BYTES - Entry.OVERHEAD])).toList();
+		return Arrays.stream(encodedBytes).mapToObj(bytes -> feed.write(ChainFleet.NOW, ChainFleet.TAG,
+			new byte[bytes - Integer.BYTES - Entry.OVERHEAD])).toList();
 	}
 
 	private static int[] repeated(final int encodedBytes, final int count) {

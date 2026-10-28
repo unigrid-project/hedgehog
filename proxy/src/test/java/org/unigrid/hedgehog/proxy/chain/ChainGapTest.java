@@ -51,8 +51,8 @@ public class ChainGapTest {
 	}
 
 	private static Entry signed(WriterKey key, long seq, long prev, long timestamp, Tag tag) {
-		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, new Fingerprint(tag.bytes()),
-			EntryKind.SEALED), Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
+		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, tag),
+			Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
 	}
 
 	/* The entries that waited past the gap name their sessions, and neither the ones the chain took nor the ones that

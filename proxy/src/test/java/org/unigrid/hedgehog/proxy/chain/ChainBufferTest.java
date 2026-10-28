@@ -42,15 +42,15 @@ public class ChainBufferTest {
 	private static final WriterKey WRITER = ChainFixtures.key(1);
 	private static final int ENTRY_SIZE = ChainFixtures.ENTRY_SIZE;
 
-	private static List<Entry> linked(int count, EntryKind kind) {
-		return ChainFixtures.linked(WRITER, CHAIN, count, NOW, kind);
+	private static List<Entry> linked(int count) {
+		return ChainFixtures.linked(WRITER, CHAIN, count, NOW);
 	}
 
 	@Property(tries = 50)
 	public void shouldAppendAShuffledFeedInOrder(@ForAll @IntRange(min = 1, max = 25) int count,
 		@ForAll Random random) {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(count, EntryKind.SEALED);
+		final List<Entry> entries = linked(count);
 		final List<Entry> shuffled = new ArrayList<>(entries);
 		final List<Entry> appended = new ArrayList<>();
 
@@ -71,7 +71,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldReleaseWhatWaitedWhenTheGapFills() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(4, EntryKind.SEALED);
+		final List<Entry> entries = linked(4);
 
 		chain.offer(entries.get(0));
 		assertThat(chain.offer(entries.get(2)), equalTo(new Offer(Admission.AHEAD, List.of())));
@@ -84,8 +84,8 @@ public class ChainBufferTest {
 	@Example
 	public void shouldDropAWaitingEntryThatDoesNotLink() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(3, EntryKind.SEALED);
-		final Entry stray = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2000, EntryKind.SEALED);
+		final List<Entry> entries = linked(3);
+		final Entry stray = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2000);
 
 		chain.offer(entries.get(0));
 		chain.offer(stray);
@@ -97,7 +97,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldHoldAnEntryOnlyOnce() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(3, EntryKind.SEALED);
+		final List<Entry> entries = linked(3);
 
 		chain.offer(entries.get(0));
 		chain.offer(entries.get(2));
@@ -108,7 +108,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldNotHoldAnEntryThatIsNotAuthentic() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(3, EntryKind.SEALED);
+		final List<Entry> entries = linked(3);
 		final Entry ahead = entries.get(2);
 		final Entry tampered = new Entry(ahead.header(), ahead.payload(), ahead.hash() + 1, ahead.signature());
 
@@ -121,7 +121,7 @@ public class ChainBufferTest {
 	public void shouldBoundTheEntriesThatWait() {
 		final ChainLimits limits = new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE);
 		final Chain chain = new Chain(CHAIN, limits, () -> NOW);
-		final List<Entry> joins = linked(5, EntryKind.JOIN);
+		final List<Entry> joins = linked(5);
 
 		assertThat(limits.bufferBytes(), is(2L * ENTRY_SIZE));
 		chain.offer(joins.get(0));
@@ -134,7 +134,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldNotHoldEntriesWhileFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> entries = linked(7, EntryKind.SEALED);
+		final List<Entry> entries = linked(7);
 
 		entries.subList(0, 5).forEach(chain::offer);
 		assertThat(chain.offer(entries.get(6)).admission(), is(Admission.FULL));
@@ -151,8 +151,8 @@ public class ChainBufferTest {
 	public void shouldKeepWaitingEntriesOutOfTheChain() {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(3, EntryKind.SEALED);
-		final Entry stranger = ChainFixtures.linked(other, CHAIN, 2, NOW, EntryKind.SEALED).get(1);
+		final List<Entry> entries = linked(3);
+		final Entry stranger = ChainFixtures.linked(other, CHAIN, 2, NOW).get(1);
 
 		chain.offer(entries.get(0));
 		chain.offer(entries.get(2));
@@ -168,7 +168,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldReleaseOnlyWhatLinksWhileAGapRemains() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(4, EntryKind.SEALED);
+		final List<Entry> entries = linked(4);
 
 		chain.offer(entries.get(0));
 		chain.offer(entries.get(3));
@@ -181,9 +181,9 @@ public class ChainBufferTest {
 	@Example
 	public void shouldKeepTheEntryThatWaitedFirstForASequenceNumber() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(3, EntryKind.SEALED);
-		final Entry fork = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW + 2000, Fingerprint.NONE,
-			EntryKind.SEALED), Padding.padded(new byte[3], ChainFixtures.MAX_ENTRY_BYTES));
+		final List<Entry> entries = linked(3);
+		final Entry fork = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW + 2000, ChainFixtures.TAG),
+			Padding.padded(new byte[3], ChainFixtures.MAX_ENTRY_BYTES));
 
 		chain.offer(entries.get(0));
 		chain.offer(entries.get(2));
@@ -212,7 +212,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldAnswerNotAuthenticBeforeFullForABufferThatIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = linked(5, EntryKind.JOIN);
+		final List<Entry> joins = linked(5);
 		final Entry forged = new Entry(joins.get(4).header(), joins.get(4).payload(), joins.get(4).hash(),
 			new byte[Entry.SIGNATURE_SIZE]);
 
@@ -227,7 +227,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldAnswerNotAuthenticBeforeFullForAChainThatIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> entries = linked(7, EntryKind.SEALED);
+		final List<Entry> entries = linked(7);
 		final Entry forged = new Entry(entries.get(6).header(), entries.get(6).payload(), entries.get(6).hash(),
 			new byte[Entry.SIGNATURE_SIZE]);
 
@@ -239,7 +239,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldHoldAnEntryThatFillsTheChainAndItsReserveExactly() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> entries = linked(6, EntryKind.SEALED);
+		final List<Entry> entries = linked(6);
 
 		entries.subList(0, 4).forEach(chain::offer);
 		assertThat(chain.offer(entries.get(5)).admission(), is(Admission.AHEAD));
@@ -249,7 +249,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldLetAReleasedEntryTrimTheOldestWhenTheChainIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> entries = linked(6, EntryKind.SEALED);
+		final List<Entry> entries = linked(6);
 
 		entries.subList(0, 4).forEach(chain::offer);
 		assertThat(chain.offer(entries.get(5)).admission(), is(Admission.AHEAD));
@@ -265,11 +265,11 @@ public class ChainBufferTest {
 	@Example
 	public void shouldNotHoldAnEntryThatIsRefused() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final Entry elsewhere = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 2, 7, NOW, EntryKind.SEALED);
-		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 31_000, EntryKind.SEALED);
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW - 31_000, EntryKind.SEALED);
-		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
+		final Entry elsewhere = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 2, 7, NOW);
+		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 31_000);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW - 31_000);
+		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW, ChainFixtures.TAG),
+			new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
 
 		assertThat(chain.offer(elsewhere).admission(), is(Admission.WRONG_CHAIN));
 		assertThat(chain.offer(future).admission(), is(Admission.FUTURE));
@@ -281,7 +281,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldDropWhatWaitedBehindAnAnchor() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> entries = linked(6, EntryKind.SEALED);
+		final List<Entry> entries = linked(6);
 
 		chain.offer(entries.get(1));
 		assertThat(chain.anchor(WRITER.id(), new Head(3, entries.get(3).hash())), is(true));
@@ -307,7 +307,7 @@ public class ChainBufferTest {
 	}
 
 	private static List<Entry> joins(int writer) {
-		return ChainFixtures.linked(ChainFixtures.key(writer), CHAIN, 3, NOW, EntryKind.JOIN);
+		return ChainFixtures.linked(ChainFixtures.key(writer), CHAIN, 3, NOW);
 	}
 
 	/* No accessor shows an empty waiting list left behind for a writer, and it would leak as long as the chain lives */

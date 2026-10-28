@@ -20,14 +20,13 @@ package org.unigrid.hedgehog.proxy.chain;
 
 import java.util.Objects;
 
-public record EntryHeader(ChainId chainId, WriterId writer, long seq, long prev, long timestamp,
-	Fingerprint fingerprint, EntryKind kind) {
-
+/* What every member sees of an entry: whose feed it is on which chain, where it links in, when it was written and
+   the tag only the ends of its session can place. Nothing says what kind of message it carries. */
+public record EntryHeader(ChainId chainId, WriterId writer, long seq, long prev, long timestamp, Tag tag) {
 	public EntryHeader {
 		Objects.requireNonNull(chainId, "chainId");
 		Objects.requireNonNull(writer, "writer");
-		Objects.requireNonNull(fingerprint, "fingerprint");
-		Objects.requireNonNull(kind, "kind");
+		Objects.requireNonNull(tag, "tag");
 
 		if (seq < 0) {
 			throw new IllegalArgumentException("A sequence number is never negative, found " + seq);

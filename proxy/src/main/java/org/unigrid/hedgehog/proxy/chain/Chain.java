@@ -247,7 +247,7 @@ public final class Chain {
 	private Gap skip(WriterId writer, long fromSeq) {
 		final NavigableMap<Long, Entry> waiting = held.remove(writer);
 		final Entry last = waiting.lastEntry().getValue();
-		final Set<Tag> tags = waiting.values().stream().map(entry -> new Tag(entry.header().fingerprint().bytes()))
+		final Set<Tag> tags = waiting.values().stream().map(entry -> entry.header().tag())
 			.collect(Collectors.toSet());
 
 		dropHeld(waiting);

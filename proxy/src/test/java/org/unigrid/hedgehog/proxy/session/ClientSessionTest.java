@@ -48,7 +48,6 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -205,7 +204,6 @@ public class ClientSessionTest {
 
 		assertThat(client.state(), is(SessionState.OPENING));
 		assertThat(client.exit(), equalTo(Optional.of(EXIT_ID)));
-		assertThat(opening.header().kind(), is(EntryKind.SEALED));
 		assertThat(opening.size(), is(SMALLEST_CLASS));
 		assertThat(NoiseNk.respond(SessionFixtures.sealingPrivate(EXIT_ID), Session.prologue(SessionFixtures.CHAIN,
 			wire.clientContext.writer().writer()), Arrays.copyOf(opening.payload(), NoiseNk.MESSAGE_SIZE)).isPresent(),
@@ -227,7 +225,7 @@ public class ClientSessionTest {
 
 		assertThat(contains(bytes, EXIT_ID.getBytes(StandardCharsets.UTF_8)), is(false));
 		assertThat(contains(bytes, SessionFixtures.sealingPublic(EXIT_ID)), is(false));
-		assertThat(contains(opening.header().fingerprint().bytes(), EXIT_ID.getBytes(StandardCharsets.UTF_8)),
+		assertThat(contains(opening.header().tag().bytes(), EXIT_ID.getBytes(StandardCharsets.UTF_8)),
 			is(false));
 		assertThat(opening.size(), is(SMALLEST_CLASS));
 		assertThat(NoiseNk.respond(SessionFixtures.sealingPrivate("gn-other"), Session.prologue(SessionFixtures.CHAIN,
@@ -304,7 +302,7 @@ public class ClientSessionTest {
 
 		assertThat(client.receive(answer), equalTo(Optional.empty()));
 		assertThat(exit.receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
-		assertThat(client.receive(copier.post(Session.tagOf(answer), answer.payload())), equalTo(Optional.empty()));
+		assertThat(client.receive(copier.post(answer.header().tag(), answer.payload())), equalTo(Optional.empty()));
 		wire.posted.clear();
 		exit.send(new Data(new byte[] { 1 }));
 
@@ -314,9 +312,9 @@ public class ClientSessionTest {
 		exit.send(new Data(new byte[] { 2 }));
 
 		final Entry second = wire.posted.poll();
-		final List<Entry> copies = List.of(copier.post(Session.tagOf(first), first.payload()),
-			copier.post(Session.tagOf(second), second.payload()),
-			copier.post(Session.tagOf(second), new byte[SMALLEST_CLASS - Entry.OVERHEAD]));
+		final List<Entry> copies = List.of(copier.post(first.header().tag(), first.payload()),
+			copier.post(second.header().tag(), second.payload()),
+			copier.post(second.header().tag(), new byte[SMALLEST_CLASS - Entry.OVERHEAD]));
 
 		wire.posted.clear();
 
@@ -342,7 +340,7 @@ public class ClientSessionTest {
 		final Session exit = Session.tryAccept(wire.exitContext, wire.posted.poll(),
 			SessionFixtures.sealingPrivate(EXIT_ID)).orElseThrow();
 		final Entry answer = wire.posted.pollLast();
-		final Entry copy = wire.context(3).post(Session.tagOf(answer), answer.payload());
+		final Entry copy = wire.context(3).post(answer.header().tag(), answer.payload());
 
 		wire.posted.clear();
 		assertThat(client.expects(copy), is(true));
@@ -385,7 +383,7 @@ public class ClientSessionTest {
 		client.open();
 
 		final Entry opening = wire.posted.poll();
-		final Entry postedAgain = wire.context(3).post(Session.tagOf(opening), opening.payload());
+		final Entry postedAgain = wire.context(3).post(opening.header().tag(), opening.payload());
 
 		assertThat(Session.tryAccept(wire.exitContext, postedAgain, SessionFixtures.sealingPrivate(EXIT_ID)),
 			equalTo(Optional.empty()));
@@ -406,7 +404,7 @@ public class ClientSessionTest {
 		final SessionContext elsewhere = new SessionContext(new FeedWriter(SessionFixtures.key(2), OTHER_CHAIN),
 			wire.posted::add, wire.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
 
-		final Entry onAnotherChain = elsewhere.post(Session.tagOf(answer), answer.payload());
+		final Entry onAnotherChain = elsewhere.post(answer.header().tag(), answer.payload());
 
 		assertThat(client.expects(onAnotherChain), is(false));
 		assertIgnored("other chain", client, onAnotherChain);
@@ -457,7 +455,7 @@ public class ClientSessionTest {
 			final byte[] flipped = payload.clone();
 
 			flipped[bit / Byte.SIZE] ^= 1 << (bit % Byte.SIZE);
-			assertThat("bit " + bit, client.receive(wire.exitContext.post(Session.tagOf(answer), flipped)),
+			assertThat("bit " + bit, client.receive(wire.exitContext.post(answer.header().tag(), flipped)),
 				equalTo(Optional.empty()));
 			assertThat("bit " + bit, client.state(), is(SessionState.OPENING));
 		}
@@ -476,7 +474,7 @@ public class ClientSessionTest {
 		final Entry answer = answerTo(wire, wire.posted.poll());
 
 		for (int size : List.of(0, 1, NoiseNk.KEY_SIZE, NoiseNk.MESSAGE_SIZE, Session.ANSWER_SIZE - 1)) {
-			assertThat("size " + size, client.receive(wire.exitContext.post(Session.tagOf(answer),
+			assertThat("size " + size, client.receive(wire.exitContext.post(answer.header().tag(),
 				Arrays.copyOf(answer.payload(), size))), equalTo(Optional.empty()));
 			assertThat("size " + size, client.state(), is(SessionState.OPENING));
 		}
@@ -498,7 +496,7 @@ public class ClientSessionTest {
 			final byte[] payload = answer.payload();
 
 			System.arraycopy(HexFormat.of().parseHex(point), 0, payload, 0, NoiseNk.KEY_SIZE);
-			assertThat(point, client.receive(wire.exitContext.post(Session.tagOf(answer), payload)),
+			assertThat(point, client.receive(wire.exitContext.post(answer.header().tag(), payload)),
 				equalTo(Optional.empty()));
 			assertThat(point, client.state(), is(SessionState.OPENING));
 		}
@@ -603,7 +601,7 @@ public class ClientSessionTest {
 
 		final Entry opening = wire.posted.peek();
 
-		assertThat(Session.tagOf(opening), equalTo(new Tag(tag)));
+		assertThat(opening.header().tag(), equalTo(new Tag(tag)));
 		assertThat(Arrays.copyOf(opening.payload(), NoiseNk.KEY_SIZE), equalTo(new X25519PrivateKeyParameters(
 			knownPrivateKey()).generatePublicKey().getEncoded()));
 	}

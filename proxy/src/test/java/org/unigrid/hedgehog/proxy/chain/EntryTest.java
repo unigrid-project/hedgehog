@@ -19,7 +19,6 @@
 package org.unigrid.hedgehog.proxy.chain;
 
 import java.util.Arrays;
-import java.util.Optional;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
 import net.jqwik.api.Example;
@@ -45,9 +44,9 @@ public class EntryTest {
 
 	@Example
 	public void shouldFollowTheWireLayoutSizes() {
-		assertThat(Entry.HEADER_SIZE, is(109));
+		assertThat(Entry.HEADER_SIZE, is(108));
 		assertThat(Entry.TRAILER_SIZE, is(72));
-		assertThat(Entry.OVERHEAD, is(181));
+		assertThat(Entry.OVERHEAD, is(180));
 	}
 
 	@Property(tries = 100)
@@ -96,25 +95,19 @@ public class EntryTest {
 	public void shouldRefuseANegativeSequenceNumber(@ForAll("headers") EntryHeader header, @ForAll long seq) {
 		Assume.that(seq < 0);
 		Expect.assertThrows(IllegalArgumentException.class, () -> new EntryHeader(header.chainId(),
-			header.writer(), seq, header.prev(), header.timestamp(), header.fingerprint(), header.kind()));
+			header.writer(), seq, header.prev(), header.timestamp(), header.tag()));
 	}
 
 	@Property(tries = 20)
-	public void shouldRefuseAMissingKind(@ForAll("headers") EntryHeader header) {
-		Expect.assertThrows(NullPointerException.class, () -> new EntryHeader(header.chainId(),
-			header.writer(), header.seq(), header.prev(), header.timestamp(), header.fingerprint(), null));
+	public void shouldRefuseAMissingTag(@ForAll("headers") EntryHeader header) {
+		final NullPointerException thrown = Expect.assertThrows(NullPointerException.class, () -> new EntryHeader(
+			header.chainId(), header.writer(), header.seq(), header.prev(), header.timestamp(), null));
+
+		assertThat(thrown.getMessage(), is("tag"));
 	}
 
-	@Example
-	public void shouldFindEveryKindByItsCode() {
-		for (EntryKind kind : EntryKind.values()) {
-			assertThat(EntryKind.of(kind.code()), equalTo(Optional.of(kind)));
-		}
-	}
-
-	@Property(tries = 50)
-	public void shouldNotFindAnUnknownCode(@ForAll byte code) {
-		Assume.that(code < 1 || code > EntryKind.values().length);
-		assertThat(EntryKind.of(code), equalTo(Optional.empty()));
+	@Property(tries = 20)
+	public void shouldNameItsSequenceNumberAndWriter(@ForAll("entries") Entry entry) {
+		assertThat(entry.toString(), is("Entry " + entry.header().seq() + " of " + entry.header().writer()));
 	}
 }

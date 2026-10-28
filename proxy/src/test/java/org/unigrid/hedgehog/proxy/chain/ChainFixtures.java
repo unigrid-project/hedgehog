@@ -32,6 +32,9 @@ final class ChainFixtures {
 	/* The size of the entries signed() writes, the smallest class of every chain whose entries may be that large */
 	static final int ENTRY_SIZE = SizeClasses.of(MAX_ENTRY_BYTES).get(0);
 
+	/* The tag of the entries signed() writes, which no session looks out for */
+	static final Tag TAG = new Tag(new byte[Tag.SIZE]);
+
 	private ChainFixtures() {
 		/* Static helpers only */
 	}
@@ -47,7 +50,7 @@ final class ChainFixtures {
 	static Arbitrary<EntryHeader> headers() {
 		return Combinators.combine(bytes(ChainId.SIZE).map(ChainId::new), bytes(WriterId.SIZE).map(WriterId::new),
 			Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs(), Arbitraries.longs(),
-			bytes(Fingerprint.SIZE).map(Fingerprint::new), Arbitraries.of(EntryKind.class)).as(EntryHeader::new);
+			bytes(Tag.SIZE).map(Tag::new)).as(EntryHeader::new);
 	}
 
 	static Arbitrary<Entry> entries() {
@@ -62,7 +65,7 @@ final class ChainFixtures {
 	static Arbitrary<Entry> signedEntries() {
 		return Combinators.combine(writerKeys(), headers(), payloads()).as((key, header, payload) -> key.sign(
 			new EntryHeader(header.chainId(), key.id(), header.seq(), header.prev(), header.timestamp(),
-				header.fingerprint(), header.kind()), payload));
+				header.tag()), payload));
 	}
 
 	static WriterKey key(int number) {
@@ -80,18 +83,18 @@ final class ChainFixtures {
 	}
 
 	/* An entry of ENTRY_SIZE bytes whose payload starts with the low byte of its sequence number */
-	static Entry signed(WriterKey key, ChainId chainId, long seq, long prev, long timestamp, EntryKind kind) {
-		return key.sign(new EntryHeader(chainId, key.id(), seq, prev, timestamp, Fingerprint.NONE, kind),
+	static Entry signed(WriterKey key, ChainId chainId, long seq, long prev, long timestamp) {
+		return key.sign(new EntryHeader(chainId, key.id(), seq, prev, timestamp, TAG),
 			Padding.padded(new byte[] { (byte) seq }, MAX_ENTRY_BYTES));
 	}
 
 	/* A feed of count entries that each link to the one before, one second apart */
-	static List<Entry> linked(WriterKey key, ChainId chainId, int count, long timestamp, EntryKind kind) {
+	static List<Entry> linked(WriterKey key, ChainId chainId, int count, long timestamp) {
 		final List<Entry> entries = new ArrayList<>();
 		long prev = 0;
 
 		for (int seq = 0; seq < count; seq++) {
-			final Entry entry = signed(key, chainId, seq, prev, timestamp + seq * Entry.STAMP_MILLIS, kind);
+			final Entry entry = signed(key, chainId, seq, prev, timestamp + seq * Entry.STAMP_MILLIS);
 
 			entries.add(entry);
 			prev = entry.hash();

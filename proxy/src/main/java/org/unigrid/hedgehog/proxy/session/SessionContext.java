@@ -25,9 +25,7 @@ import java.util.OptionalInt;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.SizeClasses;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -86,11 +84,10 @@ public record SessionContext(FeedWriter writer, Consumer<Entry> outbox, LongSupp
 	/* Holds the writer while posting, so the outbox sees the entries of the feed in sequence order. The
 	   outbox therefore only queues or sends and never calls back into a session. It must not throw either: once
 	   the writer has signed the entry, a failure leaves a gap in the whole feed of the writer, which every session
-	   of this node on the chain shares, that no session can repair. The tag goes in the fingerprint field of the
-	   entry, and every entry is of the sealed kind, so neither tells an opening from an answer or a message. */
+	   of this node on the chain shares, that no session can repair. */
 	Entry post(Tag tag, byte[] payload) {
 		synchronized (writer) {
-			final Entry entry = writer.write(now(), new Fingerprint(tag.bytes()), EntryKind.SEALED, payload);
+			final Entry entry = writer.write(now(), tag, payload);
 
 			outbox.accept(entry);
 			return entry;

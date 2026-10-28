@@ -84,7 +84,7 @@ public class EntrySignatureTest {
 	public void shouldNotTrustASignedHashThatDoesNotMatch(@ForAll("signedEntries") Entry entry,
 		@ForAll("writerKeys") WriterKey key) {
 		final EntryHeader header = new EntryHeader(entry.header().chainId(), key.id(), entry.header().seq(),
-			entry.header().prev(), entry.header().timestamp(), entry.header().fingerprint(), entry.header().kind());
+			entry.header().prev(), entry.header().timestamp(), entry.header().tag());
 		final byte[] body = EntryCodec.body(header, entry.payload());
 		final long wrongHash = FnvJ64.hash(body) + 1;
 		final Entry forged = new Entry(header, entry.payload(), wrongHash,
@@ -101,7 +101,7 @@ public class EntrySignatureTest {
 
 		final EntryHeader header = entry.header();
 		final EntryHeader stolen = new EntryHeader(header.chainId(), other.id(), header.seq(), header.prev(),
-			header.timestamp(), header.fingerprint(), header.kind());
+			header.timestamp(), header.tag());
 
 		assertThat(rehashed(stolen, entry.payload(), entry.signature()).isAuthentic(), is(false));
 	}
@@ -113,7 +113,7 @@ public class EntrySignatureTest {
 
 		final EntryHeader header = entry.header();
 		final EntryHeader changed = new EntryHeader(header.chainId(), header.writer(), seq, header.prev(),
-			header.timestamp(), header.fingerprint(), header.kind());
+			header.timestamp(), header.tag());
 
 		assertThat(rehashed(changed, entry.payload(), entry.signature()).isAuthentic(), is(false));
 	}
@@ -142,7 +142,7 @@ public class EntrySignatureTest {
 		try {
 			return Optional.of(EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));
 		} catch (InvalidEntryException refused) {
-			/* A changed kind, sequence number or length is refused before the signature is looked at */
+			/* A changed sequence number or length is refused before the signature is looked at */
 			return Optional.empty();
 		}
 	}

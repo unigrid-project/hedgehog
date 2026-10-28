@@ -57,7 +57,6 @@ import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 
@@ -83,7 +82,7 @@ public class ChainHostMaintenanceTest {
 	}
 
 	private static Gap gapOf(final int writer) {
-		return new Gap(ChainFleet.writer(writer), 0, 3, Set.of(new Tag(Fingerprint.NONE.bytes())));
+		return new Gap(ChainFleet.writer(writer), 0, 3, Set.of(ChainFleet.TAG));
 	}
 
 	private static List<Reported> reportedTo(final ChainHost host) {
@@ -281,7 +280,7 @@ public class ChainHostMaintenanceTest {
 		host.maintain();
 
 		assertThat(first, contains(new Reported(chainId, new Gap(ChainFleet.writer(1), 0, 3,
-			Set.of(new Tag(Fingerprint.NONE.bytes()))))));
+			Set.of(ChainFleet.TAG)))));
 		assertThat(second, equalTo(first));
 
 		host.maintain();

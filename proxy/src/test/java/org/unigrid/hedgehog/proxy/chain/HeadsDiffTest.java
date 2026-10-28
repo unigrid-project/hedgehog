@@ -218,8 +218,8 @@ public class HeadsDiffTest {
 	public void shouldBringAChainLevelWithAPeer() {
 		final Chain behind = new Chain(CHAIN, LIMITS, () -> NOW);
 		final Chain ahead = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> first = ChainFixtures.linked(ChainFixtures.key(1), CHAIN, 12, NOW, EntryKind.SEALED);
-		final List<Entry> second = ChainFixtures.linked(ChainFixtures.key(2), CHAIN, 3, NOW, EntryKind.SEALED);
+		final List<Entry> first = ChainFixtures.linked(ChainFixtures.key(1), CHAIN, 12, NOW);
+		final List<Entry> second = ChainFixtures.linked(ChainFixtures.key(2), CHAIN, 3, NOW);
 
 		first.forEach(ahead::offer);
 		second.forEach(ahead::offer);

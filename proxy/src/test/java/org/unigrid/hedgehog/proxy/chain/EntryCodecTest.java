@@ -57,10 +57,9 @@ public class EntryCodecTest {
 		assertThat(bytes.getLong(64), is(header.seq()));
 		assertThat(bytes.getLong(72), is(header.prev()));
 		assertThat(bytes.getLong(80), is(header.timestamp()));
-		assertThat(Arrays.copyOfRange(bytes.array(), 88, 104), equalTo(header.fingerprint().bytes()));
-		assertThat(bytes.get(104), is(header.kind().code()));
-		assertThat(bytes.getInt(105), is(entry.payload().length));
-		assertThat(Arrays.copyOfRange(bytes.array(), 109, payloadEnd), equalTo(entry.payload()));
+		assertThat(Arrays.copyOfRange(bytes.array(), 88, 104), equalTo(header.tag().bytes()));
+		assertThat(bytes.getInt(104), is(entry.payload().length));
+		assertThat(Arrays.copyOfRange(bytes.array(), 108, payloadEnd), equalTo(entry.payload()));
 		assertThat(bytes.getLong(payloadEnd), is(entry.hash()));
 		assertThat(Arrays.copyOfRange(bytes.array(), payloadEnd + 8, entry.size()), equalTo(entry.signature()));
 	}
@@ -86,16 +85,12 @@ public class EntryCodecTest {
 		assertThat(thrown.getMessage(), is("Found 1 bytes after the entry"));
 	}
 
-	@Property(tries = 50)
-	public void shouldRefuseAnUnknownKind(@ForAll("entries") Entry entry) {
-		final byte[] bytes = EntryCodec.encode(entry);
-
-		bytes[104] = 9;
-
-		final InvalidEntryException thrown = Expect.assertThrows(InvalidEntryException.class,
-			() -> EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));
-
-		assertThat(thrown.getMessage(), is("Unknown entry kind 9"));
+	/* Nothing in the clear tells an opening, an answer or a message apart: no kind, and a tag that only the ends of
+	   the session know */
+	@Example
+	public void shouldCarryNoKindAndNoFingerprint() {
+		assertThat(Entry.HEADER_SIZE, is(ChainId.SIZE + WriterId.SIZE + 3 * Long.BYTES + Tag.SIZE + Integer.BYTES));
+		assertThat(Entry.OVERHEAD, is(180));
 	}
 
 	@Example
@@ -114,7 +109,7 @@ public class EntryCodecTest {
 		final InvalidEntryException thrown = Expect.assertThrows(InvalidEntryException.class,
 			() -> EntryCodec.decode(EntryCodec.encode(overLimit), SMALL_LIMIT));
 
-		assertThat(thrown.getMessage(), is("An entry of 192 bytes exceeds the limit of 191 bytes"));
+		assertThat(thrown.getMessage(), is("An entry of 191 bytes exceeds the limit of 190 bytes"));
 	}
 
 	@Property(tries = 20)
@@ -122,7 +117,7 @@ public class EntryCodecTest {
 		for (int length : new int[] { Integer.MAX_VALUE, -1, Integer.MIN_VALUE }) {
 			final byte[] bytes = EntryCodec.encode(entry);
 
-			ByteBuffer.wrap(bytes).putInt(105, length);
+			ByteBuffer.wrap(bytes).putInt(104, length);
 			Expect.assertThrows(InvalidEntryException.class,
 				() -> EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));
 		}

@@ -59,9 +59,8 @@ import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryCodec;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 
 public class ChainHostFloodTest {
 	private static final int PACKET_SIZE = ChainCodecs.MAX_ENTRIES_PER_PACKET;
@@ -161,7 +160,7 @@ public class ChainHostFloodTest {
 	}
 
 	private static Entry oversized(final ChainId chain) {
-		return new FeedWriter(ChainFleet.key(1), chain).write(ChainFleet.NOW, Fingerprint.NONE, EntryKind.SEALED,
+		return new FeedWriter(ChainFleet.key(1), chain).write(ChainFleet.NOW, ChainFleet.TAG,
 			new byte[MAX_ENTRY_BYTES]);
 	}
 

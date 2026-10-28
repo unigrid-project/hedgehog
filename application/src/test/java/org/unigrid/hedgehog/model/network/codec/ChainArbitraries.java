@@ -26,9 +26,8 @@ import net.jqwik.api.Combinators;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryHeader;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 
@@ -62,10 +61,9 @@ public final class ChainArbitraries {
 	public static Arbitrary<Entry> entries() {
 		return Combinators.combine(bytes(WriterKey.SEED_SIZE).map(WriterKey::new), chainIds(),
 			Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs(), Arbitraries.longs(),
-			bytes(Fingerprint.SIZE).map(Fingerprint::new), Arbitraries.of(EntryKind.class),
-			Arbitraries.bytes().array(byte[].class).ofMaxSize(MAX_PAYLOAD_BYTES))
-			.as((key, chainId, seq, prev, timestamp, fingerprint, kind, payload) -> key.sign(
-				new EntryHeader(chainId, key.id(), seq, prev, timestamp, fingerprint, kind), payload));
+			bytes(Tag.SIZE).map(Tag::new), Arbitraries.bytes().array(byte[].class).ofMaxSize(MAX_PAYLOAD_BYTES))
+			.as((key, chainId, seq, prev, timestamp, tag, payload) -> key.sign(
+				new EntryHeader(chainId, key.id(), seq, prev, timestamp, tag), payload));
 	}
 
 	public static Arbitrary<List<Entry>> entryLists() {

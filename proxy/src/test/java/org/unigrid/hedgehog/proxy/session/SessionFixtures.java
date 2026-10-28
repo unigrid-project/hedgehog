@@ -29,7 +29,6 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -46,10 +45,6 @@ final class SessionFixtures {
 
 		Arrays.fill(bytes, (byte) value);
 		return bytes;
-	}
-
-	static Fingerprint fingerprint(int value) {
-		return new Fingerprint(filled(Fingerprint.SIZE, value));
 	}
 
 	static WriterKey key(int number) {

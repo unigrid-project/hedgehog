@@ -127,7 +127,7 @@ public class ClientSessionRetryTest {
 
 		for (String silent : List.of("gn-a", "gn-b")) {
 			assertThat(opensFor(wire.posted.peek(), silent), is(true));
-			tags.add(Session.tagOf(wire.posted.peek()));
+			tags.add(wire.posted.peek().header().tag());
 			wire.pump();
 			assertThat(client.exit(), equalTo(Optional.of(silent)));
 			assertThat(client.state(), is(SessionState.OPENING));
@@ -135,7 +135,7 @@ public class ClientSessionRetryTest {
 			assertThat(client.tick(), equalTo(Optional.empty()));
 		}
 
-		tags.add(Session.tagOf(wire.posted.peek()));
+		tags.add(wire.posted.peek().header().tag());
 		wire.pump();
 		assertThat(client.exit(), equalTo(Optional.of("gn-c")));
 		assertThat(client.state(), is(SessionState.OPEN));
@@ -389,7 +389,7 @@ public class ClientSessionRetryTest {
 		for (int attempt = 0; attempt < ClientSession.MAX_ATTEMPTS; attempt++) {
 			final Entry opening = wire.posted.poll();
 
-			assertThat(Session.tagOf(opening), equalTo(tagOfAttempt(attempt)));
+			assertThat(opening.header().tag(), equalTo(tagOfAttempt(attempt)));
 			assertThat(Arrays.copyOf(opening.payload(), NoiseNk.KEY_SIZE), equalTo(new X25519PrivateKeyParameters(
 				privateKeyOfAttempt(attempt)).generatePublicKey().getEncoded()));
 		}

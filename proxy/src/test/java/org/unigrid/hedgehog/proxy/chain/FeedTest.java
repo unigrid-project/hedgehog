@@ -35,7 +35,7 @@ public class FeedTest {
 	private static final WriterKey WRITER = ChainFixtures.key(1);
 
 	private static List<Entry> linked(int count) {
-		return ChainFixtures.linked(WRITER, CHAIN, count, NOW, EntryKind.SEALED);
+		return ChainFixtures.linked(WRITER, CHAIN, count, NOW);
 	}
 
 	private static void assertAt(Feed feed, Optional<Head> head, long nextSeq) {
@@ -59,9 +59,9 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		assertThat(feed.head(), equalTo(Optional.empty()));
-		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 0, 1, NOW, EntryKind.JOIN)), is(Link.BROKEN));
-		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 1, 0, NOW, EntryKind.JOIN)), is(Link.AHEAD));
-		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.JOIN)), is(Link.NEXT));
+		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 0, 1, NOW)), is(Link.BROKEN));
+		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 1, 0, NOW)), is(Link.AHEAD));
+		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW)), is(Link.NEXT));
 		assertAt(feed, Optional.empty(), 0);
 	}
 
@@ -103,8 +103,7 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		feed.append(entries.get(0));
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash() + 1, NOW + 1,
-			EntryKind.SEALED)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash() + 1, NOW + 1)), is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(0, entries.get(0).hash())), 1);
 	}
 
@@ -114,8 +113,7 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		entries.forEach(feed::append);
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW + 1,
-			EntryKind.JOIN)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW + 1)), is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(1, entries.get(1).hash())), 2);
 	}
 
@@ -125,8 +123,7 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		feed.append(entries.get(0));
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW - 1,
-			EntryKind.SEALED)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW - 1)), is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(0, entries.get(0).hash())), 1);
 	}
 
@@ -136,14 +133,13 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		feed.append(entries.get(0));
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW,
-			EntryKind.SEALED)), is(Link.NEXT));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW)), is(Link.NEXT));
 	}
 
 	@Example
 	public void shouldCallAnotherWriterForeign() {
 		final Feed feed = new Feed(WRITER.id());
-		final Entry other = ChainFixtures.signed(ChainFixtures.key(2), CHAIN, 0, 0, NOW, EntryKind.JOIN);
+		final Entry other = ChainFixtures.signed(ChainFixtures.key(2), CHAIN, 0, 0, NOW);
 
 		assertThat(feed.append(other), is(Link.FOREIGN));
 		assertAt(feed, Optional.empty(), 0);
@@ -167,8 +163,8 @@ public class FeedTest {
 	public void shouldTakeTheFirstEntryAfterAChosenStartAtAnyTimeButNotTheNextOneBackInTime() {
 		final Entry anchor = linked(4).get(3);
 		final Feed feed = new Feed(WRITER.id(), new Head(3, anchor.hash()));
-		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 4, anchor.hash(), NOW - 1_000, EntryKind.SEALED);
-		final Entry older = ChainFixtures.signed(WRITER, CHAIN, 5, first.hash(), NOW - 1_001, EntryKind.SEALED);
+		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 4, anchor.hash(), NOW - 1_000);
+		final Entry older = ChainFixtures.signed(WRITER, CHAIN, 5, first.hash(), NOW - 1_001);
 
 		assertThat(feed.append(first), is(Link.NEXT));
 		assertThat(feed.append(older), is(Link.BROKEN));
@@ -196,7 +192,7 @@ public class FeedTest {
 
 	@Example
 	public void shouldCallTheLastSequenceNumberBrokenSinceNoEntryCanFollowIt() {
-		final Entry last = ChainFixtures.signed(WRITER, CHAIN, Long.MAX_VALUE, 1, NOW, EntryKind.SEALED);
+		final Entry last = ChainFixtures.signed(WRITER, CHAIN, Long.MAX_VALUE, 1, NOW);
 		final Feed next = new Feed(WRITER.id(), new Head(Long.MAX_VALUE - 1, 1));
 
 		assertThat(new Feed(WRITER.id()).check(last), is(Link.BROKEN));

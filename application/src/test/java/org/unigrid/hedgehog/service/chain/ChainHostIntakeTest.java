@@ -60,11 +60,10 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryCodec;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.InvalidEntryException;
 import org.unigrid.hedgehog.proxy.chain.Offer;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -130,8 +129,8 @@ public class ChainHostIntakeTest {
 	private static List<Entry> larger(final ChainId chainId, final int writer, final int count) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), chainId);
 
-		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, Fingerprint.NONE,
-			EntryKind.SEALED, ChainFleet.padded(new byte[1024], MAX_ENTRY_BYTES))).toList();
+		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, ChainFleet.TAG,
+			ChainFleet.padded(new byte[1024], MAX_ENTRY_BYTES))).toList();
 	}
 
 	private static HostedChain hostedChain(final int maxWriters, final ChainLimits limits, final LongSupplier clock) {
@@ -340,8 +339,8 @@ public class ChainHostIntakeTest {
 		final Entry genuine = ChainFleet.entries(ChainFleet.key(1), chainId, 1, ChainFleet.NOW).get(0);
 		final byte[] forged = EntryCodec.encode(genuine);
 		final Entry expired = ChainFleet.entries(ChainFleet.key(2), chainId, 1, ChainFleet.NOW - 60_000).get(0);
-		final Entry oversized = new FeedWriter(ChainFleet.key(3), chainId).write(ChainFleet.NOW, Fingerprint.NONE,
-			EntryKind.SEALED, new byte[MAX_ENTRY_BYTES]);
+		final Entry oversized = new FeedWriter(ChainFleet.key(3), chainId).write(ChainFleet.NOW, ChainFleet.TAG,
+			new byte[MAX_ENTRY_BYTES]);
 
 		forged[forged.length - 1] ^= 1;
 
@@ -564,7 +563,7 @@ public class ChainHostIntakeTest {
 		final List<Entry> feed = ChainFleet.entries(ChainFleet.key(1), chainId, 3, ChainFleet.NOW);
 		final FeedWriter forker = new FeedWriter(ChainFleet.key(1), chainId);
 		final List<Entry> fork = IntStream.range(0, 3).mapToObj(number -> forker.write(ChainFleet.NOW,
-			Fingerprint.NONE, EntryKind.SEALED, ChainFleet.padded(new byte[] { 7 }, MAX_ENTRY_BYTES))).toList();
+			ChainFleet.TAG, ChainFleet.padded(new byte[] { 7 }, MAX_ENTRY_BYTES))).toList();
 		final Entry future = ChainFleet.entries(ChainFleet.key(2), chainId, 1,
 			ChainFleet.NOW + BEYOND_RETENTION_MILLIS).get(0);
 
@@ -706,7 +705,7 @@ public class ChainHostIntakeTest {
 		assertTakesNoSlot(Admission.FUTURE, ChainFleet.entries(ChainFleet.key(2), CHAIN, 1,
 			ChainFleet.NOW + BEYOND_RETENTION_MILLIS).get(0));
 		assertTakesNoSlot(Admission.TOO_LARGE, new FeedWriter(ChainFleet.key(2), CHAIN).write(ChainFleet.NOW,
-			Fingerprint.NONE, EntryKind.SEALED, new byte[MAX_ENTRY_BYTES]));
+			ChainFleet.TAG, new byte[MAX_ENTRY_BYTES]));
 		assertTakesNoSlot(Admission.WRONG_CHAIN, first(new ChainId(anotherId), 2));
 	}
 

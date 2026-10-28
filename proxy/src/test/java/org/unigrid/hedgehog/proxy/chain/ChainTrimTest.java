@@ -47,7 +47,7 @@ public class ChainTrimTest {
 		@ForAll @IntRange(min = 25_000, max = 65_000) int elapsed) {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, count, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, count, NOW);
 		final Entry last = entries.get(count - 1);
 
 		entries.forEach(chain::offer);
@@ -68,9 +68,9 @@ public class ChainTrimTest {
 	public void shouldTakeAnEntryThatTrimmingDropsAtOnce() {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1000, EntryKind.SEALED);
-		final Entry next = ChainFixtures.signed(other, CHAIN, 1, oldest.hash(), NOW - 1000, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 4, NOW);
+		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1000);
+		final Entry next = ChainFixtures.signed(other, CHAIN, 1, oldest.hash(), NOW - 1000);
 
 		entries.forEach(chain::offer);
 		assertThat(chain.offer(next).admission(), is(Admission.AHEAD));
@@ -88,8 +88,8 @@ public class ChainTrimTest {
 	public void shouldTrimByAgeBeforeTakingAnEntry() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.JOIN);
-		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW + 20_000, EntryKind.SEALED);
+		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
+		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW + 20_000);
 
 		chain.offer(first);
 		clock.set(NOW + 30_001);
@@ -100,8 +100,8 @@ public class ChainTrimTest {
 	@Example
 	public void shouldRefuseAnEntryOlderThanTheRetentionWindow() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN);
-		final Entry edge = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_000, EntryKind.JOIN);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000);
+		final Entry edge = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_000);
 
 		assertThat(chain.offer(expired).admission(), is(Admission.EXPIRED));
 		assertThat(chain.offer(edge).admission(), is(Admission.ACCEPTED));
@@ -111,7 +111,7 @@ public class ChainTrimTest {
 	public void shouldKeepAnEntryExactlyAtTheEdgeOfTheRetentionWindow() {
 		final AtomicLong clock = new AtomicLong(NOW + 30_000);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry entry = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.JOIN);
+		final Entry entry = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
 
 		chain.offer(entry);
 		chain.trim();
@@ -126,8 +126,8 @@ public class ChainTrimTest {
 	public void shouldTrimWhenAnOfferIsRefused() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry stale = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.JOIN);
-		final Entry foreign = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW, EntryKind.JOIN);
+		final Entry stale = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
+		final Entry foreign = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW);
 
 		chain.offer(stale);
 		clock.set(NOW + 30_001);
@@ -137,7 +137,7 @@ public class ChainTrimTest {
 
 	@Example
 	public void shouldNotVerifyAnExpiredEntry() {
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000);
 
 		assertThat(new Chain(CHAIN, LIMITS, () -> NOW).offer(withoutSignature(expired)).admission(),
 			is(Admission.EXPIRED));
@@ -147,7 +147,7 @@ public class ChainTrimTest {
 	public void shouldLeaveNoTraceOfAnExpiredEntry() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
 
-		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN));
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000));
 		assertThat(chain.heads(), equalTo(Map.of()));
 		assertThat(chain.entries(), is(empty()));
 		assertThat(chain.bytes(), is(0L));
@@ -158,7 +158,7 @@ public class ChainTrimTest {
 	public void shouldRefuseAnEntryThatWasTrimmedForItsAge() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry entry = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.JOIN);
+		final Entry entry = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
 
 		chain.offer(entry);
 		clock.set(NOW + 30_001);
@@ -172,11 +172,11 @@ public class ChainTrimTest {
 	public void shouldTrimAsManyEntriesAsALargerOneNeeds() {
 		final ChainLimits limits = new ChainLimits(6L * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
 		final Chain chain = new Chain(CHAIN, limits, () -> NOW);
-		final List<Entry> others = ChainFixtures.linked(ChainFixtures.key(2), CHAIN, 5, NOW + 1000, EntryKind.SEALED);
-		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.SEALED);
-		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW + 6000, EntryKind.SEALED);
+		final List<Entry> others = ChainFixtures.linked(ChainFixtures.key(2), CHAIN, 5, NOW + 1000);
+		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
+		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW + 6000);
 		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, second.hash(), NOW + 7000,
-			Fingerprint.NONE, EntryKind.SEALED), Padding.padded(new byte[ENTRY_SIZE], limits.maxEntryBytes()));
+			ChainFixtures.TAG), Padding.padded(new byte[ENTRY_SIZE], limits.maxEntryBytes()));
 
 		chain.offer(first);
 		assertThat(chain.offer(large).admission(), is(Admission.AHEAD));

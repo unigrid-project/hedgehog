@@ -48,7 +48,7 @@ public class ChainTest {
 	}
 
 	private static List<Entry> linked(WriterKey key, int count) {
-		return ChainFixtures.linked(key, CHAIN, count, NOW, EntryKind.SEALED);
+		return ChainFixtures.linked(key, CHAIN, count, NOW);
 	}
 
 	private static Entry withoutSignature(Entry entry) {
@@ -104,8 +104,8 @@ public class ChainTest {
 	@Example
 	public void shouldKeepTwoEntriesOfOneWriterFromTheSameMillisecond() {
 		final Chain chain = chain();
-		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.SEALED);
-		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW, EntryKind.SEALED);
+		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
+		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW);
 
 		assertThat(chain.offer(first).admission(), is(Admission.ACCEPTED));
 		assertThat(chain.offer(second).admission(), is(Admission.ACCEPTED));
@@ -141,7 +141,7 @@ public class ChainTest {
 
 	@Example
 	public void shouldRefuseAnEntryOfAnotherChain() {
-		final Entry entry = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW, EntryKind.JOIN);
+		final Entry entry = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW);
 
 		assertThat(chain().offer(entry).admission(), is(Admission.WRONG_CHAIN));
 	}
@@ -149,7 +149,7 @@ public class ChainTest {
 	@Example
 	public void shouldRefuseAnEntryOverTheLimit() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(1024, 30, Entry.OVERHEAD + 10), () -> NOW);
-		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, Fingerprint.NONE, EntryKind.OPEN);
+		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, ChainFixtures.TAG);
 
 		assertThat(chain.offer(WRITER.sign(header, new byte[11])).admission(), is(Admission.TOO_LARGE));
 		assertThat(chain.offer(WRITER.sign(header, new byte[10])).admission(), is(Admission.ACCEPTED));
@@ -159,7 +159,7 @@ public class ChainTest {
 	@Example
 	public void refusesAnOddSize() {
 		final Chain chain = chain();
-		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, Fingerprint.NONE, EntryKind.SEALED);
+		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, ChainFixtures.TAG);
 		final int small = SizeClasses.of(LIMITS.maxEntryBytes()).get(0) - Entry.OVERHEAD;
 
 		assertThat(chain.offer(WRITER.sign(header, new byte[small + 1])), equalTo(new Offer(Admission.MALFORMED,
@@ -174,26 +174,26 @@ public class ChainTest {
 	public void refusesASubSecondTimestamp() {
 		final Chain chain = chain();
 
-		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 1, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 1)).admission(),
 			is(Admission.MALFORMED));
-		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 999, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 999)).admission(),
 			is(Admission.MALFORMED));
 		assertThat(chain.heads(), equalTo(Map.of()));
-		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 1000, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 1000)).admission(),
 			is(Admission.ACCEPTED));
 	}
 
 	@Example
 	public void shouldNotVerifyAMalformedEntry() {
-		final Entry subSecond = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 1, EntryKind.SEALED);
+		final Entry subSecond = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 1);
 
 		assertThat(chain().offer(withoutSignature(subSecond)).admission(), is(Admission.MALFORMED));
 	}
 
 	@Example
 	public void shouldRefuseAnEntryFromBeyondTheRetentionWindow() {
-		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 31_000, EntryKind.JOIN);
-		final Entry edge = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 30_000, EntryKind.JOIN);
+		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 31_000);
+		final Entry edge = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 30_000);
 		final Chain chain = chain();
 
 		assertThat(chain.offer(future).admission(), is(Admission.FUTURE));
@@ -220,7 +220,7 @@ public class ChainTest {
 
 	@Example
 	public void shouldNotVerifyAnEntryWhoseLinkIsBroken() {
-		final Entry broken = ChainFixtures.signed(WRITER, CHAIN, 0, 7, NOW, EntryKind.SEALED);
+		final Entry broken = ChainFixtures.signed(WRITER, CHAIN, 0, 7, NOW);
 
 		assertThat(chain().offer(withoutSignature(broken)).admission(), is(Admission.BROKEN));
 	}
@@ -235,7 +235,7 @@ public class ChainTest {
 
 	@Example
 	public void shouldNotVerifyAnEntryOfAnotherChain() {
-		final Entry entry = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW, EntryKind.JOIN);
+		final Entry entry = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 0, 0, NOW);
 
 		assertThat(chain().offer(withoutSignature(entry)).admission(), is(Admission.WRONG_CHAIN));
 	}
@@ -243,7 +243,7 @@ public class ChainTest {
 	@Example
 	public void shouldNotVerifyAnEntryOverTheLimit() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(1024, 30, Entry.OVERHEAD + 10), () -> NOW);
-		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, Fingerprint.NONE, EntryKind.OPEN);
+		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, ChainFixtures.TAG);
 
 		assertThat(chain.offer(withoutSignature(WRITER.sign(header, new byte[11]))).admission(),
 			is(Admission.TOO_LARGE));
@@ -251,7 +251,7 @@ public class ChainTest {
 
 	@Example
 	public void shouldNotVerifyAnEntryFromBeyondTheRetentionWindow() {
-		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 31_000, EntryKind.JOIN);
+		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW + 31_000);
 
 		assertThat(chain().offer(withoutSignature(future)).admission(), is(Admission.FUTURE));
 	}
@@ -266,7 +266,7 @@ public class ChainTest {
 		assertThat(chain.offer(entries.get(1)).admission(), is(Admission.DUPLICATE));
 		assertThat(chain.offer(entries.get(0)).admission(), is(Admission.REPLAYED));
 		assertThat(chain.offer(entries.get(3)).admission(), is(Admission.AHEAD));
-		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2000, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2000)).admission(),
 			is(Admission.BROKEN));
 		assertThat(chain.entries(), equalTo(entries.subList(0, 2)));
 	}
@@ -275,7 +275,7 @@ public class ChainTest {
 	public void shouldLeaveNoTraceOfARefusedWriter() {
 		final Chain chain = chain();
 
-		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 7, NOW, EntryKind.SEALED));
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 7, NOW));
 		assertThat(chain.heads(), equalTo(Map.of()));
 		assertThat(chain.bytes(), is(0L));
 		assertThat(chain.anchor(WRITER.id(), new Head(0, 1)), is(true));

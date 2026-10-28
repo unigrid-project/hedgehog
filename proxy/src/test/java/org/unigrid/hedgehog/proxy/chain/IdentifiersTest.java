@@ -54,12 +54,12 @@ public class IdentifiersTest {
 
 	@Property(tries = 100)
 	public void shouldRefuseAnotherSize(@ForAll @Size(max = 40) byte[] bytes) {
-		Assume.that(bytes.length != Fingerprint.SIZE);
+		Assume.that(bytes.length != Tag.SIZE);
 
 		final IllegalArgumentException thrown = Expect.assertThrows(IllegalArgumentException.class,
-			() -> new Fingerprint(bytes));
+			() -> new Tag(bytes));
 
-		assertThat(thrown.getMessage(), is("Fingerprint is exactly 16 bytes, found " + bytes.length));
+		assertThat(thrown.getMessage(), is("Tag is exactly 16 bytes, found " + bytes.length));
 	}
 
 	@Example
@@ -78,6 +78,6 @@ public class IdentifiersTest {
 
 		bytes[0] = (byte) 0xab;
 		assertThat(new ChainId(bytes).toString(), is("ab" + "0".repeat(2 * ChainId.SIZE - 2)));
-		assertThat(Fingerprint.NONE.toString(), is("0".repeat(2 * Fingerprint.SIZE)));
+		assertThat(new Tag(new byte[Tag.SIZE]).toString(), is("0".repeat(2 * Tag.SIZE)));
 	}
 }

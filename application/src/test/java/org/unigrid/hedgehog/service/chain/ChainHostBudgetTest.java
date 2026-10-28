@@ -47,10 +47,9 @@ import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostBudgetTest {
@@ -151,8 +150,7 @@ public class ChainHostBudgetTest {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), chainId);
 		final byte[] payload = new byte[bytes - Integer.BYTES - Entry.OVERHEAD];
 
-		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, Fingerprint.NONE,
-			EntryKind.SEALED, payload)).toList();
+		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, ChainFleet.TAG, payload)).toList();
 	}
 
 	private static JoinReply.Status join(final ChainFleet fleet, final EmbeddedChannel stream, final int writer) {

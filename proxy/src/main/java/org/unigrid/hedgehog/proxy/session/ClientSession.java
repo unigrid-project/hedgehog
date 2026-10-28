@@ -210,7 +210,7 @@ public final class ClientSession {
 	private boolean isAnswer(Entry entry) {
 		return state() == SessionState.OPENING && attempt.initiator() != null
 			&& entry.header().chainId().equals(context.writer().chainId())
-			&& MessageDigest.isEqual(Session.tagOf(entry).bytes(), attempt.answerTag().bytes());
+			&& MessageDigest.isEqual(entry.header().tag().bytes(), attempt.answerTag().bytes());
 	}
 
 	private Optional<SealedMessage> establish(Entry answer) {

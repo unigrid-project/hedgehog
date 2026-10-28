@@ -60,8 +60,7 @@ public final class EntryCodec {
 	static byte[] body(EntryHeader header, byte[] payload) {
 		return ByteBuffer.allocate(Entry.HEADER_SIZE + payload.length)
 			.put(header.chainId().bytes()).put(header.writer().bytes())
-			.putLong(header.seq()).putLong(header.prev()).putLong(header.timestamp())
-			.put(header.fingerprint().bytes()).put(header.kind().code())
+			.putLong(header.seq()).putLong(header.prev()).putLong(header.timestamp()).put(header.tag().bytes())
 			.putInt(payload.length).put(payload).array();
 	}
 
@@ -76,9 +75,8 @@ public final class EntryCodec {
 		final long seq = seq(in);
 		final long prev = in.getLong();
 		final long timestamp = in.getLong();
-		final Fingerprint fingerprint = new Fingerprint(take(in, Fingerprint.SIZE));
 
-		return new EntryHeader(chainId, writer, seq, prev, timestamp, fingerprint, kind(in));
+		return new EntryHeader(chainId, writer, seq, prev, timestamp, new Tag(take(in, Tag.SIZE)));
 	}
 
 	private static long seq(ByteBuffer in) throws InvalidEntryException {
@@ -89,12 +87,6 @@ public final class EntryCodec {
 		}
 
 		return seq;
-	}
-
-	private static EntryKind kind(ByteBuffer in) throws InvalidEntryException {
-		final byte code = in.get();
-
-		return EntryKind.of(code).orElseThrow(() -> new InvalidEntryException("Unknown entry kind " + code));
 	}
 
 	/* The length is checked against the limit before anything is allocated for the payload */

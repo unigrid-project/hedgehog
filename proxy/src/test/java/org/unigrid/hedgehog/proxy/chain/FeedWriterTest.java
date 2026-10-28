@@ -50,7 +50,7 @@ public class FeedWriterTest {
 		start.await();
 
 		for (int i = 0; i < WRITES_PER_THREAD; i++) {
-			entries.add(writer.write(now + i, Fingerprint.NONE, EntryKind.SEALED, new byte[0]));
+			entries.add(writer.write(now + i, ChainFixtures.TAG, new byte[0]));
 		}
 
 		return entries;
@@ -72,9 +72,8 @@ public class FeedWriterTest {
 	}
 
 	@Provide
-	public Arbitrary<Fingerprint> fingerprints() {
-		return ChainFixtures.bytes(Fingerprint.SIZE).map(Fingerprint::new).filter(
-			fingerprint -> !fingerprint.equals(Fingerprint.NONE));
+	public Arbitrary<Tag> tags() {
+		return ChainFixtures.bytes(Tag.SIZE).map(Tag::new);
 	}
 
 	@Property(tries = 30)
@@ -85,7 +84,7 @@ public class FeedWriterTest {
 		final Feed feed = new Feed(key.id());
 
 		for (int i = 0; i < payloads.size(); i++) {
-			final Entry entry = writer.write(NOW + i, Fingerprint.NONE, EntryKind.SEALED, payloads.get(i));
+			final Entry entry = writer.write(NOW + i, ChainFixtures.TAG, payloads.get(i));
 
 			assertThat(entry.isAuthentic(), is(true));
 			assertThat(entry.header().seq(), is((long) i));
@@ -97,7 +96,7 @@ public class FeedWriterTest {
 
 	@Example
 	public void shouldStartWithSequenceZeroAndNoPrevious() {
-		final Entry first = new FeedWriter(ChainFixtures.key(1), CHAIN).write(NOW, Fingerprint.NONE, EntryKind.JOIN,
+		final Entry first = new FeedWriter(ChainFixtures.key(1), CHAIN).write(NOW, ChainFixtures.TAG,
 			new byte[0]);
 
 		assertThat(first.header().seq(), is(0L));
@@ -109,8 +108,8 @@ public class FeedWriterTest {
 		final WriterKey key = ChainFixtures.key(1);
 		final FeedWriter writer = new FeedWriter(key, CHAIN);
 		final Feed feed = new Feed(key.id());
-		final Entry first = writer.write(NOW, Fingerprint.NONE, EntryKind.JOIN, new byte[0]);
-		final Entry second = writer.write(NOW - 5000, Fingerprint.NONE, EntryKind.SEALED, new byte[] { 1 });
+		final Entry first = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
+		final Entry second = writer.write(NOW - 5000, ChainFixtures.TAG, new byte[] { 1 });
 
 		assertThat(second.header().timestamp(), is(NOW));
 		assertThat(feed.append(first), is(Link.NEXT));
@@ -121,8 +120,8 @@ public class FeedWriterTest {
 	@Example
 	public void timestampsAreWholeSecondsAndNeverRunBack() {
 		final FeedWriter writer = new FeedWriter(ChainFixtures.key(1), CHAIN);
-		final Entry first = writer.write(2_000_999, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
-		final Entry second = writer.write(1_999_500, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
+		final Entry first = writer.write(2_000_999, ChainFixtures.TAG, new byte[0]);
+		final Entry second = writer.write(1_999_500, ChainFixtures.TAG, new byte[0]);
 
 		assertThat(first.header().timestamp(), is(2_000_000L));
 		assertThat(second.header().timestamp(), is(2_000_000L));
@@ -138,7 +137,7 @@ public class FeedWriterTest {
 		for (final long now : clocks) {
 			latest = Math.max(latest, now);
 
-			final Entry entry = writer.write(now, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
+			final Entry entry = writer.write(now, ChainFixtures.TAG, new byte[0]);
 
 			assertThat(entry.header().timestamp(), is(Math.floorDiv(latest, 1000) * 1000));
 			assertThat(feed.append(entry), is(Link.NEXT));
@@ -146,12 +145,10 @@ public class FeedWriterTest {
 	}
 
 	@Property(tries = 30)
-	public void shouldPassTheKindAndFingerprintThrough(@ForAll EntryKind kind,
-		@ForAll("fingerprints") Fingerprint fingerprint) {
-		final Entry entry = new FeedWriter(ChainFixtures.key(1), CHAIN).write(NOW, fingerprint, kind, new byte[0]);
+	public void shouldPassTheTagThrough(@ForAll("tags") Tag tag) {
+		final Entry entry = new FeedWriter(ChainFixtures.key(1), CHAIN).write(NOW, tag, new byte[0]);
 
-		assertThat(entry.header().kind(), is(kind));
-		assertThat(entry.header().fingerprint(), equalTo(fingerprint));
+		assertThat(entry.header().tag(), equalTo(tag));
 		assertThat(entry.isAuthentic(), is(true));
 	}
 
@@ -197,14 +194,14 @@ public class FeedWriterTest {
 		final WriterKey key = ChainFixtures.key(1);
 		final Head after = new Head(Long.MAX_VALUE - 2, 7);
 		final FeedWriter writer = new FeedWriter(key, CHAIN, after);
-		final Entry last = writer.write(NOW, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
+		final Entry last = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
 
 		assertThat(last.header().seq(), is(Long.MAX_VALUE - 1));
 		assertThat(last.header().prev(), is(7L));
 		assertThat(new Feed(key.id(), after).append(last), is(Link.NEXT));
-		Expect.assertThrows(IllegalStateException.class, () -> writer.write(NOW, Fingerprint.NONE, EntryKind.SEALED,
+		Expect.assertThrows(IllegalStateException.class, () -> writer.write(NOW, ChainFixtures.TAG,
 			new byte[0]));
-		Expect.assertThrows(IllegalStateException.class, () -> writer.write(NOW, Fingerprint.NONE, EntryKind.SEALED,
+		Expect.assertThrows(IllegalStateException.class, () -> writer.write(NOW, ChainFixtures.TAG,
 			new byte[0]));
 	}
 
@@ -218,14 +215,10 @@ public class FeedWriterTest {
 	public void shouldLeaveTheWriterAsItWasWhenAWriteFails() {
 		final FeedWriter writer = new FeedWriter(ChainFixtures.key(1), CHAIN);
 
-		Expect.assertThrows(NullPointerException.class, () -> writer.write(NOW + 100, Fingerprint.NONE, null,
-			new byte[0]));
-		Expect.assertThrows(NullPointerException.class, () -> writer.write(NOW + 100, null, EntryKind.JOIN,
-			new byte[0]));
-		Expect.assertThrows(NullPointerException.class, () -> writer.write(NOW + 100, Fingerprint.NONE, EntryKind.JOIN,
-			null));
+		Expect.assertThrows(NullPointerException.class, () -> writer.write(NOW + 100, null, new byte[0]));
+		Expect.assertThrows(NullPointerException.class, () -> writer.write(NOW + 100, ChainFixtures.TAG, null));
 
-		final Entry first = writer.write(NOW, Fingerprint.NONE, EntryKind.JOIN, new byte[0]);
+		final Entry first = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
 
 		assertThat(first.header().seq(), is(0L));
 		assertThat(first.header().prev(), is(0L));

@@ -61,7 +61,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
 import org.unigrid.hedgehog.proxy.exit.NettyUdpConnector;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -169,10 +169,10 @@ public class ChainProxyEndToEndTest {
 
 		/* The answers among them: the entries under the answer tag of an opening */
 		private List<Entry> answers() {
-			final Set<Fingerprint> tags = openings().stream().map(opening -> ChainFleet.answerTagOf(opening,
+			final Set<Tag> tags = openings().stream().map(opening -> ChainFleet.answerTagOf(opening,
 				named(opening))).collect(Collectors.toSet());
 
-			return entries().stream().filter(entry -> tags.contains(entry.header().fingerprint())).toList();
+			return entries().stream().filter(entry -> tags.contains(entry.header().tag())).toList();
 		}
 
 		/* The gridnode an opening is sealed to */
