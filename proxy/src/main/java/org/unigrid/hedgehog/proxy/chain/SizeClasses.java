@@ -43,6 +43,11 @@ public final class SizeClasses {
 		return of(maxEntryBytes).stream().mapToInt(Integer::intValue).filter(size -> size >= entryBytes).findFirst();
 	}
 
+	/* The first of the classes, found without listing them, as admission asks for it with every entry */
+	public static int smallest(int maxEntryBytes) {
+		return Math.min(SMALL, maxEntryBytes);
+	}
+
 	public static boolean isClass(int entryBytes, int maxEntryBytes) {
 		return of(maxEntryBytes).contains(entryBytes);
 	}

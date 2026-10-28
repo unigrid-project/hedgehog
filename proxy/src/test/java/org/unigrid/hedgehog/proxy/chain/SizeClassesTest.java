@@ -71,6 +71,18 @@ public class SizeClassesTest {
 	}
 
 	@Property(tries = 200)
+	public void theSmallestIsTheFirstClass(@ForAll @IntRange(min = Entry.OVERHEAD, max = 1024 * 1024) int max) {
+		assertThat(SizeClasses.smallest(max), is(SizeClasses.of(max).get(0)));
+	}
+
+	@Example
+	public void theSmallestClassIsAKibibyteOrTheLargestEntry() {
+		assertThat(SizeClasses.smallest(DEFAULT_MAX_ENTRY_BYTES), is(1024));
+		assertThat(SizeClasses.smallest(1024), is(1024));
+		assertThat(SizeClasses.smallest(500), is(500));
+	}
+
+	@Property(tries = 200)
 	public void theFitIsAClassAndNoSmallerClassHoldsTheEntry(@ForAll @IntRange(min = 1024, max = 1024 * 1024) int max,
 		@ForAll @IntRange(min = 0, max = 1024 * 1024) int entry) {
 		final OptionalInt fit = SizeClasses.fit(entry, max);

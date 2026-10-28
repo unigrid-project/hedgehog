@@ -57,8 +57,12 @@ public record ChainLimits(long capacityBytes, int retentionSeconds, int maxEntry
 		return Math.max(maxEntryBytes, capacityBytes / HELD_SHARE);
 	}
 
+	public int smallestClassBytes() {
+		return SizeClasses.smallest(maxEntryBytes);
+	}
+
 	/* The room past the capacity that only entries of the smallest class may take */
 	public long reserveBytes() {
-		return Math.max(SizeClasses.of(maxEntryBytes).get(0), capacityBytes / RESERVED_SHARE);
+		return Math.max(smallestClassBytes(), capacityBytes / RESERVED_SHARE);
 	}
 }

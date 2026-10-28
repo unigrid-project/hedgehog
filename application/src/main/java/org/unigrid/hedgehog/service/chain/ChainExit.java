@@ -48,7 +48,6 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Gap;
-import org.unigrid.hedgehog.proxy.chain.SizeClasses;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.exit.ExitRelay;
@@ -351,8 +350,7 @@ public class ChainExit implements ChainDrain {
 
 	/* An opening fills the smallest class of its chain, so no other entry is worth a key agreement */
 	private boolean isSmallest(final ChainId chainId, final Entry entry) {
-		return host.chain(chainId).filter(chain -> SizeClasses.of(chain.limits().maxEntryBytes()).get(0)
-			== entry.size()).isPresent();
+		return host.chain(chainId).filter(chain -> chain.limits().smallestClassBytes() == entry.size()).isPresent();
 	}
 
 	/* A node that is no active gridnode of a group is no exit, and a chain it only follows as a client is none of its

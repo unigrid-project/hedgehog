@@ -30,7 +30,7 @@ final class ChainFixtures {
 	static final int MAX_ENTRY_BYTES = 16 * 1024;
 
 	/* The size of the entries signed() writes, the smallest class of every chain whose entries may be that large */
-	static final int ENTRY_SIZE = SizeClasses.of(MAX_ENTRY_BYTES).get(0);
+	static final int ENTRY_SIZE = SizeClasses.smallest(MAX_ENTRY_BYTES);
 
 	/* The tag of the entries signed() writes, which no session looks out for */
 	static final Tag TAG = new Tag(new byte[Tag.SIZE]);

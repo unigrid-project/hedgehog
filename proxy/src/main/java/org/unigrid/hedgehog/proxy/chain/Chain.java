@@ -184,7 +184,7 @@ public final class Chain {
 	/* An entry of the smallest class, which openings and answers fill, may also take the reserve past the capacity,
 	   so that a chain full of larger entries still lets sessions open, answer and close */
 	private boolean isFullFor(Entry entry) {
-		final boolean smallest = entry.size() == SizeClasses.of(limits.maxEntryBytes()).get(0);
+		final boolean smallest = entry.size() == limits.smallestClassBytes();
 
 		return bytes + entry.size() > limits.capacityBytes() + (smallest ? limits.reserveBytes() : 0);
 	}

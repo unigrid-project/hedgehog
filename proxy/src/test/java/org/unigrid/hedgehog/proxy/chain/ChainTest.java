@@ -162,7 +162,7 @@ public class ChainTest {
 	public void refusesAnOddSize() {
 		final Chain chain = chain();
 		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, ChainFixtures.TAG);
-		final int small = SizeClasses.of(LIMITS.maxEntryBytes()).get(0) - Entry.OVERHEAD;
+		final int small = LIMITS.smallestClassBytes() - Entry.OVERHEAD;
 
 		assertThat(chain.offer(WRITER.sign(header, new byte[small + 1])), equalTo(new Offer(Admission.MALFORMED,
 			List.of())));
