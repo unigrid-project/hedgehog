@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.proxy.session;
 /* A sealed payload that cannot be opened. Whatever the reason, the session that received it closes. */
 public final class SealException extends Exception {
 	public enum Reason {
-		/* Shorter than a counter and a tag */
+		/* Shorter than a counter and a tag, or than a length and a tag, or holding a length past its end */
 		MALFORMED,
 		/* A counter the session already opened */
 		REPLAYED,
