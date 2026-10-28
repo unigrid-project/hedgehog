@@ -1045,6 +1045,39 @@ public class ChainExitTest {
 		assertThat(ChainExit.OPENING_MAX_AGE_MILLIS, greaterThanOrEqualTo(ClientSession.ACCEPT_TIMEOUT_MILLIS));
 	}
 
+	/* An opening stamped further ahead of the exit's clock than the clocks may differ would stay young after the
+	   record of the answered openings let go of it */
+	@Example
+	public void answersNoOpeningStampedFurtherAheadThanTheClocksMayDiffer() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final long now = rig.fleet.clock.get();
+		final Entry ahead = opening(rig.stranger(1, chain), now + ChainExit.CLOCK_SKEW_MILLIS + 1000, EXIT);
+		final Entry edge = opening(rig.stranger(2, chain), now + ChainExit.CLOCK_SKEW_MILLIS, EXIT);
+
+		rig.offer(ahead);
+		rig.offer(edge);
+		assertThat(rig.answers(chain, ahead), is(0L));
+		assertThat(rig.answers(chain, edge), is(1L));
+	}
+
+	/* An opening stamped ahead of the exit's clock stays young that much longer, so the record of the answered ones
+	   keeps it as long, however short the retention of its chain */
+	@Example
+	public void answersAnOpeningStampedAheadOnceWhileItIsYoung() {
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 20, 3)));
+		final ChainId chain = rig.fleet.chain();
+		final Entry opening = opening(rig.stranger(1, chain), rig.fleet.clock.get() + ChainExit.CLOCK_SKEW_MILLIS,
+			EXIT);
+
+		rig.offer(opening);
+		assertThat(rig.exit.heldRelays(), is(1));
+
+		rig.fleet.clock.addAndGet(21_000);
+		rig.exit.appended(chain, opening);
+		assertThat(rig.exit.heldRelays(), is(1));
+	}
+
 	@Example
 	public void answersNoMoreOpensOnOneChainThanItsShare() {
 		final Rig rig = new Rig();

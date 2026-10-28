@@ -89,9 +89,12 @@ public class ChainExit implements ChainDrain {
 	   after its answer has nobody behind it, and gives its place back long before the idle limit of the spork */
 	static final long CONNECT_ARRIVAL_MILLIS = 30_000;
 
+	/* How far the clocks of a client and its exit may differ */
+	static final long CLOCK_SKEW_MILLIS = 10_000;
+
 	/* A client gives up on an opening after ClientSession.ACCEPT_TIMEOUT_MILLIS, so an opening stamped longer ago
-	   than that, allowing ten seconds of skew between the clocks of client and exit, is answered for nobody */
-	static final long OPENING_MAX_AGE_MILLIS = ClientSession.ACCEPT_TIMEOUT_MILLIS + 10_000;
+	   than that, allowing for the skew between the clocks of client and exit, is answered for nobody */
+	static final long OPENING_MAX_AGE_MILLIS = ClientSession.ACCEPT_TIMEOUT_MILLIS + CLOCK_SKEW_MILLIS;
 
 	/* The most openings the record of answered ones holds. Past it the eldest is let go, and only its stamp then keeps
 	   it from a second answer, which holds once it is OPENING_MAX_AGE_MILLIS old. */
@@ -126,9 +129,9 @@ public class ChainExit implements ChainDrain {
 	private final Map<RelayKey, Relayed> relays = new ConcurrentHashMap<>();
 	private final AtomicLong sessions = new AtomicLong();
 
-	/* The openings this node answered and when, oldest first, kept for the retention of their chain whatever became
-	   of their relays and their chain: a chain the host rebuilt fetches the feeds of its writers anew. Only accept
-	   reads and writes it, under the monitor of this exit. */
+	/* The openings this node answered and when, oldest first, kept for the retention of their chain, and at least as
+	   long as an opening stays young, whatever became of their relays and their chain: a chain the host rebuilt
+	   fetches the feeds of its writers anew. Only accept reads and writes it, under the monitor of this exit. */
 	private final Map<Opening, Long> answered = new LinkedHashMap<>();
 
 	/* The host keeps its listeners for good, so a stopped exit must ignore what it is still told */
@@ -304,18 +307,27 @@ public class ChainExit implements ChainDrain {
 		final Optional<ProxySettings> proxy = settings.current();
 		final long now = clock.getAsLong();
 
-		if (proxy.isPresent() && now - entry.header().timestamp() <= OPENING_MAX_AGE_MILLIS && isExitOn(chainId)
+		if (proxy.isPresent() && isYoung(entry, now) && isExitOn(chainId)
 			&& hasRoom(chainId, entry.header().writer())) {
 
 			final Opening opening = openingOf(chainId, entry);
 
-			forgetAnswered(now - Math.max(proxy.get().chainLimits().retentionMillis(), OPENING_MAX_AGE_MILLIS));
+			forgetAnswered(now - Math.max(proxy.get().chainLimits().retentionMillis(),
+				OPENING_MAX_AGE_MILLIS + CLOCK_SKEW_MILLIS));
 
 			if (!answered.containsKey(opening)) {
 				sealingKey.privateKey().ifPresent(key -> host.chain(chainId).map(this::feedOn)
 					.ifPresent(feed -> answer(feed, entry, opening, key, proxy.get())));
 			}
 		}
+	}
+
+	/* An opening is young from as far ahead of this clock as the skew allows to OPENING_MAX_AGE_MILLIS behind it, so
+	   one answered at the start of that span is kept in the record for all of it */
+	private static boolean isYoung(final Entry entry, final long now) {
+		final long stamp = entry.header().timestamp();
+
+		return now - stamp <= OPENING_MAX_AGE_MILLIS && stamp - now <= CLOCK_SKEW_MILLIS;
 	}
 
 	private static Opening openingOf(final ChainId chainId, final Entry entry) {
