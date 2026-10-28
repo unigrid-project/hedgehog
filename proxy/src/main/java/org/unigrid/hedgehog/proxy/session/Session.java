@@ -36,10 +36,10 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk.Responder;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
 
 /* A session between a client and its exit after the handshake. Both ends use this class and differ only in
-   the direction they seal in. Each end writes sealed entries to its own feed and opens those of its peer, which
-   it knows by their tags alone: message n of a direction carries the tag of n under the tag key of that
-   direction. A copy of a peer's entry under another writer is the same message, so whichever comes first is
-   opened and the other falls behind. */
+   the direction they seal in. Each end writes sealed entries to its own feed and opens those of its peer: message
+   n of a direction carries the tag of n under the tag key of that direction. Only the peer's feed counts. Every
+   writer of the chain sees every entry, so what another writer posts under a tag of the session, copied or forged,
+   is passed over and ends nothing. */
 public final class Session {
 	/* The tags of the peer an end keeps ahead of the next one. A peer entry whose tag is among them but is not the
 	   next one, or a gap that names one, means messages of the session were lost. */
@@ -116,7 +116,8 @@ public final class Session {
 		return new Tag(entry.header().fingerprint().bytes());
 	}
 
-	/* The writer the peer spoke from when the session was made */
+	/* The feed of the peer: the client's writer of the opening at the exit, and the writer whose answer completed the
+	   handshake at the client */
 	public WriterId peer() {
 		return peer;
 	}
@@ -130,21 +131,25 @@ public final class Session {
 		return context.maxPayloadBytes() - SealingCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD;
 	}
 
-	/* Whether the entry carries the next tag of the peer, which is the only one that opens */
+	/* Whether the entry is the peer's and carries its next tag, which is the only one that opens */
 	public synchronized boolean expects(Entry entry) {
-		return open && Long.valueOf(received).equals(ahead.get(tagOf(entry)));
+		return isOfPeer(entry) && Long.valueOf(received).equals(ahead.get(tagOf(entry)));
 	}
 
-	/* Whether the entry carries a tag of the peer that this session still looks out for, the next one or one past
-	   it: those after the next one mean that messages before them were lost */
+	/* Whether the entry is the peer's and carries a tag that this session still looks out for, the next one or one
+	   past it: those after the next one mean that messages before them were lost */
 	public synchronized boolean recognises(Entry entry) {
-		return open && ahead.containsKey(tagOf(entry));
+		return isOfPeer(entry) && ahead.containsKey(tagOf(entry));
 	}
 
-	/* Whether the chain gave up on entries that carried a tag this session looks out for */
+	/* Whether the chain gave up on entries of the peer that carried a tag this session looks out for */
 	public synchronized boolean isNamedIn(Gap gap) {
-		return open && gap.fingerprints().stream().anyMatch(fingerprint -> ahead.containsKey(new Tag(
-			fingerprint.bytes())));
+		return open && peer.equals(gap.writer()) && gap.fingerprints().stream()
+			.anyMatch(fingerprint -> ahead.containsKey(new Tag(fingerprint.bytes())));
+	}
+
+	private boolean isOfPeer(Entry entry) {
+		return open && peer.equals(entry.header().writer());
 	}
 
 	/* Each message is sealed to the smallest class that holds it. The counter of the tag moves with the counter of
@@ -174,8 +179,8 @@ public final class Session {
 		lastActivity = context.now();
 	}
 
-	/* Takes any entry of the chain and opens the next message of the peer. An entry that carries a later tag of the
-	   peer, or the next one but does not open, ends the session: the peer is told and the caller gets the same
+	/* Takes any entry of the chain and opens the next message of the peer. An entry of the peer's feed that carries
+	   a later tag, or the next one but does not open, ends the session: the peer is told and the caller gets the same
 	   Close. */
 	public synchronized Optional<SealedMessage> receive(Entry entry) {
 		if (!open || !recognises(entry)) {

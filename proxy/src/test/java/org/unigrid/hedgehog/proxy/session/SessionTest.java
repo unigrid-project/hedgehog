@@ -576,16 +576,51 @@ public class SessionTest {
 		}
 	}
 
+	/* Every writer sees every entry, so a tag that another writer copies, the next one or one already opened, is
+	   nothing the peer said and ends nothing */
 	@Example
-	public void shouldOpenTheNextRecordWhoeverPostedItOnce() {
+	public void ignoresATagThatAnotherWriterReplays() {
 		final Pair pair = new Pair();
-		final Entry original = sent(pair, 1).get(0);
-		final Entry copy = SessionFixtures.context(3, new ArrayList<>(), pair.clock::get).post(Session.tagOf(original),
-			original.payload());
+		final List<Entry> entries = sent(pair, 2);
+		final SessionContext stranger = SessionFixtures.context(3, new ArrayList<>(), pair.clock::get);
 
-		assertThat(pair.exit.receive(copy), equalTo(Optional.of(new Data(new byte[] { 0 }))));
-		assertThat(pair.exit.receive(original), equalTo(Optional.empty()));
+		assertThat(pair.exit.receive(entries.get(0)), equalTo(Optional.of(new Data(new byte[] { 0 }))));
+
+		final Entry past = stranger.post(Session.tagOf(entries.get(0)), entries.get(0).payload());
+		final Entry next = stranger.post(Session.tagOf(entries.get(1)), entries.get(1).payload());
+
+		for (Entry copy : List.of(past, next)) {
+			assertThat(pair.exit.expects(copy), is(false));
+			assertThat(pair.exit.recognises(copy), is(false));
+			assertThat(pair.exit.receive(copy), equalTo(Optional.empty()));
+		}
+
 		assertThat(pair.exit.isOpen(), is(true));
+		assertThat(pair.fromExit, is(empty()));
+		assertThat(pair.exit.receive(entries.get(1)), equalTo(Optional.of(new Data(new byte[] { 1 }))));
+	}
+
+	/* An entry of another writer under the next tag, or one past it, that does not open breaks nothing either */
+	@Example
+	public void ignoresAForgedEntryOfAnotherWriterUnderATagOfTheSession() {
+		final Pair pair = new Pair();
+		final SessionContext stranger = SessionFixtures.context(3, new ArrayList<>(), pair.clock::get);
+
+		for (long counter : new long[] { 0, 1 }) {
+			assertThat(pair.exit.receive(stranger.post(clientTag(counter), new byte[SEALED_BYTES])),
+				equalTo(Optional.empty()));
+			assertThat(pair.client.receive(stranger.post(Tags.of(SECRETS.exitTags(), Direction.EXIT_TO_CLIENT,
+				counter), new byte[SEALED_BYTES])), equalTo(Optional.empty()));
+		}
+
+		assertThat(pair.exit.isOpen(), is(true));
+		assertThat(pair.client.isOpen(), is(true));
+		assertThat(pair.fromExit, is(empty()));
+		assertThat(pair.fromClient, is(empty()));
+		pair.client.send(DATA_ONE);
+		pair.exit.send(DATA_ONE);
+		assertThat(pair.toExit(), equalTo(List.of(DATA_ONE)));
+		assertThat(pair.toClient(), equalTo(List.of(DATA_ONE)));
 	}
 
 	@Example
@@ -926,7 +961,8 @@ public class SessionTest {
 		assertThat(pair.exit.recognises(entries.get(1)), is(false));
 	}
 
-	/* A gap names the session when it skipped an entry that carried one of the tags the session looks out for */
+	/* A gap names the session when it skipped an entry of the peer that carried one of the tags the session looks
+	   out for */
 	@Example
 	public void shouldFindItselfInAGapOnlyByTheTagsItLooksOutFor() {
 		final Pair pair = new Pair();
@@ -938,6 +974,8 @@ public class SessionTest {
 		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(0))), is(false));
 		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(Session.WINDOW + 1))), is(false));
 		assertThat(pair.exit.isNamedIn(gapOf(client, TAG)), is(false));
+		assertThat(pair.exit.isNamedIn(gapOf(pair.exitContext.writer().writer(), clientTag(1))), is(false));
+		assertThat(pair.exit.isNamedIn(gapOf(SessionFixtures.key(3).id(), clientTag(1))), is(false));
 		pair.exit.close(CloseReason.DONE);
 		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(1))), is(false));
 	}

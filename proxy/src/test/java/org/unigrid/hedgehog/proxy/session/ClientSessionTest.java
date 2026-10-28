@@ -288,10 +288,10 @@ public class ClientSessionTest {
 		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
 	}
 
-	/* A writer that posts the exit's answer again posts the same handshake: whichever comes first completes it, the
-	   other finds the session open, and the exit's messages reach the client whoever posted the answer */
+	/* The writer whose answer completed the handshake is the exit's feed: a copy of the answer under another writer
+	   comes too late, and what that writer posts under the session's tags, copied or forged, ends nothing */
 	@Example
-	public void shouldTakeACopyOfTheAnswerAsTheAnswerItself() {
+	public void shouldHearOnlyTheWriterWhoseAnswerCompletedTheHandshake() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
@@ -300,16 +300,34 @@ public class ClientSessionTest {
 		final Session exit = Session.tryAccept(wire.exitContext, wire.posted.poll(),
 			SessionFixtures.sealingPrivate(EXIT_ID)).orElseThrow();
 		final Entry answer = wire.posted.pollLast();
-		final Entry copy = wire.context(3).post(Session.tagOf(answer), answer.payload());
+		final SessionContext copier = wire.context(3);
 
-		wire.posted.pollLast();
-		assertThat(client.receive(copy), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(exit.receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
 		assertThat(client.receive(answer), equalTo(Optional.empty()));
-		assertThat(wire.posted.isEmpty(), is(true));
+		assertThat(exit.receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
+		assertThat(client.receive(copier.post(Session.tagOf(answer), answer.payload())), equalTo(Optional.empty()));
+		wire.posted.clear();
 		exit.send(new Data(new byte[] { 1 }));
-		assertThat(client.receive(wire.posted.poll()), equalTo(Optional.of(new Data(new byte[] { 1 }))));
+
+		final Entry first = wire.posted.poll();
+
+		assertThat(client.receive(first), equalTo(Optional.of(new Data(new byte[] { 1 }))));
+		exit.send(new Data(new byte[] { 2 }));
+
+		final Entry second = wire.posted.poll();
+		final List<Entry> copies = List.of(copier.post(Session.tagOf(first), first.payload()),
+			copier.post(Session.tagOf(second), second.payload()),
+			copier.post(Session.tagOf(second), new byte[SMALLEST_CLASS - Entry.OVERHEAD]));
+
+		wire.posted.clear();
+
+		for (Entry copy : copies) {
+			assertThat(client.expects(copy), is(false));
+			assertThat(client.receive(copy), equalTo(Optional.empty()));
+		}
+
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(wire.posted.isEmpty(), is(true));
+		assertThat(client.receive(second), equalTo(Optional.of(new Data(new byte[] { 2 }))));
 	}
 
 	/* The prologue binds the writer of the opening, so its bytes under another writer open for no exit */
