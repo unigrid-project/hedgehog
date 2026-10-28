@@ -18,10 +18,8 @@
 
 package org.unigrid.hedgehog.proxy.group;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Random;
 import java.util.Set;
@@ -32,11 +30,9 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.proxy.Expect;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -47,13 +43,6 @@ public class GroupViewTest {
 	private static final List<String> THREE_GROUPS = IntStream.range(0, 24).mapToObj(i -> "gn-" + i).toList();
 	private static final ProxySettings SMALL_GROUPS = new ProxySettings(5, 120, 2, 16, 32L * 1024 * 1024, 30,
 		16 * 1024, 300, ProxySettings.CONNECT | ProxySettings.UDP);
-
-	private static Fingerprint fingerprint(int value) {
-		final byte[] bytes = new byte[Fingerprint.SIZE];
-
-		Arrays.fill(bytes, (byte) value);
-		return new Fingerprint(bytes);
-	}
 
 	@Example
 	public void shouldDeriveGroupsAndChainsFromTheSettingsAndTime() {
@@ -133,19 +122,16 @@ public class GroupViewTest {
 
 		for (int group : new int[] { -1, 2, 3, Integer.MAX_VALUE, Integer.MIN_VALUE }) {
 			Expect.assertThrows(IndexOutOfBoundsException.class, () -> view.chains(group));
-			Expect.assertThrows(IndexOutOfBoundsException.class,
-				() -> view.exit(group, fingerprint(9), Set.of()));
 		}
 	}
 
 	@Example
-	public void shouldHaveNoGroupsChainsOrExitsWithoutGridnodes() {
+	public void shouldHaveNoGroupsOrChainsWithoutGridnodes() {
 		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, List.of());
 
 		assertThat(view.groups().groupCount(), is(0));
 		assertThat(view.chainsOf("gn-0"), is(empty()));
 		Expect.assertThrows(IndexOutOfBoundsException.class, () -> view.chains(0));
-		Expect.assertThrows(IndexOutOfBoundsException.class, () -> view.exit(0, fingerprint(9), Set.of()));
 	}
 
 	@Property(tries = 50)
@@ -202,25 +188,5 @@ public class GroupViewTest {
 		assertThat(offered, equalTo(Set.of(0, 2)));
 		assertThat(view.joinCandidate(random, Set.of(0, 2, 5, -1)), equalTo(OptionalInt.of(1)));
 		assertThat(view.joinCandidate(random, Set.of(0, 1, 2, 5, -1)), equalTo(OptionalInt.empty()));
-	}
-
-	@Example
-	public void shouldChooseTheExitAmongTheMembersOfTheGroup() {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, GRIDNODES);
-		final Optional<String> exit = view.exit(0, fingerprint(9), Set.of());
-
-		assertThat(view.groups().members(0), hasItem(exit.orElseThrow()));
-		assertThat(exit, equalTo(ExitChoice.exit(fingerprint(9), view.groups().members(0), Set.of())));
-		assertThat(view.exit(0, fingerprint(9), Set.of(exit.get())), not(equalTo(exit)));
-	}
-
-	@Example
-	public void shouldChooseTheExitOfTheGroupAskedFor() {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, GRIDNODES);
-		final Optional<String> exit = view.exit(1, fingerprint(9), Set.of());
-
-		assertThat(view.groups().members(1), hasItem(exit.orElseThrow()));
-		assertThat(exit, equalTo(ExitChoice.exit(fingerprint(9), view.groups().members(1), Set.of())));
-		assertThat(view.exit(1, fingerprint(9), new HashSet<>(view.groups().members(1))), equalTo(Optional.empty()));
 	}
 }

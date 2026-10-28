@@ -21,13 +21,11 @@ package org.unigrid.hedgehog.proxy.group;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 
 /* The shard groups and chains one node sees for the settings, time and active gridnodes it was given */
 public final class GroupView {
@@ -70,9 +68,5 @@ public final class GroupView {
 			.toArray();
 
 		return open.length == 0 ? OptionalInt.empty() : OptionalInt.of(open[random.nextInt(open.length)]);
-	}
-
-	public Optional<String> exit(int group, Fingerprint fingerprint, Set<String> excluded) {
-		return ExitChoice.exit(fingerprint, groups.members(group), excluded);
 	}
 }
