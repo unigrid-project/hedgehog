@@ -26,8 +26,12 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.HexFormat;
+import java.util.Optional;
 import lombok.SneakyThrows;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterProperty;
@@ -38,11 +42,14 @@ import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.model.network.Topology;
 
 public class GridnodeResourceTest extends BaseRestClientTest {
 	private static final String ADDRESS = "127.0.0.1:5000";
+	private static final byte[] SEALING_KEY = GridnodeFixtures.sealingKey();
 
 	@Mocked private GridnodeOptions gridnodeOptions;
 	@Inject private Topology topology;
@@ -75,6 +82,13 @@ public class GridnodeResourceTest extends BaseRestClientTest {
 			GridnodeOptions.getAnnounceAddress(); result = ADDRESS; minTimes = 0;
 		}};
 
+		/* The key file of the sealing key belongs in the data directory, which no test of the node may write to */
+		new MockUp<GridnodeSetup>() {
+			@Mock public /* static */ Optional<byte[]> sealingKey() {
+				return Optional.of(SEALING_KEY);
+			}
+		};
+
 		super.before();
 	}
 
@@ -98,6 +112,17 @@ public class GridnodeResourceTest extends BaseRestClientTest {
 
 	@Example
 	@SneakyThrows
+	public void shouldAnnounceTheSealingKeyInTheSignedEntry() {
+		client.put("/gridnode/start", Entity.text(""));
+
+		final Gridnode own = topology.findGridnode(key.getPublicKey()).get();
+
+		assertThat(own.getSealingKey(), is(SEALING_KEY));
+		assertThat(GridnodeSignature.verifies(own), is(true));
+	}
+
+	@Example
+	@SneakyThrows
 	public void shouldDeactivateTheOwnGridnode() {
 		client.put("/gridnode/start", Entity.text(""));
 
@@ -114,6 +139,7 @@ public class GridnodeResourceTest extends BaseRestClientTest {
 
 		assertThat(json, containsString(key.getPublicKey()));
 		assertThat(json, containsString("\"timestamp\""));
+		assertThat(json, containsString("\"sealingKey\":\"" + HexFormat.of().formatHex(SEALING_KEY) + "\""));
 		assertThat(json, not(containsString("signature")));
 	}
 

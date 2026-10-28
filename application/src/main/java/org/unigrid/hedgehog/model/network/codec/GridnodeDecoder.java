@@ -26,6 +26,7 @@ import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
@@ -42,6 +43,10 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 		final long timestamp = in.readLong();
 		final byte[] id = readField(in, ID_LENGTH);
 		final byte[] host = readField(in, MAX_HOST_LENGTH);
+		final byte[] sealingKey = new byte[SealingKeyFile.KEY_SIZE];
+
+		in.readBytes(sealingKey);
+
 		final byte[] signature = readField(in, MAX_SIGNATURE_LENGTH);
 
 		if (id.length != ID_LENGTH) {
@@ -52,7 +57,7 @@ public class GridnodeDecoder extends AbstractReplayingDecoder<PublishGridnode> i
 
 		return Optional.of(PublishGridnode.builder().gridnode(Gridnode.builder()
 			.id(new String(id, StandardCharsets.UTF_8)).hostName(new String(host, StandardCharsets.UTF_8))
-			.status(status).timestamp(timestamp).signature(signature).build()).build());
+			.sealingKey(sealingKey).status(status).timestamp(timestamp).signature(signature).build()).build());
 	}
 
 	/* The limit is checked before the allocation so a hostile length cannot make the node reserve memory */

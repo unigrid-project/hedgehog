@@ -43,6 +43,7 @@ public class GridnodeEncoder extends AbstractMessageToByteEncoder<PublishGridnod
 		out.writeLong(gridnode.getTimestamp());
 		writeField(out, gridnode.getId().getBytes(StandardCharsets.UTF_8));
 		writeField(out, gridnode.getHostName().getBytes(StandardCharsets.UTF_8));
+		out.writeBytes(gridnode.getSealingKey());
 		writeField(out, gridnode.getSignature());
 		return Optional.of(out);
 	}

@@ -18,9 +18,12 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.copyOf;
@@ -56,6 +59,35 @@ public class GridnodeSignatureTest {
 		);
 
 		changed.forEach(g -> assertThat(GridnodeSignature.verifies(g), is(false)));
+	}
+
+	@Example
+	public void coversTheSealingKey() throws Exception {
+		final Gridnode entry = signed(new Signature(), Gridnode.Status.ACTIVE, "10.0.0.1:1", NOW);
+
+		assertThat(GridnodeSignature.verifies(entry), is(true));
+
+		for (int index : new int[] { 0, SealingKeyFile.KEY_SIZE / 2, SealingKeyFile.KEY_SIZE - 1 }) {
+			for (int mask : new int[] { 0x01, 0x80 }) {
+				final Gridnode flipped = copyOf(entry, g -> g.getSealingKey()[index] ^= mask);
+
+				assertThat(index + "/" + mask, GridnodeSignature.verifies(flipped), is(false));
+			}
+		}
+	}
+
+	@Example
+	public void signsTheFieldsInTheirWireOrderUnderTheSecondContext() {
+		final byte[] sealingKey = GridnodeFixtures.sealingKey();
+		final Gridnode entry = Gridnode.builder().id("ab").status(Gridnode.Status.ACTIVE).hostName("h:1")
+			.sealingKey(sealingKey).timestamp(NOW).build();
+		final byte[] expected = ByteBuffer.allocate(14 + Short.BYTES + 2 + 1 + Short.BYTES + 3 + 32 + Long.BYTES)
+			.put("hh-gridnode-v2".getBytes(StandardCharsets.US_ASCII)).putShort((short) 2)
+			.put("ab".getBytes(StandardCharsets.UTF_8)).put(Gridnode.Status.ACTIVE.getValue())
+			.putShort((short) 3).put("h:1".getBytes(StandardCharsets.UTF_8)).put(sealingKey).putLong(NOW)
+			.array();
+
+		assertThat(GridnodeSignature.message(entry), equalTo(expected));
 	}
 
 	@Example

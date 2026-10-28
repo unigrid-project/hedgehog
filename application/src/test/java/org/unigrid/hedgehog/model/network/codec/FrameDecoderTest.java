@@ -71,7 +71,7 @@ public class FrameDecoderTest {
 	private static final int GROUPS = StorageCodecs.MAX_GROUPS_PER_PACKET;
 	private static final int TOMBSTONE = GroupKey.PUBLIC_KEY_SIZE + Long.BYTES + GroupKey.SIGNATURE_SIZE;
 	private static final int GRIDNODE = 1 + Long.BYTES + Short.BYTES + 2 * Signature.PUBLIC_KEY_HEX_SIZE
-		+ 2 * Short.BYTES;
+		+ 2 * Short.BYTES + 32;
 
 	/* The longest DER encoding of a P-521 signature */
 	private static final int SIGNATURE_SIZE = 139;

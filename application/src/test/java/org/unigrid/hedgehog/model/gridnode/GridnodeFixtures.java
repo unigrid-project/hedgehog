@@ -18,17 +18,35 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import java.util.Optional;
 import java.util.function.Consumer;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 public final class GridnodeFixtures {
 	private GridnodeFixtures() { }
 
+	/* Bytes that differ from one place to the next, so that a key moved or cut short does not pass for itself */
+	public static byte[] sealingKey() {
+		final byte[] key = new byte[SealingKeyFile.KEY_SIZE];
+
+		for (int i = 0; i < key.length; i++) {
+			key[i] = (byte) (i + 1);
+		}
+
+		return key;
+	}
+
 	public static Gridnode signed(Signature key, Gridnode.Status status, String host, long timestamp)
 		throws Exception {
 
+		return signed(key, status, host, sealingKey(), timestamp);
+	}
+
+	public static Gridnode signed(Signature key, Gridnode.Status status, String host, byte[] sealingKey,
+		long timestamp) throws Exception {
+
 		final Gridnode gridnode = Gridnode.builder().id(key.getPublicKey()).status(status).hostName(host)
-			.timestamp(timestamp).build();
+			.sealingKey(sealingKey).timestamp(timestamp).build();
 
 		gridnode.setSignature(key.sign(GridnodeSignature.message(gridnode)));
 		return gridnode;
@@ -36,7 +54,8 @@ public final class GridnodeFixtures {
 
 	public static Gridnode copyOf(Gridnode original, Consumer<Gridnode> change) {
 		final Gridnode copy = Gridnode.builder().id(original.getId()).status(original.getStatus())
-			.hostName(original.getHostName()).timestamp(original.getTimestamp())
+			.hostName(original.getHostName()).sealingKey(Optional.ofNullable(original.getSealingKey())
+				.map(byte[]::clone).orElse(null)).timestamp(original.getTimestamp())
 			.signature(original.getSignature()).build();
 
 		change.accept(copy);

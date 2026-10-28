@@ -30,10 +30,12 @@ import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class GridnodeIdentityTest {
 	private static final String OWNER_ONLY = "rw-------";
+	private static final byte[] SEALING_KEY = GridnodeFixtures.sealingKey();
 
 	/* The plain unix configuration has no permission attributes, which the key file check reads */
 	private static FileSystem posixFileSystem() {
@@ -66,7 +68,7 @@ public class GridnodeIdentityTest {
 
 	private static String messageOfSigning(GridnodeIdentity identity) {
 		try {
-			identity.sign(Gridnode.Status.ACTIVE, "h:1", 1, 0);
+			identity.sign(Gridnode.Status.ACTIVE, "h:1", SEALING_KEY, 1, 0);
 			return "";
 		} catch (IllegalStateException ex) {
 			return ex.getMessage();
@@ -170,7 +172,7 @@ public class GridnodeIdentityTest {
 	@Example
 	public void shouldSignEntriesThatVerify() {
 		final GridnodeIdentity identity = GridnodeIdentity.of(newKey());
-		final Gridnode entry = identity.sign(Gridnode.Status.ACTIVE, "127.0.0.1:5000", 1_000, 0);
+		final Gridnode entry = identity.sign(Gridnode.Status.ACTIVE, "127.0.0.1:5000", SEALING_KEY, 1_000, 0);
 
 		assertThat(entry.getId(), is(identity.id().get()));
 		assertThat(entry.getTimestamp(), is(1_000L));
@@ -178,11 +180,31 @@ public class GridnodeIdentityTest {
 	}
 
 	@Example
+	public void shouldSignTheSealingKeyIntoTheEntry() {
+		final GridnodeIdentity identity = GridnodeIdentity.of(newKey());
+		final Gridnode entry = identity.sign(Gridnode.Status.ACTIVE, "127.0.0.1:5000", SEALING_KEY, 1_000, 0);
+
+		assertThat(entry.getSealingKey(), is(SEALING_KEY));
+		assertThat(GridnodeSignature.verifies(entry), is(true));
+	}
+
+	@Example
+	public void shouldRefuseASealingKeyThatIsNotThirtyTwoBytes() {
+		final GridnodeIdentity identity = GridnodeIdentity.of(newKey());
+
+		for (byte[] key : new byte[][] { null, new byte[0], new byte[31], new byte[33] }) {
+			assertThrows(IllegalArgumentException.class,
+				() -> identity.sign(Gridnode.Status.ACTIVE, "h:1", key, 1_000, 0));
+		}
+	}
+
+	@Example
 	public void shouldNeverSignAnEarlierTimeThanBefore() {
 		final GridnodeIdentity identity = GridnodeIdentity.of(newKey());
 
-		final long first = identity.sign(Gridnode.Status.ACTIVE, "h:1", 5_000, 0).getTimestamp();
-		final long afterClockWentBack = identity.sign(Gridnode.Status.ACTIVE, "h:1", 1_000, 0).getTimestamp();
+		final long first = identity.sign(Gridnode.Status.ACTIVE, "h:1", SEALING_KEY, 5_000, 0).getTimestamp();
+		final long afterClockWentBack = identity.sign(Gridnode.Status.ACTIVE, "h:1", SEALING_KEY, 1_000, 0)
+			.getTimestamp();
 
 		assertThat(afterClockWentBack, greaterThan(first));
 	}
@@ -191,6 +213,7 @@ public class GridnodeIdentityTest {
 	public void shouldBeatTheTimeOthersStillHold() {
 		final GridnodeIdentity identity = GridnodeIdentity.of(newKey());
 
-		assertThat(identity.sign(Gridnode.Status.ACTIVE, "h:1", 1_000, 9_000).getTimestamp(), is(9_001L));
+		assertThat(identity.sign(Gridnode.Status.ACTIVE, "h:1", SEALING_KEY, 1_000, 9_000).getTimestamp(),
+			is(9_001L));
 	}
 }

@@ -18,10 +18,12 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public final class GridnodeSetup {
 	private static final Set<String> WILDCARDS = Set.of("", "0.0.0.0", "::", "[::]");
@@ -32,6 +34,16 @@ public final class GridnodeSetup {
 	public static GridnodeIdentity identity() {
 		return Optional.ofNullable(GridnodeOptions.getGridnodeKeyFile()).map(GridnodeIdentity::load)
 			.orElseGet(GridnodeIdentity::none);
+	}
+
+	/* Only a gridnode has one, as only a gridnode announces anything */
+	public static Optional<byte[]> sealingKey() {
+		return Optional.ofNullable(GridnodeOptions.getGridnodeKeyFile())
+			.map(keyFile -> sealingKeyIn(ApplicationDirectory.create().getUserDataDir()));
+	}
+
+	static byte[] sealingKeyIn(Path dataDirectory) {
+		return SealingKeyFile.publicKey(SealingKeyFile.loadOrCreate(dataDirectory.resolve(SealingKeyFile.FILE)));
 	}
 
 	public static String announcedAddress() {

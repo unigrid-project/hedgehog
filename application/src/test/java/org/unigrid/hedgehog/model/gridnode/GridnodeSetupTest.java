@@ -18,7 +18,12 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.nio.file.FileSystem;
+import java.nio.file.Path;
 import java.util.Optional;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -30,6 +35,25 @@ public class GridnodeSetupTest {
 			return "";
 		} catch (IllegalArgumentException ex) {
 			return ex.getMessage();
+		}
+	}
+
+	@Example
+	public void shouldHoldNoSealingKeyWithoutAGridnodeKey() {
+		assertThat(GridnodeSetup.sealingKey(), is(Optional.empty()));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheSealingKeyInTheDataDirectory() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path directory = fs.getPath("/data");
+			final byte[] announced = GridnodeSetup.sealingKeyIn(directory);
+
+			assertThat(announced.length, is(SealingKeyFile.KEY_SIZE));
+			assertThat(announced, is(SealingKeyFile.publicKey(SealingKeyFile.loadOrCreate(
+				directory.resolve(SealingKeyFile.FILE)))));
+			assertThat(GridnodeSetup.sealingKeyIn(directory), is(announced));
 		}
 	}
 

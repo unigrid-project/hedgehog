@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -62,10 +63,18 @@ public final class GridnodeIdentity {
 	}
 
 	/* The time only ever grows, and beats what other nodes still hold for this key, or they would drop the entry */
-	public synchronized Gridnode sign(Gridnode.Status status, String hostName, long clockMillis, long newerThan) {
+	public synchronized Gridnode sign(Gridnode.Status status, String hostName, byte[] sealingKey, long clockMillis,
+		long newerThan) {
+
 		final Signature signature = key.orElseThrow(() -> new IllegalStateException("This node has no gridnode key")
 		);
+
+		if (Objects.isNull(sealingKey) || sealingKey.length != SealingKeyFile.KEY_SIZE) {
+			throw new IllegalArgumentException("A sealing key is " + SealingKeyFile.KEY_SIZE + " bytes");
+		}
+
 		final Gridnode gridnode = Gridnode.builder().id(signature.getPublicKey()).status(status).hostName(hostName)
+			.sealingKey(sealingKey.clone())
 			.timestamp(Math.max(clockMillis, Math.max(lastTimestamp, newerThan) + 1)).build();
 
 		lastTimestamp = gridnode.getTimestamp();

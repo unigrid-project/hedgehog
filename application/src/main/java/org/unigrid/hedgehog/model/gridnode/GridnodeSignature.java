@@ -28,18 +28,24 @@ public final class GridnodeSignature {
 	public static final Duration MAX_AGE = Duration.ofMinutes(30);
 	public static final Duration MAX_SKEW = Duration.ofMinutes(10);
 
-	private static final byte[] CONTEXT = "hh-gridnode-v1".getBytes(StandardCharsets.US_ASCII);
+	private static final byte[] CONTEXT = "hh-gridnode-v2".getBytes(StandardCharsets.US_ASCII);
 
 	private GridnodeSignature() { }
 
+	/* The sealing key has a fixed size, so it needs no length of its own to keep the fields apart */
 	public static byte[] message(Gridnode gridnode) {
+		if (!hasSealingKey(gridnode)) {
+			throw new IllegalArgumentException("A sealing key is " + SealingKeyFile.KEY_SIZE + " bytes");
+		}
+
 		final byte[] id = gridnode.getId().getBytes(StandardCharsets.UTF_8);
 		final byte[] host = gridnode.getHostName().getBytes(StandardCharsets.UTF_8);
 
 		return ByteBuffer.allocate(CONTEXT.length + Short.BYTES + id.length + Byte.BYTES + Short.BYTES + host.length
-			+ Long.BYTES)
+			+ SealingKeyFile.KEY_SIZE + Long.BYTES)
 			.put(CONTEXT).putShort((short) id.length).put(id).put(gridnode.getStatus().getValue())
-			.putShort((short) host.length).put(host).putLong(gridnode.getTimestamp())
+			.putShort((short) host.length).put(host).put(gridnode.getSealingKey())
+			.putLong(gridnode.getTimestamp())
 			.array();
 	}
 
@@ -52,7 +58,12 @@ public final class GridnodeSignature {
 	}
 
 	public static boolean verifies(Gridnode gridnode) {
-		return Objects.nonNull(gridnode.getSignature())
+		return Objects.nonNull(gridnode.getSignature()) && hasSealingKey(gridnode)
 			&& Signature.isSignedBy(gridnode.getId(), message(gridnode), gridnode.getSignature());
+	}
+
+	private static boolean hasSealingKey(Gridnode gridnode) {
+		return Objects.nonNull(gridnode.getSealingKey())
+			&& gridnode.getSealingKey().length == SealingKeyFile.KEY_SIZE;
 	}
 }

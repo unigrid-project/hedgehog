@@ -40,23 +40,25 @@ public class GridnodeAnnouncer {
 
 	@Inject private Topology topology;
 	@Inject private GridnodeIdentity identity;
+	@Inject private Optional<byte[]> sealingKey;
 	private Supplier<String> address = GridnodeSetup::announcedAddress;
 
 	public Optional<Gridnode> announce(Gridnode.Status status) {
 		return announce(status, System.currentTimeMillis());
 	}
 
+	/* An entry without the key to seal sessions to would be one that no client can use, so none is signed */
 	public Optional<Gridnode> announce(Gridnode.Status status, long nowMillis) {
-		return identity.id().map(id -> {
+		return identity.id().flatMap(id -> sealingKey.map(key -> {
 			final long held = topology.findGridnode(id).map(Gridnode::getTimestamp).orElse(0L);
-			final Gridnode entry = identity.sign(status, address.get(), nowMillis, held);
+			final Gridnode entry = identity.sign(status, address.get(), key, nowMillis, held);
 
 			if (!topology.offerGridnode(entry, nowMillis)) {
 				log.atWarn().log("The own gridnode entry was refused; is the system clock far off?");
 			}
 
 			return entry;
-		});
+		}));
 	}
 
 	public void refresh() {

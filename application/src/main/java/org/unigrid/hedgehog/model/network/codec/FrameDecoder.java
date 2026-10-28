@@ -28,6 +28,7 @@ import io.netty.util.AttributeKey;
 import java.util.Map;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.storage.GroupId;
@@ -52,7 +53,8 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	static final int MAX_SPORK_SIZE = 16 * 1024 * 1024;
 
 	private static final int PEER_SIZE = Long.BYTES + PublishPeersDecoder.MAX_HOST_ADDRESS + 1;
-	private static final int GRIDNODE_SIZE = 1 + Long.BYTES + 3 * Short.BYTES + GridnodeDecoder.ID_LENGTH;
+	private static final int GRIDNODE_SIZE = 1 + Long.BYTES + 3 * Short.BYTES + GridnodeDecoder.ID_LENGTH
+		+ SealingKeyFile.KEY_SIZE;
 	private static final int GROUPS_SIZE = Long.BYTES + Short.BYTES;
 	private static final int TOMBSTONE_SIZE = GroupKey.PUBLIC_KEY_SIZE + Long.BYTES + GroupKey.SIGNATURE_SIZE;
 	private static final int MAX_GROUPS = StorageCodecs.MAX_GROUPS_PER_PACKET;

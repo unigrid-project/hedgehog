@@ -33,6 +33,7 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
 import org.unigrid.hedgehog.server.TestServer;
@@ -43,6 +44,7 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	private static final long NOW = 1_800_000_000_000L;
 	private static final long PERIOD = GridnodeAnnouncer.REFRESH_PERIOD.toMillis();
 	private static final String ADDRESS = "127.0.0.1:5000";
+	private static final byte[] SEALING_KEY = GridnodeFixtures.sealingKey();
 
 	@Mocked private Network network;
 	@Mocked private NetOptions netOptions;
@@ -56,7 +58,7 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	}
 
 	private GridnodeAnnouncer announcerOf(Signature key) {
-		return new GridnodeAnnouncer(topology, GridnodeIdentity.of(key), () -> ADDRESS);
+		return new GridnodeAnnouncer(topology, GridnodeIdentity.of(key), Optional.of(SEALING_KEY), () -> ADDRESS);
 	}
 
 	@Example
@@ -69,8 +71,33 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	}
 
 	@Example
+	public void shouldAnnounceTheSealingKeyAndKeepItWhenSigningAgain() throws Exception {
+		final Signature key = new Signature();
+		final GridnodeAnnouncer announcer = announcerOf(key);
+
+		assertThat(announcer.announce(Gridnode.Status.ACTIVE, NOW).get().getSealingKey(), is(SEALING_KEY));
+		assertThat(topology.findGridnode(key.getPublicKey()).get().getSealingKey(), is(SEALING_KEY));
+
+		announcer.refresh(NOW + PERIOD);
+
+		assertThat(topology.findGridnode(key.getPublicKey()).get().getTimestamp(), is(NOW + PERIOD));
+		assertThat(topology.findGridnode(key.getPublicKey()).get().getSealingKey(), is(SEALING_KEY));
+	}
+
+	@Example
+	public void shouldAnnounceNothingWithoutASealingKey() throws Exception {
+		final Signature key = new Signature();
+		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.of(key),
+			Optional.empty(), () -> ADDRESS);
+
+		assertThat(announcer.announce(Gridnode.Status.ACTIVE, NOW), is(Optional.empty()));
+		assertThat(topology.findGridnode(key.getPublicKey()), is(Optional.empty()));
+	}
+
+	@Example
 	public void shouldAnnounceNothingWithoutAKey() {
-		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.none(), () -> ADDRESS);
+		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.none(),
+			Optional.of(SEALING_KEY), () -> ADDRESS);
 		final int before = topology.cloneGridnode().size();
 
 		assertThat(announcer.announce(Gridnode.Status.ACTIVE, NOW), is(Optional.empty()));

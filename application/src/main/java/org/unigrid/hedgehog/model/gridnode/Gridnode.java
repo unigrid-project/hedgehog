@@ -19,6 +19,10 @@
 package org.unigrid.hedgehog.model.gridnode;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.util.StdConverter;
+import java.util.HexFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -53,11 +57,31 @@ public class Gridnode {
 		}
 	}
 
+	/* The same hexadecimal characters as the key files hold, instead of the base64 that Jackson makes of bytes */
+	public static class HexWriter extends StdConverter<byte[], String> {
+		@Override
+		public String convert(byte[] bytes) {
+			return HexFormat.of().formatHex(bytes);
+		}
+	}
+
+	public static class HexReader extends StdConverter<String, byte[]> {
+		@Override
+		public byte[] convert(String hex) {
+			return HexFormat.of().parseHex(hex);
+		}
+	}
+
 	@Builder.Default
 	private Status status = Status.INACTIVE;
 	@EqualsAndHashCode.Include
 	private String id;
 	private String hostName;
+	/* The public key of X25519 that a client seals a session to this gridnode with, signed with the rest */
+	@JsonSerialize(converter = HexWriter.class)
+	@JsonDeserialize(converter = HexReader.class)
+	@ToString.Exclude
+	private byte[] sealingKey;
 	private long timestamp;
 	@JsonIgnore
 	@ToString.Exclude

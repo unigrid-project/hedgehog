@@ -54,6 +54,7 @@ import org.unigrid.hedgehog.jqwik.NamedCDIProvider;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.PendingRequests;
@@ -139,7 +140,8 @@ public class StorageNetworkTest extends BaseServerTest {
 			final P2PServer p2p = servers().get(i).getP2p();
 			final String address = p2p.getHostName() + ":" + p2p.getPort();
 			final Gridnode gridnode = bean(container, GridnodeIdentity.class)
-				.sign(Gridnode.Status.ACTIVE, address, System.currentTimeMillis(), 0);
+				.sign(Gridnode.Status.ACTIVE, address, GridnodeFixtures.sealingKey(),
+					System.currentTimeMillis(), 0);
 			final Node client = Node.fromAddress(address);
 
 			client.setConnection(Optional.of(new P2PClient(client.getAddress().getHostString(),

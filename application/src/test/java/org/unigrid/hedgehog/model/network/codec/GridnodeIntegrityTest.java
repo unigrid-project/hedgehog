@@ -41,6 +41,8 @@ import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
+import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
@@ -57,16 +59,17 @@ public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode> {
 	}
 
 	@SneakyThrows
-	private static PublishGridnode packetOf(Gridnode.Status status, long timestamp, int port) {
+	private static PublishGridnode packetOf(Gridnode.Status status, long timestamp, int port, byte[] sealingKey) {
 		return PublishGridnode.builder().gridnode(GridnodeFixtures.signed(KEY, status,
-			ArbitraryGenerator.ip4() + ":" + port, timestamp
+			ArbitraryGenerator.ip4() + ":" + port, sealingKey, timestamp
 		)).build();
 	}
 
 	@Provide
 	public Arbitrary<PublishGridnode> provideGridnodePacket() {
 		return Combinators.combine(Arbitraries.of(Gridnode.Status.values()), Arbitraries.longs(),
-			Arbitraries.integers().between(4097, 65535)
+			Arbitraries.integers().between(4097, 65535),
+			Arbitraries.bytes().array(byte[].class).ofSize(SealingKeyFile.KEY_SIZE)
 		).as(GridnodeIntegrityTest::packetOf);
 	}
 
@@ -82,7 +85,27 @@ public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode> {
 		);
 
 		assertThat(resultingGridnode, sameBeanAs(gridnodePacket));
+		assertThat(resultingGridnode.getGridnode().getSealingKey(),
+			equalTo(gridnodePacket.getGridnode().getSealingKey()));
+		assertThat(GridnodeSignature.verifies(resultingGridnode.getGridnode()), equalTo(true));
 		assertThat(sizes.get().getLeft(), equalTo(sizes.get().getRight()));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldPutTheSealingKeyAfterTheHostAndBeforeTheSignature() {
+		final PublishGridnode packet = packetOf(Gridnode.Status.ACTIVE, 1, 5000, GridnodeFixtures.sealingKey());
+		final Gridnode gridnode = packet.getGridnode();
+		final ByteBuf out = new GridnodeEncoder().encode(null, packet).get();
+		final int keyAt = 1 + Long.BYTES + Short.BYTES + GridnodeDecoder.ID_LENGTH + Short.BYTES
+			+ gridnode.getHostName().length();
+		final byte[] key = new byte[SealingKeyFile.KEY_SIZE];
+
+		out.getBytes(keyAt, key);
+		assertThat(key, equalTo(GridnodeFixtures.sealingKey()));
+		assertThat(out.getUnsignedShort(keyAt + SealingKeyFile.KEY_SIZE), equalTo(gridnode.getSignature().length));
+		assertThat(out.readableBytes(), equalTo(keyAt + SealingKeyFile.KEY_SIZE + Short.BYTES
+			+ gridnode.getSignature().length));
 	}
 
 	private static ByteBuf frame(int idLength, int hostLength, int signatureLength) {
@@ -92,7 +115,7 @@ public class GridnodeIntegrityTest extends BaseCodecTest<PublishGridnode> {
 		out.writeShort(hostLength);
 
 		if (hostLength <= GridnodeDecoder.MAX_HOST_LENGTH) {
-			out.writeZero(hostLength).writeShort(signatureLength);
+			out.writeZero(hostLength).writeZero(SealingKeyFile.KEY_SIZE).writeShort(signatureLength);
 		}
 
 		return out;
