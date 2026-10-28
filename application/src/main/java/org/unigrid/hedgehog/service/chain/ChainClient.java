@@ -39,6 +39,7 @@ import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -223,23 +224,26 @@ public final class ChainClient {
 		final WriterKey key = WriterKey.generate(keys);
 		final List<Channel> streams = List.copyOf(connected.keySet());
 		final Channel first = streams.get(0);
+		final Optional<Channel> second = streams.stream().skip(1).findFirst();
+		final List<String> asked = Stream.concat(Stream.of(first), second.stream()).map(connected::get).toList();
 		final List<ChainId> chains = view.chains(group);
 		final List<String> members = view.groups().members(group);
 
 		return asked(first, key.id(), null, reply -> followedFirst(first, key.id(), chains, reply))
-			.thenCompose(chainId -> spare(streams, key.id(), chainId).thenApply(attached ->
+			.thenCompose(chainId -> spare(first, second, key.id(), chainId).thenApply(attached ->
 				new ChainAttachment(group, view.epoch(), new FeedWriter(key, chainId), members, attached,
-					exitsAmong(members, attached.stream().map(connected::get).toList()))));
+					exitsAmong(members, asked))));
 	}
 
 	/* A member of the group is a candidate exit while it is active and announces a sealing key, unless the node
-	   attached through it: that member sees the node's address, and as the exit it would see both ends of a
-	   session. Each session draws its exit at random among the candidates it did not pass over. */
-	private ExitSelector exitsAmong(final List<String> members, final List<String> attachMembers) {
+	   asked it to attach: that member sees the node's address and learned its writer, whether it took the node or
+	   not, and as the exit it would see both ends of a session. Each session draws its exit at random among the
+	   candidates it did not pass over. */
+	private ExitSelector exitsAmong(final List<String> members, final List<String> askedMembers) {
 		return excluded -> {
 			final List<ExitCandidate> candidates = directory.active().stream()
 				.filter(gridnode -> members.contains(gridnode.getId()))
-				.filter(gridnode -> !attachMembers.contains(gridnode.getId()))
+				.filter(gridnode -> !askedMembers.contains(gridnode.getId()))
 				.filter(gridnode -> !excluded.contains(gridnode.getId())).filter(ChainClient::hasSealingKey)
 				.map(gridnode -> new ExitCandidate(gridnode.getId(), gridnode.getSealingKey())).toList();
 
@@ -302,11 +306,8 @@ public final class ChainClient {
 
 	/* A second member is a spare path on another stream: the node stays with the first when it cannot attach to
 	   one, and tells it to leave, as the member may have admitted the writer all the same */
-	private CompletableFuture<List<Channel>> spare(final List<Channel> connected, final WriterId writer,
-		final ChainId chainId) {
-
-		final Channel first = connected.get(0);
-		final Optional<Channel> second = connected.stream().filter(stream -> stream != first).findFirst();
+	private CompletableFuture<List<Channel>> spare(final Channel first, final Optional<Channel> second,
+		final WriterId writer, final ChainId chainId) {
 
 		if (second.isEmpty()) {
 			return CompletableFuture.completedFuture(List.of(first));

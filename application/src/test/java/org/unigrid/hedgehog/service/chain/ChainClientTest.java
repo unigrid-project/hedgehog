@@ -95,6 +95,7 @@ public class ChainClientTest {
 	private static final long EPOCH_MILLIS = 3_600_000;
 	private static final int TIMEOUT_SECONDS = 10;
 	private static final JoinReply.Status JOINED = JoinReply.Status.JOINED;
+	private static final JoinReply.Status FULL = JoinReply.Status.FULL;
 
 	/* Lets the requests with the given numbers time out at once and leaves the others to the node's own */
 	private static final class Flaky extends PendingRequests {
@@ -516,6 +517,43 @@ public class ChainClientTest {
 		assertThat(fleet.host(CLIENT).chain(attachment.chainId()).isPresent(), is(true));
 		assertThat(joinsTo(fleet, fleet.activeIds()), is(2L));
 		assertThat(attachedAt(fleet, attachment), is(1L));
+	}
+
+	/* A member asked to be the spare path learns the node's writer, and the stream tells it the node's address,
+	   whether it answers or not, so it is never the exit */
+	@Example
+	public void neverChoosesTheSpareThatDidNotAnswerAsTheExit() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainAttachment attachment = attached(fleet, clientOf(fleet,
+			new Flaky(fleet.pending(CLIENT), Set.of(1)), new Random(1)));
+		final Set<String> asked = fleet.deliveries.stream().filter(delivery -> delivery.packet() instanceof JoinChain
+			&& delivery.from().equals(CLIENT)).map(ChainFleet.Delivery::to).collect(Collectors.toSet());
+
+		assertThat(attachment.streams().size(), is(1));
+		assertThat(asked, hasSize(2));
+		assertThat(drawnExits(attachment), equalTo(attachment.members().stream().filter(member -> !asked.contains(member))
+			.collect(Collectors.toSet())));
+	}
+
+	@Example
+	public void neverChoosesTheSpareThatRefusedAsTheExit() {
+		final Scripted scripted = new Scripted(4, 4, new PendingRequests());
+
+		scripted.ids.forEach(id -> scripted.answers.put(id, (member, request) -> List.of(Scripted.reply(request,
+			request.getChainId().isPresent() ? FULL : JOINED, scripted.chainOf(member), Map.of()))));
+
+		final ChainAttachment attachment = done(scripted.client().attachment());
+		final List<String> asked = scripted.asked();
+
+		assertThat(attachment.streams().size(), is(1));
+		assertThat(asked, hasSize(2));
+		assertThat(drawnExits(attachment), equalTo(scripted.ids.stream().filter(member -> !asked.contains(member))
+			.collect(Collectors.toSet())));
+	}
+
+	private static Set<String> drawnExits(final ChainAttachment attachment) {
+		return IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Set.of()).orElseThrow().id())
+			.collect(Collectors.toSet());
 	}
 
 	@Example
