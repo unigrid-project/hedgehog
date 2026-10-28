@@ -330,6 +330,52 @@ public class ClientSessionTest {
 		assertThat(client.receive(second), equalTo(Optional.of(new Data(new byte[] { 2 }))));
 	}
 
+	/* The answer names the exit's writer under the handshake, so a copy of it that another writer posts, and that
+	   reaches the client first, completes nothing: the client waits for the exit's own */
+	@Example
+	public void anAnswerCopiedOntoAnotherWriterIsIgnored() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Session exit = Session.tryAccept(wire.exitContext, wire.posted.poll(),
+			SessionFixtures.sealingPrivate(EXIT_ID)).orElseThrow();
+		final Entry answer = wire.posted.pollLast();
+		final Entry copy = wire.context(3).post(Session.tagOf(answer), answer.payload());
+
+		wire.posted.clear();
+		assertThat(client.expects(copy), is(true));
+		assertThat(client.receive(copy), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPENING));
+		assertThat(wire.posted.isEmpty(), is(true));
+		assertThat(client.receive(answer), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(exit.receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
+		exit.send(new Data(new byte[] { 1 }));
+		assertThat(client.receive(wire.posted.poll()), equalTo(Optional.of(new Data(new byte[] { 1 }))));
+	}
+
+	/* An answer of the exit's key whose writer is another than the one it names completes nothing */
+	@Example
+	public void anAnswerNamingAnotherWriterIsIgnored() throws HandshakeException {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Responder responder = responderTo(opening, EXIT_ID);
+		final byte[] named = wire.context(4).writer().writer().bytes();
+		final Entry misnamed = wire.exitContext.post(answerTagOf(responder), wire.exitContext.padded(
+			responder.answer(new SecureRandom(), named).message()));
+
+		assertThat(client.receive(misnamed), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPENING));
+		client.receive(answerTo(wire, opening));
+		assertThat(client.state(), is(SessionState.OPEN));
+	}
+
 	/* The prologue binds the writer of the opening, so its bytes under another writer open for no exit */
 	@Example
 	public void shouldLeaveAnOpeningAnotherWriterPostedAgainUnanswered() {
@@ -407,7 +453,7 @@ public class ClientSessionTest {
 		final Entry answer = answerTo(wire, wire.posted.poll());
 		final byte[] payload = answer.payload();
 
-		for (int bit = 0; bit < NoiseNk.MESSAGE_SIZE * Byte.SIZE; bit++) {
+		for (int bit = 0; bit < Session.ANSWER_SIZE * Byte.SIZE; bit++) {
 			final byte[] flipped = payload.clone();
 
 			flipped[bit / Byte.SIZE] ^= 1 << (bit % Byte.SIZE);
@@ -429,7 +475,7 @@ public class ClientSessionTest {
 
 		final Entry answer = answerTo(wire, wire.posted.poll());
 
-		for (int size : List.of(0, 1, NoiseNk.KEY_SIZE, NoiseNk.MESSAGE_SIZE - 1)) {
+		for (int size : List.of(0, 1, NoiseNk.KEY_SIZE, NoiseNk.MESSAGE_SIZE, Session.ANSWER_SIZE - 1)) {
 			assertThat("size " + size, client.receive(wire.exitContext.post(Session.tagOf(answer),
 				Arrays.copyOf(answer.payload(), size))), equalTo(Optional.empty()));
 			assertThat("size " + size, client.state(), is(SessionState.OPENING));

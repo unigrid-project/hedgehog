@@ -37,9 +37,10 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters;
 
 /* The Noise handshake Noise_NK_25519_AESGCM_SHA256, as revision 34 of the Noise Protocol Framework defines it.
-   The client knows the exit's static sealing key: "-> e, es" is the opening and "<- e, ee" the answer. Both carry
-   an empty payload, so each message is an X25519 key followed by a 16-byte tag, MESSAGE_SIZE bytes in all.
-   respond() and finish() read the whole array as the message, so a caller that padded one cuts it back first.
+   The client knows the exit's static sealing key: "-> e, es" is the opening and "<- e, ee" the answer. The opening
+   carries an empty payload, so it is an X25519 key followed by a 16-byte tag, MESSAGE_SIZE bytes in all; the answer
+   may carry a payload between the key and the tag. respond() and finish() read the whole array as the message, so a
+   caller that padded one cuts it back first.
    Two derivations are hedgehog's own: the answer tag key, from the chaining key after es, which both ends hold
    before the answer exists; and the tag keys of the session, from HKDF with the final chaining key as salt and
    the handshake hash as input. */
@@ -68,6 +69,34 @@ public final class NoiseNk {
 		@Override
 		public byte[] message() {
 			return message.clone();
+		}
+	}
+
+	/* What the client reads from an answer: the payload the exit put in it and the secrets of the session */
+	public record Completed(byte[] payload, SessionSecrets secrets) {
+		public Completed {
+			payload = payload.clone();
+		}
+
+		@Override
+		public byte[] payload() {
+			return payload.clone();
+		}
+
+		@Override
+		public boolean equals(Object other) {
+			return other instanceof Completed completed && Arrays.equals(payload, completed.payload)
+				&& secrets.equals(completed.secrets);
+		}
+
+		@Override
+		public int hashCode() {
+			return 31 * Arrays.hashCode(payload) + secrets.hashCode();
+		}
+
+		@Override
+		public String toString() {
+			return "Completed[" + secrets + "]";
 		}
 	}
 
@@ -157,8 +186,13 @@ public final class NoiseNk {
 			return answerTagKey.clone();
 		}
 
-		/* "<- e, ee" read from the answer; a refused answer leaves the handshake as it was */
+		/* "<- e, ee" read from an answer whose payload is not needed */
 		public SessionSecrets finish(byte[] answer) throws HandshakeException {
+			return complete(answer).secrets();
+		}
+
+		/* "<- e, ee" read from the answer with its payload; a refused answer leaves the handshake as it was */
+		public Completed complete(byte[] answer) throws HandshakeException {
 			if (answer.length < MESSAGE_SIZE) {
 				throw new HandshakeException("An answer has at least " + MESSAGE_SIZE + " bytes, found "
 					+ answer.length);
@@ -171,11 +205,14 @@ public final class NoiseNk {
 			finishing.mixKey(agree(ephemeral, responderEphemeral)
 				.orElseThrow(() -> new HandshakeException("The key of the answer is a point of low order")));
 
-			if (!finishing.decryptAndHash(Arrays.copyOfRange(answer, KEY_SIZE, answer.length))) {
+			final Optional<byte[]> payload = finishing.decryptAndHash(Arrays.copyOfRange(answer, KEY_SIZE,
+				answer.length));
+
+			if (payload.isEmpty()) {
 				throw new HandshakeException("The answer fails authentication");
 			}
 
-			return finishing.secrets();
+			return new Completed(payload.get(), finishing.secrets());
 		}
 	}
 
@@ -199,8 +236,8 @@ public final class NoiseNk {
 			return answer(random, EMPTY);
 		}
 
-		/* "<- e, ee" written with a payload */
-		Answered answer(SecureRandom random, byte[] payload) {
+		/* "<- e, ee" written with a payload, which the handshake hides and authenticates */
+		public Answered answer(SecureRandom random, byte[] payload) {
 			final SymmetricState answering = state.copy();
 			final X25519PrivateKeyParameters ephemeral = new X25519PrivateKeyParameters(random);
 			final byte[] ephemeralPublic = ephemeral.generatePublicKey().getEncoded();
@@ -268,7 +305,7 @@ public final class NoiseNk {
 
 		final byte[] answerTagKey = state.answerTagKey();
 
-		if (!state.decryptAndHash(Arrays.copyOfRange(message, KEY_SIZE, message.length))) {
+		if (state.decryptAndHash(Arrays.copyOfRange(message, KEY_SIZE, message.length)).isEmpty()) {
 			return Optional.empty();
 		}
 
@@ -372,19 +409,21 @@ public final class NoiseNk {
 			}
 		}
 
-		/* False when the tag fails, and then nothing changes */
-		boolean decryptAndHash(byte[] ciphertext) {
+		/* The plaintext, or empty when the tag fails, and then nothing changes */
+		Optional<byte[]> decryptAndHash(byte[] ciphertext) {
+			final byte[] plaintext;
+
 			try {
-				cipher(Cipher.DECRYPT_MODE).doFinal(ciphertext);
+				plaintext = cipher(Cipher.DECRYPT_MODE).doFinal(ciphertext);
 			} catch (AEADBadTagException ex) {
-				return false;
+				return Optional.empty();
 			} catch (GeneralSecurityException ex) {
 				throw new IllegalStateException("AES-GCM is mandatory on every Java platform", ex);
 			}
 
 			nonce++;
 			mixHash(ciphertext);
-			return true;
+			return Optional.of(plaintext);
 		}
 
 		byte[] answerTagKey() {

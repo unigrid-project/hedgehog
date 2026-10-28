@@ -116,8 +116,12 @@ public class SessionAcceptTest {
 		final Ends ends = new Ends();
 		final Initiation initiation = ends.open(SessionFixtures.sealingPublic(EXIT_ID));
 		final Session exit = Session.tryAccept(ends.exit, ends.opening(), EXIT_KEY).orElseThrow();
+		final NoiseNk.Completed completed = initiation.state().complete(Arrays.copyOf(ends.fromExit.get(0).payload(),
+			Session.ANSWER_SIZE));
 		final Session client = new Session(ends.client, ends.exit.writer().writer(), Direction.CLIENT_TO_EXIT,
-			initiation.state().finish(Arrays.copyOf(ends.fromExit.get(0).payload(), NoiseNk.MESSAGE_SIZE)));
+			completed.secrets());
+
+		assertThat(completed.payload(), equalTo(ends.exit.writer().writer().bytes()));
 
 		client.send(CONNECT);
 		exit.send(new Data(new byte[] { 7 }));

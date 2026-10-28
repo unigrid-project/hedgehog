@@ -45,6 +45,9 @@ public final class Session {
 	   next one, or a gap that names one, means messages of the session were lost. */
 	static final int WINDOW = 64;
 
+	/* An answer carries the exit's writer as its payload, under the handshake */
+	public static final int ANSWER_SIZE = NoiseNk.MESSAGE_SIZE + WriterId.SIZE;
+
 	private static final Logger LOG = LoggerFactory.getLogger(Session.class);
 
 	private final SessionContext context;
@@ -82,8 +85,9 @@ public final class Session {
 
 	/* The exit's side of the handshake: an entry of the smallest class on the chain of the context that opens
 	   under this gridnode's sealing key is an opening for it, and is answered at once. The prologue binds the
-	   chain and the writer of the opening, so a copy of it under another writer opens nowhere. Whatever does not
-	   open is not for this exit, and nothing of it is kept. */
+	   chain and the writer of the opening, so a copy of it under another writer opens nowhere. The answer names the
+	   exit's own writer, so a copy of the answer under another writer completes nothing at the client. Whatever
+	   does not open is not for this exit, and nothing of it is kept. */
 	public static Optional<Session> tryAccept(SessionContext context, Entry entry, byte[] sealingPrivate) {
 		final EntryHeader header = entry.header();
 
@@ -99,7 +103,7 @@ public final class Session {
 			return Optional.empty();
 		}
 
-		final Answered answered = responder.get().answer(context.random());
+		final Answered answered = responder.get().answer(context.random(), context.writer().writer().bytes());
 
 		context.post(Tags.of(responder.get().answerTagKey(), Direction.EXIT_TO_CLIENT, 0),
 			context.padded(answered.message()));

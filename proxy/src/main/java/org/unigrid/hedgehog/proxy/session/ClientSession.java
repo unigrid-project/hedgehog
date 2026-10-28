@@ -31,9 +31,9 @@ import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.Completed;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiation;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiator;
-import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
 
 /* The client's side of a session: posts an opening sealed to the sealing key of the exit it chose, completes the
    handshake on the answer that carries the answer tag of that opening and sends its Connect at once. Nothing of
@@ -217,10 +217,17 @@ public final class ClientSession {
 		final byte[] payload = answer.payload();
 
 		try {
-			final SessionSecrets secrets = attempt.initiator().finish(Arrays.copyOf(payload,
-				Math.min(payload.length, NoiseNk.MESSAGE_SIZE)));
+			final Completed completed = attempt.initiator().complete(Arrays.copyOf(payload,
+				Math.min(payload.length, Session.ANSWER_SIZE)));
+
+			/* The answer names the writer of the exit under the handshake, so a copy that another writer
+			   posted, which would take the exit's feed for that writer's, is passed over */
+			if (!MessageDigest.isEqual(completed.payload(), answer.header().writer().bytes())) {
+				return Optional.empty();
+			}
+
 			final Session established = new Session(context, answer.header().writer(),
-				Direction.CLIENT_TO_EXIT, secrets);
+				Direction.CLIENT_TO_EXIT, completed.secrets());
 
 			established.send(connect);
 			session = established;

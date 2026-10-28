@@ -164,6 +164,23 @@ public class NoiseNkTest {
 		assertThat(NoiseNk.MESSAGE_SIZE, is(48));
 	}
 
+	/* The answer carries a payload under the handshake, which the client reads back and nobody can change */
+	@Example
+	public void carriesThePayloadOfTheAnswerToTheClient() throws HandshakeException {
+		final KeyPair exit = KeyPair.generate(new SecureRandom());
+		final Initiation initiation = NoiseNk.initiate(exit.publicKey(), new byte[0], new SecureRandom());
+		final byte[] payload = HEX.parseHex("0102030405");
+		final Answered answered = NoiseNk.respond(exit.privateKey(), new byte[0], initiation.message())
+			.orElseThrow().answer(new SecureRandom(), payload);
+		final NoiseNk.Completed completed = initiation.state().complete(answered.message());
+
+		assertThat(answered.message().length, is(NoiseNk.MESSAGE_SIZE + payload.length));
+		assertThat(completed.payload(), equalTo(payload));
+		assertThat(completed.secrets(), equalTo(answered.secrets()));
+		Expect.assertThrows(HandshakeException.class, () -> initiation.state().complete(flipped(answered.message(),
+			NoiseNk.KEY_SIZE)));
+	}
+
 	@Property(tries = 20)
 	public void anotherKeyCannotOpenTheOpening(@ForAll @Size(max = 64) byte[] prologue) throws HandshakeException {
 		final SecureRandom random = new SecureRandom();
