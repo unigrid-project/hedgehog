@@ -62,6 +62,7 @@ import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 public class ChainHostFollowTest {
@@ -333,7 +334,7 @@ public class ChainHostFollowTest {
 		fleet.clock.addAndGet(31_000);
 		client.maintain();
 
-		assertThat(gaps, contains(new Gap(ChainFleet.writer(1), 0, 3, Set.of(Fingerprint.NONE))));
+		assertThat(gaps, contains(new Gap(ChainFleet.writer(1), 0, 3, Set.of(new Tag(Fingerprint.NONE.bytes())))));
 	}
 
 	@Example

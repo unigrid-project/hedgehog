@@ -244,12 +244,12 @@ public final class Chain {
 	private Gap skip(WriterId writer, long fromSeq) {
 		final NavigableMap<Long, Entry> waiting = held.remove(writer);
 		final Entry last = waiting.lastEntry().getValue();
-		final Set<Fingerprint> fingerprints = waiting.values().stream().map(entry -> entry.header().fingerprint())
+		final Set<Tag> tags = waiting.values().stream().map(entry -> new Tag(entry.header().fingerprint().bytes()))
 			.collect(Collectors.toSet());
 
 		dropHeld(waiting);
 		feeds.put(writer, new Feed(writer, new Head(last.header().seq(), last.hash())));
-		return new Gap(writer, fromSeq, last.header().seq(), fingerprints);
+		return new Gap(writer, fromSeq, last.header().seq(), tags);
 	}
 
 	private void dropHeld(Map<Long, Entry> dropped) {

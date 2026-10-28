@@ -21,10 +21,11 @@ package org.unigrid.hedgehog.proxy.chain;
 import java.util.Objects;
 import java.util.Set;
 
-/* The entries fromSeq to toSeq of a writer that a chain skipped, and the sessions of those it dropped */
-public record Gap(WriterId writer, long fromSeq, long toSeq, Set<Fingerprint> fingerprints) {
+/* The entries fromSeq to toSeq of a writer that a chain skipped, and the tags of those it dropped, by which each end
+   of a session tells whether the session lost entries */
+public record Gap(WriterId writer, long fromSeq, long toSeq, Set<Tag> tags) {
 	public Gap {
 		Objects.requireNonNull(writer, "writer");
-		fingerprints = Set.copyOf(fingerprints);
+		tags = Set.copyOf(tags);
 	}
 }

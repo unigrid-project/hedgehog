@@ -148,8 +148,7 @@ public final class Session {
 
 	/* Whether the chain gave up on entries of the peer that carried a tag this session looks out for */
 	public synchronized boolean isNamedIn(Gap gap) {
-		return open && peer.equals(gap.writer()) && gap.fingerprints().stream()
-			.anyMatch(fingerprint -> ahead.containsKey(new Tag(fingerprint.bytes())));
+		return open && peer.equals(gap.writer()) && gap.tags().stream().anyMatch(ahead::containsKey);
 	}
 
 	private boolean isOfPeer(Entry entry) {

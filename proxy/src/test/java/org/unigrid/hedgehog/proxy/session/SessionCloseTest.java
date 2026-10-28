@@ -31,7 +31,6 @@ import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.Padding;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -478,7 +477,7 @@ public class SessionCloseTest {
 		final List<Gap> gaps = wire.exitChain.expireGaps();
 
 		assertThat(gaps.size(), is(1));
-		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(new Fingerprint(OTHER_SESSION.bytes()))));
+		assertThat(gaps.get(0).tags(), equalTo(Set.of(OTHER_SESSION)));
 		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of()));
 		wire.client.send(data(2));
 		wire.pump();
@@ -502,7 +501,7 @@ public class SessionCloseTest {
 		final List<Gap> gaps = wire.exitChain.expireGaps();
 
 		assertThat(gaps.size(), is(1));
-		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(new Fingerprint(OTHER_SESSION.bytes()))));
+		assertThat(gaps.get(0).tags(), equalTo(Set.of(OTHER_SESSION)));
 		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of()));
 		assertThat(wire.exitSession().isOpen(), is(true));
 		wire.client.send(data(3));

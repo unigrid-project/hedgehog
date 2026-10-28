@@ -43,34 +43,54 @@ public class ChainGapTest {
 	private static final WriterKey WRITER = ChainFixtures.key(1);
 	private static final WriterKey OTHER = ChainFixtures.key(2);
 
-	private static Fingerprint fingerprint(int number) {
-		final byte[] bytes = new byte[Fingerprint.SIZE];
+	private static Tag tag(int number) {
+		final byte[] bytes = new byte[Tag.SIZE];
 
 		Arrays.fill(bytes, (byte) number);
-		return new Fingerprint(bytes);
+		return new Tag(bytes);
 	}
 
-	private static Entry signed(WriterKey key, long seq, long prev, long timestamp, Fingerprint fingerprint) {
-		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, fingerprint, EntryKind.SEALED),
-			Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
+	private static Entry signed(WriterKey key, long seq, long prev, long timestamp, Tag tag) {
+		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, new Fingerprint(tag.bytes()),
+			EntryKind.SEALED), Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
+	}
+
+	/* The entries that waited past the gap name their sessions, and neither the ones the chain took nor the ones that
+	   never came do */
+	@Example
+	public void gapNamesTheTagsThatWaited() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final Entry taken = signed(WRITER, 0, 0, NOW, tag(1));
+		final Entry lost = signed(WRITER, 1, taken.hash(), NOW, tag(2));
+		final Entry third = signed(WRITER, 2, lost.hash(), NOW, tag(3));
+		final Entry fourth = signed(WRITER, 3, third.hash(), NOW, tag(4));
+		final Entry fifth = signed(WRITER, 4, fourth.hash(), NOW, tag(3));
+
+		chain.offer(taken);
+		chain.offer(third);
+		chain.offer(fourth);
+		chain.offer(fifth);
+		clock.set(NOW + 30_001);
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 1, 4, Set.of(tag(3), tag(4))))));
 	}
 
 	@Example
 	public void shouldSkipAGapThatOutlivedTheRetentionWindow() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry first = signed(WRITER, 0, 0, NOW, fingerprint(1));
-		final Entry lost = signed(WRITER, 1, first.hash(), NOW + 1000, fingerprint(1));
-		final Entry third = signed(WRITER, 2, lost.hash(), NOW + 2000, fingerprint(2));
-		final Entry fourth = signed(WRITER, 3, third.hash(), NOW + 3000, fingerprint(3));
-		final Entry fifth = signed(WRITER, 4, fourth.hash(), NOW + 31_000, fingerprint(1));
+		final Entry first = signed(WRITER, 0, 0, NOW, tag(1));
+		final Entry lost = signed(WRITER, 1, first.hash(), NOW + 1000, tag(1));
+		final Entry third = signed(WRITER, 2, lost.hash(), NOW + 2000, tag(2));
+		final Entry fourth = signed(WRITER, 3, third.hash(), NOW + 3000, tag(3));
+		final Entry fifth = signed(WRITER, 4, fourth.hash(), NOW + 31_000, tag(1));
 
 		chain.offer(first);
 		chain.offer(third);
 		chain.offer(fourth);
 		clock.set(NOW + 32_001);
 		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 1, 3,
-			Set.of(fingerprint(2), fingerprint(3))))));
+			Set.of(tag(2), tag(3))))));
 		assertThat(chain.heldBytes(), is(0L));
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, fourth.hash()))));
 		assertThat(chain.offer(fifth).admission(), is(Admission.ACCEPTED));
@@ -81,9 +101,9 @@ public class ChainGapTest {
 	public void shouldKeepWaitingWithinTheRetentionWindow() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry first = signed(WRITER, 0, 0, NOW, fingerprint(1));
-		final Entry second = signed(WRITER, 1, first.hash(), NOW + 1000, fingerprint(1));
-		final Entry third = signed(WRITER, 2, second.hash(), NOW + 2000, fingerprint(1));
+		final Entry first = signed(WRITER, 0, 0, NOW, tag(1));
+		final Entry second = signed(WRITER, 1, first.hash(), NOW + 1000, tag(1));
+		final Entry third = signed(WRITER, 2, second.hash(), NOW + 2000, tag(1));
 
 		chain.offer(first);
 		chain.offer(third);
@@ -97,11 +117,11 @@ public class ChainGapTest {
 	public void shouldSkipFromTheStartOfAWriterNeverSeen() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry waiting = signed(OTHER, 2, 42, NOW, fingerprint(4));
+		final Entry waiting = signed(OTHER, 2, 42, NOW, tag(4));
 
 		chain.offer(waiting);
 		clock.set(NOW + 30_001);
-		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(OTHER.id(), 0, 2, Set.of(fingerprint(4))))));
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(OTHER.id(), 0, 2, Set.of(tag(4))))));
 		assertThat(chain.heads(), equalTo(Map.of(OTHER.id(), new Head(2, waiting.hash()))));
 	}
 
@@ -109,13 +129,13 @@ public class ChainGapTest {
 	public void shouldLeaveTheGapsOfOtherWritersAlone() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final Entry old = signed(WRITER, 1, 42, NOW, fingerprint(1));
-		final Entry recent = signed(OTHER, 1, 42, NOW + 20_000, fingerprint(2));
+		final Entry old = signed(WRITER, 1, 42, NOW, tag(1));
+		final Entry recent = signed(OTHER, 1, 42, NOW + 20_000, tag(2));
 
 		chain.offer(old);
 		chain.offer(recent);
 		clock.set(NOW + 30_001);
-		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 1, Set.of(fingerprint(1))))));
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 1, Set.of(tag(1))))));
 		assertThat(chain.heldBytes(), is((long) recent.size()));
 	}
 
@@ -127,8 +147,8 @@ public class ChainGapTest {
 		chain.offer(waiting(WRITER, 2, NOW));
 		chain.offer(waiting(OTHER, 3, NOW));
 		clock.set(NOW + 30_001);
-		assertThat(chain.expireGaps(), containsInAnyOrder(new Gap(WRITER.id(), 0, 2, Set.of(fingerprint(2))),
-			new Gap(OTHER.id(), 0, 3, Set.of(fingerprint(3)))));
+		assertThat(chain.expireGaps(), containsInAnyOrder(new Gap(WRITER.id(), 0, 2, Set.of(tag(2))),
+			new Gap(OTHER.id(), 0, 3, Set.of(tag(3)))));
 		assertThat(chain.heldBytes(), is(0L));
 		assertThat(chain.expireGaps(), is(empty()));
 	}
@@ -143,7 +163,7 @@ public class ChainGapTest {
 		assertThat(chain.expireGaps(), is(empty()));
 		assertThat(waitingWriters(chain), is(1));
 		clock.set(NOW + 32_001);
-		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 2, Set.of(fingerprint(2))))));
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 2, Set.of(tag(2))))));
 	}
 
 	@Example
@@ -151,7 +171,7 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final Head anchor = new Head(5, 99);
-		final Entry next = signed(WRITER, 6, 99, NOW + 31_000, fingerprint(6));
+		final Entry next = signed(WRITER, 6, 99, NOW + 31_000, tag(6));
 
 		chain.offer(waiting(WRITER, 1, NOW));
 		chain.offer(waiting(WRITER, 2, NOW + 1000));
@@ -177,7 +197,7 @@ public class ChainGapTest {
 		assertThat(chain.anchor(WRITER.id(), new Head(5, 99)), is(true));
 		clock.set(NOW + 30_001);
 		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 6, 8,
-			Set.of(fingerprint(6), fingerprint(8))))));
+			Set.of(tag(6), tag(8))))));
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(8, last.hash()))));
 		assertThat(chain.heldBytes(), is(0L));
 		assertThat(waitingWriters(chain), is(0));
@@ -192,7 +212,7 @@ public class ChainGapTest {
 		chain.offer(next);
 		assertThat(chain.anchor(WRITER.id(), new Head(5, 99)), is(true));
 		clock.set(NOW + 30_001);
-		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 6, 6, Set.of(fingerprint(6))))));
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 6, 6, Set.of(tag(6))))));
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(6, next.hash()))));
 	}
 
@@ -201,9 +221,9 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final Head anchor = new Head(5, 99);
-		final Entry sixth = signed(WRITER, 6, 99, NOW + 10_000, fingerprint(6));
-		final Entry seventh = signed(WRITER, 7, sixth.hash(), NOW + 15_000, fingerprint(7));
-		final Entry eighth = signed(WRITER, 8, seventh.hash(), NOW + 20_000, fingerprint(8));
+		final Entry sixth = signed(WRITER, 6, 99, NOW + 10_000, tag(6));
+		final Entry seventh = signed(WRITER, 7, sixth.hash(), NOW + 15_000, tag(7));
+		final Entry eighth = signed(WRITER, 8, seventh.hash(), NOW + 20_000, tag(8));
 
 		chain.offer(waiting(WRITER, 3, NOW));
 		chain.offer(eighth);
@@ -228,16 +248,16 @@ public class ChainGapTest {
 
 	@Example
 	public void shouldKeepAGapOfItsOwn() {
-		final Set<Fingerprint> fingerprints = new HashSet<>(Set.of(fingerprint(1)));
-		final Gap gap = new Gap(WRITER.id(), 1, 2, fingerprints);
+		final Set<Tag> tags = new HashSet<>(Set.of(tag(1)));
+		final Gap gap = new Gap(WRITER.id(), 1, 2, tags);
 
-		fingerprints.add(fingerprint(2));
-		assertThat(gap.fingerprints(), equalTo(Set.of(fingerprint(1))));
-		Expect.assertThrows(UnsupportedOperationException.class, () -> gap.fingerprints().add(fingerprint(3)));
+		tags.add(tag(2));
+		assertThat(gap.tags(), equalTo(Set.of(tag(1))));
+		Expect.assertThrows(UnsupportedOperationException.class, () -> gap.tags().add(tag(3)));
 	}
 
 	@Example
-	public void shouldRefuseAGapWithoutAWriterOrFingerprints() {
+	public void shouldRefuseAGapWithoutAWriterOrTags() {
 		final NullPointerException noWriter = Expect.assertThrows(NullPointerException.class,
 			() -> new Gap(null, 1, 2, Set.of()));
 
@@ -246,7 +266,7 @@ public class ChainGapTest {
 	}
 
 	private static Entry waiting(WriterKey key, long seq, long timestamp) {
-		return signed(key, seq, 42, timestamp, fingerprint((int) seq));
+		return signed(key, seq, 42, timestamp, tag((int) seq));
 	}
 
 	@SuppressWarnings("unchecked")

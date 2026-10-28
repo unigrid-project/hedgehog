@@ -81,6 +81,7 @@ import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.exit.Target;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
@@ -738,7 +739,7 @@ public class ChainExitTest {
 		final Fingerprint tag = caller.nextTag();
 
 		leaveAGap(rig, rig.stranger(9, rig.fleet.chain()), tag);
-		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(tag)));
+		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(new Tag(tag.bytes()))));
 
 		assertThat(target.closed, is(false));
 		assertThat(rig.exit.openRelays(), is(1));
@@ -1731,7 +1732,7 @@ public class ChainExitTest {
 		rig.exit.stop();
 		caller.session().send(new Data(new byte[] { 1 }));
 		rig.drive();
-		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(caller.nextTag())));
+		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(new Tag(caller.nextTag().bytes()))));
 		rig.caller(2).open();
 
 		assertThat(rig.scheduler.isShutdown(), is(true));

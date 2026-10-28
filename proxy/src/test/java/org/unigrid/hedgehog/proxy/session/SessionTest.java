@@ -59,7 +59,6 @@ import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.SizeClasses;
 import org.unigrid.hedgehog.proxy.chain.Tag;
@@ -981,7 +980,7 @@ public class SessionTest {
 	}
 
 	private static Gap gapOf(WriterId writer, Tag tag) {
-		return new Gap(writer, 0, 0, Set.of(new Fingerprint(tag.bytes())));
+		return new Gap(writer, 0, 0, Set.of(tag));
 	}
 
 	@Example
