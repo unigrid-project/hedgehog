@@ -46,6 +46,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.Expect;
+import org.unigrid.hedgehog.proxy.Padding;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
@@ -275,7 +276,8 @@ public class ClientSessionTest {
 
 		final Tag answerTag = answerTagOf(responderTo(wire.posted.peek(), EXIT_ID));
 		final SessionContext impostor = wire.context(3);
-		final Entry forged = impostor.post(answerTag, new byte[SMALLEST_CLASS - Entry.OVERHEAD]);
+		final Entry forged = impostor.post(answerTag, Padding.padded(new byte[0],
+			impostor.settings().chainLimits().maxEntryBytes()));
 
 		assertThat(client.expects(forged), is(true));
 		assertThat(client.receive(forged), equalTo(Optional.empty()));
@@ -314,7 +316,8 @@ public class ClientSessionTest {
 		final Entry second = wire.posted.poll();
 		final List<Entry> copies = List.of(copier.post(first.header().tag(), first.payload()),
 			copier.post(second.header().tag(), second.payload()),
-			copier.post(second.header().tag(), new byte[SMALLEST_CLASS - Entry.OVERHEAD]));
+			copier.post(second.header().tag(), Padding.padded(new byte[0], copier.settings().chainLimits()
+				.maxEntryBytes())));
 
 		wire.posted.clear();
 

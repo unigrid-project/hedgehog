@@ -30,6 +30,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
+import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -152,7 +153,8 @@ public class ChainTest {
 		final EntryHeader header = new EntryHeader(CHAIN, WRITER.id(), 0, 0, NOW, ChainFixtures.TAG);
 
 		assertThat(chain.offer(WRITER.sign(header, new byte[11])).admission(), is(Admission.TOO_LARGE));
-		assertThat(chain.offer(WRITER.sign(header, new byte[10])).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.offer(WRITER.sign(header, Padding.padded(new byte[10], Entry.OVERHEAD + 10))).admission(),
+			is(Admission.ACCEPTED));
 	}
 
 	/* Every entry is padded to a size class, so one of another size was not written by a writer of the chain */
@@ -166,7 +168,8 @@ public class ChainTest {
 			List.of())));
 		assertThat(chain.offer(WRITER.sign(header, new byte[small - 1])).admission(), is(Admission.MALFORMED));
 		assertThat(chain.heads(), equalTo(Map.of()));
-		assertThat(chain.offer(WRITER.sign(header, new byte[small])).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.offer(WRITER.sign(header, Padding.padded(new byte[0], LIMITS.maxEntryBytes()))).admission(),
+			is(Admission.ACCEPTED));
 	}
 
 	/* Writers stamp their entries in whole seconds, so that the time between two entries tells nobody more */

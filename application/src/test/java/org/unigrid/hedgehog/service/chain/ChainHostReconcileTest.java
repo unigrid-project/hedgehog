@@ -135,13 +135,14 @@ public class ChainHostReconcileTest {
 			ChainFleet.padded(new byte[] { 1 }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()))).toList();
 	}
 
-	/* Entries that take the given number of bytes in a frame, one after the other in the feed of a writer. Each must be
-	   of a size class of the chain. */
+	/* Entries that take the given number of bytes in a frame, one after the other in the feed of a writer. Each size
+	   must be one of the classes of the chain, which padding leaves as it is. */
 	private static List<Entry> writeSized(final ChainFleet fleet, final int writer, final int... encodedBytes) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), fleet.chain());
+		final int maxEntryBytes = fleet.settings.get().orElseThrow().chainLimits().maxEntryBytes();
 
 		return Arrays.stream(encodedBytes).mapToObj(bytes -> feed.write(ChainFleet.NOW, ChainFleet.TAG,
-			new byte[bytes - Integer.BYTES - Entry.OVERHEAD])).toList();
+			ChainFleet.padded(new byte[bytes - Integer.BYTES - Entry.OVERHEAD], maxEntryBytes))).toList();
 	}
 
 	private static int[] repeated(final int encodedBytes, final int count) {

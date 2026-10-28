@@ -68,6 +68,9 @@ public class ChainHostBudgetTest {
 	private static final int ANSWER_ENTRIES = 512;
 	private static final int FRAMED_BYTES = 16 * 1024;
 
+	/* The largest entry of the chains of the budget test, so that entries of FRAMED_BYTES are of a size class */
+	private static final int LARGEST_ENTRY = FRAMED_BYTES - Integer.BYTES;
+
 	/* A stream that stops in its first check of whether it is open once it is armed, which a join makes while it
 	   holds the join lock, for longer than another join is waited for */
 	private static final class StallingStream extends EmbeddedChannel {
@@ -145,10 +148,11 @@ public class ChainHostBudgetTest {
 			(long) range * perRange, Math.min((long) range * perRange + perRange, entries) - 1)).toList();
 	}
 
-	/* Entries of one writer that take exactly the bytes given in a frame, the length before each included */
+	/* Entries of one writer that take exactly the bytes given in a frame, the length before each included, on chains
+	   whose largest entry is LARGEST_ENTRY */
 	private static List<Entry> framed(final ChainId chainId, final int writer, final int count, final int bytes) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), chainId);
-		final byte[] payload = new byte[bytes - Integer.BYTES - Entry.OVERHEAD];
+		final byte[] payload = ChainFleet.padded(new byte[bytes - Integer.BYTES - Entry.OVERHEAD], LARGEST_ENTRY);
 
 		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, ChainFleet.TAG, payload)).toList();
 	}
@@ -310,7 +314,7 @@ public class ChainHostBudgetTest {
 	@Example
 	public void servesTheBytesOfAStreamUpToItsBudgetExactlyEachSecond() {
 		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16, 32L * 1024 * 1024,
-			30, FRAMED_BYTES - Integer.BYTES, 300, 3));
+			30, LARGEST_ENTRY, 300, 3));
 		final ChainHost host = fleet.host("gn-0");
 		final EmbeddedChannel member = fleet.stream("gn-0", "gn-1");
 		final List<Entry> filler = framed(fleet.chain(), 1, ANSWER_ENTRIES, FRAMED_BYTES);

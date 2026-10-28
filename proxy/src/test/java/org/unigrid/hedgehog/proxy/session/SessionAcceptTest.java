@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
+import org.unigrid.hedgehog.proxy.Padding;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
@@ -143,7 +144,8 @@ public class SessionAcceptTest {
 			new NoiseNk.SessionSecrets(new byte[32], new byte[32], new byte[32], new byte[32], new byte[32]));
 
 		client.send(new Data(new byte[] { 1 }));
-		ends.client.post(Tag.random(new SecureRandom()), new byte[SMALLEST_CLASS - Entry.OVERHEAD]);
+		ends.client.post(Tag.random(new SecureRandom()), Padding.padded(new byte[0],
+			ends.client.settings().chainLimits().maxEntryBytes()));
 
 		for (Entry entry : ends.fromClient) {
 			assertThat(Session.tryAccept(ends.exit, entry, EXIT_KEY), equalTo(Optional.empty()));

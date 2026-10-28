@@ -134,7 +134,7 @@ public class ChainCapacityTest {
 		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 3, NOW);
 		final long prev = entries.get(2).hash();
 		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3000, ChainFixtures.TAG),
-			new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
+			Padding.padded(new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD], ENTRY_SIZE + 1));
 		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3000);
 
 		entries.forEach(chain::offer);
