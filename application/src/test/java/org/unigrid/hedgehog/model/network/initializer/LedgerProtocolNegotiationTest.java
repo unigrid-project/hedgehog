@@ -94,7 +94,7 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
 public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
 	private static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
-	private static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.1";
+	private static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.2";
 	private static final String[] THIS_RELEASE = { Network.LEDGER_PROTOCOL, PROXY_PROTOCOL, SPORK_PROTOCOL,
 		EARLIER_RELEASE[0], EARLIER_RELEASE[1] };
 	private static final String[] WITHOUT_THE_LEDGER = { PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],

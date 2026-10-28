@@ -28,13 +28,13 @@ public class Network {
 	/* The ledger protocol is offered first: a node that knows it settles on it with another that does, and a node that
 	   does not know it settles on the next one, which is what a node of an earlier release offers first. Whether a
 	   connection settled on it is what tells a node that the other end speaks the ledger. */
-	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.1";
+	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.2";
 
 	/* Offered by every node of this release right after the ledger protocol, if it offers that, and ahead of what
 	   earlier releases offer. A connection that settled on it, or on the ledger protocol, tells a node that the other
 	   end takes chain traffic and the communication spork, which every node of this release does, the one that runs
 	   the ledger as well. */
-	public static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.1";
+	public static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.2";
 
 	/* Offered by every node of this release after those, and the only one of this release that a node built before the
 	   proxy offers. A connection that settled on it, on the proxy protocol or on the ledger protocol tells a node that
