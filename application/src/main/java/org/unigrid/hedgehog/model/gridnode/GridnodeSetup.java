@@ -52,11 +52,13 @@ public final class GridnodeSetup {
 		);
 	}
 
-	/* Runs before the container starts, so a bad setup stops the daemon with a readable message */
+	/* Runs before the container starts, so a bad setup stops the daemon with a readable message. The sealing key is
+	   made here as well, as a file that cannot be read would otherwise fail when the announcer is first used. */
 	public static void validate() {
 		if (GridnodeOptions.getGridnodeKeyFile() != null) {
 			identity();
 			announcedAddress();
+			sealingKey();
 		}
 	}
 

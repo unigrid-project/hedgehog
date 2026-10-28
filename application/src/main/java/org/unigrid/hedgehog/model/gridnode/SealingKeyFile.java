@@ -39,8 +39,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.model.util.OwnerOnlyFile;
 
-/* The private key that a client seals a session to one gridnode with is one line of hexadecimal characters, which
-   messages about it never repeat. The gridnode announces the public key, and the file stays in the data directory. */
+/* A client seals a session to the public key that a gridnode announces, and the gridnode opens it with the private
+   key of this file. The key is one line of hexadecimal characters, which messages about it never repeat, and the
+   file stays in the data directory. */
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SealingKeyFile {

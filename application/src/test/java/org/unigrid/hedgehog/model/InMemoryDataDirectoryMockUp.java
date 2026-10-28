@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.model;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import lombok.Getter;
 import mockit.Mock;
@@ -28,7 +29,16 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 /* A user data directory on an in-memory file system, so nothing written under it can reach the real disk */
 public class InMemoryDataDirectoryMockUp extends MockUp<ApplicationDirectory> {
-	@Getter private final Path userDataDir = Jimfs.newFileSystem(Configuration.unix()).getPath("/data");
+	@Getter private final Path userDataDir;
+
+	public InMemoryDataDirectoryMockUp() {
+		this(Jimfs.newFileSystem(Configuration.unix()));
+	}
+
+	/* For a test that reads the permissions of what is written, which the plain configuration does not keep */
+	public InMemoryDataDirectoryMockUp(FileSystem fileSystem) {
+		userDataDir = fileSystem.getPath("/data");
+	}
 
 	@Mock
 	public Path getUserDataDir() {
