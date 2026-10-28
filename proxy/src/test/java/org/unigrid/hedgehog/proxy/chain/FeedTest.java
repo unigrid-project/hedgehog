@@ -103,7 +103,8 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		feed.append(entries.get(0));
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash() + 1, NOW + 1)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash() + 1, NOW + 1000)),
+			is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(0, entries.get(0).hash())), 1);
 	}
 
@@ -113,7 +114,8 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		entries.forEach(feed::append);
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW + 1)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW + 2000)),
+			is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(1, entries.get(1).hash())), 2);
 	}
 
@@ -123,7 +125,8 @@ public class FeedTest {
 		final Feed feed = new Feed(WRITER.id());
 
 		feed.append(entries.get(0));
-		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW - 1)), is(Link.BROKEN));
+		assertThat(feed.append(ChainFixtures.signed(WRITER, CHAIN, 1, entries.get(0).hash(), NOW - 1000)),
+			is(Link.BROKEN));
 		assertAt(feed, Optional.of(new Head(0, entries.get(0).hash())), 1);
 	}
 

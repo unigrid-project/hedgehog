@@ -103,7 +103,7 @@ public class ChainTest {
 	}
 
 	@Example
-	public void shouldKeepTwoEntriesOfOneWriterFromTheSameMillisecond() {
+	public void shouldKeepTwoEntriesOfOneWriterFromTheSameSecond() {
 		final Chain chain = chain();
 		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW);
 		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW);

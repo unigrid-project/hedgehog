@@ -23,7 +23,6 @@ import org.unigrid.hedgehog.proxy.chain.Gap;
 
 @FunctionalInterface
 public interface GapListener {
-	/* A hosted chain gave up on entries that never arrived: the sessions that look out for a tag of the gap are
-	   broken */
+	/* A hosted chain gave up on entries that never arrived, which breaks the sessions that look out for their tags */
 	void gapped(ChainId chainId, Gap gap);
 }

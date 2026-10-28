@@ -121,13 +121,13 @@ public class ChainBufferTest {
 	public void shouldBoundTheEntriesThatWait() {
 		final ChainLimits limits = new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE);
 		final Chain chain = new Chain(CHAIN, limits, () -> NOW);
-		final List<Entry> joins = linked(5);
+		final List<Entry> entries = linked(5);
 
 		assertThat(limits.bufferBytes(), is(2L * ENTRY_SIZE));
-		chain.offer(joins.get(0));
-		assertThat(chain.offer(joins.get(2)).admission(), is(Admission.AHEAD));
-		assertThat(chain.offer(joins.get(3)).admission(), is(Admission.AHEAD));
-		assertThat(chain.offer(joins.get(4)).admission(), is(Admission.FULL));
+		chain.offer(entries.get(0));
+		assertThat(chain.offer(entries.get(2)).admission(), is(Admission.AHEAD));
+		assertThat(chain.offer(entries.get(3)).admission(), is(Admission.AHEAD));
+		assertThat(chain.offer(entries.get(4)).admission(), is(Admission.FULL));
 		assertThat(chain.heldBytes(), is(2L * ENTRY_SIZE));
 	}
 
@@ -196,7 +196,7 @@ public class ChainBufferTest {
 	@Example
 	public void shouldShareTheBufferBetweenWriters() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<List<Entry>> feeds = List.of(joins(1), joins(2), joins(3));
+		final List<List<Entry>> feeds = List.of(feedOf(1), feedOf(2), feedOf(3));
 
 		feeds.forEach(feed -> chain.offer(feed.get(0)));
 		assertThat(chain.offer(feeds.get(0).get(2)).admission(), is(Admission.AHEAD));
@@ -212,15 +212,15 @@ public class ChainBufferTest {
 	@Example
 	public void shouldAnswerNotAuthenticBeforeFullForABufferThatIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = linked(5);
-		final Entry forged = new Entry(joins.get(4).header(), joins.get(4).payload(), joins.get(4).hash(),
+		final List<Entry> entries = linked(5);
+		final Entry forged = new Entry(entries.get(4).header(), entries.get(4).payload(), entries.get(4).hash(),
 			new byte[Entry.SIGNATURE_SIZE]);
 
-		chain.offer(joins.get(0));
-		chain.offer(joins.get(2));
-		chain.offer(joins.get(3));
+		chain.offer(entries.get(0));
+		chain.offer(entries.get(2));
+		chain.offer(entries.get(3));
 		assertThat(chain.offer(forged).admission(), is(Admission.NOT_AUTHENTIC));
-		assertThat(chain.offer(joins.get(4)).admission(), is(Admission.FULL));
+		assertThat(chain.offer(entries.get(4)).admission(), is(Admission.FULL));
 		assertThat(chain.heldBytes(), is(2L * ENTRY_SIZE));
 	}
 
@@ -292,8 +292,8 @@ public class ChainBufferTest {
 	@Example
 	public void shouldForgetAWriterOnceNothingWaitsForIt() throws ReflectiveOperationException {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final List<Entry> first = joins(1);
-		final List<Entry> second = joins(2);
+		final List<Entry> first = feedOf(1);
+		final List<Entry> second = feedOf(2);
 
 		chain.offer(first.get(0));
 		chain.offer(first.get(2));
@@ -306,7 +306,7 @@ public class ChainBufferTest {
 		assertThat(waitingWriters(chain), is(0));
 	}
 
-	private static List<Entry> joins(int writer) {
+	private static List<Entry> feedOf(int writer) {
 		return ChainFixtures.linked(ChainFixtures.key(writer), CHAIN, 3, NOW);
 	}
 

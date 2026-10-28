@@ -140,7 +140,7 @@ final class ChainFleet {
 			Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE));
 	}
 
-	/* The tag of the answer to an opening, in the fingerprint field where entries carry it */
+	/* The tag that the answer of the given member to an opening carries */
 	static Tag answerTagOf(final Entry opening, final String member) {
 		return new Tag(Tags.of(responderOf(opening, member).orElseThrow().answerTagKey(),
 			Direction.EXIT_TO_CLIENT, 0).bytes());
