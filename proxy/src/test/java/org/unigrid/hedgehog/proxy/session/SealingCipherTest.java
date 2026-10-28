@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.proxy.session;
 
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
@@ -32,8 +33,11 @@ import net.jqwik.api.constraints.Size;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.session.SealException.Reason;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 public class SealingCipherTest {
 	private static final byte[] KEY = filled(32, 1);
@@ -48,11 +52,15 @@ public class SealingCipherTest {
 		return bytes;
 	}
 
-	private static SealingCipher cipher() {
-		return new SealingCipher(KEY, Direction.CLIENT_TO_EXIT, BINDING);
+	private static SealingCipher.Sealer sealer() {
+		return SealingCipher.sealer(KEY, Direction.CLIENT_TO_EXIT, BINDING);
 	}
 
-	private static Reason refusal(SealingCipher cipher, byte[] sealed) {
+	private static SealingCipher.Opener opener() {
+		return SealingCipher.opener(KEY, Direction.CLIENT_TO_EXIT, BINDING);
+	}
+
+	private static Reason refusal(SealingCipher.Opener cipher, byte[] sealed) {
 		return Expect.assertThrows(SealException.class, () -> cipher.open(sealed)).reason();
 	}
 
@@ -82,22 +90,62 @@ public class SealingCipherTest {
 	public void sealsToExactlyTheRequestedSize(@ForAll @Size(max = 300) byte[] plaintext,
 		@ForAll @IntRange(min = 0, max = 2000) int padding) throws SealException {
 		final int sealedSize = plaintext.length + SealingCipher.OVERHEAD + padding;
-		final byte[] sealed = cipher().seal(plaintext, sealedSize);
+		final byte[] sealed = sealer().seal(plaintext, sealedSize);
 
 		assertThat(sealed.length, is(sealedSize));
-		assertThat(cipher().open(sealed), equalTo(plaintext));
+		assertThat(opener().open(sealed), equalTo(plaintext));
 	}
 
 	@Example
 	public void refusesAPlaintextLargerThanTheSize() {
 		Expect.assertThrows(IllegalArgumentException.class,
-			() -> cipher().seal(new byte[10], 10 + SealingCipher.OVERHEAD - 1));
+			() -> sealer().seal(new byte[10], 10 + SealingCipher.OVERHEAD - 1));
+	}
+
+	/* A size so far below the overhead that subtracting it would wrap around is refused all the same */
+	@Example
+	public void refusesASizeBelowTheOverheadWithoutWrappingAround() {
+		for (int sealedSize : new int[] { Integer.MIN_VALUE, Integer.MIN_VALUE + SealingCipher.OVERHEAD - 1, -1, 0,
+			SealingCipher.OVERHEAD - 1 }) {
+
+			final String message = Expect.assertThrows(IllegalArgumentException.class,
+				() -> sealer().seal(new byte[0], sealedSize)).getMessage();
+
+			assertThat(message, containsString("does not fit"));
+		}
+	}
+
+	@Example
+	public void sealsAnEmptyPlaintextInExactlyTheOverhead() throws SealException {
+		final byte[] sealed = sealer().seal(new byte[0], SealingCipher.OVERHEAD);
+
+		assertThat(sealed.length, is(SealingCipher.OVERHEAD));
+		assertThat(opener().open(sealed), equalTo(new byte[0]));
+	}
+
+	@Example
+	public void refusesAKeyOfAnyOtherSizeThanAes256() {
+		for (int size : new int[] { 0, 16, 24, 31, 33, 64 }) {
+			Expect.assertThrows(IllegalArgumentException.class,
+				() -> SealingCipher.sealer(new byte[size], Direction.CLIENT_TO_EXIT, BINDING));
+			Expect.assertThrows(IllegalArgumentException.class,
+				() -> SealingCipher.opener(new byte[size], Direction.CLIENT_TO_EXIT, BINDING));
+		}
+	}
+
+	/* One end seals and the other opens, so no instance can do both under one key and counter */
+	@Example
+	public void aSealerOnlySealsAndAnOpenerOnlyOpens() {
+		assertThat(Arrays.stream(SealingCipher.Sealer.class.getMethods()).map(Method::getName).toList(),
+			not(hasItem("open")));
+		assertThat(Arrays.stream(SealingCipher.Opener.class.getMethods()).map(Method::getName).toList(),
+			not(hasItem("seal")));
 	}
 
 	@Example
 	public void refusesASkippedOrReplayedMessage() throws SealException {
-		final SealingCipher sender = cipher();
-		final SealingCipher receiver = cipher();
+		final SealingCipher.Sealer sender = sealer();
+		final SealingCipher.Opener receiver = opener();
 		final byte[] first = sender.seal(new byte[] { 1 }, SMALLEST_CLASS);
 		final byte[] second = sender.seal(new byte[] { 2 }, SMALLEST_CLASS);
 		final byte[] third = sender.seal(new byte[] { 3 }, SMALLEST_CLASS);
@@ -114,38 +162,39 @@ public class SealingCipherTest {
 	@Example
 	public void paddingIsNotReadAsData() throws Exception {
 		final byte[] plaintext = { 7, 0, 0 };
-		final byte[] sealed = cipher().seal(plaintext, SMALLEST_CLASS);
+		final byte[] sealed = sealer().seal(plaintext, SMALLEST_CLASS);
 		final byte[] framed = documented(Cipher.DECRYPT_MODE, Direction.CLIENT_TO_EXIT, 0).doFinal(sealed);
 		final byte[] expected = ByteBuffer.allocate(SMALLEST_CLASS - TAG_SIZE).putInt(plaintext.length)
 			.put(plaintext).array();
 
 		assertThat(framed, equalTo(expected));
-		assertThat(cipher().open(sealed), equalTo(plaintext));
+		assertThat(opener().open(sealed), equalTo(plaintext));
 	}
 
 	@Example
 	public void opensOnlyTheKeyDirectionAndBindingItWasSealedWith() {
-		final byte[] sealed = cipher().seal(new byte[] { 1, 2, 3 }, SMALLEST_CLASS);
+		final byte[] sealed = sealer().seal(new byte[] { 1, 2, 3 }, SMALLEST_CLASS);
 
-		assertThat(refusal(new SealingCipher(filled(32, 3), Direction.CLIENT_TO_EXIT, BINDING), sealed),
+		assertThat(refusal(SealingCipher.opener(filled(32, 3), Direction.CLIENT_TO_EXIT, BINDING), sealed),
 			is(Reason.TAMPERED));
-		assertThat(refusal(new SealingCipher(KEY, Direction.EXIT_TO_CLIENT, BINDING), sealed), is(Reason.TAMPERED));
-		assertThat(refusal(new SealingCipher(KEY, Direction.CLIENT_TO_EXIT, filled(32, 4)), sealed),
+		assertThat(refusal(SealingCipher.opener(KEY, Direction.EXIT_TO_CLIENT, BINDING), sealed),
+			is(Reason.TAMPERED));
+		assertThat(refusal(SealingCipher.opener(KEY, Direction.CLIENT_TO_EXIT, filled(32, 4)), sealed),
 			is(Reason.TAMPERED));
 	}
 
 	@Property(tries = 100)
 	public void refusesEveryFlippedBit(@ForAll @IntRange(min = 0, max = SMALLEST_CLASS - 1) int index,
 		@ForAll @IntRange(min = 0, max = 7) int bit) {
-		final byte[] sealed = cipher().seal(new byte[] { 1, 2, 3 }, SMALLEST_CLASS);
+		final byte[] sealed = sealer().seal(new byte[] { 1, 2, 3 }, SMALLEST_CLASS);
 
 		sealed[index] ^= (byte) (1 << bit);
-		assertThat(refusal(cipher(), sealed), is(Reason.TAMPERED));
+		assertThat(refusal(opener(), sealed), is(Reason.TAMPERED));
 	}
 
 	@Example
 	public void refusesAMessageTooShortForALengthAndTag() {
-		assertThat(refusal(cipher(), new byte[SealingCipher.OVERHEAD - 1]), is(Reason.MALFORMED));
+		assertThat(refusal(opener(), new byte[SealingCipher.OVERHEAD - 1]), is(Reason.MALFORMED));
 	}
 
 	@Example
@@ -154,14 +203,14 @@ public class SealingCipherTest {
 		final byte[] framed = ByteBuffer.allocate(framedSize).putInt(framedSize - Integer.BYTES + 1).array();
 		final byte[] sealed = documented(Cipher.ENCRYPT_MODE, Direction.CLIENT_TO_EXIT, 0).doFinal(framed);
 
-		assertThat(refusal(cipher(), sealed), is(Reason.MALFORMED));
+		assertThat(refusal(opener(), sealed), is(Reason.MALFORMED));
 	}
 
 	@Example
 	public void opensWhatThePlatformCipherSealedAsDocumented() throws Exception {
 		final byte[] framed = ByteBuffer.allocate(SMALLEST_CLASS - TAG_SIZE).putInt(2).put(new byte[] { 4, 2 })
 			.array();
-		final SealingCipher receiver = new SealingCipher(KEY, Direction.CLIENT_TO_EXIT, BINDING, 0, 1L << 32);
+		final SealingCipher.Opener receiver = SealingCipher.opener(KEY, Direction.CLIENT_TO_EXIT, BINDING, 1L << 32);
 		final byte[] sealed = documented(Cipher.ENCRYPT_MODE, Direction.CLIENT_TO_EXIT, 1L << 32).doFinal(framed);
 
 		assertThat(receiver.open(sealed), equalTo(new byte[] { 4, 2 }));
@@ -169,9 +218,9 @@ public class SealingCipherTest {
 
 	@Example
 	public void stopsBeforeTheCounterWrapsAround() throws SealException {
-		final SealingCipher sender = new SealingCipher(KEY, Direction.CLIENT_TO_EXIT, BINDING, Long.MAX_VALUE - 1,
-			0);
-		final SealingCipher receiver = new SealingCipher(KEY, Direction.CLIENT_TO_EXIT, BINDING, 0,
+		final SealingCipher.Sealer sender = SealingCipher.sealer(KEY, Direction.CLIENT_TO_EXIT, BINDING,
+			Long.MAX_VALUE - 1);
+		final SealingCipher.Opener receiver = SealingCipher.opener(KEY, Direction.CLIENT_TO_EXIT, BINDING,
 			Long.MAX_VALUE - 1);
 
 		assertThat(receiver.open(sender.seal(new byte[] { 1 }, SMALLEST_CLASS)), equalTo(new byte[] { 1 }));
