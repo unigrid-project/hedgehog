@@ -25,7 +25,6 @@ import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.LegacyAddress;
 import org.unigrid.hedgehog.ledger.LegacySignature;
-import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
@@ -80,10 +79,8 @@ public class LedgerClaimCommand implements Callable<Integer> {
 
 		final Claim claim = claimOf(draft, chainId, text);
 
-		LedgerClient.announce(chainId, "claim of %s to %s".formatted(LedgerText.text(draft.address()),
-			draft.recipient()));
-		System.out.println(Json.parse(ledger.submit(claim)));
-		return 0;
+		return ledger.send(chainId, "claim of %s to %s".formatted(LedgerText.text(draft.address()),
+			draft.recipient()), claim);
 	}
 
 	/* Everything the node would find wrong with the claim is found here first, so nothing that cannot be accepted is

@@ -28,7 +28,6 @@ import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Vote;
-import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFile;
@@ -89,10 +88,8 @@ public class LedgerVoteCommand implements Callable<Integer> {
 		refuseWhenNotAllowed(draft, LedgerClient.roundValidators(info));
 		final Vote vote = Vote.signed(draft.seed(), draft.candidate(), draft.action(), round, chainId);
 
-		LedgerClient.announce(chainId, "vote to %s %s in round %d".formatted(
-			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), round));
-		System.out.println(Json.parse(ledger.submit(vote)));
-		return 0;
+		return ledger.send(chainId, "vote to %s %s in round %d".formatted(
+			draft.action().name().toLowerCase(Locale.ROOT), draft.candidate(), round), vote);
 	}
 
 	private Draft draft() {

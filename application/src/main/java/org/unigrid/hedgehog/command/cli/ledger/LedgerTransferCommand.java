@@ -25,7 +25,6 @@ import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.Address;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.Transfer;
-import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
@@ -89,11 +88,9 @@ public class LedgerTransferCommand implements Callable<Integer> {
 		final Transfer transfer = Transfer.signed(draft.seed(), draft.recipient(), draft.amount(), feeUnits,
 			nonceUnits, chainId);
 
-		LedgerClient.announce(chainId, "transfer %s to %s fee %s nonce %d".formatted(
+		return ledger.send(chainId, "transfer %s to %s fee %s nonce %d".formatted(
 			LedgerText.coins(draft.amount()), LedgerText.text(draft.recipient()), LedgerText.coins(feeUnits),
-			nonceUnits));
-		System.out.println(Json.parse(ledger.submit(transfer)));
-		return 0;
+			nonceUnits), transfer);
 	}
 
 	private Draft draft() {
