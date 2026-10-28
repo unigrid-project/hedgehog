@@ -36,14 +36,15 @@ public final class GridnodeSetup {
 			.orElseGet(GridnodeIdentity::none);
 	}
 
-	/* Only a gridnode has one, as only a gridnode announces anything */
-	public static Optional<byte[]> sealingKey() {
+	/* Only a gridnode has one, as only a gridnode announces anything or answers as an exit */
+	public static SealingKey sealingKey() {
 		return Optional.ofNullable(GridnodeOptions.getGridnodeKeyFile())
-			.map(keyFile -> sealingKeyIn(ApplicationDirectory.create().getUserDataDir()));
+			.map(keyFile -> sealingKeyIn(ApplicationDirectory.create().getUserDataDir()))
+			.orElseGet(SealingKey::none);
 	}
 
-	static byte[] sealingKeyIn(Path dataDirectory) {
-		return SealingKeyFile.publicKey(SealingKeyFile.loadOrCreate(dataDirectory.resolve(SealingKeyFile.FILE)));
+	static SealingKey sealingKeyIn(Path dataDirectory) {
+		return SealingKey.of(SealingKeyFile.loadOrCreate(dataDirectory.resolve(SealingKeyFile.FILE)));
 	}
 
 	public static String announcedAddress() {

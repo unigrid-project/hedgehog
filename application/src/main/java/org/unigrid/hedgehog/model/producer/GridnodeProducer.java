@@ -21,9 +21,9 @@ package org.unigrid.hedgehog.model.producer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
-import java.util.Optional;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 
 @ApplicationScoped
 public class GridnodeProducer {
@@ -32,9 +32,10 @@ public class GridnodeProducer {
 		return GridnodeSetup.identity();
 	}
 
-	/* The public key to announce, which is empty on a node that is no gridnode */
+	/* The key whose public half is announced and whose private half opens the sessions sealed to this node; a
+	   node that is no gridnode has none */
 	@Produces @Singleton
-	public Optional<byte[]> gridnodeSealingKey() {
+	public SealingKey gridnodeSealingKey() {
 		return GridnodeSetup.sealingKey();
 	}
 }

@@ -36,6 +36,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.server.TestServer;
 import static org.unigrid.hedgehog.model.gridnode.GridnodeFixtures.signed;
 
@@ -44,7 +45,8 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	private static final long NOW = 1_800_000_000_000L;
 	private static final long PERIOD = GridnodeAnnouncer.REFRESH_PERIOD.toMillis();
 	private static final String ADDRESS = "127.0.0.1:5000";
-	private static final byte[] SEALING_KEY = GridnodeFixtures.sealingKey();
+	private static final SealingKey SEALING = SealingKey.of(GridnodeFixtures.sealingKey());
+	private static final byte[] SEALING_KEY = SEALING.publicKey().orElseThrow();
 
 	@Mocked private Network network;
 	@Mocked private NetOptions netOptions;
@@ -58,7 +60,7 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	}
 
 	private GridnodeAnnouncer announcerOf(Signature key) {
-		return new GridnodeAnnouncer(topology, GridnodeIdentity.of(key), Optional.of(SEALING_KEY), () -> ADDRESS);
+		return new GridnodeAnnouncer(topology, GridnodeIdentity.of(key), SEALING, () -> ADDRESS);
 	}
 
 	@Example
@@ -88,7 +90,7 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 	public void shouldAnnounceNothingWithoutASealingKey() throws Exception {
 		final Signature key = new Signature();
 		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.of(key),
-			Optional.empty(), () -> ADDRESS);
+			SealingKey.none(), () -> ADDRESS);
 
 		assertThat(announcer.announce(Gridnode.Status.ACTIVE, NOW), is(Optional.empty()));
 		assertThat(topology.findGridnode(key.getPublicKey()), is(Optional.empty()));
@@ -96,8 +98,8 @@ public class GridnodeAnnouncerTest extends BaseMockedWeldTest {
 
 	@Example
 	public void shouldAnnounceNothingWithoutAKey() {
-		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.none(),
-			Optional.of(SEALING_KEY), () -> ADDRESS);
+		final GridnodeAnnouncer announcer = new GridnodeAnnouncer(topology, GridnodeIdentity.none(), SEALING,
+			() -> ADDRESS);
 		final int before = topology.cloneGridnode().size();
 
 		assertThat(announcer.announce(Gridnode.Status.ACTIVE, NOW), is(Optional.empty()));

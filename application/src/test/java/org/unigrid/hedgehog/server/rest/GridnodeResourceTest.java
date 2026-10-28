@@ -27,7 +27,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HexFormat;
-import java.util.Optional;
 import lombok.SneakyThrows;
 import mockit.Expectations;
 import mockit.Mock;
@@ -45,11 +44,13 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.network.Topology;
 
 public class GridnodeResourceTest extends BaseRestClientTest {
 	private static final String ADDRESS = "127.0.0.1:5000";
-	private static final byte[] SEALING_KEY = GridnodeFixtures.sealingKey();
+	private static final SealingKey SEALING = SealingKey.of(GridnodeFixtures.sealingKey());
+	private static final byte[] SEALING_KEY = SEALING.publicKey().orElseThrow();
 
 	@Mocked private GridnodeOptions gridnodeOptions;
 	@Inject private Topology topology;
@@ -84,8 +85,8 @@ public class GridnodeResourceTest extends BaseRestClientTest {
 
 		/* The key file of the sealing key belongs in the data directory, which no test of the node may write to */
 		new MockUp<GridnodeSetup>() {
-			@Mock public /* static */ Optional<byte[]> sealingKey() {
-				return Optional.of(SEALING_KEY);
+			@Mock public /* static */ SealingKey sealingKey() {
+				return SEALING;
 			}
 		};
 

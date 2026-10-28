@@ -40,7 +40,8 @@ public class GridnodeSetupTest {
 
 	@Example
 	public void shouldHoldNoSealingKeyWithoutAGridnodeKey() {
-		assertThat(GridnodeSetup.sealingKey(), is(Optional.empty()));
+		assertThat(GridnodeSetup.sealingKey().privateKey(), is(Optional.empty()));
+		assertThat(GridnodeSetup.sealingKey().publicKey(), is(Optional.empty()));
 	}
 
 	@Example
@@ -48,12 +49,12 @@ public class GridnodeSetupTest {
 	public void shouldKeepTheSealingKeyInTheDataDirectory() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
 			final Path directory = fs.getPath("/data");
-			final byte[] announced = GridnodeSetup.sealingKeyIn(directory);
+			final SealingKey key = GridnodeSetup.sealingKeyIn(directory);
+			final byte[] kept = SealingKeyFile.loadOrCreate(directory.resolve(SealingKeyFile.FILE));
 
-			assertThat(announced.length, is(SealingKeyFile.KEY_SIZE));
-			assertThat(announced, is(SealingKeyFile.publicKey(SealingKeyFile.loadOrCreate(
-				directory.resolve(SealingKeyFile.FILE)))));
-			assertThat(GridnodeSetup.sealingKeyIn(directory), is(announced));
+			assertThat(key.privateKey().orElseThrow(), is(kept));
+			assertThat(key.publicKey().orElseThrow(), is(SealingKeyFile.publicKey(kept)));
+			assertThat(GridnodeSetup.sealingKeyIn(directory).privateKey().orElseThrow(), is(kept));
 		}
 	}
 

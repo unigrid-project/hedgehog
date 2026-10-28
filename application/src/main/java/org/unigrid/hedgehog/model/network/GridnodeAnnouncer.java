@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 
 @Slf4j
 @ApplicationScoped
@@ -40,7 +41,7 @@ public class GridnodeAnnouncer {
 
 	@Inject private Topology topology;
 	@Inject private GridnodeIdentity identity;
-	@Inject private Optional<byte[]> sealingKey;
+	@Inject private SealingKey sealingKey;
 	private Supplier<String> address = GridnodeSetup::announcedAddress;
 
 	public Optional<Gridnode> announce(Gridnode.Status status) {
@@ -49,7 +50,7 @@ public class GridnodeAnnouncer {
 
 	/* An entry without the key to seal sessions to would be one that no client can use, so none is signed */
 	public Optional<Gridnode> announce(Gridnode.Status status, long nowMillis) {
-		return identity.id().flatMap(id -> sealingKey.map(key -> {
+		return identity.id().flatMap(id -> sealingKey.publicKey().map(key -> {
 			final long held = topology.findGridnode(id).map(Gridnode::getTimestamp).orElse(0L);
 			final Gridnode entry = identity.sign(status, address.get(), key, nowMillis, held);
 
