@@ -801,24 +801,33 @@ public class ChainExitTest {
 		assertThat(rig.exit.heldRelays(), is(0));
 	}
 
-	/* The answers are not handed to the callers, so their Connects never come. An entry of another writer under the
-	   tag of an opening is nothing its client said. */
+	/* The Connects of the callers never reach the exit. Another writer's copy of a Connect, under the tag the relay
+	   looks out for, is nothing its client said. */
 	@Example
 	public void closesARelayWhoseClientSentNoConnectWithinTheArrivalInterval() {
 		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
 		final Caller early = rig.caller(1);
 		final Caller late = rig.caller(2);
 
 		early.session().open();
 
-		final Tag opening = early.posted.get(0).header().tag();
+		final Tag answerTag = ChainFleet.answerTagOf(early.posted.get(0), EXIT);
 
 		early.send();
 		rig.fleet.clock.incrementAndGet();
 		late.session().open();
 		late.send();
-		rig.offer(rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), opening,
-			new byte[40]));
+		early.session().receive(rig.entries(chain).stream().filter(entry -> entry.header().tag().equals(answerTag))
+			.findFirst().orElseThrow());
+
+		final Entry connect = early.posted.remove(0);
+		final Entry copy = rig.stranger(9, chain).write(rig.fleet.clock.get(), connect.header().tag(),
+			padded(connect.payload()));
+
+		rig.offer(copy);
+		assertThat(rig.entries(chain), hasItem(copy));
+		assertThat(early.posted, is(empty()));
 
 		rig.fleet.clock.addAndGet(ChainExit.CONNECT_ARRIVAL_MILLIS - 2);
 		rig.exit.tick();
