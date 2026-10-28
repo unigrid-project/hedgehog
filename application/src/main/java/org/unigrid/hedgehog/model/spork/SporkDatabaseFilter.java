@@ -19,6 +19,8 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.ObjectInputFilter;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,18 +39,13 @@ final class SporkDatabaseFilter implements ObjectInputFilter {
 	static final long MAX_BYTES = 1 << 26;
 	static final long MAX_ARRAY_LENGTH = 1 << 17;
 
-	private static final Set<Class<?>> CLASSES = Set.of(SporkDatabase.class, GridSpork.class, GridSpork.Type.class,
-		SignatureLog.class, SignatureLogEntry.class, Address.class,
-		MintStorage.class, MintStorage.SporkData.class, MintStorage.SporkData.Location.class,
-		MintSupply.class, MintSupply.SporkData.class,
-		VestingStorage.class, VestingStorage.SporkData.class, VestingStorage.SporkData.Vesting.class,
-		StorageSpork.class, StorageSpork.SporkData.class,
-		LedgerBlacklist.class, LedgerBlacklist.SporkData.class,
-		LedgerFee.class, LedgerFee.SporkData.class,
-		CommunicationSpork.class, CommunicationSpork.SporkData.class,
-		StatisticsPubKey.class, StatisticsPubKey.SporkData.class,
-		BoardKeys.class, BoardKeys.SporkData.class, KeyChange.class, KeyChange.Approval.class
-	);
+	/* The sporks and their data are those of every type, so a type that is added needs no entry here. What a spork
+	   holds besides is listed. */
+	private static final Set<Class<?>> CLASSES = classesOfTheTypes(Set.of(SporkDatabase.class, GridSpork.class,
+		GridSpork.Type.class, SignatureLog.class, SignatureLogEntry.class, Address.class,
+		MintStorage.SporkData.Location.class, VestingStorage.SporkData.Vesting.class,
+		KeyChange.class, KeyChange.Approval.class
+	));
 
 	/* By name, as the form a time travels in is not public */
 	private static final Set<String> JAVA_CLASSES = Set.of("java.lang.Enum", "java.lang.Number",
@@ -60,6 +57,18 @@ final class SporkDatabaseFilter implements ObjectInputFilter {
 	private static final Set<Class<?>> ARRAYS = Set.of(byte[].class, Object[].class, Map.Entry[].class);
 
 	private String refusal;
+
+	private static Set<Class<?>> classesOfTheTypes(Set<Class<?>> others) {
+		final Set<Class<?>> classes = new HashSet<>(others);
+
+		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
+			.map(GridSpork::create).forEach(spork -> {
+				classes.add(spork.getClass());
+				classes.add(spork.getData().getClass());
+			});
+
+		return Set.copyOf(classes);
+	}
 
 	@Override
 	public Status checkInput(FilterInfo info) {
