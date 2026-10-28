@@ -66,6 +66,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -863,7 +864,7 @@ public class ChainExitTest {
 		final Caller caller = rig.caller(1);
 
 		caller.session().open();
-		rig.fleet.clock.addAndGet(20_000);
+		rig.fleet.clock.addAndGet(ChainExit.OPENING_MAX_AGE_MILLIS);
 		caller.send();
 		assertThat(rig.exit.heldRelays(), is(1));
 
@@ -986,6 +987,62 @@ public class ChainExitTest {
 		assertThat(caller.session().exit(), equalTo(Optional.of("gn-2")));
 		assertThat(caller.posted, hasSize(1));
 		assertThat(ChainFleet.openerOf(caller.posted.get(0), order), equalTo(Optional.of("gn-2")));
+	}
+
+	/* A chain that gives an opening again, as a rebuilt one that fetches the feeds of its writers anew does, gets no
+	   second answer: that would hold a relay for nobody, and put the same answer tag on the chain twice */
+	@Example
+	public void answersAnOpeningOnceAfterItsRelayIsGone() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final Entry opening = opening(rig.stranger(1, chain), rig.fleet.clock.get(), EXIT);
+
+		rig.offer(opening);
+		assertThat(rig.answers(chain, opening), is(1L));
+
+		rig.exit.closeChain(chain, CloseReason.DONE);
+		rig.exit.tick();
+		assertThat(rig.exit.heldRelays(), is(0));
+
+		rig.exit.appended(chain, opening);
+		assertThat(rig.answers(chain, opening), is(1L));
+		assertThat(rig.exit.heldRelays(), is(0));
+	}
+
+	@Example
+	public void answersAnOpeningOnceAfterTheHostRebuiltItsChain() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final Entry opening = opening(rig.stranger(1, chain), rig.fleet.clock.get(), EXIT);
+
+		rig.offer(opening);
+		rig.fleet.settings.set(Optional.of(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 31, 3)));
+		rig.fleet.host(EXIT).refresh();
+		rig.exit.tick();
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.entries(chain), is(empty()));
+
+		rig.offer(opening);
+		assertThat(rig.openings(chain), hasSize(1));
+		assertThat(rig.answers(chain, opening), is(0L));
+		assertThat(rig.exit.heldRelays(), is(0));
+	}
+
+	/* A client gives an opening up after its timeout, so one stamped longer ago than that, and the skew between the
+	   clocks, is answered for nobody */
+	@Example
+	public void answersNoOpeningStampedLongerAgoThanAClientWaits() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final long now = rig.fleet.clock.get();
+		final Entry stale = opening(rig.stranger(1, chain), now - ChainExit.OPENING_MAX_AGE_MILLIS - 1, EXIT);
+		final Entry fresh = opening(rig.stranger(2, chain), now - ChainExit.OPENING_MAX_AGE_MILLIS, EXIT);
+
+		rig.offer(stale);
+		rig.offer(fresh);
+		assertThat(rig.answers(chain, stale), is(0L));
+		assertThat(rig.answers(chain, fresh), is(1L));
+		assertThat(ChainExit.OPENING_MAX_AGE_MILLIS, greaterThanOrEqualTo(ClientSession.ACCEPT_TIMEOUT_MILLIS));
 	}
 
 	@Example

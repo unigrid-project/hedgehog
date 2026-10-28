@@ -22,8 +22,11 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +53,7 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.exit.ExitRelay;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.CloseReason;
 import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import org.unigrid.hedgehog.proxy.session.Session;
@@ -85,6 +89,14 @@ public class ChainExit implements ChainDrain {
 	   after its answer has nobody behind it, and gives its place back long before the idle limit of the spork */
 	static final long CONNECT_ARRIVAL_MILLIS = 30_000;
 
+	/* A client gives up on an opening after ClientSession.ACCEPT_TIMEOUT_MILLIS, so an opening stamped longer ago
+	   than that, allowing ten seconds of skew between the clocks of client and exit, is answered for nobody */
+	static final long OPENING_MAX_AGE_MILLIS = ClientSession.ACCEPT_TIMEOUT_MILLIS + 10_000;
+
+	/* The most openings the record of answered ones holds. Past it the eldest is let go, and only its stamp then keeps
+	   it from a second answer, which holds once it is OPENING_MAX_AGE_MILLIS old. */
+	static final int MAX_ANSWERED = 4096;
+
 	private static final int TICK_SECONDS = 1;
 
 	private record RelayKey(ChainId chainId, WriterId clientWriter, long session) {
@@ -95,10 +107,12 @@ public class ChainExit implements ChainDrain {
 		/* This node's feed on one chain, where every session it accepts there writes */
 	}
 
-	private record Relayed(ExitChain feed, Session session, ExitRelay relay, long acceptedAt, AtomicBoolean heard,
-		byte[] opening) {
-		/* An accepted session, when its answer went out, whether its client was heard from since and the handshake
-		   message of its opening */
+	private record Relayed(ExitChain feed, Session session, ExitRelay relay, long acceptedAt, AtomicBoolean heard) {
+		/* An accepted session, when its answer went out and whether its client was heard from since */
+	}
+
+	private record Opening(ChainId chainId, ByteBuffer message) {
+		/* The handshake message of an opening this node answered, on the chain it answered it on */
 	}
 
 	private final ChainHost host;
@@ -111,6 +125,11 @@ public class ChainExit implements ChainDrain {
 	private final Map<ChainId, ExitChain> chains = new ConcurrentHashMap<>();
 	private final Map<RelayKey, Relayed> relays = new ConcurrentHashMap<>();
 	private final AtomicLong sessions = new AtomicLong();
+
+	/* The openings this node answered and when, oldest first, kept for the retention of their chain whatever became
+	   of their relays and their chain: a chain the host rebuilt fetches the feeds of its writers anew. Only accept
+	   reads and writes it, under the monitor of this exit. */
+	private final Map<Opening, Long> answered = new LinkedHashMap<>();
 
 	/* The host keeps its listeners for good, so a stopped exit must ignore what it is still told */
 	private volatile boolean stopped;
@@ -279,16 +298,42 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* One opening at a time, so the shares hold however many chains offer openings at once. What is cheap to check
-	   comes before the key agreement: the role of this node, the room for one more relay and whether the opening was
-	   answered already. A node without a sealing key is no gridnode and opens nothing. */
+	   comes before the key agreement: the stamp of the entry, the role of this node, the room for one more relay and
+	   whether the opening was answered already. A node without a sealing key is no gridnode and opens nothing. */
 	private synchronized void accept(final ChainId chainId, final Entry entry) {
 		final Optional<ProxySettings> proxy = settings.current();
+		final long now = clock.getAsLong();
 
-		if (proxy.isPresent() && isExitOn(chainId) && hasRoom(chainId, entry.header().writer())
-			&& !isAnswered(entry)) {
+		if (proxy.isPresent() && now - entry.header().timestamp() <= OPENING_MAX_AGE_MILLIS && isExitOn(chainId)
+			&& hasRoom(chainId, entry.header().writer())) {
 
-			sealingKey.privateKey().ifPresent(key -> host.chain(chainId).map(this::feedOn)
-				.ifPresent(feed -> answer(feed, entry, key, proxy.get())));
+			final Opening opening = openingOf(chainId, entry);
+
+			forgetAnswered(now - Math.max(proxy.get().chainLimits().retentionMillis(), OPENING_MAX_AGE_MILLIS));
+
+			if (!answered.containsKey(opening)) {
+				sealingKey.privateKey().ifPresent(key -> host.chain(chainId).map(this::feedOn)
+					.ifPresent(feed -> answer(feed, entry, opening, key, proxy.get())));
+			}
+		}
+	}
+
+	private static Opening openingOf(final ChainId chainId, final Entry entry) {
+		return new Opening(chainId, ByteBuffer.wrap(Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE)));
+	}
+
+	/* Lets go of the openings answered before the cutoff, and of the eldest beyond the bound */
+	private void forgetAnswered(final long cutoff) {
+		final Iterator<Long> times = answered.values().iterator();
+
+		while (times.hasNext()) {
+			final long answeredAt = times.next();
+
+			if (answeredAt >= cutoff && answered.size() < MAX_ANSWERED) {
+				return;
+			}
+
+			times.remove();
 		}
 	}
 
@@ -296,14 +341,6 @@ public class ChainExit implements ChainDrain {
 	private boolean isSmallest(final ChainId chainId, final Entry entry) {
 		return host.chain(chainId).filter(chain -> SizeClasses.of(chain.limits().maxEntryBytes()).get(0)
 			== entry.size()).isPresent();
-	}
-
-	/* An opening is answered once: the same handshake message again, from the writer it is bound to, opens no second
-	   session */
-	private boolean isAnswered(final Entry entry) {
-		final byte[] opening = Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE);
-
-		return relays.values().stream().anyMatch(relayed -> Arrays.equals(relayed.opening(), opening));
 	}
 
 	/* A node that is no active gridnode of a group is no exit, and a chain it only follows as a client is none of its
@@ -331,16 +368,18 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The relay hears whether the chain takes what it sends before it hears the client */
-	private void answer(final ExitChain feed, final Entry entry, final byte[] key, final ProxySettings proxy) {
+	private void answer(final ExitChain feed, final Entry entry, final Opening opening, final byte[] key,
+		final ProxySettings proxy) {
+
 		final SessionContext context = new SessionContext(feed.writer(), feed.outbox(), clock, random, proxy);
 
 		Session.tryAccept(context, entry, key).ifPresent(session -> {
 			final ExitRelay relay = new ExitRelay(session, contexts.of(proxy));
 
+			answered.put(opening, clock.getAsLong());
 			relay.setChainWritable(feed.outbox().isWritable());
 			relays.put(new RelayKey(feed.chain().id(), session.peer(), sessions.incrementAndGet()),
-				new Relayed(feed, session, relay, clock.getAsLong(), new AtomicBoolean(),
-				Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE)));
+				new Relayed(feed, session, relay, clock.getAsLong(), new AtomicBoolean()));
 		});
 	}
 
