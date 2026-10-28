@@ -63,6 +63,12 @@ public class NoiseNkTest {
 	private static final String TO_CLIENT_PAYLOAD = "4361726c204d656e676572";
 	private static final String TO_CLIENT = "a1bf6c954529f29b31d8ae9f67d2c18dbd332aa1a0918690c6d80b";
 
+	/* Hedgehog's own derivations, computed from the handshake of the vector above; the vector itself does not
+	   publish them */
+	private static final String ANSWER_TAG_KEY = "e302d16bbf8e90f8646879e4fd1fd0a0cf15d30ed6e48f30c1ce9cd0f34383b3";
+	private static final String CLIENT_TAGS = "6ac85208f74b46f44686902fd7016428bc520f046c88c43b16da59b988411fa5";
+	private static final String EXIT_TAGS = "a89b3a78a881785a12f38156e7aab7d22ac72f3bd0d90b1631fc21f2fa1d1404";
+
 	/* u = 0, u = 1 and a point of order eight, whose shared secret is zero for every key */
 	private static final List<String> LOW_ORDER_POINTS = List.of(
 		"0000000000000000000000000000000000000000000000000000000000000000",
@@ -140,6 +146,10 @@ public class NoiseNkTest {
 		assertThat(HEX.formatHex(transport(secrets.clientToExit(), TO_EXIT_PAYLOAD)), equalTo(TO_EXIT));
 		assertThat(HEX.formatHex(transport(secrets.exitToClient(), TO_CLIENT_PAYLOAD)), equalTo(TO_CLIENT));
 		assertThat(answered.secrets(), equalTo(secrets));
+		assertThat(HEX.formatHex(initiation.state().answerTagKey()), equalTo(ANSWER_TAG_KEY));
+		assertThat(HEX.formatHex(responder.answerTagKey()), equalTo(ANSWER_TAG_KEY));
+		assertThat(HEX.formatHex(secrets.clientTags()), equalTo(CLIENT_TAGS));
+		assertThat(HEX.formatHex(secrets.exitTags()), equalTo(EXIT_TAGS));
 	}
 
 	@Example
