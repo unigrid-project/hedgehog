@@ -650,7 +650,7 @@ public class ChainHost implements ChainService {
 	}
 
 	/* An entry this node writes itself goes in like any other, but there is no stream to spare in the flood. A
-	   writer the chain takes no more of is told FULL, like a sealed entry without room. */
+	   writer the chain takes no more of is told FULL, like an entry without room. */
 	public Admission post(final Entry entry) {
 		return hosted(entry.header().chainId()).map(hosted -> post(hosted, entry)).orElse(Admission.WRONG_CHAIN);
 	}
