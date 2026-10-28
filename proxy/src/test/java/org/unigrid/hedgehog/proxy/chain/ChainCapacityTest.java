@@ -32,6 +32,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 
 public class ChainCapacityTest {
 	private static final long NOW = 1_750_000_000_000L;
@@ -45,15 +46,18 @@ public class ChainCapacityTest {
 	/* Room for eight entries of the larger of two classes, and a reserve of two entries of the smaller one */
 	private static final ChainLimits TWO_CLASSES = new ChainLimits(8L * 4 * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
 
-	/* A feed of the writer whose entries carry payloads of the given sizes, each padded to its class, one second
-	   apart */
 	private static List<Entry> feed(ChainLimits limits, int... payloadBytes) {
+		return feed(WRITER, NOW, limits, payloadBytes);
+	}
+
+	/* A feed whose entries carry payloads of the given sizes, each padded to its class, one second apart */
+	private static List<Entry> feed(WriterKey key, long timestamp, ChainLimits limits, int... payloadBytes) {
 		final List<Entry> entries = new ArrayList<>();
 		long prev = 0;
 
 		for (int seq = 0; seq < payloadBytes.length; seq++) {
-			final Entry entry = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), seq, prev,
-				NOW + seq * Entry.STAMP_MILLIS, ChainFixtures.TAG),
+			final Entry entry = key.sign(new EntryHeader(CHAIN, key.id(), seq, prev,
+				timestamp + seq * Entry.STAMP_MILLIS, ChainFixtures.TAG),
 				Padding.padded(new byte[payloadBytes[seq]], limits.maxEntryBytes()));
 
 			entries.add(entry);
@@ -84,6 +88,26 @@ public class ChainCapacityTest {
 		assertThat(chain.offer(entries.get(10)), equalTo(new Offer(Admission.FULL, List.of())));
 		assertThat(chain.bytes(), is(TWO_CLASSES.capacityBytes() + TWO_CLASSES.reserveBytes()));
 		assertThat(chain.entries(), equalTo(entries.subList(0, 10)));
+	}
+
+	/* Larger entries that waited for a gap come in unchecked once a small entry fills it. Were they kept past the
+	   capacity, they would take the reserve until they aged out and turn away every opening and answer meanwhile. */
+	@Example
+	public void shouldKeepLargerEntriesReleasedFromTheBufferOutOfTheReserve() {
+		final ChainLimits limits = new ChainLimits(16L * 4 * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
+		final Chain chain = new Chain(CHAIN, limits, () -> NOW);
+		final List<Entry> waiting = feed(WRITER, NOW, limits, 0, 0, ENTRY_SIZE, ENTRY_SIZE);
+		final List<Entry> others = feed(ChainFixtures.key(2), NOW + 4000, limits, large(15));
+		final Entry opening = feed(ChainFixtures.key(3), NOW + 20_000, limits, 0).get(0);
+
+		chain.offer(waiting.get(0));
+		assertThat(chain.offer(waiting.get(2)).admission(), is(Admission.AHEAD));
+		assertThat(chain.offer(waiting.get(3)).admission(), is(Admission.AHEAD));
+		others.forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
+		assertThat(chain.offer(waiting.get(1)).appended(), equalTo(waiting.subList(1, 4)));
+		assertThat(ChainFixtures.largerBytes(chain), is(limits.capacityBytes()));
+		assertThat(chain.offer(opening).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.bytes(), lessThanOrEqualTo(limits.capacityBytes() + limits.reserveBytes()));
 	}
 
 	@Example

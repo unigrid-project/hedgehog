@@ -68,6 +68,12 @@ final class ChainFixtures {
 				header.tag()), payload));
 	}
 
+	/* The bytes of the entries of a chain above its smallest class, which never take more than the capacity */
+	static long largerBytes(Chain chain) {
+		return chain.entries().stream().mapToLong(Entry::size)
+			.filter(size -> size != chain.limits().smallestClassBytes()).sum();
+	}
+
 	static WriterKey key(int number) {
 		final byte[] seed = new byte[WriterKey.SEED_SIZE];
 

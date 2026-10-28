@@ -47,9 +47,11 @@ public final class Chain {
 	private final LongSupplier clock;
 	private final Map<WriterId, Feed> feeds = new HashMap<>();
 	private final NavigableSet<Entry> entries = new TreeSet<>(FIFO);
+	private final NavigableSet<Entry> larger = new TreeSet<>(FIFO);
 	private final Map<WriterId, NavigableMap<Long, Entry>> retained = new HashMap<>();
 	private final Map<WriterId, NavigableMap<Long, Entry>> held = new HashMap<>();
 	private long bytes;
+	private long largerBytes;
 	private long heldBytes;
 
 	public Chain(ChainId id, ChainLimits limits, LongSupplier clock) {
@@ -102,7 +104,7 @@ public final class Chain {
 		final long cutoff = clock.getAsLong() - limits.retentionMillis();
 
 		while (!entries.isEmpty() && entries.first().header().timestamp() < cutoff) {
-			forget(entries.pollFirst());
+			forget(entries.first());
 		}
 	}
 
@@ -184,9 +186,11 @@ public final class Chain {
 	/* An entry of the smallest class, which openings and answers fill, may also take the reserve past the capacity,
 	   so that a chain full of larger entries still lets sessions open, answer and close */
 	private boolean isFullFor(Entry entry) {
-		final boolean smallest = entry.size() == limits.smallestClassBytes();
+		return bytes + entry.size() > limits.capacityBytes() + (isLarger(entry) ? 0 : limits.reserveBytes());
+	}
 
-		return bytes + entry.size() > limits.capacityBytes() + (smallest ? limits.reserveBytes() : 0);
+	private boolean isLarger(Entry entry) {
+		return entry.size() != limits.smallestClassBytes();
 	}
 
 	private Offer hold(Entry entry) {
@@ -223,6 +227,12 @@ public final class Chain {
 		entries.add(entry);
 		retained.computeIfAbsent(feed.writer(), writer -> new TreeMap<>()).put(entry.header().seq(), entry);
 		bytes += entry.size();
+
+		if (isLarger(entry)) {
+			larger.add(entry);
+			largerBytes += entry.size();
+		}
+
 		appended.add(entry);
 		trimToCapacity();
 	}
@@ -279,14 +289,27 @@ public final class Chain {
 		}
 	}
 
+	/* Entries released from the buffer come in unchecked, so the larger classes may pass the capacity and take the
+	   reserve, which would turn away openings and answers until they aged out. The oldest larger entries make way
+	   until the larger ones fit the capacity again, and then the oldest of all until everything fits the capacity and
+	   the reserve. */
 	private void trimToCapacity() {
+		while (largerBytes > limits.capacityBytes()) {
+			forget(larger.first());
+		}
+
 		while (bytes > limits.capacityBytes() + limits.reserveBytes()) {
-			forget(entries.pollFirst());
+			forget(entries.first());
 		}
 	}
 
 	private void forget(Entry entry) {
+		entries.remove(entry);
 		retained.get(entry.header().writer()).remove(entry.header().seq());
 		bytes -= entry.size();
+
+		if (larger.remove(entry)) {
+			largerBytes -= entry.size();
+		}
 	}
 }

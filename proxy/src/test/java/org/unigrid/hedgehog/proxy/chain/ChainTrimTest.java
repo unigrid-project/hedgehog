@@ -30,6 +30,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 
 public class ChainTrimTest {
 	private static final long NOW = 1_750_000_000_000L;
@@ -167,7 +168,8 @@ public class ChainTrimTest {
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(0, entry.hash()))));
 	}
 
-	/* A larger entry released from the buffer takes the room of as many smaller ones as it needs */
+	/* A larger entry released from the buffer takes the room of as many smaller ones as it needs, and the larger
+	   entries stay within the capacity */
 	@Example
 	public void shouldTrimAsManyEntriesAsALargerOneNeeds() {
 		final ChainLimits limits = new ChainLimits(6L * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
@@ -183,6 +185,7 @@ public class ChainTrimTest {
 		others.forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
 		assertThat(chain.offer(second).appended(), equalTo(List.of(second, large)));
 		assertThat(chain.entries(), equalTo(List.of(others.get(3), others.get(4), second, large)));
-		assertThat(chain.bytes(), is(limits.capacityBytes() + limits.reserveBytes()));
+		assertThat(ChainFixtures.largerBytes(chain), lessThanOrEqualTo(limits.capacityBytes()));
+		assertThat(chain.bytes(), lessThanOrEqualTo(limits.capacityBytes() + limits.reserveBytes()));
 	}
 }
