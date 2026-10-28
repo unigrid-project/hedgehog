@@ -24,6 +24,10 @@ public record ChainLimits(long capacityBytes, int retentionSeconds, int maxEntry
 	/* Entries that wait for a gap to fill may take a quarter of the capacity on top of it */
 	private static final int HELD_SHARE = 4;
 
+	/* Openings, answers and short messages fill the smallest class, so a sixteenth of the capacity, and at least one
+	   such entry, is kept for them on top of it: a chain full of larger entries still lets sessions open and end */
+	private static final int RESERVED_SHARE = 16;
+
 	public ChainLimits {
 		if (maxEntryBytes < Entry.OVERHEAD) {
 			throw new IllegalArgumentException("An entry needs at least " + Entry.OVERHEAD
@@ -51,5 +55,10 @@ public record ChainLimits(long capacityBytes, int retentionSeconds, int maxEntry
 
 	public long bufferBytes() {
 		return Math.max(maxEntryBytes, capacityBytes / HELD_SHARE);
+	}
+
+	/* The room past the capacity that only entries of the smallest class may take */
+	public long reserveBytes() {
+		return Math.max(SizeClasses.of(maxEntryBytes).get(0), capacityBytes / RESERVED_SHARE);
 	}
 }

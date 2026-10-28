@@ -971,7 +971,7 @@ public class ClientSessionsTest {
 	   pause is told nothing. The chains hold the three openings, the answer and the Connect. */
 	@Example
 	public void tellsTheOtherListenersWhenOneOfThemThrows() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(5)));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
 		final AtomicBoolean thrown = new AtomicBoolean();
 		final Listener closed = new Listener();
 		final Listener listener = new Listener();

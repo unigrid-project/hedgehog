@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -125,9 +126,12 @@ public class ChainHostIntakeTest {
 		return ChainFleet.entries(ChainFleet.key(writer), chainId, 1, ChainFleet.NOW).get(0);
 	}
 
-	private static Entry ofKind(final ChainId chainId, final EntryKind kind, final int writer) {
-		return new FeedWriter(ChainFleet.key(writer), chainId).write(ChainFleet.NOW, Fingerprint.NONE, kind,
-			ChainFleet.padded(new byte[] { 1 }, MAX_ENTRY_BYTES));
+	/* The first entries of a writer, each of the class above the smallest */
+	private static List<Entry> larger(final ChainId chainId, final int writer, final int count) {
+		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), chainId);
+
+		return IntStream.range(0, count).mapToObj(number -> feed.write(ChainFleet.NOW, Fingerprint.NONE,
+			EntryKind.SEALED, ChainFleet.padded(new byte[1024], MAX_ENTRY_BYTES))).toList();
 	}
 
 	private static HostedChain hostedChain(final int maxWriters, final ChainLimits limits, final LongSupplier clock) {
@@ -317,7 +321,8 @@ public class ChainHostIntakeTest {
 
 	@Example
 	public void holdsOnlyAsMuchOutOfOrderTrafficAsTheBufferOfTheChainTakes() {
-		final ChainFleet fleet = ChainFleet.group(ChainFleet.smallChains(20));
+		/* Chains of 20 KiB, whose buffer for entries out of order takes five of 1 KiB */
+		final ChainFleet fleet = ChainFleet.group(new ProxySettings(8, 3600, 4, 16, 20 * 1024, 30, 1024, 300, 3));
 		final ChainId chainId = chainOf(fleet, 0);
 		final List<Entry> entries = ChainFleet.entries(ChainFleet.key(1), chainId, 11, ChainFleet.NOW);
 		final Chain chain = fleet.host("gn-0").chain(chainId).orElseThrow();
@@ -516,22 +521,20 @@ public class ChainHostIntakeTest {
 		assertThat(receive(fleet, closing, fromClosing), is(empty()));
 	}
 
+	/* A chain full of larger entries still takes entries of the smallest class, which openings and answers fill, into
+	   its reserve */
 	@Example
-	public void refusesOnlySealedEntriesForWantOfRoom() {
-		final ChainFleet fleet = ChainFleet.group(ChainFleet.tinyChains());
+	public void takesEntriesOfTheSmallestClassIntoTheReserve() {
+		final ChainFleet fleet = ChainFleet.group(new ProxySettings(8, 3600, 4, 16, 4 * 4096, 30, 4096, 300, 3));
 		final ChainId chainId = chainOf(fleet, 0);
 		final Chain chain = fleet.host("gn-0").chain(chainId).orElseThrow();
+		final Entry another = larger(chainId, 2, 1).get(0);
+		final Entry smaller = first(chainId, 3);
 
-		receive(fleet, member(fleet), ChainFleet.entries(ChainFleet.key(9), chainId, 5, ChainFleet.NOW));
-
-		for (final EntryKind kind : EntryKind.values()) {
-			final Entry entry = ofKind(chainId, kind, 3 + kind.ordinal());
-			final boolean isSealed = kind == EntryKind.SEALED;
-			final List<EntryRefused> expected = isSealed ? List.of(EntryRefused.of(entry, Admission.FULL)) : List.of();
-
-			assertThat(receive(fleet, member(fleet), List.of(entry)), equalTo(expected));
-			assertThat(chain.heads().containsKey(entry.header().writer()), is(!isSealed));
-		}
+		assertThat(receive(fleet, member(fleet), larger(chainId, 9, 4)), is(empty()));
+		assertThat(receive(fleet, member(fleet), List.of(another)), contains(EntryRefused.of(another, Admission.FULL)));
+		assertThat(receive(fleet, member(fleet), List.of(smaller)), is(empty()));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(ChainFleet.writer(9), ChainFleet.writer(3))));
 	}
 
 	@Example
@@ -715,13 +718,13 @@ public class ChainHostIntakeTest {
 	}
 
 	@Example
-	public void takesNoSlotForASealedEntryTheChainHasNoRoomFor() {
-		final HostedChain hosted = hostedChain(2, ChainFleet.tinyChains().chainLimits(), () -> ChainFleet.NOW);
+	public void takesNoSlotForAnEntryTheChainHasNoRoomFor() {
+		final HostedChain hosted = hostedChain(2, new ChainLimits(4 * 4096, 30, 4096), () -> ChainFleet.NOW);
 
-		ChainFleet.entries(ChainFleet.key(1), CHAIN, 5, ChainFleet.NOW).forEach(hosted::offer);
+		larger(CHAIN, 1, 4).forEach(hosted::offer);
 
-		assertThat(admission(hosted.offer(first(CHAIN, 2))), is(Optional.of(Admission.FULL)));
-		assertThat(admission(hosted.offer(ofKind(CHAIN, EntryKind.ACCEPT, 3))), is(Optional.of(Admission.ACCEPTED)));
+		assertThat(admission(hosted.offer(larger(CHAIN, 2, 1).get(0))), is(Optional.of(Admission.FULL)));
+		assertThat(admission(hosted.offer(first(CHAIN, 3))), is(Optional.of(Admission.ACCEPTED)));
 		assertThat(admission(hosted.offer(first(CHAIN, 4))), is(Optional.empty()));
 	}
 

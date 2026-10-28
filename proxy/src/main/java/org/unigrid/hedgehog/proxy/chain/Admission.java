@@ -32,8 +32,8 @@ public enum Admission {
 	/* Timestamped further back than the retention window, so it would be trimmed at once */
 	EXPIRED,
 	NOT_AUTHENTIC,
-	/* No room: a sealed entry while the chain is at capacity, or any entry the buffer for out-of-order ones cannot
-	   take. The host turns it into a pause for the writer */
+	/* No room: an entry past the capacity of the chain, or past its reserve for one of the smallest class, or any entry
+	   the buffer for out-of-order ones cannot take. The host turns it into a pause for the writer */
 	FULL,
 	/* Of a size that is no size class of the chain, or stamped within a second rather than on one. Last, so that the
 	   other refusals keep their numbers on the wire */

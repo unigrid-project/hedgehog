@@ -1186,6 +1186,29 @@ public class ChainExitTest {
 		assertThat(caller.received, contains(CONNECTED, new Data(new byte[300])));
 	}
 
+	/* Openings, answers and short messages fill the smallest class, for which a chain full of larger entries keeps a
+	   reserve: a sixteenth of these chains, room for the opening, the answer, the Connect and the Connected */
+	@Example
+	public void opensASessionOnAChainFullOfLargerEntries() {
+		final int largest = 16 * 1024;
+		final Rig rig = new Rig(ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16, 4L * largest, 30,
+			largest, 300, 3)));
+		final FeedWriter stranger = rig.stranger(9, rig.fleet.chain());
+
+		IntStream.range(0, 4).forEach(number -> rig.offer(stranger.write(rig.fleet.clock.get(), Fingerprint.NONE,
+			EntryKind.SEALED, ChainFleet.padded(new byte[largest - Entry.OVERHEAD], largest))));
+		assertThat(rig.fleet.host(EXIT).chain(rig.fleet.chain()).orElseThrow().bytes(), is(4L * largest));
+
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+
+		assertThat(caller.received, contains(CONNECTED));
+		assertThat(rig.entries(rig.fleet.chain()), hasSize(8));
+	}
+
 	/* A member had no room for an entry of the exit's feed, which pauses the feed until the tick offers the entries
 	   again */
 	@Example

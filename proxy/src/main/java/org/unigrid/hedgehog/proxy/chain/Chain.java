@@ -181,9 +181,12 @@ public final class Chain {
 			|| Math.floorMod(entry.header().timestamp(), Entry.STAMP_MILLIS) != 0;
 	}
 
-	/* Only sealed traffic waits for room, so sessions can still open, be accepted and leave */
+	/* An entry of the smallest class, which openings and answers fill, may also take the reserve past the capacity,
+	   so that a chain full of larger entries still lets sessions open, answer and close */
 	private boolean isFullFor(Entry entry) {
-		return entry.header().kind() == EntryKind.SEALED && bytes + entry.size() > limits.capacityBytes();
+		final boolean smallest = entry.size() == SizeClasses.of(limits.maxEntryBytes()).get(0);
+
+		return bytes + entry.size() > limits.capacityBytes() + (smallest ? limits.reserveBytes() : 0);
 	}
 
 	private Offer hold(Entry entry) {
@@ -209,11 +212,11 @@ public final class Chain {
 		return appended;
 	}
 
-	/* Offer.appended is what the chain took in, which entries() may no longer hold: trimming drops the oldest entries,
-	   so a non-sealed entry that sorts before everything retained is trimmed as it arrives. Entries released from the
-	   buffer are not checked against the capacity again: their writer was already told AHEAD, so dropping them would
-	   lose entries, and refusing the filler instead would need its check to count the held run and could answer FULL
-	   for good when the capacity is close to maxEntryBytes. bufferBytes() bounds the overshoot */
+	/* Offer.appended is what the chain took in, which entries() may no longer hold: entries released from the buffer
+	   are not checked against the room again, and trimming drops the oldest entries once they pass it, so a released
+	   entry that sorts before everything retained is trimmed as it arrives. Their writer was already told AHEAD, so
+	   dropping them would lose entries, and refusing the filler instead would need its check to count the held run and
+	   could answer FULL for good when the capacity is close to maxEntryBytes. bufferBytes() bounds the overshoot */
 	private void retain(Feed feed, Entry entry, List<Entry> appended) {
 		feed.append(entry);
 		feeds.putIfAbsent(feed.writer(), feed);
@@ -277,7 +280,7 @@ public final class Chain {
 	}
 
 	private void trimToCapacity() {
-		while (bytes > limits.capacityBytes()) {
+		while (bytes > limits.capacityBytes() + limits.reserveBytes()) {
 			forget(entries.pollFirst());
 		}
 	}

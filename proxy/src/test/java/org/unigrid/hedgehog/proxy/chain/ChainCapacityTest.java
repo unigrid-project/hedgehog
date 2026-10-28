@@ -18,18 +18,16 @@
 
 package org.unigrid.hedgehog.proxy.chain;
 
-import java.util.EnumSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
+import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -40,91 +38,123 @@ public class ChainCapacityTest {
 	private static final ChainId CHAIN = ChainFixtures.chainId(1);
 	private static final WriterKey WRITER = ChainFixtures.key(1);
 	private static final int ENTRY_SIZE = ChainFixtures.ENTRY_SIZE;
+
+	/* Room for four entries of the only class of the chain, and for one more in the reserve */
 	private static final ChainLimits FOUR_ENTRIES = new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE);
 
-	@Property(tries = 5)
-	public void shouldRefuseSealedEntriesOnceFull(@ForAll @IntRange(min = 1, max = 5) int attempts) {
-		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
+	/* Room for eight entries of the larger of two classes, and a reserve of two entries of the smaller one */
+	private static final ChainLimits TWO_CLASSES = new ChainLimits(8L * 4 * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
 
-		sealed.subList(0, 4).forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
+	/* A feed of the writer whose entries carry payloads of the given sizes, each padded to its class, one second
+	   apart */
+	private static List<Entry> feed(ChainLimits limits, int... payloadBytes) {
+		final List<Entry> entries = new ArrayList<>();
+		long prev = 0;
 
-		for (int i = 0; i < attempts; i++) {
-			assertThat(chain.offer(sealed.get(4)), equalTo(new Offer(Admission.FULL, List.of())));
+		for (int seq = 0; seq < payloadBytes.length; seq++) {
+			final Entry entry = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), seq, prev,
+				NOW + seq * Entry.STAMP_MILLIS, Fingerprint.NONE, EntryKind.SEALED),
+				Padding.padded(new byte[payloadBytes[seq]], limits.maxEntryBytes()));
+
+			entries.add(entry);
+			prev = entry.hash();
 		}
 
-		assertThat(chain.entries(), equalTo(sealed.subList(0, 4)));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, sealed.get(3).hash()))));
+		return entries;
+	}
+
+	private static int[] large(int count, int... thenSmall) {
+		return IntStream.concat(IntStream.generate(() -> ENTRY_SIZE).limit(count), IntStream.of(thenSmall)).toArray();
+	}
+
+	/* Openings and answers fill the smallest class, so a chain full of larger entries still lets sessions open,
+	   answer and close, until the reserve is full too. Nothing is trimmed for the reserve. */
+	@Example
+	public void smallEntriesUseTheReserve() {
+		final Chain chain = new Chain(CHAIN, TWO_CLASSES, () -> NOW);
+		final List<Entry> entries = feed(TWO_CLASSES, large(8, 0, 0, 0));
+		final Entry anotherLarge = feed(TWO_CLASSES, large(9)).get(8);
+
+		assertThat(TWO_CLASSES.reserveBytes(), is(2L * ENTRY_SIZE));
+		entries.subList(0, 8).forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
+		assertThat(chain.bytes(), is(TWO_CLASSES.capacityBytes()));
+		assertThat(chain.offer(anotherLarge), equalTo(new Offer(Admission.FULL, List.of())));
+		assertThat(chain.offer(entries.get(8)).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.offer(entries.get(9)).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.offer(entries.get(10)), equalTo(new Offer(Admission.FULL, List.of())));
+		assertThat(chain.bytes(), is(TWO_CLASSES.capacityBytes() + TWO_CLASSES.reserveBytes()));
+		assertThat(chain.entries(), equalTo(entries.subList(0, 10)));
 	}
 
 	@Example
-	public void shouldStillTakeOtherKindsWhenFull() {
-		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, EntryKind.LEAVE);
+	public void shouldKeepTheReserveForTheSmallestClassOnly() {
+		final Chain chain = new Chain(CHAIN, TWO_CLASSES, () -> NOW);
+		final List<Entry> entries = feed(TWO_CLASSES, large(7, 0, 0));
+		final Entry largeAfterSmall = feed(TWO_CLASSES, large(7, 0, ENTRY_SIZE)).get(8);
 
-		sealed.forEach(chain::offer);
-		assertThat(chain.offer(leave).admission(), is(Admission.ACCEPTED));
-		assertThat(chain.entries(), equalTo(List.of(sealed.get(1), sealed.get(2), sealed.get(3), leave)));
+		entries.subList(0, 8).forEach(chain::offer);
+		assertThat(chain.offer(largeAfterSmall).admission(), is(Admission.FULL));
+		assertThat(chain.offer(entries.get(8)).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.bytes(), is(TWO_CLASSES.capacityBytes() - 2L * ENTRY_SIZE));
+	}
+
+	@Property(tries = 5)
+	public void shouldRefuseEntriesOnceTheChainAndItsReserveAreFull(@ForAll @IntRange(min = 1, max = 5) int attempts) {
+		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.SEALED);
+
+		entries.subList(0, 5).forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
+
+		for (int i = 0; i < attempts; i++) {
+			assertThat(chain.offer(entries.get(5)), equalTo(new Offer(Admission.FULL, List.of())));
+		}
+
+		assertThat(chain.entries(), equalTo(entries.subList(0, 5)));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(4, entries.get(4).hash()))));
 	}
 
 	@Example
 	public void shouldTakeTheRefusedEntryOnceTheOldOnesExpire() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, clock::get);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry refused = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 20_000,
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
+		final Entry refused = ChainFixtures.signed(WRITER, CHAIN, 5, entries.get(4).hash(), NOW + 20_000,
 			EntryKind.SEALED);
 
-		sealed.forEach(chain::offer);
+		entries.forEach(chain::offer);
 		assertThat(chain.offer(refused).admission(), is(Admission.FULL));
 		clock.set(NOW + 30_001);
 		assertThat(chain.offer(refused).admission(), is(Admission.ACCEPTED));
-		assertThat(chain.entries(), equalTo(List.of(sealed.get(1), sealed.get(2), sealed.get(3), refused)));
-	}
-
-	@Property(tries = 4, generation = GenerationMode.EXHAUSTIVE)
-	public void shouldTakeEveryOtherKindWhenFull(@ForAll("unsealedKinds") EntryKind kind) {
-		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry other = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, kind);
-
-		sealed.forEach(chain::offer);
-		assertThat(chain.offer(other), equalTo(new Offer(Admission.ACCEPTED, List.of(other))));
-		assertThat(chain.entries(), equalTo(List.of(sealed.get(1), sealed.get(2), sealed.get(3), other)));
-	}
-
-	@Provide
-	Arbitrary<EntryKind> unsealedKinds() {
-		return Arbitraries.of(EnumSet.complementOf(EnumSet.of(EntryKind.SEALED)));
+		assertThat(chain.entries(), equalTo(List.of(entries.get(1), entries.get(2), entries.get(3), entries.get(4),
+			refused)));
 	}
 
 	@Example
-	public void shouldRefuseASealedEntryThatIsOneByteTooLarge() {
+	public void shouldRefuseALargerEntryThatIsOneByteOverTheCapacity() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE + 1), () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 3, NOW, EntryKind.SEALED);
-		final long prev = sealed.get(2).hash();
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 3, NOW, EntryKind.SEALED);
+		final long prev = entries.get(2).hash();
 		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3000, Fingerprint.NONE,
 			EntryKind.SEALED), new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
 		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3000, EntryKind.SEALED);
 
-		sealed.forEach(chain::offer);
+		entries.forEach(chain::offer);
 		assertThat(chain.offer(oneTooLarge).admission(), is(Admission.FULL));
 		assertThat(chain.offer(fits).admission(), is(Admission.ACCEPTED));
 		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
 	}
 
 	@Example
-	public void shouldLeaveNoTraceOfARefusedSealedEntryFromAnotherWriter() {
+	public void shouldLeaveNoTraceOfARefusedEntryFromAnotherWriter() {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
 
-		sealed.forEach(chain::offer);
-		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 4000, EntryKind.SEALED)).admission(),
+		entries.forEach(chain::offer);
+		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 5000, EntryKind.SEALED)).admission(),
 			is(Admission.FULL));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, sealed.get(3).hash()))));
-		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(4, entries.get(4).hash()))));
+		assertThat(chain.bytes(), is(5L * ENTRY_SIZE));
 		assertThat(chain.range(other.id(), 0, 0), is(empty()));
 		assertThat(chain.anchor(other.id(), new Head(0, 1)), is(true));
 	}
@@ -132,25 +162,25 @@ public class ChainCapacityTest {
 	@Example
 	public void shouldAnswerFromTheFeedBeforeRefusingForRoom() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
 
-		sealed.forEach(chain::offer);
-		assertThat(chain.offer(sealed.get(3)).admission(), is(Admission.DUPLICATE));
-		assertThat(chain.offer(sealed.get(0)).admission(), is(Admission.REPLAYED));
+		entries.forEach(chain::offer);
+		assertThat(chain.offer(entries.get(4)).admission(), is(Admission.DUPLICATE));
+		assertThat(chain.offer(entries.get(0)).admission(), is(Admission.REPLAYED));
 	}
 
 	@Example
 	public void shouldNotAnswerFullToAnEntryThatIsNotAuthentic() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
-		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 5, NOW, EntryKind.SEALED);
-		final Entry genuine = sealed.get(4);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.SEALED);
+		final Entry genuine = entries.get(5);
 		final Entry tampered = new Entry(genuine.header(), genuine.payload(), genuine.hash() + 1, genuine.signature());
 
-		sealed.subList(0, 4).forEach(chain::offer);
+		entries.subList(0, 5).forEach(chain::offer);
 		assertThat(chain.offer(tampered).admission(), is(Admission.NOT_AUTHENTIC));
-		assertThat(chain.entries(), equalTo(sealed.subList(0, 4)));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, sealed.get(3).hash()))));
-		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
+		assertThat(chain.entries(), equalTo(entries.subList(0, 5)));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(4, entries.get(4).hash()))));
+		assertThat(chain.bytes(), is(5L * ENTRY_SIZE));
 		assertThat(chain.offer(genuine).admission(), is(Admission.FULL));
 	}
 }

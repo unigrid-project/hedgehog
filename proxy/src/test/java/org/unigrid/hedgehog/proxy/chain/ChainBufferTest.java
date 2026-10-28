@@ -132,12 +132,12 @@ public class ChainBufferTest {
 	}
 
 	@Example
-	public void shouldNotHoldSealedEntriesWhileFull() {
+	public void shouldNotHoldEntriesWhileFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> sealed = linked(6, EntryKind.SEALED);
+		final List<Entry> entries = linked(7, EntryKind.SEALED);
 
-		sealed.subList(0, 4).forEach(chain::offer);
-		assertThat(chain.offer(sealed.get(5)).admission(), is(Admission.FULL));
+		entries.subList(0, 5).forEach(chain::offer);
+		assertThat(chain.offer(entries.get(6)).admission(), is(Admission.FULL));
 		assertThat(chain.heldBytes(), is(0L));
 	}
 
@@ -227,50 +227,39 @@ public class ChainBufferTest {
 	@Example
 	public void shouldAnswerNotAuthenticBeforeFullForAChainThatIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> sealed = linked(6, EntryKind.SEALED);
-		final Entry forged = new Entry(sealed.get(5).header(), sealed.get(5).payload(), sealed.get(5).hash(),
+		final List<Entry> entries = linked(7, EntryKind.SEALED);
+		final Entry forged = new Entry(entries.get(6).header(), entries.get(6).payload(), entries.get(6).hash(),
 			new byte[Entry.SIGNATURE_SIZE]);
 
-		sealed.subList(0, 4).forEach(chain::offer);
+		entries.subList(0, 5).forEach(chain::offer);
 		assertThat(chain.offer(forged).admission(), is(Admission.NOT_AUTHENTIC));
-		assertThat(chain.offer(sealed.get(5)).admission(), is(Admission.FULL));
+		assertThat(chain.offer(entries.get(6)).admission(), is(Admission.FULL));
 	}
 
 	@Example
-	public void shouldHoldOtherKindsWhileFull() {
+	public void shouldHoldAnEntryThatFillsTheChainAndItsReserveExactly() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> sealed = linked(4, EntryKind.SEALED);
-		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, EntryKind.LEAVE);
-		final Entry later = ChainFixtures.signed(WRITER, CHAIN, 5, leave.hash(), NOW + 5000, EntryKind.LEAVE);
+		final List<Entry> entries = linked(6, EntryKind.SEALED);
 
-		sealed.forEach(chain::offer);
-		assertThat(chain.offer(later).admission(), is(Admission.AHEAD));
-		assertThat(chain.offer(leave), equalTo(new Offer(Admission.ACCEPTED, List.of(leave, later))));
-	}
-
-	@Example
-	public void shouldHoldASealedEntryThatFillsTheChainExactly() {
-		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> sealed = linked(5, EntryKind.SEALED);
-
-		sealed.subList(0, 3).forEach(chain::offer);
-		assertThat(chain.offer(sealed.get(4)).admission(), is(Admission.AHEAD));
+		entries.subList(0, 4).forEach(chain::offer);
+		assertThat(chain.offer(entries.get(5)).admission(), is(Admission.AHEAD));
 		assertThat(chain.heldBytes(), is((long) ENTRY_SIZE));
 	}
 
 	@Example
 	public void shouldLetAReleasedEntryTrimTheOldestWhenTheChainIsFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> sealed = linked(5, EntryKind.SEALED);
+		final List<Entry> entries = linked(6, EntryKind.SEALED);
 
-		sealed.subList(0, 3).forEach(chain::offer);
-		assertThat(chain.offer(sealed.get(4)).admission(), is(Admission.AHEAD));
-		assertThat(chain.offer(sealed.get(3)), equalTo(new Offer(Admission.ACCEPTED, sealed.subList(3, 5))));
-		assertThat(chain.entries(), equalTo(sealed.subList(1, 5)));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(4, sealed.get(4).hash()))));
-		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
+		entries.subList(0, 4).forEach(chain::offer);
+		assertThat(chain.offer(entries.get(5)).admission(), is(Admission.AHEAD));
+		assertThat(chain.offer(entries.get(4)), equalTo(new Offer(Admission.ACCEPTED, entries.subList(4, 6))));
+		assertThat(chain.entries(), equalTo(entries.subList(1, 6)));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(5, entries.get(5).hash()))));
+		assertThat(chain.bytes(), is(5L * ENTRY_SIZE));
 		assertThat(chain.heldBytes(), is(0L));
-		assertThat(chain.offer(sealed.get(4)).admission(), is(Admission.DUPLICATE));
+		assertThat(chain.offer(entries.get(5)).admission(), is(Admission.DUPLICATE));
+		assertThat(chain.offer(entries.get(0)).admission(), is(Admission.REPLAYED));
 	}
 
 	@Example

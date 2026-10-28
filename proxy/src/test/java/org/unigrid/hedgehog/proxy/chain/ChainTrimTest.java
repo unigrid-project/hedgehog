@@ -25,6 +25,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -61,44 +62,26 @@ public class ChainTrimTest {
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(count - 1, last.hash()))));
 	}
 
-	@Example
-	public void shouldTrimTheOldestEntriesOverCapacity() {
-		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 10, NOW, EntryKind.JOIN);
-
-		joins.forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
-		assertThat(chain.entries(), equalTo(joins.subList(6, 10)));
-		assertThat(chain.range(WRITER.id(), 0, 9), equalTo(joins.subList(6, 10)));
-		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(9, joins.get(9).hash()))));
-	}
-
-	@Example
-	public void shouldNotTakeBackATrimmedEntry() {
-		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 10, NOW, EntryKind.JOIN);
-
-		joins.forEach(chain::offer);
-		assertThat(chain.offer(joins.get(2)).admission(), is(Admission.REPLAYED));
-		assertThat(chain.offer(joins.get(9)).admission(), is(Admission.DUPLICATE));
-		assertThat(chain.entries(), equalTo(joins.subList(6, 10)));
-	}
-
+	/* Only an entry released from the buffer passes the room of the chain, and the oldest entries make way for it,
+	   which may be one that came in with it */
 	@Example
 	public void shouldTakeAnEntryThatTrimmingDropsAtOnce() {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.JOIN);
-		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1000, EntryKind.JOIN);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
+		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1000, EntryKind.SEALED);
+		final Entry next = ChainFixtures.signed(other, CHAIN, 1, oldest.hash(), NOW - 1000, EntryKind.SEALED);
 
-		joins.forEach(chain::offer);
-		assertThat(chain.offer(oldest), equalTo(new Offer(Admission.ACCEPTED, List.of(oldest))));
-		assertThat(chain.entries(), equalTo(joins));
-		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));
-		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, joins.get(3).hash()),
-			other.id(), new Head(0, oldest.hash()))));
-		assertThat(chain.offer(oldest).admission(), is(Admission.DUPLICATE));
-		assertThat(chain.range(other.id(), 0, 0), is(empty()));
+		entries.forEach(chain::offer);
+		assertThat(chain.offer(next).admission(), is(Admission.AHEAD));
+		assertThat(chain.offer(oldest), equalTo(new Offer(Admission.ACCEPTED, List.of(oldest, next))));
+		assertThat(chain.entries(), equalTo(List.of(next, entries.get(0), entries.get(1), entries.get(2),
+			entries.get(3))));
+		assertThat(chain.bytes(), is(5L * ENTRY_SIZE));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, entries.get(3).hash()),
+			other.id(), new Head(1, next.hash()))));
+		assertThat(chain.offer(oldest).admission(), is(Admission.REPLAYED));
+		assertThat(chain.range(other.id(), 0, 1), equalTo(List.of(next)));
 	}
 
 	@Example
@@ -184,17 +167,22 @@ public class ChainTrimTest {
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(0, entry.hash()))));
 	}
 
+	/* A larger entry released from the buffer takes the room of as many smaller ones as it needs */
 	@Example
 	public void shouldTrimAsManyEntriesAsALargerOneNeeds() {
-		final Chain chain = new Chain(CHAIN, new ChainLimits(6L * ENTRY_SIZE, 30, 4 * ENTRY_SIZE), () -> NOW);
-		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.JOIN);
-		final long prev = joins.get(5).hash();
-		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 6, prev, NOW + 6000, Fingerprint.NONE,
-			EntryKind.JOIN), new byte[4 * ENTRY_SIZE - Entry.OVERHEAD]);
+		final ChainLimits limits = new ChainLimits(6L * ENTRY_SIZE, 30, 4 * ENTRY_SIZE);
+		final Chain chain = new Chain(CHAIN, limits, () -> NOW);
+		final List<Entry> others = ChainFixtures.linked(ChainFixtures.key(2), CHAIN, 5, NOW + 1000, EntryKind.SEALED);
+		final Entry first = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW, EntryKind.SEALED);
+		final Entry second = ChainFixtures.signed(WRITER, CHAIN, 1, first.hash(), NOW + 6000, EntryKind.SEALED);
+		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, second.hash(), NOW + 7000,
+			Fingerprint.NONE, EntryKind.SEALED), Padding.padded(new byte[ENTRY_SIZE], limits.maxEntryBytes()));
 
-		joins.forEach(chain::offer);
-		assertThat(chain.offer(large).admission(), is(Admission.ACCEPTED));
-		assertThat(chain.entries(), equalTo(List.of(joins.get(4), joins.get(5), large)));
-		assertThat(chain.bytes(), is(6L * ENTRY_SIZE));
+		chain.offer(first);
+		assertThat(chain.offer(large).admission(), is(Admission.AHEAD));
+		others.forEach(entry -> assertThat(chain.offer(entry).admission(), is(Admission.ACCEPTED)));
+		assertThat(chain.offer(second).appended(), equalTo(List.of(second, large)));
+		assertThat(chain.entries(), equalTo(List.of(others.get(3), others.get(4), second, large)));
+		assertThat(chain.bytes(), is(limits.capacityBytes() + limits.reserveBytes()));
 	}
 }
