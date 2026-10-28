@@ -23,6 +23,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -37,27 +39,29 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
-import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryHeader;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
+import org.unigrid.hedgehog.proxy.chain.SizeClasses;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.exit.ExitRelay;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.CloseReason;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
-/* The exit of this node: an OPEN that names this gridnode on a chain it hosts is answered, and its session is relayed
-   to the destination by an ExitRelay, which hears every message the session opens, is ticked once a second, closed
-   for a gap in its client's feed and forgotten once it ended. The sessions of a chain write through one feed of this
-   node, so a fingerprint has one session per chain: a second OPEN of it, from whichever writer, is left unanswered,
-   as a session of its own would write under the same feed and fingerprint and break the first.
+/* The exit of this node: an entry of a chain it hosts that opens under this gridnode's sealing key is an opening for
+   it and is answered, and its session is relayed to the destination by an ExitRelay, which hears every message the
+   session opens, is ticked once a second, closed for a gap in its client's feed that names it and forgotten once it
+   ended. Nothing on the chain names the exit, so every entry that no relay recognises is tried as an opening: one key
+   agreement and one tag check for each entry of the smallest class, which is what an opening fills, and the host
+   already caps how many entries a stream brings in each second. The sessions of a chain write through one feed of
+   this node, each under tags of its own.
 
    The outbox of a feed does not bound what waits in it, and the relays hear of a pause at the next tick, so in the
    worst case the exit holds one second of what all its destinations send. */
@@ -65,62 +69,65 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainExit implements ChainDrain {
 	/* A first estimate of what one gridnode relays at once: each relay holds a connection to a destination and up
-	   to ExitRelay.BACKLOG_ENTRIES entries of what the client sent it. An OPEN beyond it is left unanswered, so
-	   the client tries another exit. */
+	   to ExitRelay.BACKLOG_ENTRIES entries of what the client sent it. An opening beyond it is left unanswered, so
+	   the client tries another exit after its timeout. */
 	static final int MAX_RELAYS = 256;
 
 	/* The node hosts several chains, those of its group and the retired ones that drain, so the writers of one chain
-	   that flood it with OPENs leave at least half of it to the others */
+	   that flood it with openings leave at least half of it to the others */
 	static final int RELAYS_PER_CHAIN = MAX_RELAYS / 2;
 
-	/* A writer is one client on one chain, whose sessions the fingerprints spread over the members of its group: the
+	/* A writer is one client on one chain, whose sessions it spreads over the members of its group at random: the
 	   most streams its SOCKS listener takes (512) bring a quarter of the node to each member of a group of eight */
 	static final int RELAYS_PER_WRITER = MAX_RELAYS / 4;
 
-	/* A client posts its Connect as soon as the ACCEPT reaches it, so a relay that heard nothing from it this long
-	   after its ACCEPT has nobody behind it, and gives its place back long before the idle limit of the spork */
+	/* A client posts its Connect as soon as the answer reaches it, so a relay that heard nothing from it this long
+	   after its answer has nobody behind it, and gives its place back long before the idle limit of the spork */
 	static final long CONNECT_ARRIVAL_MILLIS = 30_000;
 
 	private static final int TICK_SECONDS = 1;
 
-	private record RelayKey(ChainId chainId, Fingerprint fingerprint) {
-		/* One session of a fingerprint on a chain */
+	private record RelayKey(ChainId chainId, WriterId clientWriter, long session) {
+		/* One session of a client's writer on a chain, numbered in the order this node answered them */
 	}
 
 	private record ExitChain(Chain chain, FeedWriter writer, ChainOutbox outbox) {
 		/* This node's feed on one chain, where every session it accepts there writes */
 	}
 
-	private record Relayed(ExitChain feed, Session session, ExitRelay relay, long acceptedAt, AtomicBoolean heard) {
-		/* An accepted session, when its ACCEPT went out and whether its client was heard from since */
+	private record Relayed(ExitChain feed, Session session, ExitRelay relay, long acceptedAt, AtomicBoolean heard,
+		byte[] opening) {
+		/* An accepted session, when its answer went out, whether its client was heard from since and the handshake
+		   message of its opening */
 	}
 
 	private final ChainHost host;
 	private final ProxySettingsSource settings;
-	private final GridnodeDirectory directory;
+	private final SealingKey sealingKey;
 	private final LongSupplier clock;
 	private final SecureRandom random;
 	private final ExitContexts contexts;
 	private final ScheduledExecutorService scheduler;
 	private final Map<ChainId, ExitChain> chains = new ConcurrentHashMap<>();
 	private final Map<RelayKey, Relayed> relays = new ConcurrentHashMap<>();
+	private final AtomicLong sessions = new AtomicLong();
 
 	/* The host keeps its listeners for good, so a stopped exit must ignore what it is still told */
 	private volatile boolean stopped;
 
 	@Inject
-	public ChainExit(final ChainHost host, final ProxySettingsSource settings, final GridnodeDirectory directory) {
-		this(host, settings, directory, System::currentTimeMillis, new SecureRandom(), ExitContexts.production(),
+	public ChainExit(final ChainHost host, final ProxySettingsSource settings, final SealingKey sealingKey) {
+		this(host, settings, sealingKey, System::currentTimeMillis, new SecureRandom(), ExitContexts.production(),
 			Executors.newSingleThreadScheduledExecutor(ChainExit::daemonThread));
 	}
 
-	ChainExit(final ChainHost host, final ProxySettingsSource settings, final GridnodeDirectory directory,
+	ChainExit(final ChainHost host, final ProxySettingsSource settings, final SealingKey sealingKey,
 		final LongSupplier clock, final SecureRandom random, final ExitContexts contexts,
 		final ScheduledExecutorService scheduler) {
 
 		this.host = host;
 		this.settings = settings;
-		this.directory = directory;
+		this.sealingKey = sealingKey;
 		this.clock = clock;
 		this.random = random;
 		this.contexts = contexts;
@@ -162,19 +169,32 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The host tells the entries of a chain one at a time and in the order the chain appended them, so the session an
-	   OPEN starts is registered before the next entry of the chain, its client's Connect among them, is told */
+	   opening starts is registered before the next entry of the chain, its client's Connect among them, is told. An
+	   entry of this node's own feed is no opening, and one of a client that a relay of that client recognises goes to
+	   that relay, which also breaks on an entry past the next one. */
 	void appended(final ChainId chainId, final Entry entry) {
-		if (stopped) {
+		if (stopped || isOwn(chainId, entry.header().writer())) {
 			return;
 		}
 
-		final Relayed known = relays.get(new RelayKey(chainId, entry.header().fingerprint()));
+		final Optional<Relayed> known = relays.entrySet().stream().filter(held -> isOf(held.getKey(), chainId,
+			entry.header().writer()) && held.getValue().session().recognises(entry)).map(Map.Entry::getValue)
+			.findFirst();
 
-		if (known != null) {
-			relay(known, entry);
-		} else if (entry.header().kind() == EntryKind.OPEN) {
+		if (known.isPresent()) {
+			relay(known.get(), entry);
+		} else if (isSmallest(chainId, entry)) {
 			accept(chainId, entry);
 		}
+	}
+
+	private static boolean isOf(final RelayKey key, final ChainId chainId, final WriterId clientWriter) {
+		return key.chainId().equals(chainId) && key.clientWriter().equals(clientWriter);
+	}
+
+	private boolean isOwn(final ChainId chainId, final WriterId writer) {
+		return Optional.ofNullable(chains.get(chainId)).filter(feed -> feed.writer().writer().equals(writer))
+			.isPresent();
 	}
 
 	/* The Close of a session that failed to open an entry of its client reaches the relay like any message. A relay
@@ -191,13 +211,12 @@ public class ChainExit implements ChainDrain {
 		}
 	}
 
-	/* A gap in the feed of a session's client lost entries of that session, which cannot go on without them. The gap
-	   of another writer says nothing about it, as any writer can leave one that names any fingerprint. */
+	/* A gap in the feed of a session's client that skipped an entry under a tag the session looks out for lost
+	   entries of that session, which cannot go on without them. The gap of another writer says nothing about it. */
 	void gapped(final ChainId chainId, final Gap gap) {
 		if (!stopped) {
-			relays.entrySet().stream().filter(held -> held.getKey().chainId().equals(chainId)
-				&& gap.fingerprints().contains(held.getKey().fingerprint())
-				&& held.getValue().session().peer().equals(gap.writer()))
+			relays.entrySet().stream().filter(held -> isOf(held.getKey(), chainId, gap.writer())
+				&& held.getValue().session().isNamedIn(gap))
 				.forEach(held -> guarded(() -> held.getValue().relay().close(CloseReason.BROKEN)));
 		}
 	}
@@ -259,14 +278,32 @@ public class ChainExit implements ChainDrain {
 		}
 	}
 
-	/* One OPEN at a time, so the shares hold however many chains offer OPENs at once */
-	private synchronized void accept(final ChainId chainId, final Entry open) {
+	/* One opening at a time, so the shares hold however many chains offer openings at once. What is cheap to check
+	   comes before the key agreement: the role of this node, the room for one more relay and whether the opening was
+	   answered already. A node without a sealing key is no gridnode and opens nothing. */
+	private synchronized void accept(final ChainId chainId, final Entry entry) {
 		final Optional<ProxySettings> proxy = settings.current();
-		final Optional<String> own = directory.self();
 
-		if (proxy.isPresent() && own.isPresent() && isExitOn(chainId) && hasRoom(chainId, open.header())) {
-			host.chain(chainId).map(this::feedOn).ifPresent(feed -> answer(feed, open, own.get(), proxy.get()));
+		if (proxy.isPresent() && isExitOn(chainId) && hasRoom(chainId, entry.header().writer())
+			&& !isAnswered(entry)) {
+
+			sealingKey.privateKey().ifPresent(key -> host.chain(chainId).map(this::feedOn)
+				.ifPresent(feed -> answer(feed, entry, key, proxy.get())));
 		}
+	}
+
+	/* An opening fills the smallest class of its chain, so no other entry is worth a key agreement */
+	private boolean isSmallest(final ChainId chainId, final Entry entry) {
+		return host.chain(chainId).filter(chain -> SizeClasses.of(chain.limits().maxEntryBytes()).get(0)
+			== entry.size()).isPresent();
+	}
+
+	/* An opening is answered once: the same handshake message again, from the writer it is bound to, opens no second
+	   session */
+	private boolean isAnswered(final Entry entry) {
+		final byte[] opening = Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE);
+
+		return relays.values().stream().anyMatch(relayed -> Arrays.equals(relayed.opening(), opening));
 	}
 
 	/* A node that is no active gridnode of a group is no exit, and a chain it only follows as a client is none of its
@@ -276,12 +313,12 @@ public class ChainExit implements ChainDrain {
 			&& (host.hostedChains().contains(chainId) || host.retiredChains().contains(chainId));
 	}
 
-	/* A fingerprint that has a session on the chain already has its answer, and the node, the chain and the OPEN's
-	   writer each have a share of the relays */
-	private boolean hasRoom(final ChainId chainId, final EntryHeader open) {
-		return !relays.containsKey(new RelayKey(chainId, open.fingerprint())) && relays.size() < MAX_RELAYS
+	/* The node, the chain and the writer of the opening each have a share of the relays. An exit at a limit stays
+	   silent, as it would for an opening that is not for it, and the client moves on after its timeout. */
+	private boolean hasRoom(final ChainId chainId, final WriterId writer) {
+		return relays.size() < MAX_RELAYS
 			&& held(relayed -> relayed.feed().chain().id().equals(chainId)) < RELAYS_PER_CHAIN
-			&& held(relayed -> relayed.session().peer().equals(open.writer())) < RELAYS_PER_WRITER;
+			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER;
 	}
 
 	private long held(final Predicate<Relayed> which) {
@@ -294,15 +331,16 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The relay hears whether the chain takes what it sends before it hears the client */
-	private void answer(final ExitChain feed, final Entry open, final String own, final ProxySettings proxy) {
+	private void answer(final ExitChain feed, final Entry entry, final byte[] key, final ProxySettings proxy) {
 		final SessionContext context = new SessionContext(feed.writer(), feed.outbox(), clock, random, proxy);
 
-		Session.accept(context, open, own).ifPresent(session -> {
+		Session.tryAccept(context, entry, key).ifPresent(session -> {
 			final ExitRelay relay = new ExitRelay(session, contexts.of(proxy));
 
 			relay.setChainWritable(feed.outbox().isWritable());
-			relays.put(new RelayKey(feed.chain().id(), session.fingerprint()),
-				new Relayed(feed, session, relay, clock.getAsLong(), new AtomicBoolean()));
+			relays.put(new RelayKey(feed.chain().id(), session.peer(), sessions.incrementAndGet()),
+				new Relayed(feed, session, relay, clock.getAsLong(), new AtomicBoolean(),
+				Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE)));
 		});
 	}
 

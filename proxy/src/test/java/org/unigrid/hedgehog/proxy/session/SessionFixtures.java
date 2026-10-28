@@ -18,10 +18,14 @@
 
 package org.unigrid.hedgehog.proxy.session;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.LongSupplier;
+import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
@@ -50,6 +54,24 @@ final class SessionFixtures {
 
 	static WriterKey key(int number) {
 		return new WriterKey(filled(WriterKey.SEED_SIZE, number));
+	}
+
+	/* The private sealing key of a gridnode, drawn from its id so that any test can rebuild it */
+	static byte[] sealingPrivate(String gridnodeId) {
+		try {
+			return MessageDigest.getInstance("SHA-256").digest(("sealing " + gridnodeId)
+				.getBytes(StandardCharsets.UTF_8));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new IllegalStateException("SHA-256 is mandatory on every Java platform", ex);
+		}
+	}
+
+	static byte[] sealingPublic(String gridnodeId) {
+		return new X25519PrivateKeyParameters(sealingPrivate(gridnodeId)).generatePublicKey().getEncoded();
+	}
+
+	static ExitCandidate exit(String gridnodeId) {
+		return new ExitCandidate(gridnodeId, sealingPublic(gridnodeId));
 	}
 
 	/* The context of writer number on CHAIN, posting every entry to the given list */

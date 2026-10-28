@@ -23,7 +23,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
-import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -84,12 +83,11 @@ import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
-import org.unigrid.hedgehog.proxy.group.ExitChoice;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.ExitCandidate;
 
 public class ChainClientTest {
 	private static final String CLIENT = "client";
@@ -756,22 +754,42 @@ public class ChainClientTest {
 		assertThat(attachedAt(fleet, released), is(0L));
 	}
 
+	/* Every draw takes a member at random, connected or not, and hands over the key it announced */
 	@Example
-	public void choosesTheExitAmongEveryMemberOfTheGroupConnectedOrNot() {
+	public void choosesTheExitAtRandomAmongTheMembersConnectedOrNot() {
 		final ChainFleet fleet = ChainFleet.group();
 		final String unconnected = "gn-3";
 
 		fleet.offline(unconnected);
 
 		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
-		final Fingerprint fingerprint = IntStream.range(0, 1000)
-			.mapToObj(number -> new Fingerprint(ByteBuffer.allocate(Fingerprint.SIZE).putInt(number).array()))
-			.filter(candidate -> ExitChoice.exit(candidate, attachment.members(), Set.of())
-				.equals(Optional.of(unconnected))).findFirst().orElseThrow();
+		final List<ExitCandidate> drawn = IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Set.of())
+			.orElseThrow()).toList();
 
 		assertThat(attachment.members(), hasItem(unconnected));
-		assertThat(attachment.exit(fingerprint, Set.of()), equalTo(Optional.of(unconnected)));
-		assertThat(attachment.exit(fingerprint, Set.of(unconnected)).orElseThrow(), not(equalTo(unconnected)));
+		assertThat(drawn.stream().map(ExitCandidate::id).collect(Collectors.toSet()),
+			equalTo(Set.copyOf(attachment.members())));
+		drawn.forEach(exit -> assertThat(exit.sealingKey(), equalTo(ChainFleet.sealingKey(exit.id()).publicKey()
+			.orElseThrow())));
+	}
+
+	@Example
+	public void passesOverMembersThatAreExcludedInactiveOrWithoutASealingKey() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
+		final List<String> members = attachment.members();
+
+		fleet.gridnodes.replaceAll(gridnode -> gridnode.getId().equals(members.get(1))
+			? ChainFleet.gridnode(members.get(1), Gridnode.Status.INACTIVE) : gridnode);
+		fleet.gridnodes.stream().filter(gridnode -> gridnode.getId().equals(members.get(2)))
+			.forEach(gridnode -> gridnode.setSealingKey(null));
+
+		for (int draw = 0; draw < 50; draw++) {
+			assertThat(attachment.exit(Set.of(members.get(3))).map(ExitCandidate::id),
+				equalTo(Optional.of(members.get(0))));
+		}
+
+		assertThat(attachment.exit(Set.of(members.get(0), members.get(3))), equalTo(Optional.empty()));
 	}
 
 	@Example

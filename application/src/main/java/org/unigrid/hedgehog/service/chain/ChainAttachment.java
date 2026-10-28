@@ -24,15 +24,15 @@ import java.util.Optional;
 import java.util.Set;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
-import org.unigrid.hedgehog.proxy.group.ExitChoice;
+import org.unigrid.hedgehog.proxy.session.ExitCandidate;
+import org.unigrid.hedgehog.proxy.session.ExitSelector;
 
 /* One chain a client node joined in one epoch: the feed it writes on, the members of the group as they were when
-   it joined, and the streams to the members it attached to */
+   it joined, the streams to the members it attached to, and how it chooses the exit of a session among them */
 public record ChainAttachment(int group, Epoch epoch, FeedWriter writer, List<String> members,
-	List<Channel> streams) {
+	List<Channel> streams, ExitSelector exits) {
 
 	public ChainId chainId() {
 		return writer.chainId();
@@ -42,8 +42,8 @@ public record ChainAttachment(int group, Epoch epoch, FeedWriter writer, List<St
 		return writer.writer();
 	}
 
-	/* The exit of a session, chosen among all members of the group, those not connected to included */
-	public Optional<String> exit(final Fingerprint fingerprint, final Set<String> excluded) {
-		return ExitChoice.exit(fingerprint, members, excluded);
+	/* The exit of a session, chosen at random among the active members of the group that announce a sealing key */
+	public Optional<ExitCandidate> exit(final Set<String> excluded) {
+		return exits.exit(excluded);
 	}
 }

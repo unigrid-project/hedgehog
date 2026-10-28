@@ -18,8 +18,9 @@
 
 package org.unigrid.hedgehog.proxy.session;
 
-import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -27,16 +28,18 @@ import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryHeader;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
-import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.chain.Gap;
+import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiation;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiator;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
 
-/* The client's side of a session: posts OPEN naming the exit it chose, completes the handshake on that
-   fingerprint's ACCEPT and sends its Connect at once. An OPEN that nobody answers in time is posted again with
-   a new fingerprint towards another exit. From then on it relays to and from a Session. */
+/* The client's side of a session: posts an opening sealed to the sealing key of the exit it chose, completes the
+   handshake on the answer that carries the answer tag of that opening and sends its Connect at once. Nothing of
+   the opening names the exit: it is the exit's key that opens it, padded to the smallest class under a random tag.
+   An opening that nobody answers in time is replaced by one towards another exit. From then on it relays to and
+   from a Session. */
 public final class ClientSession {
 	public static final long ACCEPT_TIMEOUT_MILLIS = 5000;
 	public static final int MAX_ATTEMPTS = 3;
@@ -51,8 +54,9 @@ public final class ClientSession {
 	private Session session;
 	private boolean closed;
 
-	private record Attempt(Fingerprint fingerprint, EphemeralKey key, String exit, long startedAt) {
-		/* One OPEN, when it was posted and the key that answers it, which is null once the attempt has ended */
+	private record Attempt(Initiator initiator, Tag answerTag, String exit, long startedAt) {
+		/* One opening, when it was posted, the tag of its answer and the state that finishes it, which is null once
+		   the attempt has ended */
 	}
 
 	public ClientSession(SessionContext context, ExitSelector exits, Connect connect) {
@@ -61,7 +65,7 @@ public final class ClientSession {
 		this.connect = Objects.requireNonNull(connect, "connect");
 	}
 
-	/* Posts the first OPEN; false, and closed, when the group offers no exit */
+	/* Posts the first opening; false, and closed, when the group offers no exit */
 	public synchronized boolean open() {
 		if (state() != SessionState.NEW) {
 			throw new IllegalStateException("The session was opened before");
@@ -87,31 +91,32 @@ public final class ClientSession {
 		return attempt == null ? SessionState.NEW : SessionState.OPENING;
 	}
 
-	public synchronized Optional<Fingerprint> fingerprint() {
-		return Optional.ofNullable(attempt).map(Attempt::fingerprint);
-	}
-
 	public synchronized Optional<String> exit() {
 		return Optional.ofNullable(attempt).map(Attempt::exit);
 	}
 
-	/* The feed the exit answered from, known once its ACCEPT confirmed the handshake: what the chain gives up on in
-	   that feed is what this session lost */
-	public synchronized Optional<WriterId> exitWriter() {
-		return Optional.ofNullable(session).map(Session::peer);
+	/* Whether the entry is the next one this session waits for: the answer while it opens, then the exit's next
+	   message */
+	public synchronized boolean expects(Entry entry) {
+		if (session != null) {
+			return session.expects(entry);
+		}
+
+		return isAnswer(entry);
 	}
 
-	/* Takes any entry of the chain: the ACCEPT that completes the handshake, then the exit's sealed messages */
+	/* Takes any entry of the chain: the answer that completes the handshake, then the exit's sealed messages */
 	public synchronized Optional<SealedMessage> receive(Entry entry) {
 		if (session != null) {
 			return session.receive(entry);
 		}
 
-		if (state() == SessionState.OPENING && isAccept(entry.header())) {
-			return establish(entry);
-		}
+		return isAnswer(entry) ? establish(entry) : Optional.empty();
+	}
 
-		return Optional.empty();
+	/* Whether the chain gave up on entries of the exit that belong to this session */
+	public synchronized boolean isNamedIn(Gap gap) {
+		return session != null && session.isNamedIn(gap);
 	}
 
 	public synchronized void send(SealedMessage message) {
@@ -122,7 +127,7 @@ public final class ClientSession {
 		session.send(message);
 	}
 
-	/* Called on the host's schedule. The OPEN of an attempt that no ACCEPT answered in time is replaced, until
+	/* Called on the host's schedule. The opening of an attempt that no answer completed in time is replaced, until
 	   the attempts or the exits are used up and the session is closed as unreachable. An established session
 	   closes when it has been idle for too long. */
 	public synchronized Optional<Close> tick() {
@@ -134,7 +139,7 @@ public final class ClientSession {
 	}
 
 	/* Ends the session from the client's side. Before an exit answered there is nobody to tell, and a late
-	   ACCEPT finds the session closed. */
+	   answer finds the session closed. */
 	public synchronized Optional<Close> close(CloseReason reason) {
 		if (session != null) {
 			return session.close(reason);
@@ -161,73 +166,74 @@ public final class ClientSession {
 		return Optional.of(new Close(CloseReason.UNREACHABLE));
 	}
 
+	/* The first exit the selector offers that was not tried and whose key opens a handshake. An exit whose key is
+	   no key of X25519, or one of low order, is passed over without using up an attempt. The search ends when the
+	   selector answers an exit it was told to pass over, as it would be asked for ever. */
 	private boolean attempt() {
-		final byte[] bytes = new byte[Fingerprint.SIZE];
+		final Set<String> passedOver = new HashSet<>(tried);
 
-		context.random().nextBytes(bytes);
+		for (Optional<ExitCandidate> exit = exits.exit(passedOver); exit.isPresent();
+			exit = exits.exit(passedOver)) {
 
-		final Fingerprint fingerprint = new Fingerprint(bytes);
-		final Optional<String> exit = choose(fingerprint);
+			if (attempt(exit.get())) {
+				return true;
+			}
 
-		if (exit.isEmpty()) {
+			if (!passedOver.add(exit.get().id())) {
+				return false;
+			}
+		}
+
+		return false;
+	}
+
+	private boolean attempt(ExitCandidate exit) {
+		final Initiation initiation;
+
+		try {
+			initiation = NoiseNk.initiate(exit.sealingKey(), Session.prologue(context.writer().chainId(),
+				context.writer().writer()), context.random());
+		} catch (HandshakeException ex) {
 			return false;
 		}
 
-		final EphemeralKey key = EphemeralKey.generate(context.random());
+		final byte[] payload = context.padded(initiation.message());
+		final Tag answerTag = Tags.of(initiation.state().answerTagKey(), Direction.EXIT_TO_CLIENT, 0);
 
-		tried.add(exit.get());
-		attempt = new Attempt(fingerprint, key, exit.get(), context.now());
-		context.post(fingerprint, EntryKind.OPEN, Handshake.open(key, exit.get()));
+		tried.add(exit.id());
+		attempt = new Attempt(initiation.state(), answerTag, exit.id(), context.now());
+		context.post(Tag.random(context.random()), payload);
 		return true;
 	}
 
-	/* The first exit of the fingerprint's rendezvous order that was not tried and whose id fits the OPEN. The
-	   search ends when the selector answers an exit it was told to pass over, as it would be asked for ever. */
-	private Optional<String> choose(Fingerprint fingerprint) {
-		final Set<String> passedOver = new HashSet<>(tried);
-		Optional<String> exit = exits.exit(fingerprint, passedOver);
-
-		while (exit.isPresent() && !fits(exit.get()) && passedOver.add(exit.get())) {
-			exit = exits.exit(fingerprint, passedOver);
-		}
-
-		return exit.filter(this::fits);
+	/* The answer of the current attempt on the chain of this session, while the attempt still waits for it */
+	private boolean isAnswer(Entry entry) {
+		return state() == SessionState.OPENING && attempt.initiator() != null
+			&& entry.header().chainId().equals(context.writer().chainId())
+			&& MessageDigest.isEqual(Session.tagOf(entry).bytes(), attempt.answerTag().bytes());
 	}
 
-	/* An OPEN that does not fit one entry is refused by every replica of the chain, and the gap it leaves in the
-	   feed holds up whatever this writer posts next */
-	private boolean fits(String exitId) {
-		return EphemeralKey.SIZE + exitId.getBytes(StandardCharsets.UTF_8).length <= context.maxPayloadBytes();
-	}
-
-	private boolean isAccept(EntryHeader header) {
-		return header.kind() == EntryKind.ACCEPT && header.chainId().equals(context.writer().chainId())
-			&& attempt.fingerprint().equals(header.fingerprint());
-	}
-
-	private Optional<SealedMessage> establish(Entry accept) {
-		final ChainId chainId = context.writer().chainId();
+	private Optional<SealedMessage> establish(Entry answer) {
+		final byte[] payload = answer.payload();
 
 		try {
-			final SessionKeys keys = Handshake.clientKeys(attempt.key(), chainId, attempt.fingerprint(),
-				context.writer().writer(), accept);
-			final SessionCipher cipher = new SessionCipher(keys, Direction.CLIENT_TO_EXIT, chainId,
-				attempt.fingerprint());
-			final Session established = new Session(context, attempt.fingerprint(), accept.header().writer(),
-				cipher);
+			final SessionSecrets secrets = attempt.initiator().finish(Arrays.copyOf(payload,
+				Math.min(payload.length, NoiseNk.MESSAGE_SIZE)));
+			final Session established = new Session(context, answer.header().writer(),
+				Direction.CLIENT_TO_EXIT, secrets);
 
 			established.send(connect);
 			session = established;
 			forgetKey();
 			return Optional.empty();
 		} catch (HandshakeException ex) {
-			/* Any writer of the chain can post an ACCEPT for this fingerprint. One that does not confirm this
-			   handshake is passed over, so the chosen exit's own ACCEPT can still complete it. */
+			/* Whoever saw the answer can post its tag again on other bytes. Those do not complete this
+			   handshake and are passed over, so that the exit's own answer can still complete it. */
 			return Optional.empty();
 		} catch (RuntimeException ex) {
-			/* A failure of the derivation, the cipher or the post, not of the ACCEPT, ends the attempt rather
+			/* A failure of the derivation, the cipher or the post, not of the answer, ends the attempt rather
 			   than reaching the network handler. The class is logged and the message is left out, as it may
-			   quote the ACCEPT. */
+			   quote the answer. */
 			LOG.warn("Closing a session after an unexpected {} while completing the handshake",
 				ex.getClass().getName());
 			end();
@@ -241,11 +247,11 @@ public final class ClientSession {
 		forgetKey();
 	}
 
-	/* The private key has no use once the handshake is over or given up, and no attempt exists before the first
-	   OPEN */
+	/* The ephemeral key in the handshake state has no use once the handshake is over or given up, and no attempt
+	   exists before the first opening */
 	private void forgetKey() {
 		if (attempt != null) {
-			attempt = new Attempt(attempt.fingerprint(), null, attempt.exit(), attempt.startedAt());
+			attempt = new Attempt(null, attempt.answerTag(), attempt.exit(), attempt.startedAt());
 		}
 	}
 }

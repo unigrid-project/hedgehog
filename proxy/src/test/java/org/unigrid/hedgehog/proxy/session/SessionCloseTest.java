@@ -30,10 +30,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
-import org.unigrid.hedgehog.proxy.group.ExitChoice;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
@@ -41,15 +40,15 @@ import static org.hamcrest.Matchers.is;
 
 public class SessionCloseTest {
 	private static final String EXIT_ID = "gn-exit";
-	private static final ExitSelector ONLY_EXIT = (fingerprint, excluded) -> ExitChoice.exit(fingerprint,
-		List.of(EXIT_ID), excluded);
+	private static final ExitSelector ONLY_EXIT = excluded -> excluded.contains(EXIT_ID) ? Optional.empty()
+		: Optional.of(SessionFixtures.exit(EXIT_ID));
 	private static final long IDLE_MILLIS = ProxySettings.DEFAULTS.sessionIdleMillis();
 	private static final long RETENTION_MILLIS = ProxySettings.DEFAULTS.chainLimits().retentionMillis();
 	private static final long AN_HOUR = TimeUnit.HOURS.toMillis(1);
 	private static final int WAIT_SECONDS = 10;
-	/* The entries of a session that has run its handshake: the OPEN, the ACCEPT and the sealed Connect */
+	/* The entries of a session that has run its handshake: the opening, the answer and the sealed Connect */
 	private static final int HANDSHAKE_ENTRIES = 3;
-	private static final Fingerprint OTHER_SESSION = SessionFixtures.fingerprint(9);
+	private static final Tag OTHER_SESSION = new Tag(SessionFixtures.filled(Tag.SIZE, 9));
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT, new SocksAddress(
 		Socks5AddressType.DOMAIN, "example.org", 443));
 
@@ -111,13 +110,13 @@ public class SessionCloseTest {
 
 	/* What the host does with the gaps its chain skipped: it closes the sessions they name with BROKEN */
 	private static List<Optional<Close>> closeBrokenWhereNamed(List<Gap> gaps, Session session) {
-		return gaps.stream().filter(gap -> gap.fingerprints().contains(session.fingerprint()))
+		return gaps.stream().filter(session::isNamedIn)
 			.map(gap -> session.close(CloseReason.BROKEN)).toList();
 	}
 
-	private static long sealedEntriesOf(SessionWire wire, SessionContext writer) {
-		return wire.clientChain.entries().stream().filter(entry -> entry.header().kind() == EntryKind.SEALED
-			&& entry.header().writer().equals(writer.writer().writer())).count();
+	private static long entriesOf(SessionWire wire, SessionContext writer) {
+		return wire.clientChain.entries().stream().filter(entry -> entry.header().writer()
+			.equals(writer.writer().writer())).count();
 	}
 
 	private static void assertNeitherCloses(SessionWire wire) {
@@ -204,7 +203,7 @@ public class SessionCloseTest {
 	@Example
 	public void shouldStayClosedWhenTheAcceptComesAfterClosing() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client((fingerprint, excluded) -> Optional.of(EXIT_ID), CONNECT);
+		final ClientSession client = wire.client(excluded -> Optional.of(SessionFixtures.exit(EXIT_ID)), CONNECT);
 
 		client.open();
 		assertThat(client.close(CloseReason.DONE), equalTo(Optional.of(new Close(CloseReason.DONE))));
@@ -247,7 +246,7 @@ public class SessionCloseTest {
 		final List<Gap> gaps = wire.exitChain.expireGaps();
 
 		assertThat(gaps.size(), is(1));
-		assertThat(gaps.get(0).fingerprints().contains(wire.client.fingerprint().orElseThrow()), is(true));
+		assertThat(wire.exitSession().isNamedIn(gaps.get(0)), is(true));
 		wire.client.send(data(4));
 		wire.pump();
 		assertThat(wire.atExit, equalTo(List.of(CONNECT, data(1), new Close(CloseReason.BROKEN))));
@@ -290,7 +289,7 @@ public class SessionCloseTest {
 	public void shouldNotCountWhatItIgnoresOrRefusesAsActivity() {
 		final SessionWire wire = opened();
 		final Session exit = wire.exitSession();
-		final Entry ofAnotherSession = wire.clientContext.post(OTHER_SESSION, EntryKind.SEALED, new byte[40]);
+		final Entry ofAnotherSession = wire.clientContext.post(OTHER_SESSION, new byte[40]);
 
 		wire.posted.clear();
 		wire.clock.addAndGet(IDLE_MILLIS - 1);
@@ -449,13 +448,15 @@ public class SessionCloseTest {
 
 		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of(Optional.of(
 			close(CloseReason.BROKEN)))));
-		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of(Optional.empty())));
+		/* A closed session looks out for no tag, so the same gap names it no more */
+		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of()));
 		wire.client.send(data(4));
 		wire.pump();
 		assertThat(wire.atExit, equalTo(List.of(CONNECT, data(1))));
 		assertThat(wire.atClient, equalTo(List.of(close(CloseReason.BROKEN))));
 		assertThat(wire.client.state(), is(SessionState.CLOSED));
-		assertThat(sealedEntriesOf(wire, wire.exitContext), is(1L));
+		/* The Close alone: the answer is older than the retention, and the chain let it go */
+		assertThat(entriesOf(wire, wire.exitContext), is(1L));
 	}
 
 	@Example
@@ -464,15 +465,15 @@ public class SessionCloseTest {
 
 		wire.client.send(data(1));
 		wire.pump();
-		wire.lostAtExit.add(wire.clientContext.post(OTHER_SESSION, EntryKind.SEALED, new byte[40]));
-		wire.clientContext.post(OTHER_SESSION, EntryKind.SEALED, new byte[41]);
+		wire.lostAtExit.add(wire.clientContext.post(OTHER_SESSION, new byte[40]));
+		wire.clientContext.post(OTHER_SESSION, new byte[41]);
 		wire.pump();
 		wire.clock.addAndGet(RETENTION_MILLIS + 1);
 
 		final List<Gap> gaps = wire.exitChain.expireGaps();
 
 		assertThat(gaps.size(), is(1));
-		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(OTHER_SESSION)));
+		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(new Fingerprint(OTHER_SESSION.bytes()))));
 		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of()));
 		wire.client.send(data(2));
 		wire.pump();
@@ -489,14 +490,14 @@ public class SessionCloseTest {
 		wire.client.send(data(1));
 		wire.client.send(data(2));
 		wire.lostAtExit.add(List.copyOf(wire.posted).get(1));
-		wire.clientContext.post(OTHER_SESSION, EntryKind.SEALED, new byte[40]);
+		wire.clientContext.post(OTHER_SESSION, new byte[40]);
 		wire.pump();
 		wire.clock.addAndGet(RETENTION_MILLIS + 1);
 
 		final List<Gap> gaps = wire.exitChain.expireGaps();
 
 		assertThat(gaps.size(), is(1));
-		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(OTHER_SESSION)));
+		assertThat(gaps.get(0).fingerprints(), equalTo(Set.of(new Fingerprint(OTHER_SESSION.bytes()))));
 		assertThat(closeBrokenWhereNamed(gaps, wire.exitSession()), equalTo(List.of()));
 		assertThat(wire.exitSession().isOpen(), is(true));
 		wire.client.send(data(3));
@@ -546,9 +547,10 @@ public class SessionCloseTest {
 	@Example
 	public void shouldNotCloseAClientThatGaveUpOrFoundNoExit() {
 		final SessionWire none = new SessionWire(EXIT_ID);
-		final ClientSession withoutExit = none.client((fingerprint, excluded) -> Optional.empty(), CONNECT);
+		final ClientSession withoutExit = none.client(excluded -> Optional.empty(), CONNECT);
 		final SessionWire silent = new SessionWire(EXIT_ID);
-		final ClientSession unanswered = silent.client((fingerprint, excluded) -> Optional.of("gn-silent"), CONNECT);
+		final ClientSession unanswered = silent.client(excluded -> Optional.of(SessionFixtures.exit("gn-silent")),
+			CONNECT);
 
 		assertThat(withoutExit.open(), is(false));
 		assertThat(withoutExit.close(CloseReason.DONE), equalTo(Optional.empty()));

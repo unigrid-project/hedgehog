@@ -26,7 +26,12 @@ import io.netty.channel.Channel;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -44,6 +49,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -64,6 +70,10 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.Direction;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.Responder;
+import org.unigrid.hedgehog.proxy.session.Tags;
 
 /* Gridnodes that share one clock, one topology and one set of settings, each with its own host. A stream
    between two hosts is an embedded channel at each end. Threads may share a fleet once its hosts are made: any of
@@ -97,8 +107,40 @@ final class ChainFleet {
 		IntStream.range(0, size).forEach(number -> gridnodes.add(gridnode("gn-" + number, Gridnode.Status.ACTIVE)));
 	}
 
+	/* Each gridnode announces the public half of a sealing key drawn from its id, so that a replaced entry keeps it
+	   and its exit can rebuild the private half */
 	static Gridnode gridnode(final String id, final Gridnode.Status status) {
-		return Gridnode.builder().id(id).status(status).hostName(id + ":1").build();
+		return Gridnode.builder().id(id).status(status).hostName(id + ":1")
+			.sealingKey(sealingKey(id).publicKey().orElseThrow()).build();
+	}
+
+	static SealingKey sealingKey(final String id) {
+		try {
+			return SealingKey.of(MessageDigest.getInstance("SHA-256").digest(("sealing " + id)
+				.getBytes(StandardCharsets.UTF_8)));
+		} catch (NoSuchAlgorithmException ex) {
+			throw new IllegalStateException("SHA-256 is mandatory on every Java platform", ex);
+		}
+	}
+
+	/* The member among the given ones whose sealing key opens the entry as an opening, with the chain and the writer
+	   of the entry in the prologue */
+	static Optional<String> openerOf(final Entry entry, final Collection<String> members) {
+		return members.stream().filter(member -> responderOf(entry, member).isPresent()).findFirst();
+	}
+
+	static Optional<Responder> responderOf(final Entry entry, final String member) {
+		final byte[] prologue = ByteBuffer.allocate(ChainId.SIZE + WriterId.SIZE)
+			.put(entry.header().chainId().bytes()).put(entry.header().writer().bytes()).array();
+
+		return NoiseNk.respond(sealingKey(member).privateKey().orElseThrow(), prologue,
+			Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE));
+	}
+
+	/* The tag of the answer to an opening, in the fingerprint field where entries carry it */
+	static Fingerprint answerTagOf(final Entry opening, final String member) {
+		return new Fingerprint(Tags.of(responderOf(opening, member).orElseThrow().answerTagKey(),
+			Direction.EXIT_TO_CLIENT, 0).bytes());
 	}
 
 	static ProxySettings settings(final int groupSize, final int chainsPerGroup, final int clientsPerChain,
@@ -111,6 +153,12 @@ final class ChainFleet {
 	/* Chains of 1 KiB hold five of the small entries `entries` writes */
 	static ProxySettings tinyChains() {
 		return new ProxySettings(8, 3600, 4, 16, 1024, 30, 1024, 300, 3);
+	}
+
+	/* Chains that hold the given number of entries of 1 KiB, which is both the smallest size class and the largest
+	   entry, so that every entry of a session takes the same room */
+	static ProxySettings smallChains(final int entries) {
+		return new ProxySettings(8, 3600, 4, 16, entries * 1024L, 30, 1024, 300, 3);
 	}
 
 	/* Four gridnodes in one group, so each of them hosts the same chains */

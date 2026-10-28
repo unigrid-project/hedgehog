@@ -22,13 +22,14 @@ import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.lang.reflect.Field;
-import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -51,17 +52,20 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
-import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.proxy.Expect;
-import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.Gap;
+import org.unigrid.hedgehog.proxy.chain.SizeClasses;
+import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -69,34 +73,36 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 
 public class SessionTest {
-	private static final Fingerprint FINGERPRINT = SessionFixtures.fingerprint(5);
+	private static final Tag TAG = new Tag(SessionFixtures.filled(Tag.SIZE, 5));
+	private static final SessionSecrets SECRETS = new SessionSecrets(SessionFixtures.filled(32, 3),
+		SessionFixtures.filled(32, 4), SessionFixtures.filled(32, 5), SessionFixtures.filled(32, 6),
+		SessionFixtures.filled(32, 7));
 	private static final SocksAddress TARGET = new SocksAddress(Socks5AddressType.DOMAIN, "example.org", 53);
 	private static final Close BROKEN = new Close(CloseReason.BROKEN);
 	private static final Data DATA_ONE = new Data(new byte[] { 1 });
 	/* TARGET on the wire: the type, the length, the name and the port */
 	private static final int TARGET_ADDRESS_BYTES = Byte.BYTES + Byte.BYTES + "example.org".length() + Short.BYTES;
-	/* A sealed Data of three bytes: the counter, the message type, the bytes and the tag */
-	private static final int SEALED_DATA_BYTES = Long.BYTES + SealedCodec.DATA_OVERHEAD + 3 + SessionCipher.TAG_SIZE;
+	private static final int SMALLEST_CLASS = 1024;
+	/* What a short message is sealed to: the payload of an entry of the smallest class */
+	private static final int SEALED_BYTES = SMALLEST_CLASS - Entry.OVERHEAD;
 	private static final String OUTBOX_FULL = "The outbox is full";
 	private static final int THREADS = 8;
 	private static final int SENDS = 50;
 	private static final int WAIT_SECONDS = 10;
+	private static final Map<Tag, Long> CLIENT_TAGS = LongStream.range(0, THREADS * SENDS + Session.WINDOW).boxed()
+		.collect(Collectors.toMap(SessionTest::clientTag, Function.identity()));
 
-	/* A client and an exit session keyed from one secret, as a handshake would leave them */
+	/* A client and an exit session keyed from one handshake, as the handshake would leave them */
 	private static final class Pair {
 		private final AtomicLong clock = new AtomicLong(SessionFixtures.NOW);
 		private final List<Entry> fromClient = new ArrayList<>();
 		private final List<Entry> fromExit = new ArrayList<>();
 		private final SessionContext clientContext = SessionFixtures.context(1, fromClient, clock::get);
 		private final SessionContext exitContext = SessionFixtures.context(2, fromExit, clock::get);
-		private final SessionKeys keys = SessionKeys.derive(SessionFixtures.filled(32, 3), new Transcript(
-			SessionFixtures.CHAIN, FINGERPRINT, SessionFixtures.filled(EphemeralKey.SIZE, 1),
-			SessionFixtures.filled(EphemeralKey.SIZE, 2), clientContext.writer().writer(),
-			exitContext.writer().writer()));
-		private final Session client = new Session(clientContext, FINGERPRINT, exitContext.writer().writer(),
-			new SessionCipher(keys, Direction.CLIENT_TO_EXIT, SessionFixtures.CHAIN, FINGERPRINT));
-		private final Session exit = new Session(exitContext, FINGERPRINT, clientContext.writer().writer(),
-			new SessionCipher(keys, Direction.EXIT_TO_CLIENT, SessionFixtures.CHAIN, FINGERPRINT));
+		private final Session client = new Session(clientContext, exitContext.writer().writer(),
+			Direction.CLIENT_TO_EXIT, SECRETS);
+		private final Session exit = new Session(exitContext, clientContext.writer().writer(),
+			Direction.EXIT_TO_CLIENT, SECRETS);
 
 		private static List<SealedMessage> deliver(List<Entry> entries, Session session) {
 			final List<SealedMessage> received = entries.stream().map(session::receive).flatMap(Optional::stream)
@@ -112,6 +118,32 @@ public class SessionTest {
 
 		private List<SealedMessage> toClient() {
 			return deliver(fromExit, client);
+		}
+	}
+
+	/* What a peer that holds the keys can post: records sealed outside its Session, and so outside the limits
+	   the Session keeps, each under the client's next tag */
+	private static final class ClientSealer {
+		private final Pair pair;
+		private final SealingCipher.Sealer sealer;
+		private long counter;
+
+		private ClientSealer(Pair pair, byte[] key, Direction direction, byte[] binding) {
+			this.pair = pair;
+			sealer = SealingCipher.sealer(key, direction, binding);
+		}
+
+		private ClientSealer(Pair pair) {
+			this(pair, SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT, SECRETS.binding());
+		}
+
+		/* Sealed to its class where it fits one, and to exactly its size where it does not */
+		private Entry post(byte[] plaintext) {
+			final int sealedSize = plaintext.length + SealingCipher.OVERHEAD;
+			final int padded = SizeClasses.fit(Entry.OVERHEAD + sealedSize, SMALLEST_CLASS * 16)
+				.orElse(Entry.OVERHEAD + sealedSize) - Entry.OVERHEAD;
+
+			return pair.clientContext.post(clientTag(counter++), sealer.seal(plaintext, padded));
 		}
 	}
 
@@ -158,29 +190,20 @@ public class SessionTest {
 		}
 	}
 
-	private static long counterOf(byte[] sealed) {
-		return ByteBuffer.wrap(sealed).getLong();
+	private static Tag clientTag(long counter) {
+		return Tags.of(SECRETS.clientTags(), Direction.CLIENT_TO_EXIT, counter);
 	}
 
+	/* The counter of each entry, read back from its tag */
 	private static List<Long> counters(List<Entry> entries) {
-		return entries.stream().map(entry -> counterOf(entry.payload())).collect(Collectors.toList());
-	}
-
-	private static SessionCipher clientCipher(Pair pair) {
-		return new SessionCipher(pair.keys, Direction.CLIENT_TO_EXIT, SessionFixtures.CHAIN, FINGERPRINT);
-	}
-
-	/* What a peer that holds the keys can post: a record sealed outside its Session, and so outside the limits
-	   the Session keeps */
-	private static Entry sealedByClient(Pair pair, SessionCipher cipher, byte[] plaintext) {
-		return pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, cipher.seal(plaintext));
+		return entries.stream().map(entry -> CLIENT_TAGS.get(Session.tagOf(entry))).collect(Collectors.toList());
 	}
 
 	/* A session of one end of the pair on the same writer, as the pair's own session is but on another outbox */
-	private static Session over(Pair pair, SessionContext own, SessionContext other, SessionCipher cipher,
+	private static Session over(Pair pair, SessionContext own, SessionContext other, Direction sending,
 		Consumer<Entry> outbox) {
 		return new Session(new SessionContext(own.writer(), outbox, pair.clock::get, new SecureRandom(),
-			ProxySettings.DEFAULTS), FINGERPRINT, other.writer().writer(), cipher);
+			ProxySettings.DEFAULTS), other.writer().writer(), sending, SECRETS);
 	}
 
 	private static List<Entry> sent(Pair pair, int count) {
@@ -212,29 +235,35 @@ public class SessionTest {
 		assertThat(pair.fromClient, is(empty()));
 	}
 
-	private static Optional<SealedMessage> exitReceivesSealedWith(Function<SessionKeys, SessionCipher> sealer) {
+	private static Optional<SealedMessage> exitReceivesSealedWith(byte[] key, Direction direction, byte[] binding) {
 		final Pair pair = new Pair();
 
-		return pair.exit.receive(sealedByClient(pair, sealer.apply(pair.keys), SealedCodec.encode(DATA_ONE)));
+		return pair.exit.receive(new ClientSealer(pair, key, direction, binding).post(SealedCodec.encode(DATA_ONE)));
 	}
 
-	/* SessionCipher raises an IllegalStateException for any provider failure but a bad tag, which a key of the wrong
+	/* SealingCipher raises an IllegalStateException for any provider failure but a bad tag, which a key of the wrong
 	   size on the receiving side stands in for */
-	private static void failToOpen(SessionCipher cipher) throws ReflectiveOperationException {
-		final Field receiveKey = SessionCipher.class.getDeclaredField("receiveKey");
+	private static void failToOpen(Session session) throws ReflectiveOperationException {
+		final Object opener = field(Session.class, "opener").get(session);
+		final Object cipher = field(SealingCipher.Opener.class, "cipher").get(opener);
 
-		receiveKey.setAccessible(true);
-		receiveKey.set(cipher, new SecretKeySpec(new byte[1], "AES"));
+		field(SealingCipher.class, "key").set(cipher, new SecretKeySpec(new byte[1], "AES"));
+	}
+
+	private static Field field(Class<?> type, String name) throws NoSuchFieldException {
+		final Field field = type.getDeclaredField(name);
+
+		field.setAccessible(true);
+		return field;
 	}
 
 	/* A first action that has sealed and waits for the writer holds the session, so that whatever else touches the
-	   session waits behind it and nothing seals ahead of it: the next counter the cipher hands out is still 1 */
+	   session waits behind it and nothing seals ahead of it: the session has still sealed only one message */
 	private static void assertHeldWhileWaitingForWriter(BiConsumer<Pair, Session> first,
 		List<BiConsumer<Pair, Session>> others) throws Exception {
 		for (BiConsumer<Pair, Session> other : others) {
 			final Pair pair = new Pair();
-			final SessionCipher cipher = clientCipher(pair);
-			final Session client = over(pair, pair.clientContext, pair.exitContext, cipher,
+			final Session client = over(pair, pair.clientContext, pair.exitContext, Direction.CLIENT_TO_EXIT,
 				pair.fromClient::add);
 			final Background holding;
 			final Background waiting;
@@ -246,7 +275,7 @@ public class SessionTest {
 				holding.awaitBlocked();
 				waiting = new Background(() -> other.accept(pair, client));
 				waiting.awaitBlocked();
-				assertThat(counterOf(cipher.seal(new byte[0])), is(1L));
+				assertThat(field(Session.class, "sent").getLong(client), is(1L));
 			}
 
 			holding.finish();
@@ -255,19 +284,17 @@ public class SessionTest {
 	}
 
 	private static Session exitFailingToOpen(Pair pair, Consumer<Entry> outbox) throws ReflectiveOperationException {
-		final SessionCipher cipher = new SessionCipher(pair.keys, Direction.EXIT_TO_CLIENT, SessionFixtures.CHAIN,
-			FINGERPRINT);
+		final Session exit = over(pair, pair.exitContext, pair.clientContext, Direction.EXIT_TO_CLIENT, outbox);
 
-		failToOpen(cipher);
-		return over(pair, pair.exitContext, pair.clientContext, cipher, outbox);
+		failToOpen(exit);
+		return exit;
 	}
 
 	private static Session exitOnClock(Pair pair, LongSupplier clock) {
 		final SessionContext context = new SessionContext(pair.exitContext.writer(), pair.fromExit::add, clock,
 			new SecureRandom(), ProxySettings.DEFAULTS);
 
-		return new Session(context, FINGERPRINT, pair.clientContext.writer().writer(),
-			new SessionCipher(pair.keys, Direction.EXIT_TO_CLIENT, SessionFixtures.CHAIN, FINGERPRINT));
+		return new Session(context, pair.clientContext.writer().writer(), Direction.EXIT_TO_CLIENT, SECRETS);
 	}
 
 	private static void awaitUninterruptibly(CountDownLatch latch) {
@@ -304,9 +331,25 @@ public class SessionTest {
 		pair.client.send(new Data(new byte[] { 1, 2, 3 }));
 		assertThat(pair.fromClient, hasSize(1));
 		assertThat(pair.fromClient.get(0).header().kind(), is(EntryKind.SEALED));
-		assertThat(pair.fromClient.get(0).header().fingerprint(), equalTo(FINGERPRINT));
+		assertThat(Session.tagOf(pair.fromClient.get(0)), equalTo(clientTag(0)));
 		assertThat(pair.fromClient.get(0).header().writer(), equalTo(pair.clientContext.writer().writer()));
-		assertThat(pair.fromClient.get(0).payload().length, is(4 + SessionCipher.OVERHEAD));
+		assertThat(pair.fromClient.get(0).size(), is(SMALLEST_CLASS));
+	}
+
+	/* A message takes the smallest class that holds it, so its size tells no more than the class */
+	@Example
+	public void shouldPadEveryMessageToTheSmallestClassThatHoldsIt() {
+		final int overhead = Entry.OVERHEAD + SealingCipher.OVERHEAD + SealedCodec.DATA_OVERHEAD;
+		final Map<Integer, Integer> classOf = Map.of(0, SMALLEST_CLASS, SMALLEST_CLASS - overhead, SMALLEST_CLASS,
+			SMALLEST_CLASS - overhead + 1, 4096, 4096 - overhead, 4096, 4096 - overhead + 1, 16 * 1024);
+
+		classOf.forEach((bytes, size) -> {
+			final Pair pair = new Pair();
+
+			pair.client.send(new Data(new byte[bytes]));
+			assertThat(pair.fromClient.get(0).size(), is(size));
+			assertThat(pair.toExit(), equalTo(List.of(new Data(new byte[bytes]))));
+		});
 	}
 
 	@Example
@@ -316,13 +359,13 @@ public class SessionTest {
 		pair.client.send(new Data(new byte[] { 1 }));
 
 		final Entry own = pair.fromClient.get(0);
-		final Entry otherSession = pair.exitContext.post(SessionFixtures.fingerprint(6), EntryKind.SEALED,
-			new byte[30]);
-		final Entry otherKind = pair.exitContext.post(FINGERPRINT, EntryKind.ACCEPT, new byte[32]);
+		final Entry otherSession = pair.exitContext.post(TAG, new byte[30]);
+		final Entry otherDirection = pair.exitContext.post(Tags.of(SECRETS.exitTags(), Direction.CLIENT_TO_EXIT, 0),
+			new byte[32]);
 
 		assertThat(pair.client.receive(own), equalTo(Optional.empty()));
 		assertThat(pair.client.receive(otherSession), equalTo(Optional.empty()));
-		assertThat(pair.client.receive(otherKind), equalTo(Optional.empty()));
+		assertThat(pair.client.receive(otherDirection), equalTo(Optional.empty()));
 		assertThat(pair.client.isOpen(), is(true));
 	}
 
@@ -342,7 +385,7 @@ public class SessionTest {
 	@Example
 	public void shouldBreakOnAnEntryThatDoesNotOpen() {
 		final Pair pair = new Pair();
-		final Entry forged = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[40]);
+		final Entry forged = pair.clientContext.post(clientTag(0), new byte[40]);
 
 		assertThat(pair.exit.receive(forged), equalTo(Optional.of(new Close(CloseReason.BROKEN))));
 		assertThat(pair.exit.isOpen(), is(false));
@@ -355,7 +398,7 @@ public class SessionTest {
 		final Pair pair = new Pair();
 		final int largest = pair.client.maxDataBytes();
 
-		assertThat(largest, is(16 * 1024 - Entry.OVERHEAD - SessionCipher.OVERHEAD - 1));
+		assertThat(largest, is(16 * 1024 - Entry.OVERHEAD - SealingCipher.OVERHEAD - 1));
 		Expect.assertThrows(IllegalArgumentException.class, () -> pair.client.send(new Data(new byte[largest + 1])));
 		pair.client.send(new Data(new byte[largest]));
 		assertThat(pair.fromClient.get(0).size(), is(16 * 1024));
@@ -363,12 +406,10 @@ public class SessionTest {
 	}
 
 	@Example
-	public void shouldNameItsFingerprintAndPeer() {
+	public void shouldNameItsPeer() {
 		final Pair pair = new Pair();
 
-		assertThat(pair.client.fingerprint(), equalTo(FINGERPRINT));
 		assertThat(pair.client.peer(), equalTo(pair.exitContext.writer().writer()));
-		assertThat(pair.exit.fingerprint(), equalTo(FINGERPRINT));
 		assertThat(pair.exit.peer(), equalTo(pair.clientContext.writer().writer()));
 		assertThat(pair.client.isOpen(), is(true));
 	}
@@ -419,8 +460,8 @@ public class SessionTest {
 	@Example
 	public void shouldReportBrokenToTheCallerAndThePeerOnlyOnce() {
 		final Pair pair = new Pair();
-		final Entry first = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[40]);
-		final Entry second = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[41]);
+		final Entry first = pair.clientContext.post(clientTag(0), new byte[40]);
+		final Entry second = pair.clientContext.post(clientTag(1), new byte[41]);
 
 		assertThat(pair.exit.receive(first), equalTo(Optional.of(BROKEN)));
 		assertThat(pair.exit.receive(second), equalTo(Optional.empty()));
@@ -441,10 +482,10 @@ public class SessionTest {
 	@Example
 	public void shouldIgnoreWhatArrivesOnceClosed() {
 		final Pair pair = new Pair();
-		final SessionCipher peer = clientCipher(pair);
-		final Entry close = sealedByClient(pair, peer, SealedCodec.encode(new Close(CloseReason.DONE)));
-		final Entry next = sealedByClient(pair, peer, SealedCodec.encode(new Data(new byte[] { 1 })));
-		final Entry garbage = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[40]);
+		final ClientSealer peer = new ClientSealer(pair);
+		final Entry close = peer.post(SealedCodec.encode(new Close(CloseReason.DONE)));
+		final Entry next = peer.post(SealedCodec.encode(new Data(new byte[] { 1 })));
+		final Entry garbage = pair.clientContext.post(clientTag(2), new byte[40]);
 
 		assertThat(pair.exit.receive(close), equalTo(Optional.of(new Close(CloseReason.DONE))));
 		assertThat(pair.exit.receive(next), equalTo(Optional.empty()));
@@ -495,14 +536,12 @@ public class SessionTest {
 	public void shouldOpenAMessageOfExactlyTheLimitAndBreakOnOneByteMore() {
 		final Pair pair = new Pair();
 		final int limit = pair.exitContext.maxPayloadBytes();
-		final SessionCipher peer = clientCipher(pair);
+		final ClientSealer peer = new ClientSealer(pair);
 		final Data atTheLimit = new Data(new byte[limit - SealedCodec.DATA_OVERHEAD]);
 		final Data pastTheLimit = new Data(new byte[limit - SealedCodec.DATA_OVERHEAD + 1]);
 
-		assertThat(pair.exit.receive(sealedByClient(pair, peer, SealedCodec.encode(atTheLimit))),
-			equalTo(Optional.of(atTheLimit)));
-		assertThat(pair.exit.receive(sealedByClient(pair, peer, SealedCodec.encode(pastTheLimit))),
-			equalTo(Optional.of(BROKEN)));
+		assertThat(pair.exit.receive(peer.post(SealedCodec.encode(atTheLimit))), equalTo(Optional.of(atTheLimit)));
+		assertThat(pair.exit.receive(peer.post(SealedCodec.encode(pastTheLimit))), equalTo(Optional.of(BROKEN)));
 		assertExitBrokeAndTold(pair);
 	}
 
@@ -511,9 +550,8 @@ public class SessionTest {
 		final int mebibyte = 1024 * 1024;
 		final Pair sealed = new Pair();
 		final Pair unsealed = new Pair();
-		final Entry keyed = sealedByClient(sealed, clientCipher(sealed), SealedCodec.encode(
-			new Data(new byte[mebibyte])));
-		final Entry keyless = unsealed.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[mebibyte]);
+		final Entry keyed = new ClientSealer(sealed).post(SealedCodec.encode(new Data(new byte[mebibyte])));
+		final Entry keyless = unsealed.clientContext.post(clientTag(0), new byte[mebibyte]);
 
 		assertThat(sealed.exit.receive(keyed), equalTo(Optional.of(BROKEN)));
 		assertExitBrokeAndTold(sealed);
@@ -521,14 +559,33 @@ public class SessionTest {
 		assertExitBrokeAndTold(unsealed);
 	}
 
+	/* A record that was opened already is behind the next tag, as is a copy of it that another writer posted:
+	   either is passed over, and the next record still opens */
 	@Example
-	public void shouldBreakOnAReplayedRecord() {
-		for (int[] delivered : new int[][] { { 0, 0 }, { 0, 1, 0 }, { 0, 1, 1 }, { 0, 1, 2, 1 } }) {
+	public void shouldPassOverARecordThatArrivesAgain() {
+		for (int[] delivered : new int[][] { { 0, 0 }, { 0, 1, 0 }, { 0, 1, 1 }, { 0, 1, 1, 0 } }) {
 			final Pair pair = new Pair();
+			final List<Entry> entries = sent(pair, 3);
 
-			assertThat(afterDelivering(pair, sent(pair, 3), delivered), equalTo(Optional.of(BROKEN)));
-			assertExitBrokeAndTold(pair);
+			assertThat(afterDelivering(pair, entries, delivered), equalTo(Optional.empty()));
+			assertThat(pair.exit.isOpen(), is(true));
+			assertThat(pair.fromExit, is(empty()));
+			final int next = Arrays.stream(delivered).max().orElseThrow() + 1;
+
+			assertThat(pair.exit.receive(entries.get(next)), equalTo(Optional.of(new Data(new byte[] { (byte) next }))));
 		}
+	}
+
+	@Example
+	public void shouldOpenTheNextRecordWhoeverPostedItOnce() {
+		final Pair pair = new Pair();
+		final Entry original = sent(pair, 1).get(0);
+		final Entry copy = SessionFixtures.context(3, new ArrayList<>(), pair.clock::get).post(Session.tagOf(original),
+			original.payload());
+
+		assertThat(pair.exit.receive(copy), equalTo(Optional.of(new Data(new byte[] { 0 }))));
+		assertThat(pair.exit.receive(original), equalTo(Optional.empty()));
+		assertThat(pair.exit.isOpen(), is(true));
 	}
 
 	@Example
@@ -550,16 +607,16 @@ public class SessionTest {
 		assertThat(pair.fromExit, is(empty()));
 	}
 
-	@Property(tries = 8 * SEALED_DATA_BYTES, generation = GenerationMode.EXHAUSTIVE)
+	@Property(tries = 300)
 	public void shouldBreakOnARecordTamperedWithAnywhere(
-		@ForAll @IntRange(min = 0, max = SEALED_DATA_BYTES - 1) int index,
+		@ForAll @IntRange(min = 0, max = SEALED_BYTES - 1) int index,
 		@ForAll @IntRange(min = 0, max = Byte.SIZE - 1) int bit) {
 		final Pair pair = new Pair();
-		final byte[] sealed = clientCipher(pair).seal(SealedCodec.encode(new Data(new byte[] { 1, 2, 3 })));
+		final byte[] sealed = SealingCipher.sealer(SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT,
+			SECRETS.binding()).seal(SealedCodec.encode(new Data(new byte[] { 1, 2, 3 })), SEALED_BYTES);
 
 		sealed[index] ^= 1 << bit;
-		assertThat(pair.exit.receive(pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, sealed)),
-			equalTo(Optional.of(BROKEN)));
+		assertThat(pair.exit.receive(pair.clientContext.post(clientTag(0), sealed)), equalTo(Optional.of(BROKEN)));
 		assertExitBrokeAndTold(pair);
 	}
 
@@ -567,12 +624,13 @@ public class SessionTest {
 	public void shouldBreakOnARecordOfTheWrongLength() {
 		final List<UnaryOperator<byte[]>> changes = List.of(sealed -> Arrays.copyOf(sealed, sealed.length - 1),
 			sealed -> Arrays.copyOf(sealed, sealed.length + 1),
-			sealed -> Arrays.copyOf(sealed, SessionCipher.OVERHEAD - 1), sealed -> new byte[0]);
+			sealed -> Arrays.copyOf(sealed, SealingCipher.OVERHEAD - 1), sealed -> new byte[0]);
 
 		for (UnaryOperator<byte[]> change : changes) {
 			final Pair pair = new Pair();
-			final byte[] sealed = clientCipher(pair).seal(SealedCodec.encode(new Data(new byte[] { 1, 2, 3 })));
-			final Entry record = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, change.apply(sealed));
+			final byte[] sealed = SealingCipher.sealer(SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT,
+				SECRETS.binding()).seal(SealedCodec.encode(new Data(new byte[] { 1, 2, 3 })), SEALED_BYTES);
+			final Entry record = pair.clientContext.post(clientTag(0), change.apply(sealed));
 
 			assertThat(pair.exit.receive(record), equalTo(Optional.of(BROKEN)));
 			assertExitBrokeAndTold(pair);
@@ -580,38 +638,35 @@ public class SessionTest {
 	}
 
 	@Example
-	public void shouldBreakOnARecordSealedForAnotherChainOrFingerprint() {
-		final ChainId otherChain = new ChainId(SessionFixtures.filled(ChainId.SIZE, 8));
-		final Fingerprint otherFingerprint = SessionFixtures.fingerprint(6);
-
-		assertThat(exitReceivesSealedWith(keys -> new SessionCipher(keys, Direction.CLIENT_TO_EXIT,
-			SessionFixtures.CHAIN, FINGERPRINT)), equalTo(Optional.of(new Data(new byte[] { 1 }))));
-		assertThat(exitReceivesSealedWith(keys -> new SessionCipher(keys, Direction.CLIENT_TO_EXIT, otherChain,
-			FINGERPRINT)), equalTo(Optional.of(BROKEN)));
-		assertThat(exitReceivesSealedWith(keys -> new SessionCipher(keys, Direction.CLIENT_TO_EXIT,
-			SessionFixtures.CHAIN, otherFingerprint)), equalTo(Optional.of(BROKEN)));
+	public void shouldBreakOnARecordSealedUnderAnotherKeyOrHandshake() {
+		assertThat(exitReceivesSealedWith(SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT, SECRETS.binding()),
+			equalTo(Optional.of(new Data(new byte[] { 1 }))));
+		assertThat(exitReceivesSealedWith(SECRETS.exitToClient(), Direction.CLIENT_TO_EXIT, SECRETS.binding()),
+			equalTo(Optional.of(BROKEN)));
+		assertThat(exitReceivesSealedWith(SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT,
+			SessionFixtures.filled(32, 8)), equalTo(Optional.of(BROKEN)));
 	}
 
 	@Example
 	public void shouldBreakOnARecordSealedInTheOtherDirection() {
-		assertThat(exitReceivesSealedWith(keys -> new SessionCipher(keys, Direction.EXIT_TO_CLIENT,
-			SessionFixtures.CHAIN, FINGERPRINT)), equalTo(Optional.of(BROKEN)));
+		assertThat(exitReceivesSealedWith(SECRETS.clientToExit(), Direction.EXIT_TO_CLIENT, SECRETS.binding()),
+			equalTo(Optional.of(BROKEN)));
 	}
 
 	@Example
 	public void shouldLeaveNoTraceOfTheEntriesItIgnores() {
 		final Pair pair = new Pair();
-		final byte[] sealed = clientCipher(pair).seal(SealedCodec.encode(new Data(new byte[] { 1 })));
-		final Entry otherWriter = SessionFixtures.context(3, new ArrayList<>(), pair.clock::get)
-			.post(FINGERPRINT, EntryKind.SEALED, sealed);
-		final Entry otherFingerprint = pair.clientContext.post(SessionFixtures.fingerprint(6), EntryKind.SEALED,
+		final byte[] sealed = SealingCipher.sealer(SECRETS.clientToExit(), Direction.CLIENT_TO_EXIT,
+			SECRETS.binding()).seal(SealedCodec.encode(new Data(new byte[] { 1 })), SEALED_BYTES);
+		final Entry otherTag = pair.clientContext.post(TAG, sealed);
+		final Entry pastTheWindow = pair.clientContext.post(clientTag(Session.WINDOW), sealed);
+		final Entry ownDirection = pair.clientContext.post(Tags.of(SECRETS.exitTags(), Direction.EXIT_TO_CLIENT, 0),
 			sealed);
-		final Entry otherKind = pair.clientContext.post(FINGERPRINT, EntryKind.ACCEPT, sealed);
-		final Entry genuine = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, sealed);
+		final Entry genuine = pair.clientContext.post(clientTag(0), sealed);
 
-		assertThat(pair.exit.receive(otherWriter), equalTo(Optional.empty()));
-		assertThat(pair.exit.receive(otherFingerprint), equalTo(Optional.empty()));
-		assertThat(pair.exit.receive(otherKind), equalTo(Optional.empty()));
+		assertThat(pair.exit.receive(otherTag), equalTo(Optional.empty()));
+		assertThat(pair.exit.receive(pastTheWindow), equalTo(Optional.empty()));
+		assertThat(pair.exit.receive(ownDirection), equalTo(Optional.empty()));
 		assertThat(pair.exit.receive(genuine), equalTo(Optional.of(new Data(new byte[] { 1 }))));
 		assertThat(pair.exit.isOpen(), is(true));
 		assertThat(pair.fromExit, is(empty()));
@@ -621,7 +676,7 @@ public class SessionTest {
 	public void shouldBreakWhenTheCipherFailsUnexpectedly() throws ReflectiveOperationException {
 		final Pair pair = new Pair();
 		final Session exit = exitFailingToOpen(pair, pair.fromExit::add);
-		final Entry record = sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE));
+		final Entry record = new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE));
 
 		assertThat(exit.receive(record), equalTo(Optional.of(BROKEN)));
 		assertThat(exit.isOpen(), is(false));
@@ -636,10 +691,11 @@ public class SessionTest {
 		final Pair pair = new Pair();
 		final Session exit = exitFailingToOpen(pair, pair.fromExit::add);
 
-		exit.receive(sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE)));
+		exit.receive(new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE)));
 		assertThat(pair.fromExit, hasSize(1));
-		assertThat(pair.fromExit.get(0).payload().length, is(SessionCipher.OVERHEAD + 2));
-		assertThat(clientCipher(pair).open(pair.fromExit.get(0).payload()), equalTo(SealedCodec.encode(BROKEN)));
+		assertThat(pair.fromExit.get(0).size(), is(SMALLEST_CLASS));
+		assertThat(SealingCipher.opener(SECRETS.exitToClient(), Direction.EXIT_TO_CLIENT, SECRETS.binding())
+			.open(pair.fromExit.get(0).payload()), equalTo(SealedCodec.encode(BROKEN)));
 	}
 
 	@Example
@@ -648,7 +704,7 @@ public class SessionTest {
 		final Pair pair = new Pair();
 		final FlakyOutbox outbox = new FlakyOutbox();
 		final Session exit = exitFailingToOpen(pair, outbox);
-		final Entry record = sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE));
+		final Entry record = new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE));
 
 		outbox.refusing = true;
 		assertThat(Expect.assertThrows(IllegalStateException.class, () -> exit.receive(record)).getMessage(),
@@ -668,7 +724,7 @@ public class SessionTest {
 
 			return SessionFixtures.NOW;
 		});
-		final Entry record = sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE));
+		final Entry record = new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE));
 
 		failing.set(true);
 		Expect.assertThrows(AssertionError.class, () -> exit.receive(record));
@@ -687,7 +743,7 @@ public class SessionTest {
 
 			return SessionFixtures.NOW;
 		});
-		final Entry record = sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE));
+		final Entry record = new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE));
 
 		failing.set(true);
 		assertThat(exit.receive(record), equalTo(Optional.of(BROKEN)));
@@ -699,7 +755,7 @@ public class SessionTest {
 	public void shouldConsumeOneCounterWhenThePostThrowsAndNeverReuseOne() {
 		final Pair pair = new Pair();
 		final FlakyOutbox outbox = new FlakyOutbox();
-		final Session client = over(pair, pair.clientContext, pair.exitContext, clientCipher(pair), outbox);
+		final Session client = over(pair, pair.clientContext, pair.exitContext, Direction.CLIENT_TO_EXIT, outbox);
 
 		outbox.refusing = true;
 		assertThat(Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })))
@@ -718,7 +774,7 @@ public class SessionTest {
 	public void shouldBreakOnTheCounterAThrowingPostLeftOut() {
 		final Pair pair = new Pair();
 		final FlakyOutbox outbox = new FlakyOutbox();
-		final Session client = over(pair, pair.clientContext, pair.exitContext, clientCipher(pair), outbox);
+		final Session client = over(pair, pair.clientContext, pair.exitContext, Direction.CLIENT_TO_EXIT, outbox);
 
 		outbox.refusing = true;
 		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
@@ -732,7 +788,7 @@ public class SessionTest {
 	public void shouldCloseEvenWhenTheOutboxRefusesTheClose() {
 		final Pair pair = new Pair();
 		final FlakyOutbox outbox = new FlakyOutbox();
-		final Session client = over(pair, pair.clientContext, pair.exitContext, clientCipher(pair), outbox);
+		final Session client = over(pair, pair.clientContext, pair.exitContext, Direction.CLIENT_TO_EXIT, outbox);
 
 		outbox.refusing = true;
 		Expect.assertThrows(IllegalStateException.class, () -> client.close(CloseReason.DONE));
@@ -746,11 +802,9 @@ public class SessionTest {
 	public void shouldCloseEvenWhenTheOutboxRefusesTheBroken() {
 		final Pair pair = new Pair();
 		final FlakyOutbox outbox = new FlakyOutbox();
-		final SessionCipher cipher = new SessionCipher(pair.keys, Direction.EXIT_TO_CLIENT, SessionFixtures.CHAIN,
-			FINGERPRINT);
-		final Session exit = over(pair, pair.exitContext, pair.clientContext, cipher, outbox);
-		final Entry forged = pair.clientContext.post(FINGERPRINT, EntryKind.SEALED, new byte[40]);
-		final Entry genuine = sealedByClient(pair, clientCipher(pair), SealedCodec.encode(DATA_ONE));
+		final Session exit = over(pair, pair.exitContext, pair.clientContext, Direction.EXIT_TO_CLIENT, outbox);
+		final Entry forged = pair.clientContext.post(clientTag(0), new byte[40]);
+		final Entry genuine = new ClientSealer(pair).post(SealedCodec.encode(DATA_ONE));
 
 		outbox.refusing = true;
 		Expect.assertThrows(IllegalStateException.class, () -> exit.receive(forged));
@@ -812,11 +866,11 @@ public class SessionTest {
 				awaitUninterruptibly(release);
 			}
 		}, () -> SessionFixtures.NOW, new SecureRandom(), ProxySettings.DEFAULTS);
-		final Background holder = new Background(() -> context.post(FINGERPRINT, EntryKind.SEALED, new byte[1]));
+		final Background holder = new Background(() -> context.post(TAG, new byte[1]));
 
 		assertThat(inOutbox.await(WAIT_SECONDS, TimeUnit.SECONDS), is(true));
 
-		final Background waiter = new Background(() -> context.post(FINGERPRINT, EntryKind.SEALED, new byte[2]));
+		final Background waiter = new Background(() -> context.post(TAG, new byte[2]));
 
 		waiter.awaitBlocked();
 		assertThat(seen, equalTo(List.of(0L)));
@@ -832,12 +886,12 @@ public class SessionTest {
 		final SessionContext context = new SessionContext(new FeedWriter(SessionFixtures.key(1),
 			SessionFixtures.CHAIN), taken::add, () -> SessionFixtures.NOW, new SecureRandom(),
 			ProxySettings.DEFAULTS);
-		final Entry posted = context.post(FINGERPRINT, EntryKind.SEALED, new byte[] { 1 });
+		final Entry posted = context.post(TAG, new byte[] { 1 });
 
 		assertThat(taken, equalTo(List.of(posted)));
 		assertThat(posted.header().timestamp(), is(SessionFixtures.NOW));
 		assertThat(posted.header().kind(), is(EntryKind.SEALED));
-		assertThat(posted.header().fingerprint(), equalTo(FINGERPRINT));
+		assertThat(Session.tagOf(posted), equalTo(TAG));
 		assertThat(posted.payload(), equalTo(new byte[] { 1 }));
 		assertThat(posted.isAuthentic(), is(true));
 	}
@@ -848,6 +902,48 @@ public class SessionTest {
 
 		assertThat(context.now(), is(SessionFixtures.NOW + 7));
 		assertThat(context.maxPayloadBytes(), is(16 * 1024 - Entry.OVERHEAD));
+		assertThat(context.smallestPayloadBytes(), is(SMALLEST_CLASS - Entry.OVERHEAD));
+	}
+
+	/* The next tag of the peer opens; the ones after it, up to the window, mean records were lost */
+	@Example
+	public void shouldExpectTheNextTagAndRecogniseTheWindowAfterIt() {
+		final Pair pair = new Pair();
+		final List<Entry> entries = sent(pair, 3);
+		final Entry farAhead = pair.clientContext.post(clientTag(Session.WINDOW), new byte[1]);
+
+		assertThat(pair.exit.expects(entries.get(0)), is(true));
+		assertThat(pair.exit.expects(entries.get(1)), is(false));
+		assertThat(pair.exit.recognises(entries.get(1)), is(true));
+		assertThat(pair.exit.recognises(farAhead), is(false));
+		pair.exit.receive(entries.get(0));
+		assertThat(pair.exit.expects(entries.get(0)), is(false));
+		assertThat(pair.exit.recognises(entries.get(0)), is(false));
+		assertThat(pair.exit.expects(entries.get(1)), is(true));
+		assertThat(pair.exit.recognises(farAhead), is(true));
+		pair.exit.close(CloseReason.DONE);
+		assertThat(pair.exit.expects(entries.get(1)), is(false));
+		assertThat(pair.exit.recognises(entries.get(1)), is(false));
+	}
+
+	/* A gap names the session when it skipped an entry that carried one of the tags the session looks out for */
+	@Example
+	public void shouldFindItselfInAGapOnlyByTheTagsItLooksOutFor() {
+		final Pair pair = new Pair();
+		final WriterId client = pair.clientContext.writer().writer();
+
+		pair.exit.receive(sent(pair, 1).get(0));
+		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(1))), is(true));
+		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(Session.WINDOW))), is(true));
+		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(0))), is(false));
+		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(Session.WINDOW + 1))), is(false));
+		assertThat(pair.exit.isNamedIn(gapOf(client, TAG)), is(false));
+		pair.exit.close(CloseReason.DONE);
+		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(1))), is(false));
+	}
+
+	private static Gap gapOf(WriterId writer, Tag tag) {
+		return new Gap(writer, 0, 0, Set.of(new Fingerprint(tag.bytes())));
 	}
 
 	@Example

@@ -22,16 +22,17 @@ import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
-import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -40,12 +41,12 @@ import static org.hamcrest.Matchers.not;
 public class ClientSessionRetryTest {
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT, new SocksAddress(
 		Socks5AddressType.DOMAIN, "example.org", 443));
-	private static final int LONGEST_FITTING_ID = ProxySettings.DEFAULTS.chainLimits().maxPayloadBytes()
-		- EphemeralKey.SIZE;
-	private static final String TOO_LONG = "g".repeat(LONGEST_FITTING_ID + 1);
+	/* A member whose announced key is a point of low order, which opens no handshake */
+	private static final String NO_KEY = "gn-no-key";
+	private static final int DRAWS_PER_ATTEMPT = 3;
 
 	/* Draws that depend only on how many draws came before and how many bytes are asked for, so that the test
-	   can rebuild what attempt number n drew: its fingerprint first, then its private key */
+	   can rebuild what attempt number n drew: its private key first, then the padding, then the tag */
 	private static final class CountedRandom extends SecureRandom {
 		private int draws;
 
@@ -65,23 +66,34 @@ public class ClientSessionRetryTest {
 
 	/* Always the first member not tried yet, so the order of the exits is known */
 	private static ExitSelector inOrder(String... members) {
-		return (fingerprint, excluded) -> List.of(members).stream().filter(member -> !excluded.contains(member))
-			.findFirst();
+		return excluded -> Stream.of(members).filter(member -> !excluded.contains(member)).findFirst()
+			.map(ClientSessionRetryTest::candidate);
+	}
+
+	private static ExitCandidate candidate(String member) {
+		return member.startsWith(NO_KEY) ? new ExitCandidate(member, new byte[NoiseNk.KEY_SIZE])
+			: SessionFixtures.exit(member);
+	}
+
+	/* Whether the holder of the member's sealing key opens the entry */
+	private static boolean opensFor(Entry entry, String member) {
+		return NoiseNk.respond(SessionFixtures.sealingPrivate(member), Session.prologue(entry.header().chainId(),
+			entry.header().writer()), Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE)).isPresent();
 	}
 
 	private static void timeOut(SessionWire wire) {
 		wire.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS);
 	}
 
-	private static Fingerprint fingerprintOfAttempt(int attempt) {
-		final byte[] bytes = new byte[Fingerprint.SIZE];
+	private static Tag tagOfAttempt(int attempt) {
+		final byte[] bytes = new byte[Tag.SIZE];
 
-		new CountedRandom(2 * attempt).nextBytes(bytes);
-		return new Fingerprint(bytes);
+		new CountedRandom(DRAWS_PER_ATTEMPT * attempt + 2).nextBytes(bytes);
+		return new Tag(bytes);
 	}
 
 	private static byte[] privateKeyOfAttempt(int attempt) {
-		return new X25519PrivateKeyParameters(new CountedRandom(2 * attempt + 1)).getEncoded();
+		return new X25519PrivateKeyParameters(new CountedRandom(DRAWS_PER_ATTEMPT * attempt)).getEncoded();
 	}
 
 	private static ClientSession clientOf(SessionWire wire, SecureRandom random, ExitSelector selector) {
@@ -89,9 +101,9 @@ public class ClientSessionRetryTest {
 		return wire.client;
 	}
 
-	/* The exit's ACCEPT to an OPEN, taken off the wire before anyone else sees it */
-	private static Entry acceptTo(SessionWire wire, Entry open, String exitId) {
-		Session.accept(wire.exitContext, open, exitId).orElseThrow();
+	/* The answer of the member's key to an opening, taken off the wire before anyone else sees it */
+	private static Entry answerTo(SessionWire wire, Entry opening, String exitId) {
+		Session.tryAccept(wire.exitContext, opening, SessionFixtures.sealingPrivate(exitId)).orElseThrow();
 		return wire.posted.pollLast();
 	}
 
@@ -106,27 +118,28 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldRetryWithANewFingerprintTowardsTheNextExit() {
+	public void shouldRetryWithANewOpeningTowardsTheNextExit() {
 		final SessionWire wire = new SessionWire("gn-c");
 		final ClientSession client = wire.client(inOrder("gn-a", "gn-b", "gn-c"), CONNECT);
-		final List<Fingerprint> fingerprints = new ArrayList<>();
+		final List<Tag> tags = new ArrayList<>();
 
 		client.open();
 
 		for (String silent : List.of("gn-a", "gn-b")) {
+			assertThat(opensFor(wire.posted.peek(), silent), is(true));
+			tags.add(Session.tagOf(wire.posted.peek()));
 			wire.pump();
 			assertThat(client.exit(), equalTo(Optional.of(silent)));
 			assertThat(client.state(), is(SessionState.OPENING));
-			fingerprints.add(client.fingerprint().orElseThrow());
 			timeOut(wire);
 			assertThat(client.tick(), equalTo(Optional.empty()));
 		}
 
+		tags.add(Session.tagOf(wire.posted.peek()));
 		wire.pump();
-		fingerprints.add(client.fingerprint().orElseThrow());
 		assertThat(client.exit(), equalTo(Optional.of("gn-c")));
 		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(new HashSet<>(fingerprints).size(), is(3));
+		assertThat(new HashSet<>(tags).size(), is(3));
 		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
 	}
 
@@ -181,27 +194,24 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldIgnoreTheLateAcceptOfAnEarlierAttempt() {
+	public void shouldIgnoreTheLateAnswerOfAnEarlierAttempt() {
 		final SessionWire wire = new SessionWire("gn-a");
 		final ClientSession client = wire.client(inOrder("gn-a", "gn-b"), CONNECT);
 
 		client.open();
-
-		final Fingerprint first = client.fingerprint().orElseThrow();
-
 		timeOut(wire);
 		client.tick();
 		wire.pump();
-		assertThat(wire.exits.keySet().contains(first), is(true));
-		assertThat(client.fingerprint().orElseThrow(), not(equalTo(first)));
+		assertThat(wire.exits.size(), is(1));
+		assertThat(wire.atExit, equalTo(List.of()));
 		assertThat(client.state(), is(SessionState.OPENING));
 		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
 	}
 
 	@Example
-	public void shouldPassOverAnExitWhoseIdWouldNotFitTheOpenInOneEntry() {
+	public void shouldPassOverAnExitWhoseKeyIsNoKey() {
 		final SessionWire wire = new SessionWire("gn-b");
-		final ClientSession client = wire.client(inOrder("g".repeat(LONGEST_FITTING_ID + 1), "gn-b"), CONNECT);
+		final ClientSession client = wire.client(inOrder(NO_KEY, "gn-b"), CONNECT);
 
 		assertThat(client.open(), is(true));
 		wire.pump();
@@ -210,21 +220,9 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldTakeAnExitWhoseIdFillsTheOpenExactly() {
-		final String longest = "g".repeat(LONGEST_FITTING_ID);
-		final SessionWire wire = new SessionWire(longest);
-		final ClientSession client = wire.client(inOrder(longest), CONNECT);
-
-		assertThat(client.open(), is(true));
-		assertThat(wire.posted.peek().size(), is((int) ProxySettings.DEFAULTS.maxEntryBytes()));
-		wire.pump();
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldNotOpenWhenNoExitHasAnIdThatFits() {
+	public void shouldNotOpenWhenNoExitHasAKey() {
 		final SessionWire wire = new SessionWire("gn-a");
-		final ClientSession client = wire.client(inOrder("g".repeat(LONGEST_FITTING_ID + 1)), CONNECT);
+		final ClientSession client = wire.client(inOrder(NO_KEY), CONNECT);
 
 		assertThat(client.open(), is(false));
 		assertThat(client.state(), is(SessionState.CLOSED));
@@ -322,7 +320,7 @@ public class ClientSessionRetryTest {
 		timeOut(wire);
 		assertThat(client.tick(), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.NEW));
-		assertThat(client.fingerprint(), equalTo(Optional.empty()));
+		assertThat(client.exit(), equalTo(Optional.empty()));
 		assertThat(wire.posted.isEmpty(), is(true));
 		assertThat(client.open(), is(true));
 	}
@@ -334,14 +332,10 @@ public class ClientSessionRetryTest {
 
 		client.open();
 		wire.pump();
-
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-
 		timeOut(wire);
 		assertThat(client.tick(), equalTo(Optional.empty()));
 		assertThat(wire.posted.isEmpty(), is(true));
 		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(client.fingerprint(), equalTo(Optional.of(fingerprint)));
 		assertThat(client.exit(), equalTo(Optional.of("gn-a")));
 	}
 
@@ -373,7 +367,7 @@ public class ClientSessionRetryTest {
 		}, new SecureRandom(), inOrder("gn-a", "gn-b"));
 
 		client.open();
-		assertThat(client.receive(acceptTo(wire, wire.posted.poll(), "gn-a")),
+		assertThat(client.receive(answerTo(wire, wire.posted.poll(), "gn-a")),
 			equalTo(Optional.of(new Close(CloseReason.BROKEN))));
 		timeOut(wire);
 		assertThat(client.tick(), equalTo(Optional.empty()));
@@ -382,7 +376,7 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldDrawTheNewFingerprintAndKeyFromTheRandomnessOfItsContext() {
+	public void shouldDrawTheNewKeyAndTagFromTheRandomnessOfItsContext() {
 		final SessionWire wire = new SessionWire("gn-z");
 		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b", "gn-c"));
 
@@ -393,26 +387,22 @@ public class ClientSessionRetryTest {
 		client.tick();
 
 		for (int attempt = 0; attempt < ClientSession.MAX_ATTEMPTS; attempt++) {
-			final Entry open = wire.posted.poll();
+			final Entry opening = wire.posted.poll();
 
-			assertThat(open.header().fingerprint(), equalTo(fingerprintOfAttempt(attempt)));
-			assertThat(Handshake.clientKey(open.payload()),
-				equalTo(new EphemeralKey(privateKeyOfAttempt(attempt)).publicKey()));
+			assertThat(Session.tagOf(opening), equalTo(tagOfAttempt(attempt)));
+			assertThat(Arrays.copyOf(opening.payload(), NoiseNk.KEY_SIZE), equalTo(new X25519PrivateKeyParameters(
+				privateKeyOfAttempt(attempt)).generatePublicKey().getEncoded()));
 		}
-
-		assertThat(client.fingerprint(), equalTo(Optional.of(fingerprintOfAttempt(2))));
 	}
 
 	@Example
-	public void shouldChooseEachExitForItsFingerprintWithEveryExitTriedSoFarExcluded() {
+	public void shouldChooseEachExitWithEveryExitTriedSoFarExcluded() {
 		final SessionWire wire = new SessionWire("gn-z");
-		final List<Fingerprint> asked = new ArrayList<>();
 		final List<Set<String>> excluded = new ArrayList<>();
 		final ExitSelector ordered = inOrder("gn-a", "gn-b", "gn-c");
-		final ClientSession client = wire.client((fingerprint, passedOver) -> {
-			asked.add(fingerprint);
+		final ClientSession client = wire.client(passedOver -> {
 			excluded.add(Set.copyOf(passedOver));
-			return ordered.exit(fingerprint, passedOver);
+			return ordered.exit(passedOver);
 		}, CONNECT);
 
 		client.open();
@@ -420,14 +410,14 @@ public class ClientSessionRetryTest {
 		client.tick();
 		timeOut(wire);
 		client.tick();
-		assertThat(asked, equalTo(wire.posted.stream().map(open -> open.header().fingerprint()).toList()));
+		assertThat(wire.posted.size(), is(3));
 		assertThat(excluded, equalTo(List.of(Set.of(), Set.of("gn-a"), Set.of("gn-a", "gn-b"))));
 	}
 
 	@Example
 	public void shouldNeverPostMoreOpensThanTheMaximumWhateverTheSelectorAnswers() {
 		final SessionWire wire = new SessionWire("gn-z");
-		final ClientSession client = wire.client((fingerprint, excluded) -> Optional.of("gn-a"), CONNECT);
+		final ClientSession client = wire.client(excluded -> Optional.of(SessionFixtures.exit("gn-a")), CONNECT);
 		final List<Optional<Close>> ticks = new ArrayList<>();
 
 		client.open();
@@ -445,36 +435,22 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldPassOverAnExitThatDoesNotFitWhenRetrying() {
+	public void shouldPassOverAnExitWhoseKeyIsNoKeyWhenRetrying() {
 		final SessionWire wire = new SessionWire("gn-z");
-		final ClientSession client = wire.client(inOrder("gn-a", TOO_LONG, "gn-c"), CONNECT);
+		final ClientSession client = wire.client(inOrder("gn-a", NO_KEY, "gn-c"), CONNECT);
 
 		client.open();
 		timeOut(wire);
 		assertThat(client.tick(), equalTo(Optional.empty()));
 		assertThat(client.exit(), equalTo(Optional.of("gn-c")));
 		assertThat(wire.posted.size(), is(2));
-		assertThat(Handshake.names(wire.posted.peekLast().payload(), "gn-c"), is(true));
+		assertThat(opensFor(wire.posted.peekLast(), "gn-c"), is(true));
 	}
 
 	@Example
-	public void shouldRetryTowardsAnExitWhoseIdFillsTheOpenExactly() {
-		final String longest = "g".repeat(LONGEST_FITTING_ID);
-		final SessionWire wire = new SessionWire(longest);
-		final ClientSession client = wire.client(inOrder("gn-a", longest), CONNECT);
-
-		client.open();
-		timeOut(wire);
-		assertThat(client.tick(), equalTo(Optional.empty()));
-		assertThat(wire.posted.peekLast().size(), is((int) ProxySettings.DEFAULTS.maxEntryBytes()));
-		wire.pump();
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldGiveUpWhenNoExitLeftHasAnIdThatFits() {
+	public void shouldGiveUpWhenNoExitLeftHasAKey() {
 		final SessionWire wire = new SessionWire("gn-z");
-		final ClientSession client = wire.client(inOrder("gn-a", TOO_LONG), CONNECT);
+		final ClientSession client = wire.client(inOrder("gn-a", NO_KEY), CONNECT);
 
 		client.open();
 		timeOut(wire);
@@ -485,20 +461,20 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldAskAgainUntilTheExitFitsWithEachExitThatDoesNotFitExcluded() {
-		final String longer = TOO_LONG + "g";
-		final String wide = "é".repeat(LONGEST_FITTING_ID / 2 + 1);
+	public void shouldAskAgainUntilAnExitHasAKeyWithEachExitWithoutOneExcluded() {
+		final String second = NO_KEY + "-2";
+		final String third = NO_KEY + "-3";
 		final SessionWire wire = new SessionWire("gn-b");
 		final List<Set<String>> excluded = new ArrayList<>();
-		final ExitSelector ordered = inOrder(TOO_LONG, longer, wide, "gn-b");
-		final ClientSession client = wire.client((fingerprint, passedOver) -> {
+		final ExitSelector ordered = inOrder(NO_KEY, second, third, "gn-b");
+		final ClientSession client = wire.client(passedOver -> {
 			excluded.add(Set.copyOf(passedOver));
-			return ordered.exit(fingerprint, passedOver);
+			return ordered.exit(passedOver);
 		}, CONNECT);
 
 		assertThat(client.open(), is(true));
-		assertThat(excluded, equalTo(List.of(Set.of(), Set.of(TOO_LONG), Set.of(TOO_LONG, longer),
-			Set.of(TOO_LONG, longer, wide))));
+		assertThat(excluded, equalTo(List.of(Set.of(), Set.of(NO_KEY), Set.of(NO_KEY, second),
+			Set.of(NO_KEY, second, third))));
 		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
 		wire.pump();
 		assertThat(client.state(), is(SessionState.OPEN));
@@ -515,13 +491,13 @@ public class ClientSessionRetryTest {
 
 		final Entry first = wire.posted.poll();
 		final Entry second = wire.posted.poll();
-		final Entry late = acceptTo(wire, first, "gn-a");
+		final Entry late = answerTo(wire, first, "gn-a");
 
 		assertThat(client.receive(late), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.OPENING));
 		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
 		assertThat(wire.posted.isEmpty(), is(true));
-		assertThat(client.receive(acceptTo(wire, second, "gn-b")), equalTo(Optional.empty()));
+		assertThat(client.receive(answerTo(wire, second, "gn-b")), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.OPEN));
 		assertThat(wire.posted.size(), is(1));
 	}
@@ -574,9 +550,9 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldForgetThePrivateKeyWhenNoExitLeftHasAnIdThatFits() throws IllegalAccessException {
+	public void shouldForgetThePrivateKeyWhenNoExitLeftHasAKey() throws IllegalAccessException {
 		final SessionWire wire = new SessionWire("gn-z");
-		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", TOO_LONG));
+		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", NO_KEY));
 
 		client.open();
 		timeOut(wire);
@@ -604,15 +580,15 @@ public class ClientSessionRetryTest {
 	}
 
 	@Example
-	public void shouldStopAskingWhenTheSelectorKeepsAnsweringAnExitThatDoesNotFit() {
+	public void shouldStopAskingWhenTheSelectorKeepsAnsweringAnExitWithoutAKey() {
 		final SessionWire wire = new SessionWire("gn-a");
 		final AtomicInteger asked = new AtomicInteger();
-		final ClientSession client = wire.client((fingerprint, excluded) -> {
+		final ClientSession client = wire.client(excluded -> {
 			if (asked.incrementAndGet() > 10) {
 				throw new AssertionError("asked for ever");
 			}
 
-			return Optional.of(TOO_LONG);
+			return Optional.of(candidate(NO_KEY));
 		}, CONNECT);
 
 		assertThat(client.open(), is(false));

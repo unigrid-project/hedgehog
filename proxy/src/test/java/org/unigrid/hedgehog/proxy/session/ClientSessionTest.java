@@ -23,7 +23,7 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -33,7 +33,6 @@ import java.util.Deque;
 import java.util.HexFormat;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,10 +50,9 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
-import org.unigrid.hedgehog.proxy.chain.WriterId;
-import org.unigrid.hedgehog.proxy.group.ExitChoice;
+import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.NoiseNk.Responder;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
@@ -63,36 +61,31 @@ import static org.hamcrest.Matchers.not;
 
 public class ClientSessionTest {
 	private static final String EXIT_ID = "gn-exit";
-	private static final ExitSelector ONLY_EXIT = (fingerprint, excluded) -> ExitChoice.exit(fingerprint,
-		List.of(EXIT_ID), excluded);
+	private static final ExitSelector ONLY_EXIT = excluded -> excluded.contains(EXIT_ID) ? Optional.empty()
+		: Optional.of(SessionFixtures.exit(EXIT_ID));
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT, new SocksAddress(
 		Socks5AddressType.DOMAIN, "example.org", 443));
 	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS, new SocksAddress(
 		Socks5AddressType.IPv4, "192.0.2.10", 40_000));
 	private static final ChainId OTHER_CHAIN = new ChainId(SessionFixtures.filled(ChainId.SIZE, 8));
-	private static final int LONGEST_FITTING_ID = ProxySettings.DEFAULTS.chainLimits().maxPayloadBytes()
-		- EphemeralKey.SIZE;
+	private static final int SMALLEST_CLASS = 1024;
 
-	/* Points of low order: the secret agreed with any of them is all zeros, which a peer can confirm */
+	/* Points of low order: the secret agreed with any of them is all zeros */
 	private static final List<String> LOW_ORDER = List.of(
 		"0000000000000000000000000000000000000000000000000000000000000000",
 		"0100000000000000000000000000000000000000000000000000000000000000",
 		"e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
 		"5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157");
 
-	/* Draws that depend only on how many bytes are asked for, so that the test can build the client's private key */
+	/* Draws that depend only on how many bytes are asked for, so that the test can build the client's private key.
+	   The step between bytes is the length too, so that a long draw for padding never holds a run of a key's. */
 	private static final class KnownRandom extends SecureRandom {
 		@Override
 		public void nextBytes(byte[] bytes) {
 			for (int i = 0; i < bytes.length; i++) {
-				bytes[i] = (byte) (bytes.length * 3 + i);
+				bytes[i] = (byte) (bytes.length * 3 + i * bytes.length);
 			}
 		}
-	}
-
-	/* An exit's session and the ACCEPT it posted for an OPEN */
-	private record Answer(Session session, Entry accept) {
-		/* Kept together so that a test can let several exits answer the same OPEN */
 	}
 
 	@Provide
@@ -100,162 +93,20 @@ public class ClientSessionTest {
 		return Arbitraries.bytes().array(byte[].class).ofMinSize(1).ofMaxSize(2000).list().ofMaxSize(10);
 	}
 
-	@Property(tries = 20)
-	public void shouldRelayAStreamThroughTwoReplicasOfTheChain(@ForAll("chunks") List<byte[]> up,
-		@ForAll("chunks") List<byte[]> down) {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		assertThat(client.open(), is(true));
-		wire.pump();
-		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
-
-		wire.exitSession().send(CONNECTED);
-		up.forEach(bytes -> client.send(new Data(bytes)));
-		down.forEach(bytes -> wire.exitSession().send(new Data(bytes)));
-		wire.pump();
-		assertThat(wire.atExit.subList(1, wire.atExit.size()), equalTo(up.stream().map(Data::new).toList()));
-		assertThat(wire.atClient.get(0), equalTo(CONNECTED));
-		assertThat(wire.atClient.subList(1, wire.atClient.size()), equalTo(down.stream().map(Data::new).toList()));
-		assertThat(wire.clientChain.entries(), equalTo(wire.exitChain.entries()));
+	/* The exit's side of an opening, as the holder of the exit's sealing key opens it */
+	private static Responder responderTo(Entry opening, String exitId) {
+		return NoiseNk.respond(SessionFixtures.sealingPrivate(exitId), Session.prologue(opening.header().chainId(),
+			opening.header().writer()), Arrays.copyOf(opening.payload(), NoiseNk.MESSAGE_SIZE)).orElseThrow();
 	}
 
-	@Example
-	public void shouldOpenTowardsTheChosenExit() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		assertThat(client.state(), is(SessionState.NEW));
-		client.open();
-
-		final Entry open = wire.posted.peek();
-
-		assertThat(client.state(), is(SessionState.OPENING));
-		assertThat(client.exit(), equalTo(Optional.of(EXIT_ID)));
-		assertThat(open.header().kind(), is(EntryKind.OPEN));
-		assertThat(Optional.of(open.header().fingerprint()), equalTo(client.fingerprint()));
-		assertThat(Handshake.names(open.payload(), EXIT_ID), is(true));
-		Expect.assertThrows(IllegalStateException.class, client::open);
-		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
+	private static Tag answerTagOf(Responder responder) {
+		return Tags.of(responder.answerTagKey(), Direction.EXIT_TO_CLIENT, 0);
 	}
 
-	@Example
-	public void shouldCloseWhenTheGroupOffersNoExit() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client((fingerprint, excluded) -> Optional.empty(), CONNECT);
-
-		assertThat(client.open(), is(false));
-		assertThat(client.state(), is(SessionState.CLOSED));
-		assertThat(wire.posted.isEmpty(), is(true));
-	}
-
-	@Example
-	public void shouldWaitPastAnAcceptThatDoesNotCompleteTheHandshake() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final SessionContext impostor = wire.context(3);
-		final Entry forged = impostor.post(client.fingerprint().orElseThrow(), EntryKind.ACCEPT,
-			new byte[Handshake.ACCEPT_SIZE]);
-		final Entry otherSession = impostor.post(SessionFixtures.fingerprint(3), EntryKind.ACCEPT,
-			EphemeralKey.generate(impostor.random()).publicKey());
-
-		assertThat(client.receive(forged), equalTo(Optional.empty()));
-		assertThat(client.receive(otherSession), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		wire.pump();
-		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(wire.exitSession().peer(), equalTo(wire.clientContext.writer().writer()));
-		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
-	}
-
-	/* The exit's ACCEPT to an OPEN, taken off the wire before anyone else sees it */
-	private static Entry acceptTo(SessionWire wire, Entry open) {
-		Session.accept(wire.exitContext, open, EXIT_ID).orElseThrow();
+	/* The exit's answer to an opening, taken off the wire before anyone else sees it */
+	private static Entry answerTo(SessionWire wire, Entry opening) {
+		Session.tryAccept(wire.exitContext, opening, SessionFixtures.sealingPrivate(EXIT_ID)).orElseThrow();
 		return wire.posted.pollLast();
-	}
-
-	@Example
-	public void shouldIgnoreAnAcceptThatAnotherWriterPostedAgain() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Entry accept = acceptTo(wire, wire.posted.poll());
-		final Entry postedAgain = wire.context(3).post(client.fingerprint().orElseThrow(), EntryKind.ACCEPT,
-			accept.payload());
-
-		assertThat(client.receive(postedAgain), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		client.receive(accept);
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldIgnoreTheAcceptToAnOpenAnotherWriterPostedAgain() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Entry open = wire.posted.poll();
-		final Entry postedAgain = wire.context(3).post(client.fingerprint().orElseThrow(), EntryKind.OPEN,
-			open.payload());
-
-		assertThat(client.receive(acceptTo(wire, postedAgain)), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		client.receive(acceptTo(wire, open));
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldIgnoreTheAcceptToAnotherClientKeyUnderTheSameFingerprint() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Entry open = wire.posted.poll();
-		final SessionContext other = wire.context(4);
-		final Entry copied = other.post(client.fingerprint().orElseThrow(), EntryKind.OPEN,
-			Handshake.open(EphemeralKey.generate(other.random()), EXIT_ID));
-
-		assertThat(client.receive(acceptTo(wire, copied)), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		client.receive(acceptTo(wire, open));
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldIgnoreAnAcceptOnAnotherChainThatOtherwiseConfirmsTheHandshake() throws HandshakeException {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-		final SessionContext impostor = wire.context(3);
-		final SessionContext elsewhere = new SessionContext(new FeedWriter(SessionFixtures.key(3),
-			new ChainId(SessionFixtures.filled(ChainId.SIZE, 8))), wire.posted::add, wire.clock::get,
-			new SecureRandom(), ProxySettings.DEFAULTS);
-		final EphemeralKey key = EphemeralKey.generate(impostor.random());
-		final byte[] payload = Handshake.accept(key, Handshake.exitKeys(key, wire.posted.poll(),
-			impostor.writer().writer()));
-
-		assertThat(client.receive(elsewhere.post(fingerprint, EntryKind.ACCEPT, payload)), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		client.receive(impostor.post(fingerprint, EntryKind.ACCEPT, payload));
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	private static Answer answer(SessionWire wire, SessionContext exit, Entry open) {
-		final Session session = Session.accept(exit, open, EXIT_ID).orElseThrow();
-
-		return new Answer(session, wire.posted.pollLast());
 	}
 
 	/* The client as writer 1 of the chain, with an outbox and randomness of the test's choosing */
@@ -316,321 +167,381 @@ public class ClientSessionTest {
 			.anyMatch(from -> Arrays.equals(bytes, from, from + part.length, part, 0, part.length));
 	}
 
-	/* An ACCEPT that confirms a handshake of someone else, taken off the wire */
-	private static Entry acceptForSomeoneElse(SessionWire wire) {
-		final SessionContext other = wire.context(3);
-		final Entry open = other.post(SessionFixtures.fingerprint(3), EntryKind.OPEN,
-			Handshake.open(EphemeralKey.generate(other.random()), EXIT_ID));
-		final Entry accept = acceptTo(wire, open);
-
-		wire.posted.clear();
-		return accept;
-	}
-
-	private static byte[] acceptPayload(EphemeralKey own, byte[] clientKey, Transcript transcript)
-		throws HandshakeException {
-
-		return Handshake.accept(own, SessionKeys.derive(own.agree(clientKey), transcript));
-	}
-
 	private static void assertIgnored(String why, ClientSession client, Entry entry) {
 		assertThat(why, client.receive(entry), equalTo(Optional.empty()));
 		assertThat(why, client.state(), is(SessionState.OPENING));
 	}
 
+	@Property(tries = 20)
+	public void shouldRelayAStreamThroughTwoReplicasOfTheChain(@ForAll("chunks") List<byte[]> up,
+		@ForAll("chunks") List<byte[]> down) {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		assertThat(client.open(), is(true));
+		wire.pump();
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
+
+		wire.exitSession().send(CONNECTED);
+		up.forEach(bytes -> client.send(new Data(bytes)));
+		down.forEach(bytes -> wire.exitSession().send(new Data(bytes)));
+		wire.pump();
+		assertThat(wire.atExit.subList(1, wire.atExit.size()), equalTo(up.stream().map(Data::new).toList()));
+		assertThat(wire.atClient.get(0), equalTo(CONNECTED));
+		assertThat(wire.atClient.subList(1, wire.atClient.size()), equalTo(down.stream().map(Data::new).toList()));
+		assertThat(wire.clientChain.entries(), equalTo(wire.exitChain.entries()));
+	}
+
 	@Example
-	public void shouldStayWithTheExitWhoseAcceptCompletedTheHandshake() {
+	public void shouldOpenTowardsTheChosenExit() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		assertThat(client.state(), is(SessionState.NEW));
+		client.open();
+
+		final Entry opening = wire.posted.peek();
+
+		assertThat(client.state(), is(SessionState.OPENING));
+		assertThat(client.exit(), equalTo(Optional.of(EXIT_ID)));
+		assertThat(opening.header().kind(), is(EntryKind.SEALED));
+		assertThat(opening.size(), is(SMALLEST_CLASS));
+		assertThat(NoiseNk.respond(SessionFixtures.sealingPrivate(EXIT_ID), Session.prologue(SessionFixtures.CHAIN,
+			wire.clientContext.writer().writer()), Arrays.copyOf(opening.payload(), NoiseNk.MESSAGE_SIZE)).isPresent(),
+			is(true));
+		Expect.assertThrows(IllegalStateException.class, client::open);
+		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
+	}
+
+	/* What the chain sees of an opening tells nobody which member it is for */
+	@Example
+	public void openingNamesNoExit() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
 		client.open();
 
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-		final Entry open = wire.posted.poll();
-		final Answer first = answer(wire, wire.exitContext, open);
-		final Answer second = answer(wire, wire.context(3), open);
+		final Entry opening = wire.posted.peek();
+		final byte[] bytes = opening.payload();
 
-		assertThat(client.receive(first.accept()), equalTo(Optional.empty()));
+		assertThat(contains(bytes, EXIT_ID.getBytes(StandardCharsets.UTF_8)), is(false));
+		assertThat(contains(bytes, SessionFixtures.sealingPublic(EXIT_ID)), is(false));
+		assertThat(contains(opening.header().fingerprint().bytes(), EXIT_ID.getBytes(StandardCharsets.UTF_8)),
+			is(false));
+		assertThat(opening.size(), is(SMALLEST_CLASS));
+		assertThat(NoiseNk.respond(SessionFixtures.sealingPrivate("gn-other"), Session.prologue(SessionFixtures.CHAIN,
+			wire.clientContext.writer().writer()), Arrays.copyOf(bytes, NoiseNk.MESSAGE_SIZE)).isPresent(), is(false));
+	}
+
+	@Example
+	public void shouldCloseWhenTheGroupOffersNoExit() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(excluded -> Optional.empty(), CONNECT);
+
+		assertThat(client.open(), is(false));
+		assertThat(client.state(), is(SessionState.CLOSED));
+		assertThat(wire.posted.isEmpty(), is(true));
+	}
+
+	/* An answer under the right tag that another key made, of another handshake, completes nothing */
+	@Example
+	public void anAnswerFromAnotherKeyIsIgnored() throws HandshakeException {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Tag answerTag = answerTagOf(responderTo(opening, EXIT_ID));
+		final byte[] prologue = Session.prologue(SessionFixtures.CHAIN, wire.clientContext.writer().writer());
+		final NoiseNk.Initiation elsewhere = NoiseNk.initiate(SessionFixtures.sealingPublic("gn-other"), prologue,
+			new SecureRandom());
+		final Responder other = NoiseNk.respond(SessionFixtures.sealingPrivate("gn-other"), prologue,
+			elsewhere.message()).orElseThrow();
+		final SessionContext impostor = wire.context(3);
+		final byte[] otherAnswer = impostor.padded(other.answer(new SecureRandom()).message());
+
+		assertIgnored("under the answer tag", client, impostor.post(answerTag, otherAnswer));
+		assertIgnored("under its own tag", client, impostor.post(answerTagOf(other), otherAnswer));
+		client.receive(answerTo(wire, opening));
+		assertThat(client.state(), is(SessionState.OPEN));
+	}
+
+	@Example
+	public void shouldWaitPastAnAnswerThatDoesNotCompleteTheHandshake() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Tag answerTag = answerTagOf(responderTo(wire.posted.peek(), EXIT_ID));
+		final SessionContext impostor = wire.context(3);
+		final Entry forged = impostor.post(answerTag, new byte[SMALLEST_CLASS - Entry.OVERHEAD]);
+
+		assertThat(client.expects(forged), is(true));
+		assertThat(client.receive(forged), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPENING));
+		wire.pump();
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(wire.exitSession().peer(), equalTo(wire.clientContext.writer().writer()));
+		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
+	}
+
+	/* A writer that posts the exit's answer again posts the same handshake: whichever comes first completes it, the
+	   other finds the session open, and the exit's messages reach the client whoever posted the answer */
+	@Example
+	public void shouldTakeACopyOfTheAnswerAsTheAnswerItself() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Session exit = Session.tryAccept(wire.exitContext, wire.posted.poll(),
+			SessionFixtures.sealingPrivate(EXIT_ID)).orElseThrow();
+		final Entry answer = wire.posted.pollLast();
+		final Entry copy = wire.context(3).post(Session.tagOf(answer), answer.payload());
+
+		wire.posted.pollLast();
+		assertThat(client.receive(copy), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(exit.receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
+		assertThat(client.receive(answer), equalTo(Optional.empty()));
+		assertThat(wire.posted.isEmpty(), is(true));
+		exit.send(new Data(new byte[] { 1 }));
+		assertThat(client.receive(wire.posted.poll()), equalTo(Optional.of(new Data(new byte[] { 1 }))));
+	}
+
+	/* The prologue binds the writer of the opening, so its bytes under another writer open for no exit */
+	@Example
+	public void shouldLeaveAnOpeningAnotherWriterPostedAgainUnanswered() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Entry postedAgain = wire.context(3).post(Session.tagOf(opening), opening.payload());
+
+		assertThat(Session.tryAccept(wire.exitContext, postedAgain, SessionFixtures.sealingPrivate(EXIT_ID)),
+			equalTo(Optional.empty()));
 		assertThat(wire.posted.size(), is(1));
-		assertThat(first.session().receive(wire.posted.peek()), equalTo(Optional.of(CONNECT)));
-		assertThat(client.receive(second.accept()), equalTo(Optional.empty()));
+		client.receive(answerTo(wire, opening));
+		assertThat(client.state(), is(SessionState.OPEN));
+	}
+
+	@Example
+	public void shouldIgnoreAnAnswerOnAnotherChain() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Entry answer = answerTo(wire, opening);
+		final SessionContext elsewhere = new SessionContext(new FeedWriter(SessionFixtures.key(2), OTHER_CHAIN),
+			wire.posted::add, wire.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
+
+		final Entry onAnotherChain = elsewhere.post(Session.tagOf(answer), answer.payload());
+
+		assertThat(client.expects(onAnotherChain), is(false));
+		assertIgnored("other chain", client, onAnotherChain);
+		client.receive(answer);
+		assertThat(client.state(), is(SessionState.OPEN));
+	}
+
+	/* The exit's key answers an opening once per answer it makes; the first answer to arrive makes the session */
+	@Example
+	public void shouldStayWithTheFirstAnswerThatCompletesTheHandshake() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Session first = Session.tryAccept(wire.exitContext, opening, SessionFixtures.sealingPrivate(EXIT_ID))
+			.orElseThrow();
+		final Entry firstAnswer = wire.posted.pollLast();
+		final Session second = Session.tryAccept(wire.context(3), opening, SessionFixtures.sealingPrivate(EXIT_ID))
+			.orElseThrow();
+		final Entry secondAnswer = wire.posted.pollLast();
+
+		assertThat(client.receive(firstAnswer), equalTo(Optional.empty()));
+		assertThat(wire.posted.size(), is(1));
+		assertThat(first.receive(wire.posted.peek()), equalTo(Optional.of(CONNECT)));
+		assertThat(client.receive(secondAnswer), equalTo(Optional.empty()));
 		assertThat(wire.posted.size(), is(1));
 		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(client.fingerprint(), equalTo(Optional.of(fingerprint)));
 		assertThat(client.exit(), equalTo(Optional.of(EXIT_ID)));
-		second.session().send(new Data(new byte[] { 2 }));
+		second.send(new Data(new byte[] { 2 }));
 		assertThat(client.receive(wire.posted.pollLast()), equalTo(Optional.empty()));
-		first.session().send(new Data(new byte[] { 1 }));
+		first.send(new Data(new byte[] { 1 }));
 		assertThat(client.receive(wire.posted.pollLast()), equalTo(Optional.of(new Data(new byte[] { 1 }))));
 	}
 
-	/* A gridnode id is not bound to a writer key yet, so the writer of the ACCEPT is not compared with anything
-	   the client knows of the exit: it is the first writer whose ACCEPT confirms the handshake. Signed gridnode
-	   announcements close this. */
 	@Example
-	public void shouldTakeTheFirstAcceptThatConfirmsTheHandshakeWhoeverPostedIt() {
+	public void shouldIgnoreAnAnswerWithAnyBitOfItsHandshakeChanged() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
 		client.open();
 
-		final Entry open = wire.posted.poll();
-		final Answer impostor = answer(wire, wire.context(3), open);
-		final Answer exit = answer(wire, wire.exitContext, open);
+		final Entry answer = answerTo(wire, wire.posted.poll());
+		final byte[] payload = answer.payload();
 
-		client.receive(impostor.accept());
-		client.receive(exit.accept());
-		assertThat(client.state(), is(SessionState.OPEN));
-		assertThat(wire.posted.size(), is(1));
-		assertThat(impostor.session().receive(wire.posted.peek()), equalTo(Optional.of(CONNECT)));
-		exit.session().send(new Data(new byte[] { 1 }));
-		assertThat(client.receive(wire.posted.pollLast()), equalTo(Optional.empty()));
-	}
-
-	/* What the chain gives up on in the feed of the exit is what the session lost, so the client side needs to know
-	   whose feed that is, and only the ACCEPT that completed the handshake tells it */
-	@Example
-	public void shouldKnowTheFeedOfItsExitOnceTheAcceptCompletedTheHandshake() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-		assertThat(client.exitWriter(), equalTo(Optional.empty()));
-
-		final Entry open = wire.posted.poll();
-		final Answer impostor = answer(wire, wire.context(3), open);
-		final Answer exit = answer(wire, wire.exitContext, open);
-
-		client.receive(exit.accept());
-		client.receive(impostor.accept());
-		assertThat(client.exitWriter(), equalTo(Optional.of(wire.exitContext.writer().writer())));
-	}
-
-	@Example
-	public void shouldIgnoreAnAcceptWhoseTranscriptDiffersInOneField() throws HandshakeException {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Entry open = wire.posted.poll();
-		final Fingerprint fingerprint = open.header().fingerprint();
-		final byte[] clientKey = Handshake.clientKey(open.payload());
-		final SessionContext exit = wire.context(3);
-		final EphemeralKey own = EphemeralKey.generate(exit.random());
-		final byte[] exitKey = own.publicKey();
-		final byte[] otherKey = EphemeralKey.generate(exit.random()).publicKey();
-		final WriterId clientWriter = wire.clientContext.writer().writer();
-		final WriterId exitWriter = exit.writer().writer();
-		final WriterId otherWriter = wire.context(5).writer().writer();
-		final Transcript right = new Transcript(SessionFixtures.CHAIN, fingerprint, clientKey, exitKey,
-			clientWriter, exitWriter);
-		final Map<String, Transcript> wrong = Map.of(
-			"chain", new Transcript(OTHER_CHAIN, fingerprint, clientKey, exitKey, clientWriter, exitWriter),
-			"fingerprint", new Transcript(SessionFixtures.CHAIN, SessionFixtures.fingerprint(9), clientKey, exitKey,
-				clientWriter, exitWriter),
-			"client key", new Transcript(SessionFixtures.CHAIN, fingerprint, otherKey, exitKey, clientWriter,
-				exitWriter),
-			"exit key", new Transcript(SessionFixtures.CHAIN, fingerprint, clientKey, otherKey, clientWriter,
-				exitWriter),
-			"client writer", new Transcript(SessionFixtures.CHAIN, fingerprint, clientKey, exitKey, otherWriter,
-				exitWriter),
-			"exit writer", new Transcript(SessionFixtures.CHAIN, fingerprint, clientKey, exitKey, clientWriter,
-				otherWriter));
-
-		for (Map.Entry<String, Transcript> field : wrong.entrySet()) {
-			assertIgnored(field.getKey(), client, exit.post(fingerprint, EntryKind.ACCEPT,
-				acceptPayload(own, clientKey, field.getValue())));
-		}
-
-		client.receive(exit.post(fingerprint, EntryKind.ACCEPT, acceptPayload(own, clientKey, right)));
-		assertThat(client.state(), is(SessionState.OPEN));
-	}
-
-	@Example
-	public void shouldIgnoreAnAcceptWithAnyBitOfItsKeyOrConfirmationChanged() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		client.open();
-
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-		final Entry accept = acceptTo(wire, wire.posted.poll());
-		final byte[] payload = accept.payload();
-
-		for (int bit = 0; bit < payload.length * Byte.SIZE; bit++) {
+		for (int bit = 0; bit < NoiseNk.MESSAGE_SIZE * Byte.SIZE; bit++) {
 			final byte[] flipped = payload.clone();
 
 			flipped[bit / Byte.SIZE] ^= 1 << (bit % Byte.SIZE);
-			assertIgnored("bit " + bit, client, wire.exitContext.post(fingerprint, EntryKind.ACCEPT, flipped));
+			assertThat("bit " + bit, client.receive(wire.exitContext.post(Session.tagOf(answer), flipped)),
+				equalTo(Optional.empty()));
+			assertThat("bit " + bit, client.state(), is(SessionState.OPENING));
 		}
 
-		client.receive(accept);
+		client.receive(answer);
 		assertThat(client.state(), is(SessionState.OPEN));
 	}
 
 	@Example
-	public void shouldIgnoreAnAcceptOfAnotherSize() {
+	public void shouldIgnoreAnAnswerTooShortForTheHandshake() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
 		client.open();
 
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-		final Entry accept = acceptTo(wire, wire.posted.poll());
+		final Entry answer = answerTo(wire, wire.posted.poll());
 
-		for (int size : List.of(0, 1, EphemeralKey.SIZE, Handshake.ACCEPT_SIZE - 1, Handshake.ACCEPT_SIZE + 1,
-			2 * Handshake.ACCEPT_SIZE)) {
-
-			assertIgnored("size " + size, client, wire.exitContext.post(fingerprint, EntryKind.ACCEPT,
-				Arrays.copyOf(accept.payload(), size)));
+		for (int size : List.of(0, 1, NoiseNk.KEY_SIZE, NoiseNk.MESSAGE_SIZE - 1)) {
+			assertThat("size " + size, client.receive(wire.exitContext.post(Session.tagOf(answer),
+				Arrays.copyOf(answer.payload(), size))), equalTo(Optional.empty()));
+			assertThat("size " + size, client.state(), is(SessionState.OPENING));
 		}
 
-		client.receive(accept);
+		client.receive(answer);
 		assertThat(client.state(), is(SessionState.OPEN));
 	}
 
 	@Example
-	public void shouldIgnoreAnAcceptWithAKeyOfLowOrderThatConfirmsItsOwnSecret() throws HandshakeException {
+	public void shouldIgnoreAnAnswerWithAKeyOfLowOrder() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
 		client.open();
 
-		final Entry open = wire.posted.poll();
-		final Fingerprint fingerprint = open.header().fingerprint();
-		final SessionContext exit = wire.context(3);
+		final Entry answer = answerTo(wire, wire.posted.poll());
 
 		for (String point : LOW_ORDER) {
-			final byte[] lowOrder = HexFormat.of().parseHex(point);
-			final Transcript transcript = new Transcript(SessionFixtures.CHAIN, fingerprint,
-				Handshake.clientKey(open.payload()), lowOrder, wire.clientContext.writer().writer(),
-				exit.writer().writer());
-			final byte[] confirmation = SessionKeys.derive(new byte[EphemeralKey.SIZE], transcript).confirmation();
+			final byte[] payload = answer.payload();
 
-			assertIgnored(point, client, exit.post(fingerprint, EntryKind.ACCEPT,
-				ByteBuffer.allocate(Handshake.ACCEPT_SIZE).put(lowOrder).put(confirmation).array()));
+			System.arraycopy(HexFormat.of().parseHex(point), 0, payload, 0, NoiseNk.KEY_SIZE);
+			assertThat(point, client.receive(wire.exitContext.post(Session.tagOf(answer), payload)),
+				equalTo(Optional.empty()));
+			assertThat(point, client.state(), is(SessionState.OPENING));
 		}
 	}
 
 	@Example
-	public void shouldIgnoreAnEntryOfAnotherKindThatCarriesTheAcceptsPayload() {
+	public void shouldIgnoreTheAnswerUnderAnotherTag() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
 
 		client.open();
 
-		final Fingerprint fingerprint = client.fingerprint().orElseThrow();
-		final Entry accept = acceptTo(wire, wire.posted.poll());
+		final Entry answer = answerTo(wire, wire.posted.poll());
 
-		for (EntryKind kind : EntryKind.values()) {
-			if (kind != EntryKind.ACCEPT) {
-				assertIgnored(kind.name(), client, wire.exitContext.post(fingerprint, kind, accept.payload()));
-			}
-		}
+		final Entry underAnotherTag = wire.exitContext.post(Tag.random(new SecureRandom()), answer.payload());
 
-		client.receive(accept);
+		assertThat(client.expects(underAnotherTag), is(false));
+		assertIgnored("random tag", client, underAnotherTag);
+		client.receive(answer);
 		assertThat(client.state(), is(SessionState.OPEN));
 	}
 
-	@Example
-	public void shouldIgnoreTheAcceptsPayloadUnderAnotherFingerprint() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+	/* An answer to another client's opening, taken off the wire */
+	private static Entry answerForSomeoneElse(SessionWire wire) {
+		final ClientSession stranger = new ClientSession(wire.context(3), ONLY_EXIT, CONNECT);
 
-		client.open();
+		stranger.open();
 
-		final Entry accept = acceptTo(wire, wire.posted.poll());
+		final Entry answer = answerTo(wire, wire.posted.poll());
 
-		assertIgnored("fingerprint", client, wire.exitContext.post(SessionFixtures.fingerprint(3), EntryKind.ACCEPT,
-			accept.payload()));
-		client.receive(accept);
-		assertThat(client.state(), is(SessionState.OPEN));
+		wire.posted.clear();
+		return answer;
 	}
 
 	@Example
-	public void shouldIgnoreAnAcceptBeforeAnyOpen() {
+	public void shouldIgnoreAnAnswerBeforeAnyOpening() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-		final Entry accept = acceptForSomeoneElse(wire);
+		final Entry answer = answerForSomeoneElse(wire);
 
-		assertThat(client.receive(accept), equalTo(Optional.empty()));
+		assertThat(client.expects(answer), is(false));
+		assertThat(client.receive(answer), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.NEW));
-		assertThat(client.fingerprint(), equalTo(Optional.empty()));
 		assertThat(wire.posted.isEmpty(), is(true));
 		assertThat(client.open(), is(true));
-		assertIgnored("the same ACCEPT after the OPEN", client, accept);
+		assertIgnored("the same answer after the opening", client, answer);
 	}
 
 	@Example
-	public void shouldIgnoreAnAcceptAndNotOpenAgainWhenTheGroupOfferedNoExit() {
+	public void shouldIgnoreAnAnswerAndNotOpenAgainWhenTheGroupOfferedNoExit() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client((fingerprint, excluded) -> Optional.empty(), CONNECT);
-		final Entry accept = acceptForSomeoneElse(wire);
+		final ClientSession client = wire.client(excluded -> Optional.empty(), CONNECT);
+		final Entry answer = answerForSomeoneElse(wire);
 
 		assertThat(client.open(), is(false));
-		assertThat(client.receive(accept), equalTo(Optional.empty()));
+		assertThat(client.receive(answer), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.CLOSED));
 		Expect.assertThrows(IllegalStateException.class, client::open);
 		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
 		assertThat(wire.posted.isEmpty(), is(true));
 	}
 
+	/* A key of the wrong size or of low order opens no handshake, so that member is passed over */
 	@Example
-	public void shouldNotBuildAnOpenThatDoesNotFitOneEntry() {
-		for (String id : List.of("g".repeat(LONGEST_FITTING_ID + 1), "é".repeat(LONGEST_FITTING_ID / 2 + 1))) {
+	public void shouldNotOpenTowardsAnExitWhoseKeyIsNoKey() {
+		for (byte[] key : List.of(new byte[0], new byte[NoiseNk.KEY_SIZE - 1], new byte[NoiseNk.KEY_SIZE + 1],
+			HexFormat.of().parseHex(LOW_ORDER.get(0)), HexFormat.of().parseHex(LOW_ORDER.get(2)))) {
+
 			final SessionWire wire = new SessionWire(EXIT_ID);
-			final ClientSession client = wire.client((fingerprint, excluded) -> Optional.of(id), CONNECT);
+			final ClientSession client = wire.client(excluded -> Optional.of(new ExitCandidate("gn-bad", key)),
+				CONNECT);
 
 			assertThat(client.open(), is(false));
 			assertThat(client.state(), is(SessionState.CLOSED));
 			assertThat(wire.posted.isEmpty(), is(true));
-			assertThat(client.fingerprint(), equalTo(Optional.empty()));
 			assertThat(client.exit(), equalTo(Optional.empty()));
 		}
 	}
 
 	@Example
-	public void shouldOpenTowardsAnExitWhoseIdFillsTheOpenExactly() {
-		for (String id : List.of("g".repeat(LONGEST_FITTING_ID),
-			"é".repeat(LONGEST_FITTING_ID / 2) + "g".repeat(LONGEST_FITTING_ID % 2))) {
-
-			final SessionWire wire = new SessionWire(id);
-			final ClientSession client = wire.client((fingerprint, excluded) -> Optional.of(id), CONNECT);
-
-			assertThat(client.open(), is(true));
-			assertThat(wire.posted.peek().size(), is((int) ProxySettings.DEFAULTS.maxEntryBytes()));
-			wire.pump();
-			assertThat(client.state(), is(SessionState.OPEN));
-			assertThat(wire.atExit, equalTo(List.of(CONNECT)));
-		}
-	}
-
-	@Example
-	public void shouldChooseTheExitForTheFingerprintOfTheAttempt() {
+	public void shouldAskTheSelectorWithNothingExcludedFirst() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
-		final List<Fingerprint> asked = new ArrayList<>();
 		final List<Set<String>> excluded = new ArrayList<>();
-		final ClientSession client = wire.client((fingerprint, passedOver) -> {
-			asked.add(fingerprint);
-			excluded.add(passedOver);
-			return Optional.of(EXIT_ID);
+		final ClientSession client = wire.client(passedOver -> {
+			excluded.add(Set.copyOf(passedOver));
+			return ONLY_EXIT.exit(passedOver);
 		}, CONNECT);
 
 		client.open();
-		assertThat(asked, equalTo(List.of(client.fingerprint().orElseThrow())));
 		assertThat(excluded, equalTo(List.of(Set.of())));
 	}
 
+	/* The key comes first, then the padding, then the tag */
 	@Example
-	public void shouldDrawTheFingerprintFromTheRandomnessOfItsContext() {
+	public void shouldDrawTheOpeningFromTheRandomnessOfItsContext() {
 		final SessionWire wire = new SessionWire(EXIT_ID);
 		final ClientSession client = clientOf(wire, wire.posted::add, new KnownRandom(), ONLY_EXIT);
-		final byte[] drawn = new byte[Fingerprint.SIZE];
+		final byte[] tag = new byte[Tag.SIZE];
 
-		new KnownRandom().nextBytes(drawn);
+		new KnownRandom().nextBytes(tag);
 		client.open();
-		assertThat(client.fingerprint(), equalTo(Optional.of(new Fingerprint(drawn))));
+
+		final Entry opening = wire.posted.peek();
+
+		assertThat(Session.tagOf(opening), equalTo(new Tag(tag)));
+		assertThat(Arrays.copyOf(opening.payload(), NoiseNk.KEY_SIZE), equalTo(new X25519PrivateKeyParameters(
+			knownPrivateKey()).generatePublicKey().getEncoded()));
 	}
 
 	@Example
@@ -643,10 +554,10 @@ public class ClientSessionTest {
 		assertThat(holds(client, privateKey), is(true));
 		assertThat(client.toString(), not(containsString(HexFormat.of().formatHex(privateKey))));
 
-		final Entry open = wire.posted.poll();
+		final Entry opening = wire.posted.poll();
 
-		assertThat(contains(open.payload(), privateKey), is(false));
-		client.receive(acceptTo(wire, open));
+		assertThat(contains(opening.payload(), privateKey), is(false));
+		client.receive(answerTo(wire, opening));
 		assertThat(client.state(), is(SessionState.OPEN));
 		assertThat(holds(client, privateKey), is(false));
 		wire.posted.forEach(entry -> assertThat(contains(entry.payload(), privateKey), is(false)));
@@ -666,13 +577,45 @@ public class ClientSessionTest {
 
 		client.open();
 
-		final Entry accept = acceptTo(wire, wire.posted.poll());
+		final Entry answer = answerTo(wire, wire.posted.poll());
 
-		assertThat(client.receive(accept), equalTo(Optional.of(new Close(CloseReason.BROKEN))));
+		assertThat(client.receive(answer), equalTo(Optional.of(new Close(CloseReason.BROKEN))));
 		assertThat(client.state(), is(SessionState.CLOSED));
 		assertThat(holds(client, knownPrivateKey()), is(false));
-		assertThat(client.receive(accept), equalTo(Optional.empty()));
+		assertThat(client.receive(answer), equalTo(Optional.empty()));
 		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
+	}
+
+	/* The answer while it opens, then the exit's next message and no other */
+	@Example
+	public void shouldExpectTheAnswerAndThenTheNextMessageOfTheExit() {
+		final SessionWire wire = new SessionWire(EXIT_ID);
+		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
+
+		client.open();
+
+		final Entry opening = wire.posted.poll();
+		final Session exit = Session.tryAccept(wire.exitContext, opening, SessionFixtures.sealingPrivate(EXIT_ID))
+			.orElseThrow();
+		final Entry answer = wire.posted.pollLast();
+
+		assertThat(client.expects(opening), is(false));
+		assertThat(client.expects(answer), is(true));
+		client.receive(answer);
+		wire.posted.clear();
+		exit.send(new Data(new byte[] { 1 }));
+		exit.send(new Data(new byte[] { 2 }));
+
+		final Entry first = wire.posted.poll();
+		final Entry second = wire.posted.poll();
+
+		assertThat(client.expects(answer), is(false));
+		assertThat(client.expects(second), is(false));
+		assertThat(client.expects(first), is(true));
+		client.receive(first);
+		assertThat(client.expects(second), is(true));
+		client.close(CloseReason.DONE);
+		assertThat(client.expects(second), is(false));
 	}
 
 	@Example

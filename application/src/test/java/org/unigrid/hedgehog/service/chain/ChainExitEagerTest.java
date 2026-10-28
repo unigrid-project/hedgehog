@@ -38,6 +38,7 @@ import org.jboss.weld.environment.se.WeldContainer;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtension;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -58,6 +59,11 @@ public class ChainExitEagerTest extends BaseMockedWeldTest {
 		@Produces
 		public ProxySettingsSource settings() {
 			return () -> Optional.of(ProxySettings.DEFAULTS);
+		}
+
+		@Produces
+		public SealingKey sealingKey() {
+			return ChainFleet.sealingKey("gn-3");
 		}
 
 		@Produces

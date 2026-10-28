@@ -54,6 +54,9 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
+import org.unigrid.hedgehog.proxy.session.ExitCandidate;
+import org.unigrid.hedgehog.proxy.session.ExitSelector;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
 
 /* The client side of the shard groups: finds a group that takes this node, asks a member to let a writer of this
    node write on one of its chains, attaches to a second member of the group on the same chain and follows the
@@ -218,10 +221,30 @@ public final class ChainClient {
 		final Channel first = connected.get(0);
 		final List<ChainId> chains = view.chains(group);
 
+		final List<String> members = view.groups().members(group);
+
 		return asked(first, key.id(), null, reply -> followedFirst(first, key.id(), chains, reply))
 			.thenCompose(chainId -> spare(connected, key.id(), chainId).thenApply(streams ->
-				new ChainAttachment(group, view.epoch(), new FeedWriter(key, chainId),
-					view.groups().members(group), streams)));
+				new ChainAttachment(group, view.epoch(), new FeedWriter(key, chainId), members, streams,
+					exitsAmong(members))));
+	}
+
+	/* A member of the group is a candidate exit while it is active and announces a sealing key, and each session draws
+	   its exit at random among the candidates it did not pass over */
+	private ExitSelector exitsAmong(final List<String> members) {
+		return excluded -> {
+			final List<ExitCandidate> candidates = directory.active().stream()
+				.filter(gridnode -> members.contains(gridnode.getId()))
+				.filter(gridnode -> !excluded.contains(gridnode.getId())).filter(ChainClient::hasSealingKey)
+				.map(gridnode -> new ExitCandidate(gridnode.getId(), gridnode.getSealingKey())).toList();
+
+			return candidates.isEmpty() ? Optional.empty()
+				: Optional.of(candidates.get(random.nextInt(candidates.size())));
+		};
+	}
+
+	private static boolean hasSealingKey(final Gridnode gridnode) {
+		return Objects.nonNull(gridnode.getSealingKey()) && gridnode.getSealingKey().length == NoiseNk.KEY_SIZE;
 	}
 
 	/* The continuation is in place before the request goes out, so that it runs on the thread that completes the

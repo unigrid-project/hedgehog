@@ -19,30 +19,31 @@
 package org.unigrid.hedgehog.service.chain;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.session.Data;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
-/* The exit end of the sessions that name one gridnode, without a destination behind it: it answers each OPEN
-   with an ACCEPT, collects what the client sends, and sends what a test tells it to */
+/* The exit end of the sessions sealed to one gridnode, without a destination behind it: it answers each opening its
+   sealing key opens, collects what the client sends, and sends what a test tells it to */
 final class ExitStub {
-	final Map<Fingerprint, Session> sessions = new LinkedHashMap<>();
+	final List<Session> sessions = new ArrayList<>();
 	final List<SealedMessage> received = new CopyOnWriteArrayList<>();
 	volatile boolean muted;
 	private final ChainFleet fleet;
 	private final String id;
 	private final int number;
 	private final Map<ChainId, SessionContext> contexts = new HashMap<>();
+	private List<Entry> capture;
 
 	ExitStub(final ChainFleet fleet, final int number) {
 		this.fleet = fleet;
@@ -51,38 +52,54 @@ final class ExitStub {
 		fleet.host(id).addEntryListener(this::appended);
 	}
 
-	Session session() {
-		return sessions.values().iterator().next();
+	synchronized Session session() {
+		return sessions.get(0);
 	}
 
-	/* Writes an entry of the stub's feed that nobody gets and returns the one after it: a chain that is handed only
-	   the second gives up on the first once the second has waited long enough, and the gap names the fingerprint of
-	   the second */
-	synchronized Entry skipOne(final ChainId chainId, final Fingerprint fingerprint) {
-		final FeedWriter feed = context(chainId).writer();
+	/* The session sends two messages that nobody gets, and the second is returned: a chain that is handed only the
+	   second gives up on the first once the second has waited long enough, and the gap names the tag of the second */
+	synchronized Entry skipOne(final Session session) {
+		final List<Entry> captured = new ArrayList<>();
 
-		feed.write(fleet.clock.get(), fingerprint, EntryKind.SEALED, new byte[1]);
-		return feed.write(fleet.clock.get(), fingerprint, EntryKind.SEALED, new byte[1]);
+		capture = captured;
+
+		try {
+			session.send(new Data(new byte[] { 98 }));
+			session.send(new Data(new byte[] { 99 }));
+		} finally {
+			capture = null;
+		}
+
+		return captured.get(1);
 	}
 
 	private synchronized void appended(final ChainId chainId, final Entry entry) {
-		final Session known = sessions.get(entry.header().fingerprint());
-
 		if (muted) {
 			return;
 		}
 
-		if (entry.header().kind() == EntryKind.OPEN) {
-			Session.accept(context(chainId), entry, id).ifPresent(session -> sessions.put(session.fingerprint(),
-				session));
-		} else if (known != null) {
-			known.receive(entry).ifPresent(received::add);
+		final Optional<Session> known = sessions.stream().filter(session -> session.recognises(entry)).findFirst();
+
+		if (known.isPresent()) {
+			known.get().receive(entry).ifPresent(received::add);
+		} else {
+			Session.tryAccept(context(chainId), entry, ChainFleet.sealingKey(id).privateKey().orElseThrow())
+				.ifPresent(sessions::add);
 		}
 	}
 
 	private SessionContext context(final ChainId chainId) {
 		return contexts.computeIfAbsent(chainId, chain -> new SessionContext(new FeedWriter(
-			ChainFleet.key(100 + number), chain), fleet.host(id)::post, fleet.clock::get, new SecureRandom(),
+			ChainFleet.key(100 + number), chain), this::post, fleet.clock::get, new SecureRandom(),
 			fleet.settings.get().orElseThrow()));
+	}
+
+	/* Called with the stub held, as its sessions only send from a test or from appended */
+	private void post(final Entry entry) {
+		if (capture == null) {
+			fleet.host(id).post(entry);
+		} else {
+			capture.add(entry);
+		}
 	}
 }

@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.service.chain;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,11 +69,10 @@ import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.Connect;
 import org.unigrid.hedgehog.proxy.session.Connected;
 import org.unigrid.hedgehog.proxy.session.Data;
-import org.unigrid.hedgehog.proxy.session.EphemeralKey;
 import org.unigrid.hedgehog.proxy.session.SealedCodec;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.Session;
-import org.unigrid.hedgehog.proxy.session.SessionCipher;
+import org.unigrid.hedgehog.proxy.session.SealingCipher;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
@@ -85,6 +83,8 @@ public class ClientSessionsTest {
 	private static final long RETENTION_MILLIS = 30_000;
 	private static final long IDLE_MILLIS = ProxySettings.DEFAULTS.sessionIdleMillis();
 	private static final int TIMEOUT_SECONDS = 10;
+	/* The opening, the answer and the Connect, each an entry of the smallest class */
+	private static final int HANDSHAKE_ENTRIES = 3;
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT,
 		new SocksAddress(Socks5AddressType.DOMAIN, "example.org", 443));
 	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS,
@@ -146,7 +146,7 @@ public class ClientSessionsTest {
 		}
 
 		private List<Session> exitSessions() {
-			return exits.stream().flatMap(exit -> exit.sessions.values().stream()).toList();
+			return exits.stream().flatMap(exit -> exit.sessions.stream()).toList();
 		}
 
 		private List<SealedMessage> exitReceived() {
@@ -170,14 +170,23 @@ public class ClientSessionsTest {
 				.filter(delivery -> packet.isInstance(delivery.packet())).count();
 		}
 
+		/* The openings on the chain: the entries that the sealing key of a member opens */
 		private List<Entry> opens() {
 			return fleet.host(CLIENT).chain(attachment().chainId()).orElseThrow().entries().stream()
-				.filter(entry -> entry.header().kind() == EntryKind.OPEN).toList();
+				.filter(entry -> opener(entry).isPresent()).toList();
 		}
 
 		private static String exitOf(final Entry open) {
-			return new String(open.payload(), EphemeralKey.SIZE, open.payload().length - EphemeralKey.SIZE,
-				StandardCharsets.UTF_8);
+			return opener(open).orElseThrow();
+		}
+
+		private static Optional<String> opener(final Entry entry) {
+			return ChainFleet.openerOf(entry, IntStream.range(0, ChainFleet.MEMBERS).mapToObj(number -> "gn-" + number)
+				.toList());
+		}
+
+		private static byte[] sealingKeyOf(final String member) {
+			return ChainFleet.sealingKey(member).privateKey().orElseThrow();
 		}
 
 		private void maintainAll() {
@@ -191,24 +200,28 @@ public class ClientSessionsTest {
 			fleet.deliver();
 		}
 
-		/* The exit's feed loses an entry, and the chain gives up on it once the entry after it, which belongs to the
-		   session, has waited for the retention window */
-		private void lose(final Fingerprint fingerprint) {
+		/* The exit's feed loses an entry of the session, and the chain gives up on it once the entry after it, which
+		   belongs to the session too, has waited for the retention window */
+		private void lose(final Session exit) {
 			final ChainAttachment attachment = attachment();
-			final Entry later = answering().skipOne(attachment.chainId(), fingerprint);
 
-			fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder().entries(List.of(later))
-				.build());
+			if (exit.isOpen()) {
+				final Entry later = answering().skipOne(exit);
+
+				fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder().entries(List.of(later))
+					.build());
+			}
+
 			fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
 			fleet.host(CLIENT).maintain();
 		}
 
-		/* A writer the client has not heard of writes three entries of the session and the middle one never
-		   arrives, until the client's chain gives up on it */
-		private void strangerLoses(final Fingerprint fingerprint) {
+		/* A writer the client has not heard of writes three entries under the tag and the middle one never arrives,
+		   until the client's chain gives up on it */
+		private void strangerLoses(final Fingerprint tag) {
 			final ChainAttachment attachment = attachment();
 			final FeedWriter stranger = new FeedWriter(ChainFleet.key(200 + strangers++), attachment.chainId());
-			final List<Entry> written = Stream.generate(() -> stranger.write(fleet.clock.get(), fingerprint,
+			final List<Entry> written = Stream.generate(() -> stranger.write(fleet.clock.get(), tag,
 				EntryKind.SEALED, new byte[1])).limit(3).toList();
 
 			fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder()
@@ -248,7 +261,7 @@ public class ClientSessionsTest {
 
 		assertThat(exit.received, equalTo(List.of(CONNECT)));
 		assertThat(handle.isWritable(), is(true));
-		assertThat(handle.maxDataBytes(), is(16 * 1024 - Entry.OVERHEAD - SessionCipher.OVERHEAD
+		assertThat(handle.maxDataBytes(), is(16 * 1024 - Entry.OVERHEAD - SealingCipher.OVERHEAD
 			- SealedCodec.DATA_OVERHEAD));
 
 		exit.session().send(CONNECTED);
@@ -292,7 +305,7 @@ public class ClientSessionsTest {
 	}
 
 	@Example
-	public void triesAnotherExitWithANewFingerprintWhenNoneAnswers() {
+	public void triesAnotherExitWithANewOpeningWhenNoneAnswers() {
 		final Rig rig = new Rig(ChainFleet.group());
 
 		rig.mute(true);
@@ -451,9 +464,9 @@ public class ClientSessionsTest {
 		final ChainAttachment attachment = rig.attachment();
 		final Entry open = rig.opens().get(0);
 		final List<Entry> posted = new ArrayList<>();
-		final Session exit = Session.accept(new SessionContext(new FeedWriter(ChainFleet.key(200),
+		final Session exit = Session.tryAccept(new SessionContext(new FeedWriter(ChainFleet.key(200),
 			attachment.chainId()), posted::add, rig.fleet.clock::get, new SecureRandom(),
-			ProxySettings.DEFAULTS), open, Rig.exitOf(open)).orElseThrow();
+			ProxySettings.DEFAULTS), open, Rig.sealingKeyOf(Rig.exitOf(open))).orElseThrow();
 
 		exit.send(CONNECTED);
 		exit.send(new Data(new byte[] { 1 }));
@@ -489,7 +502,7 @@ public class ClientSessionsTest {
 		final SessionContext exit = new SessionContext(new FeedWriter(ChainFleet.key(200), attachment.chainId()),
 			posted::add, rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
 		final List<Session> sessions = rig.opens().stream()
-			.map(open -> Session.accept(exit, open, Rig.exitOf(open)).orElseThrow()).toList();
+			.map(open -> Session.tryAccept(exit, open, Rig.sealingKeyOf(Rig.exitOf(open))).orElseThrow()).toList();
 
 		sessions.forEach(session -> session.send(CONNECTED));
 		sessions.get(0).send(data(1));
@@ -506,8 +519,8 @@ public class ClientSessionsTest {
 			List.of(CONNECTED, new Close(CloseReason.BROKEN))));
 	}
 
-	/* Any writer can leave a gap that names any fingerprint, so the gap of a writer that is not the session's exit
-	   breaks nothing, be the session opening, which a retry replaces, or established */
+	/* A gap names a session only by a tag the session looks out for, so the gap of a writer under the tag of an
+	   opening breaks nothing, be the session opening, which a retry replaces, or established */
 	@Example
 	public void leavesASessionAloneForAGapOfAWriterThatIsNotItsExit() {
 		final Rig rig = new Rig(ChainFleet.group());
@@ -587,7 +600,7 @@ public class ClientSessionsTest {
 				yield Outcome.both(new Close(CloseReason.IDLE));
 			}
 			case LOSES_AN_ENTRY -> {
-				rig.lose(exit.fingerprint());
+				rig.lose(exit);
 				yield Outcome.both(new Close(CloseReason.BROKEN));
 			}
 			case OPENER_CLOSES -> {
@@ -677,7 +690,8 @@ public class ClientSessionsTest {
 
 	@Example
 	public void tellsNoWritabilityChangeToASessionTheExitEnded() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		/* The handshake and Close of the first session and the handshake of the second fill the chain */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(7)));
 		final Listener ended = new Listener();
 		final Listener running = new Listener();
 
@@ -791,7 +805,7 @@ public class ClientSessionsTest {
 	/* The outbox is shared, so a pause is one for every session of the attachment, one opened meanwhile too */
 	@Example
 	public void pausesWhileTheChainHasNoRoomAndGoesOnWhenItHas() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
 		final Listener listener = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
 
@@ -829,7 +843,7 @@ public class ClientSessionsTest {
 	   and the other as it opened, and the chain takes the post before any tick saw it refused */
 	@Example
 	public void tellsTheOpenersThatReadThatTheChainHadNoRoomWhenItTakesThePostAtTheNextTick() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
 		final Listener listener = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
 
@@ -857,7 +871,7 @@ public class ClientSessionsTest {
 	   next session joins with a writer of its own and carries on */
 	@Example
 	public void joinsWithANewWriterOnceAnEntryWaitedForRoomLongerThanTheChainKeepsEntries() {
-		final ProxySettings tiny = ChainFleet.tinyChains();
+		final ProxySettings tiny = ChainFleet.smallChains(HANDSHAKE_ENTRIES + 1);
 		final Rig rig = new Rig(ChainFleet.group(tiny));
 		final Listener stuck = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, stuck);
@@ -866,6 +880,13 @@ public class ClientSessionsTest {
 
 		final ChainAttachment earlier = rig.attachment();
 		final List<Session> answered = rig.exitSessions();
+		final Entry filler = new FeedWriter(ChainFleet.key(400), earlier.chainId()).write(rig.fleet.clock.get(),
+			Fingerprint.NONE, EntryKind.SEALED, new byte[1024 - Entry.OVERHEAD]);
+
+		/* Another writer takes the room left after the handshake, which the next session's exit needs for its
+		   Connected once both have gone past the retention window */
+		rig.fleet.host(CLIENT).receive(earlier.streams().get(0), ChainEntry.builder().entries(List.of(filler))
+			.build());
 
 		rig.fleet.clock.addAndGet(15_000);
 		handle.send(new Data(new byte[300]));
@@ -924,10 +945,10 @@ public class ClientSessionsTest {
 	}
 
 	/* The listener that throws is enrolled before the one told after it, and one whose opener closed it before the
-	   pause is told nothing. The chains hold two kilobytes. */
+	   pause is told nothing. The chains hold the three openings, the answer and the Connect. */
 	@Example
 	public void tellsTheOtherListenersWhenOneOfThemThrows() {
-		final Rig rig = new Rig(ChainFleet.group(new ProxySettings(8, 3600, 4, 16, 2048, 30, 1024, 300, 3)));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(5)));
 		final AtomicBoolean thrown = new AtomicBoolean();
 		final Listener closed = new Listener();
 		final Listener listener = new Listener();

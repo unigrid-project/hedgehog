@@ -43,7 +43,7 @@ import org.unigrid.hedgehog.proxy.session.CloseReason;
 import org.unigrid.hedgehog.proxy.session.Connect;
 import org.unigrid.hedgehog.proxy.session.SealedCodec;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
-import org.unigrid.hedgehog.proxy.session.SessionCipher;
+import org.unigrid.hedgehog.proxy.session.SealingCipher;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
 /* Runs the client sessions of this node over the chains it joined: opens each on the current attachment, hands
@@ -284,10 +284,10 @@ public final class ClientSessions implements SessionOpener {
 			ask(() -> session.close(CloseReason.DONE));
 		}
 
-		/* Any writer can leave a gap that names any fingerprint, so only the gap of the exit's own feed counts */
+		/* Only a gap that skipped an entry under a tag the session still looks out for lost a message of the exit,
+		   whichever feed it was in: before a tag goes out, nobody but the two ends of the session knows it */
 		private void lost(final Gap gap) {
-			ask(() -> session.exitWriter().filter(gap.writer()::equals).flatMap(exit -> session.fingerprint())
-				.filter(gap.fingerprints()::contains).flatMap(broken -> session.close(CloseReason.BROKEN)));
+			ask(() -> session.isNamedIn(gap) ? session.close(CloseReason.BROKEN) : Optional.empty());
 		}
 
 		/* The session is asked under the lock of the handle, and what it produced is told with no lock held, as the
@@ -332,7 +332,7 @@ public final class ClientSessions implements SessionOpener {
 		@Override
 		public int maxDataBytes() {
 			return Optional.ofNullable(chain).map(joined -> joined.context().maxPayloadBytes()
-				- SessionCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD).orElse(0);
+				- SealingCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD).orElse(0);
 		}
 
 		@Override

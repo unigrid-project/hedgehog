@@ -20,10 +20,9 @@ package org.unigrid.hedgehog.proxy.session;
 
 import java.util.Optional;
 import java.util.Set;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 
 /* Chooses the exit of a session among the members of the client's group, passing over the excluded ones */
 @FunctionalInterface
 public interface ExitSelector {
-	Optional<String> exit(Fingerprint fingerprint, Set<String> excluded);
+	Optional<ExitCandidate> exit(Set<String> excluded);
 }

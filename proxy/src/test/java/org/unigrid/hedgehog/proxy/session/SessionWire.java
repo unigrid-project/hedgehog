@@ -22,23 +22,20 @@ import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
-import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 /* A client and one exit gridnode, each with its own replica of one chain. Every posted entry is offered to
    both replicas and what a replica appends goes to its side, as chain hosts would do over the network. The
-   exit answers the OPENs that name exitId, keeps one session per fingerprint and collects what it receives. */
+   exit holds the sealing key of exitId, answers every opening sealed to it, hands each entry to the session
+   that recognises its tag and collects what it receives. */
 final class SessionWire {
 	final AtomicLong clock = new AtomicLong(SessionFixtures.NOW);
 	final ProxySettings settings;
@@ -47,7 +44,7 @@ final class SessionWire {
 	final Deque<Entry> posted = new ArrayDeque<>();
 	final SessionContext clientContext;
 	final SessionContext exitContext;
-	final Map<Fingerprint, Session> exits = new HashMap<>();
+	final List<Session> exits = new ArrayList<>();
 	final List<SealedMessage> atClient = new ArrayList<>();
 	final List<SealedMessage> atExit = new ArrayList<>();
 	/* Entries that never reach the exit's replica, as if lost on the way */
@@ -91,16 +88,22 @@ final class SessionWire {
 		}
 	}
 
+	/* The session of the latest opening the exit answered */
 	Session exitSession() {
-		return exits.get(client.fingerprint().orElseThrow());
+		return exits.get(exits.size() - 1);
 	}
 
 	private void atExitSide(Entry entry) {
-		if (entry.header().kind() == EntryKind.OPEN) {
-			Session.accept(exitContext, entry, exitId).ifPresent(session -> exits.put(session.fingerprint(), session));
+		if (entry.header().writer().equals(exitContext.writer().writer())) {
+			return;
 		}
 
-		Optional.ofNullable(exits.get(entry.header().fingerprint())).flatMap(session -> session.receive(entry))
-			.ifPresent(atExit::add);
+		final Optional<Session> known = exits.stream().filter(session -> session.recognises(entry)).findFirst();
+
+		if (known.isPresent()) {
+			known.get().receive(entry).ifPresent(atExit::add);
+		} else {
+			Session.tryAccept(exitContext, entry, SessionFixtures.sealingPrivate(exitId)).ifPresent(exits::add);
+		}
 	}
 }

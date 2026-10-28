@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
@@ -36,6 +37,7 @@ import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.Connect;
+import org.unigrid.hedgehog.proxy.session.ExitCandidate;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
@@ -47,6 +49,9 @@ final class SessionPair {
 	static final long NOW = 1_750_000_000_000L;
 	static final String EXIT_ID = "gn-exit";
 	static final ChainId CHAIN = new ChainId(new byte[ChainId.SIZE]);
+	static final byte[] EXIT_KEY = new byte[X25519PrivateKeyParameters.KEY_SIZE];
+	static final ExitCandidate EXIT = new ExitCandidate(EXIT_ID, new X25519PrivateKeyParameters(EXIT_KEY)
+		.generatePublicKey().getEncoded());
 
 	final AtomicLong clock = new AtomicLong(NOW);
 	/* While set, the exit's outbox throws instead of queueing */
@@ -57,10 +62,9 @@ final class SessionPair {
 	final Session exit;
 
 	SessionPair(Connect connect) {
-		client = new ClientSession(context(1, fromClient::add), (fingerprint, excluded) -> Optional.of(EXIT_ID),
-			connect);
+		client = new ClientSession(context(1, fromClient::add), excluded -> Optional.of(EXIT), connect);
 		client.open();
-		exit = Session.accept(context(2, this::post), fromClient.poll(), EXIT_ID).orElseThrow();
+		exit = Session.tryAccept(context(2, this::post), fromClient.poll(), EXIT_KEY).orElseThrow();
 		client.receive(fromExit.poll());
 	}
 

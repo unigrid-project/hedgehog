@@ -25,9 +25,9 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,8 +51,9 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import net.jqwik.api.Assume;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.GenerationMode;
@@ -66,6 +67,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.jqwik.Expect;
@@ -91,7 +93,9 @@ import org.unigrid.hedgehog.proxy.session.Connect;
 import org.unigrid.hedgehog.proxy.session.Connected;
 import org.unigrid.hedgehog.proxy.session.Data;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
-import org.unigrid.hedgehog.proxy.session.EphemeralKey;
+import org.unigrid.hedgehog.proxy.session.ExitCandidate;
+import org.unigrid.hedgehog.proxy.session.ExitSelector;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SessionState;
@@ -104,6 +108,7 @@ public class ChainExitTest {
 	private static final int WAIT_SECONDS = 5;
 	private static final int DEADLOCK_SECONDS = 30;
 	private static final SecureRandom RANDOM = new SecureRandom();
+	private static final int SMALLEST_CLASS = 1024;
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT,
 		new SocksAddress(Socks5AddressType.IPv4, "127.0.0.1", 8080));
 	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS,
@@ -120,18 +125,18 @@ public class ChainExitTest {
 	   stream. */
 	private static final class Caller {
 		private final Rig rig;
-		private final String exitId;
+		private final ExitSelector exits;
 		private final Connect connect;
 		private final SessionContext context;
 		private final List<Entry> posted = new ArrayList<>();
 		private final List<SealedMessage> received = new ArrayList<>();
 		private final List<ClientSession> sessions = new ArrayList<>();
 
-		private Caller(final Rig rig, final int number, final String exitId, final ChainId chainId,
+		private Caller(final Rig rig, final int number, final ExitSelector exits, final ChainId chainId,
 			final Connect connect) {
 
 			this.rig = rig;
-			this.exitId = exitId;
+			this.exits = exits;
 			this.connect = connect;
 			context = new SessionContext(new FeedWriter(ChainFleet.key(300 + number), chainId), posted::add,
 				rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
@@ -139,7 +144,7 @@ public class ChainExitTest {
 		}
 
 		private ClientSession newSession() {
-			return new ClientSession(context, (fingerprint, excluded) -> Optional.of(exitId), connect);
+			return new ClientSession(context, exits, connect);
 		}
 
 		private ClientSession session() {
@@ -165,8 +170,15 @@ public class ChainExitTest {
 			return context.writer().writer();
 		}
 
-		private Fingerprint fingerprint() {
-			return session().fingerprint().orElseThrow();
+		/* The tag of the next message of the first session, which its relay looks out for. The message is sent and
+		   never delivered, so the feed of this caller has a hole from then on. */
+		private Fingerprint nextTag() {
+			return nextTag(session());
+		}
+
+		private Fingerprint nextTag(final ClientSession of) {
+			of.send(new Data(new byte[] { 0 }));
+			return posted.remove(posted.size() - 1).header().fingerprint();
 		}
 
 		/* An entry of this caller's own feed, written beside its sessions */
@@ -211,7 +223,7 @@ public class ChainExitTest {
 		}
 
 		private ChainExit exit(final LongSupplier clock, final Executor resolving) {
-			return new ChainExit(fleet.host(EXIT), fleet.settings::get, fleet.directory(EXIT), clock,
+			return new ChainExit(fleet.host(EXIT), fleet.settings::get, ChainFleet.sealingKey(EXIT), clock,
 				new SecureRandom(), new ExitContexts(DestinationPolicy.allowLoopback(), connector, resolving,
 				() -> released.set(true), this::associate), scheduler);
 		}
@@ -237,7 +249,13 @@ public class ChainExitTest {
 		}
 
 		private Caller caller(final int number, final String exitId, final ChainId chainId, final Connect connect) {
-			final Caller caller = new Caller(this, number, exitId, chainId, connect);
+			return caller(number, excluded -> Optional.of(candidate(exitId)), chainId, connect);
+		}
+
+		private Caller caller(final int number, final ExitSelector exits, final ChainId chainId,
+			final Connect connect) {
+
+			final Caller caller = new Caller(this, number, exits, chainId, connect);
 
 			callers.add(caller);
 			return caller;
@@ -277,12 +295,12 @@ public class ChainExitTest {
 				key -> new FeedWriter(ChainFleet.key(500 + number), chainId));
 		}
 
-		/* An OPEN naming the exit from a writer that never completes the handshake; true when it was answered */
+		/* An opening sealed to the exit from a writer that never completes the handshake; true when it was answered */
 		private boolean opens(final int writer, final ChainId chainId) {
-			final Fingerprint fingerprint = fingerprint();
+			final Entry opening = opening(stranger(writer, chainId), fleet.clock.get(), EXIT);
 
-			offer(open(stranger(writer, chainId), fleet.clock.get(), fingerprint, EXIT));
-			return accepts(chainId, fingerprint) > 0;
+			offer(opening);
+			return answers(chainId, opening) > 0;
 		}
 
 		private long answered(final int writer, final ChainId chainId, final int opens) {
@@ -295,18 +313,32 @@ public class ChainExitTest {
 				entry.header().kind(), entry.payload());
 		}
 
-		private List<Entry> entries(final ChainId chainId, final EntryKind kind) {
-			return fleet.host(EXIT).chain(chainId).orElseThrow().entries().stream()
-				.filter(entry -> entry.header().kind() == kind).toList();
+		private List<Entry> entries(final ChainId chainId) {
+			return fleet.host(EXIT).chain(chainId).orElseThrow().entries();
 		}
 
-		private long accepts(final ChainId chainId, final Fingerprint fingerprint) {
-			return entries(chainId, EntryKind.ACCEPT).stream()
-				.filter(entry -> entry.header().fingerprint().equals(fingerprint)).count();
+		/* The entries of the chain that the exit's sealing key opens */
+		private List<Entry> openings(final ChainId chainId) {
+			return entries(chainId).stream().filter(entry -> ChainFleet.responderOf(entry, EXIT).isPresent())
+				.toList();
+		}
+
+		/* The entries of the chain under the answer tag of an opening sealed to the exit */
+		private List<Entry> answers(final ChainId chainId) {
+			final Set<Fingerprint> tags = openings(chainId).stream().map(opening -> ChainFleet.answerTagOf(opening,
+				EXIT)).collect(Collectors.toSet());
+
+			return entries(chainId).stream().filter(entry -> tags.contains(entry.header().fingerprint())).toList();
+		}
+
+		private long answers(final ChainId chainId, final Entry opening) {
+			final Fingerprint tag = ChainFleet.answerTagOf(opening, EXIT);
+
+			return entries(chainId).stream().filter(entry -> entry.header().fingerprint().equals(tag)).count();
 		}
 
 		private int accepts() {
-			return entries(fleet.chain(), EntryKind.ACCEPT).size();
+			return answers(fleet.chain()).size();
 		}
 	}
 
@@ -401,14 +433,20 @@ public class ChainExitTest {
 		return new Fingerprint(bytes);
 	}
 
-	/* An OPEN as a client writes it: a key of its own and the id of the exit it chose */
-	private static Entry open(final FeedWriter writer, final long now, final Fingerprint fingerprint,
-		final String exitId) {
+	private static ExitCandidate candidate(final String exitId) {
+		return new ExitCandidate(exitId, ChainFleet.sealingKey(exitId).publicKey().orElseThrow());
+	}
 
-		final byte[] id = exitId.getBytes(StandardCharsets.UTF_8);
+	/* An opening as a client writes it: its handshake message sealed to the key the exit announces, with the chain
+	   and the writer in the prologue, in an entry of the smallest class under a random tag */
+	@SneakyThrows
+	private static Entry opening(final FeedWriter writer, final long now, final String exitId) {
+		final byte[] prologue = ByteBuffer.allocate(ChainId.SIZE + WriterId.SIZE).put(writer.chainId().bytes())
+			.put(writer.writer().bytes()).array();
+		final byte[] message = NoiseNk.initiate(candidate(exitId).sealingKey(), prologue, RANDOM).message();
 
-		return writer.write(now, fingerprint, EntryKind.OPEN, ByteBuffer.allocate(EphemeralKey.SIZE + id.length)
-			.put(EphemeralKey.generate(RANDOM).publicKey()).put(id).array());
+		return writer.write(now, fingerprint(), EntryKind.SEALED, Arrays.copyOf(message,
+			SMALLEST_CLASS - Entry.OVERHEAD));
 	}
 
 	private static ChainEntry packet(final Entry entry) {
@@ -474,7 +512,7 @@ public class ChainExitTest {
 		rig.caller(1).open();
 
 		assertThat(rig.fleet.host(EXIT).retiredChains(), hasItem(rig.fleet.chain()));
-		assertThat(rig.entries(rig.fleet.chain(), EntryKind.OPEN).size(), is(1));
+		assertThat(rig.openings(rig.fleet.chain()).size(), is(1));
 		assertThat(rig.accepts(), is(0));
 		assertThat(rig.exit.heldRelays(), is(0));
 	}
@@ -486,17 +524,16 @@ public class ChainExitTest {
 		final String exitId = fleet.view().groups().members(0).get(0);
 		final ChainId followed = fleet.view().chains(1).get(0);
 		final EmbeddedChannel stream = fleet.stream(exitId, fleet.view().groups().members(1).get(0));
-		final ChainExit exit = new ChainExit(fleet.host(exitId), fleet.settings::get, fleet.directory(exitId),
+		final ChainExit exit = new ChainExit(fleet.host(exitId), fleet.settings::get, ChainFleet.sealingKey(exitId),
 			fleet.clock::get, new SecureRandom(), new ExitContexts(DestinationPolicy.allowLoopback(),
 			new FakeConnector(), Runnable::run, () -> { }), new ManualScheduler());
 
 		exit.start();
 		assertThat(fleet.host(exitId).follow(followed, stream, Map.of()), is(true));
-		fleet.host(exitId).receive(stream, packet(open(new FeedWriter(ChainFleet.key(1), followed),
-			fleet.clock.get(), fingerprint(), exitId)));
+		fleet.host(exitId).receive(stream, packet(opening(new FeedWriter(ChainFleet.key(1), followed),
+			fleet.clock.get(), exitId)));
 
-		assertThat(fleet.host(exitId).chain(followed).orElseThrow().entries().stream()
-			.map(entry -> entry.header().kind()).toList(), contains(EntryKind.OPEN));
+		assertThat(fleet.host(exitId).chain(followed).orElseThrow().entries(), hasSize(1));
 		assertThat(exit.heldRelays(), is(0));
 	}
 
@@ -530,10 +567,10 @@ public class ChainExitTest {
 		assertThat(rig.connector.requests, is(empty()));
 	}
 
-	/* A session of a copy would write under the same feed and fingerprint as the first, so garbage under the copier's
-	   writer would make it post a Close that the client of the first cannot open */
+	/* The prologue of an opening binds its writer, so a copy under another writer opens nothing, and an entry of
+	   another writer under the tag of the session's next message is nothing its client said */
 	@Example
-	public void answersNoCopyOfAnOpenItAnsweredAndNothingTheCopierSendsReachesTheSession() {
+	public void answersNoCopyOfAnOpeningAndNothingTheCopierSendsReachesTheSession() {
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 		final ChainId chain = rig.fleet.chain();
@@ -547,58 +584,45 @@ public class ChainExitTest {
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
 		rig.offer(rig.copy(open, 9, chain));
-		rig.offer(rig.stranger(9, chain).write(rig.fleet.clock.get(), caller.fingerprint(), EntryKind.SEALED,
-			new byte[40]));
 		caller.session().send(new Data(new byte[] { 1 }));
+		rig.offer(rig.stranger(9, chain).write(rig.fleet.clock.get(), caller.posted.get(0).header().fingerprint(),
+			EntryKind.SEALED, new byte[40]));
 		rig.drive();
 		rig.connector.requests.get(0).listener().received(new byte[] { 2 });
 		rig.drive();
 
 		assertThat(caller.received, contains(CONNECTED, new Data(new byte[] { 2 })));
 		assertThat(target.written.toByteArray(), equalTo(new byte[] { 1 }));
-		assertThat(rig.accepts(chain, caller.fingerprint()), is(1L));
+		assertThat(rig.answers(chain, open), is(1L));
+		assertThat(rig.accepts(), is(1));
 		assertThat(rig.exit.heldRelays(), is(1));
 	}
 
-	/* The ACCEPT of the copy names the copier's writer in its transcript, so it confirms nothing to the client, and
-	   the copier has no key for the session its copy opened */
+	/* A copy of an opening that reaches the exit first opens nothing, so it costs the client nothing either */
 	@Example
-	public void costsTheClientOneAttemptWhenACopyOfItsOpenReachesTheExitFirst() {
+	public void costsTheClientNothingWhenACopyOfItsOpeningReachesTheExitFirst() {
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 		final ChainId chain = rig.fleet.chain();
 
 		caller.session().open();
 
-		final Fingerprint first = caller.fingerprint();
+		final Entry open = caller.posted.get(0);
 
-		rig.offer(rig.copy(caller.posted.get(0), 9, chain));
-		rig.drive();
-
-		assertThat(rig.accepts(chain, first), is(1L));
-		assertThat(caller.session().state(), is(SessionState.OPENING));
-
-		rig.fleet.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS);
-		caller.session().tick();
+		rig.offer(rig.copy(open, 9, chain));
 		rig.drive();
 		rig.connector.connect();
 		rig.drive();
 
-		assertThat(caller.fingerprint(), not(first));
+		assertThat(rig.answers(chain, open), is(1L));
+		assertThat(rig.accepts(), is(1));
 		assertThat(caller.received, contains(CONNECTED));
-		assertThat(rig.exit.heldRelays(), is(2));
-
-		rig.fleet.clock.addAndGet(ChainExit.CONNECT_ARRIVAL_MILLIS - ClientSession.ACCEPT_TIMEOUT_MILLIS);
-		rig.exit.tick();
-		rig.drive();
-
 		assertThat(rig.exit.heldRelays(), is(1));
-		assertThat(rig.exit.openRelays(), is(1));
-		assertThat(caller.received, contains(CONNECTED));
 	}
 
+	/* The prologue binds the chain as well */
 	@Example
-	public void answersACopyOnAnotherChainWithoutTouchingTheSessionOfTheFirst() {
+	public void answersNoCopyOnAnotherChain() {
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 
@@ -608,18 +632,49 @@ public class ChainExitTest {
 		rig.connector.connect();
 		rig.drive();
 
-		assertThat(rig.accepts(rig.chain(1), caller.fingerprint()), is(1L));
-		assertThat(rig.accepts(rig.fleet.chain(), caller.fingerprint()), is(1L));
+		assertThat(rig.answers(rig.chain(1)), is(empty()));
+		assertThat(rig.accepts(), is(1));
 		assertThat(caller.received, contains(CONNECTED));
 	}
 
-	/* The writer of the chain withholds an entry, and the one after it waits for the gap until the retention window
-	   has passed, when the chain gives the gap up and tells the exit which fingerprints the waiting entries had */
-	private static void leaveAGap(final Rig rig, final FeedWriter writer, final Fingerprint... fingerprints) {
+	/* Two exits take in the same openings, and only the one whose key sealed an opening answers it */
+	@Example
+	public void onlyTheChosenExitAnswers() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final String otherId = "gn-2";
+		final ChainExit other = new ChainExit(rig.fleet.host(otherId), rig.fleet.settings::get,
+			ChainFleet.sealingKey(otherId), rig.fleet.clock::get, new SecureRandom(), new ExitContexts(
+			DestinationPolicy.allowLoopback(), new FakeConnector(), Runnable::run, () -> { }), new ManualScheduler());
+		final Entry toExit = opening(rig.stranger(1, chain), rig.fleet.clock.get(), EXIT);
+		final Entry toOther = opening(rig.stranger(2, chain), rig.fleet.clock.get(), otherId);
+
+		other.start();
+
+		for (final Entry opening : List.of(toExit, toOther)) {
+			rig.offer(opening);
+			rig.fleet.host(otherId).receive(rig.fleet.stream(otherId, "gn-0"), packet(opening));
+		}
+
+		final List<Entry> atOther = rig.fleet.host(otherId).chain(chain).orElseThrow().entries();
+
+		assertThat(rig.answers(chain, toExit), is(1L));
+		assertThat(rig.accepts(), is(1));
+		assertThat(rig.exit.heldRelays(), is(1));
+		assertThat(other.heldRelays(), is(1));
+		assertThat(atOther.stream().filter(entry -> entry.header().fingerprint().equals(ChainFleet.answerTagOf(
+			toOther, otherId))).count(), is(1L));
+		assertThat(atOther.stream().filter(entry -> entry.header().fingerprint().equals(ChainFleet.answerTagOf(
+			toExit, EXIT))).count(), is(0L));
+	}
+
+	/* The writer of the chain withholds an entry, and the ones after it, under the tags given, wait for the gap until
+	   the retention window has passed, when the chain gives the gap up and tells the exit the tags they had */
+	private static void leaveAGap(final Rig rig, final FeedWriter writer, final Fingerprint... tags) {
 		writer.write(rig.fleet.clock.get(), Fingerprint.NONE, EntryKind.SEALED, new byte[1]);
 
-		for (final Fingerprint fingerprint : fingerprints) {
-			rig.offer(writer.write(rig.fleet.clock.get(), fingerprint, EntryKind.SEALED, new byte[1]));
+		for (final Fingerprint tag : tags) {
+			rig.offer(writer.write(rig.fleet.clock.get(), tag, EntryKind.SEALED, new byte[1]));
 		}
 
 		rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.chainLimits().retentionMillis() + 1000);
@@ -640,7 +695,7 @@ public class ChainExitTest {
 		final FakeConnector.FakeTarget kept = rig.connector.connect();
 
 		rig.drive();
-		leaveAGap(rig, caller.context.writer(), caller.fingerprint());
+		leaveAGap(rig, caller.context.writer(), caller.nextTag());
 		rig.drive();
 
 		assertThat(lost.closed, is(true));
@@ -663,12 +718,12 @@ public class ChainExitTest {
 
 		first.failingClose = true;
 		other.failingClose = true;
-		leaveAGap(rig, caller.context.writer(), caller.fingerprint(), second.fingerprint().orElseThrow());
+		leaveAGap(rig, caller.context.writer(), caller.nextTag(), caller.nextTag(second));
 
 		assertThat(List.of(first.closed, other.closed), everyItem(is(true)));
 	}
 
-	/* Any writer can leave a gap that names any fingerprint, and the gap of a chain is no gap of another */
+	/* Any writer that saw a tag can leave a gap that names it, and the gap of a chain is no gap of another */
 	@Example
 	public void leavesASessionAloneForAGapOfAnotherWriterOrChain() {
 		final Rig rig = new Rig();
@@ -678,8 +733,10 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
-		leaveAGap(rig, rig.stranger(9, rig.fleet.chain()), caller.fingerprint());
-		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(caller.fingerprint())));
+		final Fingerprint tag = caller.nextTag();
+
+		leaveAGap(rig, rig.stranger(9, rig.fleet.chain()), tag);
+		rig.exit.gapped(rig.chain(1), new Gap(caller.writer(), 0, 1, Set.of(tag)));
 
 		assertThat(target.closed, is(false));
 		assertThat(rig.exit.openRelays(), is(1));
@@ -693,7 +750,7 @@ public class ChainExitTest {
 				caller.session().close(CloseReason.DONE);
 				rig.drive();
 			},
-			"a gap", (rig, caller) -> leaveAGap(rig, caller.context.writer(), caller.fingerprint()),
+			"a gap", (rig, caller) -> leaveAGap(rig, caller.context.writer(), caller.nextTag()),
 			"the idle limit", (rig, caller) -> {
 				rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
 				rig.exit.tick();
@@ -751,8 +808,8 @@ public class ChainExitTest {
 		assertThat(rig.exit.heldRelays(), is(0));
 	}
 
-	/* The ACCEPTs are not handed to the callers, so their Connects never come. Entries of another writer under a
-	   fingerprint are nothing its client said. */
+	/* The answers are not handed to the callers, so their Connects never come. An entry of another writer under the
+	   tag of an opening is nothing its client said. */
 	@Example
 	public void closesARelayWhoseClientSentNoConnectWithinTheArrivalInterval() {
 		final Rig rig = new Rig();
@@ -760,12 +817,15 @@ public class ChainExitTest {
 		final Caller late = rig.caller(2);
 
 		early.session().open();
+
+		final Fingerprint opening = early.posted.get(0).header().fingerprint();
+
 		early.send();
 		rig.fleet.clock.incrementAndGet();
 		late.session().open();
 		late.send();
-		rig.offer(rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), early.fingerprint(),
-			EntryKind.SEALED, new byte[40]));
+		rig.offer(rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), opening, EntryKind.SEALED,
+			new byte[40]));
 
 		rig.fleet.clock.addAndGet(ChainExit.CONNECT_ARRIVAL_MILLIS - 2);
 		rig.exit.tick();
@@ -796,7 +856,7 @@ public class ChainExitTest {
 		assertThat(rig.exit.openRelays(), is(1));
 	}
 
-	/* The stamp of an OPEN is its writer's word, so the interval cannot run from it */
+	/* The stamp of an opening is its writer's word, so the interval cannot run from it */
 	@Example
 	public void countsTheArrivalIntervalFromTheAnswerAndNotFromTheStampOfTheOpen() {
 		final Rig rig = new Rig();
@@ -816,8 +876,10 @@ public class ChainExitTest {
 		assertThat(rig.exit.openRelays(), is(0));
 	}
 
+	/* An entry of the client under a later tag than the next means the messages before it were lost. The host hands
+	   over a feed in order, so the exit is told of it directly. */
 	@Example
-	public void endsTheRelayWithTheSessionWhenAnEntryOfItsClientDoesNotOpen() {
+	public void endsTheRelayWithTheSessionWhenAnEntryOfItsClientIsPastTheNext() {
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 
@@ -826,7 +888,13 @@ public class ChainExitTest {
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
 		rig.drive();
-		rig.offer(caller.write(caller.fingerprint(), EntryKind.SEALED, new byte[40]));
+		caller.session().send(new Data(new byte[] { 1 }));
+		caller.session().send(new Data(new byte[] { 2 }));
+
+		final Entry second = caller.posted.get(1);
+
+		caller.posted.clear();
+		rig.exit.appended(rig.fleet.chain(), second);
 
 		assertThat(target.closed, is(true));
 		assertThat(rig.exit.openRelays(), is(0));
@@ -886,6 +954,40 @@ public class ChainExitTest {
 		assertThat(rig.opens(2, chain), is(true));
 	}
 
+	/* The exit at the share of the client's writer stays silent, as it would for an opening sealed to another member,
+	   and the client moves on to its next candidate once the answer is overdue */
+	@Example
+	public void anExitAtItsLimitsStaysSilent() {
+		final Rig rig = new Rig();
+		final ChainId chain = rig.fleet.chain();
+		final List<String> order = List.of(EXIT, "gn-2");
+		final Caller caller = rig.caller(1, excluded -> order.stream().filter(id -> !excluded.contains(id))
+			.findFirst().map(ChainExitTest::candidate), chain, CONNECT);
+
+		IntStream.range(0, ChainExit.RELAYS_PER_WRITER).forEach(number -> rig.offer(opening(caller.context.writer(),
+			rig.fleet.clock.get(), EXIT)));
+		assertThat(rig.exit.heldRelays(), is(ChainExit.RELAYS_PER_WRITER));
+
+		caller.open();
+
+		final Entry silent = rig.openings(chain).get(ChainExit.RELAYS_PER_WRITER);
+
+		assertThat(rig.answers(chain, silent), is(0L));
+		assertThat(rig.exit.heldRelays(), is(ChainExit.RELAYS_PER_WRITER));
+		assertThat(caller.session().state(), is(SessionState.OPENING));
+		assertThat(caller.session().exit(), equalTo(Optional.of(EXIT)));
+
+		rig.fleet.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS - 1);
+		assertThat(caller.session().tick(), equalTo(Optional.empty()));
+		assertThat(caller.posted, is(empty()));
+
+		rig.fleet.clock.incrementAndGet();
+		assertThat(caller.session().tick(), equalTo(Optional.empty()));
+		assertThat(caller.session().exit(), equalTo(Optional.of("gn-2")));
+		assertThat(caller.posted, hasSize(1));
+		assertThat(ChainFleet.openerOf(caller.posted.get(0), order), equalTo(Optional.of("gn-2")));
+	}
+
 	@Example
 	public void answersNoMoreOpensOnOneChainThanItsShare() {
 		final Rig rig = new Rig();
@@ -936,20 +1038,22 @@ public class ChainExitTest {
 		}
 	}
 
-	/* Only a sealed entry of the session's own client under its fingerprint is opened by the session */
+	/* Only an entry of the session's own client under the tag of its next message is opened by the session */
 	@Property(tries = 40)
 	public void leavesASessionWholeWhateverElseTheChainCarries(@ForAll EntryKind kind,
-		@ForAll @Size(max = 96) byte[] payload, @ForAll boolean ofItsClient, @ForAll boolean underItsFingerprint) {
-
-		Assume.that(!(ofItsClient && underItsFingerprint && kind == EntryKind.SEALED));
+		@ForAll @Size(max = 96) byte[] payload, @ForAll boolean ofItsClient, @ForAll boolean underItsOpeningsTag) {
 
 		final Rig rig = new Rig();
 		final Caller caller = rig.caller(1);
 
-		caller.open();
+		caller.session().open();
+
+		final Fingerprint opening = caller.posted.get(0).header().fingerprint();
+
+		rig.drive();
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
-		final Fingerprint fingerprint = underItsFingerprint ? caller.fingerprint() : fingerprint();
+		final Fingerprint fingerprint = underItsOpeningsTag ? opening : fingerprint();
 		final Entry entry = ofItsClient ? caller.write(fingerprint, kind, payload)
 			: rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), fingerprint, kind, payload);
 
@@ -967,7 +1071,8 @@ public class ChainExitTest {
 
 	@Example
 	public void pausesTheDestinationWhileTheChainHasNoRoomForWhatItSends() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		/* The opening, the answer, the Connect and the Connected fill the chain */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
 		final Caller caller = rig.caller(1);
 
 		caller.open();
@@ -996,7 +1101,7 @@ public class ChainExitTest {
 		final Rig rig = new Rig();
 
 		rig.caller(1).open();
-		rig.fleet.host(EXIT).refused(rig.stream, EntryRefused.of(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT)
+		rig.fleet.host(EXIT).refused(rig.stream, EntryRefused.of(rig.answers(rig.fleet.chain())
 			.get(0), Admission.FULL));
 		rig.caller(2).open();
 
@@ -1015,7 +1120,7 @@ public class ChainExitTest {
 		rig.caller(1).open();
 
 		final FakeConnector.FakeTarget old = rig.connector.connect();
-		final WriterId feed = rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer();
+		final WriterId feed = rig.answers(rig.fleet.chain()).get(0).header().writer();
 
 		rig.fleet.settings.set(Optional.of(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 31, 3)));
 		rig.fleet.host(EXIT).refresh();
@@ -1028,7 +1133,7 @@ public class ChainExitTest {
 
 		assertThat(old.closed, is(true));
 		assertThat(caller.received, contains(CONNECTED));
-		assertThat(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer(), not(feed));
+		assertThat(rig.answers(rig.fleet.chain()).get(0).header().writer(), not(feed));
 
 		rig.exit.tick();
 		assertThat(rig.exit.heldRelays(), is(1));
@@ -1040,12 +1145,13 @@ public class ChainExitTest {
 	   feed of its own */
 	@Example
 	public void endsTheSessionsOfAFeedWhoseEntryWaitedTooLongAndStartsAFeedOfItsOwn() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.tinyChains()));
+		/* The opening, the answer, the Connect and the Connected fill the chain */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
 
 		rig.caller(1).open();
 
 		final FakeConnector.FakeTarget old = rig.connector.connect();
-		final WriterId feed = rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer();
+		final WriterId feed = rig.answers(rig.fleet.chain()).get(0).header().writer();
 
 		rig.drive();
 		rig.fleet.clock.addAndGet(15_000);
@@ -1067,7 +1173,7 @@ public class ChainExitTest {
 		rig.drive();
 
 		assertThat(caller.received, contains(CONNECTED));
-		assertThat(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).stream().map(accept -> accept.header().writer())
+		assertThat(rig.answers(rig.fleet.chain()).stream().map(accept -> accept.header().writer())
 			.toList(), everyItem(not(feed)));
 		assertThat(rig.exit.heldChains(), is(1));
 	}
@@ -1084,7 +1190,7 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget old = rig.connector.connect();
 		final TargetListener destination = rig.connector.requests.get(0).listener();
-		final WriterId feed = rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).get(0).header().writer();
+		final WriterId feed = rig.answers(rig.fleet.chain()).get(0).header().writer();
 
 		rig.drive();
 		rig.fleet.clock.addAndGet(40_000);
@@ -1102,7 +1208,7 @@ public class ChainExitTest {
 		assertThat(old.closed, is(true));
 		assertThat(first.received, contains(CONNECTED, new Data(new byte[] { 1 })));
 		assertThat(caller.received, contains(CONNECTED));
-		assertThat(rig.entries(rig.fleet.chain(), EntryKind.ACCEPT).stream().map(accept -> accept.header().writer())
+		assertThat(rig.answers(rig.fleet.chain()).stream().map(accept -> accept.header().writer())
 			.toList(), everyItem(not(feed)));
 
 		rig.exit.tick();
@@ -1295,7 +1401,7 @@ public class ChainExitTest {
 		fleet.clock.set(System.currentTimeMillis());
 
 		final Rig rig = new Rig(fleet, built -> new ChainExit(fleet.host(EXIT), fleet.settings::get,
-			fleet.directory(EXIT)));
+			ChainFleet.sealingKey(EXIT)));
 		final Caller caller = rig.caller(1);
 
 		caller.session().open();
@@ -1534,7 +1640,7 @@ public class ChainExitTest {
 		rig.exit.stop();
 		caller.session().send(new Data(new byte[] { 1 }));
 		rig.drive();
-		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(caller.fingerprint())));
+		rig.exit.gapped(rig.fleet.chain(), new Gap(caller.writer(), 0, 1, Set.of(caller.nextTag())));
 		rig.caller(2).open();
 
 		assertThat(rig.scheduler.isShutdown(), is(true));
@@ -1562,7 +1668,7 @@ public class ChainExitTest {
 			host = new ChainHost(fleet.settings::get, fleet.directory(EXIT), fleet.transport(EXIT),
 				fleet.clock::get, new Random(1), new ManualScheduler(), delivery);
 			host.refresh();
-			exit = new ChainExit(host, fleet.settings::get, fleet.directory(EXIT), fleet.clock::get,
+			exit = new ChainExit(host, fleet.settings::get, ChainFleet.sealingKey(EXIT), fleet.clock::get,
 				new SecureRandom(), new ExitContexts(DestinationPolicy.allowLoopback(), connector,
 				Runnable::run, () -> { }), new ManualScheduler());
 			exit.start();
@@ -1596,9 +1702,11 @@ public class ChainExitTest {
 			start.countDown();
 		}
 
-		private long accepts(final ChainId chainId) {
+		private long answers(final ChainId chainId, final Entry opening) {
+			final Fingerprint tag = ChainFleet.answerTagOf(opening, EXIT);
+
 			return host.chain(chainId).orElseThrow().entries().stream()
-				.filter(entry -> entry.header().kind() == EntryKind.ACCEPT).count();
+				.filter(entry -> entry.header().fingerprint().equals(tag)).count();
 		}
 
 		/* A thread that hands a chain entries leaves them to the delivery thread when that one drains the chain, and
@@ -1639,7 +1747,7 @@ public class ChainExitTest {
 			final List<ClientSession> sessions = IntStream.range(0, 4).mapToObj(number -> new ClientSession(
 				new SessionContext(new FeedWriter(ChainFleet.key(300 + number), chain), posted::add,
 				node.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS),
-				(fingerprint, excluded) -> Optional.of(EXIT), CONNECT)).toList();
+				excluded -> Optional.of(candidate(EXIT)), CONNECT)).toList();
 			/* The replies of the destinations are posted from the other threads while this one hands entries over, so
 			   an entry is taken off the queue as it is offered and none can be cleared unoffered */
 			final Runnable post = () -> {
@@ -1674,8 +1782,8 @@ public class ChainExitTest {
 		}
 	}
 
-	/* Every chain drains on the thread that hands it entries, so OPENs of one writer on four chains reach the exit at
-	   once */
+	/* Every chain drains on the thread that hands it entries, so openings of one writer on four chains reach the exit
+	   at once */
 	@Example
 	public void keepsTheShareOfAWriterWhenItsOpensArriveOnSeveralChainsAtOnce() throws Exception {
 		try (Threaded node = new Threaded()) {
@@ -1683,8 +1791,8 @@ public class ChainExitTest {
 				.mapToObj(chain -> new FeedWriter(ChainFleet.key(1), node.chain(chain))).toList();
 
 			IntStream.range(0, 62)
-				.forEach(open -> node.offer(open(feeds.get(0), ChainFleet.NOW, fingerprint(), EXIT)));
-			node.atOnce(feeds.stream().map(feed -> open(feed, ChainFleet.NOW, fingerprint(), EXIT))
+				.forEach(open -> node.offer(opening(feeds.get(0), ChainFleet.NOW, EXIT)));
+			node.atOnce(feeds.stream().map(feed -> opening(feed, ChainFleet.NOW, EXIT))
 				.<Runnable>map(open -> () -> node.offer(open)).toList());
 			node.awaitWork();
 
@@ -1692,21 +1800,18 @@ public class ChainExitTest {
 		}
 	}
 
-	/* A chain the host rebuilt drains on two threads while the old one is swapped out, so an OPEN and its copy may
-	   both be on their way to an answer before either has one */
+	/* A chain the host rebuilt drains on two threads while the old one is swapped out, so the same opening may be on
+	   its way to an answer twice before either has one */
 	@Example
-	public void answersOneOfTwoOpensOfAFingerprintThatArriveAtOnce() throws Exception {
+	public void answersAnOpeningOnceWhenItArrivesTwiceAtOnce() throws Exception {
 		try (Threaded node = new Threaded()) {
 			final ChainId chain = node.chain(0);
-			final Entry open = open(new FeedWriter(ChainFleet.key(1), chain), ChainFleet.NOW, fingerprint(),
-				EXIT);
-			final Entry copy = new FeedWriter(ChainFleet.key(2), chain).write(ChainFleet.NOW,
-				open.header().fingerprint(), EntryKind.OPEN, open.payload());
+			final Entry opening = opening(new FeedWriter(ChainFleet.key(1), chain), ChainFleet.NOW, EXIT);
 
-			node.atOnce(List.of(() -> node.exit.appended(chain, open), () -> node.exit.appended(chain, copy)));
+			node.atOnce(List.of(() -> node.exit.appended(chain, opening), () -> node.exit.appended(chain, opening)));
 			node.awaitWork();
 
-			assertThat(node.accepts(chain), is(1L));
+			assertThat(node.answers(chain, opening), is(1L));
 			assertThat(node.exit.heldRelays(), is(1));
 		}
 	}

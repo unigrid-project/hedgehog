@@ -45,6 +45,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import org.awaitility.Awaitility;
@@ -58,14 +59,14 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.proxy.chain.Entry;
-import org.unigrid.hedgehog.proxy.chain.EntryKind;
+import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
 import org.unigrid.hedgehog.proxy.exit.NettyUdpConnector;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
-import org.unigrid.hedgehog.proxy.session.EphemeralKey;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import org.unigrid.hedgehog.proxy.socks.SocksInitializer;
 
@@ -128,7 +129,7 @@ public class ChainProxyEndToEndTest {
 		}
 
 		private void exit(final String id) {
-			final ChainExit exit = new ChainExit(fleet.host(id), fleet.settings::get, fleet.directory(id),
+			final ChainExit exit = new ChainExit(fleet.host(id), fleet.settings::get, ChainFleet.sealingKey(id),
 				fleet.clock::get, new SecureRandom(), contexts, new ManualScheduler());
 
 			exit.start();
@@ -153,12 +154,34 @@ public class ChainProxyEndToEndTest {
 			return pump.getQueue().stream().filter(task -> task != pumping).count();
 		}
 
-		/* The entries of a kind on the chains of the group, as its first member holds them */
-		private List<Entry> entries(final EntryKind kind) {
+		/* The entries on the chains of the group, as its first member holds them */
+		private List<Entry> entries() {
 			final ChainHost member = fleet.host(fleet.activeIds().get(0));
 
 			return member.hostedChains().stream().flatMap(chain -> member.chain(chain).orElseThrow().entries()
-				.stream()).filter(entry -> entry.header().kind() == kind).toList();
+				.stream()).toList();
+		}
+
+		/* The openings among them: the entries that the sealing key of a gridnode opens */
+		private List<Entry> openings() {
+			return entries().stream().filter(entry -> ChainFleet.openerOf(entry, ids()).isPresent()).toList();
+		}
+
+		/* The answers among them: the entries under the answer tag of an opening */
+		private List<Entry> answers() {
+			final Set<Fingerprint> tags = openings().stream().map(opening -> ChainFleet.answerTagOf(opening,
+				named(opening))).collect(Collectors.toSet());
+
+			return entries().stream().filter(entry -> tags.contains(entry.header().fingerprint())).toList();
+		}
+
+		/* The gridnode an opening is sealed to */
+		private String named(final Entry opening) {
+			return ChainFleet.openerOf(opening, ids()).orElseThrow();
+		}
+
+		private List<String> ids() {
+			return fleet.gridnodes.stream().map(Gridnode::getId).toList();
 		}
 
 		/* The shutdown cancels the pump's task, so a task that is done and not cancelled once the pump has stopped
@@ -214,12 +237,6 @@ public class ChainProxyEndToEndTest {
 	private static ConditionFactory waiting() {
 		return Awaitility.await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).pollDelay(Duration.ZERO)
 			.pollInterval(Duration.ofMillis(PUMP_MILLIS));
-	}
-
-	/* The exit id an OPEN names behind the client's key */
-	private static String named(final Entry open) {
-		return new String(open.payload(), EphemeralKey.SIZE, open.payload().length - EphemeralKey.SIZE,
-			StandardCharsets.UTF_8);
 	}
 
 	/* The address the exit's connection to the server comes from, which the reply names */
@@ -278,8 +295,8 @@ public class ChainProxyEndToEndTest {
 			assertThat(echo.peers, contains(bound));
 			assertThat(network.openRelays(), is(1));
 			assertThat(network.deadlines(), is(0L));
-			assertThat(network.entries(EntryKind.OPEN), hasSize(1));
-			assertThat(network.entries(EntryKind.ACCEPT), hasSize(1));
+			assertThat(network.openings(), hasSize(1));
+			assertThat(network.answers(), hasSize(1));
 		}
 	}
 
@@ -387,7 +404,7 @@ public class ChainProxyEndToEndTest {
 			assertReceived(other, second);
 			assertThat(echo.peers, containsInAnyOrder(ofOne, ofOther));
 			assertThat(network.openRelays(), is(2));
-			assertThat(network.entries(EntryKind.OPEN), hasSize(2));
+			assertThat(network.openings(), hasSize(2));
 		}
 	}
 
@@ -420,8 +437,8 @@ public class ChainProxyEndToEndTest {
 		}
 	}
 
-	/* No exit runs on the member the first OPEN names, so it goes unanswered until the accept timeout has passed and
-	   the session asks another member */
+	/* No exit runs on the member the first opening is sealed to, so it goes unanswered until the accept timeout has
+	   passed and the session asks another member */
 	@Example
 	public void passesOverAnExitThatDoesNotAnswer() throws Exception {
 		final ChainFleet fleet = ChainFleet.group();
@@ -429,8 +446,8 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1), List.of());
 			SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			final List<Entry> opens = waiting().until(() -> network.entries(EntryKind.OPEN), hasSize(1));
-			final String silent = named(opens.get(0));
+			final List<Entry> opens = waiting().until(() -> network.openings(), hasSize(1));
+			final String silent = network.named(opens.get(0));
 
 			fleet.activeIds().stream().filter(id -> !id.equals(silent)).forEach(network::exit);
 			fleet.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS);
@@ -441,9 +458,9 @@ public class ChainProxyEndToEndTest {
 			client.write(bytes("other"));
 			assertReceived(client, bytes("other"));
 			assertThat(echo.peers, contains(bound));
-			assertThat(network.entries(EntryKind.OPEN).stream().map(ChainProxyEndToEndTest::named).toList(),
+			assertThat(network.openings().stream().map(network::named).toList(),
 				contains(equalTo(silent), not(equalTo(silent))));
-			assertThat(network.entries(EntryKind.ACCEPT), hasSize(1));
+			assertThat(network.answers(), hasSize(1));
 		}
 	}
 
@@ -475,15 +492,15 @@ public class ChainProxyEndToEndTest {
 			old.write(bytes("one"));
 			assertReceived(old, bytes("one"));
 
-			final List<Entry> opens = network.entries(EntryKind.OPEN);
+			final List<Entry> opens = network.openings();
 
 			assertThat(opens, hasSize(1));
 
-			final ChainHost exit = fleet.host(named(opens.get(0)));
+			final ChainHost exit = fleet.host(network.named(opens.get(0)));
 
 			fleet.clock.addAndGet(EPOCH_MILLIS);
 			everyNodeTicks(fleet, network);
-			assertThat(network.entries(EntryKind.OPEN), is(empty()));
+			assertThat(network.openings(), is(empty()));
 			old.write(bytes("two"));
 			assertReceived(old, bytes("onetwo"));
 
@@ -492,7 +509,7 @@ public class ChainProxyEndToEndTest {
 
 				fresh.write(bytes("new"));
 				assertReceived(fresh, bytes("new"));
-				assertThat(network.entries(EntryKind.OPEN), hasSize(1));
+				assertThat(network.openings(), hasSize(1));
 
 				fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS - 1);
 				everyNodeTicks(fleet, network);
