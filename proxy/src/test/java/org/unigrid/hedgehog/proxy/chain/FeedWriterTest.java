@@ -117,8 +117,19 @@ public class FeedWriterTest {
 		assertThat(feed.append(second), is(Link.NEXT));
 	}
 
+	/* Stamps in milliseconds would let the member a client attaches through time the answer to an opening */
+	@Example
+	public void timestampsAreWholeSecondsAndNeverRunBack() {
+		final FeedWriter writer = new FeedWriter(ChainFixtures.key(1), CHAIN);
+		final Entry first = writer.write(2_000_999, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
+		final Entry second = writer.write(1_999_500, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
+
+		assertThat(first.header().timestamp(), is(2_000_000L));
+		assertThat(second.header().timestamp(), is(2_000_000L));
+	}
+
 	@Property(tries = 50)
-	public void shouldWriteTheRunningMaximumOfTheClock(@ForAll("clocks") List<Long> clocks) {
+	public void shouldWriteTheRunningMaximumOfTheClockInWholeSeconds(@ForAll("clocks") List<Long> clocks) {
 		final WriterKey key = ChainFixtures.key(1);
 		final FeedWriter writer = new FeedWriter(key, CHAIN);
 		final Feed feed = new Feed(key.id());
@@ -129,7 +140,7 @@ public class FeedWriterTest {
 
 			final Entry entry = writer.write(now, Fingerprint.NONE, EntryKind.SEALED, new byte[0]);
 
-			assertThat(entry.header().timestamp(), is(latest));
+			assertThat(entry.header().timestamp(), is(Math.floorDiv(latest, 1000) * 1000));
 			assertThat(feed.append(entry), is(Link.NEXT));
 		}
 	}

@@ -28,6 +28,9 @@ public final class Entry {
 	public static final int TRAILER_SIZE = Long.BYTES + SIGNATURE_SIZE;
 	public static final int OVERHEAD = HEADER_SIZE + TRAILER_SIZE;
 
+	/* A timestamp is in epoch milliseconds and always a whole number of seconds */
+	public static final long STAMP_MILLIS = 1000;
+
 	private final EntryHeader header;
 	private final byte[] payload;
 	private final long hash;

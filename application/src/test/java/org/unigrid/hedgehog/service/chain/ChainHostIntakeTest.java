@@ -352,7 +352,7 @@ public class ChainHostIntakeTest {
 		final ChainFleet fleet = ChainFleet.group();
 		final Chain chain = fleet.host("gn-0").chain(chainOf(fleet, 0)).orElseThrow();
 		final List<Entry> arrival = new ArrayList<>(IntStream.range(0, writers).boxed().flatMap(writer ->
-			ChainFleet.entries(ChainFleet.key(writer), chain.id(), perWriter, ChainFleet.NOW + writer).stream())
+			ChainFleet.entries(ChainFleet.key(writer), chain.id(), perWriter, ChainFleet.NOW + writer * 1000L).stream())
 			.toList());
 		final List<Entry> sorted = arrival.stream().sorted(fifo()).toList();
 

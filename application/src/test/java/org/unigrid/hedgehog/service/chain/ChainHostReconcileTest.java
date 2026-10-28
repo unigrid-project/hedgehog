@@ -734,8 +734,8 @@ public class ChainHostReconcileTest {
 	public void answersOldestFirstWhateverTheOrderOfTheRanges() {
 		final ChainFleet fleet = ChainFleet.group();
 		final long start = ChainFleet.NOW;
-		final List<Entry> first = writeAt(fleet, 1, start, start + 20, start + 40);
-		final List<Entry> second = writeAt(fleet, 2, start + 10, start + 30);
+		final List<Entry> first = writeAt(fleet, 1, start, start + 2000, start + 4000);
+		final List<Entry> second = writeAt(fleet, 2, start + 1000, start + 3000);
 
 		store(fleet, first);
 		store(fleet, second);
