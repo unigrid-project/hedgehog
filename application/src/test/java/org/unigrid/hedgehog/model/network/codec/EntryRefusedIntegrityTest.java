@@ -135,7 +135,7 @@ public class EntryRefusedIntegrityTest extends BaseCodecTest<EntryRefused> {
 	public void keepsTheWireLayoutAndAdmissionBytesOfDeployedNodes() throws Exception {
 		final List<Admission> inWireOrder = List.of(Admission.ACCEPTED, Admission.AHEAD, Admission.DUPLICATE,
 			Admission.REPLAYED, Admission.BROKEN, Admission.WRONG_CHAIN, Admission.TOO_LARGE, Admission.FUTURE,
-			Admission.EXPIRED, Admission.NOT_AUTHENTIC, Admission.FULL);
+			Admission.EXPIRED, Admission.NOT_AUTHENTIC, Admission.FULL, Admission.MALFORMED);
 
 		assertThat(Admission.values().length, equalTo(inWireOrder.size()));
 

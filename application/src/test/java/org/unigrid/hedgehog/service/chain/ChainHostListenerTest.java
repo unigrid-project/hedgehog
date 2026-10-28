@@ -64,6 +64,7 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostListenerTest {
 	private static final int TIMEOUT_SECONDS = 10;
@@ -133,6 +134,10 @@ public class ChainHostListenerTest {
 	@SneakyThrows
 	private static void awaitIn(final CountDownLatch latch) {
 		assertThat(latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(true));
+	}
+
+	private static byte[] padded(final byte[] payload) {
+		return ChainFleet.padded(payload, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
 	}
 
 	private static List<Offered> listen(final ChainHost host) {
@@ -493,7 +498,7 @@ public class ChainHostListenerTest {
 		final ChainFleet fleet = ChainFleet.group();
 		final List<Offered> offered = listen(fleet.host("gn-2"));
 		final Entry open = new FeedWriter(ChainFleet.key(1), fleet.chain()).write(ChainFleet.NOW,
-			new Fingerprint(new byte[Fingerprint.SIZE]), EntryKind.OPEN, new byte[] { 1 });
+			new Fingerprint(new byte[Fingerprint.SIZE]), EntryKind.OPEN, padded(new byte[] { 1 }));
 
 		post(fleet, "gn-0", fleet.client("gn-0", 1), List.of(open));
 
@@ -510,7 +515,7 @@ public class ChainHostListenerTest {
 		final List<EntryKind> kinds = List.of(EntryKind.SEALED, EntryKind.OPEN, EntryKind.ACCEPT, EntryKind.JOIN,
 			EntryKind.LEAVE, EntryKind.OPEN);
 		final List<Entry> entries = kinds.stream()
-			.map(kind -> feed.write(ChainFleet.NOW, Fingerprint.NONE, kind, new byte[] { 1 })).toList();
+			.map(kind -> feed.write(ChainFleet.NOW, Fingerprint.NONE, kind, padded(new byte[] { 1 }))).toList();
 
 		post(fleet, "gn-0", fleet.client("gn-0", 1), entries);
 

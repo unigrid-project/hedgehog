@@ -24,9 +24,13 @@ import java.util.List;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
+import org.unigrid.hedgehog.proxy.Padding;
 
 final class ChainFixtures {
 	static final int MAX_ENTRY_BYTES = 16 * 1024;
+
+	/* The size of the entries signed() writes, the smallest class of every chain whose entries may be that large */
+	static final int ENTRY_SIZE = SizeClasses.of(MAX_ENTRY_BYTES).get(0);
 
 	private ChainFixtures() {
 		/* Static helpers only */
@@ -75,18 +79,19 @@ final class ChainFixtures {
 		return new ChainId(bytes);
 	}
 
+	/* An entry of ENTRY_SIZE bytes whose payload starts with the low byte of its sequence number */
 	static Entry signed(WriterKey key, ChainId chainId, long seq, long prev, long timestamp, EntryKind kind) {
 		return key.sign(new EntryHeader(chainId, key.id(), seq, prev, timestamp, Fingerprint.NONE, kind),
-			new byte[] { (byte) seq });
+			Padding.padded(new byte[] { (byte) seq }, MAX_ENTRY_BYTES));
 	}
 
-	/* A feed of count entries that each link to the one before, one millisecond apart */
+	/* A feed of count entries that each link to the one before, one second apart */
 	static List<Entry> linked(WriterKey key, ChainId chainId, int count, long timestamp, EntryKind kind) {
 		final List<Entry> entries = new ArrayList<>();
 		long prev = 0;
 
 		for (int seq = 0; seq < count; seq++) {
-			final Entry entry = signed(key, chainId, seq, prev, timestamp + seq, kind);
+			final Entry entry = signed(key, chainId, seq, prev, timestamp + seq * Entry.STAMP_MILLIS, kind);
 
 			entries.add(entry);
 			prev = entry.hash();

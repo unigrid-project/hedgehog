@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
+import org.unigrid.hedgehog.proxy.Padding;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Gap;
@@ -54,6 +55,10 @@ public class SessionCloseTest {
 
 	private static SessionWire opened() {
 		return opened(ProxySettings.DEFAULTS);
+	}
+
+	private static byte[] padded(byte[] payload) {
+		return Padding.padded(payload, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
 	}
 
 	private static SessionWire opened(ProxySettings settings) {
@@ -289,7 +294,7 @@ public class SessionCloseTest {
 	public void shouldNotCountWhatItIgnoresOrRefusesAsActivity() {
 		final SessionWire wire = opened();
 		final Session exit = wire.exitSession();
-		final Entry ofAnotherSession = wire.clientContext.post(OTHER_SESSION, new byte[40]);
+		final Entry ofAnotherSession = wire.clientContext.post(OTHER_SESSION, padded(new byte[40]));
 
 		wire.posted.clear();
 		wire.clock.addAndGet(IDLE_MILLIS - 1);
@@ -465,8 +470,8 @@ public class SessionCloseTest {
 
 		wire.client.send(data(1));
 		wire.pump();
-		wire.lostAtExit.add(wire.clientContext.post(OTHER_SESSION, new byte[40]));
-		wire.clientContext.post(OTHER_SESSION, new byte[41]);
+		wire.lostAtExit.add(wire.clientContext.post(OTHER_SESSION, padded(new byte[40])));
+		wire.clientContext.post(OTHER_SESSION, padded(new byte[41]));
 		wire.pump();
 		wire.clock.addAndGet(RETENTION_MILLIS + 1);
 
@@ -490,7 +495,7 @@ public class SessionCloseTest {
 		wire.client.send(data(1));
 		wire.client.send(data(2));
 		wire.lostAtExit.add(List.copyOf(wire.posted).get(1));
-		wire.clientContext.post(OTHER_SESSION, new byte[40]);
+		wire.clientContext.post(OTHER_SESSION, padded(new byte[40]));
 		wire.pump();
 		wire.clock.addAndGet(RETENTION_MILLIS + 1);
 

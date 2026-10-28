@@ -35,15 +35,15 @@ public class ChainTrimTest {
 	private static final ChainId CHAIN = ChainFixtures.chainId(1);
 	private static final ChainLimits LIMITS = new ChainLimits(1024 * 1024, 30, ChainFixtures.MAX_ENTRY_BYTES);
 	private static final WriterKey WRITER = ChainFixtures.key(1);
-	private static final int ENTRY_SIZE = Entry.OVERHEAD + 1;
+	private static final int ENTRY_SIZE = ChainFixtures.ENTRY_SIZE;
 
 	private static Entry withoutSignature(Entry entry) {
 		return new Entry(entry.header(), entry.payload(), entry.hash(), new byte[Entry.SIGNATURE_SIZE]);
 	}
 
 	@Property(tries = 50)
-	public void shouldTrimWhatIsOlderThanTheRetentionWindow(@ForAll @IntRange(min = 1, max = 40) int count,
-		@ForAll @IntRange(min = 29_990, max = 30_050) int elapsed) {
+	public void shouldTrimWhatIsOlderThanTheRetentionWindow(@ForAll @IntRange(min = 1, max = 30) int count,
+		@ForAll @IntRange(min = 25_000, max = 65_000) int elapsed) {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, count, NOW, EntryKind.SEALED);
@@ -89,7 +89,7 @@ public class ChainTrimTest {
 		final WriterKey other = ChainFixtures.key(2);
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
 		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.JOIN);
-		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1, EntryKind.JOIN);
+		final Entry oldest = ChainFixtures.signed(other, CHAIN, 0, 0, NOW - 1000, EntryKind.JOIN);
 
 		joins.forEach(chain::offer);
 		assertThat(chain.offer(oldest), equalTo(new Offer(Admission.ACCEPTED, List.of(oldest))));
@@ -117,7 +117,7 @@ public class ChainTrimTest {
 	@Example
 	public void shouldRefuseAnEntryOlderThanTheRetentionWindow() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_001, EntryKind.JOIN);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN);
 		final Entry edge = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_000, EntryKind.JOIN);
 
 		assertThat(chain.offer(expired).admission(), is(Admission.EXPIRED));
@@ -154,7 +154,7 @@ public class ChainTrimTest {
 
 	@Example
 	public void shouldNotVerifyAnExpiredEntry() {
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_001, EntryKind.JOIN);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN);
 
 		assertThat(new Chain(CHAIN, LIMITS, () -> NOW).offer(withoutSignature(expired)).admission(),
 			is(Admission.EXPIRED));
@@ -164,7 +164,7 @@ public class ChainTrimTest {
 	public void shouldLeaveNoTraceOfAnExpiredEntry() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
 
-		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 30_001, EntryKind.JOIN));
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW - 31_000, EntryKind.JOIN));
 		assertThat(chain.heads(), equalTo(Map.of()));
 		assertThat(chain.entries(), is(empty()));
 		assertThat(chain.bytes(), is(0L));
@@ -189,12 +189,12 @@ public class ChainTrimTest {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(6L * ENTRY_SIZE, 30, 4 * ENTRY_SIZE), () -> NOW);
 		final List<Entry> joins = ChainFixtures.linked(WRITER, CHAIN, 6, NOW, EntryKind.JOIN);
 		final long prev = joins.get(5).hash();
-		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 6, prev, NOW + 6, Fingerprint.NONE,
-			EntryKind.JOIN), new byte[3 * ENTRY_SIZE - Entry.OVERHEAD]);
+		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 6, prev, NOW + 6000, Fingerprint.NONE,
+			EntryKind.JOIN), new byte[4 * ENTRY_SIZE - Entry.OVERHEAD]);
 
 		joins.forEach(chain::offer);
 		assertThat(chain.offer(large).admission(), is(Admission.ACCEPTED));
-		assertThat(chain.entries(), equalTo(List.of(joins.get(3), joins.get(4), joins.get(5), large)));
+		assertThat(chain.entries(), equalTo(List.of(joins.get(4), joins.get(5), large)));
 		assertThat(chain.bytes(), is(6L * ENTRY_SIZE));
 	}
 }

@@ -127,7 +127,7 @@ public class ChainHostIntakeTest {
 
 	private static Entry ofKind(final ChainId chainId, final EntryKind kind, final int writer) {
 		return new FeedWriter(ChainFleet.key(writer), chainId).write(ChainFleet.NOW, Fingerprint.NONE, kind,
-			new byte[] { 1 });
+			ChainFleet.padded(new byte[] { 1 }, MAX_ENTRY_BYTES));
 	}
 
 	private static HostedChain hostedChain(final int maxWriters, final ChainLimits limits, final LongSupplier clock) {
@@ -317,7 +317,7 @@ public class ChainHostIntakeTest {
 
 	@Example
 	public void holdsOnlyAsMuchOutOfOrderTrafficAsTheBufferOfTheChainTakes() {
-		final ChainFleet fleet = ChainFleet.group(ChainFleet.tinyChains());
+		final ChainFleet fleet = ChainFleet.group(ChainFleet.smallChains(20));
 		final ChainId chainId = chainOf(fleet, 0);
 		final List<Entry> entries = ChainFleet.entries(ChainFleet.key(1), chainId, 11, ChainFleet.NOW);
 		final Chain chain = fleet.host("gn-0").chain(chainId).orElseThrow();
@@ -561,7 +561,7 @@ public class ChainHostIntakeTest {
 		final List<Entry> feed = ChainFleet.entries(ChainFleet.key(1), chainId, 3, ChainFleet.NOW);
 		final FeedWriter forker = new FeedWriter(ChainFleet.key(1), chainId);
 		final List<Entry> fork = IntStream.range(0, 3).mapToObj(number -> forker.write(ChainFleet.NOW,
-			Fingerprint.NONE, EntryKind.SEALED, new byte[] { 7 })).toList();
+			Fingerprint.NONE, EntryKind.SEALED, ChainFleet.padded(new byte[] { 7 }, MAX_ENTRY_BYTES))).toList();
 		final Entry future = ChainFleet.entries(ChainFleet.key(2), chainId, 1,
 			ChainFleet.NOW + BEYOND_RETENTION_MILLIS).get(0);
 

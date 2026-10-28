@@ -159,6 +159,10 @@ public final class Chain {
 			return Optional.of(Admission.TOO_LARGE);
 		}
 
+		if (isMalformed(entry)) {
+			return Optional.of(Admission.MALFORMED);
+		}
+
 		if (entry.header().timestamp() > now + limits.retentionMillis()) {
 			return Optional.of(Admission.FUTURE);
 		}
@@ -168,6 +172,13 @@ public final class Chain {
 		}
 
 		return Optional.empty();
+	}
+
+	/* Every writer pads its entries to a size class and stamps them in whole seconds, so that neither the size nor
+	   the time of an entry tells more than that */
+	private boolean isMalformed(Entry entry) {
+		return !SizeClasses.isClass(entry.size(), limits.maxEntryBytes())
+			|| Math.floorMod(entry.header().timestamp(), Entry.STAMP_MILLIS) != 0;
 	}
 
 	/* Only sealed traffic waits for room, so sessions can still open, be accepted and leave */

@@ -28,6 +28,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -39,7 +40,7 @@ public class ChainBufferTest {
 	private static final ChainId CHAIN = ChainFixtures.chainId(1);
 	private static final ChainLimits LIMITS = new ChainLimits(1024 * 1024, 30, ChainFixtures.MAX_ENTRY_BYTES);
 	private static final WriterKey WRITER = ChainFixtures.key(1);
-	private static final int ENTRY_SIZE = Entry.OVERHEAD + 1;
+	private static final int ENTRY_SIZE = ChainFixtures.ENTRY_SIZE;
 
 	private static List<Entry> linked(int count, EntryKind kind) {
 		return ChainFixtures.linked(WRITER, CHAIN, count, NOW, kind);
@@ -84,7 +85,7 @@ public class ChainBufferTest {
 	public void shouldDropAWaitingEntryThatDoesNotLink() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
 		final List<Entry> entries = linked(3, EntryKind.SEALED);
-		final Entry stray = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2, EntryKind.SEALED);
+		final Entry stray = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 2000, EntryKind.SEALED);
 
 		chain.offer(entries.get(0));
 		chain.offer(stray);
@@ -181,8 +182,8 @@ public class ChainBufferTest {
 	public void shouldKeepTheEntryThatWaitedFirstForASequenceNumber() {
 		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
 		final List<Entry> entries = linked(3, EntryKind.SEALED);
-		final Entry fork = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW + 2, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[3]);
+		final Entry fork = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW + 2000, Fingerprint.NONE,
+			EntryKind.SEALED), Padding.padded(new byte[3], ChainFixtures.MAX_ENTRY_BYTES));
 
 		chain.offer(entries.get(0));
 		chain.offer(entries.get(2));
@@ -239,8 +240,8 @@ public class ChainBufferTest {
 	public void shouldHoldOtherKindsWhileFull() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
 		final List<Entry> sealed = linked(4, EntryKind.SEALED);
-		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4, EntryKind.LEAVE);
-		final Entry later = ChainFixtures.signed(WRITER, CHAIN, 5, leave.hash(), NOW + 5, EntryKind.LEAVE);
+		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, EntryKind.LEAVE);
+		final Entry later = ChainFixtures.signed(WRITER, CHAIN, 5, leave.hash(), NOW + 5000, EntryKind.LEAVE);
 
 		sealed.forEach(chain::offer);
 		assertThat(chain.offer(later).admission(), is(Admission.AHEAD));
@@ -276,10 +277,10 @@ public class ChainBufferTest {
 	public void shouldNotHoldAnEntryThatIsRefused() {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(8L * ENTRY_SIZE, 30, ENTRY_SIZE), () -> NOW);
 		final Entry elsewhere = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 2, 7, NOW, EntryKind.SEALED);
-		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 30_001, EntryKind.SEALED);
-		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW - 30_001, EntryKind.SEALED);
+		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW + 31_000, EntryKind.SEALED);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW - 31_000, EntryKind.SEALED);
 		final Entry large = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 2, 7, NOW, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[2]);
+			EntryKind.SEALED), new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
 
 		assertThat(chain.offer(elsewhere).admission(), is(Admission.WRONG_CHAIN));
 		assertThat(chain.offer(future).admission(), is(Admission.FUTURE));

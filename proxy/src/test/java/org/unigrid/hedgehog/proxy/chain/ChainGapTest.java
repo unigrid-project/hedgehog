@@ -29,6 +29,7 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import org.unigrid.hedgehog.proxy.Expect;
+import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
@@ -51,7 +52,7 @@ public class ChainGapTest {
 
 	private static Entry signed(WriterKey key, long seq, long prev, long timestamp, Fingerprint fingerprint) {
 		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, fingerprint, EntryKind.SEALED),
-			new byte[] { (byte) seq });
+			Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
 	}
 
 	@Example
@@ -59,15 +60,15 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final Entry first = signed(WRITER, 0, 0, NOW, fingerprint(1));
-		final Entry lost = signed(WRITER, 1, first.hash(), NOW + 1, fingerprint(1));
-		final Entry third = signed(WRITER, 2, lost.hash(), NOW + 2, fingerprint(2));
-		final Entry fourth = signed(WRITER, 3, third.hash(), NOW + 3, fingerprint(3));
-		final Entry fifth = signed(WRITER, 4, fourth.hash(), NOW + 30_010, fingerprint(1));
+		final Entry lost = signed(WRITER, 1, first.hash(), NOW + 1000, fingerprint(1));
+		final Entry third = signed(WRITER, 2, lost.hash(), NOW + 2000, fingerprint(2));
+		final Entry fourth = signed(WRITER, 3, third.hash(), NOW + 3000, fingerprint(3));
+		final Entry fifth = signed(WRITER, 4, fourth.hash(), NOW + 31_000, fingerprint(1));
 
 		chain.offer(first);
 		chain.offer(third);
 		chain.offer(fourth);
-		clock.set(NOW + 30_003);
+		clock.set(NOW + 32_001);
 		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 1, 3,
 			Set.of(fingerprint(2), fingerprint(3))))));
 		assertThat(chain.heldBytes(), is(0L));
@@ -81,8 +82,8 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final Entry first = signed(WRITER, 0, 0, NOW, fingerprint(1));
-		final Entry second = signed(WRITER, 1, first.hash(), NOW + 1, fingerprint(1));
-		final Entry third = signed(WRITER, 2, second.hash(), NOW + 2, fingerprint(1));
+		final Entry second = signed(WRITER, 1, first.hash(), NOW + 1000, fingerprint(1));
+		final Entry third = signed(WRITER, 2, second.hash(), NOW + 2000, fingerprint(1));
 
 		chain.offer(first);
 		chain.offer(third);
@@ -137,11 +138,11 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 
-		chain.offer(waiting(WRITER, 2, NOW + 2));
-		clock.set(NOW + 30_002);
+		chain.offer(waiting(WRITER, 2, NOW + 2000));
+		clock.set(NOW + 32_000);
 		assertThat(chain.expireGaps(), is(empty()));
 		assertThat(waitingWriters(chain), is(1));
-		clock.set(NOW + 30_003);
+		clock.set(NOW + 32_001);
 		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 2, Set.of(fingerprint(2))))));
 	}
 
@@ -150,10 +151,10 @@ public class ChainGapTest {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 		final Head anchor = new Head(5, 99);
-		final Entry next = signed(WRITER, 6, 99, NOW + 30_002, fingerprint(6));
+		final Entry next = signed(WRITER, 6, 99, NOW + 31_000, fingerprint(6));
 
 		chain.offer(waiting(WRITER, 1, NOW));
-		chain.offer(waiting(WRITER, 2, NOW + 1));
+		chain.offer(waiting(WRITER, 2, NOW + 1000));
 		assertThat(chain.anchor(WRITER.id(), anchor), is(true));
 		clock.set(NOW + 30_002);
 		assertThat(chain.expireGaps(), is(empty()));

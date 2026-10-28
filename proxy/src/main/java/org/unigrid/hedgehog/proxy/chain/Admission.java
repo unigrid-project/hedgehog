@@ -34,5 +34,8 @@ public enum Admission {
 	NOT_AUTHENTIC,
 	/* No room: a sealed entry while the chain is at capacity, or any entry the buffer for out-of-order ones cannot
 	   take. The host turns it into a pause for the writer */
-	FULL
+	FULL,
+	/* Of a size that is no size class of the chain, or stamped within a second rather than on one. Last, so that the
+	   other refusals keep their numbers on the wire */
+	MALFORMED
 }

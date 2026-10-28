@@ -27,7 +27,6 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,7 +108,6 @@ public class ChainExitTest {
 	private static final int WAIT_SECONDS = 5;
 	private static final int DEADLOCK_SECONDS = 30;
 	private static final SecureRandom RANDOM = new SecureRandom();
-	private static final int SMALLEST_CLASS = 1024;
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT,
 		new SocksAddress(Socks5AddressType.IPv4, "127.0.0.1", 8080));
 	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS,
@@ -434,6 +432,10 @@ public class ChainExitTest {
 		return new Fingerprint(bytes);
 	}
 
+	private static byte[] padded(final byte[] payload) {
+		return ChainFleet.padded(payload, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
+	}
+
 	private static ExitCandidate candidate(final String exitId) {
 		return new ExitCandidate(exitId, ChainFleet.sealingKey(exitId).publicKey().orElseThrow());
 	}
@@ -446,8 +448,7 @@ public class ChainExitTest {
 			.put(writer.writer().bytes()).array();
 		final byte[] message = NoiseNk.initiate(candidate(exitId).sealingKey(), prologue, RANDOM).message();
 
-		return writer.write(now, fingerprint(), EntryKind.SEALED, Arrays.copyOf(message,
-			SMALLEST_CLASS - Entry.OVERHEAD));
+		return writer.write(now, fingerprint(), EntryKind.SEALED, padded(message));
 	}
 
 	private static ChainEntry packet(final Entry entry) {
@@ -587,7 +588,7 @@ public class ChainExitTest {
 		rig.offer(rig.copy(open, 9, chain));
 		caller.session().send(new Data(new byte[] { 1 }));
 		rig.offer(rig.stranger(9, chain).write(rig.fleet.clock.get(), caller.posted.get(0).header().fingerprint(),
-			EntryKind.SEALED, new byte[40]));
+			EntryKind.SEALED, padded(new byte[40])));
 		rig.drive();
 		rig.connector.requests.get(0).listener().received(new byte[] { 2 });
 		rig.drive();
@@ -672,10 +673,10 @@ public class ChainExitTest {
 	/* The writer of the chain withholds an entry, and the ones after it, under the tags given, wait for the gap until
 	   the retention window has passed, when the chain gives the gap up and tells the exit the tags they had */
 	private static void leaveAGap(final Rig rig, final FeedWriter writer, final Fingerprint... tags) {
-		writer.write(rig.fleet.clock.get(), Fingerprint.NONE, EntryKind.SEALED, new byte[1]);
+		writer.write(rig.fleet.clock.get(), Fingerprint.NONE, EntryKind.SEALED, padded(new byte[1]));
 
 		for (final Fingerprint tag : tags) {
-			rig.offer(writer.write(rig.fleet.clock.get(), tag, EntryKind.SEALED, new byte[1]));
+			rig.offer(writer.write(rig.fleet.clock.get(), tag, EntryKind.SEALED, padded(new byte[1])));
 		}
 
 		rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.chainLimits().retentionMillis() + 1000);
@@ -1144,8 +1145,8 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 		final Fingerprint fingerprint = underItsOpeningsTag ? opening : fingerprint();
-		final Entry entry = ofItsClient ? caller.write(fingerprint, kind, payload)
-			: rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), fingerprint, kind, payload);
+		final Entry entry = ofItsClient ? caller.write(fingerprint, kind, padded(payload))
+			: rig.stranger(9, rig.fleet.chain()).write(rig.fleet.clock.get(), fingerprint, kind, padded(payload));
 
 		rig.drive();
 		assertThat(ChainFleet.warningsWhile(() -> rig.offer(entry)), is(empty()));

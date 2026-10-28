@@ -39,7 +39,7 @@ public class ChainCapacityTest {
 	private static final long NOW = 1_750_000_000_000L;
 	private static final ChainId CHAIN = ChainFixtures.chainId(1);
 	private static final WriterKey WRITER = ChainFixtures.key(1);
-	private static final int ENTRY_SIZE = Entry.OVERHEAD + 1;
+	private static final int ENTRY_SIZE = ChainFixtures.ENTRY_SIZE;
 	private static final ChainLimits FOUR_ENTRIES = new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE);
 
 	@Property(tries = 5)
@@ -61,7 +61,7 @@ public class ChainCapacityTest {
 	public void shouldStillTakeOtherKindsWhenFull() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
 		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4, EntryKind.LEAVE);
+		final Entry leave = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, EntryKind.LEAVE);
 
 		sealed.forEach(chain::offer);
 		assertThat(chain.offer(leave).admission(), is(Admission.ACCEPTED));
@@ -87,7 +87,7 @@ public class ChainCapacityTest {
 	public void shouldTakeEveryOtherKindWhenFull(@ForAll("unsealedKinds") EntryKind kind) {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
 		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
-		final Entry other = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4, kind);
+		final Entry other = ChainFixtures.signed(WRITER, CHAIN, 4, sealed.get(3).hash(), NOW + 4000, kind);
 
 		sealed.forEach(chain::offer);
 		assertThat(chain.offer(other), equalTo(new Offer(Admission.ACCEPTED, List.of(other))));
@@ -104,9 +104,9 @@ public class ChainCapacityTest {
 		final Chain chain = new Chain(CHAIN, new ChainLimits(4L * ENTRY_SIZE, 30, ENTRY_SIZE + 1), () -> NOW);
 		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 3, NOW, EntryKind.SEALED);
 		final long prev = sealed.get(2).hash();
-		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3, Fingerprint.NONE,
-			EntryKind.SEALED), new byte[2]);
-		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3, EntryKind.SEALED);
+		final Entry oneTooLarge = WRITER.sign(new EntryHeader(CHAIN, WRITER.id(), 3, prev, NOW + 3000, Fingerprint.NONE,
+			EntryKind.SEALED), new byte[ENTRY_SIZE + 1 - Entry.OVERHEAD]);
+		final Entry fits = ChainFixtures.signed(WRITER, CHAIN, 3, prev, NOW + 3000, EntryKind.SEALED);
 
 		sealed.forEach(chain::offer);
 		assertThat(chain.offer(oneTooLarge).admission(), is(Admission.FULL));
@@ -121,7 +121,7 @@ public class ChainCapacityTest {
 		final List<Entry> sealed = ChainFixtures.linked(WRITER, CHAIN, 4, NOW, EntryKind.SEALED);
 
 		sealed.forEach(chain::offer);
-		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 4, EntryKind.SEALED)).admission(),
+		assertThat(chain.offer(ChainFixtures.signed(other, CHAIN, 0, 0, NOW + 4000, EntryKind.SEALED)).admission(),
 			is(Admission.FULL));
 		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(3, sealed.get(3).hash()))));
 		assertThat(chain.bytes(), is(4L * ENTRY_SIZE));

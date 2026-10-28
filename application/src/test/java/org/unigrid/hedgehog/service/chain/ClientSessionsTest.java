@@ -223,7 +223,8 @@ public class ClientSessionsTest {
 			final ChainAttachment attachment = attachment();
 			final FeedWriter stranger = new FeedWriter(ChainFleet.key(200 + strangers++), attachment.chainId());
 			final List<Entry> written = Stream.generate(() -> stranger.write(fleet.clock.get(), tag,
-				EntryKind.SEALED, new byte[1])).limit(3).toList();
+				EntryKind.SEALED, ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes())))
+				.limit(3).toList();
 
 			fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder()
 				.entries(List.of(written.get(0), written.get(2))).build());
@@ -903,7 +904,7 @@ public class ClientSessionsTest {
 		final ChainAttachment earlier = rig.attachment();
 		final List<Session> answered = rig.exitSessions();
 		final Entry filler = new FeedWriter(ChainFleet.key(400), earlier.chainId()).write(rig.fleet.clock.get(),
-			Fingerprint.NONE, EntryKind.SEALED, new byte[1024 - Entry.OVERHEAD]);
+			Fingerprint.NONE, EntryKind.SEALED, ChainFleet.padded(new byte[0], tiny.chainLimits().maxEntryBytes()));
 
 		/* Another writer takes the room left after the handshake, which the next session's exit needs for its
 		   Connected once both have gone past the retention window */

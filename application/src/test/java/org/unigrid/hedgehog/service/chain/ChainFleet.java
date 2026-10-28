@@ -66,6 +66,7 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
+import org.unigrid.hedgehog.proxy.chain.SizeClasses;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
 import org.unigrid.hedgehog.proxy.group.GroupView;
@@ -150,9 +151,9 @@ final class ChainFleet {
 			retentionSeconds, 16 * 1024, 300, flags);
 	}
 
-	/* Chains of 1 KiB hold five of the small entries `entries` writes */
+	/* Chains of 5 KiB hold five of the entries `entries` writes */
 	static ProxySettings tinyChains() {
-		return new ProxySettings(8, 3600, 4, 16, 1024, 30, 1024, 300, 3);
+		return new ProxySettings(8, 3600, 4, 16, 5 * 1024, 30, 1024, 300, 3);
 	}
 
 	/* Chains that hold the given number of entries of 1 KiB, which is both the smallest size class and the largest
@@ -188,10 +189,21 @@ final class ChainFleet {
 		return write(new FeedWriter(key, chainId), count, timestamp);
 	}
 
-	/* The next entries of a feed, so that one writer can write at different times */
+	/* The next entries of a feed, so that one writer can write at different times. Each is of the smallest class, which
+	   every chain has, and its payload starts with its number. */
 	static List<Entry> write(final FeedWriter feed, final int count, final long timestamp) {
 		return IntStream.range(0, count).mapToObj(number -> feed.write(timestamp, Fingerprint.NONE, EntryKind.SEALED,
-			new byte[] { (byte) number })).toList();
+			padded(new byte[] { (byte) number }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()))).toList();
+	}
+
+	/* A chain takes only entries of its size classes, so every payload a test posts is padded with zeros to the payload
+	   of the smallest class of the chain that holds it */
+	static byte[] padded(final byte[] payload, final int maxEntryBytes) {
+		final int entryBytes = SizeClasses.fit(Entry.OVERHEAD + payload.length, maxEntryBytes)
+			.orElseThrow(() -> new IllegalArgumentException("A payload of " + payload.length
+				+ " bytes fits no entry of at most " + maxEntryBytes + " bytes"));
+
+		return Arrays.copyOf(payload, entryBytes - Entry.OVERHEAD);
 	}
 
 	ChainHost host(final String id) {

@@ -51,6 +51,7 @@ import org.unigrid.hedgehog.proxy.chain.EntryKind;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Fingerprint;
 import org.unigrid.hedgehog.proxy.chain.Head;
+import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostBudgetTest {
 	private static final long SECOND = 1000;
@@ -305,30 +306,31 @@ public class ChainHostBudgetTest {
 		assertThat(host.fetch(member, greedy), is(empty()));
 	}
 
-	/* Entries that take a sixteenth of a mebibyte in a frame each, so that answers add up to the budget exactly: three
-	   answers of 512 of them and one of 511 leave room for one more, which an entry a byte larger does not fit */
+	/* Entries of the largest class of a chain that take a sixteenth of a mebibyte in a frame each, so that answers add
+	   up to the budget exactly: three answers of 512 of them and one of 511 leave room for exactly one more, and then
+	   not even for an entry of the smallest class */
 	@Example
 	public void servesTheBytesOfAStreamUpToItsBudgetExactlyEachSecond() {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16, 32L * 1024 * 1024,
+			30, FRAMED_BYTES - Integer.BYTES, 300, 3));
 		final ChainHost host = fleet.host("gn-0");
 		final EmbeddedChannel member = fleet.stream("gn-0", "gn-1");
 		final List<Entry> filler = framed(fleet.chain(), 1, ANSWER_ENTRIES, FRAMED_BYTES);
-		final Entry tooLarge = framed(fleet.chain(), 2, 1, FRAMED_BYTES + 1).get(0);
+		final Entry smallest = framed(fleet.chain(), 2, 1, 1024 + Integer.BYTES).get(0);
 		final Entry fitting = framed(fleet.chain(), 3, 1, FRAMED_BYTES).get(0);
 		final FetchEntries whole = fetching(fleet, ranges(ANSWER_ENTRIES));
 		final FetchEntries allButOne = fetching(fleet, ranges(ANSWER_ENTRIES - 1));
 
-		receive(fleet, Stream.concat(filler.stream(), Stream.of(tooLarge, fitting)).toList());
+		receive(fleet, Stream.concat(filler.stream(), Stream.of(smallest, fitting)).toList());
 
-		assertThat(ChainCodecs.encodedBytes(tooLarge), is(FRAMED_BYTES + 1));
 		assertThat(ChainCodecs.encodedBytes(fitting), is(FRAMED_BYTES));
 		IntStream.range(0, 3).forEach(answer -> assertThat(host.fetch(member, whole), equalTo(filler)));
 		assertThat(host.fetch(member, allButOne), equalTo(filler.subList(0, ANSWER_ENTRIES - 1)));
 		assertThat(4L * ANSWER_ENTRIES * FRAMED_BYTES, is((long) FETCH_BYTES));
 
-		assertThat(host.fetch(member, onlyOf(fleet, 2)), is(empty()));
 		assertThat(host.fetch(member, onlyOf(fleet, 3)), equalTo(List.of(fitting)));
 		assertThat(host.fetch(member, onlyOf(fleet, 3)), is(empty()));
+		assertThat(host.fetch(member, onlyOf(fleet, 2)), is(empty()));
 
 		fleet.clock.addAndGet(SECOND);
 		assertThat(host.fetch(member, whole), equalTo(filler));

@@ -133,10 +133,12 @@ public class ChainHostReconcileTest {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), fleet.chain());
 
 		return Arrays.stream(timestamps).mapToObj(timestamp -> feed.write(timestamp, Fingerprint.NONE,
-			EntryKind.SEALED, new byte[] { 1 })).toList();
+			EntryKind.SEALED, ChainFleet.padded(new byte[] { 1 }, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes())))
+			.toList();
 	}
 
-	/* Entries that take the given number of bytes in a frame, one after the other in the feed of a writer */
+	/* Entries that take the given number of bytes in a frame, one after the other in the feed of a writer. Each must be
+	   of a size class of the chain. */
 	private static List<Entry> writeSized(final ChainFleet fleet, final int writer, final int... encodedBytes) {
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(writer), fleet.chain());
 
@@ -866,8 +868,10 @@ public class ChainHostReconcileTest {
 		assertFrameHolds(whole - 1, 8 * PACKET);
 	}
 
+	/* The entries are of the largest class of their chain, which is what lets their size be chosen to the byte */
 	private static void assertFrameHolds(final int encodedBytes, final int served) {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16, 32L * MEBIBYTE,
+			30, encodedBytes - Integer.BYTES, 300, 3));
 		final List<List<Entry>> feeds = IntStream.range(0, 8)
 			.mapToObj(writer -> writeSized(fleet, writer, repeated(encodedBytes, PACKET))).toList();
 		final FetchEntries.Range[] everyWriter = IntStream.range(0, 8).mapToObj(writer -> range(writer, 0, PACKET - 1))
@@ -883,8 +887,8 @@ public class ChainHostReconcileTest {
 	public void stopsAtTheEntryThatWouldPassTheFrameEvenWhenASmallerOneFollows() {
 		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
 			32L * MEBIBYTE, 30, MEBIBYTE, 300, 3));
-		final List<Entry> entries = writeSized(fleet, 1, IntStream.concat(IntStream.of(repeated(MEBIBYTE, 7)),
-			IntStream.of(MEBIBYTE + 1, 1024)).toArray());
+		final List<Entry> entries = writeSized(fleet, 1, IntStream.concat(IntStream.of(repeated(MEBIBYTE
+			+ Integer.BYTES, 8)), IntStream.of(1024 + Integer.BYTES)).toArray());
 
 		store(fleet, entries);
 
