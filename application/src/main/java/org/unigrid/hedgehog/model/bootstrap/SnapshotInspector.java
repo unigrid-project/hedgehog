@@ -24,7 +24,6 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
 import lombok.AccessLevel;
 import lombok.Cleanup;
 import lombok.NoArgsConstructor;
@@ -46,35 +45,24 @@ public final class SnapshotInspector {
 	   can say so: the temporary name this sees is not a name the user would recognise.
 	*/
 	public static SignatureStatus validate(Path snapshot) throws IOException {
-		verifyFormat(readHeader(snapshot), snapshot);
+		readHeader(snapshot);
 		return SnapshotSignature.read(snapshot).getStatus();
 	}
 
 	public static SnapshotInfo summarise(Path snapshot) throws IOException {
-		final ByteBuffer header = readHeader(snapshot);
-
-		verifyFormat(header, snapshot);
-
-		return SnapshotInfo.builder()
-			.tipHeight(header.getInt(SnapshotFormat.TIP_HEIGHT_OFFSET))
-			.addressCount(header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET))
-			.entryCount(header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET))
-			.transactionCount(header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET))
-			.totalUnspent(Coin.toDecimal(header.getLong(SnapshotFormat.TOTAL_UNSPENT_OFFSET)))
-			.zerocoinMinted(Coin.toDecimal(header.getLong(SnapshotFormat.ZEROCOIN_MINTED_OFFSET)))
-			.build();
+		return readHeader(snapshot).info().build();
 	}
 
 	public static long totalBalance(Path snapshot) throws IOException {
 		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.READ);
-		final ByteBuffer header = readHeader(snapshot);
+		final SnapshotHeader header = SnapshotHeader.read(channel, snapshot);
 		final ByteBuffer record = ByteBuffer.allocate(SnapshotFormat.ADDRESS_RECORD_SIZE)
 			.order(ByteOrder.BIG_ENDIAN);
 		long total = 0;
 
-		channel.position(header.getLong(SnapshotFormat.ADDRESS_TABLE_OFFSET));
+		channel.position(header.addressTableOffset());
 
-		for (int address = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET); address > 0; address--) {
+		for (int address = header.addressCount(); address > 0; address--) {
 			record.clear();
 
 			if (channel.read(record) != SnapshotFormat.ADDRESS_RECORD_SIZE) {
@@ -87,32 +75,9 @@ public final class SnapshotInspector {
 		return total;
 	}
 
-	static void verifyFormat(ByteBuffer header, Path snapshot) throws IOException {
-		final byte[] magic = new byte[SnapshotFormat.MAGIC.length];
-
-		header.duplicate().position(0).get(magic);
-
-		if (!Arrays.equals(SnapshotFormat.MAGIC, magic)) {
-			throw new IOException(snapshot + " is not a legacy chain snapshot");
-		}
-
-		final int version = header.getInt(SnapshotFormat.VERSION_OFFSET);
-
-		if (version != SnapshotFormat.VERSION) {
-			throw new IOException("Snapshot is format version " + version + ", this build reads "
-				+ SnapshotFormat.VERSION + "; re-import the bootstrap");
-		}
-	}
-
-	private static ByteBuffer readHeader(Path snapshot) throws IOException {
+	private static SnapshotHeader readHeader(Path snapshot) throws IOException {
 		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.READ);
-		final ByteBuffer header = ByteBuffer.allocate(SnapshotFormat.HEADER_SIZE)
-			.order(ByteOrder.BIG_ENDIAN);
 
-		if (channel.read(header) != SnapshotFormat.HEADER_SIZE) {
-			throw new IOException(snapshot + " is too short to hold a snapshot header");
-		}
-
-		return header.flip();
+		return SnapshotHeader.read(channel, snapshot).verifyFormat();
 	}
 }
