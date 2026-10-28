@@ -19,7 +19,6 @@
 package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.ledger.Address;
@@ -29,7 +28,6 @@ import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
-import org.unigrid.hedgehog.service.ledger.LedgerKeyFile;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
@@ -47,10 +45,8 @@ public class LedgerTransferCommand implements Callable<Integer> {
 	@Mixin
 	private ChainOption chain;
 
-	@Option(names = "--key", required = true, paramLabel = "<file>",
-		description = "The key file that holds the seed of the sender."
-	)
-	private Path keyFile;
+	@Mixin
+	private KeyFileOption key;
 
 	@Option(names = "--to", required = true, paramLabel = "<address>",
 		description = "The account or legacy address that receives the coins."
@@ -94,7 +90,7 @@ public class LedgerTransferCommand implements Callable<Integer> {
 	}
 
 	private Draft draft() {
-		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), seed(),
+		return new Draft(recipient(), amountUnits(), requestedFee(), requestedNonce(), key.seed(spec),
 			chain.expected(spec));
 	}
 
@@ -120,14 +116,6 @@ public class LedgerTransferCommand implements Callable<Integer> {
 		}
 
 		return nonce;
-	}
-
-	private byte[] seed() {
-		try {
-			return LedgerKeyFile.load(keyFile);
-		} catch (IllegalArgumentException ex) {
-			throw refused("--key: " + ex.getMessage());
-		}
 	}
 
 	/* A node may set a minimum of zero, which LedgerText.units refuses for an amount that is typed */

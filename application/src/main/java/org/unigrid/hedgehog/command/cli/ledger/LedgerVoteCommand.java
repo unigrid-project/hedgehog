@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.command.cli.ledger;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -30,7 +29,6 @@ import org.unigrid.hedgehog.ledger.Ledger;
 import org.unigrid.hedgehog.ledger.Vote;
 import org.unigrid.hedgehog.model.bootstrap.LedgerText;
 import org.unigrid.hedgehog.server.rest.entity.LedgerInfo;
-import org.unigrid.hedgehog.service.ledger.LedgerKeyFile;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
@@ -47,10 +45,8 @@ public class LedgerVoteCommand implements Callable<Integer> {
 	@Mixin
 	private ChainOption chain;
 
-	@Option(names = "--key", required = true, paramLabel = "<file>",
-		description = "The key file that holds the seed of the voter."
-	)
-	private Path keyFile;
+	@Mixin
+	private KeyFileOption key;
 
 	@Option(names = "--candidate", required = true, paramLabel = "<account>",
 		description = "The ledger account to add to or remove from the validator set."
@@ -93,7 +89,7 @@ public class LedgerVoteCommand implements Callable<Integer> {
 	}
 
 	private Draft draft() {
-		return new Draft(requestedCandidate(), voting.action(), seed(), chain.expected(spec));
+		return new Draft(requestedCandidate(), voting.action(), key.seed(spec), chain.expected(spec));
 	}
 
 	private record Draft(AccountKey candidate, Vote.Action action, byte[] seed, Optional<byte[]> chain) {
@@ -105,14 +101,6 @@ public class LedgerVoteCommand implements Callable<Integer> {
 			.filter(AccountKey.class::isInstance)
 			.map(AccountKey.class::cast)
 			.orElseThrow(() -> refused("--candidate is not a ledger account"));
-	}
-
-	private byte[] seed() {
-		try {
-			return LedgerKeyFile.load(keyFile);
-		} catch (IllegalArgumentException ex) {
-			throw refused("--key: " + ex.getMessage());
-		}
 	}
 
 	/* Validators take a block dated up to MAX_CLOCK_SKEW_MILLIS ahead of their clocks, so a proposer may close a round
