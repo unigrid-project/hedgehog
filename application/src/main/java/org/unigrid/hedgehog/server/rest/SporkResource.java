@@ -27,19 +27,45 @@ import jakarta.ws.rs.core.Response;
 import java.util.Objects;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
-import org.unigrid.hedgehog.model.spork.StorageSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
+/* The sporks that are shown whole and nothing else: no entry of them has an endpoint of its own */
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
-public class StorageSporkResource extends CDIBridgeResource {
+@Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
+public class SporkResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
 
+	@Path("/mint-supply") @GET
+	public Response mintSupply() {
+		return show(Type.MINT_SUPPLY);
+	}
+
 	@Path("/storage") @GET
-	public Response get() {
-		final StorageSpork spork = sporkDatabase.getStorageSpork();
+	public Response storage() {
+		return show(Type.STORAGE);
+	}
+
+	@Path("/ledger-blacklist") @GET
+	public Response ledgerBlacklist() {
+		return show(Type.LEDGER_BLACKLIST);
+	}
+
+	@Path("/ledger-fee") @GET
+	public Response ledgerFee() {
+		return show(Type.LEDGER_FEE);
+	}
+
+	@Path("/communication") @GET
+	public Response communication() {
+		return show(Type.COMMUNICATION);
+	}
+
+	private Response show(Type type) {
+		final GridSpork spork = sporkDatabase.get(type);
 		return Objects.isNull(spork) ? Response.noContent().build() : Response.ok().entity(spork).build();
 	}
 }

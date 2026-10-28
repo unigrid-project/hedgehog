@@ -79,16 +79,12 @@ public class RestServer extends AbstractServer {
 			GridSporkWireResource.class,
 			BootstrapResource.class,
 			GridnodeResource.class,
-			LedgerBlacklistResource.class,
-			LedgerFeeResource.class,
 			LedgerResource.class,
 			MintStorageResource.class,
-			MintSupplyResource.class,
 			NodeResource.class,
+			SporkResource.class,
 			VestingStorageResource.class,
 			StorageResource.class,
-			StorageSporkResource.class,
-			CommunicationSporkResource.class,
 			UtilResource.class
 		);
 
