@@ -54,7 +54,7 @@ public class SnapshotReaderTest {
 			throw new AssertionError("A snapshot with a corrupted magic was accepted");
 
 		} catch (IOException expected) {
-			assertThat(expected.getMessage(), equalTo("Not a legacy chain snapshot"));
+			assertThat(expected.getMessage(), equalTo(path + " is not a legacy chain snapshot"));
 		}
 	}
 

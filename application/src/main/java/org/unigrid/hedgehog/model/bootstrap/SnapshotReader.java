@@ -37,15 +37,16 @@ import java.util.concurrent.TimeUnit;
 */
 public final class SnapshotReader {
 	private final ByteBuffer header;
+	private final SnapshotHeader fields;
 	private final ByteBuffer addresses;
 	private final ByteBuffer blockTimes;
 	private final ByteBuffer entries;
 	private final ByteBuffer transactions;
 	private SignatureStatus signature;
 
-	private SnapshotReader(FileChannel channel) throws IOException {
+	private SnapshotReader(FileChannel channel, Path path) throws IOException {
 		this.header = map(channel, "header", 0, SnapshotFormat.HEADER_SIZE, 1);
-		verifyFormat();
+		this.fields = SnapshotHeader.of(header, path).verifyFormat();
 
 		final long addressCount = nonNegative("address count", header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET));
 		final long entryCount = nonNegative("entry count", header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET));
@@ -67,7 +68,7 @@ public final class SnapshotReader {
 		final SnapshotReader reader;
 
 		try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
-			reader = new SnapshotReader(channel);
+			reader = new SnapshotReader(channel, path);
 		}
 
 		final SignatureStatus status = SnapshotSignature.read(path).getStatus();
@@ -82,19 +83,7 @@ public final class SnapshotReader {
 	}
 
 	public SnapshotInfo getInfo() {
-		final byte[] tipHash = new byte[Hashing.HASH_SIZE];
-
-		header.duplicate().position(SnapshotFormat.TIP_HASH_OFFSET).get(tipHash);
-
-		return SnapshotInfo.builder().tipHash(BlockParser.toDisplayString(tipHash))
-			.tipHeight(tipHeight())
-			.addressCount(header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET))
-			.entryCount(header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET))
-			.transactionCount(header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET))
-			.totalUnspent(Coin.toDecimal(header.getLong(SnapshotFormat.TOTAL_UNSPENT_OFFSET)))
-			.zerocoinMinted(Coin.toDecimal(header.getLong(SnapshotFormat.ZEROCOIN_MINTED_OFFSET)))
-			.built(Instant.ofEpochSecond(header.getLong(SnapshotFormat.BUILT_AT_OFFSET)))
-			.signature(signature).build();
+		return fields.info().signature(signature).build();
 	}
 
 	public int tipHeight() {
@@ -211,23 +200,6 @@ public final class SnapshotReader {
 	private int entryCountAt(int record) {
 		return addresses.getInt(record * SnapshotFormat.ADDRESS_RECORD_SIZE
 			+ SnapshotFormat.ADDRESS_ENTRY_COUNT_OFFSET);
-	}
-
-	private void verifyFormat() throws IOException {
-		final byte[] magic = new byte[SnapshotFormat.MAGIC.length];
-
-		header.duplicate().position(0).get(magic);
-
-		if (!Arrays.equals(SnapshotFormat.MAGIC, magic)) {
-			throw new IOException("Not a legacy chain snapshot");
-		}
-
-		final int version = header.getInt(SnapshotFormat.VERSION_OFFSET);
-
-		if (version != SnapshotFormat.VERSION) {
-			throw new IOException("Snapshot is format version " + version + ", this build reads "
-				+ SnapshotFormat.VERSION + "; re-import the bootstrap");
-		}
 	}
 
 	private static long nonNegative(String field, long value) throws IOException {
