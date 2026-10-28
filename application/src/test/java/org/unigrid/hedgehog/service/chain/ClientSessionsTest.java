@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
@@ -304,6 +305,24 @@ public class ClientSessionsTest {
 		assertThat(rig.scheduler.schedules, is(1));
 	}
 
+	/* The members the client attaches through see its address, so none of them is ever its exit; the others all are
+	   in time */
+	@Example
+	public void exitIsNeverAnAttachMember() {
+		final Rig rig = new Rig(ChainFleet.group());
+
+		IntStream.range(0, 24).forEach(number -> rig.sessions.open(CONNECT, new Listener()));
+		rig.fleet.deliver();
+
+		final ChainAttachment attachment = rig.attachment();
+		final List<String> attachMembers = rig.fleet.attachMembers(CLIENT, attachment);
+
+		assertThat(attachMembers, hasSize(2));
+		assertThat(rig.opens(), hasSize(24));
+		assertThat(rig.opens().stream().map(Rig::exitOf).collect(Collectors.toSet()), equalTo(attachment.members()
+			.stream().filter(member -> !attachMembers.contains(member)).collect(Collectors.toSet())));
+	}
+
 	@Example
 	public void triesAnotherExitWithANewOpeningWhenNoneAnswers() {
 		final Rig rig = new Rig(ChainFleet.group());
@@ -354,7 +373,7 @@ public class ClientSessionsTest {
 	}
 
 	/* The handle takes nothing to send before an exit answered, and nothing once the session ended. Every attempt
-	   names an exit that was not tried yet, whatever fingerprints the session draws. */
+	   goes to an exit that was not tried yet, until the attempts or the members other than the attach ones run out. */
 	@Property(tries = 10)
 	public void tellsTheListenerOnceWhenNoExitAnsweredInTheEnd(@ForAll final long seed) {
 		final ChainFleet fleet = ChainFleet.group();
@@ -374,8 +393,11 @@ public class ClientSessionsTest {
 			rig.after(ClientSession.ACCEPT_TIMEOUT_MILLIS);
 		}
 
+		final int candidates = ChainFleet.MEMBERS - rig.fleet.attachMembers(CLIENT, rig.attachment()).size();
+
 		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
-		assertThat(rig.opens().stream().map(Rig::exitOf).distinct().count(), is((long) ClientSession.MAX_ATTEMPTS));
+		assertThat(rig.opens(), hasSize(Math.min(ClientSession.MAX_ATTEMPTS, candidates)));
+		assertThat(rig.opens().stream().map(Rig::exitOf).distinct().count(), is((long) rig.opens().size()));
 		assertThrows(IllegalStateException.class, () -> handle.send(data(1)));
 	}
 

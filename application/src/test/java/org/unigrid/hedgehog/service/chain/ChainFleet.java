@@ -247,6 +247,12 @@ final class ChainFleet {
 		return stream;
 	}
 
+	/* The members whose streams from the node an attachment of the node holds */
+	List<String> attachMembers(final String node, final ChainAttachment attachment) {
+		return gridnodes.stream().map(Gridnode::getId).filter(id -> Optional.ofNullable(streams.get(new Link(node, id)))
+			.filter(attachment.streams()::contains).isPresent()).toList();
+	}
+
 	/* An offline host gets no stream from the others until it is back */
 	void offline(final String id) {
 		offline.add(id);

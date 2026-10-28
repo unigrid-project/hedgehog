@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -179,7 +180,7 @@ public final class ChainClient {
 		for (OptionalInt group = view.joinCandidate(random, refused); group.isPresent();
 			group = view.joinCandidate(random, refused)) {
 
-			final List<Channel> connected = connected(view.groups().members(group.getAsInt()));
+			final Map<Channel, String> connected = connected(view.groups().members(group.getAsInt()));
 
 			refused.add(group.getAsInt());
 
@@ -192,12 +193,14 @@ public final class ChainClient {
 		return CompletableFuture.failedFuture(new IllegalStateException("No shard group took this node"));
 	}
 
-	/* In a random order, so that the member asked first is any of those this node holds an open stream to */
-	private List<Channel> connected(final List<String> members) {
-		final List<Channel> connected = new ArrayList<>(members.stream().map(this::streamTo)
-			.flatMap(Optional::stream).toList());
+	/* The open streams to the members, each with its member, in a random order, so that the member asked first is
+	   any of those this node holds an open stream to */
+	private Map<Channel, String> connected(final List<String> members) {
+		final List<String> shuffled = new ArrayList<>(members);
+		final Map<Channel, String> connected = new LinkedHashMap<>();
 
-		Collections.shuffle(connected, new Random(random.nextLong()));
+		Collections.shuffle(shuffled, new Random(random.nextLong()));
+		shuffled.forEach(member -> streamTo(member).ifPresent(stream -> connected.putIfAbsent(stream, member)));
 		return connected;
 	}
 
@@ -215,26 +218,28 @@ public final class ChainClient {
 
 	/* A fresh writer for every attachment, as it is the identity of this node on that chain and nowhere else */
 	private CompletableFuture<ChainAttachment> attach(final GroupView view, final int group,
-		final List<Channel> connected) {
+		final Map<Channel, String> connected) {
 
 		final WriterKey key = WriterKey.generate(keys);
-		final Channel first = connected.get(0);
+		final List<Channel> streams = List.copyOf(connected.keySet());
+		final Channel first = streams.get(0);
 		final List<ChainId> chains = view.chains(group);
-
 		final List<String> members = view.groups().members(group);
 
 		return asked(first, key.id(), null, reply -> followedFirst(first, key.id(), chains, reply))
-			.thenCompose(chainId -> spare(connected, key.id(), chainId).thenApply(streams ->
-				new ChainAttachment(group, view.epoch(), new FeedWriter(key, chainId), members, streams,
-					exitsAmong(members))));
+			.thenCompose(chainId -> spare(streams, key.id(), chainId).thenApply(attached ->
+				new ChainAttachment(group, view.epoch(), new FeedWriter(key, chainId), members, attached,
+					exitsAmong(members, attached.stream().map(connected::get).toList()))));
 	}
 
-	/* A member of the group is a candidate exit while it is active and announces a sealing key, and each session draws
-	   its exit at random among the candidates it did not pass over */
-	private ExitSelector exitsAmong(final List<String> members) {
+	/* A member of the group is a candidate exit while it is active and announces a sealing key, unless the node
+	   attached through it: that member sees the node's address, and as the exit it would see both ends of a
+	   session. Each session draws its exit at random among the candidates it did not pass over. */
+	private ExitSelector exitsAmong(final List<String> members, final List<String> attachMembers) {
 		return excluded -> {
 			final List<ExitCandidate> candidates = directory.active().stream()
 				.filter(gridnode -> members.contains(gridnode.getId()))
+				.filter(gridnode -> !attachMembers.contains(gridnode.getId()))
 				.filter(gridnode -> !excluded.contains(gridnode.getId())).filter(ChainClient::hasSealingKey)
 				.map(gridnode -> new ExitCandidate(gridnode.getId(), gridnode.getSealingKey())).toList();
 

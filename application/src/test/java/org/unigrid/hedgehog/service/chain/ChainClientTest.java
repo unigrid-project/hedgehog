@@ -66,6 +66,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
@@ -754,42 +755,57 @@ public class ChainClientTest {
 		assertThat(attachedAt(fleet, released), is(0L));
 	}
 
-	/* Every draw takes a member at random, connected or not, and hands over the key it announced */
+	/* Every draw takes a member at random, connected or not, but never one the node attached through, as those see
+	   its address; and it hands over the key the member announced */
 	@Example
-	public void choosesTheExitAtRandomAmongTheMembersConnectedOrNot() {
+	public void choosesTheExitAtRandomAmongTheMembersOtherThanTheAttachOnes() {
 		final ChainFleet fleet = ChainFleet.group();
 		final String unconnected = "gn-3";
 
 		fleet.offline(unconnected);
 
 		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
+		final List<String> attachMembers = fleet.attachMembers(CLIENT, attachment);
 		final List<ExitCandidate> drawn = IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Set.of())
 			.orElseThrow()).toList();
 
 		assertThat(attachment.members(), hasItem(unconnected));
+		assertThat(attachMembers, hasSize(2));
 		assertThat(drawn.stream().map(ExitCandidate::id).collect(Collectors.toSet()),
-			equalTo(Set.copyOf(attachment.members())));
+			equalTo(attachment.members().stream().filter(member -> !attachMembers.contains(member))
+			.collect(Collectors.toSet())));
 		drawn.forEach(exit -> assertThat(exit.sealingKey(), equalTo(ChainFleet.sealingKey(exit.id()).publicKey()
 			.orElseThrow())));
 	}
 
+	/* Of a group of eight, the node attaches through two and passes over three more */
 	@Example
 	public void passesOverMembersThatAreExcludedInactiveOrWithoutASealingKey() {
-		final ChainFleet fleet = ChainFleet.group();
-		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
-		final List<String> members = attachment.members();
+		final ChainFleet fleet = ChainFleet.group(ChainFleet.settings(8, 4, 16, 30, 3));
 
-		fleet.gridnodes.replaceAll(gridnode -> gridnode.getId().equals(members.get(1))
-			? ChainFleet.gridnode(members.get(1), Gridnode.Status.INACTIVE) : gridnode);
-		fleet.gridnodes.stream().filter(gridnode -> gridnode.getId().equals(members.get(2)))
+		IntStream.range(ChainFleet.MEMBERS, 8).forEach(number -> {
+			fleet.gridnodes.add(ChainFleet.gridnode("gn-" + number, Gridnode.Status.ACTIVE));
+			fleet.host("gn-" + number);
+		});
+		fleet.refreshAll();
+
+		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
+		final List<String> attachMembers = fleet.attachMembers(CLIENT, attachment);
+		final List<String> others = attachment.members().stream().filter(member -> !attachMembers.contains(member))
+			.toList();
+
+		fleet.gridnodes.replaceAll(gridnode -> gridnode.getId().equals(others.get(1))
+			? ChainFleet.gridnode(others.get(1), Gridnode.Status.INACTIVE) : gridnode);
+		fleet.gridnodes.stream().filter(gridnode -> gridnode.getId().equals(others.get(2)))
 			.forEach(gridnode -> gridnode.setSealingKey(null));
 
 		for (int draw = 0; draw < 50; draw++) {
-			assertThat(attachment.exit(Set.of(members.get(3))).map(ExitCandidate::id),
-				equalTo(Optional.of(members.get(0))));
+			assertThat(attachment.exit(Set.of(others.get(3), others.get(4), others.get(5))).map(ExitCandidate::id),
+				equalTo(Optional.of(others.get(0))));
 		}
 
-		assertThat(attachment.exit(Set.of(members.get(0), members.get(3))), equalTo(Optional.empty()));
+		assertThat(attachment.exit(Set.of(others.get(0), others.get(3), others.get(4), others.get(5))),
+			equalTo(Optional.empty()));
 	}
 
 	@Example
