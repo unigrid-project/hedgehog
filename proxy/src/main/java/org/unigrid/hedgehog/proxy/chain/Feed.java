@@ -65,6 +65,11 @@ public final class Feed {
 		return nextSeq;
 	}
 
+	/* The stamp of the last entry the feed took, Long.MIN_VALUE while it took none */
+	public long timestamp() {
+		return timestamp;
+	}
+
 	public Link check(Entry entry) {
 		final EntryHeader header = entry.header();
 

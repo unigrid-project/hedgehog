@@ -50,6 +50,10 @@ public final class Chain {
 	private final NavigableSet<Entry> larger = new TreeSet<>(FIFO);
 	private final Map<WriterId, NavigableMap<Long, Entry>> retained = new HashMap<>();
 	private final Map<WriterId, NavigableMap<Long, Entry>> held = new HashMap<>();
+
+	/* When the chain started each feed that it started after a head, as an anchor names one or a gap skips to one: the
+	   head comes without its time, so the feed counts as heard from then */
+	private final Map<WriterId, Long> startedAt = new HashMap<>();
 	private long bytes;
 	private long largerBytes;
 	private long heldBytes;
@@ -119,7 +123,25 @@ public final class Chain {
 
 	/* Lets a feed join mid-stream after the given head, for a chain whose older entries are trimmed */
 	public synchronized boolean anchor(WriterId writer, Head head) {
-		return Feed.canStartAfter(head) && feeds.putIfAbsent(writer, new Feed(writer, head)) == null;
+		if (!Feed.canStartAfter(head) || feeds.putIfAbsent(writer, new Feed(writer, head)) != null) {
+			return false;
+		}
+
+		startedAt.put(writer, clock.getAsLong());
+		return true;
+	}
+
+	/* Forgets the writers that went quiet, so that the room they take comes free: each writer whose feed was last
+	   heard before the cutoff, that has nothing waiting past a gap and is not one to keep loses its feed, its head
+	   and what the chain retained of it. The cutoff is never later than the start of the retention window, so all a
+	   forgotten writer wrote is refused as EXPIRED from then on and never starts a feed again. */
+	public synchronized Set<WriterId> forgetIdle(long cutoffMillis, Set<WriterId> keep) {
+		final long cutoff = Math.min(cutoffMillis, clock.getAsLong() - limits.retentionMillis());
+		final Set<WriterId> idle = feeds.keySet().stream().filter(writer -> !keep.contains(writer)
+			&& !held.containsKey(writer) && heardAt(writer) < cutoff).collect(Collectors.toUnmodifiableSet());
+
+		idle.forEach(this::forgetFeed);
+		return idle;
 	}
 
 	public synchronized List<Entry> entries() {
@@ -262,7 +284,19 @@ public final class Chain {
 
 		dropHeld(waiting);
 		feeds.put(writer, new Feed(writer, new Head(last.header().seq(), last.hash())));
+		startedAt.put(writer, clock.getAsLong());
 		return new Gap(writer, fromSeq, last.header().seq(), tags);
+	}
+
+	private long heardAt(WriterId writer) {
+		return Math.max(feeds.get(writer).timestamp(), startedAt.getOrDefault(writer, Long.MIN_VALUE));
+	}
+
+	private void forgetFeed(WriterId writer) {
+		List.copyOf(retained.getOrDefault(writer, Collections.emptyNavigableMap()).values()).forEach(this::forget);
+		retained.remove(writer);
+		feeds.remove(writer);
+		startedAt.remove(writer);
 	}
 
 	private void dropHeld(Map<Long, Entry> dropped) {

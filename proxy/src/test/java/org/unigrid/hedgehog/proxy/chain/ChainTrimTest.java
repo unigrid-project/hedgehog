@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.proxy.chain;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -29,6 +30,7 @@ import org.unigrid.hedgehog.proxy.Padding;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 
@@ -187,5 +189,68 @@ public class ChainTrimTest {
 		assertThat(chain.entries(), equalTo(List.of(others.get(3), others.get(4), second, large)));
 		assertThat(ChainFixtures.largerBytes(chain), lessThanOrEqualTo(limits.capacityBytes()));
 		assertThat(chain.bytes(), lessThanOrEqualTo(limits.capacityBytes() + limits.reserveBytes()));
+	}
+
+	/* The writer idle past the cutoff loses its feed and what the chain kept of it, while a writer heard since, one to
+	   keep and one with an entry waiting past a gap keep theirs. What the forgotten writer wrote is older than the
+	   retention window, so it never starts a feed again. */
+	@Example
+	public void forgetsAWriterIdlePastTheCutoff() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final WriterKey recent = ChainFixtures.key(2);
+		final WriterKey kept = ChainFixtures.key(3);
+		final WriterKey waiting = ChainFixtures.key(4);
+		final List<Entry> idle = ChainFixtures.linked(WRITER, CHAIN, 2, NOW);
+		final Entry first = ChainFixtures.signed(waiting, CHAIN, 0, 0, NOW);
+
+		idle.forEach(chain::offer);
+		chain.offer(ChainFixtures.signed(kept, CHAIN, 0, 0, NOW));
+		chain.offer(first);
+		assertThat(chain.offer(ChainFixtures.signed(waiting, CHAIN, 2, 1, NOW)).admission(), is(Admission.AHEAD));
+		chain.offer(ChainFixtures.signed(recent, CHAIN, 0, 0, NOW + 2000));
+		clock.set(NOW + 2000 + LIMITS.retentionMillis());
+
+		assertThat(chain.forgetIdle(NOW + 2000, Set.of(kept.id())), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(recent.id(), kept.id(), waiting.id())));
+		assertThat(chain.range(WRITER.id(), 0, 1), is(empty()));
+		assertThat(chain.entries().stream().filter(entry -> entry.header().writer().equals(WRITER.id())).toList(),
+			is(empty()));
+		assertThat(chain.bytes(), is(chain.entries().stream().mapToLong(Entry::size).sum()));
+		assertThat(chain.offer(idle.get(0)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.offer(idle.get(1)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.heads().containsKey(WRITER.id()), is(false));
+	}
+
+	/* A cutoff past the start of the retention window would let what a forgotten writer wrote start a feed again */
+	@Example
+	public void forgetsNoWriterHeardWithinTheRetentionWindowWhateverTheCutoff() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW));
+		clock.set(NOW + LIMITS.retentionMillis());
+
+		assertThat(chain.forgetIdle(NOW + 1000, Set.of()), is(empty()));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(WRITER.id())));
+	}
+
+	/* A feed started after a head that came without its time counts from when the chain started it, and so does one
+	   that a gap skipped, so neither is forgotten the moment it starts */
+	@Example
+	public void countsAFeedStartedAfterAHeadFromWhenItStarted() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final WriterKey skipped = ChainFixtures.key(2);
+
+		assertThat(chain.anchor(WRITER.id(), new Head(3, 1)), is(true));
+		assertThat(chain.offer(ChainFixtures.signed(skipped, CHAIN, 1, 1, NOW)).admission(), is(Admission.AHEAD));
+		clock.set(NOW + LIMITS.retentionMillis());
+		assertThat(chain.forgetIdle(NOW, Set.of()), is(empty()));
+
+		clock.addAndGet(1000);
+		assertThat(chain.expireGaps(), hasSize(1));
+		assertThat(chain.forgetIdle(NOW + 1000, Set.of()), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(skipped.id())));
 	}
 }
