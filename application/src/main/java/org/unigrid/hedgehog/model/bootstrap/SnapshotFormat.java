@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -70,9 +69,4 @@ public final class SnapshotFormat {
 	public static final int SIGNATURE_HEADER_SIZE = 12;
 	public static final int SIGNATURE_LENGTH_OFFSET = 8;
 	public static final int MAXIMUM_SIGNATURE_SIZE = 256;
-
-	public static long contentLength(ByteBuffer header) {
-		return header.getLong(TRANSACTION_TABLE_OFFSET)
-			+ header.getLong(TRANSACTION_COUNT_OFFSET) * Hashing.HASH_SIZE;
-	}
 }

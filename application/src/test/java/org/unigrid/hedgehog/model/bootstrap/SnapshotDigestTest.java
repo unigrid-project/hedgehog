@@ -90,8 +90,8 @@ public class SnapshotDigestTest {
 	public void shouldRefuseAFileShorterThanAHeader(@ForAll @Size(max = SnapshotFormat.HEADER_SIZE - 1) byte[] contents) {
 		final Path snapshot = SyntheticSnapshots.inMemory(contents);
 
-		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.contentLengthOf(snapshot), "too short to hold a header");
-		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.of(snapshot), "too short to hold a header");
+		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.contentLengthOf(snapshot), "too short to hold a snapshot header");
+		SyntheticSnapshots.assertRefused(() -> SnapshotDigest.of(snapshot), "too short to hold a snapshot header");
 	}
 
 	@SneakyThrows

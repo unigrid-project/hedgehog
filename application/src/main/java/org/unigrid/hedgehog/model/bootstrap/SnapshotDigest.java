@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -44,14 +43,14 @@ public final class SnapshotDigest {
 	public static long contentLengthOf(Path snapshot) throws IOException {
 		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.READ);
 
-		return SnapshotFormat.contentLength(readHeader(channel));
+		return SnapshotHeader.read(channel, snapshot).contentLength();
 	}
 
 	public static byte[] of(Path snapshot) throws IOException {
 		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.READ);
 		final MessageDigest digest = createDigest();
 		final ByteBuffer chunk = ByteBuffer.allocate(CHUNK_SIZE);
-		long remaining = SnapshotFormat.contentLength(readHeader(channel));
+		long remaining = SnapshotHeader.read(channel, snapshot).contentLength();
 
 		channel.position(0);
 
@@ -69,19 +68,6 @@ public final class SnapshotDigest {
 		}
 
 		return digest.digest();
-	}
-
-	private static ByteBuffer readHeader(FileChannel channel) throws IOException {
-		final ByteBuffer header = ByteBuffer.allocate(SnapshotFormat.HEADER_SIZE)
-			.order(ByteOrder.BIG_ENDIAN);
-
-		channel.position(0);
-
-		if (channel.read(header) != SnapshotFormat.HEADER_SIZE) {
-			throw new IOException("Snapshot is too short to hold a header");
-		}
-
-		return header.flip();
 	}
 
 	private static MessageDigest createDigest() {
