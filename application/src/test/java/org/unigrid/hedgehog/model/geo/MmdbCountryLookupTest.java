@@ -18,29 +18,85 @@
 
 package org.unigrid.hedgehog.model.geo;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
+import org.slf4j.LoggerFactory;
 
 public class MmdbCountryLookupTest {
 	/* The fake country database of the MaxMind DB repository, whose networks are listed next to it there */
 	public static final String FIXTURE = "/geoip/GeoIP2-Country-Test.mmdb";
+
+	/* Where the data section of the fixture starts: after its search tree of 1420 nodes of two 28-bit records each,
+	   and the 16 zero bytes that follow it */
+	private static final int TREE_BYTES = 1420 * 7;
+	private static final int SEPARATOR_BYTES = 16;
+
+	/* What ends the data section and starts the metadata */
+	private static final byte[] METADATA = { (byte) 0xAB, (byte) 0xCD, (byte) 0xEF, 'M', 'a', 'x', 'M', 'i', 'n',
+		'd', '.', 'c', 'o', 'm' };
 
 	@SneakyThrows
 	public static CountryLookup fixture() {
 		try (InputStream database = MmdbCountryLookupTest.class.getResourceAsStream(FIXTURE)) {
 			return new MmdbCountryLookup(database);
 		}
+	}
+
+	/* The fixture with every byte of its data section set, so that each record a lookup reaches fails to decode */
+	@SneakyThrows
+	private static CountryLookup damaged() {
+		final byte[] database;
+
+		try (InputStream fixture = MmdbCountryLookupTest.class.getResourceAsStream(FIXTURE)) {
+			database = fixture.readAllBytes();
+		}
+
+		final int metadata = IntStream.iterate(database.length - METADATA.length, at -> at >= 0, at -> at - 1)
+			.filter(at -> Arrays.equals(database, at, at + METADATA.length, METADATA, 0, METADATA.length))
+			.findFirst().orElseThrow();
+
+		assertThat(Arrays.copyOfRange(database, TREE_BYTES, TREE_BYTES + SEPARATOR_BYTES),
+			equalTo(new byte[SEPARATOR_BYTES]));
+		Arrays.fill(database, TREE_BYTES + SEPARATOR_BYTES, metadata, (byte) 0xFF);
+		return new MmdbCountryLookup(new ByteArrayInputStream(database));
+	}
+
+	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
+	private static List<ILoggingEvent> loggedWhile(final Runnable action) {
+		MmdbCountryLookupTest.class.getModule()
+			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(MmdbCountryLookup.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return List.copyOf(appender.list);
 	}
 
 	@Example
@@ -103,6 +159,20 @@ public class MmdbCountryLookupTest {
 
 		assertThat(refused.size(), equalTo(1025L));
 		assertThat(MmdbCountryLookup.MAX_BYTES, equalTo(64L * 1024 * 1024));
+	}
+
+	/* A damaged section fails every lookup that reaches it, which says so once and not for each of them */
+	@Example
+	public void saysOnceThatItsLookupsFail() {
+		final CountryLookup lookup = damaged();
+		final List<ILoggingEvent> logged = loggedWhile(() -> {
+			assertThat(lookup.countryOf(InetAddress.ofLiteral("89.160.20.112")), equalTo(Optional.empty()));
+			assertThat(lookup.countryOf(InetAddress.ofLiteral("2001:218::1")), equalTo(Optional.empty()));
+			assertThat(lookup.countryOf(InetAddress.ofLiteral("81.2.69.160")), equalTo(Optional.empty()));
+		});
+
+		assertThat(logged.stream().map(ILoggingEvent::getLevel).toList(), equalTo(List.of(Level.WARN)));
+		assertThat(loggedWhile(() -> damaged().countryOf(InetAddress.ofLiteral("89.160.20.112"))), hasSize(1));
 	}
 
 	@Example

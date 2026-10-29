@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 
 /* A country database in the MaxMind DB format, as GeoIP2 and GeoLite2 Country are, read into memory whole. A record is
@@ -39,6 +40,7 @@ public final class MmdbCountryLookup implements CountryLookup {
 	public static final long MAX_BYTES = 64L * 1024 * 1024;
 
 	private final Reader reader;
+	private final AtomicBoolean failureTold = new AtomicBoolean();
 
 	/* A database larger than the bound, or one that runs past it, as a device that never ends would */
 	public static final class TooLargeException extends IOException {
@@ -120,7 +122,8 @@ public final class MmdbCountryLookup implements CountryLookup {
 	}
 
 	/* A record the database cannot decode is no country, nor is an IPv6 address in a database of IPv4 alone. Only the
-	   class of the failure is logged, as its message may name the address. */
+	   first failure is logged, as a damaged section fails every lookup that reaches it, and only its class, as its
+	   message may name the address. */
 	@Override
 	public Optional<String> countryOf(InetAddress address) {
 		try {
@@ -128,7 +131,11 @@ public final class MmdbCountryLookup implements CountryLookup {
 				.filter(Map.class::isInstance).map(country -> ((Map<?, ?>) country).get("iso_code"))
 				.filter(String.class::isInstance).map(String.class::cast);
 		} catch (IOException | RuntimeException ex) {
-			log.warn("Looking up a country failed with {}", ex.getClass().getName());
+			if (failureTold.compareAndSet(false, true)) {
+				log.warn("Looking up a country failed with {}, and later failures go untold",
+					ex.getClass().getName());
+			}
+
 			return Optional.empty();
 		}
 	}
