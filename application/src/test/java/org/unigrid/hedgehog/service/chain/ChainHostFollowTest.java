@@ -367,21 +367,22 @@ public class ChainHostFollowTest {
 	}
 
 	@Example
-	public void followsTheFourthChainAndRefusesTheFifth() {
+	public void followsTheLastChainItMayAndRefusesTheNext() {
 		final ChainFleet fleet = ChainFleet.group();
 		final ChainHost client = fleet.host(CLIENT);
 		final EmbeddedChannel member = fleet.stream(CLIENT, "gn-0");
 		final EmbeddedChannel second = fleet.stream(CLIENT, "gn-1");
+		final int last = ChainHost.MAX_FOLLOWED;
 
-		for (int number = 1; number <= 4; number++) {
+		for (int number = 1; number <= last; number++) {
 			assertThat(client.follow(chainId(number), member, Map.of()), is(true));
 		}
 
-		assertThat(client.follow(chainId(5), member, Map.of()), is(false));
-		assertThat(client.chain(chainId(5)), equalTo(Optional.empty()));
+		assertThat(client.follow(chainId(last + 1), member, Map.of()), is(false));
+		assertThat(client.chain(chainId(last + 1)), equalTo(Optional.empty()));
 
-		assertThat(client.follow(chainId(4), second, Map.of()), is(true));
-		assertThat(client.hosted(chainId(4)).orElseThrow().getMemberStreams(), contains(member, second));
+		assertThat(client.follow(chainId(last), second, Map.of()), is(true));
+		assertThat(client.hosted(chainId(last)).orElseThrow().getMemberStreams(), contains(member, second));
 	}
 
 	@Example

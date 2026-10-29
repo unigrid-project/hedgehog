@@ -106,8 +106,10 @@ public class ChainHost implements ChainService {
 	   chain every second, so an idle one holds next to nothing, but the count is bounded all the same. */
 	static final int MAX_RETIRED_CHAINS = 1024;
 
-	/* A client follows the chain of the group it joined, and a few more while it tries other groups */
-	static final int MAX_FOLLOWED = 4;
+	/* A client follows the chains of the groups it is attached to, and those of the epoch before while their
+	   sessions drain: twice as many as it attaches to, so that the turn of an epoch never keeps it from following
+	   the chains it joins in the new one */
+	static final int MAX_FOLLOWED = 2 * ChainClient.MAX_ATTACHMENTS;
 
 	/* What one fetch can ask for and what one answer can hold: a few packets full, however much a peer asks */
 	private static final int RANGE_ENTRIES = ChainCodecs.MAX_ENTRIES_PER_PACKET;

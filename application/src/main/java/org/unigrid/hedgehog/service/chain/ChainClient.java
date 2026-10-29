@@ -66,9 +66,8 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk;
 /* The client side of the shard groups: finds a group that takes this node, asks a member to let a writer of this
    node write on one of its chains, attaches to a second member of the group on the same chain and follows the
    chain through both. The group is chosen by its members in the country the exit of a session is to be in, so the
-   node attaches to one group for each country, up to as many as it may follow chains. A group that refuses is
-   passed over for another, and a new epoch brings new chains, so an attachment is joined again when the epoch has
-   moved on.
+   node attaches to one group for each country, up to MAX_ATTACHMENTS of them. A group that refuses is passed over
+   for another, and a new epoch brings new chains, so an attachment is joined again when the epoch has moved on.
 
    The monitor of the client guards the joins in use and may take the lock of the claims, never the other way
    round; neither is held across a wait. What the replies of the members set going runs on the threads that
@@ -76,6 +75,9 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk;
 @Slf4j
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public final class ChainClient {
+	/* The most groups the node attaches to at once, one for each country asked for until then */
+	static final int MAX_ATTACHMENTS = 4;
+
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
 	private final CountryLookup countries;
@@ -91,9 +93,9 @@ public final class ChainClient {
 	   is released: a chain is unfollowed with the last writer on it */
 	private final Map<WriterId, ChainId> claims = new HashMap<>();
 
-	/* The joins under way and the attachments in use, at most one for each group chosen and no more than the host
-	   follows chains, and the join each country was given, the empty one for any. The next call for an attachment
-	   lets go of a join that failed or whose attachment is no longer in use, and of the countries given it. */
+	/* The joins under way and the attachments in use, at most one for each group chosen and MAX_ATTACHMENTS in all,
+	   and the join each country was given, the empty one for any. The next call for an attachment lets go of a join
+	   that failed or whose attachment is no longer in use, and of the countries given it. */
 	private final List<Join> joined = new ArrayList<>();
 	private final Map<Optional<String>, Join> given = new HashMap<>();
 
@@ -145,7 +147,7 @@ public final class ChainClient {
 
 	/* The chain to write on for a session whose exit is to be in the country, in any for none. A country keeps the
 	   join it was given while that is under way or in use. Otherwise a group is drawn by its members in the country,
-	   and the join of that group is taken, or made while the node has fewer joins than it may follow chains; beyond
+	   and the join of that group is taken, or made while the node has fewer than MAX_ATTACHMENTS joins; beyond
 	   that, the country is given the join whose group has the most members there. Callers that come while a join is
 	   under way share it, and a join that failed is made again by the next caller. Each caller gets a copy, so that
 	   none can complete or cancel the join of the others. What a caller chains on it runs on a thread of the join
@@ -242,7 +244,7 @@ public final class ChainClient {
 			? "No shard group has a gridnode in the country" : "No shard group took this node"));
 
 		return joined.stream().filter(join -> join.epoch().equals(view.epoch()) && join.joinedGroup() == group)
-			.findFirst().orElseGet(() -> joined.size() < ChainHost.MAX_FOLLOWED ? started(draw, group)
+			.findFirst().orElseGet(() -> joined.size() < MAX_ATTACHMENTS ? started(draw, group)
 			: closest(draw));
 	}
 

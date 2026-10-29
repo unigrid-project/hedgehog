@@ -596,6 +596,38 @@ public class ChainClientTest {
 		assertThat(attachments.stream().map(client::isCurrent).toList(), everyItem(is(true)));
 	}
 
+	/* The four chains of an epoch that turned stay followed while their sessions drain, as nothing released them,
+	   and the four chains the same countries join in the new epoch are followed next to them */
+	@Example
+	public void followsTheChainsOfANewEpochWhileTheOldOnesDrain() {
+		final ChainFleet fleet = fiveGroups();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries));
+		final List<String> named = List.of("SE", "NO", "DK", "FI", "DE");
+		final Runnable place = () -> IntStream.range(0, 5).forEach(group -> fleet.view().groups().members(group)
+			.forEach(member -> countries.put(member, named.get(group))));
+
+		place.run();
+
+		final List<ChainAttachment> earlier = named.subList(0, 4).stream()
+			.map(country -> attached(fleet, client, Optional.of(country))).toList();
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		fleet.refreshAll();
+		place.run();
+
+		final List<ChainAttachment> later = named.subList(0, 4).stream()
+			.map(country -> attached(fleet, client, Optional.of(country))).toList();
+
+		assertThat(later.stream().map(ChainAttachment::group).toList(), equalTo(List.of(0, 1, 2, 3)));
+		assertThat(later.stream().map(ChainAttachment::epoch).distinct().toList(),
+			equalTo(List.of(fleet.view().epoch())));
+		assertThat(later.stream().map(client::isCurrent).toList(), everyItem(is(true)));
+		assertThat(Stream.concat(earlier.stream(), later.stream()).map(attachment -> fleet.host(CLIENT)
+			.chain(attachment.chainId()).isPresent()).toList(), everyItem(is(true)));
+		assertThat(ChainHost.MAX_FOLLOWED, is(2 * ChainClient.MAX_ATTACHMENTS));
+	}
+
 	@Example
 	public void givesUpWhenEveryGroupRefuses() {
 		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
